@@ -1,0 +1,8 @@
+# never commit credentials
+.env
+*.pit
+secrets/
+*-token*
+# build artifacts
+*.png
+node_modules/
