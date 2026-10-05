@@ -55,3 +55,49 @@ calendars. Deselect them at snapshot time.
 
 **The `* ` field-name prefix becomes `_` in the key.** `* lead_source` → `contact._lead_source`.
 Predictable, but worth knowing before writing anything that references keys.
+
+---
+
+## Send path (verified 2026-10-05, new PIT)
+
+`POST /conversations/messages` — version header `2021-04-15`, **not** `2021-07-28`.
+
+Takes `contactId` (no need to look up or create a conversation first — GHL creates
+the thread and returns `conversationId`). Works for both channels:
+
+```
+{"type":"Email","contactId":"<id>","subject":"...","html":"...","emailFrom":"jt@jtylerray.com"}
+{"type":"SMS","contactId":"<id>","message":"..."}
+```
+
+Both returned `201` with a `messageId` + `conversationId`. Message appears in the
+contact's conversation thread immediately, `direction: outbound`, tagged with the
+integration's `appId` in `meta.marketplace` — so sends made this way are
+distinguishable from sends made by a human in the UI.
+
+### Delivery status is readable
+`GET /conversations/messages/{messageId}` returns `status` and a human-readable
+`error`. The SMS test failed with:
+
+> `Failed: No numbers available in the account. Buy a number to send SMS.`
+
+That is an account provisioning gap, not an API limit. A number must be purchased
+in each sub-account before SMS sends. Email needed no provisioning.
+
+`GET /conversations/{conversationId}/messages` lists the thread. Email `status` came
+back `null` at send time; SMS populated immediately. Don't rely on email `status` —
+poll the message, or take delivery truth from the email provider.
+
+### Scheduled sends work, and are cancellable
+`scheduledTimestamp` is accepted — **Unix seconds, not milliseconds** (ms returns a
+422 that says so explicitly). Cancel with:
+
+```
+DELETE /conversations/messages/email/{emailMessageId}/schedule
+```
+
+Returned `200 "Cancelled the scheduled email successfully!"`.
+
+**Decision: don't use it.** Our scheduler owns timing. Handing a future send to GHL
+means two systems hold the same pending action, and every exit condition has to
+remember to cancel on their side too. We hold `next_run_at` and send at fire time.
