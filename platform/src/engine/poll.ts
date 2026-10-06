@@ -6,14 +6,19 @@ import { loadCompany, type CompanyRow } from "./context";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { ensureOpportunityForBooking, ensureUser } from "./lifecycle";
 
-export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; eventsDispatched: number; errors: { company: string; entity: string; error: string }[] };
+export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
 const normPhone = (p?: string) => p ? p.replace(/[^\d+]/g, "").replace(/^(\d{10})$/, "+1$1") : undefined;
 const normEmail = (e?: string) => e?.trim().toLowerCase() || undefined;
 
-async function cursor(c: PoolClient, companyId: string, entity: string, fallback: DateTime): Promise<DateTime> {
+/**
+ * The FIRST poll of an entity is a silent baseline: it fills the replica and emits NOTHING. Otherwise installing a
+ * company with 480 existing contacts would dispatch 480 lead.created events into speed-to-lead. Only deltas after the
+ * baseline are events. `isBaseline` is true when no cursor row exists yet.
+ */
+async function cursor(c: PoolClient, companyId: string, entity: string, fallback: DateTime): Promise<{ since: DateTime; isBaseline: boolean }> {
   const r = await one<{ cursor: string }>(c, "select cursor from poll_cursors where company_id=$1 and entity=$2", [companyId, entity]);
-  return r ? DateTime.fromISO(r.cursor) : fallback;
+  return r ? { since: DateTime.fromISO(r.cursor), isBaseline: false } : { since: fallback, isBaseline: true };
 }
 async function saveCursor(c: PoolClient, companyId: string, entity: string, value: string, ok: boolean) {
   await c.query(`insert into poll_cursors (company_id, entity, cursor, last_polled_at, last_success_at, consecutive_failures) values ($1,$2,$3,now(),case when $4 then now() end,case when $4 then 0 else 1 end)
@@ -44,22 +49,23 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
 }
 
 async function pollContacts(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) {
-  const since = await cursor(c, co.id, "contacts", DateTime.now().minus({ days: 7 }));
+  const { since, isBaseline } = await cursor(c, co.id, "contacts", DateTime.now().minus({ days: 7 }));
   const rows = await adapters.read.contactsChangedSince(ac, since.toISO()!);
   let max = since;
   for (const s of rows) {
     const { id, isNew, prevTags } = await upsertContact(c, co.id, co.timezone, s);
     rep.contacts++;
+    const u = DateTime.fromISO(s.dateUpdated); if (u > max) max = u;
+    if (isBaseline) { rep.baselined++; continue; }
     const ctx = { contact: { id, ghl_contact_id: s.id, tags: s.tags } };
     if (isNew) rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: s.id } }), ctx)).length;
     for (const t of s.tags.filter((t) => !prevTags.includes(t))) rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "tag.added", source: "ghl_poll", data: { tag: t } }), ctx)).length;
     for (const t of prevTags.filter((t) => !s.tags.includes(t))) rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "tag.removed", source: "ghl_poll", data: { tag: t } }), ctx)).length;
-    const u = DateTime.fromISO(s.dateUpdated); if (u > max) max = u;
   }
   await saveCursor(c, co.id, "contacts", max.toISO()!, true);
 }
 
-export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot, rep?: PollReport): Promise<void> {
+export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot, rep?: PollReport, baseline = false): Promise<void> {
   const cal = await one<{ id: string; appointment_term: string }>(c, "select id, appointment_term from calendars where company_id=$1 and ghl_calendar_id=$2", [co.id, s.calendarId]);
   if (!cal) return;
   let contact = await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id=$2", [co.id, s.contactId]);
@@ -69,6 +75,7 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (!existing) {
     const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, ghl_appointment_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, booked_at, ghl_status, ghl_updated_at)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id`, [co.id, contact.id, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, null, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null]);
+    if (baseline) { if (rep) rep.baselined++; return; }   // replica only; an appointment that existed before install is not a new booking
     const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: row!.id, event_type: "appointment.booked", source: "ghl_poll", data: { calendar_id: s.calendarId, status: s.status, starts_at: s.startTime } });
     const oppId = await ensureOpportunityForBooking(c, co.id, contact.id, row!.id, ev);
     const term = await one<{ name: string; category: string }>(c, "select name, category from company_terms where id=$1", [cal.appointment_term]);
@@ -81,6 +88,7 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (existing.ghl_status !== s.status) changes.status = { from: existing.ghl_status, to: s.status };
   if (Math.abs(existing.starts_at.getTime() - new Date(s.startTime).getTime()) > 60e3) changes.starts_at = { from: existing.starts_at.toISOString(), to: s.startTime };
   if (!Object.keys(changes).length) return;
+  if (baseline) { await c.query("update appointments set ghl_status=$2, starts_at=$3, ends_at=$4, ghl_updated_at=$5 where id=$1", [existing.id, s.status, s.startTime, s.endTime, s.dateUpdated ?? new Date()]); if (rep) rep.baselined++; return; }
   await c.query("update appointments set ghl_status=$2, starts_at=$3, ends_at=$4, assigned_user_id=coalesce($5,assigned_user_id), ghl_updated_at=$6 where id=$1", [existing.id, s.status, s.startTime, s.endTime, userId, s.dateUpdated ?? new Date()]);
   const type = changes.starts_at ? "appointment.rescheduled" : "appointment.status_changed";
   const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: existing.id, event_type: type, source: "ghl_poll", data: changes });
@@ -93,13 +101,14 @@ async function pollAppointments(c: PoolClient, co: CompanyRow, ac: Company, adap
   const from = DateTime.now().minus({ days: 2 }).toJSDate(), to = DateTime.now().plus({ days: 60 }).toJSDate();
   for (const cal of cals) {
     const entity = `appointments:${cal.ghl_calendar_id}`;
-    try { for (const s of await adapters.read.appointmentsInWindow(ac, cal.ghl_calendar_id, from, to)) await applyAppointment(c, co, ac, adapters, s, rep); await saveCursor(c, co.id, entity, DateTime.now().toISO()!, true); }
+    const { isBaseline } = await cursor(c, co.id, entity, DateTime.now());
+    try { for (const s of await adapters.read.appointmentsInWindow(ac, cal.ghl_calendar_id, from, to)) await applyAppointment(c, co, ac, adapters, s, rep, isBaseline); await saveCursor(c, co.id, entity, DateTime.now().toISO()!, true); }
     catch (e) { await saveCursor(c, co.id, entity, "", false); rep.errors.push({ company: co.slug, entity, error: String((e as Error).message) }); }
   }
 }
 
 async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) {
-  const since = await cursor(c, co.id, "conversations", DateTime.now().minus({ hours: 24 }));
+  const { since, isBaseline } = await cursor(c, co.id, "conversations", DateTime.now().minus({ hours: 24 }));
   const msgs = await adapters.read.inboundSince(ac, since.toISO()!);
   let max = since;
   for (const m of msgs) {
@@ -108,7 +117,7 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
     const ins = await one<{ id: string }>(c, `insert into messages (company_id, contact_id, ghl_message_id, ghl_conversation_id, channel, direction, body, subject, sent_by, status, occurred_at)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) on conflict (company_id, ghl_message_id) do nothing returning id`,
       [co.id, contact.id, m.id, m.conversationId, m.channel, m.direction, m.body ?? null, m.subject ?? null, m.direction === "inbound" ? null : "other", m.status ?? null, m.dateAdded]);
-    if (ins && m.direction === "inbound") {
+    if (ins && m.direction === "inbound" && !isBaseline) {
       rep.inbound++;
       const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: null, event_type: "message.received", source: "ghl_poll", data: { channel: m.channel, message_id: m.id, body: m.channel === "sms" ? m.body : undefined }, occurred_at: new Date(m.dateAdded) });
       rep.eventsDispatched += (await dispatchEvent(c, ev, { contact: { id: contact.id } })).length;
@@ -121,12 +130,15 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
 }
 
 export async function pollAll(adapters: Adapters): Promise<PollReport> {
-  const rep: PollReport = { companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, eventsDispatched: 0, errors: [] };
+  const rep: PollReport = { companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, eventsDispatched: 0, baselined: 0, errors: [] };
   const companies = await asOperator((c) => many<{ id: string }>(c, "select id from companies where status in ('active','hosted')"));
   for (const { id } of companies) {
     rep.companies++;
     await asOperator(async (c) => {
-      const { row: co, adapterCompany: ac } = await loadCompany(c, id);
+      let loaded: Awaited<ReturnType<typeof loadCompany>>;
+      try { loaded = await loadCompany(c, id); }
+      catch (e) { rep.errors.push({ company: id, entity: "bindings", error: `cannot load bindings: ${(e as Error).message}` }); return; }   // one bad key must not stop every other company
+      const { row: co, adapterCompany: ac } = loaded;
       if (!ac.pit || !ac.locationId) { rep.errors.push({ company: co.slug, entity: "bindings", error: "crm.location_id / secret.ghl_pit not bound" }); return; }
       for (const [entity, fn] of [["contacts", pollContacts], ["appointments", pollAppointments], ["conversations", pollInbound]] as const) {
         try { await fn(c, co, ac, adapters, rep); } catch (e) { rep.errors.push({ company: co.slug, entity, error: String((e as Error).message) }); if (entity !== "appointments") await saveCursor(c, co.id, entity, "", false); }
