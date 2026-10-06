@@ -11,6 +11,11 @@ describe("toMermaid", () => {
       expect((m.match(/-->/g) ?? []).length).toBe(def.edges.length);
     }
   });
+  it("a check's else-exit is drawn as a dashed edge to the exit node", () => {
+    const def = parseDefinition(templates.find((t) => t.slug === "new-lead")!.definition);
+    const m = toMermaid(def);
+    expect(m).toMatch(/n1_else\(\(\("Stop: no phone number"\)\)\)/); expect(m).toMatch(/n1 -\.->\|if not\| n1_else/);
+  });
   it("colors executed steps and outlines the current node", () => {
     const def = parseDefinition(templates[0].definition);
     const m = toMermaid(def, [{ node_id: "t1", status: "ok" }, { node_id: "n1", status: "failed" }], "n1");

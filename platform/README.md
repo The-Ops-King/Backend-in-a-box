@@ -82,6 +82,25 @@ location with all nine workflows on: zero messages, zero tags reached GHL.
 So: install with a read-only token → let it run → read `/c/<slug>/sends` ("Would have sent") →
 fix copy or timing → **Go live** on the company page, then turn workflows on one at a time.
 
+## Reading a flow chart
+
+Every chart uses the same vocabulary, drawn by `src/engine/mermaid.ts` from the plain-English
+descriptions in `src/engine/describe.ts` (the step list uses the same words, so the two never
+disagree). Shape and fill say what a step *is*; the outline says what *happened* to it in a run.
+
+| Shape | Fill | Meaning |
+|---|---|---|
+| pill | green | starts when (the trigger) |
+| box | blue | a message goes out (text, email, Slack) |
+| box | amber | a change in the CRM (tag, note, pipeline card, appointment) |
+| diamond | grey | a decision (check, branch); a check's "if not" path is a dashed edge to its stop |
+| double bar | dark | a wait (for a time, or for a reply) |
+| box | violet | the AI reads a reply |
+| double circle | dark | the run stops, with its reason |
+
+Outline: green solid = ran, blue dashed = waiting here, red = failed, amber dotted = skipped or
+stale, white = the current step. A legend sits under every chart.
+
 ## The dashboard
 
 Read-only except one button. `/` engine health and companies · `/c/<slug>` workflows, poll
