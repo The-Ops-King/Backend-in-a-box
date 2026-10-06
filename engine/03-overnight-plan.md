@@ -84,3 +84,13 @@ confirmation and the reminder; a cancellation started rebook; three emails recor
 SMS suppressed (no number); **zero messages and zero tags reached GHL**. The migration path is:
 install a client in shadow with a read-only token → read "Would have sent" for a few days →
 Go live. Proof company is back to all-off, mode shadow.
+
+### Review pass and polish (end of night)
+An eight-angle review of `platform/src` produced 15 findings; 13 fixed with tests (50 tests now),
+one bounded (a throwing node no longer unwinds the tick's ledger), one deferred by Tyler (no
+login on dashboard writes during the test period). The two that would have bitten in the
+morning: an inbound text woke *every* waiting run for the contact, so a reminder parked for 8am
+would have fired early; and the admin migrate endpoint read `schema.sql` from a path that
+doesn't exist in a Vercel bundle, so step 2 of the morning would have failed. Schema is now an
+embedded module with a drift test. UI: tables scroll on phones (verified at 400px on home,
+company, sends), step lists collapse under the chart, home shows shadow sends separately.
