@@ -2,8 +2,9 @@ import "./_env";
 /**
  * D16: upload info, pick templates, done.
  *   pnpm install:company --name "Save Your Hair" --slug syh --tz America/Phoenix --location <ghl_location_id> --pit <pit> \
- *       --calendar <ghl_calendar_id>=closing --calendar <ghl_calendar_id>=first_call [--closer-call <ghl_calendar_id>] [--template appointment-reminder ...]
+ *       --calendar <ghl_calendar_id>=closing --calendar <ghl_calendar_id>=first_call [--closer-call <ghl_calendar_id>] [--template appointment-reminder ...] [--enable]
  * Idempotent: re-running updates bindings and leaves existing workflows alone.
+ * Workflows are installed OFF. Pass --enable to turn on the ones whose required bindings are all present (Tyler's rule: build everything off, enable deliberately).
  */
 import { asOperator, one, many } from "@/db/client";
 import { encrypt } from "@/engine/crypto";
@@ -61,11 +62,12 @@ const need = (k: string) => { const v = opt(k); if (!v) { console.error(`--${k} 
         [companyId, tpl!.id, tpl!.version, t.name, def.reentry, def.reentry_window ? `${def.reentry_window}` : null]);
       await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'installed from template')", [wf!.id, t.definition, manifest]);
       for (const trig of indexDefinition(def).triggers) await c.query("insert into workflow_triggers (company_id, workflow_id, node_id, event_type, match) values ($1,$2,$3,$4,$5)", [companyId, wf!.id, trig.id, trig.event, trig.match ?? {}]);
-      // enable gate: every required binding present
+      // enable gate: every required binding present AND --enable was passed. Default is OFF.
       const bound = new Set((await many<{ key: string }>(c, "select key from bindings where company_id=$1", [companyId])).map((b) => b.key));
       const missing = manifest.bindings.filter((b) => b.required && !bound.has(b.key)).map((b) => b.key);
-      if (!missing.length) await c.query("update workflows set enabled=true where id=$1", [wf!.id]);
-      installed.push(`${t.slug} → ${missing.length ? `NOT enabled, missing: ${missing.join(", ")}` : "enabled"}`);
+      const wantEnable = args.includes("--enable");
+      if (wantEnable && !missing.length) await c.query("update workflows set enabled=true where id=$1", [wf!.id]);
+      installed.push(`${t.slug} → ${missing.length ? `OFF, missing: ${missing.join(", ")}` : wantEnable ? "enabled" : "installed OFF (pass --enable to turn on)"}`);
     }
     return { companyId, installed };
   });

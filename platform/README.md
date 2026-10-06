@@ -33,6 +33,7 @@ pnpm install:company --name "Save Your Hair" --slug syh --tz America/Phoenix \
   --location <ghl_location_id> --pit <private_integration_token> \
   --calendar <ghl_calendar_id>=closing --calendar <ghl_calendar_id>=first_call
 pnpm tick                       # one poll + one scheduler pass; this is what the cron does
+# Workflows install OFF. Add --enable to the install command (or flip `workflows.enabled`) when you mean it.
 pnpm test
 ```
 
