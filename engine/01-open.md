@@ -141,7 +141,8 @@ Pick one; note that US area codes spanning two zones resolve to the dominant one
 Cross-midnight ("tomorrow at 9"), cross-DST, and the exact rounding table per mode. Small, but
 every reminder text goes through it, so it gets a test file before the first send.
 
-## 16. Scheduler claim semantics on Vercel
+## 16. ~~Scheduler claim semantics on Vercel~~ — SETTLED (lease 5 min, claim by database clock, see runner.ts)
+## 16a. (was 16) Scheduler claim semantics on Vercel
 `runs.claimed_at` lease length vs. the function cap, and what happens to a run whose lease
 expires mid-step. Default: lease = 2× expected step time, expired lease = step re-executes
 against the idempotent `sends` ledger, so the worst case is a duplicate *attempt*, never a

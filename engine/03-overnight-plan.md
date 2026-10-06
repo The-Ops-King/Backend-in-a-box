@@ -70,3 +70,8 @@ Actions secrets, confirm the calendar mapping.
 - The same round-trip appeared to miss a tag → it was GHL's search index lagging ~5–8s behind the
   write (`ghl/02-api-facts.md`). One poll late at worst; no engine change.
 - Everything on the local proof company is OFF again.
+- Running the suite repeatedly then found two more: a test that picked runs by `started_at`
+  order (two runs inserted in one transaction share it), and a real scheduler race: the claim
+  compared `next_run_at` (Postgres `now()`, microseconds) against a JavaScript timestamp
+  (milliseconds), so a wake and a tick in the same millisecond made a run look not-yet-due. The
+  claim now uses the database clock. Suite is green five runs in a row.
