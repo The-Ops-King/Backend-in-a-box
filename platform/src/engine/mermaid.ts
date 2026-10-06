@@ -28,10 +28,10 @@ const edgeLabel = (e: Edge) => esc(edgeWords(e));
 
 /** Fills by kind (dark theme). Strokes by run status. */
 export const KIND_FILL: Record<NodeKind, { fill: string; stroke: string }> = {
-  trigger: { fill: "#1e3a2c", stroke: "#5e9e78" }, message: { fill: "#1b2a3d", stroke: "#6f9bd6" }, crm: { fill: "#3a2d1b", stroke: "#d6a35b" },
-  decision: { fill: "#2a2a30", stroke: "#a6a3b8" }, wait: { fill: "#1c1b19", stroke: "#8a857c" }, ai: { fill: "#2f1f3d", stroke: "#b48ad9" }, control: { fill: "#1c1b19", stroke: "#8a857c" }, exit: { fill: "#141312", stroke: "#5e5a54" },
+  trigger: { fill: "#1f4433", stroke: "#8fd1a6" }, message: { fill: "#1c3049", stroke: "#a9c6ee" }, crm: { fill: "#45341c", stroke: "#efc98a" },
+  decision: { fill: "#302f38", stroke: "#c9c6d8" }, wait: { fill: "#222120", stroke: "#b3ada3" }, ai: { fill: "#372347", stroke: "#d6bbf2" }, control: { fill: "#222120", stroke: "#b3ada3" }, exit: { fill: "#1a1917", stroke: "#8f8a81" },
 };
-export const STATUS_STROKE: Record<string, string> = { ok: "#5e9e78", waiting: "#6f9bd6", failed: "#d9686a", stale: "#d6a35b", skipped: "#d6a35b", here: "#f5f3ee" };
+export const STATUS_STROKE: Record<string, string> = { ok: "#7cc094", waiting: "#8db4e8", failed: "#ee7f81", stale: "#e6b76e", skipped: "#e6b76e", here: "#ffffff" };
 
 /** Mermaid flowchart for a definition; with steps, strokes show what happened and the current node is outlined. */
 export function toMermaid(def: Definition, steps: Step[] = [], currentNode?: string | null): string {
@@ -46,7 +46,7 @@ export function toMermaid(def: Definition, steps: Step[] = [], currentNode?: str
     if (!x) { lines.push(`  ${target}((("${esc(exitWords(n.else_exit))}")))`); synthetic.push(target); }
     lines.push(`  ${n.id} -.->|if not| ${target}`);
   }
-  for (const [k, c] of Object.entries(KIND_FILL)) lines.push(`  classDef k_${k} fill:${c.fill},stroke:${c.stroke},color:#f5f3ee,stroke-width:1.5px`);
+  for (const [k, c] of Object.entries(KIND_FILL)) lines.push(`  classDef k_${k} fill:${c.fill},stroke:${c.stroke},color:#f7f5f0,stroke-width:2px`);
   lines.push(`  classDef ok stroke:${STATUS_STROKE.ok},stroke-width:3px`);
   lines.push(`  classDef waiting stroke:${STATUS_STROKE.waiting},stroke-width:3px,stroke-dasharray:6 3`);
   lines.push(`  classDef failed stroke:${STATUS_STROKE.failed},stroke-width:3px`);

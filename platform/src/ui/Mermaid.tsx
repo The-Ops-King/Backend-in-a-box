@@ -12,8 +12,8 @@ export function Mermaid({ chart, legend = true }: { chart: string; legend?: bool
     let alive = true;
     (async () => {
       const m = (await import("mermaid")).default;
-      m.initialize({ startOnLoad: false, theme: "base", securityLevel: "loose", flowchart: { curve: "basis", nodeSpacing: 34, rankSpacing: 46, htmlLabels: true, padding: 10 }, fontFamily: "Inter, system-ui, sans-serif",
-        themeVariables: { background: "#0c0b0a", primaryColor: "#1c1b19", primaryTextColor: "#f5f3ee", primaryBorderColor: "#8a857c", lineColor: "#8a857c", secondaryColor: "#141312", tertiaryColor: "#141312", edgeLabelBackground: "#141312", fontSize: "13px", clusterBkg: "#141312" } });
+      m.initialize({ startOnLoad: false, theme: "base", securityLevel: "loose", flowchart: { curve: "basis", nodeSpacing: 40, rankSpacing: 54, htmlLabels: true, padding: 12 }, fontFamily: "Inter, system-ui, sans-serif",
+        themeVariables: { background: "#0c0b0a", primaryColor: "#222120", primaryTextColor: "#f7f5f0", primaryBorderColor: "#b3ada3", lineColor: "#c4bfb6", secondaryColor: "#141312", tertiaryColor: "#141312", edgeLabelBackground: "#141312", fontSize: "15px", clusterBkg: "#141312" } });
       const { svg } = await m.render(`m${Math.random().toString(36).slice(2)}`, chart);
       if (alive && ref.current) ref.current.innerHTML = svg;
     })().catch((e) => { if (ref.current) ref.current.textContent = `diagram error: ${e.message}`; });
