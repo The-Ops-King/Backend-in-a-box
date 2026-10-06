@@ -54,7 +54,7 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
           await c.query(`delete from ${t} where company_id=$1`, [co.id]);
       }
       await c.query("delete from companies where slug='e2e'");
-      companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, send_window_start, send_window_end) values ('E2E','e2e','America/Phoenix','00:00','23:59') returning id"))!.id;
+      companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, send_window_start, send_window_end, mode) values ('E2E','e2e','America/Phoenix','00:00','23:59','live') returning id"))!.id;
       await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories", [companyId]);
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'calendar.closer_call','id',$4)", [companyId, Buffer.from("LOC1"), encrypt("pit-fake"), Buffer.from("CAL1")]);
       const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;

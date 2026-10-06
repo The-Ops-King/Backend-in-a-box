@@ -24,3 +24,15 @@ export async function submitDisposition(formData: FormData) {
   revalidatePath(`/c/${slug}/appointments`); revalidatePath(`/c/${slug}`);
   redirect(`/c/${slug}/appointments/${appointmentId}`);
 }
+
+export async function toggleMode(formData: FormData) {
+  const slug = String(formData.get("slug"));
+  await asOperator(async (c) => {
+    const co = await one<{ id: string; mode: string }>(c, "select id, mode from companies where slug=$1", [slug]);
+    if (!co) return;
+    const next = co.mode === "live" ? "shadow" : "live";
+    await c.query("update companies set mode=$2 where id=$1", [co.id, next]);
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'company.mode','company',$1,$2,$3)", [co.id, { mode: co.mode }, { mode: next }]);
+  });
+  revalidatePath(`/c/${slug}`); revalidatePath("/");
+}

@@ -1,8 +1,8 @@
 import { asOperator, many, one } from "@/db/client";
 import { parseDefinition, type Definition } from "@/engine/definition";
 
-export const listCompanies = () => asOperator((c) => many<{ id: string; name: string; slug: string; status: string; timezone: string; contacts: number; workflows: number; active_runs: number; last_poll: Date | null }>(c, `
-  select co.id, co.name, co.slug, co.status, co.timezone,
+export const listCompanies = () => asOperator((c) => many<{ id: string; name: string; slug: string; status: string; mode: string; timezone: string; contacts: number; workflows: number; active_runs: number; last_poll: Date | null }>(c, `
+  select co.id, co.name, co.slug, co.status, co.mode, co.timezone,
     (select count(*) from contacts where company_id=co.id) as contacts,
     (select count(*) from workflows where company_id=co.id) as workflows,
     (select count(*) from runs where company_id=co.id and status in ('active','waiting')) as active_runs,
@@ -24,7 +24,7 @@ export const recentRuns = (companyId?: string, limit = 25) => asOperator((c) => 
   from runs r join workflows w on w.id=r.workflow_id join contacts ct on ct.id=r.contact_id join companies co on co.id=r.company_id
   ${companyId ? "where r.company_id=$1" : ""} order by r.started_at desc limit ${limit}`, companyId ? [companyId] : []));
 
-export const company = (slug: string) => asOperator((c) => one<{ id: string; name: string; slug: string; status: string; timezone: string; send_window_start: string; send_window_end: string }>(c, "select * from companies where slug=$1", [slug]));
+export const company = (slug: string) => asOperator((c) => one<{ id: string; name: string; slug: string; status: string; timezone: string; send_window_start: string; send_window_end: string; mode: "shadow" | "live"; sms_enabled: boolean }>(c, "select * from companies where slug=$1", [slug]));
 
 export const companyWorkflows = (companyId: string) => asOperator((c) => many<{ id: string; name: string; enabled: boolean; reentry_policy: string; current_version: number; diverged: boolean; triggers: string[]; runs_total: number; runs_active: number }>(c, `
   select w.id, w.name, w.enabled, w.reentry_policy, w.current_version, w.diverged,
@@ -91,3 +91,8 @@ export const terms = (companyId: string, domain: string) => asOperator((c) => ma
 export const companyEvents = (companyId: string, limit = 40) => asOperator((c) => many<{ id: number; event_type: string; source: string; occurred_at: Date; contact: string; contact_id: string | null; data: Record<string, unknown> }>(c, `
   select e.id, e.event_type, e.source, e.occurred_at, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact, e.contact_id, e.data
   from events e left join contacts ct on ct.id=e.contact_id where e.company_id=$1 order by e.occurred_at desc, e.id desc limit ${limit}`, [companyId]));
+
+export const companySends = (companyId: string, limit = 100) => asOperator((c) => many<{ id: string; channel: string; status: string; suppressed_reason: string | null; rendered_body: string; sent_at: Date | null; scheduled_for: Date | null; run_id: string | null; workflow: string | null; contact: string; contact_id: string }>(c, `
+  select s.id, s.channel, s.status, s.suppressed_reason, s.rendered_body, s.sent_at, s.scheduled_for, s.run_id, w.name as workflow, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact, ct.id as contact_id
+  from sends s join contacts ct on ct.id=s.contact_id left join runs r on r.id=s.run_id left join workflows w on w.id=r.workflow_id
+  where s.company_id=$1 order by coalesce(s.sent_at, s.scheduled_for) desc limit ${limit}`, [companyId]));

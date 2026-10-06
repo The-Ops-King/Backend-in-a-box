@@ -36,3 +36,4 @@ pre.json{background:#f6f4ee;border:1px solid var(--line);border-radius:6px;paddi
 .btn-on{background:var(--green);border-color:var(--green);color:#fff}.btn-on:hover{background:var(--green-lt)}.btn-off{color:var(--bad)}
 .form fieldset{border:0;padding:0;margin:0 0 14px}.form legend{font-weight:600;margin-bottom:6px}.form label{display:block;padding:3px 0}
 .form select,.form textarea{font:inherit;width:100%;max-width:420px;padding:7px 9px;border:1px solid var(--line);border-radius:5px;background:var(--paper);color:var(--ink)}
+.b-shadow{background:#ece9f6;color:#4d3f8a;border-color:#d7d0ea}.b-live{background:var(--green-soft);color:var(--green);border-color:#c9dccf}

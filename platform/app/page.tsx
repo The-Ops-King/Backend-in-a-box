@@ -20,7 +20,7 @@ export default async function Home() {
     <h2>Companies</h2>
     {companies.length === 0 ? <div className="empty">No companies yet. <code>pnpm install:company …</code></div> :
     <table><thead><tr><th>Company</th><th>Status</th><th>Contacts</th><th>Workflows</th><th>Active runs</th><th>Last poll</th></tr></thead><tbody>
-      {companies.map((c) => <tr key={c.id}><td><Link href={`/c/${c.slug}`}><strong>{c.name}</strong></Link> <span className="mono" style={{ color: "var(--muted)" }}>{c.slug}</span></td><td><span className={badge(c.status)}>{c.status}</span></td><td>{c.contacts}</td><td>{c.workflows}</td><td>{c.active_runs}</td><td>{c.last_poll ? ago(c.last_poll) : "never"}</td></tr>)}
+      {companies.map((c) => <tr key={c.id}><td><Link href={`/c/${c.slug}`}><strong>{c.name}</strong></Link> <span className="mono" style={{ color: "var(--muted)" }}>{c.slug}</span></td><td><span className={badge(c.status)}>{c.status}</span> <span className={c.mode === "live" ? "badge b-live" : "badge b-shadow"}>{c.mode}</span></td><td>{c.contacts}</td><td>{c.workflows}</td><td>{c.active_runs}</td><td>{c.last_poll ? ago(c.last_poll) : "never"}</td></tr>)}
     </tbody></table>}
     <h2>Recent runs</h2>
     <RunsTable runs={runs} />

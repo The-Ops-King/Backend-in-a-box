@@ -20,6 +20,8 @@ export type StepOutcome =
 export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime };
 
 const contactTz = (d: ExecDeps) => ((d.ctx.contact as { timezone?: string } | undefined)?.timezone) ?? d.company.timezone;
+/** Shadow mode: the run proceeds exactly as it would live, but nothing is written to the CRM; sends are recorded as "would have sent". */
+const shadow = (d: ExecDeps) => d.company.mode === "shadow";
 const single = (d: ExecDeps, id: string): string | null => (d.edgesFrom(id).find((e) => e.label !== "timeout") ?? d.edgesFrom(id)[0])?.to ?? null;
 const env = (d: ExecDeps) => ({ now: d.now, tz: contactTz(d) });
 
@@ -63,6 +65,11 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   const channel = node.type === "send_sms" ? "sms" : "email";
   const send = await recordSend(d, node, channel, body, "queued");
   if (!send) return { status: "skipped", next, result: { why: "already sent (idempotency)" } };
+  if (shadow(d)) {
+    await d.c.query("update sends set status='shadow', sent_at=now() where id=$1", [send.id]);
+    await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "message.sent", source: "engine", data: { channel, node: node.id, shadow: true, substituted } });
+    return { status: "ok", next, result: { shadow: true, would_send: body.slice(0, 120), substituted } };
+  }
   const ghlContactId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
   const r = node.type === "send_sms"
     ? await d.adapters.sender.sendSms(d.adapterCompany, ghlContactId, body)
@@ -113,6 +120,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (!conn || !channelId) { await recordSend(d, node, "slack", "", "suppressed", "unbound: slack"); return { status: "skipped", next, result: { why: conn ? "slack channel not bound" : "slack not connected" } }; }
       const text = render(node.template, d.ctx, env(d));
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next };
+      if (shadow(d)) { await d.c.query("update sends set status='shadow', sent_at=now() where id=$1", [send.id]); return { status: "ok", next, result: { shadow: true, would_post: text.slice(0, 120) } }; }
       const { decrypt } = await import("./crypto");
       const r = await d.adapters.notifier.post(decrypt(conn.bot_token), channelId, text);
       await d.c.query("update sends set status='sent', external_id=$2, sent_at=now() where id=$1", [send.id, r.ts]);
@@ -140,20 +148,23 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "set_tag": case "remove_tag": {
       const ghlId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
       const add = node.type === "set_tag";
-      if (add) await d.adapters.write.addTag(d.adapterCompany, ghlId, node.tag); else await d.adapters.write.removeTag(d.adapterCompany, ghlId, node.tag);
+      if (!shadow(d)) { if (add) await d.adapters.write.addTag(d.adapterCompany, ghlId, node.tag); else await d.adapters.write.removeTag(d.adapterCompany, ghlId, node.tag); }
       await d.c.query(add ? "update contacts set tags = array(select distinct unnest(tags || $2::text[])) where id=$1" : "update contacts set tags = array_remove(tags, $2) where id=$1", [d.run.contact_id, add ? [node.tag] : node.tag]);
-      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: add ? "tag.added" : "tag.removed", source: "engine", data: { tag: node.tag } });
-      return { status: "ok", next };
+      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: add ? "tag.added" : "tag.removed", source: "engine", data: { tag: node.tag, shadow: shadow(d) || undefined } });
+      return { status: "ok", next, result: shadow(d) ? { shadow: true, would_tag: node.tag } : undefined };
     }
     case "note": {
       const ghlId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
-      await d.adapters.write.addNote(d.adapterCompany, ghlId, render(node.template, d.ctx, env(d)));
+      const noteText = render(node.template, d.ctx, env(d));
+      if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_note: noteText.slice(0, 160) } };
+      await d.adapters.write.addNote(d.adapterCompany, ghlId, noteText);
       return { status: "ok", next };
     }
     case "update_appointment": {
       if (!d.run.appointment_id) return { status: "failed", error: "update_appointment with no appointment on run" };
       const a = await one<{ ghl_appointment_id: string }>(d.c, "select ghl_appointment_id from appointments where id=$1", [d.run.appointment_id]);
       const patch = Object.fromEntries(Object.entries(node.set).map(([k, v]) => [k, typeof v === "string" ? render(v, d.ctx, env(d)) : v]));
+      if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch } };
       await d.adapters.write.updateAppointment(d.adapterCompany, a!.ghl_appointment_id, patch);
       if (typeof patch.status === "string") await d.c.query("update appointments set ghl_status=$2, ghl_updated_at=now() where id=$1", [d.run.appointment_id, patch.status]);
       return { status: "ok", next, result: patch };

@@ -61,7 +61,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
         for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "form_submissions", "forms", "appointments", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
         await c.query("delete from companies where id=$1", [co.id]); }
     });
-    const r = await installCompany({ name: "Scenarios", slug: "scn", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true }, fake);
+    const r = await installCompany({ name: "Scenarios", slug: "scn", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live" }, fake);
     companyId = r.companyId;
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
     expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(9);
@@ -156,6 +156,22 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(sent.slice(n).map((s) => s.body)).toEqual([expect.stringMatching(/^Checking in/)]);
     const r = (await runsFor("reactivation"))[0]; expect(r.current_node).toBe("n3"); expect(DateTime.fromJSDate(r.next_run_at!).diffNow("days").days).toBeGreaterThan(2.9);
     expect(await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "tag.added", source: "ghl_poll", data: { tag: "something-else" } }), { contact: { id } }))).toHaveLength(0);
+  });
+
+  it("shadow mode: the run completes, messages are recorded as would-send, nothing reaches the CRM", async () => {
+    await asOperator((c) => c.query("update companies set mode='shadow', sms_enabled=true where id=$1", [companyId]));
+    const id = await newContact("CSHADOW", "shadow@x.com");
+    await asOperator(async (c) => { const ev = await applyPayment(c, companyId, id, { whopPaymentId: "P9", amount: 100, currency: "USD", status: "succeeded", paidAt: new Date(), raw: {} }); await dispatchEvent(c, ev, { contact: { id } }); });
+    const n = since(), nt = tags.length; await tick(fake);
+    expect(sent.length).toBe(n);            // the fake sender was never called
+    expect(tags.length).toBe(nt);           // the fake CRM never got the tag
+    const r = (await runsFor("payment-received")).find((r) => r.contact_id === id)!;
+    expect(r.exit_reason).toBe("done");     // but the run went all the way through
+    const ledger = await asOperator((c) => many<{ status: string; rendered_body: string }>(c, "select status, rendered_body from sends where run_id=$1", [r.id]));
+    expect(ledger).toEqual([{ status: "shadow", rendered_body: expect.stringMatching(/Payment came through/) }]);
+    const local = await asOperator((c) => one<{ tags: string[] }>(c, "select tags from contacts where id=$1", [id]));
+    expect(local?.tags).toContain("client");   // our own record still reflects what the workflow decided
+    await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
   });
 
   it("sms_enabled=false: SMS nodes are suppressed and the run continues", async () => {

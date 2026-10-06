@@ -12,6 +12,7 @@ export type InstallInput = {
   templates?: string[];                  // slugs; default all
   enable?: boolean;                      // default false — Tyler's rule: build off, enable deliberately
   smsEnabled?: boolean;                  // default true; false when the sub-account has no number
+  mode?: "shadow" | "live";             // default shadow: nothing is written to the CRM until you say live
 };
 
 /** D16: upload info, pick templates, done. Idempotent. Workflows install OFF unless enable=true. */
@@ -19,7 +20,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   const calMap = input.calendars ?? {};
   return asOperator(async (c) => {
-    const co = await one<{ id: string }>(c, `insert into companies (name, slug, timezone, sms_enabled) values ($1,$2,$3,$4) on conflict (slug) do update set name=excluded.name, timezone=excluded.timezone, sms_enabled=excluded.sms_enabled returning id`, [input.name, input.slug, input.timezone, input.smsEnabled ?? true]);
+    const co = await one<{ id: string }>(c, `insert into companies (name, slug, timezone, sms_enabled, mode) values ($1,$2,$3,$4,$5) on conflict (slug) do update set name=excluded.name, timezone=excluded.timezone, sms_enabled=excluded.sms_enabled, mode=excluded.mode returning id`, [input.name, input.slug, input.timezone, input.smsEnabled ?? true, input.mode ?? "shadow"]);
     const companyId = co!.id;
     await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories on conflict (company_id, domain, name) do nothing`, [companyId]);
     const bind = (key: string, kind: string, value: string) =>

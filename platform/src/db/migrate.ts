@@ -16,6 +16,11 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // engine-internal additions beyond schema.sql; idempotent so an already-migrated database picks them up
     await c.query(`create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())`);
     await c.query(`alter table companies add column if not exists sms_enabled boolean not null default true`);
+    await c.query(`alter table companies add column if not exists mode text not null default 'shadow'`);
+    await c.query(`alter table companies drop constraint if exists companies_mode_check`);
+    await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','live'))`);
+    await c.query(`alter table sends drop constraint if exists sends_status_check`);
+    await c.query(`alter table sends add constraint sends_status_check check (status in ('queued','sent','failed','suppressed','shadow'))`);
     // appointments ↔ form_submissions reference each other; the disposition pointer must not block deleting a submission
     await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);
     await c.query(`alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id) on delete set null`);

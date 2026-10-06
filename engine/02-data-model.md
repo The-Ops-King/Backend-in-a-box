@@ -46,6 +46,7 @@ create table companies (
   send_window_start time not null default '08:00',
   send_window_end   time not null default '20:00',
   sms_enabled       boolean not null default true,      -- false when the sub-account has no number; SMS nodes skip
+  mode              text not null default 'shadow' check (mode in ('shadow','live')),  -- shadow: run everything, write nothing to the CRM, record what would have gone out
   status            text not null default 'active'
                     check (status in ('onboarding','active','hosted','archived')),
   archived_at       timestamptz,
@@ -502,7 +503,7 @@ create table sends (
   rendered_body      text not null,                        -- what actually went out, after send-time render
   scheduled_for      timestamptz,
   sent_at            timestamptz,
-  status             text not null check (status in ('queued','sent','failed','suppressed')),
+  status             text not null check (status in ('queued','sent','failed','suppressed','shadow')),   -- shadow = would have sent
   suppressed_reason  text,                                 -- stale, quiet_hours_deferred, premise_dead, unbound
   external_id        text,                                 -- GHL message id, Slack ts
   error              text
