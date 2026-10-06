@@ -21,7 +21,7 @@ cron. Design is in `../engine/`; this is what runs.
 
 Live proof: a real appointment booked in GHL was detected, both workflows started, the
 confirmation email went out through GHL into the contact's thread, the reminder is waiting for
-8am the morning of. 39 tests pass (`pnpm test`), including the end-to-end suite against Postgres.
+8am the morning of. 47 tests pass (`pnpm test`), including the end-to-end suite against Postgres.
 
 ## The workflows (templates, all install OFF)
 
