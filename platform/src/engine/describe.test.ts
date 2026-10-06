@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeNode, edgeWords, predicateWords, waitWords, templateWords, kindOf } from "./describe";
+import { describeNode, edgeWords, predicateWords, waitWords, templateWords, kindOf, branchTitle } from "./describe";
 import { parseDefinition } from "./definition";
 import { templates } from "@/templates";
 
@@ -20,6 +20,12 @@ describe("plain-English descriptions", () => {
     expect(templateWords("<p>Hey {{contact.first_name}},</p><p>grab a time: {{calendar.closer_call.url}}</p>")).toBe("Hey [first name], grab a time: [booking link]");
     expect(describeNode({ id: "n", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", name: "{{contact.name}} -- New", if_missing: "create", fields: [{ id: "{{crm.field_opportunity_stage_entered}}", value: "{{now | date:yyyy-MM-dd}}" }] }))
       .toEqual({ title: "Create or move pipeline card “[full name] -- New”", detail: "In the pipeline setter, stage stage setter new lead; set field opportunity stage entered = [today]" });
+  });
+  it("a branch is titled by its edges", () => {
+    const def = parseDefinition(templates.find((t) => t.slug === "call-booked")!.definition);
+    expect(branchTitle(def, "n2")).toBe("Setter booked, or self booked?");
+    const rem = parseDefinition(templates.find((t) => t.slug === "appointment-reminder")!.definition);
+    expect(branchTitle(rem, rem.nodes.find((n) => n.type === "branch")!.id)).toBe("The reply is “confirmed”, or the reply is “cancelled”, or the reply is a reschedule request?");
   });
   it("predicates and edges", () => {
     expect(predicateWords({ eq: ["{{reply.intent}}", "reschedule_request"] })).toBe("the reply is a reschedule request");

@@ -1,5 +1,5 @@
 import type { Definition, Edge, Node } from "./definition";
-import { describeNode, edgeWords, exitWords, kindOf, type NodeKind } from "./describe";
+import { branchTitle, describeNode, edgeWords, exitWords, kindOf, type NodeKind } from "./describe";
 
 type Step = { node_id: string; status: string };
 const esc = (s: string) => s.replace(/"/g, "'").replace(/[<>]/g, "").replace(/\n/g, " ");
@@ -20,8 +20,8 @@ function shape(n: Node, text: string): string {
     default: return `[${t}]`;
   }
 }
-function label(n: Node): string {
-  const d = describeNode(n);
+function label(def: Definition, n: Node): string {
+  const d = n.type === "branch" ? { title: branchTitle(def, n.id) } : describeNode(n);
   return d.quote ? `${esc(d.title)}<br/><i>${esc(trunc(d.quote, 60))}</i>` : esc(trunc(d.title, 70));
 }
 const edgeLabel = (e: Edge) => esc(edgeWords(e));
@@ -36,7 +36,7 @@ export const STATUS_STROKE: Record<string, string> = { ok: "#7cc094", waiting: "
 /** Mermaid flowchart for a definition; with steps, strokes show what happened and the current node is outlined. */
 export function toMermaid(def: Definition, steps: Step[] = [], currentNode?: string | null): string {
   const lines = ["flowchart TD"];
-  for (const n of def.nodes) lines.push(`  ${n.id}${shape(n, label(n))}`);
+  for (const n of def.nodes) lines.push(`  ${n.id}${shape(n, label(def, n))}`);
   for (const e of def.edges) { const l = edgeLabel(e); lines.push(l ? `  ${e.from} -->|${l}| ${e.to}` : `  ${e.from} --> ${e.to}`); }
   // a check's "if not" path is an exit reason, not an edge; draw it dashed to the matching exit so nothing floats unexplained
   const synthetic: string[] = [];

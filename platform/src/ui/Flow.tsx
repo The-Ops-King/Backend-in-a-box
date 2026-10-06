@@ -1,5 +1,5 @@
 import type { Definition } from "@/engine/definition";
-import { describeNode, edgeWords, kindOf, KIND_LABEL, walkOrder } from "@/engine/describe";
+import { branchTitle, describeNode, edgeWords, kindOf, KIND_LABEL, walkOrder } from "@/engine/describe";
 import { badge } from "./format";
 
 type Step = { node_id: string; status: string; result?: Record<string, unknown>; error?: string | null };
@@ -12,7 +12,7 @@ export function Flow({ def, steps = [], currentNode }: { def: Definition; steps?
   return (
     <div className="flow">
       {walkOrder(def).map((id) => {
-        const n = byId.get(id)!; const d = describeNode(n); const st = lastStep.get(id); const kind = kindOf(n);
+        const n = byId.get(id)!; const d = n.type === "branch" ? { title: branchTitle(def, id) } : describeNode(n); const st = lastStep.get(id); const kind = kindOf(n);
         const cls = st ? st.status : currentNode === id ? "waiting" : "";
         return (
           <div key={id} className={`node k-${kind} ${cls}`}>

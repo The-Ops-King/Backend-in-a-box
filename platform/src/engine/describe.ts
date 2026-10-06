@@ -117,6 +117,14 @@ export function describeNode(n: Node): NodeText {
   }
 }
 
+/** A branch reads as the question its outgoing edges answer: "setter booked or self-booked?" */
+export function branchTitle(def: Definition, nodeId: string): string {
+  const labels = def.edges.filter((e) => e.from === nodeId).map(edgeWords).filter((w) => w && w !== "otherwise");
+  const els = def.edges.some((e) => e.from === nodeId && e.else);
+  if (!labels.length) return "Which way?";
+  return `${labels.join(", or ")}${els && labels.length === 1 ? ", or neither" : ""}?`.replace(/^./, (c) => c.toUpperCase());
+}
+
 export function edgeWords(e: Edge): string {
   if (e.label === "timeout") return "no reply in time";
   if (e.label === "replied") return "they replied";
