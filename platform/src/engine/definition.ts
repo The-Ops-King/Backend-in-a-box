@@ -50,6 +50,8 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("note"), template: z.string() }),
   z.object({ ...base, type: z.literal("update_appointment"), set: z.record(z.unknown()) }),
   z.object({ ...base, type: z.literal("update_opportunity"), set: z.record(z.unknown()) }),
+  // A pipeline card in the CRM, mirrored into our opportunities. One open card per contact per pipeline: re-firing updates stage/name instead of duplicating.
+  z.object({ ...base, type: z.literal("create_opportunity"), pipeline: z.string(), stage: z.string(), name: z.string(), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
   z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown() }),
   z.object({ ...base, type: z.literal("start_workflow"), workflow: z.string(), with: z.record(z.unknown()).optional() }),
   z.object({ ...base, type: z.literal("pause_runs"), scope: z.enum(["contact", "appointment"]).default("contact") }),

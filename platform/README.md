@@ -36,6 +36,7 @@ confirmation email went out through GHL into the contact's thread, the reminder 
 | payment-received | Whop payment | thank-you email, tag `client` |
 | payment-failed | Whop failure | SMS + email, 2 days, Slack the owner if connected |
 | reactivation | tag `reactivate` added | email, 3 days, SMS, 4 days, last email; once per 90 days |
+| new-lead | lead created | with a phone: setter-pipeline card "Name -- New" (stage New Lead, stage-entered date today) + tag `stat-new`; without a phone: exit `no_phone`. Needs `crm.pipeline_setter`, `crm.stage_setter_new_lead`, `crm.field_opportunity_stage_entered` (install `crm: {...}`) |
 
 Every message is a template on the workflow, editable per company once the editor exists; until
 then, edit the company's copy in `workflow_versions`. SMS nodes skip cleanly for a company with
@@ -51,6 +52,15 @@ reached` in production. Direct connections and non-Supabase URLs pass through. `
 opts out. The engine is transaction-pooler safe: every query runs inside `begin … commit` with
 transaction-local `set_config`, no session advisory locks, no named prepared statements. Pool: 3 per
 instance, 5 second idle timeout.
+
+## Pipeline cards (D19)
+
+Templates can create and move cards in the CRM's pipelines (`create_opportunity` node). Pipeline,
+stage and custom-field ids are `crm.*` bindings set at install (`crm: { pipeline_setter: "...", ... }`),
+so a template is portable across companies. One open card per contact per pipeline: a re-fire
+updates stage and name instead of duplicating. Our `opportunities` table mirrors the card (name,
+pipeline, stage, GHL id). In shadow the card is created in our table only and the step records
+`would_create`.
 
 ## Booking sources (D18)
 

@@ -80,6 +80,7 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
 }
 
 export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome> {
+  d.ctx.now = d.now.toISO();   // {{now | date:...}} in templates; refreshed every node so a persisted context never carries a stale clock
   const next = single(d, node.id);
   switch (node.type) {
     case "trigger": return { status: "ok", next };
@@ -175,6 +176,31 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       await d.adapters.write.updateAppointment(d.adapterCompany, a!.external_id, patch);
       if (typeof patch.status === "string") await d.c.query("update appointments set status=$2, source_updated_at=now() where id=$1", [d.run.appointment_id, patch.status]);
       return { status: "ok", next, result: patch };
+    }
+    case "create_opportunity": {
+      const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
+      const pipelineId = render(node.pipeline, d.ctx, env(d)), stageId = render(node.stage, d.ctx, env(d)), name = render(node.name, d.ctx, env(d));
+      const customFields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) }));
+      if (!pipelineId || !stageId) return { status: "failed", error: `create_opportunity ${node.id}: pipeline or stage unbound` };
+      const existing = await one<{ id: string; ghl_opportunity_id: string | null }>(d.c, "select id, ghl_opportunity_id from opportunities where company_id=$1 and contact_id=$2 and status='open' and ghl_pipeline_id=$3 order by opened_at desc limit 1", [d.company.id, d.run.contact_id, pipelineId]);
+      const write = { pipelineId, stageId, name, status: "open" as const, customFields };
+      let oppId: string;
+      if (existing) {
+        oppId = existing.id;
+        if (!shadow(d) && existing.ghl_opportunity_id) await d.adapters.write.updateOpportunity(d.adapterCompany, existing.ghl_opportunity_id, write);
+        await d.c.query("update opportunities set name=$2, ghl_stage_id=$3 where id=$1", [oppId, name, stageId]);
+      } else {
+        let ghlId: string | null = null;
+        if (!shadow(d)) {
+          if (!contact?.ghl_contact_id) return { status: "failed", error: "create_opportunity: contact has no CRM id yet" };
+          ghlId = (await d.adapters.write.createOpportunity(d.adapterCompany, { ...write, contactId: contact.ghl_contact_id })).id;
+        }
+        oppId = (await one<{ id: string }>(d.c, "insert into opportunities (company_id, contact_id, ghl_opportunity_id, name, ghl_pipeline_id, ghl_stage_id, opened_by) values ($1,$2,$3,$4,$5,$6,$7) returning id", [d.company.id, d.run.contact_id, ghlId, name, pipelineId, stageId, `workflow:${node.id}`]))!.id;
+        await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "opportunity.opened", source: "engine", data: { by: "workflow", pipeline: pipelineId, stage: stageId, name, shadow: shadow(d) } });
+      }
+      if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
+      d.ctx.opportunity = await one(d.c, "select id, status, name, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, contract_value, opened_at from opportunities where id=$1", [oppId]);
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true, would_create: !existing } : {}), opportunity_id: oppId, name, stage: stageId, updated: !!existing, fields: customFields } };
     }
     case "update_opportunity": {
       if (!d.run.opportunity_id) return { status: "failed", error: "update_opportunity with no opportunity on run" };

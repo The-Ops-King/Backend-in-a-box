@@ -654,3 +654,18 @@ rule. A company declares where its appointments live, and the engine reads them 
 - Per-calendar `self_booked` (from the event type's internal note: round robin = direct,
   "- S" = setter) stamps every booking, so setter-vs-self is a fact on the appointment, not a
   guess from question text.
+
+## D19. The engine owns the pipeline cards the team works from
+
+D10 said we do not push *our* data (journey, attributes) back into GHL, and that stands. It did not
+mean the engine never writes to GHL: it already tags, notes and sends through it. Hair's team
+runs their day from GHL pipelines (Setter, Closer), and the automations Tyler is porting create
+and move those cards. So templates get a `create_opportunity` node that writes a card to the CRM
+pipeline and mirrors it into our `opportunities` row (name, pipeline, stage, CRM id). Ids are
+`crm.*` bindings, never literals in a template. One open card per contact per pipeline. In shadow
+the card exists only in our table and the run step shows what would have been created.
+
+Sequencing note for go-live: the Calendly → GHL Zap expects the setter card to exist within about
+three seconds of contact creation (GHL workflow 01 does that today). The engine polls once a
+minute, so the moment the engine replaces workflow 01, the engine's booking workflow must create
+or move the setter card itself. Until the booking workflow is ported, new-lead runs in shadow.

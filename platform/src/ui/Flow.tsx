@@ -19,6 +19,7 @@ function describe(n: Node): { title: string; body?: string; tpl?: string } {
     case "note": return { title: "internal note", tpl: n.template };
     case "update_appointment": return { title: "update appointment", body: JSON.stringify(n.set) };
     case "update_opportunity": return { title: "update opportunity", body: JSON.stringify(n.set) };
+    case "create_opportunity": return { title: "create pipeline card", body: `pipeline ${n.pipeline} · stage ${n.stage}${n.fields.length ? ` · fields: ${n.fields.map((f) => `${f.id} = ${f.value}`).join(", ")}` : ""}`, tpl: n.name };
     case "set_var": return { title: `set ${n.key}`, body: String(n.value) };
     case "start_workflow": return { title: `hand off to "${n.workflow}"` };
     case "pause_runs": return { title: "pause other runs for this contact" };

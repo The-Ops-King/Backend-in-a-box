@@ -21,7 +21,10 @@ export async function loadCompany(c: PoolClient, companyId: string): Promise<{ r
 
 /** Builds what `{{…}}` resolves against. Secrets are never placed in the context. */
 export async function buildContext(c: PoolClient, run: RunRow, company: CompanyRow, bindings: Record<string, string>): Promise<Record<string, unknown>> {
-  const contact = await one<Record<string, unknown>>(c, "select id, ghl_contact_id, first_name, last_name, timezone, tags, attributes from contacts where id=$1", [run.contact_id]);
+  const contact = await one<Record<string, unknown>>(c, `select ct.id, ct.ghl_contact_id, ct.first_name, ct.last_name, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, ct.timezone, ct.tags, ct.attributes,
+      (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='phone' limit 1) as phone,
+      (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='email' limit 1) as email
+    from contacts ct where ct.id=$1`, [run.contact_id]);
   // D13: the reply the run is reacting to is whatever the contact last sent after this run started; what we last sent is the classifier's state.
   const lastIn = await one<{ body: string | null; occurred_at: Date }>(c, "select body, occurred_at from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at >= $3 order by occurred_at desc limit 1", [company.id, run.contact_id, run.started_at ?? new Date(0)]);
   const lastOut = await one<{ rendered_body: string; sent_at: Date }>(c, "select rendered_body, sent_at from sends where company_id=$1 and contact_id=$2 and status='sent' order by sent_at desc limit 1", [company.id, run.contact_id]);

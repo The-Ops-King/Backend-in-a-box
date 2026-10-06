@@ -241,3 +241,12 @@ Tagged a contact and polled `POST /contacts/search` (by `dateUpdated` range) eve
 Verified end to end: tag in GHL → next engine tick → `tag.added` → reactivation run started.
 No engine change needed; don't add a per-contact `GET` on every poll for a delay shorter than
 the poll interval.
+
+## Opportunities (pipeline cards) — added 2026-10-06
+| Fact | Detail |
+|---|---|
+| Pipelines + stages | `GET /opportunities/pipelines?locationId=` (Version 2021-07-28) → `pipelines[].stages[]` with ids. |
+| Create | `POST /opportunities/` body `{ locationId, contactId, pipelineId, pipelineStageId, name, status: "open", assignedTo?, customFields?: [{ id, field_value }] }` → `opportunity.id`. Status enum: open, won, lost, abandoned. |
+| Update | `PUT /opportunities/{id}` with any subset of the same fields (`pipelineStageId` moves the card). |
+| Search | `GET /opportunities/search?location_id=&contact_id=&pipeline_id=&limit=` — **snake_case** params here, camelCase returns 422. Index lags a few seconds after a create. |
+| Custom fields | `GET /locations/{id}/customFields?model=opportunity` → ids. DATE fields accept `YYYY-MM-DD`. |

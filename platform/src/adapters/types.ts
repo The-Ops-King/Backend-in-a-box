@@ -41,7 +41,11 @@ export interface CrmWrite {
   removeTag(c: Company, contactId: string, tag: string): Promise<void>;
   addNote(c: Company, contactId: string, body: string): Promise<void>;
   updateAppointment(c: Company, id: string, patch: Partial<Pick<AppointmentSnapshot, "status" | "assignedUserId" | "startTime" | "endTime" | "title">>): Promise<void>;
+  createOpportunity(c: Company, input: OpportunityWrite & { contactId: string }): Promise<{ id: string }>;
+  updateOpportunity(c: Company, id: string, patch: Partial<OpportunityWrite>): Promise<void>;
 }
+/** A pipeline card as the CRM sees it. `customFields` are CRM field ids with already-rendered values. */
+export type OpportunityWrite = { pipelineId: string; stageId: string; name: string; status: "open" | "won" | "lost" | "abandoned"; assignedUserId?: string; customFields?: { id: string; field_value: string }[] };
 export type SendResult = { externalId: string; accepted: boolean; error?: string };
 export interface Sender {
   sendSms(c: Company, contactId: string, body: string): Promise<SendResult>;

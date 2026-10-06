@@ -19,6 +19,7 @@ function label(n: Node): string {
     case "note": return "internal note";
     case "update_appointment": return `appointment → ${Object.values(n.set).join(", ")}`;
     case "update_opportunity": return "update opportunity";
+    case "create_opportunity": return `pipeline card: ${trunc(esc(n.name))}`;
     case "set_var": return `set ${n.key}`;
     case "start_workflow": return `start "${n.workflow}"`;
     case "pause_runs": return "pause other runs";

@@ -148,6 +148,9 @@ create table opportunities (
   company_id          uuid not null references companies(id),
   contact_id          uuid not null references contacts(id),
   ghl_opportunity_id  text,
+  name                text,                             -- the card's name as the CRM shows it
+  ghl_pipeline_id     text,                             -- which CRM pipeline the card sits in
+  ghl_stage_id        text,                             -- and which stage
   status              text not null default 'open' check (status in ('open','won','lost')),
   opened_at           timestamptz not null default now(),
   opened_by           text not null,                    -- rule or event that opened it

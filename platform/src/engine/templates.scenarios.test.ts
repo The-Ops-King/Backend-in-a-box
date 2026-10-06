@@ -18,6 +18,7 @@ process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const TZ = "America/Phoenix";
 const sent: { kind: string; to: string; body: string }[] = [];
 const tags: string[] = [];
+const oppWrites: Record<string, unknown>[] = [];
 let liveStatus = "confirmed";
 const apptStore = new Map<string, AppointmentSnapshot>();   // what GHL "has" for each appointment the tests book
 const fake: Adapters = {
@@ -29,7 +30,9 @@ const fake: Adapters = {
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [],
     getAppointment: async (_c, id) => { const a = apptStore.get(id); return a ? { ...a, status: liveStatus } : null; },
     listCalendars: async () => [{ id: "CAL", name: "Closer Call", teamMemberIds: ["U1"] }] }; return { ghl: b, calendly: b }; })(),
-  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {} },
+  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {},
+    createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; },
+    updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); } },
   sender: {
     sendSms: async (_c, to, body) => { sent.push({ kind: "sms", to, body }); return { externalId: `s${sent.length}`, accepted: true }; },
     sendEmail: async (_c, to, subject, html) => { sent.push({ kind: "email", to, body: `${subject}|${html}` }); return { externalId: `e${sent.length}`, accepted: true }; },
@@ -50,6 +53,7 @@ const newContact = async (ghlId: string, email: string) => asOperator(async (c) 
   await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3)", [companyId, id, email]);
   return id;
 });
+const withPhone = (contactId: string, phone: string) => asOperator((c) => c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'phone',$3)", [companyId, contactId, phone]));
 const inbound = (contactId: string, body: string) => asOperator((c) => c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,$3,'sms','inbound',$4,now())", [companyId, contactId, `m${Math.random()}`, body]));
 let companyId: string;
 
@@ -63,10 +67,11 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
         for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "form_submissions", "forms", "appointments", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
         await c.query("delete from companies where id=$1", [co.id]); }
     });
-    const r = await installCompany({ name: "Scenarios", slug: "scn", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live" }, fake);
+    const r = await installCompany({ name: "Scenarios", slug: "scn", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live",
+      crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE" } }, fake);
     companyId = r.companyId;
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
-    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(9);
+    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(10);
   });
 
   it("speed-to-lead: email + SMS now; a reply → tag engaged; silence → second email", async () => {
@@ -202,6 +207,31 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const evs = await asOperator((c) => many(c, "select 1 from events where contact_id=$1 and event_type='payment.received'", [id]));
     expect(evs).toHaveLength(1);
     await tick(fake);   // flush the one run this started so later tests' send counts are their own
+  });
+
+  it("new-lead: a lead with a phone gets a setter-pipeline card named 'Name -- New' with today's stage date, and the tag stat-new; without a phone, the run exits no_phone", async () => {
+    const withNum = await newContact("CNL1", "nl1@x.com"); await withPhone(withNum, "+16025550101");
+    await asOperator((c) => c.query("update contacts set first_name='Edwin', last_name='Ruh' where id=$1", [withNum]));
+    const noNum = await newContact("CNL2", "nl2@x.com");
+    for (const id of [withNum, noNum]) await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: {} }), { contact: { id } }));
+    const nTags = tags.length, nOpps = oppWrites.length;
+    await tick(fake);
+    const runs = await runsFor("new-lead");
+    expect(runs.find((r) => r.contact_id === withNum)).toMatchObject({ status: "completed", exit_reason: "done" });
+    expect(runs.find((r) => r.contact_id === noNum)).toMatchObject({ status: "completed", exit_reason: "no_phone" });
+    const created = oppWrites.slice(nOpps);
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({ op: "create", contactId: "CNL1", pipelineId: "PIPE-SETTER", stageId: "STAGE-NEW", name: "Edwin Ruh -- New", status: "open" });
+    expect((created[0].customFields as { id: string; field_value: string }[])[0]).toEqual({ id: "CF-STAGE-DATE", field_value: DateTime.now().setZone(TZ).toFormat("yyyy-MM-dd") });
+    expect(tags.slice(nTags)).toEqual(["stat-new"]);
+    const opp = await asOperator((c) => one<{ name: string; ghl_opportunity_id: string; ghl_pipeline_id: string; ghl_stage_id: string; status: string }>(c, "select name, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, status from opportunities where company_id=$1 and contact_id=$2", [companyId, withNum]));
+    expect(opp).toMatchObject({ name: "Edwin Ruh -- New", ghl_pipeline_id: "PIPE-SETTER", ghl_stage_id: "STAGE-NEW", status: "open" }); expect(opp!.ghl_opportunity_id).toMatch(/^ghl-opp-/);
+    expect(await asOperator((c) => many(c, "select 1 from opportunities where company_id=$1 and contact_id=$2", [companyId, noNum]))).toHaveLength(0);
+    // the same lead firing again updates the one card instead of creating a second
+    await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: withNum, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "form", data: {} }), { contact: { id: withNum } }));
+    await tick(fake);
+    expect(oppWrites.slice(nOpps).map((w) => w.op)).toEqual(["create", "update"]);
+    expect(await asOperator((c) => many(c, "select 1 from opportunities where company_id=$1 and contact_id=$2", [companyId, withNum]))).toHaveLength(1);
   });
 
   it("sms_enabled=false: SMS nodes are suppressed and the run continues", async () => {

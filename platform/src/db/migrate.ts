@@ -33,6 +33,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
       await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_source_external_id_key`);
       await c.query(`alter table ${t} add constraint ${t}_company_id_source_external_id_key unique (company_id, source, external_id)`);
     }
+    for (const col of ["name text", "ghl_pipeline_id text", "ghl_stage_id text"]) await c.query(`alter table opportunities add column if not exists ${col}`);
     await c.query(`alter table calendars add column if not exists self_booked boolean`);
     await c.query(`alter table calendars add column if not exists booking_url text`);
     await c.query(`alter table contacts drop constraint if exists contacts_timezone_source_check`);
