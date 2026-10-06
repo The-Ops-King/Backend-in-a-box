@@ -4,6 +4,7 @@ import { extractManifest, parseDefinition, indexDefinition } from "./definition"
 import { templates } from "@/templates";
 import { bookingFor, type Adapters, type BookingConfig, type Company } from "@/adapters/types";
 import { calendlyUserByEmail, calendlyWhoAmI } from "@/adapters/calendly/read";
+import { loadCompany } from "./context";
 
 /** A calendar's mapping: the kind of call it books, and optionally whether every booking on it is self-booked (true) or setter-booked (false). */
 export type CalendarMapping = string | { term: string; selfBooked?: boolean };
@@ -25,8 +26,16 @@ export type InstallInput = {
 export async function installCompany(input: InstallInput, adapters: Adapters): Promise<{ companyId: string; calendars: string[]; installed: string[] }> {
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   const calMap: Record<string, { term: string; selfBooked?: boolean }> = Object.fromEntries(Object.entries(input.calendars ?? {}).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
-  // resolve the booking source outside the transaction: it talks to Calendly
+  // resolve the booking source outside the transaction: it talks to Calendly.
+  // Omitting `booking` on a re-install keeps whatever the company already uses; it never silently flips it back to GHL.
   let booking: BookingConfig = { source: "ghl" };
+  if (!input.booking) {
+    const prior = await asOperator(async (c) => {
+      const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [input.slug]);
+      return co ? (await loadCompany(c, co.id).catch(() => null))?.adapterCompany.booking ?? null : null;
+    });
+    if (prior) booking = prior;
+  }
   if (input.booking?.source === "calendly") {
     const me = await calendlyWhoAmI(input.booking.token);
     const user = input.booking.userEmail ? await calendlyUserByEmail(input.booking.token, me.organization, input.booking.userEmail) : undefined;

@@ -4,6 +4,7 @@ import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { pollAll } from "@/engine/poll";
+import { installCompany } from "@/engine/install";
 import type { Adapters, AppointmentSnapshot, ContactSnapshot } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -85,6 +86,14 @@ describe.skipIf(!process.env.DATABASE_URL)("Calendly as the booking source", () 
     expect(r.appointmentsChanged).toBe(1);
     const last = (await evTypes()).at(-1)!;
     expect(last.event_type).toBe("appointment.status_changed"); expect(last.data.status).toEqual({ from: "confirmed", to: "cancelled" });
+  });
+
+  it("re-installing without a booking block keeps the company on Calendly; its event types stay active", async () => {
+    const r = await installCompany({ name: "CAL", slug: "cal", timezone: "America/New_York", locationId: "L", pit: "p", calendars: { ET1: "closing" }, templates: ["new-lead"] }, fake);
+    expect(r.calendars).toEqual(['"45 Min Strategy Call" → closing']);
+    const cals = await asOperator((c) => many<{ source: string; active: boolean }>(c, "select source, active from calendars where company_id=$1", [companyId]));
+    expect(cals).toEqual([{ source: "calendly", active: true }]);
+    expect(await asOperator((c) => one(c, "select 1 from bindings where company_id=$1 and key='secret.calendly_token'", [companyId]))).toBeTruthy();
   });
 
   it("a booking with no usable identity is skipped rather than inventing a contact", async () => {
