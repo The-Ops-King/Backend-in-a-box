@@ -73,8 +73,10 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const n = since(); await tick(fake);
     expect(sent.slice(n).map((s) => s.kind).sort()).toEqual(["email", "email", "sms", "sms"]);
     let rs = await runsFor("speed-to-lead"); expect(rs.map((r) => r.current_node)).toEqual(["n3", "n3"]);
-    await inbound(a, "yes let's talk"); await wake(rs[0].id);
-    await expireReplyWait(rs[1].id, "n3");
+    // both runs were inserted in one transaction and share started_at, so never rely on rs[0]/rs[1] order: pick by contact
+    const runA = rs.find((r) => r.contact_id === a)!, runB = rs.find((r) => r.contact_id === b)!;
+    await inbound(a, "yes let's talk"); await wake(runA.id);
+    await expireReplyWait(runB.id, "n3");
     const n2 = since(); await tick(fake);
     rs = await runsFor("speed-to-lead");
     expect(rs.find((r) => r.contact_id === a)?.exit_reason).toBe("replied"); expect(tags).toContain("engaged");
