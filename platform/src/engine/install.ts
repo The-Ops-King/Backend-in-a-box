@@ -67,6 +67,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     for (const unknownId of Object.keys(calMap).filter((id) => !listed.some((k) => k.id === id))) calendarsOut.push(`mapping for ${unknownId} matches no calendar at the booking source`);
     // calendars of the other source go quiet rather than being deleted: their appointments and history stay
     await c.query("update calendars set active=false where company_id=$1 and source<>$2", [companyId, booking.source]);
+    await c.query("delete from poll_cursors where company_id=$1 and entity like 'appointments:%' and split_part(entity, ':', 2) in (select external_id from calendars where company_id=$1 and not active)", [companyId]);
     const closerCal = input.closerCall ?? Object.entries(calMap).find(([, m]) => m.term === "closing")?.[0];
     if (closerCal) await bind("calendar.closer_call", "id", closerCal);
     const bookingCal = input.bookingCalendar ?? Object.entries(calMap).find(([, m]) => m.term === "first_call")?.[0] ?? closerCal;
