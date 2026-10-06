@@ -4,7 +4,10 @@ import { RunsTable } from "@/ui/RunsTable";
 import { ago, badge, when } from "@/ui/format";
 export const dynamic = "force-dynamic";
 export default async function Home() {
-  const [companies, stats, runs, state] = await Promise.all([listCompanies(), globalStats(), recentRuns(undefined, 15), engineState()]);
+  let data: [Awaited<ReturnType<typeof listCompanies>>, Awaited<ReturnType<typeof globalStats>>, Awaited<ReturnType<typeof recentRuns>>, Awaited<ReturnType<typeof engineState>>];
+  try { data = await Promise.all([listCompanies(), globalStats(), recentRuns(undefined, 15), engineState()]); }
+  catch (e) { return <Setup error={String((e as Error).message)} />; }
+  const [companies, stats, runs, state] = data;
   return (<>
     <h1>Engine</h1>
     <p className="sub">Last scheduler tick {state?.value.last_tick ? ago(state.value.last_tick) : "never"}{state?.value.recovery ? " · in recovery mode" : ""}</p>
@@ -21,5 +24,21 @@ export default async function Home() {
     </tbody></table>}
     <h2>Recent runs</h2>
     <RunsTable runs={runs} />
+  </>);
+}
+
+function Setup({ error }: { error: string }) {
+  const noUrl = !process.env.DATABASE_URL;
+  return (<>
+    <h1>Engine</h1>
+    <p className="sub">Deployed, not configured yet.</p>
+    <div className="card" style={{ maxWidth: 720 }}>
+      <h2 style={{ marginTop: 0 }}>What's missing</h2>
+      <ol style={{ lineHeight: 1.9, paddingLeft: 20 }}>
+        <li><strong>Database</strong> — {noUrl ? <>no <code>DATABASE_URL</code>. In Vercel: project → Storage → Create → Postgres. It sets the variable; redeploy.</> : <>connection failed: <code>{error}</code></>}</li>
+        <li><strong>Migrate</strong> — <code>POST /api/admin/migrate</code> with <code>Authorization: Bearer CRON_SECRET</code>.</li>
+        <li><strong>Install a company</strong> — <code>POST /api/admin/install</code> with the company JSON, same header. Workflows install off.</li>
+      </ol>
+    </div>
   </>);
 }
