@@ -1,0 +1,126 @@
+/**
+ * End to end against a real Postgres (DATABASE_URL) with fake adapters:
+ * install → appointment.booked → dispatch → tick → the confirmation email goes out via the idempotent sends ledger,
+ * and a second tick does NOT send it again. Then: reply → classify (fake Jev) → branch → tag.
+ */
+import { describe, it, expect, beforeAll } from "vitest";
+import { DateTime } from "luxon";
+import { asOperator, db, one, many } from "@/db/client";
+import { migrate } from "@/db/migrate";
+import { encrypt } from "@/engine/crypto";
+import { parseDefinition, extractManifest, indexDefinition } from "@/engine/definition";
+import { templates } from "@/templates";
+import type { Adapters, AppointmentSnapshot, Classification } from "@/adapters/types";
+import { applyAppointment } from "@/engine/poll";
+import { loadCompany } from "@/engine/context";
+import { tick } from "@/engine/runner";
+
+const HAS_DB = !!process.env.DATABASE_URL;
+process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
+
+const sent: { kind: string; to: string; body: string }[] = [];
+const tags: string[] = [];
+let liveStatus = "confirmed";
+// two days out at 2pm Phoenix, so "morning of" is genuinely in the future
+const APPT_START = DateTime.now().setZone("America/Phoenix").plus({ days: 2 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
+const fake: Adapters = {
+  read: {
+    contactsChangedSince: async () => [], appointmentsInWindow: async () => [], inboundSince: async () => [], opportunitiesSince: async () => [],
+    getAppointment: async (_c, id) => ({ id, calendarId: "CAL1", contactId: "GHLC1", startTime: APPT_START.toISO()!, endTime: APPT_START.plus({ minutes: 30 }).toISO()!, status: liveStatus, raw: {} }),
+    getContact: async () => null, listCalendars: async () => [], listUsers: async () => [{ id: "GHLU1", name: "Sam Closer", email: "sam@x.com" }],
+  },
+  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {} },
+  sender: {
+    sendSms: async (_c, to, body) => { sent.push({ kind: "sms", to, body }); return { externalId: `sms-${sent.length}`, accepted: true }; },
+    sendEmail: async (_c, to, subject, html) => { sent.push({ kind: "email", to, body: `${subject}|${html}` }); return { externalId: `em-${sent.length}`, accepted: true }; },
+    deliveryStatus: async () => ({ status: "sent" }),
+  },
+  classifier: { choice: async (_s, input): Promise<Classification> => /yes|see you/i.test(input) ? { value: "confirmed", confidence: 0.96, distribution: { confirmed: 0.96 }, unclear: false } : { value: "unclear", confidence: 0.3, distribution: { unclear: 0.3 }, unclear: true } },
+  notifier: { post: async () => ({ ts: "1" }) },
+};
+
+describe.skipIf(!HAS_DB)("engine end to end", () => {
+  let companyId: string, contactId: string, apptId: string;
+  beforeAll(async () => {
+    await migrate();
+    await db().query("create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())");
+    await asOperator(async (c) => {
+      const co = await one<{ id: string }>(c, "select id from companies where slug='e2e'");
+      if (co) {
+        await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]);
+        await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
+        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "appointments", "opportunities", "calendars", "contact_identifiers", "intake", "form_submissions", "forms", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"])
+          await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+      }
+      await c.query("delete from companies where slug='e2e'");
+      companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, send_window_start, send_window_end) values ('E2E','e2e','America/Phoenix','00:00','23:59') returning id"))!.id;
+      await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories", [companyId]);
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'calendar.closer_call','id',$4)", [companyId, Buffer.from("LOC1"), encrypt("pit-fake"), Buffer.from("CAL1")]);
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      await c.query("insert into calendars (company_id, ghl_calendar_id, name, appointment_term) values ($1,'CAL1','Closer Call',$2)", [companyId, term]);
+      contactId = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, timezone) values ($1,'GHLC1','Jamie','America/Phoenix') returning id", [companyId]))!.id;
+      for (const t of templates) {
+        const def = parseDefinition(t.definition), manifest = extractManifest(def);
+        const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,$2,$3,true) returning id", [companyId, t.name, def.reentry]))!;
+        await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [wf.id, t.definition, manifest]);
+        for (const trig of indexDefinition(def).triggers) await c.query("insert into workflow_triggers (company_id, workflow_id, node_id, event_type, match) values ($1,$2,$3,$4,$5)", [companyId, wf.id, trig.id, trig.event, trig.match ?? {}]);
+      }
+    });
+  });
+
+  it("a booked appointment starts both workflows; confirmation email sends once; reminder waits", async () => {
+    const snap: AppointmentSnapshot = { id: "GHLA1", calendarId: "CAL1", contactId: "GHLC1", assignedUserId: "GHLU1", startTime: APPT_START.toISO()!, endTime: APPT_START.plus({ minutes: 30 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {} };
+    await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snap); });
+    const runs = await asOperator((c) => many<{ id: string; status: string; appointment_id: string }>(c, "select id, status, appointment_id from runs where company_id=$1", [companyId]));
+    expect(runs).toHaveLength(2); apptId = runs[0].appointment_id;
+    const opp = await asOperator((c) => one(c, "select id from opportunities where company_id=$1 and status='open'", [companyId]));
+    expect(opp).toBeTruthy();  // lifecycle: first booking opened an opportunity
+    const auto = await asOperator((c) => one<{ claimed_at: null }>(c, "select claimed_at from users where company_id=$1 and ghl_user_id='GHLU1'", [companyId]));
+    expect(auto?.claimed_at).toBeNull();  // unclaimed user auto-created from roster
+
+    const r1 = await tick(fake);
+    expect(r1.claimed).toBe(2); expect(r1.completed).toBe(1); expect(r1.waiting).toBe(1);
+    expect(sent.filter((s) => s.kind === "email")).toHaveLength(1);
+    expect(sent[0].body).toMatch(/You're booked/);
+
+    const r2 = await tick(fake);   // nothing due; the reminder is waiting on its rule
+    expect(r2.claimed).toBe(0); expect(sent).toHaveLength(1);
+  });
+
+  it("reply → classify → branch → tag; idempotency ledger has every send once", async () => {
+    // fast-forward the reminder's wait: pretend the rule fired and a reply arrived
+    await asOperator(async (c) => {
+      await c.query("update runs set next_run_at=now(), current_node='n2' where company_id=$1 and status='waiting'", [companyId]);
+      await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'M1','sms','inbound','yes see you then',now())", [companyId, contactId]);
+    });
+    const r = await tick(fake);                       // n2 sends the reminder SMS, n3 waits 4h
+    expect(sent.filter((s) => s.kind === "sms")).toHaveLength(1);
+    expect(sent.at(-1)!.body).toMatch(/Jamie.*Sam.*at 2pm/);
+    await asOperator((c) => c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting'", [companyId]));
+    const r3 = await tick(fake);                      // n4 check (reply exists) → n5 classify → n6 branch → n7 tag → x1
+    expect(r3.completed).toBe(1);
+    expect(tags).toContain("confirmed");
+    const run = await asOperator((c) => one<{ exit_reason: string }>(c, "select r.exit_reason from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name like 'Appointment reminder%'", [companyId]));
+    expect(run?.exit_reason).toBe("confirmed");
+    const ledger = await asOperator((c) => many<{ idempotency_key: string; status: string }>(c, "select idempotency_key, status from sends where company_id=$1 order by scheduled_for", [companyId]));
+    expect(new Set(ledger.map((l) => l.idempotency_key)).size).toBe(ledger.length);
+    const cls = await asOperator((c) => one<{ data: { intent: string } }>(c, "select data from events where company_id=$1 and event_type='reply.classified'", [companyId]));
+    expect(cls?.data.intent).toBe("confirmed");
+  });
+
+  it("premise check: a cancelled appointment exits the run instead of sending", async () => {
+    liveStatus = "cancelled";
+    await asOperator(async (c) => {
+      await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [companyId]);
+      await c.query("delete from sends where company_id=$1", [companyId]);
+      await c.query("delete from runs where company_id=$1", [companyId]);
+      const wf = await one<{ id: string }>(c, "select id from workflows where company_id=$1 and name like 'Appointment reminder%'", [companyId]);
+      await c.query("insert into runs (company_id, workflow_id, workflow_version, contact_id, appointment_id, status, current_node, next_run_at, context, reentry_key) values ($1,$2,1,$3,$4,'waiting','n2',now(),'{}','appointment:again')", [companyId, wf!.id, contactId, apptId]);
+    });
+    const before = sent.length;
+    const r = await tick(fake);
+    expect(r.exited).toBe(1); expect(sent.length).toBe(before);
+    const run = await asOperator((c) => one<{ exit_reason: string }>(c, "select exit_reason from runs where company_id=$1 and reentry_key='appointment:again'", [companyId]));
+    expect(run?.exit_reason).toMatch(/moot: appointment cancelled/);
+  });
+});

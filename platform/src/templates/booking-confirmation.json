@@ -1,0 +1,17 @@
+{
+  "slug": "booking-confirmation",
+  "name": "Booking confirmation",
+  "category": "reminders",
+  "description": "Immediate confirmation email when any appointment is booked.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_appointment",
+    "premise": { "check": "appointment_exists" },
+    "nodes": [
+      { "id": "t1", "type": "trigger", "event": "appointment.booked" },
+      { "id": "n1", "type": "send_email", "subject": "You're booked: {{appointment.starts_at | date:ccc, LLL d 'at' h:mma}}", "template": "<p>Hey {{contact.first_name}},</p><p>You're confirmed for {{appointment.starts_at | date:cccc, LLLL d 'at' h:mma}} with {{appointment.closer.first_name}}.</p><p>Talk soon.</p>", "validity": { "anchor": "before_event", "min_lead": "5m" }, "on_stale": "skip" },
+      { "id": "x1", "type": "exit", "reason": "sent" }
+    ],
+    "edges": [ { "from": "t1", "to": "n1" }, { "from": "n1", "to": "x1" } ]
+  }
+}

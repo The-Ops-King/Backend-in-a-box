@@ -1,0 +1,50 @@
+import { describe, it, expect } from "vitest";
+import { parseDefinition, extractManifest } from "./definition";
+import { reentryKey } from "./reentry";
+import { evaluate } from "./predicate";
+import { templates } from "@/templates";
+
+describe("definitions", () => {
+  it("every shipped template parses and extracts a manifest", () => {
+    for (const t of templates) {
+      const def = parseDefinition(t.definition);
+      const m = extractManifest(def);
+      expect(m.bindings.find((b) => b.key === "crm.location_id")?.required).toBe(true);
+      if (t.slug === "appointment-reminder") {
+        expect(m.bindings.map((b) => b.key)).toEqual(["calendar.closer_call", "crm.location_id", "slack.channel.closers"]);
+        expect(m.bindings.find((b) => b.key === "slack.channel.closers")?.required).toBe(false);
+        expect(m.bindings.find((b) => b.key === "calendar.closer_call")?.resolves).toBe("calendars");
+      }
+    }
+  });
+  it("rejects an edge to a missing node, a workflow with no trigger, duplicate ids", () => {
+    const base = { schema: 1, reentry: "always", nodes: [{ id: "t", type: "trigger", event: "x" }, { id: "e", type: "exit", reason: "r" }], edges: [{ from: "t", to: "e" }] };
+    expect(() => parseDefinition(base)).not.toThrow();
+    expect(() => parseDefinition({ ...base, edges: [{ from: "t", to: "nope" }] })).toThrow(/not a node/);
+    expect(() => parseDefinition({ ...base, nodes: base.nodes.slice(1) })).toThrow(/trigger/);
+    expect(() => parseDefinition({ ...base, nodes: [...base.nodes, { id: "t", type: "exit", reason: "dup" }] })).toThrow(/duplicate/);
+  });
+});
+
+describe("predicates", () => {
+  const ctx = { reply: { intent: "confirmed" }, appointment: { term: { category: "closing" } }, n: 5 };
+  it("eq/in/and/or/not/exists with {{refs}}", () => {
+    expect(evaluate({ eq: ["{{reply.intent}}", "confirmed"] }, ctx)).toBe(true);
+    expect(evaluate({ in: ["{{appointment.term.category}}", ["closing", "follow_up"]] }, ctx)).toBe(true);
+    expect(evaluate({ and: [{ gt: ["{{n}}", 3] }, { not: { exists: "reply.nope" } }] }, ctx)).toBe(true);
+    expect(evaluate({ or: [{ eq: ["{{reply.intent}}", "cancelled"] }, { lt: ["{{n}}", 1] }] }, ctx)).toBe(false);
+  });
+});
+
+describe("reentry keys (D4)", () => {
+  const i = { contactId: "c1", appointmentId: "a1", opportunityId: "o1", eventId: 9, now: new Date("2026-10-06T00:00:00Z") };
+  it("per policy", () => {
+    expect(reentryKey({ reentry: "once_per_contact" }, i)).toBe("contact:c1");
+    expect(reentryKey({ reentry: "once_per_appointment" }, i)).toBe("appointment:a1");
+    expect(reentryKey({ reentry: "once_per_appointment" }, { ...i, appointmentId: null })).toBe("contact:c1");
+    expect(reentryKey({ reentry: "always" }, i)).toBe("event:9");
+    const w1 = reentryKey({ reentry: "once_per_contact_per_window", reentry_window: "90d" }, i);
+    const w2 = reentryKey({ reentry: "once_per_contact_per_window", reentry_window: "90d" }, { ...i, now: new Date("2026-10-20T00:00:00Z") });
+    expect(w1).toBe(w2);
+  });
+});

@@ -1,0 +1,42 @@
+{
+  "slug": "appointment-reminder",
+  "name": "Appointment reminder with reply handling",
+  "category": "reminders",
+  "description": "Morning-of reminder (evening-before fallback for early calls), reply classified, four-way branch.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_appointment",
+    "premise": { "check": "appointment_in_future" },
+    "nodes": [
+      { "id": "t1", "type": "trigger", "event": "appointment.booked", "match": { "eq": ["{{appointment.term.category}}", "closing"] } },
+      { "id": "n1", "type": "wait", "rule": { "anchor": "appointment.starts_at", "offset": "day_of@08:00", "tz": "contact", "guard": { "min_lead": "2h", "fallback": "day_before@19:00" } } },
+      { "id": "n2", "type": "send_sms", "template": "Hey {{contact.first_name}}, your call with {{appointment.closer.first_name}} is {{appointment.starts_at | relative:auto}}. Reply YES to confirm or let me know if you need to move it.", "validity": { "anchor": "before_event", "min_lead": "15m" }, "on_stale": "skip" },
+      { "id": "n3", "type": "wait", "rule": { "anchor": "now", "offset": "+4h" } },
+      { "id": "n4", "type": "check", "when": { "exists": "reply.last_inbound.body" }, "else_exit": "no_reply" },
+      { "id": "n5", "type": "classify", "input": "{{reply.last_inbound.body}}", "state": "{{reply.last_outbound.body | default:}}", "domain": "reply_intent", "threshold": 0.8, "into": "reply.intent" },
+      { "id": "n6", "type": "branch" },
+      { "id": "n7", "type": "set_tag", "tag": "confirmed" },
+      { "id": "n8", "type": "update_appointment", "set": { "status": "cancelled" } },
+      { "id": "n9", "type": "slack_post", "channel": "{{slack.channel.closers}}", "template": "{{contact.first_name}} cancelled their call {{appointment.starts_at | relative:auto}}." },
+      { "id": "n10", "type": "send_sms", "template": "No problem — grab a new time here: {{calendar.closer_call.url}}" },
+      { "id": "n11", "type": "set_tag", "tag": "needs-human-reply" },
+      { "id": "n12", "type": "note", "template": "[engine] Couldn't classify reply (top guesses: {{reply.top_guesses}}). Needs a human.\nOriginal: {{reply.last_inbound.body}}" },
+      { "id": "n13", "type": "pause_runs", "scope": "contact" },
+      { "id": "x1", "type": "exit", "reason": "confirmed" },
+      { "id": "x2", "type": "exit", "reason": "cancelled" },
+      { "id": "x3", "type": "exit", "reason": "reschedule_sent" },
+      { "id": "x4", "type": "exit", "reason": "handed_to_human" },
+      { "id": "x5", "type": "exit", "reason": "no_reply" }
+    ],
+    "edges": [
+      { "from": "t1", "to": "n1" }, { "from": "n1", "to": "n2" }, { "from": "n2", "to": "n3" }, { "from": "n3", "to": "n4" },
+      { "from": "n4", "to": "n5" }, { "from": "n5", "to": "n6" },
+      { "from": "n6", "to": "n7",  "when": { "eq": ["{{reply.intent}}", "confirmed"] } },
+      { "from": "n6", "to": "n8",  "when": { "eq": ["{{reply.intent}}", "cancelled"] } },
+      { "from": "n6", "to": "n10", "when": { "eq": ["{{reply.intent}}", "reschedule_request"] } },
+      { "from": "n6", "to": "n11", "else": true },
+      { "from": "n7", "to": "x1" }, { "from": "n8", "to": "n9" }, { "from": "n9", "to": "x2" },
+      { "from": "n10", "to": "x3" }, { "from": "n11", "to": "n12" }, { "from": "n12", "to": "n13" }, { "from": "n13", "to": "x4" }
+    ]
+  }
+}
