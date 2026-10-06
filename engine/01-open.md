@@ -105,15 +105,13 @@ is a divergence a blocking state (can't take template updates until resolved) or
 (update anyway, keep a backup)? **Recommend advisory with an explicit diff confirmation** —
 blocking means a client's small tweak freezes them out of every future fix.
 
-## 10. Thin-workflow delivery — verify in the GHL UI (can't be tested by API)
-Marketplace app is parked per Tyler. The thin-workflow path (D9) needs three things confirmed by
-building one in the template location:
-- The **Contact Changed** trigger exists on the client's plan and can filter by field.
-- The Webhook action's payload carries **custom field values**, not just the contact id.
-- Whether the Webhook action is billed as a **premium action** on the target plan, and at what
-  rate — this is a per-install cost line if so.
-Also: what the POST looks like when it fails (does GHL retry?), which sets how much the sweep
-has to carry.
+## 10. ~~Delivery~~ — SETTLED: polling only (D9). Remaining edge cases
+- **Deletion detection.** An appointment that leaves the polled window is a cancellation; a
+  contact that stops appearing in search needs a periodic full-list diff (daily is fine).
+- **A → B → A inside one interval** is invisible. Accept it; document it.
+- **Cursor durability.** Cursors live in the DB with the run state, so an outage resumes from the
+  last cursor rather than re-scanning. Verify the contacts `range` filter is inclusive on `gte`
+  so a cursor set to the last seen `dateUpdated` can't skip a same-millisecond record.
 
 ## 11. Jev threshold tuning
 The confidence cutoff for `unclear` (D13) is a number that needs real replies to set. Start

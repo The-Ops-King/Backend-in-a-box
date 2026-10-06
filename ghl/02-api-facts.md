@@ -197,3 +197,27 @@ value you sent against the value you read.
 and lives in our backend. But because the field exists, a client's own team will use it in the
 GHL UI, which makes it a legitimate *trigger source* for us to read — and makes the PUT clobber
 bug above a risk to **their** data even though we never write ours there.
+
+---
+
+## Polling surface — incremental "what changed" per entity (verified 2026-10-06)
+
+Everything needed to detect change without any GHL workflow or marketplace app.
+
+| Entity | Call | Incremental by |
+|---|---|---|
+| Contacts | `POST /contacts/search` with `filters:[{field:"dateUpdated",operator:"range",value:{gte:ISO}}]`, `sort:[{field:"dateUpdated",direction:"desc"}]` | `dateUpdated` cursor |
+| Appointments | `GET /calendars/events?locationId&calendarId&startTime&endTime` (one call per calendar) | time window + `dateUpdated` diff |
+| Conversations | `GET /conversations/search?locationId&sortBy=last_message_date&sort=desc&lastMessageDirection=inbound` | last inbound message date |
+| Opportunities | `GET /opportunities/search?location_id&date=MM-DD-YYYY` (also `order=updatedAt`) | date + updatedAt diff |
+
+Operator gotchas: contacts search wants `operator:"range"` with a `{gte,lte}` object — a flat
+`gt`/`gte` is a 422 (`Invalid Operator`). Opportunities `date` is `MM-DD-YYYY`, not ISO.
+
+### Rate limits (from response headers)
+```
+x-ratelimit-max: 100            # burst
+x-ratelimit-interval-milliseconds: 10000
+x-ratelimit-limit-daily: 200000 # per location
+```
+A 1-minute poll of ~10 calls per client is ~14,400/day per location — 7% of the daily budget.

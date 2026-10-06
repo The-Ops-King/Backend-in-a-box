@@ -348,63 +348,60 @@ Typeform stays for client-facing intake where it's already working.
 
 ---
 
-## D9. Our DB stores everything we need. GHL stays the writer for its own facts. No push back.
+## D9. Nothing of ours lives in GHL's workflow builder. Polling is the delivery.
 
-Tyler, 2026-10-06: our DB is the total store of their data; it's truth for what we own and a
-faithful copy for what GHL owns; **we do not push into GHL**; if GHL updates, we get the update;
-avoid a marketplace app; don't store more than we need.
+Tyler, 2026-10-06: *"We are not doing GHL workflows. That's the point. This replaces the shitty
+GHL workflows."* Correct, and it holds up technically — checked rather than assumed.
 
-### No push to GHL
-Our data — intake answers, outcomes, pains and goals — is seen in **our** dashboard and forms,
-not written into GHL custom fields. Simpler, and it removes an entire write path. The one
-consequence worth saying out loud: a closer looking at the GHL contact card won't see intake
-answers there. They see them in our call prep view. If that turns out to hurt, revisit; it's
-cheap to add later and expensive to maintain from day one.
+**Outbound: every action we take is an API call.** Send SMS and email, add and remove tags,
+write notes, create and update appointments, update contacts and opportunities. All verified in
+`../ghl/02-api-facts.md`. No GHL workflow is ever the thing that sends.
 
-### Delivery without a marketplace app: thin GHL workflows, shipped in the snapshot
-Each is one trigger and one action: **trigger → Webhook action → POST to our endpoint** with
-the client's secret. Built once in the template location, so every install gets them.
+**Inbound: every change we care about is detectable by polling.** Each entity has an
+incremental "what changed since my cursor" call — contacts by `dateUpdated` range, appointments
+per calendar by time window, conversations sorted by last inbound message, opportunities by
+date. Verified. The engine keeps a cursor per `(client, entity)`, polls on the scheduler tick,
+diffs against the replica, and emits events. A GHL workflow with a Webhook action was the
+earlier plan; it is out, and so is the marketplace app.
 
-| Thin workflow | GHL trigger |
-|---|---|
-| Contact created / changed | Contact Created · Contact Changed |
-| Tag added / removed | Contact Tag |
-| Appointment booked / status changed | Appointment Status |
-| Pipeline stage changed | Pipeline Stage Changed |
-| Inbound message | Customer Replied |
-| Form submitted (GHL-native forms, if any) | Form Submitted |
-| Opportunity status changed | Opportunity Status Changed |
-| Payment received / failed | Payment Received · Invoice Failed (plan-dependent) |
+**Why polling is enough here, with numbers:**
+- About 10 calls per client per minute (1 contacts search + ~6 calendars + 1 conversations +
+  1 opportunities). GHL allows 100 per 10 seconds burst and 200,000 per day per location;
+  a 1-minute poll uses ~7% of the daily budget.
+- At 10 clients that's ~100 calls a minute from one scheduler tick, finishing in well under the
+  function cap.
+- **The 60-second floor doesn't hurt anything that needs to be fast**, because the fast things
+  don't come from GHL: form submissions hit us directly (D8), Whop payment events hit us
+  directly, our own disposition forms write to us directly. GHL-originated changes — a booking
+  on their calendar page, a reply, a status a closer set in the UI — all tolerate a minute.
 
-Costs, named: the Webhook action is a **premium action on some GHL plans with per-execution
-billing** — verify on the client's plan before the install SOP depends on it. These are built in
-the GHL UI (no API create), which the snapshot absorbs. If a client's admin deletes or edits one,
-events go silent — the sweep notices the silence and alerts.
+**Polling and the reconciliation sweep are now the same mechanism.** One, not two. The sweep
+was always "re-read and diff"; polling is just that on a one-minute cadence. Simpler than
+webhooks-plus-sweep, and nothing to go silent.
 
-Marketplace app is **parked**, not dead: it's the upgrade path if thin workflows ever prove
-too coarse or too expensive at scale.
+**Costs, named so they're chosen rather than discovered:**
+- Latency floor is the poll interval. Acceptable per above.
+- A value that flips A → B → A inside one interval is missed. Rare, and our own writes cover the
+  cases that matter.
+- Deletions show up as absence, not as an event. Handle "appointment vanished from the window"
+  as a cancellation.
+- Cost is linear in clients. Fine to a few dozen; a marketplace app is the parked upgrade path
+  if it ever isn't.
 
-### The reconciliation sweep is still the correctness guarantee
-Webhooks are for freshness. The sweep re-reads and diffs on a slow cadence so a dropped POST is
-a delay, never permanent drift. **Premise checks (D5b) still read GHL live**, because a contact
-who cancelled thirty seconds ago must not get a reminder off a replica that hasn't heard yet.
+**Premise checks (D5b) still read GHL live.** A replica up to a minute stale must not send a
+reminder to someone who cancelled thirty seconds ago.
 
-### What we store, and what we don't
-"The entire GHL" is the wrong frame. We store the **structured fields of the events we
-subscribe to**, and that's small:
+### Nothing pushed back into GHL
+Our data is seen in our dashboard and forms, not GHL custom fields. One consequence to say once:
+the GHL contact card won't show intake answers; our call-prep view does. Cheap to add later if
+it ever hurts.
 
-| Store | Why |
-|---|---|
-| Contacts: id, name, email, phone, tags, custom field values, source | A few KB each. 20k contacts is tens of MB. |
-| Appointments: id, times, calendar, assigned user, status | Tiny. |
-| Opportunities: id, pipeline, stage, value | Tiny. |
-| SMS: metadata **and body** | Reply classification (D13) needs the text. |
-| Email: metadata and message id, **not the body** | HTML bodies are the one thing that bloats. Fetch on demand if ever needed. |
-| Recordings and transcripts: **pointer only** | Already decided in D1. |
-| GHL configuration (calendars, pipelines, users) | **Not stored.** Read through on demand; changes rarely, small. |
-
-A coaching business at 20k contacts and 100k messages lands well under a gigabyte. Postgres
-doesn't notice.
+### What we store: the journey, not the record
+See D15. Structured fields of what we poll (contacts, appointments, opportunities, tags — a few
+KB each), SMS bodies (the classifier needs them), email metadata and id but not the body,
+recordings as pointers, and **no GHL configuration at all** (calendars, pipelines, users are
+read through on demand). A business at 20k contacts and 100k messages lands well under a
+gigabyte.
 
 ### Custom, per-business data: `attributes` JSONB, schema owned by the form
 "How bad is your hair" exists on one offer and not another. It does not get a column. Our intake
@@ -434,13 +431,10 @@ group by 1 order by 1;
 Two attributes crossed (income band × severity → show rate) works the same way. A GIN index on
 `attributes` serves containment queries (`@>`); the planner uses it when the predicate is
 selective and correctly scans instead when a value matches a large share of rows (tested at 60k
-rows: "severity = severe" at one-third of rows scanned; a value on 3 rows used the index). If one
-attribute ever becomes hot across every client, promote it to a real column — standard practice,
-no redesign.
+rows). If one attribute ever becomes hot across every client, promote it to a real column.
 
 **Typed at the form, refused at ingest if wrong.** The correlation dies the moment one install
-stores `"4"` and another stores `4`. Human-entered GHL custom fields land in a separate
-`ghl_fields` JSONB on the contact replica so the ownership line stays visible in the schema.
+stores `"4"` and another stores `4`.
 
 ---
 
@@ -538,3 +532,78 @@ Tyler's two examples:
 Rules are **named and reusable** so the editor shows a dropdown (*Morning of · Evening before ·
 1 hour before · 24 hours before · Next business morning*) and a client can add their own. The
 send window (D5d) still applies after the rule, and the moot check (D5b) after that.
+
+---
+
+## D15. We store the journey, not the record
+
+Tyler: *"what happened with this client, rather than what were the specifics … this one
+self-booked, then confirmed they'd show up, then had a discovery call, then a closing call, then
+a follow-up call, then closed on a 4-pay, and they said their hair loss was minimal."*
+
+That sentence is the data model. Per contact, an ordered stream of events drawn from a
+**controlled vocabulary**:
+
+```
+contact_id · client_id · event_type · occurred_at · source · data (small jsonb)
+
+2026-09-30 14:02  lead.created          source=form        {form: "hair-intake", referral: "ig"}
+2026-09-30 14:02  intake.recorded       source=form        {hair_loss_level: 1, severity: "mild"}
+2026-09-30 14:09  appointment.booked    source=ghl_poll    {calendar: "setter-discovery", self_booked: true}
+2026-09-30 16:40  reply.classified      source=engine      {intent: "confirmed", confidence: 0.94}
+2026-10-01 10:00  call.held             source=disposition {type: "discovery", outcome: "qualified"}
+2026-10-01 10:31  appointment.booked    source=ghl_poll    {calendar: "closer-call", self_booked: false}
+2026-10-03 13:00  call.held             source=disposition {type: "closing", outcome: "follow_up"}
+2026-10-05 11:00  call.held             source=disposition {type: "follow_up", outcome: "closed"}
+2026-10-05 11:14  payment.received      source=whop        {plan: "4-pay", amount: 1250}
+```
+
+Read it top to bottom and you have the sentence. `SELECT … WHERE contact_id ORDER BY
+occurred_at` is the journey; join `intake.attributes` for "and they said their hair loss was
+minimal." This is the `events` table from D11, now stated as the center of storage rather than
+a side log.
+
+**Current state is derived.** "What stage is this person in?" is the last stage event. At this
+scale that's a query; if it ever isn't, a materialized `contact_state` view is a cache of the
+stream, never a second truth (D9).
+
+### Normalization: two layers, one promotion rule
+- **Core vocabulary — fixed, shared by every client and offer.** Event types, call types
+  (`discovery · closing · follow_up`), appointment outcomes (`showed · noshow · cancelled`),
+  disposition outcomes, payment plan types. This is what makes "show rate" mean the same thing
+  at Save Your Hair and Beauty Moguls. Not editable per client.
+- **Offer attributes — per offer, typed by the form.** `hair_loss_level` lives here. Can't be
+  cross-offer by nature.
+- **Promotion rule:** when an attribute turns out to be conceptually shared (income band,
+  urgency, decision-maker), it moves into the core vocabulary so it's comparable everywhere.
+  That's the mechanism behind "normalize as much as possible across offers" — deliberate, one
+  attribute at a time, never by guessing that two clients' labels mean the same thing.
+
+---
+
+## D16. The install is: upload, pick, done — then customize
+
+The product as Tyler stated it: *"upload their info and select the workflows they want, and
+they're done. AND then they can say 'I want X and Y and Z to happen.'"*
+
+1. **Upload their info** — the install form, generated from the manifests of the templates they
+   pick (D3). Credentials, calendar ids, send window, timezone, Slack channel, offer attributes.
+2. **Pick the workflows** — from the template library (D2). Each pick copies the template into
+   their tenant.
+3. **Done** — bindings validated, every copy enabled. Running.
+4. **Then "I want X and Y and Z"** — the editor (D17). Their copies, their edits, nothing shared.
+
+Nothing in this flow touches GHL's workflow builder, snapshots, or a marketplace install.
+
+---
+
+## D17. Everything a client might reasonably want to change is data in the definition
+
+Every SMS, every email, every Slack message, every wait rule, every branch condition, every tag
+name — stored as data in the workflow definition and editable in the editor. Message bodies are
+templates rendered at send time (D5a), so editing one changes what goes out from the next send
+onward, with no deploy.
+
+What isn't editable by a client: the core vocabulary (D15), the binding keys a template
+requires (D3), and the engine's safety behavior — moot checks, send window, idempotency. Those
+are the floor everything else stands on.
