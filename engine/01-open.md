@@ -4,7 +4,7 @@ Ordered by how much downstream work they block.
 
 ---
 
-## 1. Node type catalog (blocks the schema)
+## 1. ~~Node type catalog~~ — SETTLED in `02-data-model.md` §10
 The set of node types is the engine's instruction set. Adding one later is easy; changing
 what one *means* after runs exist is not. Current candidate set:
 
@@ -17,7 +17,7 @@ simpler to read in the editor; a trigger keeps the coupling one-directional and 
 receiving workflow change its entry conditions without the sender knowing. **Recommend
 trigger** — the sender emits an event, the receiver decides whether to care.
 
-## 2. Event bus shape (blocks triggers)
+## 2. ~~Event bus shape~~ — SETTLED: one `events` table, `event_types` FK (`02-data-model.md` §6)
 Triggers match on events. Where do events come from?
 - GHL webhooks (appointments, payments, tags) — which ones are available, and which are
   only available on paid tiers?
@@ -29,7 +29,7 @@ source-specific tables? **Recommend one normalized table** — it's what makes t
 "see it flowing" UI possible without a per-source special case, and it gives the
 reconciliation sweep (D5) one place to look.
 
-## 3. Condition expression format (blocks the editor)
+## 3. ~~Condition expression format~~ — SETTLED: JSON predicate tree (`02-data-model.md` §10)
 `check_condition` needs a way to express "offer = pmu" or "total_collected >= contract_value"
 that is both storable as data and editable in a visual node editor. Candidates:
 - a small JSON predicate tree — safe, no eval, tedious to hand-write, trivial to render as UI
@@ -99,7 +99,7 @@ duplicated into the tail of every workflow that can end in "didn't book."
 Asked. If (a), the engine loses `check_condition`-as-a-fork and keeps it only as
 `continue-or-exit`, which simplifies the node catalog (open question 1) considerably.
 
-## 8. Template versioning UX
+## 8. ~~Template versioning UX~~ — SETTLED: advisory; `workflows.diverged` + dry-run diff; no one-click UI (D2)
 D2 requires knowing which instances are behind a template and whether they've diverged. Open:
 is a divergence a blocking state (can't take template updates until resolved) or an advisory one
 (update anyway, keep a backup)? **Recommend advisory with an explicit diff confirmation** —
@@ -118,3 +118,31 @@ The confidence cutoff for `unclear` (D13) is a number that needs real replies to
 conservative (everything under ~0.8 goes to a human), log every classification with its
 distribution, and lower it only against observed data. The failure mode to avoid is tuning it on
 imagined replies.
+
+---
+
+## Added after the data model (2026-10-06) — all verification, no design
+
+## 12. Slack OAuth scopes and install flow
+Each company connects its own workspace (grill-me batch 4). Need the minimal scope set for
+`chat:write` to bound channels plus channel listing for the install dropdown, and whether a
+single-workspace app or a distributed app is the right shape for N client workspaces.
+
+## 13. Whop webhook payload
+`payments` assumes `whop_payment_id`, amount, currency, installment number, status, paid_at.
+Confirm field names and whether installment position is in the payload or has to be derived
+from the plan.
+
+## 14. Phone → timezone inference
+`contacts.timezone_source = 'phone'` needs a library mapping E.164 area codes to IANA zones.
+Pick one; note that US area codes spanning two zones resolve to the dominant one and get flagged.
+
+## 15. `relative:auto` formatter edge cases
+Cross-midnight ("tomorrow at 9"), cross-DST, and the exact rounding table per mode. Small, but
+every reminder text goes through it, so it gets a test file before the first send.
+
+## 16. Scheduler claim semantics on Vercel
+`runs.claimed_at` lease length vs. the function cap, and what happens to a run whose lease
+expires mid-step. Default: lease = 2× expected step time, expired lease = step re-executes
+against the idempotent `sends` ledger, so the worst case is a duplicate *attempt*, never a
+duplicate *send*.
