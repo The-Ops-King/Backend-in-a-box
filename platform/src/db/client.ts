@@ -3,8 +3,8 @@ import { Pool, type PoolClient, type QueryResultRow } from "pg";
 let pool: Pool | undefined;
 export function db(): Pool {
   if (!pool) {
-    const url = process.env.DATABASE_URL;
-    if (!url) throw new Error("DATABASE_URL is not set");
+    const url = process.env.DATABASE_URL ?? process.env.SUPABASE_DB_URL;   // either name; Supabase gives a plain Postgres URL
+    if (!url) throw new Error("DATABASE_URL (or SUPABASE_DB_URL) is not set");
     pool = new Pool({ connectionString: url, max: 5 });
   }
   return pool;

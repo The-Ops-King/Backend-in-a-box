@@ -28,7 +28,7 @@ export default async function Home() {
 }
 
 function Setup({ error }: { error: string }) {
-  const noUrl = !process.env.DATABASE_URL;
+  const noUrl = !process.env.DATABASE_URL && !process.env.SUPABASE_DB_URL;
   return (<>
     <h1>Engine</h1>
     <p className="sub">Deployed, not configured yet.</p>

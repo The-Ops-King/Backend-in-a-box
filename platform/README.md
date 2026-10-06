@@ -61,6 +61,21 @@ every step colored · `/c/<slug>/appointments` last 7 and next 14 days, flags ca
 disposition · `/c/<slug>/appointments/<id>` the **disposition form** (did they show, how it
 went, notes) · `/c/<slug>/contacts/<id>` the journey · `/c/<slug>/sends` every message sent, suppressed, failed, or (in shadow) would-have-sent · **Go live / Switch to shadow** on the company page.
 
+## Bring-up from a session that has the secrets
+
+The Claude Code environment holds `SUPABASE_DB_URL`, `GHL_PRIVATE_TOKEN`, `GHL_LOCATION_ID` (plus
+`BINDINGS_KEY`). From a fresh session:
+
+```bash
+cd platform && pnpm install
+pnpm bootstrap --name "J. Tyler Ray" --slug jtr --tz America/Phoenix \
+  --calendar GLWzPNAZPoxkROdFJbPH=closing --calendar RzQgbmwwCIJeHv8YLXO8=closing --calendar kbEwrOhdlzxAHIpNLqF7=first_call
+```
+
+Migrates the Supabase database, installs the location in shadow with SMS off and every workflow
+off. Then put the same connection string into Vercel as `DATABASE_URL` (or `SUPABASE_DB_URL`;
+the app reads either) and redeploy, and `backend-in-a-box.vercel.app` is live.
+
 ## Run it locally
 
 ```bash
