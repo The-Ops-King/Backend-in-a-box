@@ -41,6 +41,15 @@ Every message is a template on the workflow, editable per company once the edito
 then, edit the company's copy in `workflow_versions`. SMS nodes skip cleanly for a company with
 `sms_enabled=false` (`--no-sms` on install).
 
+## Database connection (Supabase)
+
+`SUPABASE_DB_URL` should be the **transaction-mode** pooler URL (port 6543), not the session-mode one
+(port 5432 on `pooler.supabase.com`). Session mode is capped at 15 clients for the whole Supabase
+project, shared with every other app in it, and each warm Vercel instance holds its own pool; the
+symptom is `EMAXCONNSESSION max clients reached`. The engine is transaction-pooler safe: every query
+runs inside `begin … commit` with transaction-local `set_config`, no session advisory locks, no named
+prepared statements. Our pool is 3 connections per instance with a 5 second idle timeout.
+
 ## Booking sources (D18)
 
 A company's appointments come from GHL calendars (default) or from Calendly event types. Install
