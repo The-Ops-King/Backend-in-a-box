@@ -173,3 +173,27 @@ the same value. Read the correctly-spelled one; don't write the typo'd one.
 "statusDetails": {"status":"No Show","state":"noshow","oldStatus":"noshow","translatable":true}
 ```
 `state` is the machine value and is more reliable to branch on than the display `status`.
+
+### Appointment status enum — brute-forced 2026-10-06
+Values GHL accepts on `appointmentStatus`, with the `statusDetails.state` each maps to:
+
+| Sent | Stored | `statusDetails.state` |
+|---|---|---|
+| `new` | `new` | `pending` |
+| `confirmed` | `confirmed` | `active` |
+| `cancelled` | `cancelled` | `cancelled` |
+| `showed` | `showed` | `completed` |
+| `noshow` | `noshow` | `noshow` |
+| `invalid` | `invalid` | `invalid` |
+| `completed` | **`showed`** | `completed` |
+
+Rejected: `no_show`, `no-show`, `pending`, `rescheduled`. The error is a bare
+`appointmentStatus must be a valid enum value` with no list, hence the brute force.
+
+Note `completed` is a write-alias that stores as `showed` — so never round-trip-compare the
+value you sent against the value you read.
+
+**`noshow` does exist** as a native GHL status. That does not change D12: outcome data is ours
+and lives in our backend. But because the field exists, a client's own team will use it in the
+GHL UI, which makes it a legitimate *trigger source* for us to read — and makes the PUT clobber
+bug above a risk to **their** data even though we never write ours there.

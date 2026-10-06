@@ -71,12 +71,33 @@ findings in `../ghl/02-api-facts.md`. Resolution:
 Still open under this: **which GHL plan tiers include the Webhook workflow action**, and whether
 inbound POST volume is rate-limited. Worth confirming before the install SOP depends on it.
 
-## 7. What is "Jev"?
-Tyler: *"we can use Jev for a lot of this too. for any routing for what to do or what happened
-so we're not relying on LLMs."* I don't know what this is and I'm not going to guess — asked.
-The principle behind it is already locked as D5c (deterministic routing for structured facts,
-semantic calls only for natural language); this question is only about whether Jev is the
-specific tool that implements it.
+## 7. ~~What is "Jev"?~~ — ANSWERED 2026-10-06
+TypeSafe AI's classifier model. Discriminative, not generative: `state` + typed questions in,
+probability distributions out (`noul` boolean / `choice` / `score`). 70–500ms, 40–400x cheaper
+than frontier models on comparable work, 64k token input budget. Locked into D5c as the middle
+tier of decision-making.
+
+Still to verify before depending on it: pricing at our volume, SLA and uptime posture (it
+becomes a dependency in the send path for reply routing), and whether a self-hosted or fallback
+path exists if it's down — a classifier outage must degrade to "escalate to human," never to
+a guess or a dropped run.
+
+## 9. BLOCKING: what does "no chaining" mean?
+Tyler, 2026-10-06: *"We are not doing the chaining. i don't think that's the right way to do
+it."* Two readings, materially different, and the data model can't be drafted until it's settled:
+
+**(a) No conditional branching inside a workflow.** Workflows are linear: step → step → step,
+with exits but no forks. Offer variation becomes separate workflows rather than an `if`. Under
+copy-on-install (D2) this is coherent and arguably better — the thing branching solved is now
+solved by having separate copies, and a linear list is far easier to render in the flow view and
+to debug. Zapier is linear for the same reason. **This is my read.**
+
+**(b) No workflow-to-workflow handoff.** Every workflow self-contained, nothing emits an event
+that starts another. This one I'd push back on: without it, the reactivation sequence has to be
+duplicated into the tail of every workflow that can end in "didn't book."
+
+Asked. If (a), the engine loses `check_condition`-as-a-fork and keeps it only as
+`continue-or-exit`, which simplifies the node catalog (open question 1) considerably.
 
 ## 8. Template versioning UX
 D2 requires knowing which instances are behind a template and whether they've diverged. Open:

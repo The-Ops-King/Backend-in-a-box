@@ -82,8 +82,14 @@ are behind?** Then:
 - **Diverged** → side-by-side diff. Human decision, with their edits visible so they aren't
   silently reverted.
 
-That's a small amount of work now and it's the only thing standing between "12 clients" and
-"12 unmaintainable snowflakes." Build it with the instance model, not after.
+**Tyler's call on the remedy (2026-10-06): no one-click update UI.** Fixes get applied across
+instances by AI-assisted bulk edit — read N definitions, apply the transform, write back — on
+the condition that it never alters the actual flow of any given client.
+
+The bookkeeping above still gets built, because it's what makes that possible: definitions in a
+consistent machine-diffable format, a `diverged` flag so edited instances get human eyes, and a
+mandatory dry-run diff per client before any write. The UI is what we're skipping, not the
+version tracking.
 
 ### Custom work becomes a template by promotion
 Build something bespoke for one client, then promote it: walk its literals and replace each
@@ -161,34 +167,98 @@ The "your call is in 60 minutes" problem: if the step was queued at T-60 and fir
 late, the stored text is now a lie.
 
 **The fix is not intelligence, it's when the string is built.** A node stores the *template*
-(`Your call is in {{minutes_until_appointment}} minutes`) and every variable is resolved at
-the moment the send actually fires. A 20-minute delay then self-corrects to "40 minutes" with
-nothing clever involved. Storing rendered text is the actual bug; an agent patching bad numbers
-after the fact is a bandaid on it.
+(`Your call is in {{time_until_appointment}}`) and every variable is resolved at the moment the
+send actually fires. A 20-minute delay then self-corrects with nothing clever involved. Storing
+rendered text is the actual bug; an agent patching bad numbers afterward is a bandaid on it.
 
-### D5b. Staleness policy per node
-Re-rendering handles delay. It does not handle a delay so large the message stops making sense —
-90 minutes late means the call already happened, and "your call is in -30 minutes" is worse than
-silence. So every time-sensitive node declares:
+**Deliberately imprecise, because precision reads like a robot.** The duration formatter takes
+a mode and rounds:
 
-- `max_delay` — how late is still acceptable
-- `on_stale` — `skip` (drop it), `substitute` (send a different template: "sorry we missed
-  each other, here's my link"), or `escalate` (Slack the owner, send nothing)
+| Mode | Behavior |
+|---|---|
+| `minutes` | nearest 5 — 23 min renders "about 20 minutes" |
+| `hours` | nearest half hour — "in about 2 hours" |
+| `auto` | minutes under an hour, hours under 4, then "tomorrow at 2" |
 
-This is where judgment belongs, and it's still a declared rule rather than a model call.
+Per-node setting, so a 10-minute warning can be exact while a 3-hour heads-up stays loose.
 
-### D5c. Routing is deterministic; semantic calls are for natural language only
-A line worth drawing once, because it's easy to blur:
+**The formatter refuses to render a non-positive duration.** It throws rather than producing
+"in -30 minutes," which makes the bug below impossible to ship by accident — the node's
+staleness policy catches the throw. Belt and braces: the formatter can't emit nonsense, and
+the policy decides what to do instead.
 
-- **Structured facts route deterministically.** `payment_status = failed`,
-  `appointment_status = noshow`, `total_collected >= contract_value`. These are comparisons on
-  typed data. A model in this path adds latency, cost, and nondeterminism and buys nothing.
-- **Natural language needs semantic comparison.** "Did the closer's note say they'd follow up?"
-  "Does this objection match the pricing-objection category?" Keyword or substring matching on
-  meaning is always wrong. This is the only place a model belongs.
+### D5b. Validity windows, premise re-check, and recovery mode
 
-If the input is typed and the question is a comparison → code. If the input is prose and the
-question is meaning → a model call, and never string matching.
+Re-rendering handles small delays. A three-hour outage needs more, because by then the message
+may be not just wrong but absurd. Three mechanisms, in the order they run at fire time.
+
+**1. Premise check — is this run's reason for existing still true?**
+Before any node executes, the run re-reads the fact it was started over:
+- A reminder run → does the appointment still exist, and is it still in the future?
+- A payment chase → is it still unpaid?
+- A speed-to-lead run → is the lead still unworked?
+
+If the premise is dead, **exit the run** with a reason. Don't skip one node and march the run
+through five more stale ones. This is the mechanism that actually answers the three-hour
+downtime case: the run doesn't send a bad reminder because the run is over.
+
+**2. Validity window — per node, declared by what the message says.**
+
+| Anchor | Example | Valid |
+|---|---|---|
+| `before_event` | "your call is in 30 minutes" | queue time → `event − min_lead` |
+| `after_event` | "sorry we missed each other" | `event` → `event + max_lag` |
+| `unanchored` | "checking in" | any time, quiet hours only |
+
+A `before_event` node whose event has passed is outside its window by definition. That's a
+property of the copy, not a guess.
+
+**3. `on_stale` — what to do when outside the window**
+- `skip` — log it, move to the next node. Right when a later node covers the same ground (a
+  blown 24h reminder when the 1h reminder is about to fire anyway).
+- `substitute` — send a different template appropriate to now. "Your call is in 30 minutes"
+  becomes "Sorry we missed each other, here's my link."
+- `escalate` — send nothing, notify the owner in Slack. Default for anything money-related.
+
+**Recovery mode.** If the last successful scheduler tick is older than a threshold, the engine
+treats the backlog differently from normal operation:
+
+1. Run the premise check across every overdue run **first, in bulk**, and exit the dead ones
+   (`exit_reason: stale_after_outage`) before any send is attempted.
+2. Process the survivors normally, through windows and quiet hours.
+3. **Rate-limit sends during drain.** Three hours of backlog released at once reads as spam to
+   recipients and as a spike to carriers, which risks filtering. Drip it.
+4. **Post an outage report** to Slack: runs resumed, runs exited stale, sends suppressed. The
+   failure mode to avoid is a silent recovery where nobody knows what never went out.
+
+### D5c. Three tiers of decision-making, and Jev owns the middle one
+
+| Input | Question | Tool |
+|---|---|---|
+| Typed data | A comparison | **Code.** `payment_status = failed`, `total_collected >= contract_value` |
+| Natural language | A typed decision | **Jev** (TypeSafe AI) — classifier, not a text generator |
+| Anything | Produce prose | **Generative LLM**, rarely — most of our copy is templates |
+
+**Why Jev for the middle tier rather than a prompt to a frontier model.** It's discriminative:
+you send a `state` plus typed questions and it returns probability distributions — `noul`
+(boolean), `choice` (unordered options), `score` (ordered scale). No token generation, so
+70–500ms and 40–400x cheaper than a frontier model on comparable work.
+
+The property that actually matters here is **calibrated confidence**. A routing decision can
+have an explicit "below threshold → ask a human" path instead of accepting a confident-sounding
+guess. That's a better design than a prompt returning bare yes/no, not just a cheaper one.
+
+Where it fits in this system:
+- Closer's free-text disposition note → `choice` over our controlled outcome vocabulary (D8)
+- Inbound SMS reply → `noul`: is this a confirmation? a cancellation? Routes the reminder flow
+- Objection category from a call transcript → `choice`
+- Lead quality from form free-text → `score`
+
+**Never for typed comparisons.** `appointment_status = noshow` is an equality check. A model in
+that path adds latency, cost, and nondeterminism and buys nothing.
+
+**Never keyword or substring matching for meaning.** If the input is prose and the question is
+meaning, it's a Jev call. String matching on semantics is always wrong.
 
 ---
 
@@ -256,19 +326,72 @@ Typeform stays for client-facing intake where it's already working.
 
 ---
 
-## D9. GHL stays queryable — read through, never mirror
+## D9. One source of truth per fact — own it or reference it, never both
 
-We need to pull from GHL at any time: client id, contact name, calendar roster, appointment
-state. So a GHL read adapter exists alongside the send adapter, and the `bindings` table always
-holds the location id so any lookup can be made.
+Tyler: *"I REALLY don't want it to carry two areas of true data. I want it to be fully accurate
+at all times."* Agreed, and the rule that makes it hold is a clean split per *fact*, not per
+system.
 
-**We do not mirror GHL records into our database as a source of truth.** Store the *id*, fetch
-the value, cache it with a short TTL. A mirrored copy drifts and then there are two truths and
-no way to tell which is right. The exception is our own data — Sales Call records, run state,
-events — which we own outright and GHL never holds.
+**Facts we own.** Sales call outcomes, dispositions, pains and goals, form submissions, run
+state, events, every metric we compute. These live in our database, are the source of truth,
+and exist nowhere else. Query them freely.
 
-Verified read paths are in `../ghl/02-api-facts.md`: contacts, calendars, calendar team
-rosters, and appointments by calendar and time window.
+**Facts GHL owns.** Contact name and email, calendar configuration, team rosters, appointment
+booking details (time, calendar, assigned user), appointment confirmation status. We store the
+**id**, read through on demand, cache briefly. We never hold an editable copy.
+
+A fact is in exactly one of those two buckets. That's the whole discipline.
+
+### The tension this creates, and the resolution
+Tyler also wants to query across everything — *"are there any correlations between client income
+on the form and show rate?"* Show rate needs appointment data, which GHL owns. Reading through
+for an analytical query over thousands of rows is far too slow.
+
+So analytics needs a local copy, and the way to have one without a second truth is to make it
+**explicitly derived**:
+
+- It's a **read-only projection**, rebuilt from source, stamped with an `as_of` timestamp.
+- Nothing writes to it. No user edits it. There's no "update" path at all — only rebuild.
+- **The hard rule: no workflow and no user action ever reads from the projection.** Operational
+  reads go to the source, always. Only analytics and dashboards read the projection.
+
+That last line is what keeps it honest. A stale projection can make a chart slightly off. It
+can never cause a wrong send, a wrong route, or a wrong decision, because nothing operational
+is allowed to touch it. A cache with provenance and a one-way data flow is not a second truth;
+an editable mirror would be.
+
+### What this makes possible
+The projection is the thing that lets us land the ambition: appointment data, sales call data,
+pre-call activity, form responses, show outcomes, all joinable in one place. Cross-source
+correlation queries are the payoff, and they're only safe because the projection is downstream
+of everything and upstream of nothing.
+
+Verified read paths in `../ghl/02-api-facts.md`: contacts, calendars, calendar team rosters,
+appointments by calendar and time window.
+
+---
+
+## D12. Outcome data is ours; GHL holds the booking, not the result
+
+**Tyler's correction, 2026-10-06, and he's right:** don't write call outcomes onto GHL's
+appointment record. The appointment's status field is a *confirmation* state. The outcome — did
+they show, what were their pains and goals, what was the disposition — is our data and belongs
+in our backend alongside the Sales Call record.
+
+Our appointment row holds `ghl_appointment_id` plus our outcome fields, and references GHL for
+the booking facts (time, calendar, assigned user). One fact, one owner, per D9.
+
+**One factual correction in the other direction:** GHL *does* have a native `noshow` status —
+verified, full enum in `../ghl/02-api-facts.md` (`new`, `confirmed`, `cancelled`, `showed`,
+`noshow`, `invalid`). I'd assumed it didn't exist when I set it in testing, and that assumption
+was wrong, not the architecture.
+
+That the field exists has two consequences:
+1. It's a legitimate **trigger source** — a client's team marking a no-show in the GHL UI is an
+   event worth listening for, even though we don't store our own outcome there.
+2. The PUT clobber bug is a risk to **their** data, not ours. Any PUT we make that omits
+   `appointmentStatus` resets whatever their team set. The read-then-write rule stands for their
+   sake rather than ours.
 
 ---
 
