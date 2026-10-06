@@ -10,7 +10,7 @@ let pool: Pool | undefined;
  * prepared statements), so a session-mode pooler URL is normalised to transaction mode. Direct connections
  * (db.<ref>.supabase.co) and non-Supabase URLs pass through untouched. DB_POOLER_MODE=session opts out.
  */
-export function normalizeDatabaseUrl(url: string, env: NodeJS.ProcessEnv = process.env): string {
+export function normalizeDatabaseUrl(url: string, env: Record<string, string | undefined> = process.env): string {
   if (env.DB_POOLER_MODE === "session") return url;
   try {
     const u = new URL(url);
