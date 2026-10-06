@@ -1,5 +1,6 @@
 import { asOperator, one, many } from "@/db/client";
 import { encrypt } from "./crypto";
+import { randomBytes } from "node:crypto";
 import { extractManifest, parseDefinition, indexDefinition } from "./definition";
 import { templates } from "@/templates";
 import { bookingFor, type Adapters, type BookingConfig, type Company } from "@/adapters/types";
@@ -25,7 +26,7 @@ export type InstallInput = {
 };
 
 /** D16: upload info, pick templates, done. Idempotent. Workflows install OFF unless enable=true. */
-export async function installCompany(input: InstallInput, adapters: Adapters): Promise<{ companyId: string; calendars: string[]; installed: string[] }> {
+export async function installCompany(input: InstallInput, adapters: Adapters): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: { zapierPaymentUrl: string; secret: string } }> {
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   const calMap: Record<string, { term: string; selfBooked?: boolean }> = Object.fromEntries(Object.entries(input.calendars ?? {}).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
   // resolve the booking source outside the transaction: it talks to Calendly.
@@ -63,6 +64,10 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     }
     for (const [k, v] of Object.entries(input.crm ?? {})) await bind(`crm.${k}`, "id", v);
     if (input.whop?.webhookSecret) await bind("secret.whop_webhook", "secret", input.whop.webhookSecret);
+    // the secret a Zap uses to post into this company; made once, shown on every install so it can be copied again
+    let inboundSecret = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='secret.zapier_inbound'", [companyId]))?.value;
+    const inboundPlain = inboundSecret ? (await import("./crypto")).decrypt(inboundSecret) : `zi_${randomBytes(24).toString("base64url")}`;
+    if (!inboundSecret) await bind("secret.zapier_inbound", "secret", inboundPlain);
     if (input.contractValueDefault !== undefined) await c.query("update companies set contract_value_default=$2 where id=$1", [companyId, input.contractValueDefault]);
     const ac: Company = { id: companyId, locationId: input.locationId, pit: input.pit, timezone: input.timezone, booking };
     for (const u of await adapters.read.listUsers(ac))
@@ -101,6 +106,6 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       if (input.enable && !missing.length) await c.query("update workflows set enabled=true where id=$1", [wf!.id]);
       installed.push(`${t.slug} → ${missing.length ? `OFF, missing: ${missing.join(", ")}` : input.enable ? "enabled" : "installed OFF"}`);
     }
-    return { companyId, calendars: calendarsOut, installed };
+    return { companyId, calendars: calendarsOut, installed, inbound: { zapierPaymentUrl: `/api/webhooks/zapier/${companyId}/payment`, secret: inboundPlain } };
   });
 }

@@ -65,6 +65,15 @@ it: pursuit, derived kind, running total, `cleared`, and the `payment.received` 
 workflows. Set the program price with `contractValueDefault` at install and the Whop signing
 secret with `whop: { webhookSecret }`. Facts about Whop's payload are in `whop/01-api-facts.md`.
 
+### Payments through Zapier instead
+
+When the processor's own webhooks are out of reach, a Zap forwards them: trigger on the payment in
+Zapier, then **Webhooks by Zapier → POST** to `/api/webhooks/zapier/<companyId>/payment` with header
+`x-engine-secret: <secret>` (install returns the secret under `inbound`) and a JSON body of the
+mapped fields: `transaction_id`, `amount`, `email`, `phone`, `member_id`, `paid_at`, `status`
+(`succeeded` default, or `failed` / `refunded`). Same ledger, same linking, same idempotency on
+the transaction id, so a replayed Zap changes nothing.
+
 ## Pipeline cards (D19)
 
 Templates create and move cards on the CRM's pipeline boards (`pipeline_card` node). Pipeline,

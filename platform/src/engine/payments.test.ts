@@ -5,6 +5,7 @@ import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { recordPayment, linkPayment, deriveKind, resolvePayer, unlinkedPayments } from "./payments";
 import { verifyWhopSignature, parseWhopEvent } from "./webhooks/whop";
+import { parseZapierPayment } from "./webhooks/zapier";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 let companyId: string, ann: string, bob: string;
@@ -133,5 +134,21 @@ describe("Whop webhook verification and parsing", () => {
     const r = parseWhopEvent({ id: "msg_3", type: "refund.created", data: { id: "rfnd_1", payment_id: "pay_9", amount: { amount: "500.00" }, created_at: "2026-02-01T00:00:00Z" } })!;
     expect(r).toMatchObject({ providerPaymentId: "rfnd_1", amount: -500, status: "refunded" });
     expect(parseWhopEvent({ id: "msg_4", type: "membership.activated", data: {} })).toBeNull();
+  });
+});
+
+describe("Zapier-forwarded payments", () => {
+  it("accepts the Zap's field names in either case and derives status, sign and time", () => {
+    const a = parseZapierPayment({ transactionId: "txn_1", amount: "2,999.00", customerEmail: "A@B.co", whopUserId: "mber_9", paidAt: "2026-03-01T10:00:00Z" });
+    expect(a.ok).toBe(true); if (!a.ok) return;
+    expect(a.input).toMatchObject({ providerPaymentId: "txn_1", amount: 2999, status: "succeeded", email: "A@B.co", memberId: "mber_9", provider: "whop" });
+    expect(a.input.paidAt.toISOString()).toBe("2026-03-01T10:00:00.000Z");
+    const r = parseZapierPayment({ transaction_id: "txn_2", amount: 500, status: "refunded" }); expect(r.ok && r.input.amount).toBe(-500);
+    const f = parseZapierPayment({ transaction_id: "txn_3", amount: 1000, event: "payment.failed" }); expect(f.ok && f.input.status).toBe("failed");
+    const u = parseZapierPayment({ transaction_id: "txn_4", amount: 10, paid_at: "1760000000" }); expect(u.ok && u.input.paidAt.getUTCFullYear()).toBe(2025);
+  });
+  it("rejects a payment without a transaction id or with a non-numeric amount", () => {
+    expect(parseZapierPayment({ amount: 10 })).toEqual({ ok: false, why: expect.stringMatching(/transaction_id/) });
+    expect(parseZapierPayment({ transaction_id: "x", amount: "ten" })).toEqual({ ok: false, why: expect.stringMatching(/amount/) });
   });
 });
