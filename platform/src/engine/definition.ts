@@ -78,6 +78,8 @@ export const Definition = z.object({
     if (!ids.has(e[k])) ctx.addIssue({ code: "custom", message: `edge ${k} ${e[k]} is not a node` });
   if (!d.nodes.some((n) => n.type === "trigger")) ctx.addIssue({ code: "custom", message: "a workflow needs at least one trigger" });
   if (!d.nodes.some((n) => n.type === "exit")) ctx.addIssue({ code: "custom", message: "a workflow needs at least one exit" });
+  const hasOut = new Set(d.edges.map((e) => e.from));
+  for (const n of d.nodes) if (n.type !== "exit" && !hasOut.has(n.id)) ctx.addIssue({ code: "custom", message: `node ${n.id} (${n.type}) has no outgoing edge` });
 });
 export type Definition = z.infer<typeof Definition>;
 

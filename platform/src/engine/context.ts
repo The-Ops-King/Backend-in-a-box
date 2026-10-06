@@ -30,7 +30,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     company: { id: company.id, name: company.name, timezone: company.timezone },
     contact: contact ? { ...contact, timezone: contact.timezone ?? company.timezone } : undefined,
     vars: (run.context.vars as Record<string, unknown>) ?? {},
-    reply: { ...derivedReply, ...((run.context.reply as Record<string, unknown>) ?? {}) },
+    reply: { ...((run.context.reply as Record<string, unknown>) ?? {}), ...derivedReply },   // last_inbound/last_outbound are re-derived every tick; intent/confidence from classify persist
     event: run.context.event ?? {},
     calendar: {}, slack: { channel: {} }, crm: {},
   };

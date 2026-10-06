@@ -41,6 +41,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     if (!ident) return NextResponse.json({ ok: true, ignored: `no contact for ${p.email}` });
     const status = /fail/i.test(p.type) ? "failed" : /refund/i.test(p.type) ? "refunded" : "succeeded";
     const ev = await applyPayment(c, companyId, ident.contact_id, { ...p, status, raw: { type: p.type } });
+    if (ev.id === -1) return NextResponse.json({ ok: true, duplicate: true });   // redelivery: already handled
     const started = await dispatchEvent(c, ev, { contact: { id: ident.contact_id } });
     return NextResponse.json({ ok: true, event: ev.id, runs_started: started.length });
   });

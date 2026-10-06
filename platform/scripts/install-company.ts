@@ -16,7 +16,7 @@ const need = (k: string) => { const v = opt(k); if (!v) { console.error(`--${k} 
     bookingCalendar: opt("booking"),
     name: need("name"), slug: need("slug"), timezone: need("tz"), locationId: need("location"), pit: need("pit"),
     calendars: Object.fromEntries(all("calendar").map((s) => s.split("=") as [string, string])),
-    closerCall: opt("closer-call"), templates: all("template"), enable: args.includes("--enable"), smsEnabled: !args.includes("--no-sms"), mode: args.includes("--live") ? "live" : "shadow",
+    closerCall: opt("closer-call"), templates: all("template"), enable: args.includes("--enable"), smsEnabled: args.includes("--no-sms") ? false : args.includes("--sms") ? true : undefined, mode: args.includes("--live") ? "live" : args.includes("--shadow") ? "shadow" : undefined,
   }, liveAdapters);
   console.log(`company = ${out.companyId}`); out.calendars.forEach((s) => console.log(`  ${s}`)); out.installed.forEach((s) => console.log(`  ${s}`));
   await db().end();

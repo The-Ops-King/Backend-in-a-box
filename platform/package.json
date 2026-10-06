@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate": "tsx scripts/migrate.ts",
+    "schema:sync": "node -e \"const fs=require('fs');fs.writeFileSync('src/db/schema.sql.ts','// GENERATED from ../engine/schema.sql by `pnpm schema:sync`. Do not edit; edit engine/schema.sql and re-sync.\\nexport const SCHEMA: string = '+JSON.stringify(fs.readFileSync('../engine/schema.sql','utf8'))+';\\n')\"",
     "install:company": "tsx scripts/install-company.ts",
     "tick": "tsx scripts/tick.ts"
   },

@@ -18,12 +18,16 @@ const normEmail = (e?: string) => e?.trim().toLowerCase() || undefined;
  */
 async function cursor(c: PoolClient, companyId: string, entity: string, fallback: DateTime): Promise<{ since: DateTime; isBaseline: boolean }> {
   const r = await one<{ cursor: string }>(c, "select cursor from poll_cursors where company_id=$1 and entity=$2", [companyId, entity]);
-  return r ? { since: DateTime.fromISO(r.cursor), isBaseline: false } : { since: fallback, isBaseline: true };
+  const parsed = r?.cursor ? DateTime.fromISO(r.cursor) : undefined;
+  return parsed?.isValid ? { since: parsed, isBaseline: false } : { since: fallback, isBaseline: true };   // no row, or an unusable cursor → still baseline
 }
 async function saveCursor(c: PoolClient, companyId: string, entity: string, value: string, ok: boolean) {
-  await c.query(`insert into poll_cursors (company_id, entity, cursor, last_polled_at, last_success_at, consecutive_failures) values ($1,$2,$3,now(),case when $4 then now() end,case when $4 then 0 else 1 end)
-    on conflict (company_id, entity) do update set cursor=case when $4 then $3 else poll_cursors.cursor end, last_polled_at=now(),
-      last_success_at=case when $4 then now() else poll_cursors.last_success_at end, consecutive_failures=case when $4 then 0 else poll_cursors.consecutive_failures+1 end`, [companyId, entity, value, ok]);
+  if (!ok) {   // a failure never creates a row (that would end the baseline before it happened); it only counts against an existing one
+    await c.query("update poll_cursors set last_polled_at=now(), consecutive_failures=consecutive_failures+1 where company_id=$1 and entity=$2", [companyId, entity]);
+    return;
+  }
+  await c.query(`insert into poll_cursors (company_id, entity, cursor, last_polled_at, last_success_at, consecutive_failures) values ($1,$2,$3,now(),now(),0)
+    on conflict (company_id, entity) do update set cursor=$3, last_polled_at=now(), last_success_at=now(), consecutive_failures=0`, [companyId, entity, value]);
 }
 
 /** Upserts a contact replica + identifiers; returns our id and whether it was new. */
@@ -121,8 +125,8 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
       rep.inbound++;
       const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: null, event_type: "message.received", source: "ghl_poll", data: { channel: m.channel, message_id: m.id, body: m.channel === "sms" ? m.body : undefined }, occurred_at: new Date(m.dateAdded) });
       rep.eventsDispatched += (await dispatchEvent(c, ev, { contact: { id: contact.id } })).length;
-      // a waiting run on this contact may be waiting precisely for this; let it wake on the next tick
-      await c.query("update runs set next_run_at=least(next_run_at, now()) where company_id=$1 and contact_id=$2 and status='waiting'", [co.id, contact.id]);
+      // only runs parked on wait_for_reply wake; a reminder waiting for 8am must not fire because the contact texted about something else
+      await c.query("update runs set next_run_at=now() where company_id=$1 and contact_id=$2 and status='waiting' and wake_on_reply", [co.id, contact.id]);
     }
     const d = DateTime.fromISO(m.dateAdded); if (d > max) max = d;
   }

@@ -55,8 +55,8 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
     if (!node.substitute_template) return { status: "failed", error: "on_stale=substitute but no substitute_template" };
     template = node.substitute_template; substituted = true;
   }
-  let body: string;
-  try { body = render(template, d.ctx, env(d)); }
+  let body: string, subject = "";
+  try { body = render(template, d.ctx, env(d)); if (node.type === "send_email") subject = render(node.subject, d.ctx, env(d)); }
   catch (e) {
     if (e instanceof StaleTemplateError) { await recordSend(d, node, node.type === "send_sms" ? "sms" : "email", "", "suppressed", `stale-render: ${e.message}`); return node.on_stale === "escalate" ? { status: "paused", reason: e.message } : { status: "stale", next, result: { why: e.message } }; }
     if (e instanceof UnknownPathError) return { status: "failed", error: e.message };
@@ -73,7 +73,7 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   const ghlContactId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
   const r = node.type === "send_sms"
     ? await d.adapters.sender.sendSms(d.adapterCompany, ghlContactId, body)
-    : await d.adapters.sender.sendEmail(d.adapterCompany, ghlContactId, render(node.subject, d.ctx, env(d)), body);
+    : await d.adapters.sender.sendEmail(d.adapterCompany, ghlContactId, subject, body);
   await d.c.query("update sends set status=$2, external_id=$3, error=$4, sent_at=case when $2='sent' then now() end where id=$1", [send.id, r.accepted ? "sent" : "failed", r.externalId || null, r.error ?? null]);
   await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: r.accepted ? "message.sent" : "send.suppressed", source: "engine", data: { channel, node: node.id, external_id: r.externalId, error: r.error, substituted } });
   return r.accepted ? { status: "ok", next, result: { external_id: r.externalId, substituted } } : { status: "failed", error: r.error ?? "send rejected" };
@@ -95,7 +95,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
 
     case "wait_for_reply": {
       // boundary = our last send in this run (so a reply to something earlier doesn't count), else run start
-      const lastSend = await one<{ sent_at: Date }>(d.c, "select sent_at from sends where run_id=$1 and status='sent' order by sent_at desc limit 1", [d.run.id]);
+      // boundary = our last contact-facing send in this run (sent, or would-have-sent in shadow); Slack posts don't count
+      const lastSend = await one<{ sent_at: Date }>(d.c, "select sent_at from sends where run_id=$1 and channel in ('sms','email') and status in ('sent','shadow') order by sent_at desc limit 1", [d.run.id]);
       const since = lastSend?.sent_at ?? d.run.started_at ?? new Date(0);
       const reply = await one<{ body: string | null; occurred_at: Date; channel: string }>(d.c,
         `select body, occurred_at, channel from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at > $3 ${node.channel === "any" ? "" : "and channel=$4"} order by occurred_at desc limit 1`,
@@ -148,10 +149,14 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "set_tag": case "remove_tag": {
       const ghlId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
       const add = node.type === "set_tag";
-      if (!shadow(d)) { if (add) await d.adapters.write.addTag(d.adapterCompany, ghlId, node.tag); else await d.adapters.write.removeTag(d.adapterCompany, ghlId, node.tag); }
+      if (shadow(d)) {   // shadow: log it, touch neither GHL nor our replica of GHL's tags (the next poll would just "revert" it and emit a phantom tag.removed)
+        await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: add ? "tag.added" : "tag.removed", source: "engine", data: { tag: node.tag, shadow: true } });
+        return { status: "ok", next, result: { shadow: true, would_tag: node.tag } };
+      }
+      if (add) await d.adapters.write.addTag(d.adapterCompany, ghlId, node.tag); else await d.adapters.write.removeTag(d.adapterCompany, ghlId, node.tag);
       await d.c.query(add ? "update contacts set tags = array(select distinct unnest(tags || $2::text[])) where id=$1" : "update contacts set tags = array_remove(tags, $2) where id=$1", [d.run.contact_id, add ? [node.tag] : node.tag]);
-      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: add ? "tag.added" : "tag.removed", source: "engine", data: { tag: node.tag, shadow: shadow(d) || undefined } });
-      return { status: "ok", next, result: shadow(d) ? { shadow: true, would_tag: node.tag } : undefined };
+      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: add ? "tag.added" : "tag.removed", source: "engine", data: { tag: node.tag } });
+      return { status: "ok", next };
     }
     case "note": {
       const ghlId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
@@ -186,8 +191,9 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (!wf) return { status: "failed", error: `start_workflow: no workflow named ${node.workflow}` };
       const ev = await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "run.exited", source: "engine", data: { handed_to: node.workflow, with: node.with ?? {} } });
       const trig = await one<{ node_id: string }>(d.c, "select node_id from workflow_triggers where workflow_id=$1 limit 1", [wf.id]);
-      await startRun(d.c, { companyId: d.company.id, workflowId: wf.id, triggerNodeId: trig?.node_id ?? "t1", event: ev, contactId: d.run.contact_id, appointmentId: d.run.appointment_id, opportunityId: d.run.opportunity_id });
-      return { status: "exit", reason: `started:${node.workflow}` };
+      const started = await startRun(d.c, { companyId: d.company.id, workflowId: wf.id, triggerNodeId: trig?.node_id ?? "t1", event: ev, contactId: d.run.contact_id, appointmentId: d.run.appointment_id, opportunityId: d.run.opportunity_id });
+      // honest exit reason: a disabled target or a re-entry block is not a successful handoff
+      return started ? { status: "exit", reason: `started:${node.workflow}`, result: { run_id: started } } : { status: "exit", reason: `handoff_suppressed:${node.workflow}`, result: { why: "target disabled or re-entry blocked" } };
     }
   }
 }

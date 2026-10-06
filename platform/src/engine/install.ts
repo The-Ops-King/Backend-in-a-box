@@ -20,7 +20,11 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   const calMap = input.calendars ?? {};
   return asOperator(async (c) => {
-    const co = await one<{ id: string }>(c, `insert into companies (name, slug, timezone, sms_enabled, mode) values ($1,$2,$3,$4,$5) on conflict (slug) do update set name=excluded.name, timezone=excluded.timezone, sms_enabled=excluded.sms_enabled, mode=excluded.mode returning id`, [input.name, input.slug, input.timezone, input.smsEnabled ?? true, input.mode ?? "shadow"]);
+    // re-running install never silently flips a live company back to shadow or re-enables SMS: only explicitly passed values change
+    const co = await one<{ id: string }>(c, `insert into companies (name, slug, timezone, sms_enabled, mode) values ($1,$2,$3,coalesce($4,true),coalesce($5,'shadow'))
+      on conflict (slug) do update set name=excluded.name, timezone=excluded.timezone,
+        sms_enabled=case when $4::boolean is null then companies.sms_enabled else excluded.sms_enabled end,
+        mode=case when $5::text is null then companies.mode else excluded.mode end returning id`, [input.name, input.slug, input.timezone, input.smsEnabled ?? null, input.mode ?? null]);
     const companyId = co!.id;
     await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories on conflict (company_id, domain, name) do nothing`, [companyId]);
     const bind = (key: string, kind: string, value: string) =>

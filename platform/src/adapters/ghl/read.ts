@@ -31,7 +31,7 @@ export const ghlRead: CrmRead = {
   },
   async inboundSince(c, sinceIso) {
     const r = await ghl<{ conversations: { id: string; contactId: string; lastMessageDate: string | number; lastMessageDirection?: string; lastMessageType?: string }[] }>(
-      c.pit, "GET", `/conversations/search?locationId=${c.locationId}&sortBy=last_message_date&sort=desc&lastMessageDirection=inbound&limit=50`, { version: "2021-04-15" });
+      c.pit, "GET", `/conversations/search?locationId=${c.locationId}&sortBy=last_message_date&sort=desc&limit=50`, { version: "2021-04-15" });   // no direction filter: a human reply after the contact's text must not hide the text
     const since = DateTime.fromISO(sinceIso);
     const out: MessageSnapshot[] = [];
     for (const conv of r.conversations ?? []) {

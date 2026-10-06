@@ -23,6 +23,7 @@ describe("definitions", () => {
     expect(() => parseDefinition({ ...base, edges: [{ from: "t", to: "nope" }] })).toThrow(/not a node/);
     expect(() => parseDefinition({ ...base, nodes: base.nodes.slice(1) })).toThrow(/trigger/);
     expect(() => parseDefinition({ ...base, nodes: [...base.nodes, { id: "t", type: "exit", reason: "dup" }] })).toThrow(/duplicate/);
+    expect(() => parseDefinition({ ...base, nodes: [...base.nodes, { id: "lonely", type: "set_tag", tag: "x" }] })).toThrow(/no outgoing edge/);
   });
 });
 
@@ -43,8 +44,6 @@ describe("reentry keys (D4)", () => {
     expect(reentryKey({ reentry: "once_per_appointment" }, i)).toBe("appointment:a1");
     expect(reentryKey({ reentry: "once_per_appointment" }, { ...i, appointmentId: null })).toBe("contact:c1");
     expect(reentryKey({ reentry: "always" }, i)).toBe("event:9");
-    const w1 = reentryKey({ reentry: "once_per_contact_per_window", reentry_window: "90d" }, i);
-    const w2 = reentryKey({ reentry: "once_per_contact_per_window", reentry_window: "90d" }, { ...i, now: new Date("2026-10-20T00:00:00Z") });
-    expect(w1).toBe(w2);
+    expect(reentryKey({ reentry: "once_per_contact_per_window", reentry_window: "90d" }, i)).toMatch(/^contact:c1:\d+$/);   // sliding window is enforced in startRun
   });
 });

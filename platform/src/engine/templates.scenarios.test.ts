@@ -170,8 +170,36 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const ledger = await asOperator((c) => many<{ status: string; rendered_body: string }>(c, "select status, rendered_body from sends where run_id=$1", [r.id]));
     expect(ledger).toEqual([{ status: "shadow", rendered_body: expect.stringMatching(/Payment came through/) }]);
     const local = await asOperator((c) => one<{ tags: string[] }>(c, "select tags from contacts where id=$1", [id]));
-    expect(local?.tags).toContain("client");   // our own record still reflects what the workflow decided
+    expect(local?.tags).not.toContain("client");   // shadow touches neither GHL nor our replica of GHL's tags
+    const logged = await asOperator((c) => one<{ data: { shadow?: boolean } }>(c, "select data from events where run_id=$1 and event_type='tag.added'", [r.id]));
+    expect(logged?.data.shadow).toBe(true);        // but the journey records what would have happened
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
+  });
+
+  it("an inbound text wakes a reply-wait but not a timed wait (a reminder parked for 8am stays parked)", async () => {
+    const id = await newContact("CWAKE", "wake@x.com");
+    const snapA: AppointmentSnapshot = { id: "AWAKE", calendarId: "CAL", contactId: "CWAKE", assignedUserId: "U1", startTime: DateTime.now().plus({ days: 2 }).set({ hour: 14, minute: 0 }).toISO()!, endTime: DateTime.now().plus({ days: 2 }).set({ hour: 14, minute: 30 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {} };
+    apptStore.set("AWAKE", snapA);
+    await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snapA); });
+    await tick(fake);
+    const rem = (await runsFor("appointment-reminder")).find((r) => r.contact_id === id)!;
+    expect(rem.status).toBe("waiting"); const parkedUntil = rem.next_run_at!.getTime(); expect(parkedUntil - Date.now()).toBeGreaterThan(3600e3);
+    const flags = await asOperator((c) => many<{ wake_on_reply: boolean; current_node: string }>(c, "select wake_on_reply, current_node from runs where contact_id=$1 and status='waiting' order by current_node", [id]));
+    expect(flags.find((f) => f.current_node === "n2")?.wake_on_reply).toBe(false);   // the reminder's timed wait
+    // simulate what pollInbound does on an inbound message for this contact
+    await asOperator((c) => c.query("update runs set next_run_at=now() where company_id=$1 and contact_id=$2 and status='waiting' and wake_on_reply", [companyId, id]));
+    const after = (await runsFor("appointment-reminder")).find((r) => r.contact_id === id)!;
+    expect(after.next_run_at!.getTime()).toBe(parkedUntil);   // untouched
+  });
+
+  it("a redelivered payment webhook records nothing new and starts nothing", async () => {
+    const id = await newContact("CDUP", "dup@x.com");
+    const pay = () => asOperator(async (c) => { const ev = await applyPayment(c, companyId, id, { whopPaymentId: "PDUP", amount: 50, currency: "USD", status: "succeeded", paidAt: new Date(), raw: {} }); return ev.id === -1 ? [] : dispatchEvent(c, ev, { contact: { id } }); });
+    expect(await pay()).toHaveLength(1);
+    expect(await pay()).toHaveLength(0);
+    const evs = await asOperator((c) => many(c, "select 1 from events where contact_id=$1 and event_type='payment.received'", [id]));
+    expect(evs).toHaveLength(1);
+    await tick(fake);   // flush the one run this started so later tests' send counts are their own
   });
 
   it("sms_enabled=false: SMS nodes are suppressed and the run continues", async () => {

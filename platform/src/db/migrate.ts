@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { db } from "./client";
+import { SCHEMA } from "./schema.sql";
 
 /** Applies engine/schema.sql (idempotently: skips if `companies` exists) then forces RLS on every tenant table. */
 export async function migrate(): Promise<{ applied: boolean; rlsTables: string[] }> {
@@ -8,15 +7,12 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
   try {
     const exists = await c.query("select 1 from information_schema.tables where table_name='companies' and table_schema='public'");
     let applied = false;
-    if (exists.rowCount === 0) {
-      const schemaPath = path.resolve(process.cwd(), "..", "engine", "schema.sql");
-      await c.query(readFileSync(schemaPath, "utf8"));
-      applied = true;
-    }
+    if (exists.rowCount === 0) { await c.query(SCHEMA); applied = true; }   // embedded: works inside a serverless bundle, no filesystem path
     // engine-internal additions beyond schema.sql; idempotent so an already-migrated database picks them up
     await c.query(`create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())`);
     await c.query(`alter table companies add column if not exists sms_enabled boolean not null default true`);
     await c.query(`alter table companies add column if not exists mode text not null default 'shadow'`);
+    await c.query(`alter table runs add column if not exists wake_on_reply boolean not null default false`);
     await c.query(`alter table companies drop constraint if exists companies_mode_check`);
     await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','live'))`);
     await c.query(`alter table sends drop constraint if exists sends_status_check`);

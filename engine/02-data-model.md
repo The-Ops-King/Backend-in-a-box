@@ -465,6 +465,7 @@ create table runs (
                       check (status in ('active','waiting','paused','completed','exited','failed')),
   current_node        text,
   next_run_at         timestamptz,                         -- THE clock. Null when not waiting.
+  wake_on_reply       boolean not null default false,       -- true only while parked on wait_for_reply; an inbound message wakes these and nothing else
   context             jsonb not null default '{}',         -- resolved vars, last reply, etc.
   exit_reason         text,
   reentry_key         text not null,                       -- computed per policy; unique prevents double runs

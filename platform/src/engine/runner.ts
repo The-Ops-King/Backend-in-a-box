@@ -59,9 +59,9 @@ export async function tick(adapters: Adapters, now = DateTime.now()): Promise<Ti
         const ver = await one<{ definition: unknown }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [run.workflow_id, run.workflow_version]);
         const def = parseDefinition(ver!.definition);
         const { nodes, edgesFrom } = indexDefinition(def);
-        const finish = async (status: string, exit_reason?: string, next_run_at?: Date | null, current_node?: string | null, ctx?: Record<string, unknown>) =>
-          c.query("update runs set status=$2, exit_reason=coalesce($3, exit_reason), next_run_at=$4, current_node=coalesce($5,current_node), context=coalesce($6,context), claimed_at=null, claimed_by=null, finished_at=case when $2 in ('completed','exited','failed') then now() end where id=$1",
-            [run.id, status, exit_reason ?? null, next_run_at ?? null, current_node ?? null, ctx ?? null]);
+        const finish = async (status: string, exit_reason?: string, next_run_at?: Date | null, current_node?: string | null, ctx?: Record<string, unknown>, wakeOnReply = false) =>
+          c.query("update runs set status=$2, exit_reason=coalesce($3, exit_reason), next_run_at=$4, current_node=coalesce($5,current_node), context=coalesce($6,context), wake_on_reply=$7, claimed_at=null, claimed_by=null, finished_at=case when $2 in ('completed','exited','failed') then now() end where id=$1",
+            [run.id, status, exit_reason ?? null, next_run_at ?? null, current_node ?? null, ctx ?? null, wakeOnReply]);
 
         // 1. premise — the always-on moot check
         const alive = await premiseAlive(def, { c, adapters, company, adapterCompany, bindings, run });
@@ -87,15 +87,19 @@ export async function tick(adapters: Adapters, now = DateTime.now()): Promise<Ti
           }
 
           const step = await one<{ id: string }>(c, "insert into run_steps (run_id,node_id,node_type,status) values ($1,$2,$3,'waiting') returning id", [run.id, node.id, node.type]);
-          const out = await executeNode(deps, node);
+          // a node that throws (vendor error, bad template) must fail the run WITHOUT rolling back this tick's ledger rows:
+          // sends that already went out stay recorded, which is what makes a retry safe
+          let out: Awaited<ReturnType<typeof executeNode>>;
+          try { out = await executeNode(deps, node); } catch (e) { out = { status: "failed", error: String((e as Error).message).slice(0, 500) }; }
           await c.query("update run_steps set status=$2, result=$3, error=$4, finished_at=now() where id=$1",
             [step!.id, out.status === "exit" || out.status === "paused" ? "ok" : out.status === "waiting" ? "waiting" : out.status, "result" in out ? out.result ?? {} : {}, "error" in out ? out.error : null]);
           if (out.status === "ok" && (node.type === "send_sms" || node.type === "send_email")) { sendsThisTick++; report.sends++; }
 
-          if (out.status === "waiting") { await finish("waiting", undefined, out.until.toJSDate(), out.stay ? node.id : (edgesFrom(node.id).find((e) => e.label !== "timeout") ?? edgesFrom(node.id)[0])?.to ?? null, ctx); report.waiting++; return; }
+          if (out.status === "waiting") { await finish("waiting", undefined, out.until.toJSDate(), out.stay ? node.id : (edgesFrom(node.id).find((e) => e.label !== "timeout") ?? edgesFrom(node.id)[0])?.to ?? null, ctx, !!out.stay); report.waiting++; return; }
           if (out.status === "exit") { await finish("completed", out.reason, null, node.id, ctx); report.completed++; return; }
           if (out.status === "paused") { await finish("paused", out.reason, null, node.id, ctx); report.paused++; return; }
           if (out.status === "failed") { await finish("failed", out.error, null, node.id, ctx); report.failed++; return; }
+          if (out.next === null) { await finish("failed", `node ${node.id} (${node.type}) has no outgoing edge`, null, node.id, ctx); report.failed++; return; }
           nodeId = out.next;
         }
         await finish("failed", `exceeded ${MAX_STEPS} steps in one tick`); report.failed++;

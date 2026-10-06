@@ -19,10 +19,14 @@ export async function ensureOpportunityForBooking(c: PoolClient, companyId: stri
 
 export async function applyPayment(c: PoolClient, companyId: string, contactId: string, p: { whopPaymentId: string; amount: number; currency: string; installmentNo?: number; status: "succeeded" | "failed" | "refunded"; paidAt: Date; raw: Record<string, unknown> }): Promise<EventRow> {
   const opp = await one<{ id: string; contract_value: string | null }>(c, "select id, contract_value from opportunities where company_id=$1 and contact_id=$2 and status in ('open','won') order by opened_at desc limit 1", [companyId, contactId]);
-  await c.query(`insert into payments (company_id, contact_id, opportunity_id, whop_payment_id, amount, currency, installment_no, status, paid_at, raw)
-    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (company_id, whop_payment_id) do nothing`,
+  const inserted = await one<{ id: string }>(c, `insert into payments (company_id, contact_id, opportunity_id, whop_payment_id, amount, currency, installment_no, status, paid_at, raw)
+    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (company_id, whop_payment_id) do nothing returning id`,
     [companyId, contactId, opp?.id ?? null, p.whopPaymentId, p.amount, p.currency, p.installmentNo ?? null, p.status, p.paidAt, p.raw]);
-  const ev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp?.id ?? null, appointment_id: null, event_type: p.status === "succeeded" ? "payment.received" : "payment.failed", source: "whop", data: { amount: p.amount, currency: p.currency, installment_no: p.installmentNo } });
+  if (!inserted) {   // redelivered webhook: the payment is already recorded; emit nothing, start nothing
+    const prior = await one<EventRow>(c, "select * from events where company_id=$1 and event_type in ('payment.received','payment.failed') and data->>'whop_payment_id'=$2 order by id desc limit 1", [companyId, p.whopPaymentId]);
+    if (prior) return { ...prior, id: -1 };   // id -1: callers dispatching this get no triggers (dispatch is keyed on a real event); see webhook route
+  }
+  const ev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp?.id ?? null, appointment_id: null, event_type: p.status === "succeeded" ? "payment.received" : "payment.failed", source: "whop", data: { amount: p.amount, currency: p.currency, installment_no: p.installmentNo, whop_payment_id: p.whopPaymentId } });
   if (p.status === "succeeded" && opp) {
     const co = await one<{ opp_won_on: string }>(c, "select opp_won_on from companies where id=$1", [companyId]);
     const won = await one<{ status: string }>(c, "select status from opportunities where id=$1", [opp.id]);

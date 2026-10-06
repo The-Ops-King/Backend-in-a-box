@@ -181,3 +181,15 @@ A standalone "unsolicited reply" workflow (classify → tag → note) is a small
 GHL contacts carry a `timezone` only sometimes; the rest fall back to the company's. Phone area
 code inference (#14) is still the fix. Until then, "morning of" is the company's morning for
 those contacts.
+
+## 22. Dashboard writes have no login (deferred by Tyler: "no password and such yet")
+Go live / Switch to shadow, Turn on / Turn off, and Save disposition are server actions with no
+authorization of their own; the only wall is Vercel's deployment protection. Fine for the test
+period. Before any client logs in, these need the same gate as `/api/admin/*` at minimum.
+
+## 23. One transaction per run per tick across external side effects
+A tick processes a run's nodes inside one database transaction while calling GHL/Slack. A node
+that throws no longer rolls back the ledger (the runner catches and fails the run inside the
+transaction), but the design still couples external calls to a transaction. The clean version
+commits the `sends` row before calling the vendor and updates it after. Not urgent at MVP volume;
+do it before the first high-volume client.

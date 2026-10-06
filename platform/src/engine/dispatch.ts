@@ -2,7 +2,7 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { parseDefinition, indexDefinition } from "./definition";
 import { evaluate } from "./predicate";
-import { reentryKey } from "./reentry";
+import { reentryKey, windowInterval } from "./reentry";
 
 export type EventRow = { id: number; company_id: string; contact_id: string | null; opportunity_id: string | null; appointment_id: string | null; event_type: string; occurred_at: Date; source: string; data: Record<string, unknown> };
 
@@ -20,6 +20,10 @@ export async function startRun(c: PoolClient, args: { companyId: string; workflo
   const ver = await one<{ definition: unknown }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [args.workflowId, wf.current_version]);
   const def = parseDefinition(ver!.definition);
   const key = reentryKey(def, { contactId: args.contactId, appointmentId: args.appointmentId, opportunityId: args.opportunityId, eventId: args.event.id, now: new Date() });
+  if (def.reentry === "once_per_contact_per_window") {   // sliding window, not epoch buckets: any run for this contact inside the window blocks a new one
+    const recent = await one(c, `select 1 from runs where workflow_id=$1 and contact_id=$2 and started_at > now() - $3::interval limit 1`, [args.workflowId, args.contactId, windowInterval(def.reentry_window ?? "90d")]);
+    if (recent) return null;
+  }
   const row = await one<{ id: string }>(c, `insert into runs (company_id, workflow_id, workflow_version, contact_id, opportunity_id, appointment_id, trigger_id, triggered_by_event, status, current_node, next_run_at, context, reentry_key)
     values ($1,$2,$3,$4,$5,$6,$7,$8,'active',$9,now(),$10,$11)
     on conflict (workflow_id, reentry_key) do nothing returning id`,
