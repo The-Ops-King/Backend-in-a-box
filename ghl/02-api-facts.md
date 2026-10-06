@@ -221,3 +221,19 @@ x-ratelimit-interval-milliseconds: 10000
 x-ratelimit-limit-daily: 200000 # per location
 ```
 A 1-minute poll of ~10 calls per client is ~14,400/day per location — 7% of the daily budget.
+
+### Contact search index lags writes by ~5–8 seconds (measured 2026-10-06)
+Tagged a contact, then polled `POST /contacts/search` (by `dateUpdated` range) and
+`GET /contacts/{id}` at +1s, +4s, +8s, +15s:
+
+| | search returns the contact | search `tags` | `GET /contacts/{id}` `tags` |
+|---|---|---|---|
+| +1s | no | — | `['reactivate']` |
+| +4s | no | — | `['reactivate']` |
+| +8s | yes | `['reactivate']` | `['reactivate']` |
+
+The direct read is immediate; the search index catches up within about 8 seconds and then
+returns the correct `tags` and `dateUpdated`. For the poller (one-minute cadence) this means a
+change lands one poll late at worst, never lost: the next poll sees the bumped `dateUpdated`
+and diffs the tags. Don't "fix" this with a per-contact `GET` on every poll — it's one extra
+call per changed contact for a delay that's shorter than the poll interval.

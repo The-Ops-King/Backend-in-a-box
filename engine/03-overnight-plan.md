@@ -58,3 +58,15 @@ Judgment calls made without asking, flag any:
 
 Still needs Tyler: the database (then migrate + install via the admin endpoints), Pro or the two
 Actions secrets, confirm the calendar mapping.
+
+### Later the same night: scenario tests and a live round-trip
+- 8 scenario tests drive every template through the engine with fake adapters (47 tests total).
+- They found: an optional unbound Slack channel crashed `slack_post` (now skips); and a circular
+  FK between appointments and form_submissions blocked deletes once a disposition existed (the
+  pointer is now `on delete set null`).
+- A live GHL round-trip found that cancellation rebook exited itself as moot, because the premise
+  check treated any cancelled appointment as dead. `appointment_exists` now survives a cancellation;
+  only `appointment_in_future` dies on it.
+- The same round-trip appeared to miss a tag → it was GHL's search index lagging ~5–8s behind the
+  write (`ghl/02-api-facts.md`). One poll late at worst; no engine change.
+- Everything on the local proof company is OFF again.
