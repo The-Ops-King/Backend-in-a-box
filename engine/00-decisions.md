@@ -115,24 +115,49 @@ Two payoffs, both load-bearing:
 
 ---
 
-## D4. Triggers are rows; chaining is edges
+## D4. Workflows are linear. Variation is more workflows, never a branch.
 
-Separate tables, separate concepts:
+**Tyler, 2026-10-06, settling the "no chaining" question.** A workflow is a straight list of
+steps with exits. There is no node that forks a run down one of two paths. Offer variation,
+client variation, outcome variation — all of it is expressed as **separate, individually
+editable workflows**, each a copy the client owns (D2).
 
-- **`workflow_triggers`** — many rows per workflow *instance*. Several ways to start the same
-  run (calendar status, tag added, form submitted). Adding a detection path is an INSERT, not
-  an edit to the graph. Because instances are copies (D2), a client changing their trigger
-  changes only their own.
-- **Edges inside the definition** — conditional paths. "A → B on offer 1, A → C on offer 2"
-  is one node with two conditional edges, on data the run already carries. Not two workflows.
+What's rejected, precisely: one shared graph that contacts from many clients or offers flow
+through, diverging only at the edges where their paths differ. That model is out. It made
+editing dangerous and the flow view unreadable, and copy-on-install already solves everything
+it was for.
 
-Inside one client's instance, a conditional edge is still the right answer for
-"A → B on offer 1, A → C on offer 2" — that's one node with two edges on data the run already
-carries, not two workflows. The copy boundary is *between clients*, not within one.
+### What a step can do instead of branching
+- **Continue** to the next step.
+- **Exit** the run, with a reason (`check` nodes are *gates*: continue-or-exit, never fork).
+- **Record** a fact — write a field, add a tag, create an event.
+- **Start another workflow** as a terminal action. This is how a run hands off to reactivation
+  without duplicating the reactivation steps into every tail. Not a branch: the current run ends,
+  a different run begins.
 
-### Re-entry policy (required per workflow)
-Because a workflow can have several triggers, every workflow declares what happens when a
-contact trips more than one:
+### Where the fork went: the trigger table
+A decision that used to be an `if` inside one workflow becomes **one workflow that records the
+decision, and several workflows that trigger on the recorded value.** Each is linear, each is
+editable on its own, and the flow view for any one of them is a straight line.
+
+```
+Reply received ──► [classify reply → write reply_intent → exit]
+                                │
+      trigger: reply_intent = confirmed   ──► "Confirmed reply" workflow (linear)
+      trigger: reply_intent = cancelled   ──► "Cancelled reply" workflow (linear)
+      trigger: reply_intent = reschedule  ──► "Reschedule request" workflow (linear)
+      trigger: reply_intent = unclear     ──► "Needs a human" workflow (linear)
+```
+
+Nothing is lost in expressiveness. The branch still exists; it lives in `workflow_triggers`
+as rows instead of inside a definition as edges, and that is exactly what makes every piece of
+it safe to edit.
+
+### Triggers
+- **`workflow_triggers`** — many rows per workflow instance. Several ways to start the same run;
+  adding one is an INSERT. Because instances are copies, a client changing a trigger changes
+  only their own.
+- **Re-entry policy, required per workflow**, because a contact can trip two triggers:
 
 | Workflow | Policy | Reason |
 |---|---|---|
@@ -231,6 +256,20 @@ treats the backlog differently from normal operation:
 4. **Post an outage report** to Slack: runs resumed, runs exited stale, sends suppressed. The
    failure mode to avoid is a silent recovery where nobody knows what never went out.
 
+### D5d. Send window — defer forward, then re-check
+Every client binds a send window and timezone via the manifest (e.g. 8:00–20:00
+`America/Phoenix`). A send that lands outside it is **moved forward** to the next open minute —
+never backward, never dropped.
+
+Order of operations at fire time, because these compose: quiet-hours defer first, **then** the
+premise check and validity window are evaluated *at the deferred time*. A "your call is in an
+hour" reminder for a 7am appointment wants to go at 6am; the window pushes it to 8am; by then
+the call is in the past; the premise check exits the run instead of sending nonsense. Each
+mechanism does one job and the ordering makes them agree.
+
+The "has this already happened, or is this now moot?" check is **always on** for every run.
+It's not a per-node option.
+
 ### D5c. Three tiers of decision-making, and Jev owns the middle one
 
 | Input | Question | Tool |
@@ -326,72 +365,59 @@ Typeform stays for client-facing intake where it's already working.
 
 ---
 
-## D9. One source of truth per fact — own it or reference it, never both
+## D9. One writer per fact. We store everything; nothing has two writers.
 
-Tyler: *"I REALLY don't want it to carry two areas of true data. I want it to be fully accurate
-at all times."* Agreed, and the rule that makes it hold is a clean split per *fact*, not per
-system.
+Tyler, 2026-10-06: *"pulling from GHL is a bad idea … I would like to store the data."* Right,
+and it doesn't conflict with "no two truths" as long as the rule is stated at the level of a
+**fact**, not a system. Every fact has exactly one writer. Copies are allowed; a second writer
+is not.
 
-**Facts we own.** Sales call outcomes, dispositions, pains and goals, form submissions, run
-state, events, every metric we compute. These live in our database, are the source of truth,
-and exist nowhere else. Query them freely.
+### Two one-way flows, split by who owns the fact
 
-**Facts GHL owns.** Contact name and email, calendar configuration, team rosters, appointment
-booking details (time, calendar, assigned user), appointment confirmation status. We store the
-**id**, read through on demand, cache briefly. We never hold an editable copy.
+**Facts we own → our DB is truth → pushed to GHL for display.**
+Everything collected by our forms (D8): intake answers, call outcomes, pains and goals,
+dispositions, EOD recaps. The form writes our DB first. We then **write the value into GHL
+custom fields** so the closer sees "hair loss level: 4" on the contact card. GHL holds a
+display copy. We never read it back for that fact.
 
-A fact is in exactly one of those two buckets. That's the whole discipline.
+This inverts the sync problem for all intake data. The custom field in GHL exists for the
+human looking at the CRM, not for us.
 
-### The tension this creates, and the resolution
-Tyler also wants to query across everything — *"are there any correlations between client income
-on the form and show rate?"* Show rate needs appointment data, which GHL owns. Reading through
-for an analytical query over thousands of rows is far too slow.
+**Facts GHL owns → GHL is truth → pushed to our DB as a replica.**
+Contact identity, appointment bookings and confirmation status, pipeline stage, tags set by a
+human in the UI, inbound and outbound messages. GHL writes these. We hold a **replica**, kept
+current by:
+1. **Marketplace-app webhooks** for freshness — `ContactCreate/Update/Delete/TagUpdate`,
+   `Appointment*`, `Opportunity*`, `InboundMessage/OutboundMessage`. This is now the recommended
+   path (reversing the earlier "overkill" call — a synced replica of GHL-owned facts needs real
+   event subscriptions, and a thin-workflow-per-event hack doesn't cover "any field changed").
+2. **The reconciliation sweep (D5)** for correctness — periodic re-read and diff, so a dropped
+   webhook is a delay, not a permanent divergence.
 
-So analytics needs a local copy, and the way to have one without a second truth is to make it
-**explicitly derived**:
+### The one read that still goes to source
+**Premise checks (D5b) read GHL directly, not the replica.** A contact cancelled thirty seconds
+ago with the webhook still in flight must not get a reminder off stale replica state. That's the
+single place where staleness has a cost, so it's the single place that pays for a live read.
+Everything else — display, analytics, correlation queries, the flow view — reads the replica.
 
-- It's a **read-only projection**, rebuilt from source, stamped with an `as_of` timestamp.
-- Nothing writes to it. No user edits it. There's no "update" path at all — only rebuild.
-- **The hard rule: no workflow and no user action ever reads from the projection.** Operational
-  reads go to the source, always. Only analytics and dashboards read the projection.
+### Custom, per-business data: `attributes` JSONB, schema owned by the form
+"How bad is your hair" exists on one offer and not another. It does not get a column. Our intake
+record carries an `attributes` JSONB column, and **the form definition is its schema**: when a
+form declares a question with key `hair_loss_level`, type `integer`, range 1–5, that key becomes
+a typed, validated, queryable attribute for that client.
 
-That last line is what keeps it honest. A stale projection can make a chart slightly off. It
-can never cause a wrong send, a wrong route, or a wrong decision, because nothing operational
-is allowed to touch it. A cache with provenance and a one-way data flow is not a second truth;
-an editable mirror would be.
+- Queryable: `attributes->>'hair_loss_level'`, GIN-indexed.
+- No migration per client, no sparse table of 400 nullable columns.
+- **Typed at the form, validated at ingest.** The correlation ambition dies if one install stores
+  `"4"` and another stores `4`. The form says `integer`; the ingest refuses a string.
+- Human-entered GHL custom fields (a closer typing into the contact card) land in a separate
+  `ghl_fields` JSONB on the replica, so the ownership line stays visible in the schema itself.
 
-### What this makes possible
-The projection is the thing that lets us land the ambition: appointment data, sales call data,
-pre-call activity, form responses, show outcomes, all joinable in one place. Cross-source
-correlation queries are the payoff, and they're only safe because the projection is downstream
-of everything and upstream of nothing.
+The payoff is the question Tyler actually wants answered — *how does hair loss level correlate
+with close probability?* — which is a join between an attribute we own and an outcome we own,
+across a client's whole book, with no GHL call in the path.
 
-Verified read paths in `../ghl/02-api-facts.md`: contacts, calendars, calendar team rosters,
-appointments by calendar and time window.
-
----
-
-## D12. Outcome data is ours; GHL holds the booking, not the result
-
-**Tyler's correction, 2026-10-06, and he's right:** don't write call outcomes onto GHL's
-appointment record. The appointment's status field is a *confirmation* state. The outcome — did
-they show, what were their pains and goals, what was the disposition — is our data and belongs
-in our backend alongside the Sales Call record.
-
-Our appointment row holds `ghl_appointment_id` plus our outcome fields, and references GHL for
-the booking facts (time, calendar, assigned user). One fact, one owner, per D9.
-
-**One factual correction in the other direction:** GHL *does* have a native `noshow` status —
-verified, full enum in `../ghl/02-api-facts.md` (`new`, `confirmed`, `cancelled`, `showed`,
-`noshow`, `invalid`). I'd assumed it didn't exist when I set it in testing, and that assumption
-was wrong, not the architecture.
-
-That the field exists has two consequences:
-1. It's a legitimate **trigger source** — a client's team marking a no-show in the GHL UI is an
-   event worth listening for, even though we don't store our own outcome there.
-2. The PUT clobber bug is a risk to **their** data, not ours. Any PUT we make that omits
-   `appointmentStatus` resets whatever their team set. The read-then-write rule stands for their
-   sake rather than ours.
+Verified read and write paths in `../ghl/02-api-facts.md`.
 
 ---
 
@@ -435,3 +461,29 @@ table from the first line of code.
 Rendering is a view. Reconstructing history from scattered per-source tables is a rewrite. The
 table is cheap now and it's also what the reconciliation sweep (D5) reads and what every
 dashboard number is eventually computed from.
+
+---
+
+## D13. The reply workflow — Jev decides, a human catches the rest
+
+Inbound reply to a reminder or outreach text. One linear workflow, per D4:
+
+1. **Trigger:** `InboundMessage` for a contact with an active reminder or outreach run.
+2. **Classify** with Jev, `choice` over the controlled set:
+   `confirmed · cancelled · reschedule_request · question · unclear`, with the recent outbound
+   message as `state` so "yes" means something.
+3. **Confidence gate.** Below threshold → the result is `unclear` regardless of the mode.
+4. **Record** `reply_intent` on the contact and in `events`. Exit.
+
+Then four separate, editable workflows trigger on the recorded value (the fan-out in D4). The
+`unclear` one, verified end to end against the live location:
+
+- Tag the contact `needs-human-reply` → a smart list filters on the tag (smart lists can't be
+  created by API; tags can).
+- Write an internal note on the contact: the original text, the top guesses with their
+  probabilities, and a plain line that a human needs to look. Verified: `POST /contacts/{id}/notes`.
+- Pause any active reminder run for that contact so the engine doesn't keep texting someone
+  who's mid-conversation with a human.
+
+**What the engine never does with an unclear reply:** guess. A classifier that returns
+calibrated probabilities is only valuable if the low-confidence path is honored.

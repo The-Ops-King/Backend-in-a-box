@@ -82,7 +82,7 @@ becomes a dependency in the send path for reply routing), and whether a self-hos
 path exists if it's down — a classifier outage must degrade to "escalate to human," never to
 a guess or a dropped run.
 
-## 9. BLOCKING: what does "no chaining" mean?
+## 9. ~~BLOCKING: what does "no chaining" mean?~~ — ANSWERED 2026-10-06, see D4
 Tyler, 2026-10-06: *"We are not doing the chaining. i don't think that's the right way to do
 it."* Two readings, materially different, and the data model can't be drafted until it's settled:
 
@@ -104,3 +104,21 @@ D2 requires knowing which instances are behind a template and whether they've di
 is a divergence a blocking state (can't take template updates until resolved) or an advisory one
 (update anyway, keep a backup)? **Recommend advisory with an explicit diff confirmation** —
 blocking means a client's small tweak freezes them out of every future fix.
+
+## 10. Marketplace app — now on the critical path
+D9's synced replica needs real event subscriptions, which means a marketplace app with an OAuth
+install per client instead of a PIT. Confirmed event families: Contact, Opportunity,
+Appointment, Inbound/OutboundMessage. Still to verify, and these shape the replica design:
+- Does `ContactUpdate` carry custom field values in the payload, or only that something changed
+  (forcing a follow-up read)?
+- Signature header and verification mechanism for inbound webhooks.
+- Retry policy when our endpoint is down — determines how much the reconciliation sweep has to
+  carry.
+- Whether a PIT can be kept alongside for the write path, or everything moves to the app's
+  OAuth token. Affects the install SOP and credential rotation (open question 5).
+
+## 11. Jev threshold tuning
+The confidence cutoff for `unclear` (D13) is a number that needs real replies to set. Start
+conservative (everything under ~0.8 goes to a human), log every classification with its
+distribution, and lower it only against observed data. The failure mode to avoid is tuning it on
+imagined replies.
