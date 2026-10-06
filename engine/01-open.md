@@ -201,3 +201,5 @@ error there is caught without aborting the transaction, but a SQL error mid-run 
 back that run's ledger (the run is then marked failed from a fresh transaction, so nothing hangs).
 Ticks are serialized by a lease row (`engine_state.tick_lock`, 6 minutes, see
 `platform/src/engine/lock.ts`); a tick that finds the lease held returns `{ busy: true }`.
+The minute scheduler is pg_cron + pg_net inside the Supabase database (`platform/src/engine/schedule.ts`);
+GitHub's five-minute schedule fired once in four hours and is kept only as a backup.

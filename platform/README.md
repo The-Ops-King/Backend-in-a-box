@@ -100,12 +100,21 @@ answers `200 { busy: true }` and does nothing. A tick killed mid-flight frees th
 The first tick after installing a company is the baseline and can take a few minutes for a large
 location; a client that times out waiting for it has not stopped it.
 
+Scheduler install (once per database, idempotent — re-running replaces the job):
+
+```
+curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://backend-in-a-box.vercel.app/api/admin/schedule
+curl -H "Authorization: Bearer $CRON_SECRET" https://backend-in-a-box.vercel.app/api/admin/schedule   # status + last 5 runs/responses
+```
+
+`/api/health` reports `last_tick`; if it is more than two minutes old the scheduler is not running.
+
 **Scheduling depends on the Vercel plan.** The team is on Hobby today, which allows daily crons only
 — a deploy with `* * * * *` is rejected outright (`cron_jobs_limits_reached`). So:
 
 | Plan | Minute scheduler | `vercel.json` cron |
 |---|---|---|
-| Hobby (now) | `.github/workflows/tick.yml` every 5 min (needs repo secrets `TICK_URL`, `CRON_SECRET`) | daily `0 9 * * *` = the reconciliation sweep |
+| Hobby (now) | **pg_cron inside Supabase** every minute → `/api/tick` (installed once with `POST /api/admin/schedule`; `GET` shows the last runs; `DELETE` removes it). `.github/workflows/tick.yml` stays as a backup and is harmless when it fires. | daily `0 9 * * *` = the reconciliation sweep |
 | Pro | `vercel.json` set to `* * * * *` | the Actions workflow stays on as the backup scheduler |
 
 Five-minute latency is fine for testing and wrong for production reminders; Pro is the real fix.

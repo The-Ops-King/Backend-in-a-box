@@ -6,6 +6,9 @@ export async function GET() {
   const names = Object.keys(process.env).filter((k) => /^(DATABASE_URL|SUPABASE_|GHL_|TICK_URL|CRON_SECRET|BINDINGS_KEY|JEV_)/.test(k)).sort();
   const dbConfigured = !!(process.env.DATABASE_URL ?? process.env.SUPABASE_DB_URL);
   if (!dbConfigured) return NextResponse.json({ ok: false, db: "not configured", env: names }, { status: 503 });
-  try { const r = await db().query("select now() as now, (select count(*) from companies) as companies"); return NextResponse.json({ ok: true, ...r.rows[0], env: names }); }
+  try {
+    const r = await db().query("select now() as now, (select count(*) from companies) as companies, (select value->>'last_tick' from engine_state where key='scheduler') as last_tick");
+    return NextResponse.json({ ok: true, ...r.rows[0], env: names });
+  }
   catch (e) { return NextResponse.json({ ok: false, db: String((e as Error).message).slice(0, 200), env: names }, { status: 500 }); }
 }
