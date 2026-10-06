@@ -567,6 +567,26 @@ a side log.
 scale that's a query; if it ever isn't, a materialized `contact_state` view is a cache of the
 stream, never a second truth (D9).
 
+### Proven against Postgres 16, 2026-10-06 — `proof-journey.sql`
+200 synthetic contacts, 160 booked, every query below ran as written. The stream answers the
+questions Tyler asked without a second table:
+
+| Question | Shape of the query | Result on the sample |
+|---|---|---|
+| How many confirmed? | one `count` with a `where` | 112 |
+| The funnel | one `select` with `count(*) filter (where …)` per stage | 200 → 160 → 112 → 96 → 54 → 28 |
+| Does confirming predict showing? | booked **left join** reply **join** outcome, group by intent | confirmed 73% · no reply 39% · cancelled 0% |
+| One contact as a sentence | `string_agg(… order by occurred_at)` | `lead.created → intake.recorded → appointment.booked → reply.classified (confirmed) → appointment.outcome (showed) → call.held (discovery) → call.held (closing) → payment.received (pif)` |
+| Attribute × behavior | join `intake.recorded` data into the funnel | confirm rate 56% → 75% across hair loss 1 → 5 |
+| Median days booking → close | `percentile_cont(0.5)` over the two events | 6.0 |
+| Where is everyone right now? | `distinct on (contact_id) … order by occurred_at desc` | derived live, no stored state |
+| Can a typo enter the vocabulary? | `event_type` is a **foreign key** to `event_types` | `appointment.confirmd` → rejected |
+
+Two things worth noticing. Every funnel-shaped question is the same query with different
+`filter` clauses — that's the sign the model is right, because the queries stay boring as the
+questions get harder. And the last row is the normalization rule from below enforced by the
+database rather than by discipline: an event type that isn't in the vocabulary cannot be written.
+
 ### Normalization: two layers, one promotion rule
 - **Core vocabulary — fixed, shared by every client and offer.** Event types, call types
   (`discovery · closing · follow_up`), appointment outcomes (`showed · noshow · cancelled`),
