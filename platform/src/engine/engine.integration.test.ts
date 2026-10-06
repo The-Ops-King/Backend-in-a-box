@@ -93,11 +93,18 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
       await c.query("update runs set next_run_at=now(), current_node='n2' where company_id=$1 and status='waiting'", [companyId]);
       await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'M1','sms','inbound','yes see you then',now())", [companyId, contactId]);
     });
-    const r = await tick(fake);                       // n2 sends the reminder SMS, n3 waits 4h
+    const r = await tick(fake);                       // n2 sends the reminder SMS; n3 wait_for_reply sees the reply already there? No: message was BEFORE the send → boundary excludes it → waits
     expect(sent.filter((s) => s.kind === "sms")).toHaveLength(1);
     expect(sent.at(-1)!.body).toMatch(/Jamie.*Sam.*at 2pm/);
-    await asOperator((c) => c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting'", [companyId]));
-    const r3 = await tick(fake);                      // n4 check (reply exists) → n5 classify → n6 branch → n7 tag → x1
+    const waiting = await asOperator((c) => one<{ current_node: string; next_run_at: Date }>(c, "select current_node, next_run_at from runs where company_id=$1 and status='waiting'", [companyId]));
+    expect(waiting?.current_node).toBe("n3");                                        // stays ON the wait_for_reply node
+    expect(waiting!.next_run_at.getTime() - Date.now()).toBeGreaterThan(3.9 * 3600e3);  // deadline ≈ 4h out
+    // a reply arrives AFTER our send → the poller wakes the run (simulated: next_run_at=now) → handled on the very next tick, not at hour four
+    await asOperator(async (c) => {
+      await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'M2','sms','inbound','yes see you then',now())", [companyId, contactId]);
+      await c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting'", [companyId]);
+    });
+    const r3 = await tick(fake);                      // n3 sees reply → n5 classify → n6 branch → n7 tag → x1
     expect(r3.completed).toBe(1);
     expect(tags).toContain("confirmed");
     const run = await asOperator((c) => one<{ exit_reason: string }>(c, "select r.exit_reason from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name like 'Appointment reminder%'", [companyId]));
@@ -106,6 +113,22 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
     expect(new Set(ledger.map((l) => l.idempotency_key)).size).toBe(ledger.length);
     const cls = await asOperator((c) => one<{ data: { intent: string } }>(c, "select data from events where company_id=$1 and event_type='reply.classified'", [companyId]));
     expect(cls?.data.intent).toBe("confirmed");
+  });
+
+  it("wait_for_reply timeout: no reply by the deadline → the timeout edge → exit no_reply", async () => {
+    await asOperator(async (c) => {
+      await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [companyId]);
+      await c.query("delete from sends where company_id=$1", [companyId]); await c.query("delete from runs where company_id=$1", [companyId]);
+      await c.query("delete from messages where company_id=$1", [companyId]);
+      const wf = await one<{ id: string }>(c, "select id from workflows where company_id=$1 and name like 'Appointment reminder%'", [companyId]);
+      // park a run on n3 with a deadline already in the past
+      await c.query("insert into runs (company_id, workflow_id, workflow_version, contact_id, appointment_id, status, current_node, next_run_at, context, reentry_key) values ($1,$2,1,$3,$4,'waiting','n3',now(),$5,'appointment:timeout')",
+        [companyId, wf!.id, contactId, apptId, { vars: { __wait_for_reply: { n3: { deadline: new Date(Date.now() - 60e3).toISOString() } } } }]);   // nested: setPath/resolvePath split on "."
+    });
+    const r = await tick(fake);
+    expect(r.completed).toBe(1);
+    const run = await asOperator((c) => one<{ exit_reason: string }>(c, "select exit_reason from runs where company_id=$1 and reentry_key='appointment:timeout'", [companyId]));
+    expect(run?.exit_reason).toBe("no_reply");
   });
 
   it("premise check: a cancelled appointment exits the run instead of sending", async () => {

@@ -12,7 +12,7 @@ import { emitEvent } from "./dispatch";
 export type StepOutcome =
   | { status: "ok"; next: string | null; result?: Record<string, unknown> }
   | { status: "skipped" | "stale"; next: string | null; result?: Record<string, unknown> }
-  | { status: "waiting"; until: DateTime; result?: Record<string, unknown> }
+  | { status: "waiting"; until: DateTime; stay?: boolean; result?: Record<string, unknown> }   // stay: re-execute this same node on wake
   | { status: "exit"; reason: string; result?: Record<string, unknown> }
   | { status: "paused"; reason: string; result?: Record<string, unknown> }
   | { status: "failed"; error: string };
@@ -20,7 +20,7 @@ export type StepOutcome =
 export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime };
 
 const contactTz = (d: ExecDeps) => ((d.ctx.contact as { timezone?: string } | undefined)?.timezone) ?? d.company.timezone;
-const single = (d: ExecDeps, id: string): string | null => d.edgesFrom(id)[0]?.to ?? null;
+const single = (d: ExecDeps, id: string): string | null => (d.edgesFrom(id).find((e) => e.label !== "timeout") ?? d.edgesFrom(id)[0])?.to ?? null;
 const env = (d: ExecDeps) => ({ now: d.now, tz: contactTz(d) });
 
 function validityOk(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "send_email" }>): { ok: true } | { ok: false; why: string } {
@@ -84,6 +84,25 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     }
 
     case "send_sms": case "send_email": return doSend(d, node);
+
+    case "wait_for_reply": {
+      // boundary = our last send in this run (so a reply to something earlier doesn't count), else run start
+      const lastSend = await one<{ sent_at: Date }>(d.c, "select sent_at from sends where run_id=$1 and status='sent' order by sent_at desc limit 1", [d.run.id]);
+      const since = lastSend?.sent_at ?? d.run.started_at ?? new Date(0);
+      const reply = await one<{ body: string | null; occurred_at: Date; channel: string }>(d.c,
+        `select body, occurred_at, channel from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at > $3 ${node.channel === "any" ? "" : "and channel=$4"} order by occurred_at desc limit 1`,
+        node.channel === "any" ? [d.company.id, d.run.contact_id, since] : [d.company.id, d.run.contact_id, since, node.channel]);
+      if (reply) {
+        setPath(d.ctx, "reply.last_inbound", { body: reply.body, at: reply.occurred_at.toISOString(), channel: reply.channel });
+        return { status: "ok", next, result: { replied_at: reply.occurred_at.toISOString() } };
+      }
+      const key = `__wait_for_reply.${node.id}.deadline`;
+      let deadline = resolvePath(d.ctx, `vars.${key}`) as string | undefined;
+      if (!deadline) { deadline = d.now.plus(parseDuration(node.timeout)).toISO()!; setPath(d.ctx, `vars.${key}`, deadline); }
+      if (d.now < DateTime.fromISO(deadline)) return { status: "waiting", until: DateTime.fromISO(deadline), stay: true, result: { deadline } };
+      const timeoutEdge = d.edgesFrom(node.id).find((e) => e.label === "timeout");
+      return timeoutEdge ? { status: "ok", next: timeoutEdge.to, result: { timed_out: true } } : { status: "exit", reason: "no_reply", result: { timed_out: true } };
+    }
 
     case "slack_post": {
       const conn = await one<{ bot_token: Buffer; channels: Record<string, string> }>(d.c, "select bot_token, channels from slack_connections where company_id=$1", [d.company.id]);

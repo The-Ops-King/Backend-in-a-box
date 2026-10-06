@@ -37,6 +37,8 @@ const base = { id: z.string().min(1) };
 export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("trigger"), event: z.string(), match: Predicate.optional() }),
   z.object({ ...base, type: z.literal("wait"), rule: WaitRule }),
+  // Waits for an inbound reply (woken the minute one arrives) or until `timeout`; follows the edge labeled "timeout" if none, else exits `no_reply`.
+  z.object({ ...base, type: z.literal("wait_for_reply"), timeout: z.string(), channel: z.enum(["sms", "email", "any"]).default("any") }),
   z.object({ ...base, type: z.literal("send_sms"), template: z.string(), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
   z.object({ ...base, type: z.literal("send_email"), subject: z.string(), template: z.string(), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
   z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string() }),
@@ -55,7 +57,7 @@ export const Node = z.discriminatedUnion("type", [
 ]);
 export type Node = z.infer<typeof Node>;
 
-export const Edge = z.object({ from: z.string(), to: z.string(), when: Predicate.optional(), else: z.boolean().optional() });
+export const Edge = z.object({ from: z.string(), to: z.string(), when: Predicate.optional(), else: z.boolean().optional(), label: z.string().optional() });
 export type Edge = z.infer<typeof Edge>;
 
 export const Premise = z.object({
