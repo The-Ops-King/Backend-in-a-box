@@ -1,5 +1,5 @@
 import { asOperator, many, one } from "@/db/client";
-import type { Definition } from "@/engine/definition";
+import { parseDefinition, type Definition } from "@/engine/definition";
 
 export const listCompanies = () => asOperator((c) => many<{ id: string; name: string; slug: string; status: string; timezone: string; contacts: number; workflows: number; active_runs: number; last_poll: Date | null }>(c, `
   select co.id, co.name, co.slug, co.status, co.timezone,
@@ -48,14 +48,14 @@ export const workflow = (id: string) => asOperator(async (c) => {
   const versions = await many<{ version: number; saved_at: Date; note: string | null }>(c, "select version, saved_at, note from workflow_versions where workflow_id=$1 order by version desc", [id]);
   const bound = (await many<{ key: string }>(c, "select key from bindings where company_id=$1", [w.company_id])).map((b) => b.key);
   const stats = await one<{ total: number; completed: number; waiting: number; exited: number; failed: number }>(c, `select count(*) as total, count(*) filter (where status='completed') as completed, count(*) filter (where status in ('active','waiting')) as waiting, count(*) filter (where status='exited') as exited, count(*) filter (where status='failed') as failed from runs where workflow_id=$1`, [id]);
-  return { ...w, definition: v!.definition, manifest: v!.manifest, versions, bound, stats: stats! };
+  return { ...w, definition: parseDefinition(v!.definition), manifest: v!.manifest, versions, bound, stats: stats! };
 });
 
 export const run = (id: string) => asOperator(async (c) => {
   const r = await one<{ id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string; appointment_id: string | null; status: string; current_node: string | null; exit_reason: string | null; next_run_at: Date | null; started_at: Date; finished_at: Date | null; context: Record<string, unknown>; reentry_key: string; workflow: string; contact: string }>(c,
     "select r.*, w.name as workflow, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact from runs r join workflows w on w.id=r.workflow_id join contacts ct on ct.id=r.contact_id where r.id=$1", [id]);
   if (!r) return null;
-  const def = (await one<{ definition: Definition }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [r.workflow_id, r.workflow_version]))!.definition;
+  const def = parseDefinition((await one<{ definition: Definition }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [r.workflow_id, r.workflow_version]))!.definition);
   const steps = await many<{ node_id: string; node_type: string; status: string; started_at: Date; finished_at: Date | null; result: Record<string, unknown>; error: string | null }>(c, "select node_id, node_type, status, started_at, finished_at, result, error from run_steps where run_id=$1 order by started_at", [id]);
   const sends = await many<{ channel: string; status: string; rendered_body: string; sent_at: Date | null; external_id: string | null; suppressed_reason: string | null; error: string | null }>(c, "select channel, status, rendered_body, sent_at, external_id, suppressed_reason, error from sends where run_id=$1 order by scheduled_for", [id]);
   const appt = r.appointment_id ? await one<{ starts_at: Date; ghl_status: string; term: string }>(c, "select a.starts_at, a.ghl_status, t.name as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [r.appointment_id]) : null;
