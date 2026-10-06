@@ -16,6 +16,7 @@ create table companies (
   archived_at       timestamptz,
   purge_after_months int not null default 12,
   -- opportunity lifecycle rules (per-company settings, Tyler: "depends on workflow and settings")
+  contract_value_default numeric(12,2),                 -- the program price; a new opportunity's contract_value until a closer sets one
   opp_opens_on      text not null default 'first_booking'
                     check (opp_opens_on in ('lead_created','first_booking','pipeline_entry')),
   opp_won_on        text not null default 'first_payment'
@@ -215,19 +216,53 @@ create table appointments (
 create index on appointments (company_id, starts_at);
 create index on appointments (company_id, assigned_user_id, starts_at);
 
+-- The ledger. A payment is a fact even when nobody matched it: contact_id is null and link_status is 'unlinked'
+-- until the identity ladder (member id → email → phone) or a person links it. Refunds are negative rows.
 create table payments (
   id               uuid primary key default gen_random_uuid(),
   company_id       uuid not null references companies(id),
-  contact_id       uuid not null references contacts(id),
+  contact_id       uuid references contacts(id),
   opportunity_id   uuid references opportunities(id),
-  whop_payment_id  text not null,
+  provider         text not null default 'whop',
+  whop_payment_id  text not null,                        -- provider payment id (pay_…); refunds carry the refund id
   amount           numeric(12,2) not null,
   currency         text not null default 'USD',
   installment_no   int,
   status           text not null check (status in ('succeeded','failed','refunded')),
+  kind             text check (kind in ('deposit','installment','balance','paid_in_full','refund','chargeback','failed')),   -- derived from the ledger, never from the provider
+  customer_email   text,                                 -- identity as the checkout reported it, kept even when unlinked
+  customer_phone   text,
+  whop_member_id   text,                                 -- stable buyer id; a later payment with the same id resolves through an earlier linked one
+  link_status      text not null default 'linked' check (link_status in ('linked','unlinked')),
+  linked_by        text,                                 -- email | phone | member_id | manual | heal
   paid_at          timestamptz not null,
   raw              jsonb not null default '{}',          -- the small, structured part of the webhook
-  unique (company_id, whop_payment_id)
+  unique (company_id, provider, whop_payment_id)
+);
+create index on payments (company_id, link_status);
+
+-- CRM custom-object records the engine writes (payment, sales_call, …), keyed by what identifies them to us, so an
+-- update never depends on the CRM's lagging search index.
+create table crm_records (
+  id             uuid primary key default gen_random_uuid(),
+  company_id     uuid not null references companies(id),
+  object_key     text not null,                          -- custom_objects.payment
+  record_key     text not null,                          -- our key: the provider payment id, the Calendly event uuid, …
+  ghl_record_id  text,                                   -- null in shadow
+  contact_id     uuid references contacts(id),
+  properties     jsonb not null default '{}',            -- last written
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  unique (company_id, object_key, record_key)
+);
+
+-- Idempotency for inbound webhooks: the provider's delivery id, so a retried delivery is a no-op before any parsing.
+create table webhook_deliveries (
+  company_id   uuid not null references companies(id),
+  provider     text not null,
+  delivery_id  text not null,
+  received_at  timestamptz not null default now(),
+  primary key (company_id, provider, delivery_id)
 );
 create index on payments (company_id, opportunity_id);
 
@@ -242,7 +277,7 @@ insert into event_types values
   ('appointment.status_changed','appointment'), ('appointment.outcome','appointment'),
   ('call.held','call'),
   ('message.sent','message'), ('message.received','message'), ('reply.classified','message'),
-  ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'),
+  ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
   ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'),
   ('run.started','engine'), ('run.exited','engine'), ('send.suppressed','engine');
 
@@ -412,9 +447,9 @@ create table sends (
   company_id         uuid not null references companies(id),
   run_id             uuid references runs(id),
   run_step_id        uuid references run_steps(id),
-  contact_id         uuid not null references contacts(id),
+  contact_id         uuid references contacts(id),           -- null for a message to the team (alerts)
   channel            text not null check (channel in ('sms','email','slack')),
-  idempotency_key    text not null unique,                 -- run_id:node_id:attempt-group
+  idempotency_key    text not null unique,                 -- run_id:node_id:attempt-group, or notify:<channel>:<uuid>
   rendered_body      text not null,                        -- what actually went out, after send-time render
   scheduled_for      timestamptz,
   sent_at            timestamptz,

@@ -3,6 +3,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { asOperator, one } from "@/db/client";
 import { recordDisposition } from "@/engine/disposition";
+import { linkPayment } from "@/engine/payments";
+import { dispatchEvent } from "@/engine/dispatch";
 
 export async function toggleWorkflow(formData: FormData) {
   const id = String(formData.get("id")), slug = String(formData.get("slug"));
@@ -35,4 +37,16 @@ export async function toggleMode(formData: FormData) {
     await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'company.mode','company',$1,$2,$3)", [co.id, { mode: co.mode }, { mode: next }]);
   });
   revalidatePath(`/c/${slug}`); revalidatePath("/");
+}
+
+/** Operator links an unlinked payment to a contact. The payment settles and its workflows start, exactly as if it had matched on arrival. */
+export async function linkPaymentAction(formData: FormData) {
+  const slug = String(formData.get("slug")), companyId = String(formData.get("companyId")), paymentId = String(formData.get("paymentId")), contactId = String(formData.get("contactId") ?? "");
+  if (!contactId) return;
+  await asOperator(async (c) => {
+    const { event } = await linkPayment(c, companyId, paymentId, contactId);
+    await dispatchEvent(c, event, { contact: { id: contactId } });
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'payment.linked','payment',$2,$3)", [companyId, paymentId, { contact_id: contactId }]);
+  });
+  revalidatePath(`/c/${slug}/payments`); revalidatePath(`/c/${slug}`);
 }

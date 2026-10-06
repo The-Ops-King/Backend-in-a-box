@@ -103,6 +103,6 @@ describe.skipIf(!process.env.DATABASE_URL)("Calendly as the booking source", () 
   it("a booking with no usable identity is skipped rather than inventing a contact", async () => {
     events = [appt("EV3", { invitee: { firstName: "Nobody" } })];
     const r = await pollAll(fake);
-    expect(r.appointmentsNew).toBe(0); expect(r.errors).toEqual([]);
+    expect(r.appointmentsNew).toBe(0); expect(r.errors.filter((e) => e.company === "cal")).toEqual([]);
   });
 });

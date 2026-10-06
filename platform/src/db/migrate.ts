@@ -49,6 +49,22 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table calendars add column if not exists booking_url text`);
     await c.query(`alter table contacts drop constraint if exists contacts_timezone_source_check`);
     await c.query(`alter table contacts add constraint contacts_timezone_source_check check (timezone_source in ('ghl','booking','phone','company_default'))`);
+    // payments ledger (D21): unlinked payments, identity columns, derived kind, provider; webhook idempotency; CRM record map
+    await c.query(`alter table payments alter column contact_id drop not null`);
+    await c.query(`alter table sends alter column contact_id drop not null`);   // team alerts have no contact
+    for (const col of ["provider text not null default 'whop'", "kind text", "customer_email text", "customer_phone text", "whop_member_id text", "link_status text not null default 'linked'", "linked_by text"]) await c.query(`alter table payments add column if not exists ${col}`);
+    await c.query(`alter table payments drop constraint if exists payments_kind_check`);
+    await c.query(`alter table payments add constraint payments_kind_check check (kind in ('deposit','installment','balance','paid_in_full','refund','chargeback','failed'))`);
+    await c.query(`alter table payments drop constraint if exists payments_link_status_check`);
+    await c.query(`alter table payments add constraint payments_link_status_check check (link_status in ('linked','unlinked'))`);
+    await c.query(`alter table payments drop constraint if exists payments_company_id_whop_payment_id_key`);
+    await c.query(`alter table payments drop constraint if exists payments_company_id_provider_whop_payment_id_key`);
+    await c.query(`alter table payments add constraint payments_company_id_provider_whop_payment_id_key unique (company_id, provider, whop_payment_id)`);
+    await c.query(`create index if not exists payments_company_id_link_status_idx on payments (company_id, link_status)`);
+    await c.query(`alter table companies add column if not exists contract_value_default numeric(12,2)`);
+    await c.query(`insert into event_types values ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment') on conflict do nothing`);
+    await c.query(`create table if not exists webhook_deliveries (company_id uuid not null references companies(id), provider text not null, delivery_id text not null, received_at timestamptz not null default now(), primary key (company_id, provider, delivery_id))`);
+    await c.query(`create table if not exists crm_records (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id), object_key text not null, record_key text not null, ghl_record_id text, contact_id uuid references contacts(id), properties jsonb not null default '{}', created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (company_id, object_key, record_key))`);
     // appointments ↔ form_submissions reference each other; the disposition pointer must not block deleting a submission
     await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);
     await c.query(`alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id) on delete set null`);

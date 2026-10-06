@@ -95,5 +95,16 @@ export const companyEvents = (companyId: string, limit = 40) => asOperator((c) =
 
 export const companySends = (companyId: string, limit = 100) => asOperator((c) => many<{ id: string; channel: string; status: string; suppressed_reason: string | null; rendered_body: string; sent_at: Date | null; scheduled_for: Date | null; run_id: string | null; workflow: string | null; contact: string; contact_id: string }>(c, `
   select s.id, s.channel, s.status, s.suppressed_reason, s.rendered_body, s.sent_at, s.scheduled_for, s.run_id, w.name as workflow, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact, ct.id as contact_id
-  from sends s join contacts ct on ct.id=s.contact_id left join runs r on r.id=s.run_id left join workflows w on w.id=r.workflow_id
+  from sends s left join contacts ct on ct.id=s.contact_id left join runs r on r.id=s.run_id left join workflows w on w.id=r.workflow_id
   where s.company_id=$1 order by coalesce(s.sent_at, s.scheduled_for) desc limit ${limit}`, [companyId]));
+
+export type PaymentListRow = { id: string; whop_payment_id: string; amount: string; currency: string; status: string; kind: string | null; link_status: string; linked_by: string | null; paid_at: Date; customer_email: string | null; customer_phone: string | null; whop_member_id: string | null; contact_id: string | null; contact: string | null; running_total: string | null; contract_value: string | null };
+export const companyPayments = (companyId: string, limit = 50) => asOperator((c) => many<PaymentListRow>(c, `
+  select p.id, p.whop_payment_id, p.amount, p.currency, p.status, p.kind, p.link_status, p.linked_by, p.paid_at, p.customer_email, p.customer_phone, p.whop_member_id, p.contact_id,
+         nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as contact,
+         (select sum(amount) from payments q where q.opportunity_id=p.opportunity_id and q.status in ('succeeded','refunded') and q.paid_at <= p.paid_at) as running_total, o.contract_value
+  from payments p left join contacts ct on ct.id=p.contact_id left join opportunities o on o.id=p.opportunity_id
+  where p.company_id=$1 order by p.paid_at desc limit ${limit}`, [companyId]));
+export const contactsByEmailOrName = (companyId: string, q: string) => asOperator((c) => many<{ id: string; name: string; email: string | null }>(c, `
+  select ct.id, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='email' limit 1) as email
+  from contacts ct where ct.company_id=$1 and ct.merged_into is null and (exists (select 1 from contact_identifiers i where i.contact_id=ct.id and i.kind='email' and i.value=lower($2)) or lower(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) like '%'||lower($2)||'%') order by ct.updated_at desc limit 8`, [companyId, q.trim()]));

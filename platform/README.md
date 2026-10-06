@@ -55,6 +55,15 @@ opts out. The engine is transaction-pooler safe: every query runs inside `begin 
 transaction-local `set_config`, no session advisory locks, no named prepared statements. Pool: 3 per
 instance, 5 second idle timeout.
 
+## Payments (D21)
+
+Whop posts to `/api/webhooks/whop/<companyId>` (signature verified, Standard Webhooks). Each
+payment is a ledger row linked by member id, email or phone, or left **unlinked** with a team
+alert and a row on `/c/<slug>/payments` where an operator links it to a contact. Linking settles
+it: pursuit, derived kind, running total, `cleared`, and the `payment.received` event that starts
+workflows. Set the program price with `contractValueDefault` at install and the Whop signing
+secret with `whop: { webhookSecret }`. Facts about Whop's payload are in `whop/01-api-facts.md`.
+
 ## Pipeline cards (D19)
 
 Templates create and move cards on the CRM's pipeline boards (`pipeline_card` node). Pipeline,

@@ -16,6 +16,8 @@ export type InstallInput = {
   closerCall?: string;                   // external id bound as calendar.closer_call
   bookingCalendar?: string;              // external id bound as calendar.booking (first-call / self-book link used by lead and reactivation templates)
   crm?: Record<string, string>;          // extra crm.* bindings a template needs: pipeline and stage ids, custom field ids (key without the crm. prefix)
+  whop?: { webhookSecret: string };      // Whop → /api/webhooks/whop/<companyId>; the ws_ signing secret
+  contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
   templates?: string[];                  // slugs; default all
   enable?: boolean;                      // default false — Tyler's rule: build off, enable deliberately
   smsEnabled?: boolean;                  // default true; false when the sub-account has no number
@@ -60,6 +62,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       await c.query("delete from bindings where company_id=$1 and key in ('secret.calendly_token','calendly.organization','calendly.user','calendly.phone_question','calendly.setter_question')", [companyId]);
     }
     for (const [k, v] of Object.entries(input.crm ?? {})) await bind(`crm.${k}`, "id", v);
+    if (input.whop?.webhookSecret) await bind("secret.whop_webhook", "secret", input.whop.webhookSecret);
+    if (input.contractValueDefault !== undefined) await c.query("update companies set contract_value_default=$2 where id=$1", [companyId, input.contractValueDefault]);
     const ac: Company = { id: companyId, locationId: input.locationId, pit: input.pit, timezone: input.timezone, booking };
     for (const u of await adapters.read.listUsers(ac))
       await c.query(`insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'closer',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name`, [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);

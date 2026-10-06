@@ -684,3 +684,17 @@ waits anchored on "now" pin their first answer in the run's context so they cann
 change to an appointment (time or status) wakes the runs parked on it: a moved call re-anchors the
 reminder, a cancelled call makes the reminder exit moot right away instead of at its old wake time.
 Only `wait_for_reply` wakes on an inbound message.
+
+## D21. The ledger records facts; identity is a ladder; nothing is guessed
+
+Replaces the Zapier payment step. Every payment Whop reports becomes a row, linked to a person or
+not. Linking tries, in order, the Whop member id already seen on a linked payment, the email, the
+phone (last ten digits); identities are unique per company so a match is exact or absent. No match
+→ `link_status = unlinked`, a `payment.unlinked` event with no contact, a team alert, and a row on
+the company's Payments page where an operator links it to a contact. Linking (by ladder, by hand,
+or by healing an older orphan when a later payment resolves the same buyer) settles the payment:
+it joins the contact's pursuit (created if none, priced at `companies.contract_value_default`),
+its kind is derived from what came before (deposit / installment / balance / paid_in_full /
+refund), and `payment.received` carries running total, outstanding and `cleared`. Refunds are
+negative rows. Idempotency is two-layered: the provider's delivery id, then the payment id.
+Nothing customer-facing is sent from the ledger; templates decide that.
