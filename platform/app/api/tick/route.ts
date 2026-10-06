@@ -10,7 +10,8 @@ export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const started = Date.now();
+  const mode = new URL(req.url).searchParams.get("mode") ?? "tick";   // "sweep" = Vercel daily cron; "tick" = the minute/5-minute scheduler
   const poll = await pollAll(liveAdapters);
   const runs = await tick(liveAdapters);
-  return NextResponse.json({ ok: true, ms: Date.now() - started, poll, runs });
+  return NextResponse.json({ ok: true, mode, ms: Date.now() - started, poll, runs });
 }

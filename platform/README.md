@@ -38,8 +38,18 @@ pnpm test
 
 ## Deploy (Vercel)
 
-Project `backend-in-a-box` exists in team `jtylerray` (root directory `platform`). `vercel.json`
-runs `/api/tick` every minute; the route checks `Authorization: Bearer $CRON_SECRET`.
+Project `backend-in-a-box` exists in team `jtylerray` (root directory `platform`). The route
+`/api/tick` checks `Authorization: Bearer $CRON_SECRET`.
+
+**Scheduling depends on the Vercel plan.** The team is on Hobby today, which allows daily crons only
+— a deploy with `* * * * *` is rejected outright (`cron_jobs_limits_reached`). So:
+
+| Plan | Minute scheduler | `vercel.json` cron |
+|---|---|---|
+| Hobby (now) | `.github/workflows/tick.yml` every 5 min (needs repo secrets `TICK_URL`, `CRON_SECRET`) | daily `0 9 * * *` = the reconciliation sweep |
+| Pro | `vercel.json` set to `* * * * *` | the Actions workflow stays on as the backup scheduler |
+
+Five-minute latency is fine for testing and wrong for production reminders; Pro is the real fix.
 
 Env already set: `CRON_SECRET`, `BINDINGS_KEY`, `OPERATOR_EMAIL`.
 
