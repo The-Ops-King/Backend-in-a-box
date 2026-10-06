@@ -31,7 +31,7 @@ const fake: Adapters = {
   },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], listCalendars: async () => [],
     getAppointment: async (_c, id) => ({ id, calendarId: "CAL1", contactId: "GHLC1", startTime: APPT_START.toISO()!, endTime: APPT_START.plus({ minutes: 30 }).toISO()!, status: liveStatus, raw: {} }) }; return { ghl: b, calendly: b }; })(),
-  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
+  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
   sender: {
     sendSms: async (_c, to, body) => { sent.push({ kind: "sms", to, body }); return { externalId: `sms-${sent.length}`, accepted: true }; },
     sendEmail: async (_c, to, subject, html) => { sent.push({ kind: "email", to, body: `${subject}|${html}` }); return { externalId: `em-${sent.length}`, accepted: true }; },
@@ -51,7 +51,7 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
         await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]);
         await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
         await c.query("update appointments set disposition_id=null where company_id=$1", [co.id]);
-        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "form_submissions", "forms", "appointments", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"])
+        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"])
           await c.query(`delete from ${t} where company_id=$1`, [co.id]);
       }
       await c.query("delete from companies where slug='e2e'");
@@ -73,7 +73,8 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
   it("a booked appointment starts both workflows; confirmation email sends once; reminder waits", async () => {
     const snap: AppointmentSnapshot = { id: "GHLA1", calendarId: "CAL1", contactId: "GHLC1", assignedUserId: "GHLU1", startTime: APPT_START.toISO()!, endTime: APPT_START.plus({ minutes: 30 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {} };
     await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snap); });
-    const runs = await asOperator((c) => many<{ id: string; status: string; appointment_id: string }>(c, "select id, status, appointment_id from runs where company_id=$1", [companyId]));
+    // call-booked also starts here; this test is about confirmation + reminder, and that company has no pipeline bindings so call-booked fails at its first step
+    const runs = await asOperator((c) => many<{ id: string; status: string; appointment_id: string }>(c, "select r.id, r.status, r.appointment_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name in ('Booking confirmation','Appointment reminder with reply handling')", [companyId]));
     expect(runs).toHaveLength(2); apptId = runs[0].appointment_id;
     const opp = await asOperator((c) => one(c, "select id from opportunities where company_id=$1 and status='open'", [companyId]));
     expect(opp).toBeTruthy();  // lifecycle: first booking opened an opportunity
@@ -81,7 +82,7 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
     expect(auto?.claimed_at).toBeNull();  // unclaimed user auto-created from roster
 
     const r1 = await tick(fake);
-    expect(r1.claimed).toBe(2); expect(r1.completed).toBe(1); expect(r1.waiting).toBe(1);
+    expect(r1.claimed).toBe(3); expect(r1.completed).toBe(1); expect(r1.waiting).toBe(1); expect(r1.failed).toBe(1);
     expect(sent.filter((s) => s.kind === "email")).toHaveLength(1);
     expect(sent[0].body).toMatch(/You're booked/);
 

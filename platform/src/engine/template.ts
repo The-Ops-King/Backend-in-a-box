@@ -46,11 +46,13 @@ export function relative(target: DateTime, mode: "auto" | "minutes" | "hours", n
 }
 
 type Filter = (v: unknown, arg: string | undefined, env: RenderEnv) => unknown;
-export type RenderEnv = { now?: DateTime; tz: string };
+export type RenderEnv = { now?: DateTime; tz: string; companyTz?: string };
 
 const filters: Record<string, Filter> = {
   relative: (v, arg, env) => relative(toDT(v, env.tz), (arg as "auto" | "minutes" | "hours") ?? "auto", (env.now ?? DateTime.now()).setZone(env.tz)),
   date: (v, arg, env) => toDT(v, env.tz).toFormat(arg ?? "ccc, LLL d 'at' h:mma"),
+  // same as date, in the company's zone: lists the team reads (Slack, pipeline cards) stay in one zone
+  date_company: (v, arg, env) => toDT(v, env.companyTz ?? env.tz).toFormat(arg ?? "ccc LLL d · h:mm a ZZZZ"),
   tz: (v, arg) => toDT(v, arg ?? "UTC").toISO(),
   upper: (v) => String(v ?? "").toUpperCase(),
   lower: (v) => String(v ?? "").toLowerCase(),

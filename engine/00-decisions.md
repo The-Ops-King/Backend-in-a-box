@@ -660,10 +660,15 @@ rule. A company declares where its appointments live, and the engine reads them 
 D10 said we do not push *our* data (journey, attributes) back into GHL, and that stands. It did not
 mean the engine never writes to GHL: it already tags, notes and sends through it. Hair's team
 runs their day from GHL pipelines (Setter, Closer), and the automations Tyler is porting create
-and move those cards. So templates get a `create_opportunity` node that writes a card to the CRM
-pipeline and mirrors it into our `opportunities` row (name, pipeline, stage, CRM id). Ids are
-`crm.*` bindings, never literals in a template. One open card per contact per pipeline. In shadow
+and move those cards. So templates get a `pipeline_card` node that writes a card to a CRM pipeline board. Ids are
+`crm.*` bindings, never literals in a template. One open card per contact per board. In shadow
 the card exists only in our table and the run step shows what would have been created.
+
+Cards are not opportunities. Hair keeps a setter board and a closer board, so one sale has two
+cards at once. `pipeline_cards` holds the cards; `opportunities` stays one row per pursuit
+(D15), and every card, appointment and run for that sale points at the same opportunity. The
+first version mirrored a card 1:1 into `opportunities`; the funnel test showed the booking then
+attaching to the newest card instead of the pursuit, and it was replaced the same day.
 
 Sequencing note for go-live: the Calendly → GHL Zap expects the setter card to exist within about
 three seconds of contact creation (GHL workflow 01 does that today). The engine polls once a

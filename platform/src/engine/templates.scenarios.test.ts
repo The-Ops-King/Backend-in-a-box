@@ -19,6 +19,8 @@ const TZ = "America/Phoenix";
 const sent: { kind: string; to: string; body: string }[] = [];
 const tags: string[] = [];
 const oppWrites: Record<string, unknown>[] = [];
+const contactWrites: Record<string, unknown>[] = [];
+const removedTags: string[] = [];
 let liveStatus = "confirmed";
 const apptStore = new Map<string, AppointmentSnapshot>();   // what GHL "has" for each appointment the tests book
 const fake: Adapters = {
@@ -30,7 +32,7 @@ const fake: Adapters = {
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [],
     getAppointment: async (_c, id) => { const a = apptStore.get(id); return a ? { ...a, status: liveStatus } : null; },
     listCalendars: async () => [{ id: "CAL", name: "Closer Call", teamMemberIds: ["U1"] }] }; return { ghl: b, calendly: b }; })(),
-  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {},
+  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async (_c, _id, t) => { removedTags.push(t); }, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async (_c, id, patch) => { contactWrites.push({ id, ...patch }); },
     createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; },
     updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); } },
   sender: {
@@ -67,14 +69,14 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='scn'");
       if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
         await c.query("update appointments set disposition_id=null where company_id=$1", [co.id]);
-        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "form_submissions", "forms", "appointments", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
         await c.query("delete from companies where id=$1", [co.id]); }
     });
     const r = await installCompany({ name: "Scenarios", slug: "scn", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live",
-      crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE" } }, fake);
+      crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_setter_direct_booked: "STAGE-DIRECT", stage_setter_appointment_set: "STAGE-SET", stage_closer_scheduled: "STAGE-SCHED", field_contact_appointment_date: "CF-APPT-DATE", field_contact_setter: "CF-SETTER", field_opportunity_setter_owner: "CF-SETTER-OWNER" } }, fake);
     companyId = r.companyId;
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
-    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(10);
+    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(11);
   });
 
   it("speed-to-lead: email + SMS now; a reply → tag engaged; silence → second email", async () => {
@@ -227,14 +229,68 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(created[0]).toMatchObject({ op: "create", contactId: "CNL1", pipelineId: "PIPE-SETTER", stageId: "STAGE-NEW", name: "Edwin Ruh -- New", status: "open" });
     expect((created[0].customFields as { id: string; field_value: string }[])[0]).toEqual({ id: "CF-STAGE-DATE", field_value: DateTime.now().setZone(TZ).toFormat("yyyy-MM-dd") });
     expect(tags.slice(nTags)).toEqual(["stat-new"]);
-    const opp = await asOperator((c) => one<{ name: string; ghl_opportunity_id: string; ghl_pipeline_id: string; ghl_stage_id: string; status: string }>(c, "select name, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, status from opportunities where company_id=$1 and contact_id=$2", [companyId, withNum]));
-    expect(opp).toMatchObject({ name: "Edwin Ruh -- New", ghl_pipeline_id: "PIPE-SETTER", ghl_stage_id: "STAGE-NEW", status: "open" }); expect(opp!.ghl_opportunity_id).toMatch(/^ghl-opp-/);
+    const card = await asOperator((c) => one<{ name: string; ghl_opportunity_id: string; ghl_pipeline_id: string; ghl_stage_id: string; status: string; opportunity_id: string }>(c, "select name, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, status, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2", [companyId, withNum]));
+    expect(card).toMatchObject({ name: "Edwin Ruh -- New", ghl_pipeline_id: "PIPE-SETTER", ghl_stage_id: "STAGE-NEW", status: "open" }); expect(card!.ghl_opportunity_id).toMatch(/^ghl-opp-/);
+    expect(await asOperator((c) => many(c, "select 1 from opportunities where company_id=$1 and contact_id=$2 and status='open'", [companyId, withNum]))).toHaveLength(1);   // the card hangs off one pursuit
     expect(await asOperator((c) => many(c, "select 1 from opportunities where company_id=$1 and contact_id=$2", [companyId, noNum]))).toHaveLength(0);
     // the same lead firing again updates the one card instead of creating a second
     await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: withNum, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "form", data: {} }), { contact: { id: withNum } }));
     await tick(fake);
     expect(oppWrites.slice(nOpps).map((w) => w.op)).toEqual(["create", "update"]);
-    expect(await asOperator((c) => many(c, "select 1 from opportunities where company_id=$1 and contact_id=$2", [companyId, withNum]))).toHaveLength(1);
+    expect(await asOperator((c) => many(c, "select 1 from pipeline_cards where company_id=$1 and contact_id=$2", [companyId, withNum]))).toHaveLength(1);
+  });
+
+  it("call-booked, self-booked: closer card created at Scheduled, setter card only moved if present, stat-booked + stat-self-booked, nurture tags off, contact gets date + owner, Slack skipped when unbound", async () => {
+    const id = await newContact("CCB1", "cb1@x.com"); await asOperator((c) => c.query("update contacts set first_name='Mia', last_name='Ortiz' where id=$1", [id]));
+    const start = DateTime.now().plus({ days: 4 }).setZone(TZ).set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
+    const snap: AppointmentSnapshot = { id: "ACB1", calendarId: "CAL", contactId: "CCB1", assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 45 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), tracking: { utm_source: "meta" }, rescheduleUrl: "https://calendly.com/reschedulings/abc", raw: {} };
+    apptStore.set("ACB1", snap);
+    const nOpp = oppWrites.length, nTags = tags.length, nRm = removedTags.length, nCw = contactWrites.length;
+    await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snap); });
+    await tick(fake);
+    const r = (await runsFor("call-booked")).find((x) => x.contact_id === id)!;
+    expect(r).toMatchObject({ status: "completed", exit_reason: "booked" });
+    expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "create", pipelineId: "PIPE-CLOSER", stageId: "STAGE-SCHED", name: "Mia Ortiz -- Direct", assignedUserId: "U1" })]);   // no setter card existed → nothing to move, nothing created
+    expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-self-booked"]);
+    expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback"]);
+    expect(contactWrites.slice(nCw)).toEqual([expect.objectContaining({ id: "CCB1", assignedUserId: "U1", customFields: [{ id: "CF-APPT-DATE", field_value: start.setZone(TZ).toFormat("yyyy-MM-dd") }] })]);
+    const steps = await asOperator((c) => many<{ node_id: string; status: string; result: Record<string, unknown> }>(c, "select node_id, status, result from run_steps where run_id=$1 order by started_at", [r.id]));
+    expect(steps.find((x) => x.node_id === "s3")?.status).toBe("skipped");
+    expect(steps.find((x) => x.node_id === "n4")?.status).toBe("skipped");   // Slack not connected in this company
+    const slack = await asOperator((c) => one<{ suppressed_reason: string }>(c, "select suppressed_reason from sends where run_id=$1 and channel='slack'", [r.id]));
+    expect(slack?.suppressed_reason).toMatch(/unbound: slack/);
+    const cards = await asOperator((c) => many<{ ghl_pipeline_id: string; opportunity_id: string }>(c, "select ghl_pipeline_id, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2", [companyId, id]));
+    const appt = await asOperator((c) => one<{ opportunity_id: string }>(c, "select opportunity_id from appointments where company_id=$1 and external_id='ACB1'", [companyId]));
+    expect(cards).toHaveLength(1); expect(cards[0].opportunity_id).toBe(appt!.opportunity_id);   // one pursuit: the appointment and the card share it
+  });
+
+  it("call-booked, setter booked: setter card moves to Appointment Set as '-- Set', closer card '-- Setter Booked', setter stamped on contact and cards, stat-set", async () => {
+    const id = await newContact("CCB2", "cb2@x.com"); await asOperator((c) => c.query("update contacts set first_name='Leo', last_name='Park' where id=$1", [id]));
+    await asOperator((c) => c.query("update calendars set self_booked=false where company_id=$1 and external_id='CAL'", [companyId]));
+    // a setter card already exists from new-lead
+    await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: {} }), { contact: { id } }));
+    await withPhone(id, "+16025550199"); await tick(fake);
+    const start = DateTime.now().plus({ days: 5 }).setZone(TZ).set({ hour: 13, minute: 0, second: 0, millisecond: 0 });
+    const snap: AppointmentSnapshot = { id: "ACB2", calendarId: "CAL", contactId: "CCB2", assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 45 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), setBy: "Luis", raw: {} };
+    apptStore.set("ACB2", snap);
+    const nOpp = oppWrites.length, nTags = tags.length, nCw = contactWrites.length;
+    await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snap); });
+    await tick(fake);
+    await asOperator((c) => c.query("update calendars set self_booked=null where company_id=$1 and external_id='CAL'", [companyId]));
+    const r = (await runsFor("call-booked")).find((x) => x.contact_id === id)!;
+    expect(r).toMatchObject({ status: "completed", exit_reason: "booked" });
+    const writes = oppWrites.slice(nOpp);
+    expect(writes).toEqual([
+      expect.objectContaining({ op: "update", stageId: "STAGE-SET", name: "Leo Park -- Set", customFields: [{ id: "CF-SETTER-OWNER", field_value: "Luis" }] }),
+      expect.objectContaining({ op: "create", pipelineId: "PIPE-CLOSER", stageId: "STAGE-SCHED", name: "Leo Park -- Setter Booked", customFields: [{ id: "CF-SETTER-OWNER", field_value: "Luis" }] }),
+    ]);
+    expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-set"]);
+    expect(contactWrites.slice(nCw).map((w) => w.customFields)).toEqual([[{ id: "CF-APPT-DATE", field_value: start.setZone(TZ).toFormat("yyyy-MM-dd") }], [{ id: "CF-SETTER", field_value: "Luis" }]]);
+    const cards = await asOperator((c) => many<{ ghl_pipeline_id: string; name: string; opportunity_id: string }>(c, "select ghl_pipeline_id, name, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 order by ghl_pipeline_id", [companyId, id]));
+    expect(cards.map((x) => x.name)).toEqual(["Leo Park -- Setter Booked", "Leo Park -- Set"]);
+    expect(new Set(cards.map((x) => x.opportunity_id)).size).toBe(1);   // two boards, one pursuit
+    const ctxRow = await asOperator((c) => one<{ context: { vars: Record<string, string> } }>(c, "select context from runs where id=$1", [r.id]));
+    expect(ctxRow!.context.vars.setter_line).toBe("*Setter:* Luis"); expect(ctxRow!.context.vars.booking_kind).toBe("setter booked");
   });
 
   it("sms_enabled=false: SMS nodes are suppressed and the run continues", async () => {

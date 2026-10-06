@@ -13,7 +13,7 @@ export async function loadCompany(c: PoolClient, companyId: string): Promise<{ r
   const bindings: Record<string, string> = {};
   for (const b of rows) bindings[b.key] = b.kind === "secret" ? decrypt(b.value) : b.value.toString("utf8");
   const booking: BookingConfig = bindings["secret.calendly_token"]
-    ? { source: "calendly", token: bindings["secret.calendly_token"], organization: bindings["calendly.organization"] ?? "", user: bindings["calendly.user"] || undefined, phoneQuestion: bindings["calendly.phone_question"] || undefined }
+    ? { source: "calendly", token: bindings["secret.calendly_token"], organization: bindings["calendly.organization"] ?? "", user: bindings["calendly.user"] || undefined, phoneQuestion: bindings["calendly.phone_question"] || undefined, setterQuestion: bindings["calendly.setter_question"] || undefined }
     : { source: "ghl" };
   const adapterCompany: Company = { id: row.id, locationId: bindings["crm.location_id"] ?? "", pit: bindings["secret.ghl_pit"] ?? "", timezone: row.timezone, booking };
   return { row, adapterCompany, bindings };
@@ -21,7 +21,7 @@ export async function loadCompany(c: PoolClient, companyId: string): Promise<{ r
 
 /** Builds what `{{…}}` resolves against. Secrets are never placed in the context. */
 export async function buildContext(c: PoolClient, run: RunRow, company: CompanyRow, bindings: Record<string, string>): Promise<Record<string, unknown>> {
-  const contact = await one<Record<string, unknown>>(c, `select ct.id, ct.ghl_contact_id, ct.first_name, ct.last_name, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, ct.timezone, ct.tags, ct.attributes,
+  const contact = await one<Record<string, unknown>>(c, `select ct.id, ct.ghl_contact_id, ct.first_name, ct.last_name, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, ct.timezone, ct.tags, ct.attributes, ct.ghl_fields,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='phone' limit 1) as phone,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='email' limit 1) as email
     from contacts ct where ct.id=$1`, [run.contact_id]);
@@ -32,9 +32,13 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     last_inbound: lastIn ? { body: lastIn.body, at: lastIn.occurred_at.toISOString() } : undefined,
     last_outbound: lastOut ? { body: lastOut.rendered_body, at: lastOut.sent_at?.toISOString() } : undefined,
   };
+  // CRM custom fields by the name the company bound them under: crm.field_contact_hair_loss = <id> → contact.fields.hair_loss
+  const fields: Record<string, unknown> = {};
+  const raw = (contact?.ghl_fields ?? {}) as Record<string, unknown>;
+  for (const [k, id] of Object.entries(bindings)) if (k.startsWith("crm.field_contact_")) { const v = raw[id]; fields[k.slice("crm.field_contact_".length)] = Array.isArray(v) ? v.join(", ") : v ?? undefined; }
   const ctx: Record<string, unknown> = {
     company: { id: company.id, name: company.name, timezone: company.timezone },
-    contact: contact ? { ...contact, timezone: contact.timezone ?? company.timezone } : undefined,
+    contact: contact ? { ...contact, ghl_fields: undefined, fields, timezone: contact.timezone ?? company.timezone } : undefined,
     vars: (run.context.vars as Record<string, unknown>) ?? {},
     reply: { ...((run.context.reply as Record<string, unknown>) ?? {}), ...derivedReply },   // last_inbound/last_outbound are re-derived every tick; intent/confidence from classify persist
     event: run.context.event ?? {},
@@ -42,7 +46,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   };
   if (run.appointment_id) {
     const a = await one<Record<string, unknown>>(c, `
-      select a.id, a.source, a.external_id, a.starts_at, a.ends_at, a.status, a.self_booked,
+      select a.id, a.source, a.external_id, a.starts_at, a.ends_at, a.status, a.self_booked, a.set_by, a.reschedule_url, a.cancel_url, a.tracking,
              json_build_object('name', t.name, 'category', t.category) as term,
              json_build_object('id', u.id, 'first_name', split_part(u.name,' ',1), 'name', u.name, 'ghl_user_id', u.ghl_user_id) as closer
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id

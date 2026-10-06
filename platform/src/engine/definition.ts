@@ -45,13 +45,15 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string() }),
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),
   z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string() }),
-  z.object({ ...base, type: z.literal("set_tag"), tag: z.string() }),
-  z.object({ ...base, type: z.literal("remove_tag"), tag: z.string() }),
+  z.object({ ...base, type: z.literal("set_tag"), tag: z.union([z.string(), z.array(z.string()).min(1)]) }),
+  z.object({ ...base, type: z.literal("remove_tag"), tag: z.union([z.string(), z.array(z.string()).min(1)]) }),
+  // Writes to the CRM contact: a few native fields plus custom fields by id. A field whose rendered value is empty is left alone, never blanked.
+  z.object({ ...base, type: z.literal("update_contact"), set: z.object({ first_name: z.string().optional(), last_name: z.string().optional(), phone: z.string().optional(), timezone: z.string().optional(), assign_to: z.string().optional() }).default({}), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
   z.object({ ...base, type: z.literal("note"), template: z.string() }),
   z.object({ ...base, type: z.literal("update_appointment"), set: z.record(z.unknown()) }),
   z.object({ ...base, type: z.literal("update_opportunity"), set: z.record(z.unknown()) }),
-  // A pipeline card in the CRM, mirrored into our opportunities. One open card per contact per pipeline: re-firing updates stage/name instead of duplicating.
-  z.object({ ...base, type: z.literal("create_opportunity"), pipeline: z.string(), stage: z.string(), name: z.string(), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
+  // A card on a CRM pipeline board. One open card per contact per pipeline: re-firing moves/renames it instead of duplicating. Cards hang off the contact's one open opportunity.
+  z.object({ ...base, type: z.literal("pipeline_card"), pipeline: z.string(), stage: z.string(), name: z.string(), assign_to: z.string().optional(), if_missing: z.enum(["create", "skip"]).default("create"), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
   z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown() }),
   z.object({ ...base, type: z.literal("start_workflow"), workflow: z.string(), with: z.record(z.unknown()).optional() }),
   z.object({ ...base, type: z.literal("pause_runs"), scope: z.enum(["contact", "appointment"]).default("contact") }),

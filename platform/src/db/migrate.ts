@@ -33,8 +33,17 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
       await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_source_external_id_key`);
       await c.query(`alter table ${t} add constraint ${t}_company_id_source_external_id_key unique (company_id, source, external_id)`);
     }
-    for (const col of ["name text", "ghl_pipeline_id text", "ghl_stage_id text"]) await c.query(`alter table opportunities add column if not exists ${col}`);
+    for (const col of ["name", "ghl_pipeline_id", "ghl_stage_id"]) await c.query(`alter table opportunities drop column if exists ${col}`);   // short-lived 1:1 mirror, replaced by pipeline_cards
+    await c.query(`create table if not exists pipeline_cards (
+      id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id), opportunity_id uuid not null references opportunities(id), contact_id uuid not null references contacts(id),
+      ghl_opportunity_id text, ghl_pipeline_id text not null, ghl_stage_id text not null, name text not null, status text not null default 'open',
+      created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (company_id, ghl_opportunity_id))`);
+    await c.query(`create index if not exists pipeline_cards_company_id_contact_id_ghl_pipeline_id_idx on pipeline_cards (company_id, contact_id, ghl_pipeline_id)`);
     await c.query(`alter table calendars add column if not exists self_booked boolean`);
+    await c.query(`alter table appointments add column if not exists set_by text`);
+    await c.query(`alter table appointments add column if not exists reschedule_url text`);
+    await c.query(`alter table appointments add column if not exists cancel_url text`);
+    await c.query(`alter table appointments add column if not exists tracking jsonb not null default '{}'`);
     await c.query(`alter table calendars add column if not exists booking_url text`);
     await c.query(`alter table contacts drop constraint if exists contacts_timezone_source_check`);
     await c.query(`alter table contacts add constraint contacts_timezone_source_check check (timezone_source in ('ghl','booking','phone','company_default'))`);

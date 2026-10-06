@@ -12,7 +12,7 @@ export function kindOf(n: Node): NodeKind {
   switch (n.type) {
     case "trigger": return "trigger";
     case "send_sms": case "send_email": case "slack_post": return "message";
-    case "set_tag": case "remove_tag": case "note": case "update_appointment": case "update_opportunity": case "create_opportunity": return "crm";
+    case "set_tag": case "remove_tag": case "note": case "update_appointment": case "update_opportunity": case "pipeline_card": case "update_contact": return "crm";
     case "check": case "branch": return "decision";
     case "wait": case "wait_for_reply": return "wait";
     case "classify": return "ai";
@@ -32,7 +32,8 @@ const EVENTS: Record<string, string> = {
 };
 const PATHS: Record<string, string> = {
   "contact.phone": "phone number", "contact.email": "email address", "contact.first_name": "first name", "contact.last_name": "last name", "contact.name": "full name", "contact.tags": "tags", "contact.timezone": "time zone",
-  "appointment.term.category": "call type", "appointment.status": "appointment status", "appointment.starts_at": "call time", "appointment.closer.first_name": "closer's first name", "appointment.self_booked": "self-booked",
+  "appointment.term.category": "call type", "appointment.status": "appointment status", "appointment.starts_at": "call time", "appointment.closer.first_name": "closer's first name", "appointment.closer.name": "closer", "appointment.closer.ghl_user_id": "the closer", "appointment.self_booked": "self-booked", "appointment.set_by": "setter", "appointment.reschedule_url": "reschedule link", "appointment.tracking.utm_source": "UTM source",
+  "contact.ghl_contact_id": "contact id", "vars.setter_line": "setter line", "vars.booking_kind": "booking kind", "crm.location_id": "location id",
   "event.status.to": "new status", "event.status.from": "previous status", "event.outcome": "outcome", "event.tag": "tag",
   "reply.intent": "the reply", "reply.last_inbound.body": "their reply", "reply.last_outbound.body": "our last message", "reply.top_guesses": "top guesses",
   "opportunity.status": "opportunity status", "company.name": "company name", "calendar.closer_call.url": "booking link", "calendar.booking.url": "booking link", "now": "today",
@@ -49,6 +50,7 @@ export function pathWords(p: unknown): string {
   if (path.startsWith("crm.")) return humanWords(path);
   if (path.startsWith("event.")) return humanWords(path.slice(6));
   if (path.startsWith("vars.")) return humanWords(path.slice(5));
+  if (path.startsWith("contact.fields.")) return humanWords(path.slice("contact.fields.".length));
   return humanWords(path.split(".").slice(-2).join(" "));
 }
 /** Message templates keep their text; bindings inside become their plain name so the chart does not show `{{calendar.closer_call.url}}`. */
@@ -82,7 +84,7 @@ export function waitWords(rule: WaitRule): string {
 }
 const guardWords = (rule: WaitRule) => rule.guard ? ` (if that is less than ${durationWords(rule.guard.min_lead)} away, use ${waitWords({ ...rule, offset: rule.guard.fallback, guard: undefined }).replace(/^Wait until /, "")} instead)` : "";
 
-export const exitWords = (reason: string) => ({ done: "Done", sent: "Done: sent", replied: "Done: they replied", no_reply: "Stop: no reply", no_phone: "Stop: no phone number", confirmed: "Done: confirmed", cancelled: "Done: cancelled", reschedule_sent: "Done: reschedule link sent", handed_to_human: "Stop: handed to a human", escalated: "Stop: escalated", sequence_done: "Done: sequence finished" } as Record<string, string>)[reason] ?? `Stop: ${humanWords(reason)}`;
+export const exitWords = (reason: string) => ({ done: "Done", booked: "Done: booking recorded", sent: "Done: sent", replied: "Done: they replied", no_reply: "Stop: no reply", no_phone: "Stop: no phone number", confirmed: "Done: confirmed", cancelled: "Done: cancelled", reschedule_sent: "Done: reschedule link sent", handed_to_human: "Stop: handed to a human", escalated: "Stop: escalated", sequence_done: "Done: sequence finished" } as Record<string, string>)[reason] ?? `Stop: ${humanWords(reason)}`;
 
 export type NodeText = { title: string; detail?: string; quote?: string };
 
@@ -98,11 +100,16 @@ export function describeNode(n: Node): NodeText {
     case "send_email": return { title: `Send email: “${templateWords(n.subject)}”`, quote: templateWords(n.template) };
     case "slack_post": return { title: `Post to Slack (${pathWords(n.channel)})`, quote: templateWords(n.template) };
     case "classify": return { title: "AI reads the reply", detail: `Decides between the ${humanWords(n.domain)} options; below ${Math.round(n.threshold * 100)}% sure counts as unclear` };
-    case "set_tag": return { title: `Add tag “${n.tag}”` }; case "remove_tag": return { title: `Remove tag “${n.tag}”` };
+    case "set_tag": { const t = Array.isArray(n.tag) ? n.tag : [n.tag]; return { title: `Add tag${t.length > 1 ? "s" : ""} ${t.map((x) => `“${x}”`).join(", ")}` }; }
+    case "remove_tag": { const t = Array.isArray(n.tag) ? n.tag : [n.tag]; return { title: `Remove tag${t.length > 1 ? "s" : ""} ${t.map((x) => `“${x}”`).join(", ")}` }; }
+    case "update_contact": {
+      const bits = [n.set.assign_to ? `owner → ${pathWords(n.set.assign_to)}` : "", n.set.phone ? "phone" : "", n.set.timezone ? "time zone" : "", n.set.first_name || n.set.last_name ? "name" : "", ...n.fields.map((f) => `${pathWords(f.id)} = ${templateWords(f.value)}`)].filter(Boolean);
+      return { title: "Update the contact in the CRM", detail: bits.join("; ") || undefined };
+    }
     case "note": return { title: "Leave an internal note", quote: templateWords(n.template) };
     case "update_appointment": return { title: `Mark appointment ${Object.entries(n.set).map(([k, v]) => `${humanWords(k)} → ${value(v)}`).join(", ")}` };
     case "update_opportunity": return { title: `Update opportunity: ${Object.entries(n.set).map(([k, v]) => `${humanWords(k)} → ${value(v)}`).join(", ")}` };
-    case "create_opportunity": return { title: `Create pipeline card “${templateWords(n.name)}”`, detail: `In the ${pathWords(n.pipeline)}, stage ${pathWords(n.stage)}${n.fields.length ? `; set ${n.fields.map((f) => `${pathWords(f.id)} = ${templateWords(f.value)}`).join(", ")}` : ""}` };
+    case "pipeline_card": return { title: `${n.if_missing === "skip" ? "Move" : "Create or move"} pipeline card “${templateWords(n.name)}”`, detail: `In the ${pathWords(n.pipeline)}, stage ${pathWords(n.stage)}${n.assign_to ? `; owner → ${pathWords(n.assign_to)}` : ""}${n.fields.length ? `; set ${n.fields.map((f) => `${pathWords(f.id)} = ${templateWords(f.value)}`).join(", ")}` : ""}${n.if_missing === "skip" ? "; only if the card already exists" : ""}` };
     case "set_var": return { title: `Remember ${humanWords(n.key)} = ${typeof n.value === "string" ? templateWords(n.value) : JSON.stringify(n.value)}` };
     case "start_workflow": return { title: `Hand off to “${humanWords(n.workflow)}”` };
     case "pause_runs": return { title: `Pause the ${n.scope === "contact" ? "contact's" : "appointment's"} other workflows` };

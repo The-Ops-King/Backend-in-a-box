@@ -148,9 +148,6 @@ create table opportunities (
   company_id          uuid not null references companies(id),
   contact_id          uuid not null references contacts(id),
   ghl_opportunity_id  text,
-  name                text,                             -- the card's name as the CRM shows it
-  ghl_pipeline_id     text,                             -- which CRM pipeline the card sits in
-  ghl_stage_id        text,                             -- and which stage
   status              text not null default 'open' check (status in ('open','won','lost')),
   opened_at           timestamptz not null default now(),
   opened_by           text not null,                    -- rule or event that opened it
@@ -165,6 +162,24 @@ create table opportunities (
 );
 create index on opportunities (company_id, contact_id, status);
 
+-- A CRM pipeline card. One pursuit (opportunity) can sit on several boards at once (Hair: a setter card and a
+-- closer card), so cards are their own rows and the opportunity stays one per pursuit.
+create table pipeline_cards (
+  id                  uuid primary key default gen_random_uuid(),
+  company_id          uuid not null references companies(id),
+  opportunity_id      uuid not null references opportunities(id),
+  contact_id          uuid not null references contacts(id),
+  ghl_opportunity_id  text,                              -- null in shadow (never written to the CRM)
+  ghl_pipeline_id     text not null,
+  ghl_stage_id        text not null,
+  name                text not null,
+  status              text not null default 'open',
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now(),
+  unique (company_id, ghl_opportunity_id)
+);
+create index on pipeline_cards (company_id, contact_id, ghl_pipeline_id);
+
 create table appointments (
   id                   uuid primary key default gen_random_uuid(),
   company_id           uuid not null references companies(id),
@@ -178,6 +193,10 @@ create table appointments (
   starts_at            timestamptz not null,
   ends_at              timestamptz not null,
   self_booked          boolean,
+  set_by               text,                                       -- setter's name when the booking source carries it
+  reschedule_url       text,                                       -- per-booking self-service links (Calendly); null for GHL calendars
+  cancel_url           text,
+  tracking             jsonb not null default '{}',                -- utm_* etc. as the booking source reported them
   booked_at            timestamptz not null,
   -- replica of the booking source's state (GHL vocabulary; Calendly active/canceled maps onto it)
   status               text not null check (status in ('new','confirmed','cancelled','showed','noshow','invalid')),

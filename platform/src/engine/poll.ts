@@ -106,16 +106,16 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (!existing && s.rescheduledFrom) {
     // the source cancelled the old booking and created this one; to us it is the same appointment moved
     const prior = await find(s.rescheduledFrom);
-    if (prior) { await c.query("update appointments set external_id=$2 where id=$1", [prior.id, s.id]); existing = { ...prior, external_id: s.id }; }
+    if (prior) { await c.query("update appointments set external_id=$2, reschedule_url=coalesce($3, reschedule_url), cancel_url=coalesce($4, cancel_url) where id=$1", [prior.id, s.id, s.rescheduleUrl ?? null, s.cancelUrl ?? null]); existing = { ...prior, external_id: s.id }; }
   }
   if (!existing) {
-    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, booked_at, status, source_updated_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null]);
+    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.setBy ?? null, s.rescheduleUrl ?? null, s.cancelUrl ?? null, s.tracking ?? {}, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null]);
     if (baseline) { if (rep) rep.baselined++; return; }   // replica only; an appointment that existed before install is not a new booking
     const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: row!.id, event_type: "appointment.booked", source: "ghl_poll", data: { source, calendar_id: s.calendarId, status: s.status, starts_at: s.startTime, self_booked: cal.self_booked } });
     const oppId = await ensureOpportunityForBooking(c, co.id, contact.id, row!.id, ev);
     const term = await one<{ name: string; category: string }>(c, "select name, category from company_terms where id=$1", [cal.appointment_term]);
-    const ctx = { contact: { id: contact.id }, appointment: { id: row!.id, starts_at: s.startTime, term, status: s.status, self_booked: cal.self_booked }, opportunity: { id: oppId } };
+    const ctx = { contact: { id: contact.id }, appointment: { id: row!.id, starts_at: s.startTime, term, status: s.status, self_booked: cal.self_booked, set_by: s.setBy ?? null }, opportunity: { id: oppId } };
     const started = await dispatchEvent(c, { ...ev, opportunity_id: oppId || null }, ctx);
     if (rep) { rep.appointmentsNew++; rep.eventsDispatched += started.length; }
     return;
@@ -131,7 +131,8 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   // no longer holds (reminder for a cancelled call) exits moot immediately instead of at its old wake time
   await c.query("update runs set next_run_at=now() where company_id=$1 and appointment_id=$2 and status='waiting'", [co.id, existing.id]);
   const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: existing.id, event_type: type, source: "ghl_poll", data: { source, ...changes } });
-  const started = await dispatchEvent(c, ev, { contact: { id: contact.id }, appointment: { id: existing.id, starts_at: s.startTime, status: s.status } });
+  const term = await one<{ name: string; category: string }>(c, "select name, category from company_terms where id=$1", [cal.appointment_term]);
+  const started = await dispatchEvent(c, ev, { contact: { id: contact.id }, appointment: { id: existing.id, starts_at: s.startTime, status: s.status, term, self_booked: cal.self_booked } });
   if (rep) { rep.appointmentsChanged++; rep.eventsDispatched += started.length; }
 }
 

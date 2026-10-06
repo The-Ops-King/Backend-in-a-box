@@ -2,7 +2,7 @@ export type BookingSource = "ghl" | "calendly";
 /** Where a company's appointments live. The CRM (GHL calendars) or a separate scheduler (Calendly event types). */
 export type BookingConfig =
   | { source: "ghl" }
-  | { source: "calendly"; token: string; organization: string; user?: string; phoneQuestion?: string };
+  | { source: "calendly"; token: string; organization: string; user?: string; phoneQuestion?: string; setterQuestion?: string };
 export type Company = { id: string; locationId: string; pit: string; timezone: string; booking: BookingConfig };
 
 export type ContactSnapshot = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; tags: string[]; customFields: Record<string, unknown>; dateUpdated: string; dateAdded: string };
@@ -13,6 +13,9 @@ export type AppointmentSnapshot = {
   invitee?: { email?: string; phone?: string; firstName?: string; lastName?: string; timezone?: string };
   assignedUserId?: string; assignedUserEmail?: string;
   startTime: string; endTime: string; status: string; title?: string; dateUpdated?: string; dateAdded?: string;
+  setBy?: string;             // the setter's name when the source carries it (Calendly question on the setter event type)
+  rescheduleUrl?: string; cancelUrl?: string;   // per-booking self-service links when the source has them (Calendly)
+  tracking?: Record<string, string>;            // utm_* and the like, as the source reports them
   rescheduledFrom?: string;   // this booking replaces that external id (same appointment, new time)
   rescheduledTo?: string;     // this cancelled booking was replaced by that external id; the replacement carries the change
   raw: Record<string, unknown>;
@@ -41,9 +44,11 @@ export interface CrmWrite {
   removeTag(c: Company, contactId: string, tag: string): Promise<void>;
   addNote(c: Company, contactId: string, body: string): Promise<void>;
   updateAppointment(c: Company, id: string, patch: Partial<Pick<AppointmentSnapshot, "status" | "assignedUserId" | "startTime" | "endTime" | "title">>): Promise<void>;
+  updateContact(c: Company, contactId: string, patch: ContactWrite): Promise<void>;
   createOpportunity(c: Company, input: OpportunityWrite & { contactId: string }): Promise<{ id: string }>;
   updateOpportunity(c: Company, id: string, patch: Partial<OpportunityWrite>): Promise<void>;
 }
+export type ContactWrite = { firstName?: string; lastName?: string; phone?: string; timezone?: string; assignedUserId?: string; customFields?: { id: string; field_value: string }[] };
 /** A pipeline card as the CRM sees it. `customFields` are CRM field ids with already-rendered values. */
 export type OpportunityWrite = { pipelineId: string; stageId: string; name: string; status: "open" | "won" | "lost" | "abandoned"; assignedUserId?: string; customFields?: { id: string; field_value: string }[] };
 export type SendResult = { externalId: string; accepted: boolean; error?: string };

@@ -9,6 +9,13 @@ export const ghlWrite: CrmWrite = {
   async addTag(c, contactId, tag) { await ghl(c.pit, "POST", `/contacts/${contactId}/tags`, { body: { tags: [tag] } }); },
   async removeTag(c, contactId, tag) { await ghl(c.pit, "DELETE", `/contacts/${contactId}/tags`, { body: { tags: [tag] } }); },
   async addNote(c, contactId, body) { await ghl(c.pit, "POST", `/contacts/${contactId}/notes`, { body: { body } }); },
+  async updateContact(c, contactId, patch) {
+    const body: Record<string, unknown> = {};
+    if (patch.firstName) body.firstName = patch.firstName; if (patch.lastName) body.lastName = patch.lastName;
+    if (patch.phone) body.phone = patch.phone; if (patch.timezone) body.timezone = patch.timezone; if (patch.assignedUserId) body.assignedTo = patch.assignedUserId;
+    if (patch.customFields?.length) body.customFields = patch.customFields;
+    if (Object.keys(body).length) await ghl(c.pit, "PUT", `/contacts/${contactId}`, { body });
+  },
   async createOpportunity(c, input) {
     const r = await ghl<{ opportunity: { id: string } }>(c.pit, "POST", "/opportunities/", { body: {
       locationId: c.locationId, contactId: input.contactId, pipelineId: input.pipelineId, pipelineStageId: input.stageId, name: input.name, status: input.status,

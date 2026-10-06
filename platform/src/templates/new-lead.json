@@ -10,7 +10,7 @@
     "nodes": [
       { "id": "t1", "type": "trigger", "event": "lead.created" },
       { "id": "n1", "type": "check", "when": { "exists": "contact.phone" }, "else_exit": "no_phone" },
-      { "id": "n2", "type": "create_opportunity",
+      { "id": "n2", "type": "pipeline_card",
         "pipeline": "{{crm.pipeline_setter}}", "stage": "{{crm.stage_setter_new_lead}}",
         "name": "{{contact.name}} -- New",
         "fields": [ { "id": "{{crm.field_opportunity_stage_entered}}", "value": "{{now | date:yyyy-MM-dd}}" } ] },

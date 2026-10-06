@@ -250,6 +250,10 @@ create table appointments (
   starts_at            timestamptz not null,
   ends_at              timestamptz not null,
   self_booked          boolean,
+  set_by               text,               -- setter's name when the booking source carries it
+  reschedule_url       text,               -- per-booking self-service links (Calendly)
+  cancel_url           text,
+  tracking             jsonb not null default '{}',   -- utm_* as the booking source reported them
   booked_at            timestamptz not null,
   -- replica of GHL's confirmation state
   status               text not null check (status in ('new','confirmed','cancelled','showed','noshow','invalid')),

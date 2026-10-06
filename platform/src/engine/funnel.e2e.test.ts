@@ -26,7 +26,7 @@ const booking: BookingRead = { appointmentsInWindow: async () => [], listCalenda
 const fake: Adapters = {
   read: { contactsChangedSince: async () => [], inboundSince: async () => [], opportunitiesSince: async () => [], getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }), listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }] },
   booking: { ghl: booking, calendly: booking },
-  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {},
+  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {},
     createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; }, updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); } },
   sender: { sendSms: async (_c, _to, body) => { sent.push({ kind: "sms", body }); return { externalId: `s${sent.length}`, accepted: true }; }, sendEmail: async (_c, _to, subject, html) => { sent.push({ kind: "email", body: `${subject}|${html}` }); return { externalId: `e${sent.length}`, accepted: true }; }, deliveryStatus: async () => ({ status: "sent" }) },
   classifier: { choice: async (): Promise<Classification> => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
@@ -49,7 +49,7 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='fnl'");
       if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
         await c.query("update appointments set disposition_id=null where company_id=$1", [co.id]);
-        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "form_submissions", "forms", "appointments", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
         await c.query("delete from companies where id=$1", [co.id]); }
     });
     const r = await installCompany({ name: "Funnel", slug: "fnl", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live",
@@ -77,10 +77,12 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
     const start = DateTime.now().plus({ days: 3 }).setZone(TZ).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
     await apply(snap("A1", start, "confirmed"));
     const appt = await asOperator((c) => one<{ id: string; opportunity_id: string }>(c, "select id, opportunity_id from appointments where company_id=$1 and external_id='A1'", [companyId]));
-    const card = await asOperator((c) => one<{ id: string; name: string }>(c, "select id, name from opportunities where company_id=$1 and contact_id=$2", [companyId, contactId]));
-    expect(appt!.opportunity_id).toBe(card!.id);   // the booking lands on the card new-lead opened, no second opportunity
+    const pursuit = await asOperator((c) => one<{ id: string }>(c, "select id from opportunities where company_id=$1 and contact_id=$2 and status='open'", [companyId, contactId]));
+    const card = await asOperator((c) => one<{ id: string; name: string; opportunity_id: string }>(c, "select id, name, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id='PIPE-SETTER'", [companyId, contactId]));
+    expect(card!.opportunity_id).toBe(pursuit!.id);
+    expect(appt!.opportunity_id).toBe(pursuit!.id);   // the booking lands on the pursuit new-lead opened, no second opportunity
     const n = sent.length; await tick(fake);
-    expect(await run("booking-confirmation")).toMatchObject({ status: "completed", appointment_id: appt!.id, opportunity_id: card!.id });
+    expect(await run("booking-confirmation")).toMatchObject({ status: "completed", appointment_id: appt!.id, opportunity_id: pursuit!.id });
     expect(sent.slice(n).map((s) => s.kind)).toEqual(["email"]);
     const rem = await run("appointment-reminder");
     expect(rem).toMatchObject({ status: "waiting", current_node: "n1", appointment_id: appt!.id });

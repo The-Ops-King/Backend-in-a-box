@@ -1,0 +1,253 @@
+{
+  "slug": "call-booked",
+  "name": "Call booked",
+  "category": "booking",
+  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags come off, and the team gets the Slack card with the intake answers.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "appointment_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "appointment.booked",
+        "match": {
+          "eq": [
+            "{{appointment.term.category}}",
+            "closing"
+          ]
+        }
+      },
+      {
+        "id": "t2",
+        "type": "trigger",
+        "event": "appointment.rescheduled",
+        "match": {
+          "eq": [
+            "{{appointment.term.category}}",
+            "closing"
+          ]
+        }
+      },
+      {
+        "id": "n1",
+        "type": "update_contact",
+        "set": {
+          "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
+        },
+        "fields": [
+          {
+            "id": "{{crm.field_contact_appointment_date}}",
+            "value": "{{appointment.starts_at | date_company:yyyy-MM-dd}}"
+          }
+        ]
+      },
+      {
+        "id": "n2",
+        "type": "branch"
+      },
+      {
+        "id": "s1",
+        "type": "set_var",
+        "key": "setter_line",
+        "value": ""
+      },
+      {
+        "id": "s2",
+        "type": "set_var",
+        "key": "booking_kind",
+        "value": "self-booked"
+      },
+      {
+        "id": "s3",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_direct_booked}}",
+        "name": "{{contact.name}} -- Direct",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+        "if_missing": "skip"
+      },
+      {
+        "id": "s4",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_scheduled}}",
+        "name": "{{contact.name}} -- Direct",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
+      },
+      {
+        "id": "s5",
+        "type": "set_tag",
+        "tag": [
+          "stat-booked",
+          "stat-self-booked"
+        ]
+      },
+      {
+        "id": "b1",
+        "type": "set_var",
+        "key": "setter_line",
+        "value": "*Setter:* {{appointment.set_by | default:unknown}}"
+      },
+      {
+        "id": "b2",
+        "type": "set_var",
+        "key": "booking_kind",
+        "value": "setter booked"
+      },
+      {
+        "id": "b3",
+        "type": "update_contact",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_setter}}",
+            "value": "{{appointment.set_by | default:}}"
+          }
+        ]
+      },
+      {
+        "id": "b4",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_appointment_set}}",
+        "name": "{{contact.name}} -- Set",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+        "if_missing": "skip",
+        "fields": [
+          {
+            "id": "{{crm.field_opportunity_setter_owner}}",
+            "value": "{{appointment.set_by | default:}}"
+          }
+        ]
+      },
+      {
+        "id": "b5",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_scheduled}}",
+        "name": "{{contact.name}} -- Setter Booked",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+        "fields": [
+          {
+            "id": "{{crm.field_opportunity_setter_owner}}",
+            "value": "{{appointment.set_by | default:}}"
+          }
+        ]
+      },
+      {
+        "id": "b6",
+        "type": "set_tag",
+        "tag": [
+          "stat-booked",
+          "stat-set"
+        ]
+      },
+      {
+        "id": "n3",
+        "type": "remove_tag",
+        "tag": [
+          "seq-no-show",
+          "seq-nurture",
+          "seq-winback"
+        ]
+      },
+      {
+        "id": "n4",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}\n*Hair loss:* {{contact.fields.hair_loss | default:—}} {{contact.fields.hair_loss_stage | default:}}\n*Noticing for:* {{contact.fields.noticing_for | default:—}}\n*Commit to routine:* {{contact.fields.commit_routine | default:—}}\n*Work situation:* {{contact.fields.work_situation | default:—}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{appointment.tracking.utm_source | default:—}} · {{vars.booking_kind}}"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "booked"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "t2",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "b1",
+        "when": {
+          "eq": [
+            "{{appointment.self_booked}}",
+            false
+          ]
+        },
+        "label": "setter booked"
+      },
+      {
+        "from": "n2",
+        "to": "s1",
+        "else": true,
+        "label": "self-booked"
+      },
+      {
+        "from": "s1",
+        "to": "s2"
+      },
+      {
+        "from": "s2",
+        "to": "s3"
+      },
+      {
+        "from": "s3",
+        "to": "s4"
+      },
+      {
+        "from": "s4",
+        "to": "s5"
+      },
+      {
+        "from": "s5",
+        "to": "n3"
+      },
+      {
+        "from": "b1",
+        "to": "b2"
+      },
+      {
+        "from": "b2",
+        "to": "b3"
+      },
+      {
+        "from": "b3",
+        "to": "b4"
+      },
+      {
+        "from": "b4",
+        "to": "b5"
+      },
+      {
+        "from": "b5",
+        "to": "b6"
+      },
+      {
+        "from": "b6",
+        "to": "n3"
+      },
+      {
+        "from": "n3",
+        "to": "n4"
+      },
+      {
+        "from": "n4",
+        "to": "x1"
+      }
+    ]
+  }
+}

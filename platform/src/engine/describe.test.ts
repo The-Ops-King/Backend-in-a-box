@@ -18,8 +18,8 @@ describe("plain-English descriptions", () => {
   });
   it("bindings inside message text become names, html is dropped", () => {
     expect(templateWords("<p>Hey {{contact.first_name}},</p><p>grab a time: {{calendar.closer_call.url}}</p>")).toBe("Hey [first name], grab a time: [booking link]");
-    expect(describeNode({ id: "n", type: "create_opportunity", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", name: "{{contact.name}} -- New", fields: [{ id: "{{crm.field_opportunity_stage_entered}}", value: "{{now | date:yyyy-MM-dd}}" }] }))
-      .toEqual({ title: "Create pipeline card “[full name] -- New”", detail: "In the pipeline setter, stage stage setter new lead; set field opportunity stage entered = [today]" });
+    expect(describeNode({ id: "n", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", name: "{{contact.name}} -- New", if_missing: "create", fields: [{ id: "{{crm.field_opportunity_stage_entered}}", value: "{{now | date:yyyy-MM-dd}}" }] }))
+      .toEqual({ title: "Create or move pipeline card “[full name] -- New”", detail: "In the pipeline setter, stage stage setter new lead; set field opportunity stage entered = [today]" });
   });
   it("predicates and edges", () => {
     expect(predicateWords({ eq: ["{{reply.intent}}", "reschedule_request"] })).toBe("the reply is a reschedule request");

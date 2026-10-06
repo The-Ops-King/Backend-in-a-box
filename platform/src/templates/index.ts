@@ -8,4 +8,5 @@ import paymentReceived from "./payment-received.json";
 import paymentFailed from "./payment-failed.json";
 import reactivation from "./reactivation.json";
 import newLead from "./new-lead.json";
-export const templates = [confirmation, reminder, speedToLead, noShow, cancellation, postCall, paymentReceived, paymentFailed, reactivation, newLead] as const;
+import callBooked from "./call-booked.json";
+export const templates = [confirmation, reminder, speedToLead, noShow, cancellation, postCall, paymentReceived, paymentFailed, reactivation, newLead, callBooked] as const;

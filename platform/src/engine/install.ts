@@ -11,7 +11,7 @@ export type CalendarMapping = string | { term: string; selfBooked?: boolean };
 export type InstallInput = {
   name: string; slug: string; timezone: string; locationId: string; pit: string;
   /** Where appointments live. Default: the CRM's own calendars. Calendly: a read token; `userEmail` narrows event types and events to one host. */
-  booking?: { source: "ghl" } | { source: "calendly"; token: string; userEmail?: string; phoneQuestion?: string };
+  booking?: { source: "ghl" } | { source: "calendly"; token: string; userEmail?: string; phoneQuestion?: string; setterQuestion?: string };
   calendars?: Record<string, CalendarMapping>;   // calendar / event type external id → closing | first_call | qualifying | follow_up
   closerCall?: string;                   // external id bound as calendar.closer_call
   bookingCalendar?: string;              // external id bound as calendar.booking (first-call / self-book link used by lead and reactivation templates)
@@ -40,7 +40,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     const me = await calendlyWhoAmI(input.booking.token);
     const user = input.booking.userEmail ? await calendlyUserByEmail(input.booking.token, me.organization, input.booking.userEmail) : undefined;
     if (input.booking.userEmail && !user) throw new Error(`no Calendly organization member has the email ${input.booking.userEmail}`);
-    booking = { source: "calendly", token: input.booking.token, organization: me.organization, user, phoneQuestion: input.booking.phoneQuestion };
+    booking = { source: "calendly", token: input.booking.token, organization: me.organization, user, phoneQuestion: input.booking.phoneQuestion, setterQuestion: input.booking.setterQuestion };
   }
   return asOperator(async (c) => {
     // re-running install never silently flips a live company back to shadow or re-enables SMS: only explicitly passed values change
@@ -55,9 +55,9 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     await bind("crm.location_id", "id", input.locationId); await bind("secret.ghl_pit", "secret", input.pit);
     if (booking.source === "calendly") {
       await bind("secret.calendly_token", "secret", booking.token); await bind("calendly.organization", "id", booking.organization);
-      await bind("calendly.user", "id", booking.user ?? ""); await bind("calendly.phone_question", "text", booking.phoneQuestion ?? "");
+      await bind("calendly.user", "id", booking.user ?? ""); await bind("calendly.phone_question", "text", booking.phoneQuestion ?? ""); await bind("calendly.setter_question", "text", booking.setterQuestion ?? "");
     } else if (input.booking) {   // explicitly back to the CRM: drop the Calendly bindings so loadCompany stops choosing it
-      await c.query("delete from bindings where company_id=$1 and key in ('secret.calendly_token','calendly.organization','calendly.user','calendly.phone_question')", [companyId]);
+      await c.query("delete from bindings where company_id=$1 and key in ('secret.calendly_token','calendly.organization','calendly.user','calendly.phone_question','calendly.setter_question')", [companyId]);
     }
     for (const [k, v] of Object.entries(input.crm ?? {})) await bind(`crm.${k}`, "id", v);
     const ac: Company = { id: companyId, locationId: input.locationId, pit: input.pit, timezone: input.timezone, booking };

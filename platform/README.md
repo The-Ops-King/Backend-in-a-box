@@ -36,6 +36,7 @@ confirmation email went out through GHL into the contact's thread, the reminder 
 | payment-received | Whop payment | thank-you email, tag `client` |
 | payment-failed | Whop failure | SMS + email, 2 days, Slack the owner if connected |
 | reactivation | tag `reactivate` added | email, 3 days, SMS, 4 days, last email; once per 90 days |
+| call-booked | closing call booked or moved | contact gets appointment date + closer as owner; setter card → Direct Booked Call ("-- Direct") or Appointment Set ("-- Set", setter stamped); closer card created/moved to Scheduled ("-- Direct" / "-- Setter Booked"); tags `stat-booked` + `stat-self-booked`/`stat-set`, nurture tags off; Slack card with intake answers, reschedule link, UTM source. Needs the setter/closer pipeline + stage ids and the custom field ids as `crm.*`; `slack.channel.bookings` optional |
 | new-lead | lead created | with a phone: setter-pipeline card "Name -- New" (stage New Lead, stage-entered date today) + tag `stat-new`; without a phone: exit `no_phone`. Needs `crm.pipeline_setter`, `crm.stage_setter_new_lead`, `crm.field_opportunity_stage_entered` (install `crm: {...}`) |
 
 Every message is a template on the workflow, editable per company once the editor exists; until
@@ -55,12 +56,17 @@ instance, 5 second idle timeout.
 
 ## Pipeline cards (D19)
 
-Templates can create and move cards in the CRM's pipelines (`create_opportunity` node). Pipeline,
+Templates create and move cards on the CRM's pipeline boards (`pipeline_card` node). Pipeline,
 stage and custom-field ids are `crm.*` bindings set at install (`crm: { pipeline_setter: "...", ... }`),
-so a template is portable across companies. One open card per contact per pipeline: a re-fire
-updates stage and name instead of duplicating. Our `opportunities` table mirrors the card (name,
-pipeline, stage, GHL id). In shadow the card is created in our table only and the step records
-`would_create`.
+so a template is portable across companies. One open card per contact per board: a re-fire moves
+and renames it instead of duplicating; `if_missing: skip` makes a step move-only. Cards live in
+`pipeline_cards`, each hanging off the contact's one open opportunity (the pursuit), so a setter
+card and a closer card for the same sale share one opportunity, and the booking attaches to that
+same pursuit. In shadow the card exists only in our table.
+
+Contact custom fields are readable in templates by the name they were bound under:
+`crm.field_contact_hair_loss = <id>` → `{{contact.fields.hair_loss}}`. `update_contact` writes
+native fields and custom fields by id; empty values are never written.
 
 ## Booking sources (D18)
 
