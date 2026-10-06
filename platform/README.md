@@ -43,12 +43,14 @@ then, edit the company's copy in `workflow_versions`. SMS nodes skip cleanly for
 
 ## Database connection (Supabase)
 
-`SUPABASE_DB_URL` should be the **transaction-mode** pooler URL (port 6543), not the session-mode one
-(port 5432 on `pooler.supabase.com`). Session mode is capped at 15 clients for the whole Supabase
-project, shared with every other app in it, and each warm Vercel instance holds its own pool; the
-symptom is `EMAXCONNSESSION max clients reached`. The engine is transaction-pooler safe: every query
-runs inside `begin … commit` with transaction-local `set_config`, no session advisory locks, no named
-prepared statements. Our pool is 3 connections per instance with a 5 second idle timeout.
+The engine connects through Supabase's **transaction-mode** pooler (port 6543). A session-mode pooler URL
+(port 5432 on `pooler.supabase.com`) in `SUPABASE_DB_URL` is normalised to 6543 at startup, because
+session mode is capped at 15 clients for the whole Supabase project, shared with every other app in
+it, and each warm Vercel instance holds its own pool; the symptom was `EMAXCONNSESSION max clients
+reached` in production. Direct connections and non-Supabase URLs pass through. `DB_POOLER_MODE=session`
+opts out. The engine is transaction-pooler safe: every query runs inside `begin … commit` with
+transaction-local `set_config`, no session advisory locks, no named prepared statements. Pool: 3 per
+instance, 5 second idle timeout.
 
 ## Booking sources (D18)
 
