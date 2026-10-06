@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { company, workflow } from "@/ui/queries";
 import { Flow } from "@/ui/Flow";
+import { Mermaid } from "@/ui/Mermaid";
+import { toMermaid } from "@/engine/mermaid";
 import { ago, badge } from "@/ui/format";
 export const dynamic = "force-dynamic";
 export default async function WorkflowPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
@@ -16,8 +18,10 @@ export default async function WorkflowPage({ params }: { params: Promise<{ slug:
       <div className="card stat"><div className="n">{w.stats.completed}</div><div className="l">completed</div></div>
       <div className="card stat"><div className="n" style={{ color: w.stats.failed ? "var(--bad)" : undefined }}>{w.stats.failed}</div><div className="l">failed</div></div>
     </div>
+    <h2>Flow chart</h2>
+    <Mermaid chart={toMermaid(w.definition)} />
     <div className="grid g2" style={{ marginTop: 22, alignItems: "start" }}>
-      <div><h2 style={{ marginTop: 0 }}>Flow</h2><Flow def={w.definition} /></div>
+      <div><h2 style={{ marginTop: 0 }}>Steps</h2><Flow def={w.definition} /></div>
       <div>
         <h2 style={{ marginTop: 0 }}>Bindings this workflow needs</h2>
         <table><tbody>{w.manifest.bindings.map((b) => <tr key={b.key}><td className="mono">{b.key}</td><td><span className={badge(w.bound.includes(b.key) ? "ok" : b.required ? "failed" : "skipped")}>{w.bound.includes(b.key) ? "bound" : b.required ? "missing" : "optional, unbound"}</span></td></tr>)}</tbody></table>
