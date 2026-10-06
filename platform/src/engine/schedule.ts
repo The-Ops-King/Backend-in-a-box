@@ -36,25 +36,23 @@ export type ScheduleStatus = {
   installed: boolean;
   job?: { jobid: number; schedule: string; active: boolean; command: string };
   recentRuns: { status: string; return_message: string | null; start_time: Date }[];
-  recentResponses: { status_code: number | null; timed_out: boolean | null; error_msg: string | null; created: Date }[];
 };
 
 export async function tickScheduleStatus(): Promise<ScheduleStatus> {
   return asOperator(async (c) => {
     const have = await have_(c);
-    if (!have.cron) return { installed: false, recentRuns: [], recentResponses: [] };
+    if (!have.cron) return { installed: false, recentRuns: [] };
     const job = await one<{ jobid: number; schedule: string; active: boolean; command: string }>(c, "select jobid, schedule, active, command from cron.job where jobname=$1", [TICK_JOB]);
-    if (!job) return { installed: false, recentRuns: [], recentResponses: [] };
+    if (!job) return { installed: false, recentRuns: [] };
+    // net._http_response is database-wide and cannot be tied back to this job (a shared Supabase project has other
+    // apps' pg_net traffic in it), so the HTTP outcome is read from /api/health's last_tick instead.
     const recentRuns = await many<ScheduleStatus["recentRuns"][number]>(c, "select status, return_message, start_time from cron.job_run_details where jobid=$1 order by start_time desc limit 5", [job.jobid]);
-    const recentResponses = have.net
-      ? await many<ScheduleStatus["recentResponses"][number]>(c, "select status_code, timed_out, error_msg, created from net._http_response order by created desc limit 5")
-      : [];
-    return { installed: true, job: { ...job, jobid: Number(job.jobid), command: job.command.replace(/Bearer [^"\\]+/, "Bearer ***") }, recentRuns, recentResponses };
+    return { installed: true, job: { ...job, jobid: Number(job.jobid), command: job.command.replace(/Bearer [^"\\]+/, "Bearer ***") }, recentRuns };
   });
 }
 
 async function have_(c: PoolClient) {
-  const rows = await many<{ extname: string }>(c, "select extname from pg_extension where extname in ('pg_cron','pg_net')");
+  const rows = await many<{ extname: string }>(c, "select extname from pg_extension where extname = 'pg_cron'");
   const s = new Set(rows.map((r) => r.extname));
-  return { cron: s.has("pg_cron"), net: s.has("pg_net") };
+  return { cron: s.has("pg_cron") };
 }
