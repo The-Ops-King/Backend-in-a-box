@@ -11,7 +11,7 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
   return (<>
     <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / <Link href={`/c/${slug}/w/${r.workflow_id}`}>{r.workflow}</Link> / run</p>
     <h1>{r.workflow} · <Link href={`/c/${slug}/contacts/${r.contact_id}`}>{r.contact.trim() || "contact"}</Link></h1>
-    <p className="sub"><span className={badge(r.status)}>{r.status}</span>{r.exit_reason ? ` · ${r.exit_reason}` : ""} · started {ago(r.started_at)}{r.status === "waiting" && r.next_run_at ? ` · next ${when(r.next_run_at, co.timezone)}` : ""}{r.appt ? ` · appointment ${when(r.appt.starts_at, co.timezone)} (${r.appt.term}, ${r.appt.ghl_status})` : ""}</p>
+    <p className="sub"><span className={badge(r.status)}>{r.status}</span>{r.exit_reason ? ` · ${r.exit_reason}` : ""} · started {ago(r.started_at)}{r.status === "waiting" && r.next_run_at ? ` · next ${when(r.next_run_at, co.timezone)}` : ""}{r.appt ? ` · appointment ${when(r.appt.starts_at, co.timezone)} (${r.appt.term}, ${r.appt.status})` : ""}</p>
     <h2>Where this run is</h2>
     <Mermaid chart={toMermaid(r.definition, r.steps, r.current_node)} />
     <div className="grid g2" style={{ alignItems: "start" }}>

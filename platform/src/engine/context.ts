@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { decrypt } from "./crypto";
-import type { Company } from "@/adapters/types";
+import type { BookingConfig, Company } from "@/adapters/types";
 
 export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date };
 export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; status: string; sms_enabled: boolean; mode: "shadow" | "live" };
@@ -12,7 +12,10 @@ export async function loadCompany(c: PoolClient, companyId: string): Promise<{ r
   const rows = await many<{ key: string; kind: string; value: Buffer }>(c, "select key, kind, value from bindings where company_id=$1", [companyId]);
   const bindings: Record<string, string> = {};
   for (const b of rows) bindings[b.key] = b.kind === "secret" ? decrypt(b.value) : b.value.toString("utf8");
-  const adapterCompany: Company = { id: row.id, locationId: bindings["crm.location_id"] ?? "", pit: bindings["secret.ghl_pit"] ?? "", timezone: row.timezone };
+  const booking: BookingConfig = bindings["secret.calendly_token"]
+    ? { source: "calendly", token: bindings["secret.calendly_token"], organization: bindings["calendly.organization"] ?? "", user: bindings["calendly.user"] || undefined, phoneQuestion: bindings["calendly.phone_question"] || undefined }
+    : { source: "ghl" };
+  const adapterCompany: Company = { id: row.id, locationId: bindings["crm.location_id"] ?? "", pit: bindings["secret.ghl_pit"] ?? "", timezone: row.timezone, booking };
   return { row, adapterCompany, bindings };
 }
 
@@ -36,7 +39,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   };
   if (run.appointment_id) {
     const a = await one<Record<string, unknown>>(c, `
-      select a.id, a.ghl_appointment_id, a.starts_at, a.ends_at, a.ghl_status, a.self_booked,
+      select a.id, a.source, a.external_id, a.starts_at, a.ends_at, a.status, a.self_booked,
              json_build_object('name', t.name, 'category', t.category) as term,
              json_build_object('id', u.id, 'first_name', split_part(u.name,' ',1), 'name', u.name, 'ghl_user_id', u.ghl_user_id) as closer
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
@@ -48,8 +51,8 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     if (k.startsWith("secret.")) continue;
     if (k.startsWith("calendar.")) {
       const key = k.slice("calendar.".length);
-      const cal = await one<{ ghl_calendar_id: string; name: string }>(c, "select ghl_calendar_id, name from calendars where company_id=$1 and ghl_calendar_id=$2", [company.id, v]);
-      (ctx.calendar as Record<string, unknown>)[key] = { id: v, name: cal?.name, url: bindings[`${k}.url`] ?? `https://api.leadconnectorhq.com/widget/booking/${v}` };
+      const cal = await one<{ name: string; booking_url: string | null }>(c, "select name, booking_url from calendars where company_id=$1 and external_id=$2", [company.id, v]);
+      (ctx.calendar as Record<string, unknown>)[key] = { id: v, name: cal?.name, url: bindings[`${k}.url`] ?? cal?.booking_url ?? `https://api.leadconnectorhq.com/widget/booking/${v}` };
     } else if (k.startsWith("slack.channel.")) ((ctx.slack as { channel: Record<string, string> }).channel)[k.slice("slack.channel.".length)] = v;
     else if (k.startsWith("crm.")) (ctx.crm as Record<string, string>)[k.slice(4)] = v;
   }

@@ -11,7 +11,8 @@ process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 let contacts: ContactSnapshot[] = [];
 let companyId: string;
 const fake: Adapters = {
-  read: { contactsChangedSince: async (c) => (c.id === companyId ? contacts : []), appointmentsInWindow: async () => [], inboundSince: async () => [], opportunitiesSince: async () => [], getAppointment: async () => null, getContact: async () => null, listCalendars: async () => [], listUsers: async () => [] },
+  read: { contactsChangedSince: async (c) => (c.id === companyId ? contacts : []), inboundSince: async () => [], opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [] },
+  booking: { ghl: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }, calendly: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] } },
   write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {} },
   sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }) },
   classifier: { choice: async () => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },

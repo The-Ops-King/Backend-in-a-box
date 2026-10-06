@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import { ghl } from "./client";
-import type { AppointmentSnapshot, CalendarSnapshot, Company, ContactSnapshot, CrmRead, MessageSnapshot, OppSnapshot, UserSnapshot } from "../types";
+import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, ContactSnapshot, CrmRead, MessageSnapshot, OppSnapshot, UserSnapshot } from "../types";
 
 type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; tags?: string[]; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string };
 const mapContact = (c: RawContact): ContactSnapshot => ({
@@ -25,10 +25,6 @@ export const ghlRead: CrmRead = {
     }
     return out;
   },
-  async appointmentsInWindow(c, calendarId, from, to) {
-    const r = await ghl<{ events: RawEvent[] }>(c.pit, "GET", `/calendars/events?locationId=${c.locationId}&calendarId=${calendarId}&startTime=${from.getTime()}&endTime=${to.getTime()}`);
-    return (r.events ?? []).map(mapAppt);
-  },
   async inboundSince(c, sinceIso) {
     const r = await ghl<{ conversations: { id: string; contactId: string; lastMessageDate: string | number; lastMessageDirection?: string; lastMessageType?: string }[] }>(
       c.pit, "GET", `/conversations/search?locationId=${c.locationId}&sortBy=last_message_date&sort=desc&limit=50`, { version: "2021-04-15" });   // no direction filter: a human reply after the contact's text must not hide the text
@@ -51,20 +47,28 @@ export const ghlRead: CrmRead = {
     const r = await ghl<{ opportunities: { id: string; contact?: { id: string }; pipelineId: string; pipelineStageId: string; status: string; monetaryValue?: number; updatedAt: string }[] }>(c.pit, "GET", `/opportunities/search?location_id=${c.locationId}&date=${d}&limit=100`);
     return (r.opportunities ?? []).map((o) => ({ id: o.id, contactId: o.contact?.id ?? "", pipelineId: o.pipelineId, stageId: o.pipelineStageId, status: o.status, monetaryValue: o.monetaryValue, updatedAt: o.updatedAt }));
   },
-  async getAppointment(c, id) {
-    try { const r = await ghl<{ appointment?: RawEvent; event?: RawEvent }>(c.pit, "GET", `/calendars/events/appointments/${id}`, { version: "2021-04-15" }); const e = r.appointment ?? r.event; return e ? mapAppt(e) : null; }
-    catch (e) { if ((e as { status?: number }).status === 404) return null; throw e; }
-  },
   async getContact(c, id) {
     try { const r = await ghl<{ contact: RawContact }>(c.pit, "GET", `/contacts/${id}`); return mapContact(r.contact); }
+    catch (e) { if ((e as { status?: number }).status === 404) return null; throw e; }
+  },
+  async listUsers(c) {
+    const r = await ghl<{ users: { id: string; email?: string; name?: string; firstName?: string; lastName?: string }[] }>(c.pit, "GET", `/users/?locationId=${c.locationId}`);
+    return r.users.map((u): UserSnapshot => ({ id: u.id, email: u.email, name: u.name ?? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() }));
+  },
+};
+
+/** GHL calendars as a booking source. Same PIT, same location. */
+export const ghlBooking: BookingRead = {
+  async appointmentsInWindow(c, calendarId, from, to) {
+    const r = await ghl<{ events: RawEvent[] }>(c.pit, "GET", `/calendars/events?locationId=${c.locationId}&calendarId=${calendarId}&startTime=${from.getTime()}&endTime=${to.getTime()}`);
+    return (r.events ?? []).map(mapAppt);
+  },
+  async getAppointment(c, id) {
+    try { const r = await ghl<{ appointment?: RawEvent; event?: RawEvent }>(c.pit, "GET", `/calendars/events/appointments/${id}`, { version: "2021-04-15" }); const e = r.appointment ?? r.event; return e ? mapAppt(e) : null; }
     catch (e) { if ((e as { status?: number }).status === 404) return null; throw e; }
   },
   async listCalendars(c) {
     const r = await ghl<{ calendars: { id: string; name: string; teamMembers?: { userId: string }[] }[] }>(c.pit, "GET", `/calendars/?locationId=${c.locationId}`);
     return r.calendars.map((k): CalendarSnapshot => ({ id: k.id, name: k.name, teamMemberIds: (k.teamMembers ?? []).map((t) => t.userId) }));
-  },
-  async listUsers(c) {
-    const r = await ghl<{ users: { id: string; email?: string; name?: string; firstName?: string; lastName?: string }[] }>(c.pit, "GET", `/users/?locationId=${c.locationId}`);
-    return r.users.map((u): UserSnapshot => ({ id: u.id, email: u.email, name: u.name ?? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() }));
   },
 };

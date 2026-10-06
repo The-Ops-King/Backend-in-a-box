@@ -1,10 +1,10 @@
 import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { asOperator, many, one } from "@/db/client";
-import type { Adapters, AppointmentSnapshot, Company, ContactSnapshot } from "@/adapters/types";
+import { bookingFor, type Adapters, type AppointmentSnapshot, type Company, type ContactSnapshot } from "@/adapters/types";
 import { loadCompany, type CompanyRow } from "./context";
 import { dispatchEvent, emitEvent } from "./dispatch";
-import { ensureOpportunityForBooking, ensureUser } from "./lifecycle";
+import { ensureOpportunityForBooking, ensureUser, userIdByEmail } from "./lifecycle";
 
 export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
@@ -69,33 +69,65 @@ async function pollContacts(c: PoolClient, co: CompanyRow, ac: Company, adapters
   await saveCursor(c, co.id, "contacts", max.toISO()!, true);
 }
 
+/** A booking whose source is not the CRM names the person, not a CRM id. Find them by email/phone; otherwise hold a local replica until the CRM poll sees them and attaches the ghl_contact_id (identity resolution in upsertContact). */
+async function resolveContactForBooking(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot): Promise<{ id: string } | null> {
+  if (s.contactId) {
+    const byId = await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id=$2", [co.id, s.contactId]);
+    if (byId) return byId;
+    const live = await adapters.read.getContact(ac, s.contactId);
+    return live ? { id: (await upsertContact(c, co.id, co.timezone, live)).id } : null;
+  }
+  const inv = s.invitee; if (!inv) return null;
+  const email = normEmail(inv.email), phone = normPhone(inv.phone);
+  if (!email && !phone) return null;
+  const match = await one<{ contact_id: string }>(c, `select contact_id from contact_identifiers where company_id=$1 and ((kind='email' and value=$2) or (kind='phone' and value=$3)) limit 1`, [co.id, email ?? "", phone ?? ""]);
+  if (match) {
+    if (inv.timezone) await c.query("update contacts set timezone=$2, timezone_source='booking', updated_at=now() where id=$1 and timezone_source is distinct from 'ghl'", [match.contact_id, inv.timezone]);
+    return { id: match.contact_id };
+  }
+  const row = await one<{ id: string }>(c, `insert into contacts (company_id, first_name, last_name, timezone, timezone_source) values ($1,$2,$3,$4,$5) returning id`,
+    [co.id, inv.firstName ?? null, inv.lastName ?? null, inv.timezone ?? co.timezone, inv.timezone ? "booking" : "company_default"]);
+  for (const [kind, value] of [["email", email], ["phone", phone]] as const)
+    if (value) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,$3,$4) on conflict (company_id, kind, value) do nothing", [co.id, row!.id, kind, value]);
+  return { id: row!.id };
+}
+
 export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot, rep?: PollReport, baseline = false): Promise<void> {
-  const cal = await one<{ id: string; appointment_term: string }>(c, "select id, appointment_term from calendars where company_id=$1 and ghl_calendar_id=$2", [co.id, s.calendarId]);
+  const source = ac.booking.source;
+  const cal = await one<{ id: string; appointment_term: string; self_booked: boolean | null }>(c, "select id, appointment_term, self_booked from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
   if (!cal) return;
-  let contact = await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id=$2", [co.id, s.contactId]);
-  if (!contact) { const live = await adapters.read.getContact(ac, s.contactId); if (!live) return; contact = { id: (await upsertContact(c, co.id, co.timezone, live)).id }; }
-  const userId = s.assignedUserId ? await ensureUser(c, adapters, ac, s.assignedUserId) : null;
-  const existing = await one<{ id: string; ghl_status: string; starts_at: Date }>(c, "select id, ghl_status, starts_at from appointments where company_id=$1 and ghl_appointment_id=$2", [co.id, s.id]);
+  // a cancelled booking that was rescheduled is carried by its replacement (same appointment, new time); nothing to do here
+  if (s.rescheduledTo) return;
+  const contact = await resolveContactForBooking(c, co, ac, adapters, s);
+  if (!contact) return;
+  const userId = s.assignedUserId ? await ensureUser(c, adapters, ac, s.assignedUserId) : await userIdByEmail(c, co.id, s.assignedUserEmail);
+  const find = (ext: string) => one<{ id: string; status: string; starts_at: Date; external_id: string }>(c, "select id, status, starts_at, external_id from appointments where company_id=$1 and source=$2 and external_id=$3", [co.id, source, ext]);
+  let existing = await find(s.id);
+  if (!existing && s.rescheduledFrom) {
+    // the source cancelled the old booking and created this one; to us it is the same appointment moved
+    const prior = await find(s.rescheduledFrom);
+    if (prior) { await c.query("update appointments set external_id=$2 where id=$1", [prior.id, s.id]); existing = { ...prior, external_id: s.id }; }
+  }
   if (!existing) {
-    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, ghl_appointment_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, booked_at, ghl_status, ghl_updated_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id`, [co.id, contact.id, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, null, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null]);
+    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, booked_at, status, source_updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null]);
     if (baseline) { if (rep) rep.baselined++; return; }   // replica only; an appointment that existed before install is not a new booking
-    const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: row!.id, event_type: "appointment.booked", source: "ghl_poll", data: { calendar_id: s.calendarId, status: s.status, starts_at: s.startTime } });
+    const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: row!.id, event_type: "appointment.booked", source: "ghl_poll", data: { source, calendar_id: s.calendarId, status: s.status, starts_at: s.startTime, self_booked: cal.self_booked } });
     const oppId = await ensureOpportunityForBooking(c, co.id, contact.id, row!.id, ev);
     const term = await one<{ name: string; category: string }>(c, "select name, category from company_terms where id=$1", [cal.appointment_term]);
-    const ctx = { contact: { id: contact.id }, appointment: { id: row!.id, starts_at: s.startTime, term, status: s.status }, opportunity: { id: oppId } };
+    const ctx = { contact: { id: contact.id }, appointment: { id: row!.id, starts_at: s.startTime, term, status: s.status, self_booked: cal.self_booked }, opportunity: { id: oppId } };
     const started = await dispatchEvent(c, { ...ev, opportunity_id: oppId || null }, ctx);
     if (rep) { rep.appointmentsNew++; rep.eventsDispatched += started.length; }
     return;
   }
   const changes: Record<string, unknown> = {};
-  if (existing.ghl_status !== s.status) changes.status = { from: existing.ghl_status, to: s.status };
+  if (existing.status !== s.status) changes.status = { from: existing.status, to: s.status };
   if (Math.abs(existing.starts_at.getTime() - new Date(s.startTime).getTime()) > 60e3) changes.starts_at = { from: existing.starts_at.toISOString(), to: s.startTime };
   if (!Object.keys(changes).length) return;
-  if (baseline) { await c.query("update appointments set ghl_status=$2, starts_at=$3, ends_at=$4, ghl_updated_at=$5 where id=$1", [existing.id, s.status, s.startTime, s.endTime, s.dateUpdated ?? new Date()]); if (rep) rep.baselined++; return; }
-  await c.query("update appointments set ghl_status=$2, starts_at=$3, ends_at=$4, assigned_user_id=coalesce($5,assigned_user_id), ghl_updated_at=$6 where id=$1", [existing.id, s.status, s.startTime, s.endTime, userId, s.dateUpdated ?? new Date()]);
+  if (baseline) { await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, source_updated_at=$5 where id=$1", [existing.id, s.status, s.startTime, s.endTime, s.dateUpdated ?? new Date()]); if (rep) rep.baselined++; return; }
+  await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, assigned_user_id=coalesce($5,assigned_user_id), source_updated_at=$6 where id=$1", [existing.id, s.status, s.startTime, s.endTime, userId, s.dateUpdated ?? new Date()]);
   const type = changes.starts_at ? "appointment.rescheduled" : "appointment.status_changed";
-  const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: existing.id, event_type: type, source: "ghl_poll", data: changes });
+  const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: existing.id, event_type: type, source: "ghl_poll", data: { source, ...changes } });
   const started = await dispatchEvent(c, ev, { contact: { id: contact.id }, appointment: { id: existing.id, starts_at: s.startTime, status: s.status } });
   if (rep) { rep.appointmentsChanged++; rep.eventsDispatched += started.length; }
 }
@@ -104,7 +136,7 @@ async function pollCalendar(c: PoolClient, co: CompanyRow, ac: Company, adapters
   const entity = `appointments:${calendarId}`;
   const from = DateTime.now().minus({ days: 2 }).toJSDate(), to = DateTime.now().plus({ days: 60 }).toJSDate();
   const { isBaseline } = await cursor(c, co.id, entity, DateTime.now());
-  for (const s of await adapters.read.appointmentsInWindow(ac, calendarId, from, to)) await applyAppointment(c, co, ac, adapters, s, rep, isBaseline);
+  for (const s of await bookingFor(adapters, ac).appointmentsInWindow(ac, calendarId, from, to)) await applyAppointment(c, co, ac, adapters, s, rep, isBaseline);
   await saveCursor(c, co.id, entity, DateTime.now().toISO()!, true);
 }
 
@@ -147,10 +179,10 @@ export async function pollAll(adapters: Adapters): Promise<PollReport> {
     catch (e) { rep.errors.push({ company: id, entity: "bindings", error: `cannot load bindings: ${(e as Error).message}` }); continue; }   // one bad key must not stop every other company
     const { row: co, adapterCompany: ac } = loaded;
     if (!ac.pit || !ac.locationId) { rep.errors.push({ company: co.slug, entity: "bindings", error: "crm.location_id / secret.ghl_pit not bound" }); continue; }
-    const cals = await asOperator((c) => many<{ ghl_calendar_id: string }>(c, "select ghl_calendar_id from calendars where company_id=$1 and active", [co.id]));
+    const cals = await asOperator((c) => many<{ external_id: string }>(c, "select external_id from calendars where company_id=$1 and source=$2 and active", [co.id, ac.booking.source]));
     const entities: [string, EntityPoll][] = [
       ["contacts", pollContacts],
-      ...cals.map((cal): [string, EntityPoll] => [`appointments:${cal.ghl_calendar_id}`, (c, co, ac, adapters, rep) => pollCalendar(c, co, ac, adapters, rep, cal.ghl_calendar_id)]),
+      ...cals.map((cal): [string, EntityPoll] => [`appointments:${cal.external_id}`, (c, co, ac, adapters, rep) => pollCalendar(c, co, ac, adapters, rep, cal.external_id)]),
       ["conversations", pollInbound],
     ];
     for (const [entity, fn] of entities) {

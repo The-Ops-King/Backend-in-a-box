@@ -167,11 +167,13 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     }
     case "update_appointment": {
       if (!d.run.appointment_id) return { status: "failed", error: "update_appointment with no appointment on run" };
-      const a = await one<{ ghl_appointment_id: string }>(d.c, "select ghl_appointment_id from appointments where id=$1", [d.run.appointment_id]);
+      const a = await one<{ external_id: string; source: string }>(d.c, "select external_id, source from appointments where id=$1", [d.run.appointment_id]);
       const patch = Object.fromEntries(Object.entries(node.set).map(([k, v]) => [k, typeof v === "string" ? render(v, d.ctx, env(d)) : v]));
+      // only the CRM's own calendars accept writes; a Calendly booking is read-only to us, so the node records that and moves on
+      if (a!.source !== "ghl") return { status: "ok", next, result: { skipped: true, reason: `appointments from ${a!.source} are read-only`, would_update: patch } };
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch } };
-      await d.adapters.write.updateAppointment(d.adapterCompany, a!.ghl_appointment_id, patch);
-      if (typeof patch.status === "string") await d.c.query("update appointments set ghl_status=$2, ghl_updated_at=now() where id=$1", [d.run.appointment_id, patch.status]);
+      await d.adapters.write.updateAppointment(d.adapterCompany, a!.external_id, patch);
+      if (typeof patch.status === "string") await d.c.query("update appointments set status=$2, source_updated_at=now() where id=$1", [d.run.appointment_id, patch.status]);
       return { status: "ok", next, result: patch };
     }
     case "update_opportunity": {

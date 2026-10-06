@@ -54,3 +54,10 @@ export async function ensureUser(c: PoolClient, adapters: Adapters, co: Company,
     [co.id, found.email ?? `${ghlUserId}@unclaimed.local`, found.name || ghlUserId, ghlUserId]);
   return row!.id;
 }
+
+/** A booking source outside the CRM names the host by email (Calendly). Resolve against the roster we already hold; never invent a user. */
+export async function userIdByEmail(c: PoolClient, companyId: string, email: string | undefined): Promise<string | null> {
+  if (!email) return null;
+  const u = await one<{ id: string }>(c, "select id from users where company_id=$1 and lower(email)=lower($2) and active limit 1", [companyId, email.trim()]);
+  return u?.id ?? null;
+}

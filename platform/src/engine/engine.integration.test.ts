@@ -10,7 +10,7 @@ import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { parseDefinition, extractManifest, indexDefinition } from "@/engine/definition";
 import { templates } from "@/templates";
-import type { Adapters, AppointmentSnapshot, Classification } from "@/adapters/types";
+import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from "@/adapters/types";
 import { applyAppointment } from "@/engine/poll";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
@@ -26,10 +26,11 @@ let liveStatus = "confirmed";
 const APPT_START = DateTime.now().setZone("America/Phoenix").plus({ days: 2 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], appointmentsInWindow: async () => [], inboundSince: async () => [], opportunitiesSince: async () => [],
-    getAppointment: async (_c, id) => ({ id, calendarId: "CAL1", contactId: "GHLC1", startTime: APPT_START.toISO()!, endTime: APPT_START.plus({ minutes: 30 }).toISO()!, status: liveStatus, raw: {} }),
-    getContact: async () => null, listCalendars: async () => [], listUsers: async () => [{ id: "GHLU1", name: "Sam Closer", email: "sam@x.com" }],
+    contactsChangedSince: async () => [], inboundSince: async () => [], opportunitiesSince: async () => [],
+    getContact: async () => null, listUsers: async () => [{ id: "GHLU1", name: "Sam Closer", email: "sam@x.com" }],
   },
+  booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], listCalendars: async () => [],
+    getAppointment: async (_c, id) => ({ id, calendarId: "CAL1", contactId: "GHLC1", startTime: APPT_START.toISO()!, endTime: APPT_START.plus({ minutes: 30 }).toISO()!, status: liveStatus, raw: {} }) }; return { ghl: b, calendly: b }; })(),
   write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {} },
   sender: {
     sendSms: async (_c, to, body) => { sent.push({ kind: "sms", to, body }); return { externalId: `sms-${sent.length}`, accepted: true }; },
@@ -58,7 +59,7 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
       await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories", [companyId]);
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'calendar.closer_call','id',$4)", [companyId, Buffer.from("LOC1"), encrypt("pit-fake"), Buffer.from("CAL1")]);
       const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
-      await c.query("insert into calendars (company_id, ghl_calendar_id, name, appointment_term) values ($1,'CAL1','Closer Call',$2)", [companyId, term]);
+      await c.query("insert into calendars (company_id, external_id, name, appointment_term) values ($1,'CAL1','Closer Call',$2)", [companyId, term]);
       contactId = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, timezone) values ($1,'GHLC1','Jamie','America/Phoenix') returning id", [companyId]))!.id;
       for (const t of templates) {
         const def = parseDefinition(t.definition), manifest = extractManifest(def);

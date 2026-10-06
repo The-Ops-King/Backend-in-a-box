@@ -11,7 +11,7 @@ import { applyPayment } from "@/engine/lifecycle";
 import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import type { Adapters, AppointmentSnapshot, Classification } from "@/adapters/types";
+import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -22,11 +22,13 @@ let liveStatus = "confirmed";
 const apptStore = new Map<string, AppointmentSnapshot>();   // what GHL "has" for each appointment the tests book
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], appointmentsInWindow: async () => [], inboundSince: async () => [], opportunitiesSince: async () => [],
-    getAppointment: async (_c, id) => { const a = apptStore.get(id); return a ? { ...a, status: liveStatus } : null; },
+    contactsChangedSince: async () => [], inboundSince: async () => [], opportunitiesSince: async () => [],
     getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }),
-    listCalendars: async () => [{ id: "CAL", name: "Closer Call", teamMemberIds: ["U1"] }], listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }],
+    listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }],
   },
+  booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [],
+    getAppointment: async (_c, id) => { const a = apptStore.get(id); return a ? { ...a, status: liveStatus } : null; },
+    listCalendars: async () => [{ id: "CAL", name: "Closer Call", teamMemberIds: ["U1"] }] }; return { ghl: b, calendly: b }; })(),
   write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {} },
   sender: {
     sendSms: async (_c, to, body) => { sent.push({ kind: "sms", to, body }); return { externalId: `s${sent.length}`, accepted: true }; },
@@ -115,7 +117,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
   });
 
   it("post-call-follow-up: a follow_up disposition schedules the SMS for 9am the next morning, contact time", async () => {
-    const appt = await asOperator((c) => one<{ id: string }>(c, "select id from appointments where company_id=$1 and ghl_appointment_id='ANS'", [companyId]));
+    const appt = await asOperator((c) => one<{ id: string }>(c, "select id from appointments where company_id=$1 and external_id='ANS'", [companyId]));
     const [showed, fu] = await asOperator((c) => Promise.all([one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_outcome' and category='showed'", [companyId]), one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category='follow_up'", [companyId])]));
     await asOperator((c) => recordDisposition(c, { companyId, appointmentId: appt!.id, outcomeTermId: showed!.id, callOutcomeTermId: fu!.id }));
     await tick(fake);

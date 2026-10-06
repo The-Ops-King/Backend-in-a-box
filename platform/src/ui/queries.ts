@@ -59,7 +59,7 @@ export const run = (id: string) => asOperator(async (c) => {
   const def = parseDefinition((await one<{ definition: Definition }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [r.workflow_id, r.workflow_version]))!.definition);
   const steps = await many<{ node_id: string; node_type: string; status: string; started_at: Date; finished_at: Date | null; result: Record<string, unknown>; error: string | null }>(c, "select node_id, node_type, status, started_at, finished_at, result, error from run_steps where run_id=$1 order by started_at", [id]);
   const sends = await many<{ channel: string; status: string; rendered_body: string; sent_at: Date | null; external_id: string | null; suppressed_reason: string | null; error: string | null }>(c, "select channel, status, rendered_body, sent_at, external_id, suppressed_reason, error from sends where run_id=$1 order by scheduled_for", [id]);
-  const appt = r.appointment_id ? await one<{ starts_at: Date; ghl_status: string; term: string }>(c, "select a.starts_at, a.ghl_status, t.name as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [r.appointment_id]) : null;
+  const appt = r.appointment_id ? await one<{ starts_at: Date; status: string; term: string }>(c, "select a.starts_at, a.status, t.name as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [r.appointment_id]) : null;
   return { ...r, definition: def, steps, sends, appt };
 });
 
@@ -73,15 +73,15 @@ export const contact = (id: string) => asOperator(async (c) => {
   return { ...ct, journey, runs, msgs, idents };
 });
 
-export const companyAppointments = (companyId: string) => asOperator((c) => many<{ id: string; starts_at: Date; ghl_status: string; contact: string; contact_id: string; closer: string | null; term: string; outcome: string | null; call_outcome: string | null; dispositioned_at: Date | null }>(c, `
-  select a.id, a.starts_at, a.ghl_status, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact, ct.id as contact_id, u.name as closer, t.name as term,
+export const companyAppointments = (companyId: string) => asOperator((c) => many<{ id: string; starts_at: Date; status: string; contact: string; contact_id: string; closer: string | null; term: string; outcome: string | null; call_outcome: string | null; dispositioned_at: Date | null }>(c, `
+  select a.id, a.starts_at, a.status, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact, ct.id as contact_id, u.name as closer, t.name as term,
          o.name as outcome, co.name as call_outcome, a.dispositioned_at
   from appointments a join contacts ct on ct.id=a.contact_id left join users u on u.id=a.assigned_user_id join company_terms t on t.id=a.appointment_term
   left join company_terms o on o.id=a.outcome_term left join company_terms co on co.id=a.call_outcome_term
   where a.company_id=$1 and a.starts_at > now()-interval '7 days' and a.starts_at < now()+interval '14 days' order by a.starts_at desc`, [companyId]));
 
-export const appointment = (id: string) => asOperator((c) => one<{ id: string; company_id: string; starts_at: Date; ends_at: Date; ghl_status: string; contact: string; contact_id: string; closer: string | null; term: string; term_id: string; outcome: string | null; call_outcome: string | null; dispositioned_at: Date | null; notes: string | null }>(c, `
-  select a.id, a.company_id, a.starts_at, a.ends_at, a.ghl_status, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact, ct.id as contact_id, u.name as closer, t.name as term, t.id as term_id,
+export const appointment = (id: string) => asOperator((c) => one<{ id: string; company_id: string; starts_at: Date; ends_at: Date; status: string; contact: string; contact_id: string; closer: string | null; term: string; term_id: string; outcome: string | null; call_outcome: string | null; dispositioned_at: Date | null; notes: string | null }>(c, `
+  select a.id, a.company_id, a.starts_at, a.ends_at, a.status, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact, ct.id as contact_id, u.name as closer, t.name as term, t.id as term_id,
          o.name as outcome, co.name as call_outcome, a.dispositioned_at, fs.answers->>'notes' as notes
   from appointments a join contacts ct on ct.id=a.contact_id left join users u on u.id=a.assigned_user_id join company_terms t on t.id=a.appointment_term
   left join company_terms o on o.id=a.outcome_term left join company_terms co on co.id=a.call_outcome_term left join form_submissions fs on fs.id=a.disposition_id

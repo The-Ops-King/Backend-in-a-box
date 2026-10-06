@@ -13,10 +13,10 @@ let inboundThrows = false;
 const fake: Adapters = {
   read: {
     contactsChangedSince: async (c) => (c.id === companyId ? contacts : []),
-    appointmentsInWindow: async () => [],
     inboundSince: async () => { if (inboundThrows) throw new Error("ghl 500"); return []; },
-    opportunitiesSince: async () => [], getAppointment: async () => null, getContact: async () => null, listCalendars: async () => [], listUsers: async () => [],
+    opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [],
   },
+  booking: { ghl: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }, calendly: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] } },
   write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {} },
   sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }) },
   classifier: { choice: async () => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },

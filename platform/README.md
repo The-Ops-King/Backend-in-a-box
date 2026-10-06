@@ -41,6 +41,15 @@ Every message is a template on the workflow, editable per company once the edito
 then, edit the company's copy in `workflow_versions`. SMS nodes skip cleanly for a company with
 `sms_enabled=false` (`--no-sms` on install).
 
+## Booking sources (D18)
+
+A company's appointments come from GHL calendars (default) or from Calendly event types. Install
+decides: pass `booking: { source: "calendly", token, userEmail }` (API) or `--calendly-token` (CLI)
+and the calendar mapping keys become event type uuids. Contacts and messaging stay on GHL either
+way; a Calendly invitee is matched to the GHL contact by email/phone. Calendly is read-only to the
+engine: a reschedule is one appointment moved, a cancellation is a status change, and
+`update_appointment` is skipped with a note. Facts about the Calendly API are in `calendly/01-api-facts.md`.
+
 ## Shadow mode (how a client gets migrated)
 
 Every company is in **shadow** until someone presses **Go live**. In shadow the engine polls,
@@ -84,8 +93,10 @@ cp .env.example .env            # fill DATABASE_URL, BINDINGS_KEY (openssl rand 
 pnpm db:migrate                 # applies ../engine/schema.sql + forces RLS on every tenant table
 pnpm install:company --name "Save Your Hair" --slug syh --tz America/Phoenix \
   --location <ghl_location_id> --pit <private_integration_token> \
-  --calendar <ghl_calendar_id>=closing --calendar <ghl_calendar_id>=first_call \
-  [--booking <ghl_calendar_id>] [--no-sms] [--enable] [--live]   # booking link; no number; turn workflows on; live instead of shadow
+  --calendar <id>=closing --calendar <id>=first_call \
+  [--booking <id>] [--no-sms] [--enable] [--live]   # booking link; no number; turn workflows on; live instead of shadow
+# appointments in Calendly instead of GHL calendars (ids are event type uuids; :self / :setter stamps every booking):
+#   --calendly-token <read token> --calendly-user james@company.com --calendar <uuid>=closing:self --calendar <uuid>=closing:setter
 pnpm tick                       # one poll + one scheduler pass; this is what the cron does
 # Workflows install OFF. Add --enable to the install command (or flip `workflows.enabled`) when you mean it.
 pnpm test

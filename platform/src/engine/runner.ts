@@ -1,6 +1,7 @@
 import { DateTime } from "luxon";
 import { asOperator, many, one } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
+import { bookingFor } from "@/adapters/types";
 import { parseDefinition, indexDefinition, type Definition } from "./definition";
 import { buildContext, loadCompany, type RunRow } from "./context";
 import { executeNode, type ExecDeps } from "./executor";
@@ -13,17 +14,18 @@ const RECOVERY_SEND_CAP = 20;                  // drip the backlog; never burst
 
 export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number };
 
-/** D5b premise check — reads GHL live, never the replica. */
+/** D5b premise check — reads the booking source live, never the replica. */
 async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ctx" | "now">): Promise<{ ok: true } | { ok: false; why: string }> {
   const chk = def.premise.check;
   if (chk === "none") return { ok: true };
   if (chk === "contact_exists") return (await one(d.c, "select 1 from contacts where id=$1 and merged_into is null", [d.run.contact_id])) ? { ok: true } : { ok: false, why: "contact gone" };
   if (chk === "opportunity_open") return (await one(d.c, "select 1 from opportunities where id=$1 and status='open'", [d.run.opportunity_id])) ? { ok: true } : { ok: false, why: "opportunity not open" };
-  const a = await one<{ ghl_appointment_id: string }>(d.c, "select ghl_appointment_id from appointments where id=$1", [d.run.appointment_id]);
+  const a = await one<{ external_id: string; source: string }>(d.c, "select external_id, source from appointments where id=$1", [d.run.appointment_id]);
   if (!a) return { ok: false, why: "appointment missing" };
-  const live = await d.adapters.read.getAppointment(d.adapterCompany, a.ghl_appointment_id);
-  if (!live) return { ok: false, why: "appointment deleted in CRM" };
-  await d.c.query("update appointments set ghl_status=$2, starts_at=$3, ends_at=$4, ghl_updated_at=now() where id=$1", [d.run.appointment_id, live.status, live.startTime, live.endTime]);
+  if (a.source !== d.adapterCompany.booking.source) return { ok: false, why: `appointment belongs to booking source ${a.source}; company now uses ${d.adapterCompany.booking.source}` };
+  const live = await bookingFor(d.adapters, d.adapterCompany).getAppointment(d.adapterCompany, a.external_id);
+  if (!live) return { ok: false, why: "appointment deleted at the booking source" };
+  await d.c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, source_updated_at=now() where id=$1", [d.run.appointment_id, live.status, live.startTime, live.endTime]);
   if (live.status === "invalid") return { ok: false, why: "appointment invalid" };
   // appointment_exists: the appointment merely has to be real — cancellation rebook and no-show recovery run precisely BECAUSE it was cancelled or missed
   if (chk === "appointment_exists") return { ok: true };

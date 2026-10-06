@@ -1,21 +1,39 @@
-export type Company = { id: string; locationId: string; pit: string; timezone: string };
+export type BookingSource = "ghl" | "calendly";
+/** Where a company's appointments live. The CRM (GHL calendars) or a separate scheduler (Calendly event types). */
+export type BookingConfig =
+  | { source: "ghl" }
+  | { source: "calendly"; token: string; organization: string; user?: string; phoneQuestion?: string };
+export type Company = { id: string; locationId: string; pit: string; timezone: string; booking: BookingConfig };
 
 export type ContactSnapshot = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; tags: string[]; customFields: Record<string, unknown>; dateUpdated: string; dateAdded: string };
-export type AppointmentSnapshot = { id: string; calendarId: string; contactId: string; assignedUserId?: string; startTime: string; endTime: string; status: string; title?: string; dateUpdated?: string; dateAdded?: string; raw: Record<string, unknown> };
+/** One booking as the source reports it. `contactId` when the source is the CRM; `invitee` identity when it is not. */
+export type AppointmentSnapshot = {
+  id: string; calendarId: string;
+  contactId?: string;
+  invitee?: { email?: string; phone?: string; firstName?: string; lastName?: string; timezone?: string };
+  assignedUserId?: string; assignedUserEmail?: string;
+  startTime: string; endTime: string; status: string; title?: string; dateUpdated?: string; dateAdded?: string;
+  rescheduledFrom?: string;   // this booking replaces that external id (same appointment, new time)
+  rescheduledTo?: string;     // this cancelled booking was replaced by that external id; the replacement carries the change
+  raw: Record<string, unknown>;
+};
 export type MessageSnapshot = { id: string; conversationId: string; contactId: string; channel: "sms" | "email"; direction: "inbound" | "outbound"; body?: string; subject?: string; status?: string; dateAdded: string };
 export type OppSnapshot = { id: string; contactId: string; pipelineId: string; stageId: string; status: string; monetaryValue?: number; updatedAt: string };
-export type CalendarSnapshot = { id: string; name: string; teamMemberIds: string[] };
+export type CalendarSnapshot = { id: string; name: string; teamMemberIds: string[]; bookingUrl?: string; note?: string; active?: boolean };
 export type UserSnapshot = { id: string; email?: string; name: string };
 
 export interface CrmRead {
   contactsChangedSince(c: Company, sinceIso: string): Promise<ContactSnapshot[]>;
-  appointmentsInWindow(c: Company, calendarId: string, from: Date, to: Date): Promise<AppointmentSnapshot[]>;
   inboundSince(c: Company, sinceIso: string): Promise<MessageSnapshot[]>;
   opportunitiesSince(c: Company, since: Date): Promise<OppSnapshot[]>;
-  getAppointment(c: Company, id: string): Promise<AppointmentSnapshot | null>;
   getContact(c: Company, id: string): Promise<ContactSnapshot | null>;
-  listCalendars(c: Company): Promise<CalendarSnapshot[]>;
   listUsers(c: Company): Promise<UserSnapshot[]>;
+}
+/** Appointments. Implemented by the CRM (GHL calendars) and by Calendly; a company uses exactly one. */
+export interface BookingRead {
+  listCalendars(c: Company): Promise<CalendarSnapshot[]>;
+  appointmentsInWindow(c: Company, calendarId: string, from: Date, to: Date): Promise<AppointmentSnapshot[]>;
+  getAppointment(c: Company, id: string): Promise<AppointmentSnapshot | null>;
 }
 export interface CrmWrite {
   createContact(c: Company, input: { firstName?: string; lastName?: string; email?: string; phone?: string }): Promise<{ id: string }>;
@@ -37,4 +55,5 @@ export interface Classifier {
 export interface Notifier {
   post(token: string, channelId: string, text: string): Promise<{ ts: string }>;
 }
-export type Adapters = { read: CrmRead; write: CrmWrite; sender: Sender; classifier: Classifier; notifier: Notifier };
+export type Adapters = { read: CrmRead; booking: Record<BookingSource, BookingRead>; write: CrmWrite; sender: Sender; classifier: Classifier; notifier: Notifier };
+export const bookingFor = (a: Adapters, c: Company): BookingRead => a.booking[c.booking.source];

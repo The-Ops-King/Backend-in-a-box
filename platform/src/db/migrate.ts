@@ -17,6 +17,26 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','live'))`);
     await c.query(`alter table sends drop constraint if exists sends_status_check`);
     await c.query(`alter table sends add constraint sends_status_check check (status in ('queued','sent','failed','suppressed','shadow'))`);
+    // booking source generalisation (2026-10-06): columns lose their GHL prefix, calendars/appointments carry a source.
+    // Renames are guarded so a database created from the current schema.sql passes straight through.
+    await c.query(`do $$ begin
+      if exists (select 1 from information_schema.columns where table_schema='public' and table_name='calendars' and column_name='ghl_calendar_id') then alter table calendars rename column ghl_calendar_id to external_id; end if;
+      if exists (select 1 from information_schema.columns where table_schema='public' and table_name='appointments' and column_name='ghl_appointment_id') then alter table appointments rename column ghl_appointment_id to external_id; end if;
+      if exists (select 1 from information_schema.columns where table_schema='public' and table_name='appointments' and column_name='ghl_status') then alter table appointments rename column ghl_status to status; end if;
+      if exists (select 1 from information_schema.columns where table_schema='public' and table_name='appointments' and column_name='ghl_updated_at') then alter table appointments rename column ghl_updated_at to source_updated_at; end if;
+    end $$`);
+    for (const t of ["calendars", "appointments"]) {
+      await c.query(`alter table ${t} add column if not exists source text not null default 'ghl'`);
+      await c.query(`alter table ${t} drop constraint if exists ${t}_source_check`);
+      await c.query(`alter table ${t} add constraint ${t}_source_check check (source in ('ghl','calendly'))`);
+      await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_${t === "calendars" ? "ghl_calendar_id" : "ghl_appointment_id"}_key`);
+      await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_source_external_id_key`);
+      await c.query(`alter table ${t} add constraint ${t}_company_id_source_external_id_key unique (company_id, source, external_id)`);
+    }
+    await c.query(`alter table calendars add column if not exists self_booked boolean`);
+    await c.query(`alter table calendars add column if not exists booking_url text`);
+    await c.query(`alter table contacts drop constraint if exists contacts_timezone_source_check`);
+    await c.query(`alter table contacts add constraint contacts_timezone_source_check check (timezone_source in ('ghl','booking','phone','company_default'))`);
     // appointments ↔ form_submissions reference each other; the disposition pointer must not block deleting a submission
     await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);
     await c.query(`alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id) on delete set null`);

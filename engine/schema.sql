@@ -49,7 +49,7 @@ create table contacts (
   first_name      text,
   last_name       text,
   timezone        text,                                   -- IANA or null
-  timezone_source text check (timezone_source in ('ghl','phone','company_default')),
+  timezone_source text check (timezone_source in ('ghl','booking','phone','company_default')),
   tags            text[] not null default '{}',           -- replica of GHL tags
   ghl_fields      jsonb not null default '{}',            -- human-entered GHL custom fields (replica)
   attributes      jsonb not null default '{}',            -- DERIVED: merge of intake rows, ours
@@ -131,12 +131,15 @@ create table attribute_schemas (
 create table calendars (
   id               uuid primary key default gen_random_uuid(),
   company_id       uuid not null references companies(id),
-  ghl_calendar_id  text not null,
+  source           text not null default 'ghl' check (source in ('ghl','calendly')),   -- where this calendar lives
+  external_id      text not null,                                                      -- GHL calendar id or Calendly event type uuid
   name             text not null,
   appointment_term uuid not null references company_terms(id),   -- which kind of call this calendar books
   default_user_id  uuid references users(id),
+  self_booked      boolean,                                       -- every booking on this calendar is self-booked (true) / setter-booked (false); null = unknown
+  booking_url      text,                                          -- public scheduling link, used by {{calendar.*.url}}
   active           boolean not null default true,
-  unique (company_id, ghl_calendar_id)
+  unique (company_id, source, external_id)
 );
 
 -- One pursuit of a sale. Holds N appointments. Ends won (= a deal) or lost.
@@ -164,7 +167,8 @@ create table appointments (
   company_id           uuid not null references companies(id),
   contact_id           uuid not null references contacts(id),
   opportunity_id       uuid references opportunities(id),
-  ghl_appointment_id   text not null,
+  source               text not null default 'ghl' check (source in ('ghl','calendly')),
+  external_id          text not null,                                -- GHL appointment id or Calendly scheduled event uuid
   calendar_id          uuid references calendars(id),
   appointment_term     uuid not null references company_terms(id),  -- from the calendar at booking; overridable
   assigned_user_id     uuid references users(id),
@@ -172,9 +176,9 @@ create table appointments (
   ends_at              timestamptz not null,
   self_booked          boolean,
   booked_at            timestamptz not null,
-  -- replica of GHL's confirmation state
-  ghl_status           text not null check (ghl_status in ('new','confirmed','cancelled','showed','noshow','invalid')),
-  ghl_updated_at       timestamptz,
+  -- replica of the booking source's state (GHL vocabulary; Calendly active/canceled maps onto it)
+  status               text not null check (status in ('new','confirmed','cancelled','showed','noshow','invalid')),
+  source_updated_at    timestamptz,
   -- ours: the outcome, written by the disposition form
   outcome_term         uuid references company_terms(id),          -- appointment_outcome domain
   call_outcome_term    uuid references company_terms(id),          -- call_outcome domain
@@ -182,7 +186,7 @@ create table appointments (
   dispositioned_at     timestamptz,
   dispositioned_by     uuid references users(id),
   created_at           timestamptz not null default now(),
-  unique (company_id, ghl_appointment_id)
+  unique (company_id, source, external_id)
 );
 create index on appointments (company_id, starts_at);
 create index on appointments (company_id, assigned_user_id, starts_at);

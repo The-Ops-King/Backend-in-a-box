@@ -2,13 +2,18 @@ import { asOperator, one, many } from "@/db/client";
 import { encrypt } from "./crypto";
 import { extractManifest, parseDefinition, indexDefinition } from "./definition";
 import { templates } from "@/templates";
-import type { Adapters } from "@/adapters/types";
+import { bookingFor, type Adapters, type BookingConfig, type Company } from "@/adapters/types";
+import { calendlyUserByEmail, calendlyWhoAmI } from "@/adapters/calendly/read";
 
+/** A calendar's mapping: the kind of call it books, and optionally whether every booking on it is self-booked (true) or setter-booked (false). */
+export type CalendarMapping = string | { term: string; selfBooked?: boolean };
 export type InstallInput = {
   name: string; slug: string; timezone: string; locationId: string; pit: string;
-  calendars?: Record<string, string>;   // ghl_calendar_id → core appointment_type category (closing | first_call | qualifying | follow_up)
-  closerCall?: string;                   // ghl_calendar_id bound as calendar.closer_call
-  bookingCalendar?: string;              // ghl_calendar_id bound as calendar.booking (first-call / self-book link used by lead and reactivation templates)
+  /** Where appointments live. Default: the CRM's own calendars. Calendly: a read token; `userEmail` narrows event types and events to one host. */
+  booking?: { source: "ghl" } | { source: "calendly"; token: string; userEmail?: string; phoneQuestion?: string };
+  calendars?: Record<string, CalendarMapping>;   // calendar / event type external id → closing | first_call | qualifying | follow_up
+  closerCall?: string;                   // external id bound as calendar.closer_call
+  bookingCalendar?: string;              // external id bound as calendar.booking (first-call / self-book link used by lead and reactivation templates)
   templates?: string[];                  // slugs; default all
   enable?: boolean;                      // default false — Tyler's rule: build off, enable deliberately
   smsEnabled?: boolean;                  // default true; false when the sub-account has no number
@@ -18,7 +23,15 @@ export type InstallInput = {
 /** D16: upload info, pick templates, done. Idempotent. Workflows install OFF unless enable=true. */
 export async function installCompany(input: InstallInput, adapters: Adapters): Promise<{ companyId: string; calendars: string[]; installed: string[] }> {
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
-  const calMap = input.calendars ?? {};
+  const calMap: Record<string, { term: string; selfBooked?: boolean }> = Object.fromEntries(Object.entries(input.calendars ?? {}).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
+  // resolve the booking source outside the transaction: it talks to Calendly
+  let booking: BookingConfig = { source: "ghl" };
+  if (input.booking?.source === "calendly") {
+    const me = await calendlyWhoAmI(input.booking.token);
+    const user = input.booking.userEmail ? await calendlyUserByEmail(input.booking.token, me.organization, input.booking.userEmail) : undefined;
+    if (input.booking.userEmail && !user) throw new Error(`no Calendly organization member has the email ${input.booking.userEmail}`);
+    booking = { source: "calendly", token: input.booking.token, organization: me.organization, user, phoneQuestion: input.booking.phoneQuestion };
+  }
   return asOperator(async (c) => {
     // re-running install never silently flips a live company back to shadow or re-enables SMS: only explicitly passed values change
     const co = await one<{ id: string }>(c, `insert into companies (name, slug, timezone, sms_enabled, mode) values ($1,$2,$3,coalesce($4,true),coalesce($5,'shadow'))
@@ -30,21 +43,33 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     const bind = (key: string, kind: string, value: string) =>
       c.query(`insert into bindings (company_id, key, kind, value) values ($1,$2,$3,$4) on conflict (company_id, key) do update set value=excluded.value, updated_at=now()`, [companyId, key, kind, kind === "secret" ? encrypt(value) : Buffer.from(value)]);
     await bind("crm.location_id", "id", input.locationId); await bind("secret.ghl_pit", "secret", input.pit);
-    const ac = { id: companyId, locationId: input.locationId, pit: input.pit, timezone: input.timezone };
+    if (booking.source === "calendly") {
+      await bind("secret.calendly_token", "secret", booking.token); await bind("calendly.organization", "id", booking.organization);
+      await bind("calendly.user", "id", booking.user ?? ""); await bind("calendly.phone_question", "text", booking.phoneQuestion ?? "");
+    } else if (input.booking) {   // explicitly back to the CRM: drop the Calendly bindings so loadCompany stops choosing it
+      await c.query("delete from bindings where company_id=$1 and key in ('secret.calendly_token','calendly.organization','calendly.user','calendly.phone_question')", [companyId]);
+    }
+    const ac: Company = { id: companyId, locationId: input.locationId, pit: input.pit, timezone: input.timezone, booking };
     for (const u of await adapters.read.listUsers(ac))
       await c.query(`insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'closer',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name`, [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);
     const terms = await many<{ id: string; category: string }>(c, "select id, category from company_terms where company_id=$1 and domain='appointment_type' and is_default", [companyId]);
     const calendarsOut: string[] = [];
-    for (const k of await adapters.read.listCalendars(ac)) {
-      const cat = calMap[k.id]; if (!cat) { calendarsOut.push(`skip "${k.name}" (${k.id}) — no mapping`); continue; }
-      const term = terms.find((t) => t.category === cat)?.id; if (!term) { calendarsOut.push(`unknown category ${cat} for ${k.id}`); continue; }
+    const listed = await bookingFor(adapters, ac).listCalendars(ac);
+    for (const k of listed) {
+      const m = calMap[k.id]; if (!m) { calendarsOut.push(`skip "${k.name}" (${k.id}) — no mapping${k.note ? ` [${k.note}]` : ""}`); continue; }
+      const term = terms.find((t) => t.category === m.term)?.id; if (!term) { calendarsOut.push(`unknown category ${m.term} for ${k.id}`); continue; }
       const du = k.teamMemberIds[0] ? await one<{ id: string }>(c, "select id from users where company_id=$1 and ghl_user_id=$2", [companyId, k.teamMemberIds[0]]) : undefined;
-      await c.query(`insert into calendars (company_id, ghl_calendar_id, name, appointment_term, default_user_id) values ($1,$2,$3,$4,$5) on conflict (company_id, ghl_calendar_id) do update set name=excluded.name, appointment_term=excluded.appointment_term`, [companyId, k.id, k.name, term, du?.id ?? null]);
-      calendarsOut.push(`"${k.name}" → ${cat}`);
+      await c.query(`insert into calendars (company_id, source, external_id, name, appointment_term, default_user_id, self_booked, booking_url) values ($1,$2,$3,$4,$5,$6,$7,$8)
+        on conflict (company_id, source, external_id) do update set name=excluded.name, appointment_term=excluded.appointment_term, self_booked=excluded.self_booked, booking_url=coalesce(excluded.booking_url, calendars.booking_url), active=true`,
+        [companyId, booking.source, k.id, k.name, term, du?.id ?? null, m.selfBooked ?? null, k.bookingUrl ?? null]);
+      calendarsOut.push(`"${k.name}" → ${m.term}${m.selfBooked === undefined ? "" : m.selfBooked ? " (self-booked)" : " (setter-booked)"}`);
     }
-    const closerCal = input.closerCall ?? Object.entries(calMap).find(([, cat]) => cat === "closing")?.[0];
+    for (const unknownId of Object.keys(calMap).filter((id) => !listed.some((k) => k.id === id))) calendarsOut.push(`mapping for ${unknownId} matches no calendar at the booking source`);
+    // calendars of the other source go quiet rather than being deleted: their appointments and history stay
+    await c.query("update calendars set active=false where company_id=$1 and source<>$2", [companyId, booking.source]);
+    const closerCal = input.closerCall ?? Object.entries(calMap).find(([, m]) => m.term === "closing")?.[0];
     if (closerCal) await bind("calendar.closer_call", "id", closerCal);
-    const bookingCal = input.bookingCalendar ?? Object.entries(calMap).find(([, cat]) => cat === "first_call")?.[0] ?? closerCal;
+    const bookingCal = input.bookingCalendar ?? Object.entries(calMap).find(([, m]) => m.term === "first_call")?.[0] ?? closerCal;
     if (bookingCal) await bind("calendar.booking", "id", bookingCal);
     const installed: string[] = [];
     for (const t of templates.filter((t) => wanted.includes(t.slug))) {

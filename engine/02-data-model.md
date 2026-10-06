@@ -206,12 +206,15 @@ a mismatch. A query that spans a type change filters on `submitted_at` against
 create table calendars (
   id               uuid primary key default gen_random_uuid(),
   company_id       uuid not null references companies(id),
-  ghl_calendar_id  text not null,
+  source           text not null default 'ghl' check (source in ('ghl','calendly')),
+  external_id      text not null,      -- GHL calendar id or Calendly event type uuid
   name             text not null,
   appointment_term uuid not null references company_terms(id),   -- which kind of call this calendar books
   default_user_id  uuid references users(id),
   active           boolean not null default true,
-  unique (company_id, ghl_calendar_id)
+  self_booked      boolean,            -- every booking on this calendar is self-booked / setter-booked; null = unknown
+  booking_url      text,               -- public scheduling link behind {{calendar.*.url}}
+  unique (company_id, source, external_id)
 );
 
 -- One pursuit of a sale. Holds N appointments. Ends won (= a deal) or lost.
@@ -239,7 +242,8 @@ create table appointments (
   company_id           uuid not null references companies(id),
   contact_id           uuid not null references contacts(id),
   opportunity_id       uuid references opportunities(id),
-  ghl_appointment_id   text not null,
+  source               text not null default 'ghl' check (source in ('ghl','calendly')),
+  external_id          text not null,  -- GHL appointment id or Calendly scheduled event uuid
   calendar_id          uuid references calendars(id),
   appointment_term     uuid not null references company_terms(id),  -- from the calendar at booking; overridable
   assigned_user_id     uuid references users(id),
@@ -248,8 +252,8 @@ create table appointments (
   self_booked          boolean,
   booked_at            timestamptz not null,
   -- replica of GHL's confirmation state
-  ghl_status           text not null check (ghl_status in ('new','confirmed','cancelled','showed','noshow','invalid')),
-  ghl_updated_at       timestamptz,
+  status               text not null check (status in ('new','confirmed','cancelled','showed','noshow','invalid')),
+  source_updated_at    timestamptz,
   -- ours: the outcome, written by the disposition form
   outcome_term         uuid references company_terms(id),          -- appointment_outcome domain
   call_outcome_term    uuid references company_terms(id),          -- call_outcome domain
@@ -257,7 +261,7 @@ create table appointments (
   dispositioned_at     timestamptz,
   dispositioned_by     uuid references users(id),
   created_at           timestamptz not null default now(),
-  unique (company_id, ghl_appointment_id)
+  unique (company_id, source, external_id)
 );
 create index on appointments (company_id, starts_at);
 create index on appointments (company_id, assigned_user_id, starts_at);
@@ -599,7 +603,7 @@ editor reads and writes, and what the engine executes.
     { "id": "n5", "type": "branch", "on": "{{reply.intent}}" },
 
     { "id": "n6", "type": "set_tag", "tag": "confirmed" },
-    { "id": "n7", "type": "update_appointment", "set": { "ghl_status": "cancelled" } },
+    { "id": "n7", "type": "update_appointment", "set": { "status": "cancelled" } },
     { "id": "n8", "type": "slack_post", "channel": "{{slack.channel.closers}}",
       "template": "{{contact.first_name}} cancelled {{appointment.starts_at | relative:auto}}." },
     { "id": "n9", "type": "send_sms", "template": "No problem — grab a new time here: {{calendar.closer_call.url}}" },

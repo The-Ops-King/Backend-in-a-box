@@ -10,7 +10,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ sl
   return (<>
     <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / <Link href={`/c/${slug}/appointments`}>Appointments</Link> / {a.contact.trim()}</p>
     <h1>{a.term} · <Link href={`/c/${slug}/contacts/${a.contact_id}`}>{a.contact.trim() || "contact"}</Link></h1>
-    <p className="sub">{when(a.starts_at, co.timezone)} · with {a.closer ?? "unassigned"} · GHL <span className={badge(a.ghl_status === "confirmed" ? "active" : "waiting")}>{a.ghl_status}</span></p>
+    <p className="sub">{when(a.starts_at, co.timezone)} · with {a.closer ?? "unassigned"} · <span className={badge(a.status === "confirmed" ? "active" : "waiting")}>{a.status}</span></p>
     <div className="grid g2" style={{ alignItems: "start" }}>
       <div className="card">
         {a.dispositioned_at ? (<>

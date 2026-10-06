@@ -627,3 +627,30 @@ onward, with no deploy.
 What isn't editable by a client: the core vocabulary (D15), the binding keys a template
 requires (D3), and the engine's safety behavior — moot checks, send window, idempotency. Those
 are the floor everything else stands on.
+
+## D18. The booking source is a per-company choice; appointments are one table regardless
+
+Hair books every strategy call in Calendly and its GHL calendars are empty (verified 2026-10-06:
+zero appointments on six calendars over sixty days, 44 Calendly events for the same host in the
+same window). So "appointments come from GHL calendars" was a Tyler-location assumption, not a
+rule. A company declares where its appointments live, and the engine reads them from there:
+
+- `calendars.source` / `appointments.source` — `ghl` or `calendly`. `external_id` is the GHL id or
+  the Calendly uuid. One row shape, one set of events, one set of workflows.
+- The adapter boundary is `BookingRead` (list calendars, appointments in a window, one appointment
+  live). GHL calendars and Calendly event types both implement it; a company uses exactly one,
+  chosen by its bindings (`secret.calendly_token` present → Calendly).
+- Contacts, messages and sends still come from and go to the CRM. A Calendly invitee is an
+  identity (email, phone), not a contact system. The engine resolves the person through
+  `contact_identifiers`; when nobody matches it holds a local replica, and the next CRM poll
+  attaches the GHL id through the same identity resolution (the Zap that mirrors Calendly into GHL
+  keeps running; we only read).
+- A Calendly reschedule arrives as a cancelled event plus a new one, linked through the invitee.
+  To us it is the same appointment moved: `external_id` is updated and `appointment.rescheduled`
+  fires. Cancellation rebook never fires on a reschedule.
+- Calendly is read-only to us. `update_appointment` on a Calendly booking records that it was
+  skipped and the run continues. Show/no-show for Hair will come from Fathom (next automation),
+  not from the booking source.
+- Per-calendar `self_booked` (from the event type's internal note: round robin = direct,
+  "- S" = setter) stamps every booking, so setter-vs-self is a fact on the appointment, not a
+  guess from question text.
