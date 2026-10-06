@@ -13,3 +13,11 @@ describe("embedded schema", () => {
       expect(SCHEMA, `missing create table ${t}`).toMatch(new RegExp(`create table ${t} \\(`));
   });
 });
+describe("ownTables", () => {
+  it("lists every schema table plus engine_state and nothing else", async () => {
+    const { ownTables } = await import("./migrate");
+    const t = ownTables();
+    expect(t).toContain("companies"); expect(t).toContain("audit_log"); expect(t).toContain("engine_state");
+    expect(t.length).toBe((SCHEMA.match(/create table /g) ?? []).length + 1);
+  });
+});
