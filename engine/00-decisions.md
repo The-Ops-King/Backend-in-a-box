@@ -22,20 +22,75 @@ or an input to anything a client sees. Operator read access is disclosed in the 
 If a cross-client number ever needs to appear in a product surface, that's a new decision
 with a new data clause — not an extension of this one.
 
+**Visibility is a role, not a boundary.** Client A can never see Client B — that's absolute.
+But *within* the platform there will be tiers: operator (Tyler, everything), agency, admin,
+sales manager, closer. Those are roles with scopes, decided per deployment.
+
+**Therefore: one shared database with Postgres row-level security, not a database per tenant.**
+This is the hardest decision here to reverse, so the reasoning:
+
+- Database-per-tenant gives maximum isolation but makes every cross-tenant read a fan-out.
+  Operator views and any future agency roll-up become genuinely hard, not just tedious.
+- Shared database with RLS policies on the tables means isolation is enforced *by the
+  database*, not by every query being written correctly. A forgotten `WHERE client_id = …`
+  returns zero rows instead of leaking. That's the difference between isolation as a
+  property and isolation as a habit.
+- A roll-up for an operator or agency role is then a scope change on the same query.
+
+The RLS policy is the security boundary. It gets written once, tested with an explicit
+"can role X read client Y's rows" test suite, and never bypassed by application code.
+
 **Agreement clause needed from client one:** processing their data to operate the systems,
 operator read access for support, recordings and transcripts never leaving their tenant,
 and no use of their data for any other client. Cheap to write now, impossible to retrofit.
 
 ---
 
-## D2. Client-specific work becomes a template by promotion
+## D2. Copy on install — every client owns their own workflows
 
+**Decided by Tyler, 2026-10-06, overruling an earlier shared-definition model.**
+
+A template is a source. Installing it **copies** the definition into that client's tenant.
+From that moment the copy is theirs: they can insert, delete, and reorder steps, and nothing
+they do touches any other client.
+
+```
+Template:  A B C D E F G
+Client 1:  A B C D E F G        (copy, untouched)
+Client 2:  A B C D Z E F G      (copy, locally edited — Client 1 unaffected)
+```
+
+This is right. Clients will edit their workflows, and a shared definition means any edit is
+a blast radius. Per-client overrides on a shared definition would work in theory and would be
+a nightmare to reason about in practice — you'd never be able to look at one row and know what
+actually runs for a given client.
+
+### The cost, named: template drift
+Copy-on-install has one well-known failure mode. Fix a bug in the no-show template and twelve
+clients still have twelve copies of the bug. There is no propagation, by design. At 6–10 clients
+that turns into twelve separate codebases unless it's handled up front. So it is:
+
+Every instance records:
+- `template_id` and `template_version` it was copied from
+- `diverged` — whether it has been locally edited since the copy
+- `diverged_at` + the diff from its source version
+
+When a template is fixed and published, the dashboard answers one question: **which instances
+are behind?** Then:
+- **Not diverged** → one click re-copies to the new version. Safe, because the client never
+  touched it.
+- **Diverged** → side-by-side diff. Human decision, with their edits visible so they aren't
+  silently reverted.
+
+That's a small amount of work now and it's the only thing standing between "12 clients" and
+"12 unmaintainable snowflakes." Build it with the instance model, not after.
+
+### Custom work becomes a template by promotion
 Build something bespoke for one client, then promote it: walk its literals and replace each
-with a `{{variable}}`, which produces a manifest (D3). The definition travels to the library.
+with a `{{variable}}`, which produces a manifest (D3). The definition goes to the library.
 The values stay in the client's tenant. This is the only path from custom work to template,
-and it's the reason D1 costs nothing — the thing worth reusing was never the data.
-
----
+and it's the reason strict isolation (D1) costs nothing — the thing worth reusing was never
+the data.
 
 ## D3. Zero hardcoded values — manifest-enforced
 
@@ -58,14 +113,16 @@ Two payoffs, both load-bearing:
 
 Separate tables, separate concepts:
 
-- **`workflow_triggers`** — many rows per workflow. Several ways to start the same run
-  (calendar status, tag added, form submitted). Different clients can point different
-  trigger rows at the identical definition. Adding a detection path is an INSERT.
+- **`workflow_triggers`** — many rows per workflow *instance*. Several ways to start the same
+  run (calendar status, tag added, form submitted). Adding a detection path is an INSERT, not
+  an edit to the graph. Because instances are copies (D2), a client changing their trigger
+  changes only their own.
 - **Edges inside the definition** — conditional paths. "A → B on offer 1, A → C on offer 2"
   is one node with two conditional edges, on data the run already carries. Not two workflows.
 
-A per-client fork of a definition is a defect. Two definitions are correct only when the
-paths stop sharing content entirely.
+Inside one client's instance, a conditional edge is still the right answer for
+"A → B on offer 1, A → C on offer 2" — that's one node with two edges on data the run already
+carries, not two workflows. The copy boundary is *between clients*, not within one.
 
 ### Re-entry policy (required per workflow)
 Because a workflow can have several triggers, every workflow declares what happens when a
@@ -98,6 +155,40 @@ us the single point of failure for N companies' sales operations at once.
   someone on a node that no longer exists.
 - **Quiet-hours clamp on every scheduled send.** Recovery from an outage must not deliver
   six hours of backlogged texts at 3am.
+
+### D5a. Render at send time, never at queue time
+The "your call is in 60 minutes" problem: if the step was queued at T-60 and fires 20 minutes
+late, the stored text is now a lie.
+
+**The fix is not intelligence, it's when the string is built.** A node stores the *template*
+(`Your call is in {{minutes_until_appointment}} minutes`) and every variable is resolved at
+the moment the send actually fires. A 20-minute delay then self-corrects to "40 minutes" with
+nothing clever involved. Storing rendered text is the actual bug; an agent patching bad numbers
+after the fact is a bandaid on it.
+
+### D5b. Staleness policy per node
+Re-rendering handles delay. It does not handle a delay so large the message stops making sense —
+90 minutes late means the call already happened, and "your call is in -30 minutes" is worse than
+silence. So every time-sensitive node declares:
+
+- `max_delay` — how late is still acceptable
+- `on_stale` — `skip` (drop it), `substitute` (send a different template: "sorry we missed
+  each other, here's my link"), or `escalate` (Slack the owner, send nothing)
+
+This is where judgment belongs, and it's still a declared rule rather than a model call.
+
+### D5c. Routing is deterministic; semantic calls are for natural language only
+A line worth drawing once, because it's easy to blur:
+
+- **Structured facts route deterministically.** `payment_status = failed`,
+  `appointment_status = noshow`, `total_collected >= contract_value`. These are comparisons on
+  typed data. A model in this path adds latency, cost, and nondeterminism and buys nothing.
+- **Natural language needs semantic comparison.** "Did the closer's note say they'd follow up?"
+  "Does this objection match the pricing-objection category?" Keyword or substring matching on
+  meaning is always wrong. This is the only place a model belongs.
+
+If the input is typed and the question is a comparison → code. If the input is prose and the
+question is meaning → a model call, and never string matching.
 
 ---
 
@@ -162,3 +253,62 @@ signed token** (HMAC over appointment id + closer id + expiry). Cheap now; a dat
 incident later.
 
 Typeform stays for client-facing intake where it's already working.
+
+---
+
+## D9. GHL stays queryable — read through, never mirror
+
+We need to pull from GHL at any time: client id, contact name, calendar roster, appointment
+state. So a GHL read adapter exists alongside the send adapter, and the `bindings` table always
+holds the location id so any lookup can be made.
+
+**We do not mirror GHL records into our database as a source of truth.** Store the *id*, fetch
+the value, cache it with a short TTL. A mirrored copy drifts and then there are two truths and
+no way to tell which is right. The exception is our own data — Sales Call records, run state,
+events — which we own outright and GHL never holds.
+
+Verified read paths are in `../ghl/02-api-facts.md`: contacts, calendars, calendar team
+rosters, and appointments by calendar and time window.
+
+---
+
+## D10. Command center
+
+A console for operator-level bulk actions against live state. The example that prompted it:
+*"Closer A is sick — reach out to today's calls and reschedule them with Closer B."*
+
+The reason this is cheap rather than a project: workflows are data and runs are rows, so a
+command-center action is a query plus a bulk write plus a workflow fire. Nothing new underneath.
+That one example decomposes to:
+
+1. Query appointments for today where `assignedUserId = A` (verified working).
+2. For each, PUT a new `assignedUserId` (verified working).
+3. Fire a `reschedule_notice` workflow per affected contact, which sends through GHL so the
+   whole thread stays visible in the CRM.
+
+**Two hard requirements before any bulk action ships:**
+
+- **Read-then-write, always.** A PUT that omits `appointmentStatus` silently resets it to
+  `confirmed` (see `../ghl/02-api-facts.md`). A naive bulk reassign would wipe show/no-show
+  status across every appointment it touched and re-fire anything keyed on it. Every bulk write
+  reads current state and re-sends the full field set.
+- **Preview, then confirm.** Every action shows exactly what it will touch and what will change
+  before it runs, and writes an audit row per change with a reversal path. Bulk operations
+  against a client's live book of business are the one place a mistake is both easy and
+  expensive.
+
+Natural language is the input surface, not the executor: the request resolves to a named,
+parameterized action with a preview. It never becomes a model improvising API calls against
+live client data.
+
+---
+
+## D11. Events table from day one
+
+The Zapier-style "watch people move through the workflow" view is explicitly later. The thing
+that makes it *possible* later is not: every state change writes to one normalized `events`
+table from the first line of code.
+
+Rendering is a view. Reconstructing history from scattered per-source tables is a rewrite. The
+table is cheap now and it's also what the reconciliation sweep (D5) reads and what every
+dashboard number is eventually computed from.

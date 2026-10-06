@@ -56,8 +56,30 @@ longer managing, whose GHL token is in the `bindings` table, and who rotates it?
 screen in the dashboard is the rotation mechanism, but someone has to notice a token died.
 Needs a health check per binding plus an alert to whoever holds the account.
 
-## 6. Which GHL webhooks actually fire
-Not yet verified. The send path is confirmed (`ghl/02-api-facts.md`); the inbound side isn't.
-If appointment status changes don't produce a usable webhook, the no-show trigger falls back
-to polling, which changes the latency story and the reconciliation design.
-**This is the next thing worth testing against the live location.**
+## 6. ~~Which GHL webhooks actually fire~~ — ANSWERED 2026-10-06
+There is no webhook management API for a PIT at all (404s, not 401s — no such route). Full
+findings in `../ghl/02-api-facts.md`. Resolution:
+
+- **Primary:** a thin GHL workflow per event type whose only action is a Webhook POST to our
+  endpoint. These travel in a snapshot, so they're install config rather than per-client build
+  work. Lowest latency available without a marketplace app.
+- **Backstop:** polling `GET /calendars/events` per calendar, confirmed working. This is the
+  reconciliation sweep (D5) regardless of what's primary.
+- **Later, if it earns it:** a marketplace app for real event subscriptions. Correct eventually,
+  overkill at one client.
+
+Still open under this: **which GHL plan tiers include the Webhook workflow action**, and whether
+inbound POST volume is rate-limited. Worth confirming before the install SOP depends on it.
+
+## 7. What is "Jev"?
+Tyler: *"we can use Jev for a lot of this too. for any routing for what to do or what happened
+so we're not relying on LLMs."* I don't know what this is and I'm not going to guess — asked.
+The principle behind it is already locked as D5c (deterministic routing for structured facts,
+semantic calls only for natural language); this question is only about whether Jev is the
+specific tool that implements it.
+
+## 8. Template versioning UX
+D2 requires knowing which instances are behind a template and whether they've diverged. Open:
+is a divergence a blocking state (can't take template updates until resolved) or an advisory one
+(update anyway, keep a backup)? **Recommend advisory with an explicit diff confirmation** —
+blocking means a client's small tweak freezes them out of every future fix.
