@@ -32,3 +32,29 @@ won't buy a number), and `event._source` / `event._type` in trigger match contex
   updated. Install the new templates into the local proof company and show charts.
 
 Not doing: editor, auth, Slack OAuth, command center, hosted intake form, contact merge tooling.
+
+---
+
+## Result (morning of 2026-10-06)
+
+All three batches shipped. 39 tests, production build green, every push auto-deploys.
+
+- **Workflows:** 9 templates (7 new). Every template parses, triggers on a vocabulary event,
+  references only known context, and renders as a chart. All install OFF.
+- **Engine:** `sms_enabled` per company (SMS nodes skip, run continues); `event._source` and
+  `event._type` in trigger matches; `migrate()` owns engine-internal schema additions; `calendar.booking`
+  binding for lead and reactivation links.
+- **UI:** on/off toggle (audited), appointments page, disposition form (writes our row, emits
+  `appointment.outcome` + `call.held`, dispatches), events feed, Mermaid charts on workflow and
+  run pages.
+- **Local proof company** has all 9 installed, SMS off, everything off.
+
+Judgment calls made without asking, flag any:
+- No-show recovery triggers from **both** GHL's status and our disposition; once-per-appointment
+  re-entry collapses them to one run.
+- A `lost` call outcome on the disposition marks the opportunity lost.
+- Message copy is mine; it's meant to be edited per company.
+- Disposition has no signed links yet (operator-only behind Vercel's wall, no Slack).
+
+Still needs Tyler: the database (then migrate + install via the admin endpoints), Pro or the two
+Actions secrets, confirm the calendar mapping.

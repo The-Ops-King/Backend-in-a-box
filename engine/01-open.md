@@ -170,3 +170,13 @@ Baseline marks every existing appointment as already-known, so a reminder templa
 today does NOT remind people booked yesterday for tomorrow. That's the safe default; an
 "also schedule reminders for upcoming existing bookings" install option is a reasonable ask
 and a one-day build.
+
+## 20. Reply handling outside the reminder
+`wait_for_reply` lives inside specific workflows. A reply that arrives when no run is waiting
+(someone texts back three days later) is recorded as `message.received` but nothing acts on it.
+A standalone "unsolicited reply" workflow (classify → tag → note) is a small template away.
+
+## 21. Timezone on polled contacts
+GHL contacts carry a `timezone` only sometimes; the rest fall back to the company's. Phone area
+code inference (#14) is still the fix. Until then, "morning of" is the company's morning for
+those contacts.

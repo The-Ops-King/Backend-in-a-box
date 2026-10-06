@@ -21,7 +21,34 @@ cron. Design is in `../engine/`; this is what runs.
 
 Live proof: a real appointment booked in GHL was detected, both workflows started, the
 confirmation email went out through GHL into the contact's thread, the reminder is waiting for
-8am the morning of. 25 tests pass (`pnpm test`), including the end-to-end suite against Postgres.
+8am the morning of. 39 tests pass (`pnpm test`), including the end-to-end suite against Postgres.
+
+## The workflows (templates, all install OFF)
+
+| Template | Starts on | Does |
+|---|---|---|
+| booking-confirmation | appointment booked | confirmation email |
+| appointment-reminder | appointment booked (closing calls) | morning-of SMS (evening-before fallback for early calls), waits for a reply, classifies it, branches: confirmed / cancelled / reschedule / needs a human |
+| speed-to-lead | lead created | email + SMS now, 2h for a reply, one more email if silent |
+| no-show-recovery | GHL marks no-show, or the disposition form does | 10 min, SMS + email with the rebook link, 24h for a reply, one more email |
+| cancellation-rebook | GHL marks cancelled | SMS + email with the rebook link |
+| post-call-follow-up | disposition says follow-up | next morning SMS |
+| payment-received | Whop payment | thank-you email, tag `client` |
+| payment-failed | Whop failure | SMS + email, 2 days, Slack the owner if connected |
+| reactivation | tag `reactivate` added | email, 3 days, SMS, 4 days, last email; once per 90 days |
+
+Every message is a template on the workflow, editable per company once the editor exists; until
+then, edit the company's copy in `workflow_versions`. SMS nodes skip cleanly for a company with
+`sms_enabled=false` (`--no-sms` on install).
+
+## The dashboard
+
+Read-only except one button. `/` engine health and companies · `/c/<slug>` workflows, poll
+health, runs, latest events, contacts · `/c/<slug>/w/<id>` a workflow as a flow chart and step
+list, bindings, versions, **Turn on / Turn off** · `/c/<slug>/r/<id>` a run on its chart with
+every step colored · `/c/<slug>/appointments` last 7 and next 14 days, flags calls needing a
+disposition · `/c/<slug>/appointments/<id>` the **disposition form** (did they show, how it
+went, notes) · `/c/<slug>/contacts/<id>` the journey.
 
 ## Run it locally
 
@@ -31,7 +58,8 @@ cp .env.example .env            # fill DATABASE_URL, BINDINGS_KEY (openssl rand 
 pnpm db:migrate                 # applies ../engine/schema.sql + forces RLS on every tenant table
 pnpm install:company --name "Save Your Hair" --slug syh --tz America/Phoenix \
   --location <ghl_location_id> --pit <private_integration_token> \
-  --calendar <ghl_calendar_id>=closing --calendar <ghl_calendar_id>=first_call
+  --calendar <ghl_calendar_id>=closing --calendar <ghl_calendar_id>=first_call \
+  [--booking <ghl_calendar_id>] [--no-sms] [--enable]   # booking link for lead/reactivation templates; no number; turn on
 pnpm tick                       # one poll + one scheduler pass; this is what the cron does
 # Workflows install OFF. Add --enable to the install command (or flip `workflows.enabled`) when you mean it.
 pnpm test
@@ -69,9 +97,10 @@ Once the repo is connected and `DATABASE_URL` exists: push → deploy → migrat
 
 ## Not built yet (deliberately)
 
-Dashboard and visual editor · hosted forms (intake/disposition/EOD) · Slack OAuth · opportunity
-polling from GHL (ours are rule-driven) · command center · template drift tooling · attribute
-reclassification. All designed in `../engine/`, none blocking the first client.
+Visual editor · app-level login · hosted intake and EOD forms (disposition exists) · signed
+disposition links for Slack · Slack OAuth · opportunity polling from GHL (ours are rule-driven) ·
+command center · template drift tooling · attribute reclassification. All designed in
+`../engine/`, none blocking a test.
 
 ## Known gaps worth knowing
 
