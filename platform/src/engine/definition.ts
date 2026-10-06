@@ -55,7 +55,11 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("update_appointment"), set: z.record(z.unknown()) }),
   z.object({ ...base, type: z.literal("update_opportunity"), set: z.record(z.unknown()) }),
   // A card on a CRM pipeline board. One open card per contact per pipeline: re-firing moves/renames it instead of duplicating. Cards hang off the contact's one open opportunity.
-  z.object({ ...base, type: z.literal("pipeline_card"), pipeline: z.string(), stage: z.string(), name: z.string(), assign_to: z.string().optional(), if_missing: z.enum(["create", "skip"]).default("create"), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
+  z.object({ ...base, type: z.literal("pipeline_card"), pipeline: z.string(), stage: z.string().optional(), name: z.string().optional(), assign_to: z.string().optional(), if_missing: z.enum(["create", "skip"]).default("create"), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
+  // A record on a CRM custom object (payment, sales call, …), upserted by our own key so the CRM's lagging search is never consulted.
+  // `properties` values are templates; an empty rendered value is left out. `relate` links the record to other records by association id.
+  z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string(), properties: z.record(z.string()), owner: z.string().optional(),
+    relate: z.array(z.object({ association: z.string(), first: z.string(), second: z.string() })).default([]) }),
   z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown() }),
   z.object({ ...base, type: z.literal("start_workflow"), workflow: z.string(), with: z.record(z.unknown()).optional() }),
   z.object({ ...base, type: z.literal("pause_runs"), scope: z.enum(["contact", "appointment"]).default("contact") }),

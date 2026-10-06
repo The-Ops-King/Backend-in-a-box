@@ -237,6 +237,20 @@ create table opportunities (
 );
 create index on opportunities (company_id, contact_id, status);
 
+-- CRM custom-object records the engine owns, keyed by what identifies them to us (never by the CRM's search).
+create table crm_records (
+  id             uuid primary key default gen_random_uuid(),
+  company_id     uuid not null references companies(id),
+  object_key     text not null,          -- custom_objects.payment
+  record_key     text not null,          -- provider payment id, Calendly event uuid, …
+  ghl_record_id  text,                   -- null in shadow
+  contact_id     uuid references contacts(id),
+  properties     jsonb not null default '{}',
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  unique (company_id, object_key, record_key)
+);
+
 create table appointments (
   id                   uuid primary key default gen_random_uuid(),
   company_id           uuid not null references companies(id),

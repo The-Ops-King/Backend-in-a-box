@@ -12,6 +12,8 @@ let companyId: string;
 let events: AppointmentSnapshot[] = [];
 let ghlContacts: ContactSnapshot[] = [];
 const noBooking = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] };
+const recordWrites: Record<string, unknown>[] = [];
+const relations: string[] = [];
 const fake: Adapters = {
   read: { contactsChangedSince: async (c) => (c.id === companyId ? ghlContacts : []), inboundSince: async () => [], opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [] },
   booking: {
@@ -19,7 +21,7 @@ const fake: Adapters = {
     calendly: { listCalendars: async () => [{ id: "ET1", name: "45 Min Strategy Call", teamMemberIds: [] }], getAppointment: async (_c, id) => events.find((e) => e.id === id) ?? null,
       appointmentsInWindow: async (c, cal) => (c.id === companyId ? events.filter((e) => e.calendarId === cal) : []) },
   },
-  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
+  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createRecord: async (_c, _o, props) => { recordWrites.push({ op: "create", ...props }); return { id: `rec-${recordWrites.length}` }; }, updateRecord: async (_c, _o, id, props) => { recordWrites.push({ op: "update", id, ...props }); }, relateRecords: async (_c, a, f, s) => { relations.push(`${a}:${f}>${s}`); }, createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
   sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }) },
   classifier: { choice: async () => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
   notifier: { post: async () => ({ ts: "1" }) },
@@ -35,7 +37,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Calendly as the booking source", () 
       const co = await one<{ id: string }>(c, "select id from companies where slug='cal'");
       if (co) {
         await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
-        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "appointments", "pipeline_cards", "opportunities", "contact_identifiers", "contacts", "calendars", "users", "company_terms", "bindings", "poll_cursors"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "crm_records", "appointments", "pipeline_cards", "opportunities", "contact_identifiers", "contacts", "calendars", "users", "company_terms", "bindings", "poll_cursors"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
         await c.query("delete from companies where id=$1", [co.id]);
       }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('CAL','cal','America/New_York') returning id"))!.id;

@@ -193,11 +193,14 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     }
     case "pipeline_card": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
-      const pipelineId = render(node.pipeline, d.ctx, env(d)), stageId = render(node.stage, d.ctx, env(d)), name = render(node.name, d.ctx, env(d));
+      const pipelineId = render(node.pipeline, d.ctx, env(d));
+      const card = await one<{ id: string; ghl_opportunity_id: string | null; opportunity_id: string; ghl_stage_id: string; name: string }>(d.c, "select id, ghl_opportunity_id, opportunity_id, ghl_stage_id, name from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id=$3 and status='open' order by created_at desc limit 1", [d.company.id, d.run.contact_id, pipelineId]);
+      // stage and name are optional on an update: a step that only stamps fields leaves the card where it is
+      const stageId = node.stage ? render(node.stage, d.ctx, env(d)) : card?.ghl_stage_id ?? "";
+      const name = node.name ? render(node.name, d.ctx, env(d)) : card?.name ?? "";
       const customFields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== "");
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
-      if (!pipelineId || !stageId) return { status: "failed", error: `pipeline_card ${node.id}: pipeline or stage unbound` };
-      const card = await one<{ id: string; ghl_opportunity_id: string | null; opportunity_id: string }>(d.c, "select id, ghl_opportunity_id, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id=$3 and status='open' order by created_at desc limit 1", [d.company.id, d.run.contact_id, pipelineId]);
+      if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
       if (!card && node.if_missing === "skip") return { status: "skipped", next, result: { why: "no open card on this board to move; this step never creates one" } };
       const write = { pipelineId, stageId, name, status: "open" as const, assignedUserId, customFields };
       // the pursuit the card belongs to: the run's, else the contact's open one, else a new one
@@ -206,20 +209,46 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
         oppId = (await one<{ id: string }>(d.c, "insert into opportunities (company_id, contact_id, opened_by) values ($1,$2,$3) returning id", [d.company.id, d.run.contact_id, `workflow:${node.id}`]))!.id;
         await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "opportunity.opened", source: "engine", data: { by: "workflow", node: node.id, shadow: shadow(d) } });
       }
+      const ownerRow = assignedUserId ? await one<{ id: string }>(d.c, "select id from users where company_id=$1 and ghl_user_id=$2", [d.company.id, assignedUserId]) : undefined;
       if (card) {
         if (!shadow(d) && card.ghl_opportunity_id) await d.adapters.write.updateOpportunity(d.adapterCompany, card.ghl_opportunity_id, write);
-        await d.c.query("update pipeline_cards set name=$2, ghl_stage_id=$3, updated_at=now() where id=$1", [card.id, name, stageId]);
+        await d.c.query("update pipeline_cards set name=$2, ghl_stage_id=$3, assigned_user_id=coalesce($4, assigned_user_id), updated_at=now() where id=$1", [card.id, name, stageId, ownerRow?.id ?? null]);
       } else {
         let ghlId: string | null = null;
         if (!shadow(d)) {
           if (!contact?.ghl_contact_id) return { status: "failed", error: "pipeline_card: contact has no CRM id yet" };
           ghlId = (await d.adapters.write.createOpportunity(d.adapterCompany, { ...write, contactId: contact.ghl_contact_id })).id;
         }
-        await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name) values ($1,$2,$3,$4,$5,$6,$7)", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name]);
+        await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, assigned_user_id) values ($1,$2,$3,$4,$5,$6,$7,$8)", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name, ownerRow?.id ?? null]);
       }
       if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
       d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
       return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card ? "moved" : "created", name, stage: stageId, fields: customFields } };
+    }
+    case "crm_record": {
+      const objectKey = render(node.object, d.ctx, env(d)), key = render(node.key, d.ctx, env(d));
+      if (!objectKey || !key) return { status: "failed", error: `crm_record ${node.id}: object or key rendered empty` };
+      const properties: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(node.properties)) { const r = render(v, d.ctx, env(d)); if (r !== "") properties[k] = /^-?\d+(\.\d+)?$/.test(r) && /amount|total|count|score|duration|min$/i.test(k) ? Number(r) : r; }
+      const owner = node.owner ? render(node.owner, d.ctx, env(d)) || undefined : undefined;
+      const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
+      let ghlId = existing?.ghl_record_id ?? null;
+      if (!shadow(d)) {
+        if (ghlId) await d.adapters.write.updateRecord(d.adapterCompany, objectKey, ghlId, properties, owner);
+        else ghlId = (await d.adapters.write.createRecord(d.adapterCompany, objectKey, properties, owner)).id;
+      }
+      const row = await one<{ id: string }>(d.c, `insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,$5,$6)
+        on conflict (company_id, object_key, record_key) do update set ghl_record_id=coalesce(excluded.ghl_record_id, crm_records.ghl_record_id), properties=crm_records.properties || excluded.properties, updated_at=now() returning id`,
+        [d.company.id, objectKey, key, ghlId, d.run.contact_id, properties]);
+      d.ctx.record = { id: ghlId ?? "", key, object: objectKey, properties };
+      const related: string[] = [];
+      for (const r of node.relate) {
+        const assoc = render(r.association, d.ctx, env(d)), first = render(r.first, d.ctx, env(d)), second = render(r.second, d.ctx, env(d));
+        if (!assoc || !first || !second) continue;
+        if (!shadow(d)) await d.adapters.write.relateRecords(d.adapterCompany, assoc, first, second);
+        related.push(`${first}→${second}`);
+      }
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), record: existing ? "updated" : "created", our_id: row!.id, crm_id: ghlId, properties, related } };
     }
     case "update_contact": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
@@ -233,7 +262,9 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "update_contact: contact has no CRM id yet" };
       await d.adapters.write.updateContact(d.adapterCompany, contact.ghl_contact_id, patch);
-      await d.c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), updated_at=now() where id=$1", [d.run.contact_id, patch.firstName ?? null, patch.lastName ?? null, patch.timezone ?? null]);
+      // our replica of the CRM contact learns what we just wrote, so a later step in the same minute reads it (the next poll confirms it)
+      const fieldPatch = Object.fromEntries(patch.customFields.map((f) => [f.id, f.field_value === "" ? null : f.field_value]));
+      await d.c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), ghl_fields = ghl_fields || $5::jsonb, updated_at=now() where id=$1", [d.run.contact_id, patch.firstName ?? null, patch.lastName ?? null, patch.timezone ?? null, JSON.stringify(fieldPatch)]);
       return { status: "ok", next, result: patch as Record<string, unknown> };
     }
     case "create_task": {

@@ -174,6 +174,7 @@ create table pipeline_cards (
   ghl_pipeline_id     text not null,
   ghl_stage_id        text not null,
   name                text not null,
+  assigned_user_id    uuid references users(id),          -- the card's owner in the CRM (the closer), when the engine set it
   status              text not null default 'open',
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now(),

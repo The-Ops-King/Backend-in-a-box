@@ -18,7 +18,7 @@ describe.skipIf(!process.env.DATABASE_URL)("payments ledger", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='pay'");
-      if (co) { for (const t of ["events", "payments", "pipeline_cards", "opportunities", "contact_identifiers", "contacts", "webhook_deliveries", "sends"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { for (const t of ["events", "sends", "crm_records", "payments", "pipeline_cards", "opportunities", "contact_identifiers", "contacts", "webhook_deliveries"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, contract_value_default) values ('Pay','pay','America/New_York', 2999) returning id"))!.id;
       ann = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'GA','Ann') returning id", [companyId]))!.id;
       bob = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'GB','Bob') returning id", [companyId]))!.id;

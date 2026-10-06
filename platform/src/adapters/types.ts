@@ -47,6 +47,9 @@ export interface CrmWrite {
   updateAppointment(c: Company, id: string, patch: Partial<Pick<AppointmentSnapshot, "status" | "assignedUserId" | "startTime" | "endTime" | "title">>): Promise<void>;
   updateContact(c: Company, contactId: string, patch: ContactWrite): Promise<void>;
   createTask(c: Company, contactId: string, task: { title: string; body?: string; dueAt: Date; assignedUserId?: string }): Promise<{ id: string }>;
+  createRecord(c: Company, objectKey: string, properties: Record<string, unknown>, ownerUserId?: string): Promise<{ id: string }>;
+  updateRecord(c: Company, objectKey: string, recordId: string, properties: Record<string, unknown>, ownerUserId?: string): Promise<void>;
+  relateRecords(c: Company, associationId: string, firstRecordId: string, secondRecordId: string): Promise<void>;
   createOpportunity(c: Company, input: OpportunityWrite & { contactId: string }): Promise<{ id: string }>;
   updateOpportunity(c: Company, id: string, patch: Partial<OpportunityWrite>): Promise<void>;
 }

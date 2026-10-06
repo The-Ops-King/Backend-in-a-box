@@ -38,6 +38,7 @@ confirmation email went out through GHL into the contact's thread, the reminder 
 | reactivation | tag `reactivate` added | email, 3 days, SMS, 4 days, last email; once per 90 days |
 | call-booked | closing call booked or moved | contact gets appointment date + closer as owner; setter card → Direct Booked Call ("-- Direct") or Appointment Set ("-- Set", setter stamped); closer card created/moved to Scheduled ("-- Direct" / "-- Setter Booked"); tags `stat-booked` + `stat-self-booked`/`stat-set`, nurture tags off; Slack card with intake answers, reschedule link, UTM source. Needs the setter/closer pipeline + stage ids and the custom field ids as `crm.*`; `slack.channel.bookings` optional |
 | call-cancelled | closing call cancelled (a reschedule never fires this) | setter and closer cards → their cancelled stage (move only); appointment date cleared on the contact; rebook task for the closer due in a day with who cancelled and why; `stat-cancelled` on, booked tags off; Slack note. Needs `crm.stage_setter_cancelled`, `crm.stage_closer_cancelled` |
+| payment-recorded | payment linked to a contact | cash collected on the contact = running total; revenue generated stamped once with the program price; `pay-paid-full` (and `pay-plan-active` off) when cleared, else `pay-plan-active`; Payment custom-object record written and linked to the contact and the closer card; Slack line. Needs `crm.field_contact_cash_collected`, `crm.field_contact_revenue_generated`, `crm.assoc_payment_contact`, `crm.assoc_payment_opportunity`, `crm.pipeline_closer`; `slack.channel.payments` optional |
 | new-lead | lead created | with a phone: setter-pipeline card "Name -- New" (stage New Lead, stage-entered date today) + tag `stat-new`; without a phone: exit `no_phone`. Needs `crm.pipeline_setter`, `crm.stage_setter_new_lead`, `crm.field_opportunity_stage_entered` (install `crm: {...}`) |
 
 Every message is a template on the workflow, editable per company once the editor exists; until
@@ -73,6 +74,12 @@ and renames it instead of duplicating; `if_missing: skip` makes a step move-only
 `pipeline_cards`, each hanging off the contact's one open opportunity (the pursuit), so a setter
 card and a closer card for the same sale share one opportunity, and the booking attaches to that
 same pursuit. In shadow the card exists only in our table.
+
+Custom-object records (`crm_record` node) are upserted by our own key (the Whop payment id, the
+Calendly event uuid) through `crm_records`, so the CRM's lagging search is never consulted;
+`relate` links the new record to others by association id, and the record's CRM id is `{{record.id}}`
+for the rest of the run. The contact's open card on each bound board is `{{cards.<name>}}`
+(`id`, `stage`, `name`, `owner`), so a payment record can point at the closer card and its owner.
 
 Contact custom fields are readable in templates by the name they were bound under:
 `crm.field_contact_hair_loss = <id>` → `{{contact.fields.hair_loss}}`. `update_contact` writes

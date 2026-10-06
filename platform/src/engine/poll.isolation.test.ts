@@ -10,6 +10,8 @@ process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 let companyId: string;
 let contacts: ContactSnapshot[] = [];
 let inboundThrows = false;
+const recordWrites: Record<string, unknown>[] = [];
+const relations: string[] = [];
 const fake: Adapters = {
   read: {
     contactsChangedSince: async (c) => (c.id === companyId ? contacts : []),
@@ -17,7 +19,7 @@ const fake: Adapters = {
     opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [],
   },
   booking: { ghl: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }, calendly: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] } },
-  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
+  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createRecord: async (_c, _o, props) => { recordWrites.push({ op: "create", ...props }); return { id: `rec-${recordWrites.length}` }; }, updateRecord: async (_c, _o, id, props) => { recordWrites.push({ op: "update", id, ...props }); }, relateRecords: async (_c, a, f, s) => { relations.push(`${a}:${f}>${s}`); }, createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
   sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }) },
   classifier: { choice: async () => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
   notifier: { post: async () => ({ ts: "1" }) },

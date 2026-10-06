@@ -20,6 +20,18 @@ export const ghlWrite: CrmWrite = {
     const r = await ghl<{ task?: { id: string }; id?: string }>(c.pit, "POST", `/contacts/${contactId}/tasks`, { body: { title: task.title, body: task.body ?? "", dueDate: task.dueAt.toISOString(), completed: false, ...(task.assignedUserId ? { assignedTo: task.assignedUserId } : {}) } });
     return { id: r.task?.id ?? r.id ?? "" };
   },
+  // Custom objects: properties use the SHORT key (not the custom_objects.x.y fieldKey); owners is an array on create and { add: [...] } on update (verified in the Zap this replaces)
+  async createRecord(c, objectKey, properties, ownerUserId) {
+    const r = await ghl<{ record?: { id: string }; id?: string }>(c.pit, "POST", `/objects/${objectKey}/records`, { body: { locationId: c.locationId, properties, ...(ownerUserId ? { owners: [ownerUserId] } : {}) } });
+    return { id: r.record?.id ?? r.id ?? "" };
+  },
+  async updateRecord(c, objectKey, recordId, properties, ownerUserId) {
+    await ghl(c.pit, "PUT", `/objects/${objectKey}/records/${recordId}?locationId=${c.locationId}`, { body: { properties, ...(ownerUserId ? { owners: { add: [ownerUserId] } } : {}) } });
+  },
+  async relateRecords(c, associationId, firstRecordId, secondRecordId) {
+    try { await ghl(c.pit, "POST", "/associations/relations", { body: { locationId: c.locationId, associationId, firstRecordId, secondRecordId } }); }
+    catch (e) { const st = (e as { status?: number }).status; if (st !== 400 && st !== 409) throw e; }   // already related
+  },
   async createOpportunity(c, input) {
     const r = await ghl<{ opportunity: { id: string } }>(c.pit, "POST", "/opportunities/", { body: {
       locationId: c.locationId, contactId: input.contactId, pipelineId: input.pipelineId, pipelineStageId: input.stageId, name: input.name, status: input.status,

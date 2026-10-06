@@ -24,6 +24,8 @@ const tags: string[] = [];
 let liveStatus = "confirmed";
 // two days out at 2pm Phoenix, so "morning of" is genuinely in the future
 const APPT_START = DateTime.now().setZone("America/Phoenix").plus({ days: 2 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
+const recordWrites: Record<string, unknown>[] = [];
+const relations: string[] = [];
 const fake: Adapters = {
   read: {
     contactsChangedSince: async () => [], inboundSince: async () => [], opportunitiesSince: async () => [],
@@ -31,7 +33,7 @@ const fake: Adapters = {
   },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], listCalendars: async () => [],
     getAppointment: async (_c, id) => ({ id, calendarId: "CAL1", contactId: "GHLC1", startTime: APPT_START.toISO()!, endTime: APPT_START.plus({ minutes: 30 }).toISO()!, status: liveStatus, raw: {} }) }; return { ghl: b, calendly: b }; })(),
-  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
+  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createRecord: async (_c, _o, props) => { recordWrites.push({ op: "create", ...props }); return { id: `rec-${recordWrites.length}` }; }, updateRecord: async (_c, _o, id, props) => { recordWrites.push({ op: "update", id, ...props }); }, relateRecords: async (_c, a, f, s) => { relations.push(`${a}:${f}>${s}`); }, createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
   sender: {
     sendSms: async (_c, to, body) => { sent.push({ kind: "sms", to, body }); return { externalId: `sms-${sent.length}`, accepted: true }; },
     sendEmail: async (_c, to, subject, html) => { sent.push({ kind: "email", to, body: `${subject}|${html}` }); return { externalId: `em-${sent.length}`, accepted: true }; },
@@ -51,7 +53,7 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
         await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]);
         await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
         await c.query("update appointments set disposition_id=null where company_id=$1", [co.id]);
-        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"])
+        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "crm_records", "webhook_deliveries", "payments", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"])
           await c.query(`delete from ${t} where company_id=$1`, [co.id]);
       }
       await c.query("delete from companies where slug='e2e'");

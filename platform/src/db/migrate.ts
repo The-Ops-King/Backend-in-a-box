@@ -39,6 +39,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
       ghl_opportunity_id text, ghl_pipeline_id text not null, ghl_stage_id text not null, name text not null, status text not null default 'open',
       created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (company_id, ghl_opportunity_id))`);
     await c.query(`create index if not exists pipeline_cards_company_id_contact_id_ghl_pipeline_id_idx on pipeline_cards (company_id, contact_id, ghl_pipeline_id)`);
+    await c.query(`alter table pipeline_cards add column if not exists assigned_user_id uuid references users(id)`);
     await c.query(`alter table calendars add column if not exists self_booked boolean`);
     await c.query(`alter table appointments add column if not exists set_by text`);
     await c.query(`alter table appointments add column if not exists reschedule_url text`);

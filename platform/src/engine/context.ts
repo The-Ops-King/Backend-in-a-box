@@ -54,6 +54,13 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     if (a) ctx.appointment = { ...a, starts_at: (a.starts_at as Date).toISOString(), ends_at: (a.ends_at as Date).toISOString() };
   }
   if (run.opportunity_id) ctx.opportunity = await one(c, "select id, status, contract_value, opened_at from opportunities where id=$1", [run.opportunity_id]);
+  // the contact's open card on each bound board: crm.pipeline_closer = <id> → cards.closer = { id (CRM), stage, name }
+  const cards: Record<string, unknown> = {};
+  for (const [k, pid] of Object.entries(bindings)) if (k.startsWith("crm.pipeline_")) {
+    const card = await one<{ ghl_opportunity_id: string | null; ghl_stage_id: string; name: string; owner_name: string | null; owner_ghl: string | null }>(c, "select p.ghl_opportunity_id, p.ghl_stage_id, p.name, u.name as owner_name, u.ghl_user_id as owner_ghl from pipeline_cards p left join users u on u.id=p.assigned_user_id where p.company_id=$1 and p.contact_id=$2 and p.ghl_pipeline_id=$3 and p.status='open' order by p.created_at desc limit 1", [company.id, run.contact_id, pid]);
+    cards[k.slice("crm.pipeline_".length)] = card ? { id: card.ghl_opportunity_id ?? "", stage: card.ghl_stage_id, name: card.name, owner: card.owner_name ? { name: card.owner_name, first_name: card.owner_name.split(" ")[0], ghl_user_id: card.owner_ghl } : undefined } : undefined;
+  }
+  ctx.cards = cards;
   for (const [k, v] of Object.entries(bindings)) {
     if (k.startsWith("secret.")) continue;
     if (k.startsWith("calendar.")) {
