@@ -8,8 +8,10 @@ export type InstallInput = {
   name: string; slug: string; timezone: string; locationId: string; pit: string;
   calendars?: Record<string, string>;   // ghl_calendar_id → core appointment_type category (closing | first_call | qualifying | follow_up)
   closerCall?: string;                   // ghl_calendar_id bound as calendar.closer_call
+  bookingCalendar?: string;              // ghl_calendar_id bound as calendar.booking (first-call / self-book link used by lead and reactivation templates)
   templates?: string[];                  // slugs; default all
   enable?: boolean;                      // default false — Tyler's rule: build off, enable deliberately
+  smsEnabled?: boolean;                  // default true; false when the sub-account has no number
 };
 
 /** D16: upload info, pick templates, done. Idempotent. Workflows install OFF unless enable=true. */
@@ -17,7 +19,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   const calMap = input.calendars ?? {};
   return asOperator(async (c) => {
-    const co = await one<{ id: string }>(c, `insert into companies (name, slug, timezone) values ($1,$2,$3) on conflict (slug) do update set name=excluded.name, timezone=excluded.timezone returning id`, [input.name, input.slug, input.timezone]);
+    const co = await one<{ id: string }>(c, `insert into companies (name, slug, timezone, sms_enabled) values ($1,$2,$3,$4) on conflict (slug) do update set name=excluded.name, timezone=excluded.timezone, sms_enabled=excluded.sms_enabled returning id`, [input.name, input.slug, input.timezone, input.smsEnabled ?? true]);
     const companyId = co!.id;
     await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories on conflict (company_id, domain, name) do nothing`, [companyId]);
     const bind = (key: string, kind: string, value: string) =>
@@ -37,6 +39,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     }
     const closerCal = input.closerCall ?? Object.entries(calMap).find(([, cat]) => cat === "closing")?.[0];
     if (closerCal) await bind("calendar.closer_call", "id", closerCal);
+    const bookingCal = input.bookingCalendar ?? Object.entries(calMap).find(([, cat]) => cat === "first_call")?.[0] ?? closerCal;
+    if (bookingCal) await bind("calendar.booking", "id", bookingCal);
     const installed: string[] = [];
     for (const t of templates.filter((t) => wanted.includes(t.slug))) {
       const def = parseDefinition(t.definition); const manifest = extractManifest(def);

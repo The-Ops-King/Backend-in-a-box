@@ -44,6 +44,7 @@ async function recordSend(d: ExecDeps, node: Node, channel: "sms" | "email" | "s
 
 async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "send_email" }>): Promise<StepOutcome> {
   const next = single(d, node.id);
+  if (node.type === "send_sms" && d.company.sms_enabled === false) { await recordSend(d, node, "sms", "", "suppressed", "sms_disabled: company has no number"); return { status: "skipped", next, result: { why: "sms disabled for company" } }; }
   const v = validityOk(d, node);
   let template = node.template, substituted = false;
   if (!v.ok) {

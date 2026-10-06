@@ -1,0 +1,124 @@
+{
+  "slug": "no-show-recovery",
+  "name": "No-show recovery",
+  "category": "no_show",
+  "description": "Ten minutes after a no-show: text and email with the rebook link, a day for a reply, then one more email.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_appointment",
+    "premise": {
+      "check": "appointment_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "appointment.status_changed",
+        "match": {
+          "eq": [
+            "{{event.status.to}}",
+            "noshow"
+          ]
+        }
+      },
+      {
+        "id": "n1",
+        "type": "wait",
+        "rule": {
+          "anchor": "now",
+          "offset": "+10m",
+          "tz": "contact"
+        }
+      },
+      {
+        "id": "n2",
+        "type": "send_sms",
+        "template": "Hey {{contact.first_name}}, looks like we missed each other. Here's the link to grab a new time with {{appointment.closer.first_name}}: {{calendar.closer_call.url}}",
+        "validity": {
+          "anchor": "after_event",
+          "max_lag": "3d"
+        },
+        "on_stale": "skip"
+      },
+      {
+        "id": "n3",
+        "type": "send_email",
+        "subject": "We missed you",
+        "template": "<p>Hey {{contact.first_name}},</p><p>Looks like we missed each other for the call with {{appointment.closer.first_name}}. Things come up. If you still want to talk, pick a new time here: {{calendar.closer_call.url}}</p>",
+        "validity": {
+          "anchor": "after_event",
+          "max_lag": "3d"
+        },
+        "on_stale": "skip"
+      },
+      {
+        "id": "n4",
+        "type": "wait_for_reply",
+        "timeout": "24h",
+        "channel": "any"
+      },
+      {
+        "id": "n5",
+        "type": "set_tag",
+        "tag": "rebooking"
+      },
+      {
+        "id": "n6",
+        "type": "send_email",
+        "subject": "Want to reschedule?",
+        "template": "<p>Hey {{contact.first_name}}, one more nudge on this. If you'd like to reschedule, the link is here: {{calendar.closer_call.url}}</p><p>If the timing isn't right anymore, that's fine too.</p>",
+        "validity": {
+          "anchor": "after_event",
+          "max_lag": "7d"
+        },
+        "on_stale": "skip"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "replied"
+      },
+      {
+        "id": "x2",
+        "type": "exit",
+        "reason": "no_reply"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "n3"
+      },
+      {
+        "from": "n3",
+        "to": "n4"
+      },
+      {
+        "from": "n4",
+        "to": "n5",
+        "label": "replied"
+      },
+      {
+        "from": "n4",
+        "to": "n6",
+        "label": "timeout"
+      },
+      {
+        "from": "n5",
+        "to": "x1"
+      },
+      {
+        "from": "n6",
+        "to": "x2"
+      }
+    ]
+  }
+}

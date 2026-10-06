@@ -1,0 +1,51 @@
+{
+  "slug": "payment-received",
+  "name": "Payment received",
+  "category": "payments",
+  "description": "Thank-you email and the client tag when a payment lands.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "payment.received"
+      },
+      {
+        "id": "n1",
+        "type": "send_email",
+        "subject": "You're in",
+        "template": "<p>Hey {{contact.first_name}},</p><p>Payment came through. Welcome aboard. You'll hear from us with next steps shortly.</p><p>{{company.name}}</p>",
+        "on_stale": "skip"
+      },
+      {
+        "id": "n2",
+        "type": "set_tag",
+        "tag": "client"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "done"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "x1"
+      }
+    ]
+  }
+}

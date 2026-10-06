@@ -43,7 +43,6 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
   let companyId: string, contactId: string, apptId: string;
   beforeAll(async () => {
     await migrate();
-    await db().query("create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())");
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='e2e'");
       if (co) {

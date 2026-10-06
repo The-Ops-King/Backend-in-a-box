@@ -1,0 +1,96 @@
+{
+  "slug": "reactivation",
+  "name": "Reactivation",
+  "category": "reactivation",
+  "description": "Tag a contact \"reactivate\": an email, three days, a text, four days, a last email. Once per 90 days.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_contact_per_window",
+    "reentry_window": "90d",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "tag.added",
+        "match": {
+          "eq": [
+            "{{event.tag}}",
+            "reactivate"
+          ]
+        }
+      },
+      {
+        "id": "n1",
+        "type": "send_email",
+        "subject": "Checking in",
+        "template": "<p>Hey {{contact.first_name}},</p><p>It's been a bit since we talked. Still thinking about {{company.name}}? If the timing is better now, grab a time here: {{calendar.booking.url}}</p>",
+        "on_stale": "skip"
+      },
+      {
+        "id": "n2",
+        "type": "wait",
+        "rule": {
+          "anchor": "now",
+          "offset": "+3d",
+          "tz": "contact"
+        }
+      },
+      {
+        "id": "n3",
+        "type": "send_sms",
+        "template": "Hey {{contact.first_name}}, {{company.name}} here. Still interested? Happy to pick things back up whenever. {{calendar.booking.url}}",
+        "on_stale": "skip"
+      },
+      {
+        "id": "n4",
+        "type": "wait",
+        "rule": {
+          "anchor": "now",
+          "offset": "+4d",
+          "tz": "contact"
+        }
+      },
+      {
+        "id": "n5",
+        "type": "send_email",
+        "subject": "Last one from me",
+        "template": "<p>Hey {{contact.first_name}}, last check-in from me. If now isn't the time, that's fine. If it is, the link's here: {{calendar.booking.url}}</p>",
+        "on_stale": "skip"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "sequence_done"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "n3"
+      },
+      {
+        "from": "n3",
+        "to": "n4"
+      },
+      {
+        "from": "n4",
+        "to": "n5"
+      },
+      {
+        "from": "n5",
+        "to": "x1"
+      }
+    ]
+  }
+}

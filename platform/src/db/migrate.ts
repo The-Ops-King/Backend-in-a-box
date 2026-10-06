@@ -13,6 +13,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
       await c.query(readFileSync(schemaPath, "utf8"));
       applied = true;
     }
+    // engine-internal additions beyond schema.sql; idempotent so an already-migrated database picks them up
+    await c.query(`create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())`);
+    await c.query(`alter table companies add column if not exists sms_enabled boolean not null default true`);
     const tenantTables = await c.query<{ table_name: string }>(
       "select table_name from information_schema.columns where table_schema='public' and column_name='company_id' order by 1",
     );

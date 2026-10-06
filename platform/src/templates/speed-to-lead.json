@@ -1,0 +1,93 @@
+{
+  "slug": "speed-to-lead",
+  "name": "Speed to lead",
+  "category": "speed_to_lead",
+  "description": "New lead gets an email and a text right away, two hours for a reply, then one more email if they went quiet.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_contact",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "lead.created"
+      },
+      {
+        "id": "n1",
+        "type": "send_email",
+        "subject": "Got your info",
+        "template": "<p>Hey {{contact.first_name}},</p><p>Thanks for reaching out. The easiest next step is a quick call so we can see if this is a fit. Grab a time here: {{calendar.booking.url}}</p><p>Talk soon,<br>{{company.name}}</p>",
+        "on_stale": "skip"
+      },
+      {
+        "id": "n2",
+        "type": "send_sms",
+        "template": "Hey {{contact.first_name}}, it's {{company.name}}. Got your info, thanks. Want to grab a time to talk? {{calendar.booking.url}}",
+        "on_stale": "skip"
+      },
+      {
+        "id": "n3",
+        "type": "wait_for_reply",
+        "timeout": "2h",
+        "channel": "any"
+      },
+      {
+        "id": "n4",
+        "type": "set_tag",
+        "tag": "engaged"
+      },
+      {
+        "id": "n5",
+        "type": "send_email",
+        "subject": "Still want to talk?",
+        "template": "<p>Hey {{contact.first_name}}, following up in case this got buried. If you still want to talk, here's the link: {{calendar.booking.url}}</p><p>If not, no worries.</p>",
+        "on_stale": "skip"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "replied"
+      },
+      {
+        "id": "x2",
+        "type": "exit",
+        "reason": "no_reply"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "n3"
+      },
+      {
+        "from": "n3",
+        "to": "n4",
+        "label": "replied"
+      },
+      {
+        "from": "n3",
+        "to": "n5",
+        "label": "timeout"
+      },
+      {
+        "from": "n4",
+        "to": "x1"
+      },
+      {
+        "from": "n5",
+        "to": "x2"
+      }
+    ]
+  }
+}

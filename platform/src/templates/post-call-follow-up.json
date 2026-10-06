@@ -1,0 +1,60 @@
+{
+  "slug": "post-call-follow-up",
+  "name": "Post-call follow-up",
+  "category": "follow_up",
+  "description": "When a call ends with a follow-up outcome, text the next morning.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_appointment",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "call.held",
+        "match": {
+          "eq": [
+            "{{event.outcome}}",
+            "follow_up"
+          ]
+        }
+      },
+      {
+        "id": "n1",
+        "type": "wait",
+        "rule": {
+          "anchor": "now",
+          "offset": "day_after@09:00",
+          "tz": "contact"
+        }
+      },
+      {
+        "id": "n2",
+        "type": "send_sms",
+        "template": "Hey {{contact.first_name}}, good talking yesterday. If any questions came up overnight, send them over, happy to answer.",
+        "on_stale": "skip"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "sent"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "x1"
+      }
+    ]
+  }
+}

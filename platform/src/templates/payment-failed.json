@@ -1,0 +1,75 @@
+{
+  "slug": "payment-failed",
+  "name": "Payment failed",
+  "category": "payments",
+  "description": "Text and email when a charge fails; two days later, tell the owner in Slack if it's connected.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "payment.failed"
+      },
+      {
+        "id": "n1",
+        "type": "send_sms",
+        "template": "Hey {{contact.first_name}}, heads up, your payment didn't go through. Can you update your card when you get a sec? Reply here if you need a hand.",
+        "on_stale": "skip"
+      },
+      {
+        "id": "n2",
+        "type": "send_email",
+        "subject": "Payment didn't go through",
+        "template": "<p>Hey {{contact.first_name}},</p><p>Your latest payment didn't go through. Usually it's an expired card. Can you update it when you get a chance? Reply to this email if you need help.</p><p>{{company.name}}</p>",
+        "on_stale": "skip"
+      },
+      {
+        "id": "n3",
+        "type": "wait",
+        "rule": {
+          "anchor": "now",
+          "offset": "+2d",
+          "tz": "company"
+        }
+      },
+      {
+        "id": "n4",
+        "type": "slack_post",
+        "channel": "{{slack.channel.owner}}",
+        "template": "{{contact.first_name}}'s payment failed two days ago and hasn't been fixed."
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "escalated"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "n3"
+      },
+      {
+        "from": "n3",
+        "to": "n4"
+      },
+      {
+        "from": "n4",
+        "to": "x1"
+      }
+    ]
+  }
+}

@@ -45,6 +45,7 @@ create table companies (
   timezone          text not null,                      -- IANA, e.g. America/Phoenix
   send_window_start time not null default '08:00',
   send_window_end   time not null default '20:00',
+  sms_enabled       boolean not null default true,      -- false when the sub-account has no number; SMS nodes skip
   status            text not null default 'active'
                     check (status in ('onboarding','active','hosted','archived')),
   archived_at       timestamptz,

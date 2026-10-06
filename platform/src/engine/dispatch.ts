@@ -40,7 +40,7 @@ export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record
     const { nodes } = indexDefinition(parseDefinition(ver!.definition));
     const node = nodes.get(t.node_id);
     if (!node || node.type !== "trigger") continue;
-    if (node.match && !evaluate(node.match, { ...matchCtx, event: e.data })) continue;
+    if (node.match && !evaluate(node.match, { ...matchCtx, event: { ...e.data, _source: e.source, _type: e.event_type } })) continue;
     if (!e.contact_id) continue;
     const id = await startRun(c, { companyId: e.company_id, workflowId: t.workflow_id, triggerId: t.id, triggerNodeId: t.node_id, event: e, contactId: e.contact_id, appointmentId: e.appointment_id, opportunityId: e.opportunity_id });
     if (id) started.push(id);

@@ -1,0 +1,58 @@
+{
+  "slug": "cancellation-rebook",
+  "name": "Cancellation rebook",
+  "category": "no_show",
+  "description": "When a call is cancelled, send the rebook link by text and email.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_appointment",
+    "premise": {
+      "check": "appointment_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "appointment.status_changed",
+        "match": {
+          "eq": [
+            "{{event.status.to}}",
+            "cancelled"
+          ]
+        }
+      },
+      {
+        "id": "n1",
+        "type": "send_sms",
+        "template": "Hey {{contact.first_name}}, saw the call got cancelled. If you want to pick a new time, here you go: {{calendar.closer_call.url}}",
+        "on_stale": "skip"
+      },
+      {
+        "id": "n2",
+        "type": "send_email",
+        "subject": "Pick a new time?",
+        "template": "<p>Hey {{contact.first_name}},</p><p>Saw the call got cancelled. No problem at all. If you'd like to pick a new time, here's the link: {{calendar.closer_call.url}}</p>",
+        "on_stale": "skip"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "sent"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "x1"
+      }
+    ]
+  }
+}

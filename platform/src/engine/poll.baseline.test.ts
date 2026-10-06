@@ -21,7 +21,7 @@ const snap = (id: string, tags: string[], when: string): ContactSnapshot => ({ i
 
 describe.skipIf(!HAS_DB)("first poll is a silent baseline", () => {
   beforeAll(async () => {
-    await migrate(); await db().query("create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())");
+    await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='bl'");
       if (co) { for (const t of ["events", "contact_identifiers", "contacts", "bindings", "poll_cursors"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }

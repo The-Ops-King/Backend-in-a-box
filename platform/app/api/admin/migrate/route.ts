@@ -8,7 +8,6 @@ export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
     const r = await migrate();
-    await db().query(`create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())`);
     return NextResponse.json({ ok: true, ...r });
   } catch (e) { return NextResponse.json({ ok: false, error: String((e as Error).message) }, { status: 500 }); }
 }

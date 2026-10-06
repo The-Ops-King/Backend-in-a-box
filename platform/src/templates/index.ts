@@ -1,3 +1,10 @@
-import reminder from "./appointment-reminder.json";
 import confirmation from "./booking-confirmation.json";
-export const templates = [confirmation, reminder] as const;
+import reminder from "./appointment-reminder.json";
+import speedToLead from "./speed-to-lead.json";
+import noShow from "./no-show-recovery.json";
+import cancellation from "./cancellation-rebook.json";
+import postCall from "./post-call-follow-up.json";
+import paymentReceived from "./payment-received.json";
+import paymentFailed from "./payment-failed.json";
+import reactivation from "./reactivation.json";
+export const templates = [confirmation, reminder, speedToLead, noShow, cancellation, postCall, paymentReceived, paymentFailed, reactivation] as const;
