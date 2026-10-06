@@ -41,6 +41,17 @@ Every message is a template on the workflow, editable per company once the edito
 then, edit the company's copy in `workflow_versions`. SMS nodes skip cleanly for a company with
 `sms_enabled=false` (`--no-sms` on install).
 
+## Shadow mode (how a client gets migrated)
+
+Every company is in **shadow** until someone presses **Go live**. In shadow the engine polls,
+dispatches, runs and branches exactly as live, renders every message, and writes nothing to GHL:
+sends are recorded as "would send" with the exact text, tags and notes are logged, appointment
+updates are logged. A read-only Private Integration Token is enough. Verified on a real
+location with all nine workflows on: zero messages, zero tags reached GHL.
+
+So: install with a read-only token → let it run → read `/c/<slug>/sends` ("Would have sent") →
+fix copy or timing → **Go live** on the company page, then turn workflows on one at a time.
+
 ## The dashboard
 
 Read-only except one button. `/` engine health and companies · `/c/<slug>` workflows, poll
@@ -48,7 +59,7 @@ health, runs, latest events, contacts · `/c/<slug>/w/<id>` a workflow as a flow
 list, bindings, versions, **Turn on / Turn off** · `/c/<slug>/r/<id>` a run on its chart with
 every step colored · `/c/<slug>/appointments` last 7 and next 14 days, flags calls needing a
 disposition · `/c/<slug>/appointments/<id>` the **disposition form** (did they show, how it
-went, notes) · `/c/<slug>/contacts/<id>` the journey.
+went, notes) · `/c/<slug>/contacts/<id>` the journey · `/c/<slug>/sends` every message sent, suppressed, failed, or (in shadow) would-have-sent · **Go live / Switch to shadow** on the company page.
 
 ## Run it locally
 
@@ -59,7 +70,7 @@ pnpm db:migrate                 # applies ../engine/schema.sql + forces RLS on e
 pnpm install:company --name "Save Your Hair" --slug syh --tz America/Phoenix \
   --location <ghl_location_id> --pit <private_integration_token> \
   --calendar <ghl_calendar_id>=closing --calendar <ghl_calendar_id>=first_call \
-  [--booking <ghl_calendar_id>] [--no-sms] [--enable]   # booking link for lead/reactivation templates; no number; turn on
+  [--booking <ghl_calendar_id>] [--no-sms] [--enable] [--live]   # booking link; no number; turn workflows on; live instead of shadow
 pnpm tick                       # one poll + one scheduler pass; this is what the cron does
 # Workflows install OFF. Add --enable to the install command (or flip `workflows.enabled`) when you mean it.
 pnpm test

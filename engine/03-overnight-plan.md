@@ -75,3 +75,12 @@ Actions secrets, confirm the calendar mapping.
   compared `next_run_at` (Postgres `now()`, microseconds) against a JavaScript timestamp
   (milliseconds), so a wake and a tick in the same millisecond made a run look not-yet-due. The
   claim now uses the database clock. Suite is green five runs in a row.
+
+### Shadow mode (built after Tyler offered read-only Hair/PMU access)
+`companies.mode`: shadow (default) or live. In shadow the engine does everything except write to
+GHL; sends land in the ledger as "would send" with the exact text. Live proof on the real
+location with all nine workflows on: a new contact + booking started speed-to-lead, booking
+confirmation and the reminder; a cancellation started rebook; three emails recorded as would-send,
+SMS suppressed (no number); **zero messages and zero tags reached GHL**. The migration path is:
+install a client in shadow with a read-only token → read "Would have sent" for a few days →
+Go live. Proof company is back to all-off, mode shadow.
