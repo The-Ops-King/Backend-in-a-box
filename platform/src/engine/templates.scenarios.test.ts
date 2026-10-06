@@ -39,7 +39,10 @@ const fake: Adapters = {
 const since = () => sent.length;
 const bySlug = (slug: string) => asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug=$2", [companyId, slug]));
 const runsFor = (slug: string) => asOperator((c) => many<{ id: string; status: string; current_node: string | null; exit_reason: string | null; next_run_at: Date | null; contact_id: string }>(c, "select r.id, r.status, r.current_node, r.exit_reason, r.next_run_at, r.contact_id from runs r join workflows w on w.id=r.workflow_id join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug=$2 order by r.started_at", [companyId, slug]));
-const wake = (runId: string, extra = "") => asOperator((c) => c.query(`update runs set next_run_at=now() ${extra} where id=$1`, [runId]));
+const wake = (runId: string) => asOperator((c) => c.query("update runs set next_run_at=now() where id=$1", [runId]));
+/** Make a wait_for_reply deadline already past, as a real ISO string (what the engine itself stores). */
+const expireReplyWait = (runId: string, nodeId: string) => asOperator((c) => c.query("update runs set next_run_at=now(), context = jsonb_set(context, $2::text[], to_jsonb($3::text), true) where id=$1",
+  [runId, `{vars,__wait_for_reply,${nodeId},deadline}`, new Date(Date.now() - 60e3).toISOString()]));
 const newContact = async (ghlId: string, email: string) => asOperator(async (c) => {
   const id = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, timezone) values ($1,$2,$3,$4) returning id", [companyId, ghlId, ghlId, TZ]))!.id;
   await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3)", [companyId, id, email]);
@@ -71,7 +74,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(sent.slice(n).map((s) => s.kind).sort()).toEqual(["email", "email", "sms", "sms"]);
     let rs = await runsFor("speed-to-lead"); expect(rs.map((r) => r.current_node)).toEqual(["n3", "n3"]);
     await inbound(a, "yes let's talk"); await wake(rs[0].id);
-    await wake(rs[1].id, ", context = jsonb_set(context, '{vars,__wait_for_reply,n3,deadline}', to_jsonb((now() - interval '1 minute')::text))");
+    await expireReplyWait(rs[1].id, "n3");
     const n2 = since(); await tick(fake);
     rs = await runsFor("speed-to-lead");
     expect(rs.find((r) => r.contact_id === a)?.exit_reason).toBe("replied"); expect(tags).toContain("engaged");
@@ -80,10 +83,10 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
 
   it("cancellation-rebook: GHL status → cancelled starts it; sends both, exits", async () => {
     const snap = (status: string): AppointmentSnapshot => ({ id: "ACX", calendarId: "CAL", contactId: "CCX", assignedUserId: "U1", startTime: DateTime.now().plus({ days: 3 }).toISO()!, endTime: DateTime.now().plus({ days: 3, minutes: 30 }).toISO()!, status, dateAdded: new Date().toISOString(), raw: {} });
-    apptStore.set("ACX", snap("cancelled"));
+    apptStore.set("ACX", snap("cancelled")); liveStatus = "cancelled";   // GHL really reports it cancelled; the premise check must NOT treat that as moot here
     await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snap("confirmed")); await applyAppointment(c, row, adapterCompany, fake, snap("cancelled")); });
     expect(await runsFor("cancellation-rebook")).toHaveLength(1);
-    await tick(fake);   // booking-confirmation also fires on the booking; assert on this run's own sends, not the global list
+    await tick(fake); liveStatus = "confirmed";   // booking-confirmation also fires on the booking; assert on this run's own sends, not the global list
     const r = (await runsFor("cancellation-rebook"))[0];
     const mine = await asOperator((c) => many<{ channel: string; rendered_body: string }>(c, "select channel, rendered_body from sends where run_id=$1 and status='sent' order by channel", [r.id]));
     expect(mine.map((s) => s.channel)).toEqual(["email", "sms"]);
@@ -102,7 +105,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(sent.slice(n).map((s) => s.kind).sort()).toEqual(["email", "sms"]);
     expect(sent.slice(n).find((s) => s.kind === "sms")?.body).toMatch(/missed each other.*Sam/);
     r = (await runsFor("no-show-recovery"))[0]; expect(r.current_node).toBe("n4");
-    await wake(r.id, ", context = jsonb_set(context, '{vars,__wait_for_reply,n4,deadline}', to_jsonb((now() - interval '1 minute')::text))");
+    await expireReplyWait(r.id, "n4");
     const n2 = since(); await tick(fake);
     expect(sent.slice(n2).map((s) => s.body)).toEqual([expect.stringMatching(/^Want to reschedule/)]);
     expect((await runsFor("no-show-recovery"))[0].exit_reason).toBe("no_reply");

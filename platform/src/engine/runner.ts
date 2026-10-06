@@ -23,9 +23,13 @@ async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ct
   if (!a) return { ok: false, why: "appointment missing" };
   const live = await d.adapters.read.getAppointment(d.adapterCompany, a.ghl_appointment_id);
   if (!live) return { ok: false, why: "appointment deleted in CRM" };
-  if (live.status === "cancelled" || live.status === "invalid") return { ok: false, why: `appointment ${live.status}` };
   await d.c.query("update appointments set ghl_status=$2, starts_at=$3, ends_at=$4, ghl_updated_at=now() where id=$1", [d.run.appointment_id, live.status, live.startTime, live.endTime]);
-  if (chk === "appointment_in_future" && DateTime.fromISO(live.startTime) <= DateTime.now()) return { ok: false, why: "appointment already happened" };
+  if (live.status === "invalid") return { ok: false, why: "appointment invalid" };
+  // appointment_exists: the appointment merely has to be real — cancellation rebook and no-show recovery run precisely BECAUSE it was cancelled or missed
+  if (chk === "appointment_exists") return { ok: true };
+  // appointment_in_future: a reminder for a cancelled or past call is moot
+  if (live.status === "cancelled") return { ok: false, why: "appointment cancelled" };
+  if (DateTime.fromISO(live.startTime) <= DateTime.now()) return { ok: false, why: "appointment already happened" };
   return { ok: true };
 }
 
