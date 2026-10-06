@@ -115,49 +115,32 @@ Two payoffs, both load-bearing:
 
 ---
 
-## D4. Workflows are linear. Variation is more workflows, never a branch.
+## D4. Workflows branch. Every client owns their copy. Triggers sit at the top.
 
-**Tyler, 2026-10-06, settling the "no chaining" question.** A workflow is a straight list of
-steps with exits. There is no node that forks a run down one of two paths. Offer variation,
-client variation, outcome variation — all of it is expressed as **separate, individually
-editable workflows**, each a copy the client owns (D2).
+Third pass on this one, so stated carefully.
 
-What's rejected, precisely: one shared graph that contacts from many clients or offers flow
-through, diverging only at the edges where their paths differ. That model is out. It made
-editing dangerous and the flow view unreadable, and copy-on-install already solves everything
-it was for.
+**Branching inside a workflow: yes, and required.** A `branch` node has N labeled outgoing
+edges, each with a condition — if X go here, if Y go there, if Z go there. The reply workflow
+(D13) is one workflow with a four-way branch after the classifier, not four workflows. A
+`check` node is the two-way case (continue or exit).
 
-### What a step can do instead of branching
-- **Continue** to the next step.
-- **Exit** the run, with a reason (`check` nodes are *gates*: continue-or-exit, never fork).
-- **Record** a fact — write a field, add a tag, create an event.
-- **Start another workflow** as a terminal action. This is how a run hands off to reactivation
-  without duplicating the reactivation steps into every tail. Not a branch: the current run ends,
-  a different run begins.
+**What was rejected, precisely:** one workflow *shared across clients or offers*, with every
+client's contacts flowing through the same graph and diverging only where their paths differ.
+That is out, and copy-on-install (D2) already rules it out — each client has their own copy and
+branches inside it however they like. The copy boundary is between clients. Inside a client's
+copy, branch freely.
 
-### Where the fork went: the trigger table
-A decision that used to be an `if` inside one workflow becomes **one workflow that records the
-decision, and several workflows that trigger on the recorded value.** Each is linear, each is
-editable on its own, and the flow view for any one of them is a straight line.
+**Triggers are the nodes at the top of the workflow**, exactly as in GHL. A workflow can have
+several. Concretely, at Save Your Hair: the "Booking confirmation" workflow has one trigger
+on top reading *New appointment booked on calendar {{calendar.hair_consult}}*. That's it. The
+event arrives (delivery path in D9), the engine matches it to that trigger, a run starts.
 
-```
-Reply received ──► [classify reply → write reply_intent → exit]
-                                │
-      trigger: reply_intent = confirmed   ──► "Confirmed reply" workflow (linear)
-      trigger: reply_intent = cancelled   ──► "Cancelled reply" workflow (linear)
-      trigger: reply_intent = reschedule  ──► "Reschedule request" workflow (linear)
-      trigger: reply_intent = unclear     ──► "Needs a human" workflow (linear)
-```
+Under the hood each trigger is a row so the engine can ask "which workflows care about this
+event?" with an index lookup instead of scanning every definition. That is a performance detail.
+Nobody edits a trigger table; they edit the top of the workflow.
 
-Nothing is lost in expressiveness. The branch still exists; it lives in `workflow_triggers`
-as rows instead of inside a definition as edges, and that is exactly what makes every piece of
-it safe to edit.
-
-### Triggers
-- **`workflow_triggers`** — many rows per workflow instance. Several ways to start the same run;
-  adding one is an INSERT. Because instances are copies, a client changing a trigger changes
-  only their own.
-- **Re-entry policy, required per workflow**, because a contact can trip two triggers:
+### Re-entry policy, required per workflow
+A contact can trip two triggers on the same workflow. Each workflow declares what happens:
 
 | Workflow | Policy | Reason |
 |---|---|---|
@@ -365,59 +348,99 @@ Typeform stays for client-facing intake where it's already working.
 
 ---
 
-## D9. One writer per fact. We store everything; nothing has two writers.
+## D9. Our DB stores everything we need. GHL stays the writer for its own facts. No push back.
 
-Tyler, 2026-10-06: *"pulling from GHL is a bad idea … I would like to store the data."* Right,
-and it doesn't conflict with "no two truths" as long as the rule is stated at the level of a
-**fact**, not a system. Every fact has exactly one writer. Copies are allowed; a second writer
-is not.
+Tyler, 2026-10-06: our DB is the total store of their data; it's truth for what we own and a
+faithful copy for what GHL owns; **we do not push into GHL**; if GHL updates, we get the update;
+avoid a marketplace app; don't store more than we need.
 
-### Two one-way flows, split by who owns the fact
+### No push to GHL
+Our data — intake answers, outcomes, pains and goals — is seen in **our** dashboard and forms,
+not written into GHL custom fields. Simpler, and it removes an entire write path. The one
+consequence worth saying out loud: a closer looking at the GHL contact card won't see intake
+answers there. They see them in our call prep view. If that turns out to hurt, revisit; it's
+cheap to add later and expensive to maintain from day one.
 
-**Facts we own → our DB is truth → pushed to GHL for display.**
-Everything collected by our forms (D8): intake answers, call outcomes, pains and goals,
-dispositions, EOD recaps. The form writes our DB first. We then **write the value into GHL
-custom fields** so the closer sees "hair loss level: 4" on the contact card. GHL holds a
-display copy. We never read it back for that fact.
+### Delivery without a marketplace app: thin GHL workflows, shipped in the snapshot
+Each is one trigger and one action: **trigger → Webhook action → POST to our endpoint** with
+the client's secret. Built once in the template location, so every install gets them.
 
-This inverts the sync problem for all intake data. The custom field in GHL exists for the
-human looking at the CRM, not for us.
+| Thin workflow | GHL trigger |
+|---|---|
+| Contact created / changed | Contact Created · Contact Changed |
+| Tag added / removed | Contact Tag |
+| Appointment booked / status changed | Appointment Status |
+| Pipeline stage changed | Pipeline Stage Changed |
+| Inbound message | Customer Replied |
+| Form submitted (GHL-native forms, if any) | Form Submitted |
+| Opportunity status changed | Opportunity Status Changed |
+| Payment received / failed | Payment Received · Invoice Failed (plan-dependent) |
 
-**Facts GHL owns → GHL is truth → pushed to our DB as a replica.**
-Contact identity, appointment bookings and confirmation status, pipeline stage, tags set by a
-human in the UI, inbound and outbound messages. GHL writes these. We hold a **replica**, kept
-current by:
-1. **Marketplace-app webhooks** for freshness — `ContactCreate/Update/Delete/TagUpdate`,
-   `Appointment*`, `Opportunity*`, `InboundMessage/OutboundMessage`. This is now the recommended
-   path (reversing the earlier "overkill" call — a synced replica of GHL-owned facts needs real
-   event subscriptions, and a thin-workflow-per-event hack doesn't cover "any field changed").
-2. **The reconciliation sweep (D5)** for correctness — periodic re-read and diff, so a dropped
-   webhook is a delay, not a permanent divergence.
+Costs, named: the Webhook action is a **premium action on some GHL plans with per-execution
+billing** — verify on the client's plan before the install SOP depends on it. These are built in
+the GHL UI (no API create), which the snapshot absorbs. If a client's admin deletes or edits one,
+events go silent — the sweep notices the silence and alerts.
 
-### The one read that still goes to source
-**Premise checks (D5b) read GHL directly, not the replica.** A contact cancelled thirty seconds
-ago with the webhook still in flight must not get a reminder off stale replica state. That's the
-single place where staleness has a cost, so it's the single place that pays for a live read.
-Everything else — display, analytics, correlation queries, the flow view — reads the replica.
+Marketplace app is **parked**, not dead: it's the upgrade path if thin workflows ever prove
+too coarse or too expensive at scale.
+
+### The reconciliation sweep is still the correctness guarantee
+Webhooks are for freshness. The sweep re-reads and diffs on a slow cadence so a dropped POST is
+a delay, never permanent drift. **Premise checks (D5b) still read GHL live**, because a contact
+who cancelled thirty seconds ago must not get a reminder off a replica that hasn't heard yet.
+
+### What we store, and what we don't
+"The entire GHL" is the wrong frame. We store the **structured fields of the events we
+subscribe to**, and that's small:
+
+| Store | Why |
+|---|---|
+| Contacts: id, name, email, phone, tags, custom field values, source | A few KB each. 20k contacts is tens of MB. |
+| Appointments: id, times, calendar, assigned user, status | Tiny. |
+| Opportunities: id, pipeline, stage, value | Tiny. |
+| SMS: metadata **and body** | Reply classification (D13) needs the text. |
+| Email: metadata and message id, **not the body** | HTML bodies are the one thing that bloats. Fetch on demand if ever needed. |
+| Recordings and transcripts: **pointer only** | Already decided in D1. |
+| GHL configuration (calendars, pipelines, users) | **Not stored.** Read through on demand; changes rarely, small. |
+
+A coaching business at 20k contacts and 100k messages lands well under a gigabyte. Postgres
+doesn't notice.
 
 ### Custom, per-business data: `attributes` JSONB, schema owned by the form
 "How bad is your hair" exists on one offer and not another. It does not get a column. Our intake
-record carries an `attributes` JSONB column, and **the form definition is its schema**: when a
-form declares a question with key `hair_loss_level`, type `integer`, range 1–5, that key becomes
-a typed, validated, queryable attribute for that client.
+record carries an `attributes` JSONB, and **the form definition is its schema**: a question with
+key `hair_loss_level`, type `integer`, range 1–5 becomes a typed, validated, queryable attribute
+for that client. No migration per offer.
 
-- Queryable: `attributes->>'hair_loss_level'`, GIN-indexed.
-- No migration per client, no sparse table of 400 nullable columns.
-- **Typed at the form, validated at ingest.** The correlation ambition dies if one install stores
-  `"4"` and another stores `4`. The form says `integer`; the ingest refuses a string.
-- Human-entered GHL custom fields (a closer typing into the contact card) land in a separate
-  `ghl_fields` JSONB on the replica, so the ownership line stays visible in the schema itself.
+**Proven, not asserted** — run against Postgres 16 with sample data on 2026-10-06:
 
-The payoff is the question Tyler actually wants answered — *how does hair loss level correlate
-with close probability?* — which is a join between an attribute we own and an outcome we own,
-across a client's whole book, with no GHL call in the path.
+```sql
+-- "give me all contacts who said hair loss level is 4"
+select contact_id from intake where (attributes->>'hair_loss_level')::int = 4;
 
-Verified read and write paths in `../ghl/02-api-facts.md`.
+-- "...or 'moderate'"
+select count(*) from intake where attributes->>'severity' = 'moderate';
+
+-- "hair loss level vs show rate"
+select (i.attributes->>'hair_loss_level')::int as hair_loss,
+       count(*) as booked,
+       count(*) filter (where a.status = 'showed') as showed,
+       round(100.0 * count(*) filter (where a.status = 'showed') / count(*)) || '%' as show_rate
+from intake i join appointments a using (contact_id)
+where i.client_id = $1
+group by 1 order by 1;
+```
+
+Two attributes crossed (income band × severity → show rate) works the same way. A GIN index on
+`attributes` serves containment queries (`@>`); the planner uses it when the predicate is
+selective and correctly scans instead when a value matches a large share of rows (tested at 60k
+rows: "severity = severe" at one-third of rows scanned; a value on 3 rows used the index). If one
+attribute ever becomes hot across every client, promote it to a real column — standard practice,
+no redesign.
+
+**Typed at the form, refused at ingest if wrong.** The correlation dies the moment one install
+stores `"4"` and another stores `4`. Human-entered GHL custom fields land in a separate
+`ghl_fields` JSONB on the contact replica so the ownership line stays visible in the schema.
 
 ---
 
@@ -464,26 +487,54 @@ dashboard number is eventually computed from.
 
 ---
 
-## D13. The reply workflow — Jev decides, a human catches the rest
+## D13. The reply workflow — one workflow, a four-way branch, Jev decides
 
-Inbound reply to a reminder or outreach text. One linear workflow, per D4:
+Inbound reply to a reminder or outreach text. **One workflow**, branching inside it (D4):
 
-1. **Trigger:** `InboundMessage` for a contact with an active reminder or outreach run.
-2. **Classify** with Jev, `choice` over the controlled set:
-   `confirmed · cancelled · reschedule_request · question · unclear`, with the recent outbound
-   message as `state` so "yes" means something.
-3. **Confidence gate.** Below threshold → the result is `unclear` regardless of the mode.
-4. **Record** `reply_intent` on the contact and in `events`. Exit.
+```
+[trigger: Customer Replied (SMS), while a run is live]
+  → classify (Jev · choice over confirmed/cancelled/reschedule_request/question/unclear,
+               state = last outbound message)
+  → confidence gate (below threshold → unclear)
+  → branch on reply_intent
+      confirmed  → tag confirmed → exit
+      cancelled  → update appointment → notify closer → exit
+      reschedule → send rebook link → exit
+      unclear    → tag needs-human-reply → internal note → pause reminders → exit
+```
 
-Then four separate, editable workflows trigger on the recorded value (the fan-out in D4). The
-`unclear` one, verified end to end against the live location:
-
-- Tag the contact `needs-human-reply` → a smart list filters on the tag (smart lists can't be
-  created by API; tags can).
-- Write an internal note on the contact: the original text, the top guesses with their
-  probabilities, and a plain line that a human needs to look. Verified: `POST /contacts/{id}/notes`.
-- Pause any active reminder run for that contact so the engine doesn't keep texting someone
-  who's mid-conversation with a human.
+The `unclear` path is verified end to end against the live location: tag (a smart list filters on
+it, since smart lists can't be created by API), internal note via `POST /contacts/{id}/notes`
+with the original text and the top guesses with probabilities, and a pause on any live reminder
+run so the engine stops texting someone who's mid-conversation with a human.
 
 **What the engine never does with an unclear reply:** guess. A classifier that returns
 calibrated probabilities is only valuable if the low-confidence path is honored.
+
+---
+
+## D14. Time rules — "the morning of, in their timezone" is a wait rule, not a cron
+
+There is one cron: the scheduler tick. Everything else is a **`wait_until` node** that computes
+`next_run_at` from a rule. A cron can't know about an individual appointment; a wait rule can.
+
+A rule has four parts:
+
+| Part | Example |
+|---|---|
+| **anchor** | `appointment.start_time` · `contact.created_at` · `now` |
+| **rule** | `day_of @ 08:00` · `day_before @ 19:00` · `-1h` · `+2d` |
+| **timezone** | `contact` · `client` · `closer` |
+| **fallback** | what to use if the result violates a guard |
+
+Tyler's two examples:
+
+- *"the morning of their appointment, in their timezone"* → anchor `appointment.start_time`,
+  rule `day_of @ 08:00`, tz `contact`.
+- *"…unless it's before 10am"* → same, plus a guard: if the computed time is less than 2h before
+  the appointment, fall back to `day_before @ 19:00`. The guard is the real content of "unless";
+  the fallback is what makes it a rule instead of a hole.
+
+Rules are **named and reusable** so the editor shows a dropdown (*Morning of · Evening before ·
+1 hour before · 24 hours before · Next business morning*) and a client can add their own. The
+send window (D5d) still applies after the rule, and the moot check (D5b) after that.

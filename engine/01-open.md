@@ -105,17 +105,15 @@ is a divergence a blocking state (can't take template updates until resolved) or
 (update anyway, keep a backup)? **Recommend advisory with an explicit diff confirmation** —
 blocking means a client's small tweak freezes them out of every future fix.
 
-## 10. Marketplace app — now on the critical path
-D9's synced replica needs real event subscriptions, which means a marketplace app with an OAuth
-install per client instead of a PIT. Confirmed event families: Contact, Opportunity,
-Appointment, Inbound/OutboundMessage. Still to verify, and these shape the replica design:
-- Does `ContactUpdate` carry custom field values in the payload, or only that something changed
-  (forcing a follow-up read)?
-- Signature header and verification mechanism for inbound webhooks.
-- Retry policy when our endpoint is down — determines how much the reconciliation sweep has to
-  carry.
-- Whether a PIT can be kept alongside for the write path, or everything moves to the app's
-  OAuth token. Affects the install SOP and credential rotation (open question 5).
+## 10. Thin-workflow delivery — verify in the GHL UI (can't be tested by API)
+Marketplace app is parked per Tyler. The thin-workflow path (D9) needs three things confirmed by
+building one in the template location:
+- The **Contact Changed** trigger exists on the client's plan and can filter by field.
+- The Webhook action's payload carries **custom field values**, not just the contact id.
+- Whether the Webhook action is billed as a **premium action** on the target plan, and at what
+  rate — this is a per-install cost line if so.
+Also: what the POST looks like when it fails (does GHL retry?), which sets how much the sweep
+has to carry.
 
 ## 11. Jev threshold tuning
 The confidence cutoff for `unclear` (D13) is a number that needs real replies to set. Start
