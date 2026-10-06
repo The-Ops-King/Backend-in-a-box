@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import { notFound } from "next/navigation";
 import { company, contact } from "@/ui/queries";
 import { ago, badge, when } from "@/ui/format";
@@ -22,13 +23,13 @@ export default async function ContactPage({ params }: { params: Promise<{ slug: 
       </div>
       <div>
         <h2 style={{ marginTop: 0 }}>Runs</h2>
-        {ct.runs.length === 0 ? <div className="empty">None.</div> : <table><tbody>{ct.runs.map((r) => <tr key={r.id}><td><Link href={`/c/${slug}/r/${r.id}`}>{r.workflow}</Link></td><td><span className={badge(r.status)}>{r.status}</span></td><td>{r.exit_reason ?? ""}</td><td>{ago(r.started_at)}</td></tr>)}</tbody></table>}
+        {ct.runs.length === 0 ? <div className="empty">None.</div> : <div className="tbl"><table><tbody>{ct.runs.map((r) => <tr key={r.id}><td><Link href={`/c/${slug}/r/${r.id}`}>{r.workflow}</Link></td><td><span className={badge(r.status)}>{r.status}</span></td><td>{r.exit_reason ?? ""}</td><td>{ago(r.started_at)}</td></tr>)}</tbody></table></div>}
         <h2>Messages</h2>
-        {ct.msgs.length === 0 ? <div className="empty">None.</div> : <table><tbody>{ct.msgs.map((m, i) => <tr key={i}><td><span className="badge b-type">{m.channel} {m.direction === "inbound" ? "←" : "→"}</span></td><td style={{ whiteSpace: "pre-wrap" }}>{m.body ?? m.subject ?? "(email)"}</td><td>{ago(m.occurred_at)}</td></tr>)}</tbody></table>}
+        {ct.msgs.length === 0 ? <div className="empty">None.</div> : <div className="tbl"><table><tbody>{ct.msgs.map((m, i) => <tr key={i}><td><span className="badge b-type">{m.channel} {m.direction === "inbound" ? "←" : "→"}</span></td><td style={{ whiteSpace: "pre-wrap" }}>{m.body ?? m.subject ?? "(email)"}</td><td>{ago(m.occurred_at)}</td></tr>)}</tbody></table></div>}
         <h2>Attributes</h2>
-        {Object.keys(ct.attributes).length === 0 ? <div className="empty">No intake yet.</div> : <dl className="kv">{Object.entries(ct.attributes).map(([k, v]) => <><dt key={k + "k"} className="mono">{k}</dt><dd key={k + "v"}>{String(v)}</dd></>)}</dl>}
+        {Object.keys(ct.attributes).length === 0 ? <div className="empty">No intake yet.</div> : <dl className="kv">{Object.entries(ct.attributes).map(([k, v]) => <Fragment key={k}><dt className="mono">{k}</dt><dd>{String(v)}</dd></Fragment>)}</dl>}
         <h2>Identifiers</h2>
-        <dl className="kv">{ct.idents.map((i) => <><dt key={i.kind + i.value + "k"}>{i.kind}</dt><dd key={i.kind + i.value + "v"} className="mono">{i.value}</dd></>)}</dl>
+        <dl className="kv">{ct.idents.map((i) => <Fragment key={i.kind + i.value}><dt>{i.kind}</dt><dd className="mono">{i.value}</dd></Fragment>)}</dl>
       </div>
     </div>
   </>);

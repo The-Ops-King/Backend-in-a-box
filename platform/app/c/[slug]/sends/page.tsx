@@ -12,7 +12,7 @@ export default async function SendsPage({ params }: { params: Promise<{ slug: st
     <h1>{shadow ? "What would have gone out" : "Sends"}</h1>
     <p className="sub">{shadow ? "The company is in shadow mode: these messages were rendered and recorded, not sent. Read them like a transcript of what the workflows would have done." : "Every message the engine sent, suppressed, or failed to send."} Latest 100.</p>
     {rows.length === 0 ? <div className="empty">Nothing yet. Turn on a workflow and let the poller see something happen.</div> :
-    <table><thead><tr><th>When</th><th>To</th><th>Via</th><th>Status</th><th>Message</th><th>Workflow</th></tr></thead><tbody>
+    <div className="tbl"><table><thead><tr><th>When</th><th>To</th><th>Via</th><th>Status</th><th>Message</th><th>Workflow</th></tr></thead><tbody>
       {rows.map((s) => <tr key={s.id}>
         <td>{ago(s.sent_at ?? s.scheduled_for)}</td>
         <td><Link href={`/c/${slug}/contacts/${s.contact_id}`}>{s.contact.trim() || "—"}</Link></td>
@@ -21,6 +21,6 @@ export default async function SendsPage({ params }: { params: Promise<{ slug: st
         <td style={{ whiteSpace: "pre-wrap", maxWidth: 520 }}>{s.rendered_body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || <span style={{ color: "var(--muted)" }}>(nothing rendered)</span>}</td>
         <td>{s.run_id ? <Link href={`/c/${slug}/r/${s.run_id}`}>{s.workflow ?? "run"}</Link> : "—"}</td>
       </tr>)}
-    </tbody></table>}
+    </tbody></table></div>}
   </>);
 }

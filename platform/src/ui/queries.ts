@@ -9,10 +9,11 @@ export const listCompanies = () => asOperator((c) => many<{ id: string; name: st
     (select max(last_success_at) from poll_cursors where company_id=co.id) as last_poll
   from companies co order by co.created_at`));
 
-export const globalStats = () => asOperator((c) => one<{ companies: number; runs_24h: number; sends_24h: number; failed_24h: number; events_24h: number }>(c, `
+export const globalStats = () => asOperator((c) => one<{ companies: number; runs_24h: number; sends_24h: number; shadow_24h: number; failed_24h: number; events_24h: number }>(c, `
   select (select count(*) from companies where status in ('active','hosted')) as companies,
          (select count(*) from runs where started_at > now()-interval '24h') as runs_24h,
          (select count(*) from sends where status='sent' and sent_at > now()-interval '24h') as sends_24h,
+         (select count(*) from sends where status='shadow' and sent_at > now()-interval '24h') as shadow_24h,
          (select count(*) from runs where status='failed' and started_at > now()-interval '24h') as failed_24h,
          (select count(*) from events where occurred_at > now()-interval '24h') as events_24h`));
 

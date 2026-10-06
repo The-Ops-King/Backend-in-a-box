@@ -24,12 +24,12 @@ export default async function WorkflowPage({ params }: { params: Promise<{ slug:
     <h2>Flow chart</h2>
     <Mermaid chart={toMermaid(w.definition)} />
     <div className="grid g2" style={{ marginTop: 22, alignItems: "start" }}>
-      <div><h2 style={{ marginTop: 0 }}>Steps</h2><Flow def={w.definition} /></div>
+      <div><details className="steps"><summary>Step by step, in words</summary><Flow def={w.definition} /></details></div>
       <div>
         <h2 style={{ marginTop: 0 }}>Bindings this workflow needs</h2>
-        <table><tbody>{w.manifest.bindings.map((b) => <tr key={b.key}><td className="mono">{b.key}</td><td><span className={badge(w.bound.includes(b.key) ? "ok" : b.required ? "failed" : "skipped")}>{w.bound.includes(b.key) ? "bound" : b.required ? "missing" : "optional, unbound"}</span></td></tr>)}</tbody></table>
+        <div className="tbl"><table><tbody>{w.manifest.bindings.map((b) => <tr key={b.key}><td className="mono">{b.key}</td><td><span className={badge(w.bound.includes(b.key) ? "ok" : b.required ? "failed" : "skipped")}>{w.bound.includes(b.key) ? "bound" : b.required ? "missing" : "optional, unbound"}</span></td></tr>)}</tbody></table></div>
         <h2>Versions</h2>
-        <table><tbody>{w.versions.map((v) => <tr key={v.version}><td>v{v.version}</td><td>{ago(v.saved_at)}</td><td style={{ color: "var(--muted)" }}>{v.note ?? ""}</td></tr>)}</tbody></table>
+        <div className="tbl"><table><tbody>{w.versions.map((v) => <tr key={v.version}><td>v{v.version}</td><td>{ago(v.saved_at)}</td><td style={{ color: "var(--muted)" }}>{v.note ?? ""}</td></tr>)}</tbody></table></div>
         <h2>Definition</h2>
         <pre className="json">{JSON.stringify(w.definition, null, 2)}</pre>
       </div>

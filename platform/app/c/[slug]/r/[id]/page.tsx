@@ -15,12 +15,12 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
     <h2>Where this run is</h2>
     <Mermaid chart={toMermaid(r.definition, r.steps, r.current_node)} />
     <div className="grid g2" style={{ alignItems: "start" }}>
-      <div><h2 style={{ marginTop: 0 }}>Steps</h2><Flow def={r.definition} steps={r.steps} currentNode={r.current_node} /></div>
+      <div><details className="steps" open><summary>Step by step, in words</summary><Flow def={r.definition} steps={r.steps} currentNode={r.current_node} /></details></div>
       <div>
         <h2 style={{ marginTop: 0 }}>Sends</h2>
-        {r.sends.length === 0 ? <div className="empty">Nothing sent yet.</div> : <table><tbody>{r.sends.map((s, i) => <tr key={i}><td><span className="badge b-type">{s.channel}</span></td><td><span className={badge(s.status)}>{s.status}</span>{s.suppressed_reason ? <div style={{ color: "var(--muted)", fontSize: 12 }}>{s.suppressed_reason}</div> : null}{s.error ? <div style={{ color: "var(--bad)", fontSize: 12 }}>{s.error}</div> : null}</td><td style={{ whiteSpace: "pre-wrap" }}>{s.rendered_body.replace(/<[^>]+>/g, " ").trim()}</td><td>{s.sent_at ? ago(s.sent_at) : ""}</td></tr>)}</tbody></table>}
+        {r.sends.length === 0 ? <div className="empty">Nothing sent yet.</div> : <div className="tbl"><table><tbody>{r.sends.map((s, i) => <tr key={i}><td><span className="badge b-type">{s.channel}</span></td><td><span className={badge(s.status)}>{s.status}</span>{s.suppressed_reason ? <div style={{ color: "var(--muted)", fontSize: 12 }}>{s.suppressed_reason}</div> : null}{s.error ? <div style={{ color: "var(--bad)", fontSize: 12 }}>{s.error}</div> : null}</td><td style={{ whiteSpace: "pre-wrap" }}>{s.rendered_body.replace(/<[^>]+>/g, " ").trim()}</td><td>{s.sent_at ? ago(s.sent_at) : ""}</td></tr>)}</tbody></table></div>}
         <h2>Steps</h2>
-        <table><thead><tr><th>Node</th><th>Status</th><th>When</th></tr></thead><tbody>{r.steps.map((s, i) => <tr key={i}><td className="mono">{s.node_id} <span style={{ color: "var(--muted)" }}>{s.node_type}</span></td><td><span className={badge(s.status)}>{s.status}</span></td><td>{ago(s.started_at)}</td></tr>)}</tbody></table>
+        <div className="tbl"><table><thead><tr><th>Node</th><th>Status</th><th>When</th></tr></thead><tbody>{r.steps.map((s, i) => <tr key={i}><td className="mono">{s.node_id} <span style={{ color: "var(--muted)" }}>{s.node_type}</span></td><td><span className={badge(s.status)}>{s.status}</span></td><td>{ago(s.started_at)}</td></tr>)}</tbody></table></div>
         <h2>Context</h2>
         <pre className="json">{JSON.stringify(r.context, null, 2)}</pre>
       </div>
