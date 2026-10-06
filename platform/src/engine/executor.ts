@@ -12,7 +12,7 @@ import { emitEvent } from "./dispatch";
 export type StepOutcome =
   | { status: "ok"; next: string | null; result?: Record<string, unknown> }
   | { status: "skipped" | "stale"; next: string | null; result?: Record<string, unknown> }
-  | { status: "waiting"; until: DateTime; stay?: boolean; result?: Record<string, unknown> }   // stay: re-execute this same node on wake
+  | { status: "waiting"; until: DateTime; stay?: boolean; wakeOnReply?: boolean; result?: Record<string, unknown> }   // stay: re-execute this same node on wake; wakeOnReply: an inbound message wakes it early
   | { status: "exit"; reason: string; result?: Record<string, unknown> }
   | { status: "paused"; reason: string; result?: Record<string, unknown> }
   | { status: "failed"; error: string };
@@ -87,9 +87,21 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "exit": return { status: "exit", reason: node.reason };
 
     case "wait": {
-      const { at, usedFallback } = computeWaitUntil(node.rule, { now: d.now, contactTz: contactTz(d), companyTz: d.company.timezone, ctx: d.ctx });
-      const w = deferIntoWindow(at, contactTz(d), d.company.send_window_start, d.company.send_window_end);
-      return { status: "waiting", until: w.at, result: { computed: at.toISO(), used_fallback: usedFallback, deferred_into_window: w.deferred } };
+      // Re-evaluated on every wake (stay). A wait anchored on the appointment follows the appointment when it moves:
+      // the poll wakes waiting runs on appointment.rescheduled and this recomputes from the new start. A wait anchored on
+      // "now" must not slide, so its first answer is pinned in the run's context and reused.
+      const key = `__wait.${node.id}.until`;
+      const pinned = node.rule.anchor === "now" ? (resolvePath(d.ctx, `vars.${key}`) as string | undefined) : undefined;
+      let at: DateTime, usedFallback = false, deferred = false;
+      if (pinned) at = DateTime.fromISO(pinned);
+      else {
+        const r = computeWaitUntil(node.rule, { now: d.now, contactTz: contactTz(d), companyTz: d.company.timezone, ctx: d.ctx });
+        const w = deferIntoWindow(r.at, contactTz(d), d.company.send_window_start, d.company.send_window_end);
+        at = w.at; usedFallback = r.usedFallback; deferred = w.deferred;
+        if (node.rule.anchor === "now") setPath(d.ctx, `vars.${key}`, at.toISO());
+      }
+      if (at <= d.now) return { status: "ok", next, result: { waited_until: at.toISO() } };
+      return { status: "waiting", until: at, stay: true, result: { computed: at.toISO(), used_fallback: usedFallback, deferred_into_window: deferred } };
     }
 
     case "send_sms": case "send_email": return doSend(d, node);
@@ -109,7 +121,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const key = `__wait_for_reply.${node.id}.deadline`;
       let deadline = resolvePath(d.ctx, `vars.${key}`) as string | undefined;
       if (!deadline) { deadline = d.now.plus(parseDuration(node.timeout)).toISO()!; setPath(d.ctx, `vars.${key}`, deadline); }
-      if (d.now < DateTime.fromISO(deadline)) return { status: "waiting", until: DateTime.fromISO(deadline), stay: true, result: { deadline } };
+      if (d.now < DateTime.fromISO(deadline)) return { status: "waiting", until: DateTime.fromISO(deadline), stay: true, wakeOnReply: true, result: { deadline } };
       const timeoutEdge = d.edgesFrom(node.id).find((e) => e.label === "timeout");
       return timeoutEdge ? { status: "ok", next: timeoutEdge.to, result: { timed_out: true } } : { status: "exit", reason: "no_reply", result: { timed_out: true } };
     }

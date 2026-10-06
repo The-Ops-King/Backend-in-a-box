@@ -97,7 +97,7 @@ export async function tick(adapters: Adapters, now = DateTime.now()): Promise<Ti
             [step!.id, out.status === "exit" || out.status === "paused" ? "ok" : out.status === "waiting" ? "waiting" : out.status, "result" in out ? out.result ?? {} : {}, "error" in out ? out.error : null]);
           if (out.status === "ok" && (node.type === "send_sms" || node.type === "send_email")) { sendsThisTick++; report.sends++; }
 
-          if (out.status === "waiting") { await finish("waiting", undefined, out.until.toJSDate(), out.stay ? node.id : (edgesFrom(node.id).find((e) => e.label !== "timeout") ?? edgesFrom(node.id)[0])?.to ?? null, ctx, !!out.stay); report.waiting++; return; }
+          if (out.status === "waiting") { await finish("waiting", undefined, out.until.toJSDate(), out.stay ? node.id : (edgesFrom(node.id).find((e) => e.label !== "timeout") ?? edgesFrom(node.id)[0])?.to ?? null, ctx, !!out.wakeOnReply); report.waiting++; return; }
           if (out.status === "exit") { await finish("completed", out.reason, null, node.id, ctx); report.completed++; return; }
           if (out.status === "paused") { await finish("paused", out.reason, null, node.id, ctx); report.paused++; return; }
           if (out.status === "failed") { await finish("failed", out.error, null, node.id, ctx); report.failed++; return; }

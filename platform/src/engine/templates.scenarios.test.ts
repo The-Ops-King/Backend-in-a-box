@@ -45,6 +45,9 @@ const since = () => sent.length;
 const bySlug = (slug: string) => asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug=$2", [companyId, slug]));
 const runsFor = (slug: string) => asOperator((c) => many<{ id: string; status: string; current_node: string | null; exit_reason: string | null; next_run_at: Date | null; contact_id: string }>(c, "select r.id, r.status, r.current_node, r.exit_reason, r.next_run_at, r.contact_id from runs r join workflows w on w.id=r.workflow_id join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug=$2 order by r.started_at", [companyId, slug]));
 const wake = (runId: string) => asOperator((c) => c.query("update runs set next_run_at=now() where id=$1", [runId]));
+/** A timed wait is re-evaluated on wake, so making time pass means moving its pinned answer into the past (what the clock would do). */
+const expireWait = (runId: string, nodeId: string) => asOperator((c) => c.query("update runs set next_run_at=now(), context = jsonb_set(context, $2::text[], to_jsonb($3::text), true) where id=$1",
+  [runId, `{vars,__wait,${nodeId},until}`, new Date(Date.now() - 60e3).toISOString()]));
 /** Make a wait_for_reply deadline already past, as a real ISO string (what the engine itself stores). */
 const expireReplyWait = (runId: string, nodeId: string) => asOperator((c) => c.query("update runs set next_run_at=now(), context = jsonb_set(context, $2::text[], to_jsonb($3::text), true) where id=$1",
   [runId, `{vars,__wait_for_reply,${nodeId},deadline}`, new Date(Date.now() - 60e3).toISOString()]));
@@ -109,8 +112,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     apptStore.set("ANS", snap("noshow"));
     await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snap("confirmed")); await applyAppointment(c, row, adapterCompany, fake, snap("noshow")); });
     let r = (await runsFor("no-show-recovery"))[0]; expect(r).toBeTruthy();
-    await tick(fake); r = (await runsFor("no-show-recovery"))[0]; expect(r.status).toBe("waiting"); expect(r.current_node).toBe("n2");
-    await wake(r.id); const n = since(); await tick(fake);
+    await tick(fake); r = (await runsFor("no-show-recovery"))[0]; expect(r.status).toBe("waiting"); expect(r.current_node).toBe("n1");
+    await expireWait(r.id, "n1"); const n = since(); await tick(fake);
     expect(sent.slice(n).map((s) => s.kind).sort()).toEqual(["email", "sms"]);
     expect(sent.slice(n).find((s) => s.kind === "sms")?.body).toMatch(/missed each other.*Sam/);
     r = (await runsFor("no-show-recovery"))[0]; expect(r.current_node).toBe("n4");
@@ -147,8 +150,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator(async (c) => { const ev = await applyPayment(c, companyId, cns!.id, { whopPaymentId: "P2", amount: 2500, currency: "USD", status: "failed", paidAt: new Date(), raw: {} }); await dispatchEvent(c, ev, { contact: { id: cns!.id } }); });
     const n = since(); await tick(fake);
     expect(sent.slice(n).map((s) => s.kind).sort()).toEqual(["email", "sms"]);
-    let r = (await runsFor("payment-failed"))[0]; expect(r.current_node).toBe("n4"); expect(DateTime.fromJSDate(r.next_run_at!).diffNow("days").days).toBeGreaterThan(1.9);
-    await wake(r.id); await tick(fake);
+    let r = (await runsFor("payment-failed"))[0]; expect(r.current_node).toBe("n3"); expect(DateTime.fromJSDate(r.next_run_at!).diffNow("days").days).toBeGreaterThan(1.9);
+    await expireWait(r.id, "n3"); await tick(fake);
     r = (await runsFor("payment-failed"))[0]; expect(r.exit_reason).toBe("escalated");
     const slack = await asOperator((c) => one<{ status: string; suppressed_reason: string }>(c, "select status, suppressed_reason from sends where run_id=$1 and channel='slack'", [r.id]));
     expect(slack?.status).toBe("suppressed"); expect(slack?.suppressed_reason).toMatch(/unbound: slack/);
@@ -161,7 +164,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(await fire()).toHaveLength(0);
     const n = since(); await tick(fake);
     expect(sent.slice(n).map((s) => s.body)).toEqual([expect.stringMatching(/^Checking in/)]);
-    const r = (await runsFor("reactivation"))[0]; expect(r.current_node).toBe("n3"); expect(DateTime.fromJSDate(r.next_run_at!).diffNow("days").days).toBeGreaterThan(2.9);
+    const r = (await runsFor("reactivation"))[0]; expect(r.current_node).toBe("n2"); expect(DateTime.fromJSDate(r.next_run_at!).diffNow("days").days).toBeGreaterThan(2.9);
     expect(await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "tag.added", source: "ghl_poll", data: { tag: "something-else" } }), { contact: { id } }))).toHaveLength(0);
   });
 
@@ -192,7 +195,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const rem = (await runsFor("appointment-reminder")).find((r) => r.contact_id === id)!;
     expect(rem.status).toBe("waiting"); const parkedUntil = rem.next_run_at!.getTime(); expect(parkedUntil - Date.now()).toBeGreaterThan(3600e3);
     const flags = await asOperator((c) => many<{ wake_on_reply: boolean; current_node: string }>(c, "select wake_on_reply, current_node from runs where contact_id=$1 and status='waiting' order by current_node", [id]));
-    expect(flags.find((f) => f.current_node === "n2")?.wake_on_reply).toBe(false);   // the reminder's timed wait
+    expect(flags.find((f) => f.current_node === "n1")?.wake_on_reply).toBe(false);   // the reminder's timed wait
     // simulate what pollInbound does on an inbound message for this contact
     await asOperator((c) => c.query("update runs set next_run_at=now() where company_id=$1 and contact_id=$2 and status='waiting' and wake_on_reply", [companyId, id]));
     const after = (await runsFor("appointment-reminder")).find((r) => r.contact_id === id)!;

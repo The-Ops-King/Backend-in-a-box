@@ -33,7 +33,11 @@ describe.skipIf(!process.env.DATABASE_URL)("Calendly as the booking source", () 
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='cal'");
-      if (co) { for (const t of ["events", "appointments", "opportunities", "contact_identifiers", "contacts", "calendars", "users", "company_terms", "bindings", "poll_cursors"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) {
+        await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
+        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "appointments", "opportunities", "contact_identifiers", "contacts", "calendars", "users", "company_terms", "bindings", "poll_cursors"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+        await c.query("delete from companies where id=$1", [co.id]);
+      }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('CAL','cal','America/New_York') returning id"))!.id;
       await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories", [companyId]);
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'secret.calendly_token','secret',$4),($1,'calendly.organization','id',$5)", [companyId, Buffer.from("L"), encrypt("p"), encrypt("tok"), Buffer.from("https://api.calendly.com/organizations/O")]);

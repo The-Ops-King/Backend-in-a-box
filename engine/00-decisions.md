@@ -669,3 +669,13 @@ Sequencing note for go-live: the Calendly → GHL Zap expects the setter card to
 three seconds of contact creation (GHL workflow 01 does that today). The engine polls once a
 minute, so the moment the engine replaces workflow 01, the engine's booking workflow must create
 or move the setter card itself. Until the booking workflow is ported, new-lead runs in shadow.
+
+## D20. Timed waits follow the appointment
+
+Found by the funnel test (2026-10-06): a reminder parked for "8am the day of the call" kept its
+wake time when the call moved, so it would have fired on the wrong morning. A `wait` node is now
+re-evaluated on every wake. Waits anchored on the appointment recompute from the current start;
+waits anchored on "now" pin their first answer in the run's context so they cannot slide. Any
+change to an appointment (time or status) wakes the runs parked on it: a moved call re-anchors the
+reminder, a cancelled call makes the reminder exit moot right away instead of at its old wake time.
+Only `wait_for_reply` wakes on an inbound message.

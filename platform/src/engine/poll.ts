@@ -127,6 +127,9 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (baseline) { await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, source_updated_at=$5 where id=$1", [existing.id, s.status, s.startTime, s.endTime, s.dateUpdated ?? new Date()]); if (rep) rep.baselined++; return; }
   await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, assigned_user_id=coalesce($5,assigned_user_id), source_updated_at=$6 where id=$1", [existing.id, s.status, s.startTime, s.endTime, userId, s.dateUpdated ?? new Date()]);
   const type = changes.starts_at ? "appointment.rescheduled" : "appointment.status_changed";
+  // runs parked on this appointment wake now: a wait anchored to it recomputes from the new start, and a run whose premise
+  // no longer holds (reminder for a cancelled call) exits moot immediately instead of at its old wake time
+  await c.query("update runs set next_run_at=now() where company_id=$1 and appointment_id=$2 and status='waiting'", [co.id, existing.id]);
   const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: existing.id, event_type: type, source: "ghl_poll", data: { source, ...changes } });
   const started = await dispatchEvent(c, ev, { contact: { id: contact.id }, appointment: { id: existing.id, starts_at: s.startTime, status: s.status } });
   if (rep) { rep.appointmentsChanged++; rep.eventsDispatched += started.length; }
