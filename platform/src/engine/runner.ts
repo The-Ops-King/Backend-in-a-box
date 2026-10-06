@@ -42,10 +42,12 @@ export async function tick(adapters: Adapters, now = DateTime.now()): Promise<Ti
     const last = st?.value.last_tick ? DateTime.fromISO(st.value.last_tick) : undefined;
     report.recovery = !!last && now.diff(last, "minutes").minutes > RECOVERY_AFTER_MIN;
     await c.query("insert into engine_state (key, value, updated_at) values ('scheduler', $1, now()) on conflict (key) do update set value=$1, updated_at=now()", [{ last_tick: now.toISO(), recovery: report.recovery }]);
+    // Due-ness is decided by the database clock, the same clock that wrote next_run_at. Comparing against a JS
+    // timestamp (ms) lost a race against Postgres now() (µs) when a wake and a tick landed in the same millisecond.
     return many<RunRow>(c, `update runs set claimed_at=now(), claimed_by=$1 where id in (
-        select id from runs where status in ('active','waiting') and next_run_at <= $2
-          and (claimed_at is null or claimed_at < $2::timestamptz - interval '${LEASE_MIN} minutes')
-        order by next_run_at limit ${BATCH} for update skip locked) returning *`, [claimedBy, now.toJSDate()]);
+        select id from runs where status in ('active','waiting') and next_run_at <= now()
+          and (claimed_at is null or claimed_at < now() - interval '${LEASE_MIN} minutes')
+        order by next_run_at limit ${BATCH} for update skip locked) returning *`, [claimedBy]);
   });
   report.claimed = runs.length;
   let sendsThisTick = 0;
