@@ -146,3 +146,27 @@ every reminder text goes through it, so it gets a test file before the first sen
 expires mid-step. Default: lease = 2× expected step time, expired lease = step re-executes
 against the idempotent `sends` ledger, so the worst case is a duplicate *attempt*, never a
 duplicate *send*.
+
+---
+
+## After the MVP (2026-10-06)
+
+Settled by building: #4 scheduler cadence (1-min tick, claim via `for update skip locked`,
+5-minute lease, 100-run batch, 50 steps per run per tick), #15 formatter (tested; DST edge
+cases still open), #16 claim semantics (expired lease → step re-executes against the idempotent
+`sends` ledger; worst case is a duplicate attempt, never a duplicate send).
+
+## 17. Reply detection lag
+A waiting run is woken when an inbound message arrives for its contact (`next_run_at = now`),
+but the reminder template waits a fixed `+4h` before checking for a reply. Better: a
+`wait_for_reply` node with a timeout, so a "yes" at minute 3 is handled at minute 4. Small, do it
+before the first client.
+
+## 18. Vercel GitHub connection and production database
+Blocking deploy. Both need Tyler (see `platform/README.md`).
+
+## 19. First-poll baseline for a company with live appointments
+Baseline marks every existing appointment as already-known, so a reminder template installed
+today does NOT remind people booked yesterday for tomorrow. That's the safe default; an
+"also schedule reminders for upcoming existing bookings" install option is a reasonable ask
+and a one-day build.
