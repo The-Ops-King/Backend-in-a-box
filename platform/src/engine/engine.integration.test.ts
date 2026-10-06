@@ -14,6 +14,7 @@ import type { Adapters, AppointmentSnapshot, Classification } from "@/adapters/t
 import { applyAppointment } from "@/engine/poll";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
+import { recordDisposition } from "@/engine/disposition";
 
 const HAS_DB = !!process.env.DATABASE_URL;
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -128,6 +129,25 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
     expect(r.completed).toBe(1);
     const run = await asOperator((c) => one<{ exit_reason: string }>(c, "select exit_reason from runs where company_id=$1 and reentry_key='appointment:timeout'", [companyId]));
     expect(run?.exit_reason).toBe("no_reply");
+  });
+
+  it("disposition: showed + follow_up emits call.held and starts post-call follow-up; noshow starts no-show recovery once", async () => {
+    await asOperator(async (c) => {
+      const [showed, noshow] = await Promise.all([one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_outcome' and category='showed'", [companyId]), one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_outcome' and category='noshow'", [companyId])]);
+      const followUp = await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category='follow_up'", [companyId]);
+      const r1 = await recordDisposition(c, { companyId, appointmentId: apptId, outcomeTermId: showed!.id, callOutcomeTermId: followUp!.id, notes: "wants to think" });
+      expect(r1.events).toBe(2);
+      const pc = await one<{ status: string }>(c, "select r.status from runs r join workflows w on w.id=r.workflow_id where w.name='Post-call follow-up' and r.appointment_id=$1", [apptId]);
+      expect(pc?.status).toBe("active");
+      const r2 = await recordDisposition(c, { companyId, appointmentId: apptId, outcomeTermId: noshow!.id });
+      expect(r2.runs).toBe(1);
+      const r3 = await recordDisposition(c, { companyId, appointmentId: apptId, outcomeTermId: noshow!.id });   // same appointment again → reentry blocks a second run
+      expect(r3.runs).toBe(0);
+      const ns = await many(c, "select 1 from runs r join workflows w on w.id=r.workflow_id where w.name='No-show recovery' and r.appointment_id=$1", [apptId]);
+      expect(ns).toHaveLength(1);
+      const j = await many<{ event_type: string }>(c, "select event_type from events where appointment_id=$1 and source='disposition' order by id", [apptId]);
+      expect(j.map((e) => e.event_type)).toEqual(["appointment.outcome", "call.held", "appointment.outcome", "appointment.outcome"]);
+    });
   });
 
   it("premise check: a cancelled appointment exits the run instead of sending", async () => {

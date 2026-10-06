@@ -31,3 +31,8 @@ td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}tr:l
 .kv{display:grid;grid-template-columns:160px 1fr;gap:6px 14px}.kv dt{color:var(--muted)}.kv dd{margin:0}
 .empty{color:var(--muted);padding:24px;text-align:center;background:var(--paper);border:1px dashed var(--line);border-radius:6px}
 pre.json{background:#f6f4ee;border:1px solid var(--line);border-radius:6px;padding:12px;overflow:auto;font-size:12px;max-height:360px}
+
+.btn{font:inherit;font-weight:600;padding:7px 14px;border-radius:5px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer}
+.btn-on{background:var(--green);border-color:var(--green);color:#fff}.btn-on:hover{background:var(--green-lt)}.btn-off{color:var(--bad)}
+.form fieldset{border:0;padding:0;margin:0 0 14px}.form legend{font-weight:600;margin-bottom:6px}.form label{display:block;padding:3px 0}
+.form select,.form textarea{font:inherit;width:100%;max-width:420px;padding:7px 9px;border:1px solid var(--line);border-radius:5px;background:var(--paper);color:var(--ink)}

@@ -71,3 +71,23 @@ export const contact = (id: string) => asOperator(async (c) => {
   const idents = await many<{ kind: string; value: string }>(c, "select kind, value from contact_identifiers where contact_id=$1 order by kind", [id]);
   return { ...ct, journey, runs, msgs, idents };
 });
+
+export const companyAppointments = (companyId: string) => asOperator((c) => many<{ id: string; starts_at: Date; ghl_status: string; contact: string; contact_id: string; closer: string | null; term: string; outcome: string | null; call_outcome: string | null; dispositioned_at: Date | null }>(c, `
+  select a.id, a.starts_at, a.ghl_status, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact, ct.id as contact_id, u.name as closer, t.name as term,
+         o.name as outcome, co.name as call_outcome, a.dispositioned_at
+  from appointments a join contacts ct on ct.id=a.contact_id left join users u on u.id=a.assigned_user_id join company_terms t on t.id=a.appointment_term
+  left join company_terms o on o.id=a.outcome_term left join company_terms co on co.id=a.call_outcome_term
+  where a.company_id=$1 and a.starts_at > now()-interval '7 days' and a.starts_at < now()+interval '14 days' order by a.starts_at desc`, [companyId]));
+
+export const appointment = (id: string) => asOperator((c) => one<{ id: string; company_id: string; starts_at: Date; ends_at: Date; ghl_status: string; contact: string; contact_id: string; closer: string | null; term: string; term_id: string; outcome: string | null; call_outcome: string | null; dispositioned_at: Date | null; notes: string | null }>(c, `
+  select a.id, a.company_id, a.starts_at, a.ends_at, a.ghl_status, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact, ct.id as contact_id, u.name as closer, t.name as term, t.id as term_id,
+         o.name as outcome, co.name as call_outcome, a.dispositioned_at, fs.answers->>'notes' as notes
+  from appointments a join contacts ct on ct.id=a.contact_id left join users u on u.id=a.assigned_user_id join company_terms t on t.id=a.appointment_term
+  left join company_terms o on o.id=a.outcome_term left join company_terms co on co.id=a.call_outcome_term left join form_submissions fs on fs.id=a.disposition_id
+  where a.id=$1`, [id]));
+
+export const terms = (companyId: string, domain: string) => asOperator((c) => many<{ id: string; name: string; category: string }>(c, "select id, name, category from company_terms where company_id=$1 and domain=$2 and active order by sort, name", [companyId, domain]));
+
+export const companyEvents = (companyId: string, limit = 40) => asOperator((c) => many<{ id: number; event_type: string; source: string; occurred_at: Date; contact: string; contact_id: string | null; data: Record<string, unknown> }>(c, `
+  select e.id, e.event_type, e.source, e.occurred_at, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact, e.contact_id, e.data
+  from events e left join contacts ct on ct.id=e.contact_id where e.company_id=$1 order by e.occurred_at desc, e.id desc limit ${limit}`, [companyId]));

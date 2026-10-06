@@ -2,7 +2,7 @@
   "slug": "no-show-recovery",
   "name": "No-show recovery",
   "category": "no_show",
-  "description": "Ten minutes after a no-show: text and email with the rebook link, a day for a reply, then one more email.",
+  "description": "Ten minutes after a no-show (from GHL's status or our disposition form): text and email with the rebook link, a day for a reply, then one more email.",
   "definition": {
     "schema": 1,
     "reentry": "once_per_appointment",
@@ -17,6 +17,17 @@
         "match": {
           "eq": [
             "{{event.status.to}}",
+            "noshow"
+          ]
+        }
+      },
+      {
+        "id": "t2",
+        "type": "trigger",
+        "event": "appointment.outcome",
+        "match": {
+          "eq": [
+            "{{event.outcome}}",
             "noshow"
           ]
         }
@@ -87,6 +98,10 @@
     "edges": [
       {
         "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "t2",
         "to": "n1"
       },
       {
