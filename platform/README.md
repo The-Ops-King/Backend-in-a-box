@@ -94,7 +94,11 @@ pnpm test
 ## Deploy (Vercel)
 
 Project `backend-in-a-box` exists in team `jtylerray` (root directory `platform`). The route
-`/api/tick` checks `Authorization: Bearer $CRON_SECRET`.
+`/api/tick` checks `Authorization: Bearer $CRON_SECRET`. Only one tick runs at a time: it takes a
+6-minute lease in `engine_state` (`tick_lock`), and any tick that arrives while the lease is held
+answers `200 { busy: true }` and does nothing. A tick killed mid-flight frees the lease by expiry.
+The first tick after installing a company is the baseline and can take a few minutes for a large
+location; a client that times out waiting for it has not stopped it.
 
 **Scheduling depends on the Vercel plan.** The team is on Hobby today, which allows daily crons only
 — a deploy with `* * * * *` is rejected outright (`cron_jobs_limits_reached`). So:

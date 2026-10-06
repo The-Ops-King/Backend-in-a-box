@@ -100,15 +100,12 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (rep) { rep.appointmentsChanged++; rep.eventsDispatched += started.length; }
 }
 
-async function pollAppointments(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) {
-  const cals = await many<{ ghl_calendar_id: string }>(c, "select ghl_calendar_id from calendars where company_id=$1 and active", [co.id]);
+async function pollCalendar(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, calendarId: string) {
+  const entity = `appointments:${calendarId}`;
   const from = DateTime.now().minus({ days: 2 }).toJSDate(), to = DateTime.now().plus({ days: 60 }).toJSDate();
-  for (const cal of cals) {
-    const entity = `appointments:${cal.ghl_calendar_id}`;
-    const { isBaseline } = await cursor(c, co.id, entity, DateTime.now());
-    try { for (const s of await adapters.read.appointmentsInWindow(ac, cal.ghl_calendar_id, from, to)) await applyAppointment(c, co, ac, adapters, s, rep, isBaseline); await saveCursor(c, co.id, entity, DateTime.now().toISO()!, true); }
-    catch (e) { await saveCursor(c, co.id, entity, "", false); rep.errors.push({ company: co.slug, entity, error: String((e as Error).message) }); }
-  }
+  const { isBaseline } = await cursor(c, co.id, entity, DateTime.now());
+  for (const s of await adapters.read.appointmentsInWindow(ac, calendarId, from, to)) await applyAppointment(c, co, ac, adapters, s, rep, isBaseline);
+  await saveCursor(c, co.id, entity, DateTime.now().toISO()!, true);
 }
 
 async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) {
@@ -133,21 +130,38 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
   await saveCursor(c, co.id, "conversations", max.toISO()!, true);
 }
 
+type EntityPoll = (c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) => Promise<void>;
+
+/**
+ * One transaction PER ENTITY. A SQL error aborts the whole Postgres transaction, so catching inside it and running
+ * more statements only yields "current transaction is aborted" and loses the entities that had succeeded. Each entity
+ * commits or rolls back on its own; the failure counter is written afterwards in a fresh transaction.
+ */
 export async function pollAll(adapters: Adapters): Promise<PollReport> {
   const rep: PollReport = { companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, eventsDispatched: 0, baselined: 0, errors: [] };
   const companies = await asOperator((c) => many<{ id: string }>(c, "select id from companies where status in ('active','hosted')"));
   for (const { id } of companies) {
     rep.companies++;
-    await asOperator(async (c) => {
-      let loaded: Awaited<ReturnType<typeof loadCompany>>;
-      try { loaded = await loadCompany(c, id); }
-      catch (e) { rep.errors.push({ company: id, entity: "bindings", error: `cannot load bindings: ${(e as Error).message}` }); return; }   // one bad key must not stop every other company
-      const { row: co, adapterCompany: ac } = loaded;
-      if (!ac.pit || !ac.locationId) { rep.errors.push({ company: co.slug, entity: "bindings", error: "crm.location_id / secret.ghl_pit not bound" }); return; }
-      for (const [entity, fn] of [["contacts", pollContacts], ["appointments", pollAppointments], ["conversations", pollInbound]] as const) {
-        try { await fn(c, co, ac, adapters, rep); } catch (e) { rep.errors.push({ company: co.slug, entity, error: String((e as Error).message) }); if (entity !== "appointments") await saveCursor(c, co.id, entity, "", false); }
+    let loaded: Awaited<ReturnType<typeof loadCompany>>;
+    try { loaded = await asOperator((c) => loadCompany(c, id)); }
+    catch (e) { rep.errors.push({ company: id, entity: "bindings", error: `cannot load bindings: ${(e as Error).message}` }); continue; }   // one bad key must not stop every other company
+    const { row: co, adapterCompany: ac } = loaded;
+    if (!ac.pit || !ac.locationId) { rep.errors.push({ company: co.slug, entity: "bindings", error: "crm.location_id / secret.ghl_pit not bound" }); continue; }
+    const cals = await asOperator((c) => many<{ ghl_calendar_id: string }>(c, "select ghl_calendar_id from calendars where company_id=$1 and active", [co.id]));
+    const entities: [string, EntityPoll][] = [
+      ["contacts", pollContacts],
+      ...cals.map((cal): [string, EntityPoll] => [`appointments:${cal.ghl_calendar_id}`, (c, co, ac, adapters, rep) => pollCalendar(c, co, ac, adapters, rep, cal.ghl_calendar_id)]),
+      ["conversations", pollInbound],
+    ];
+    for (const [entity, fn] of entities) {
+      const before = { ...rep };
+      try { await asOperator((c) => fn(c, co, ac, adapters, rep)); }
+      catch (e) {
+        Object.assign(rep, before, { errors: rep.errors });   // the transaction rolled back; the report must not count what it undid
+        rep.errors.push({ company: co.slug, entity, error: String((e as Error).message) });
+        await asOperator((c) => saveCursor(c, co.id, entity, "", false)).catch(() => {});
       }
-    });
+    }
   }
   return rep;
 }

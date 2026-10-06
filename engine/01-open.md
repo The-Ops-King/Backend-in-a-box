@@ -193,3 +193,11 @@ that throws no longer rolls back the ledger (the runner catches and fails the ru
 transaction), but the design still couples external calls to a transaction. The clean version
 commits the `sends` row before calling the vendor and updates it after. Not urgent at MVP volume;
 do it before the first high-volume client.
+
+Status 2026-10-06: the poller side is done — `pollAll` now runs one transaction per entity
+(contacts, each calendar, conversations) and writes the failure counter in a fresh transaction
+after the rollback. The runner still processes a run's nodes inside one transaction; a vendor
+error there is caught without aborting the transaction, but a SQL error mid-run would still roll
+back that run's ledger (the run is then marked failed from a fresh transaction, so nothing hangs).
+Ticks are serialized by a lease row (`engine_state.tick_lock`, 6 minutes, see
+`platform/src/engine/lock.ts`); a tick that finds the lease held returns `{ busy: true }`.
