@@ -49,7 +49,8 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
       if (co) {
         await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]);
         await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
-        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "appointments", "opportunities", "calendars", "contact_identifiers", "intake", "form_submissions", "forms", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"])
+        await c.query("update appointments set disposition_id=null where company_id=$1", [co.id]);
+        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "payments", "form_submissions", "forms", "appointments", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"])
           await c.query(`delete from ${t} where company_id=$1`, [co.id]);
       }
       await c.query("delete from companies where slug='e2e'");

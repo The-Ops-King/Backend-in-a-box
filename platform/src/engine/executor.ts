@@ -107,8 +107,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
 
     case "slack_post": {
       const conn = await one<{ bot_token: Buffer; channels: Record<string, string> }>(d.c, "select bot_token, channels from slack_connections where company_id=$1", [d.company.id]);
-      const channelId = render(node.channel, d.ctx, env(d));
-      if (!conn || !channelId) { await recordSend(d, node, "slack", "", "suppressed", "unbound: slack"); return { status: "skipped", next, result: { why: "slack not connected" } }; }
+      // the channel binding is optional (manifest marks slack.* not required), so resolve without throwing: unbound → skip the node, keep the run going
+      const ref = /^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/.exec(node.channel);
+      const channelId = ref ? (resolvePath(d.ctx, ref[1]) as string | undefined) : node.channel;
+      if (!conn || !channelId) { await recordSend(d, node, "slack", "", "suppressed", "unbound: slack"); return { status: "skipped", next, result: { why: conn ? "slack channel not bound" : "slack not connected" } }; }
       const text = render(node.template, d.ctx, env(d));
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next };
       const { decrypt } = await import("./crypto");

@@ -446,4 +446,4 @@ create table audit_log (
   at           timestamptz not null default now()
 );
 
-alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id);
+alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id) on delete set null;
