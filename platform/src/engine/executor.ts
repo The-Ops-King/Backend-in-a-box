@@ -224,8 +224,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "update_contact": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
       const r = (t?: string) => (t ? render(t, d.ctx, env(d)) || undefined : undefined);
+      // `clear` is the one place an empty value is written on purpose (the CRM may accept and ignore it for some field types; the Zap it replaces warned about that too)
+      const cleared = node.clear.map((id) => render(id, d.ctx, env(d))).filter(Boolean).map((id) => ({ id, field_value: "" }));
       const patch = { firstName: r(node.set.first_name), lastName: r(node.set.last_name), phone: r(node.set.phone), timezone: r(node.set.timezone), assignedUserId: r(node.set.assign_to),
-        customFields: node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== "") };
+        customFields: [...node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== ""), ...cleared] };
       const nothing = !patch.firstName && !patch.lastName && !patch.phone && !patch.timezone && !patch.assignedUserId && !patch.customFields.length;
       if (nothing) return { status: "skipped", next, result: { why: "nothing to write: every value rendered empty" } };
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch } };
@@ -233,6 +235,16 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       await d.adapters.write.updateContact(d.adapterCompany, contact.ghl_contact_id, patch);
       await d.c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), updated_at=now() where id=$1", [d.run.contact_id, patch.firstName ?? null, patch.lastName ?? null, patch.timezone ?? null]);
       return { status: "ok", next, result: patch as Record<string, unknown> };
+    }
+    case "create_task": {
+      const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
+      const title = render(node.title, d.ctx, env(d)), body = node.body ? render(node.body, d.ctx, env(d)) : undefined;
+      const dueAt = d.now.plus(parseDuration(node.due)).toJSDate();
+      const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
+      if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_create_task: { title, body, due: dueAt.toISOString(), assignedUserId } } };
+      if (!contact?.ghl_contact_id) return { status: "failed", error: "create_task: contact has no CRM id yet" };
+      const t = await d.adapters.write.createTask(d.adapterCompany, contact.ghl_contact_id, { title, body, dueAt, assignedUserId });
+      return { status: "ok", next, result: { task_id: t.id, title, due: dueAt.toISOString(), assignedUserId } };
     }
     case "update_opportunity": {
       if (!d.run.opportunity_id) return { status: "failed", error: "update_opportunity with no opportunity on run" };

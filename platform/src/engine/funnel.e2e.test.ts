@@ -26,7 +26,7 @@ const booking: BookingRead = { appointmentsInWindow: async () => [], listCalenda
 const fake: Adapters = {
   read: { contactsChangedSince: async () => [], inboundSince: async () => [], opportunitiesSince: async () => [], getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }), listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }] },
   booking: { ghl: booking, calendly: booking },
-  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {},
+  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }),
     createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; }, updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); } },
   sender: { sendSms: async (_c, _to, body) => { sent.push({ kind: "sms", body }); return { externalId: `s${sent.length}`, accepted: true }; }, sendEmail: async (_c, _to, subject, html) => { sent.push({ kind: "email", body: `${subject}|${html}` }); return { externalId: `e${sent.length}`, accepted: true }; }, deliveryStatus: async () => ({ status: "sent" }) },
   classifier: { choice: async (): Promise<Classification> => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },

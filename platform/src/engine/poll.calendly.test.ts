@@ -19,7 +19,7 @@ const fake: Adapters = {
     calendly: { listCalendars: async () => [{ id: "ET1", name: "45 Min Strategy Call", teamMemberIds: [] }], getAppointment: async (_c, id) => events.find((e) => e.id === id) ?? null,
       appointmentsInWindow: async (c, cal) => (c.id === companyId ? events.filter((e) => e.calendarId === cal) : []) },
   },
-  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
+  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
   sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }) },
   classifier: { choice: async () => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
   notifier: { post: async () => ({ ts: "1" }) },

@@ -15,6 +15,7 @@ export type AppointmentSnapshot = {
   startTime: string; endTime: string; status: string; title?: string; dateUpdated?: string; dateAdded?: string;
   setBy?: string;             // the setter's name when the source carries it (Calendly question on the setter event type)
   rescheduleUrl?: string; cancelUrl?: string;   // per-booking self-service links when the source has them (Calendly)
+  cancellation?: { by?: string; reason?: string; byType?: string };   // who cancelled and why, when the source says
   tracking?: Record<string, string>;            // utm_* and the like, as the source reports them
   rescheduledFrom?: string;   // this booking replaces that external id (same appointment, new time)
   rescheduledTo?: string;     // this cancelled booking was replaced by that external id; the replacement carries the change
@@ -45,6 +46,7 @@ export interface CrmWrite {
   addNote(c: Company, contactId: string, body: string): Promise<void>;
   updateAppointment(c: Company, id: string, patch: Partial<Pick<AppointmentSnapshot, "status" | "assignedUserId" | "startTime" | "endTime" | "title">>): Promise<void>;
   updateContact(c: Company, contactId: string, patch: ContactWrite): Promise<void>;
+  createTask(c: Company, contactId: string, task: { title: string; body?: string; dueAt: Date; assignedUserId?: string }): Promise<{ id: string }>;
   createOpportunity(c: Company, input: OpportunityWrite & { contactId: string }): Promise<{ id: string }>;
   updateOpportunity(c: Company, id: string, patch: Partial<OpportunityWrite>): Promise<void>;
 }

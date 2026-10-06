@@ -44,6 +44,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table appointments add column if not exists reschedule_url text`);
     await c.query(`alter table appointments add column if not exists cancel_url text`);
     await c.query(`alter table appointments add column if not exists tracking jsonb not null default '{}'`);
+    await c.query(`alter table appointments add column if not exists cancelled_by text`);
+    await c.query(`alter table appointments add column if not exists cancel_reason text`);
     await c.query(`alter table calendars add column if not exists booking_url text`);
     await c.query(`alter table contacts drop constraint if exists contacts_timezone_source_check`);
     await c.query(`alter table contacts add constraint contacts_timezone_source_check check (timezone_source in ('ghl','booking','phone','company_default'))`);

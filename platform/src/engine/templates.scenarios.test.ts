@@ -20,6 +20,7 @@ const sent: { kind: string; to: string; body: string }[] = [];
 const tags: string[] = [];
 const oppWrites: Record<string, unknown>[] = [];
 const contactWrites: Record<string, unknown>[] = [];
+const tasks: Record<string, unknown>[] = [];
 const removedTags: string[] = [];
 let liveStatus = "confirmed";
 const apptStore = new Map<string, AppointmentSnapshot>();   // what GHL "has" for each appointment the tests book
@@ -32,7 +33,7 @@ const fake: Adapters = {
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [],
     getAppointment: async (_c, id) => { const a = apptStore.get(id); return a ? { ...a, status: liveStatus } : null; },
     listCalendars: async () => [{ id: "CAL", name: "Closer Call", teamMemberIds: ["U1"] }] }; return { ghl: b, calendly: b }; })(),
-  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async (_c, _id, t) => { removedTags.push(t); }, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async (_c, id, patch) => { contactWrites.push({ id, ...patch }); },
+  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async (_c, _id, t) => { removedTags.push(t); }, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async (_c, id, patch) => { contactWrites.push({ id, ...patch }); }, createTask: async (_c, id, task) => { tasks.push({ contactId: id, ...task }); return { id: `task-${tasks.length}` }; },
     createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; },
     updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); } },
   sender: {
@@ -73,10 +74,12 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
         await c.query("delete from companies where id=$1", [co.id]); }
     });
     const r = await installCompany({ name: "Scenarios", slug: "scn", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live",
-      crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_setter_direct_booked: "STAGE-DIRECT", stage_setter_appointment_set: "STAGE-SET", stage_closer_scheduled: "STAGE-SCHED", field_contact_appointment_date: "CF-APPT-DATE", field_contact_setter: "CF-SETTER", field_opportunity_setter_owner: "CF-SETTER-OWNER" } }, fake);
+      crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_setter_direct_booked: "STAGE-DIRECT", stage_setter_appointment_set: "STAGE-SET", stage_closer_scheduled: "STAGE-SCHED", stage_setter_cancelled: "STAGE-S-CANCEL", stage_closer_cancelled: "STAGE-C-CANCEL", field_contact_appointment_date: "CF-APPT-DATE", field_contact_setter: "CF-SETTER", field_opportunity_setter_owner: "CF-SETTER-OWNER" } }, fake);
     companyId = r.companyId;
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
-    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(11);
+    // the test database is shared with the other suites; park their leftover runs so this file's ticks only ever send for this company
+    await asOperator((c) => c.query("update runs set next_run_at = now() + interval '1 day' where company_id <> $1 and status in ('active','waiting')", [companyId]));
+    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(12);
   });
 
   it("speed-to-lead: email + SMS now; a reply → tag engaged; silence → second email", async () => {
@@ -291,6 +294,28 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(new Set(cards.map((x) => x.opportunity_id)).size).toBe(1);   // two boards, one pursuit
     const ctxRow = await asOperator((c) => one<{ context: { vars: Record<string, string> } }>(c, "select context from runs where id=$1", [r.id]));
     expect(ctxRow!.context.vars.setter_line).toBe("*Setter:* Luis"); expect(ctxRow!.context.vars.booking_kind).toBe("setter booked");
+  });
+
+  it("call-cancelled: a real cancel moves both cards to their cancelled stage, clears the appointment date, opens a rebook task for the closer with the reason, swaps the tags; cancellation-rebook (prospect-facing) runs alongside", async () => {
+    // cancel the self-booked call from the call-booked scenario (closer card exists; no setter card)
+    const base = apptStore.get("ACB1")!;
+    const cancelled: AppointmentSnapshot = { ...base, status: "cancelled", cancellation: { by: "Mia Ortiz", reason: "work trip", byType: "invitee" } };
+    apptStore.set("ACB1", cancelled); liveStatus = "cancelled";
+    const nOpp = oppWrites.length, nTags = tags.length, nRm = removedTags.length, nCw = contactWrites.length, nTasks = tasks.length;
+    await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, cancelled); });
+    await tick(fake); liveStatus = "confirmed";
+    const id = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CCB1'", [companyId])))!.id;
+    const r = (await runsFor("call-cancelled")).find((x) => x.contact_id === id)!;
+    expect(r).toMatchObject({ status: "completed", exit_reason: "cancelled_recorded" });
+    expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", stageId: "STAGE-C-CANCEL", name: "Mia Ortiz -- Cancelled" })]);   // setter card absent → skipped, never created
+    expect(contactWrites.slice(nCw)).toEqual([expect.objectContaining({ id: "CCB1", customFields: [{ id: "CF-APPT-DATE", field_value: "" }] })]);
+    expect(tasks.slice(nTasks)).toEqual([expect.objectContaining({ contactId: "CCB1", title: "Rebook Mia Ortiz — cancelled", body: "Cancelled by Mia Ortiz. Reason: work trip.", assignedUserId: "U1" })]);
+    const due = (tasks.at(-1)!.dueAt as Date).getTime() - Date.now(); expect(due).toBeGreaterThan(23 * 3600e3); expect(due).toBeLessThan(25 * 3600e3);
+    expect(tags.slice(nTags)).toEqual(["stat-cancelled"]);
+    expect(removedTags.slice(nRm)).toEqual(["stat-booked", "stat-self-booked", "stat-set", "stat-confirmed"]);
+    const appt = await asOperator((c) => one<{ cancelled_by: string; cancel_reason: string }>(c, "select cancelled_by, cancel_reason from appointments where company_id=$1 and external_id='ACB1'", [companyId]));
+    expect(appt).toEqual({ cancelled_by: "Mia Ortiz", cancel_reason: "work trip" });
+    expect((await runsFor("cancellation-rebook")).some((x) => x.contact_id === id)).toBe(true);
   });
 
   it("sms_enabled=false: SMS nodes are suppressed and the run continues", async () => {

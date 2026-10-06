@@ -48,7 +48,9 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("set_tag"), tag: z.union([z.string(), z.array(z.string()).min(1)]) }),
   z.object({ ...base, type: z.literal("remove_tag"), tag: z.union([z.string(), z.array(z.string()).min(1)]) }),
   // Writes to the CRM contact: a few native fields plus custom fields by id. A field whose rendered value is empty is left alone, never blanked.
-  z.object({ ...base, type: z.literal("update_contact"), set: z.object({ first_name: z.string().optional(), last_name: z.string().optional(), phone: z.string().optional(), timezone: z.string().optional(), assign_to: z.string().optional() }).default({}), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
+  z.object({ ...base, type: z.literal("update_contact"), set: z.object({ first_name: z.string().optional(), last_name: z.string().optional(), phone: z.string().optional(), timezone: z.string().optional(), assign_to: z.string().optional() }).default({}), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]), clear: z.array(z.string()).default([]) }),
+  // A to-do on the CRM contact for a human (rebook this person, call them back). `due` is a duration from now.
+  z.object({ ...base, type: z.literal("create_task"), title: z.string(), body: z.string().optional(), due: z.string().default("+1d"), assign_to: z.string().optional() }),
   z.object({ ...base, type: z.literal("note"), template: z.string() }),
   z.object({ ...base, type: z.literal("update_appointment"), set: z.record(z.unknown()) }),
   z.object({ ...base, type: z.literal("update_opportunity"), set: z.record(z.unknown()) }),

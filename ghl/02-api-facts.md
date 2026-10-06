@@ -250,3 +250,5 @@ the poll interval.
 | Update | `PUT /opportunities/{id}` with any subset of the same fields (`pipelineStageId` moves the card). |
 | Search | `GET /opportunities/search?location_id=&contact_id=&pipeline_id=&limit=` — **snake_case** params here, camelCase returns 422. Index lags a few seconds after a create. |
 | Custom fields | `GET /locations/{id}/customFields?model=opportunity` → ids. DATE fields accept `YYYY-MM-DD`. |
+| Tasks | `POST /contacts/{id}/tasks` body `{ title, body, dueDate (ISO), completed: false, assignedTo? }` → `task.id`. |
+| Clearing a custom field | `PUT /contacts/{id}` with `customFields: [{ id, field_value: "" }]` returns 200; for some field types (native phone, possibly DATE) the empty write is accepted and ignored. Read back to be sure. |

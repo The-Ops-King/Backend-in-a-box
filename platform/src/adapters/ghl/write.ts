@@ -16,6 +16,10 @@ export const ghlWrite: CrmWrite = {
     if (patch.customFields?.length) body.customFields = patch.customFields;
     if (Object.keys(body).length) await ghl(c.pit, "PUT", `/contacts/${contactId}`, { body });
   },
+  async createTask(c, contactId, task) {
+    const r = await ghl<{ task?: { id: string }; id?: string }>(c.pit, "POST", `/contacts/${contactId}/tasks`, { body: { title: task.title, body: task.body ?? "", dueDate: task.dueAt.toISOString(), completed: false, ...(task.assignedUserId ? { assignedTo: task.assignedUserId } : {}) } });
+    return { id: r.task?.id ?? r.id ?? "" };
+  },
   async createOpportunity(c, input) {
     const r = await ghl<{ opportunity: { id: string } }>(c.pit, "POST", "/opportunities/", { body: {
       locationId: c.locationId, contactId: input.contactId, pipelineId: input.pipelineId, pipelineStageId: input.stageId, name: input.name, status: input.status,

@@ -197,6 +197,8 @@ create table appointments (
   reschedule_url       text,                                       -- per-booking self-service links (Calendly); null for GHL calendars
   cancel_url           text,
   tracking             jsonb not null default '{}',                -- utm_* etc. as the booking source reported them
+  cancelled_by         text,                                       -- who cancelled (name) and why, when the source says
+  cancel_reason        text,
   booked_at            timestamptz not null,
   -- replica of the booking source's state (GHL vocabulary; Calendly active/canceled maps onto it)
   status               text not null check (status in ('new','confirmed','cancelled','showed','noshow','invalid')),

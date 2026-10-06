@@ -125,12 +125,13 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (Math.abs(existing.starts_at.getTime() - new Date(s.startTime).getTime()) > 60e3) changes.starts_at = { from: existing.starts_at.toISOString(), to: s.startTime };
   if (!Object.keys(changes).length) return;
   if (baseline) { await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, source_updated_at=$5 where id=$1", [existing.id, s.status, s.startTime, s.endTime, s.dateUpdated ?? new Date()]); if (rep) rep.baselined++; return; }
-  await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, assigned_user_id=coalesce($5,assigned_user_id), source_updated_at=$6 where id=$1", [existing.id, s.status, s.startTime, s.endTime, userId, s.dateUpdated ?? new Date()]);
+  await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, assigned_user_id=coalesce($5,assigned_user_id), source_updated_at=$6, cancelled_by=coalesce($7,cancelled_by), cancel_reason=coalesce($8,cancel_reason) where id=$1",
+    [existing.id, s.status, s.startTime, s.endTime, userId, s.dateUpdated ?? new Date(), s.cancellation?.by ?? null, s.cancellation?.reason ?? null]);
   const type = changes.starts_at ? "appointment.rescheduled" : "appointment.status_changed";
   // runs parked on this appointment wake now: a wait anchored to it recomputes from the new start, and a run whose premise
   // no longer holds (reminder for a cancelled call) exits moot immediately instead of at its old wake time
   await c.query("update runs set next_run_at=now() where company_id=$1 and appointment_id=$2 and status='waiting'", [co.id, existing.id]);
-  const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: existing.id, event_type: type, source: "ghl_poll", data: { source, ...changes } });
+  const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: existing.id, event_type: type, source: "ghl_poll", data: { source, ...changes, ...(s.cancellation ? { cancelled_by: s.cancellation.by, cancel_reason: s.cancellation.reason } : {}) } });
   const term = await one<{ name: string; category: string }>(c, "select name, category from company_terms where id=$1", [cal.appointment_term]);
   const started = await dispatchEvent(c, ev, { contact: { id: contact.id }, appointment: { id: existing.id, starts_at: s.startTime, status: s.status, term, self_booked: cal.self_booked } });
   if (rep) { rep.appointmentsChanged++; rep.eventsDispatched += started.length; }

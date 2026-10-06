@@ -1,0 +1,129 @@
+{
+  "slug": "call-cancelled",
+  "name": "Call cancelled",
+  "category": "booking",
+  "description": "A closing call is cancelled (not rescheduled: a reschedule moves the appointment and never fires this). Both pipeline cards move to their cancelled stage, the appointment date comes off the contact, the closer gets a rebook task due in a day, stat-cancelled replaces the booked tags, and the team gets a Slack note with who cancelled and why.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_appointment",
+    "premise": {
+      "check": "appointment_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "appointment.status_changed",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{event.status.to}}",
+                "cancelled"
+              ]
+            },
+            {
+              "eq": [
+                "{{appointment.term.category}}",
+                "closing"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "n1",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_cancelled}}",
+        "name": "{{contact.name}} -- Cancelled",
+        "if_missing": "skip"
+      },
+      {
+        "id": "n2",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_cancelled}}",
+        "name": "{{contact.name}} -- Cancelled",
+        "if_missing": "skip"
+      },
+      {
+        "id": "n3",
+        "type": "update_contact",
+        "clear": [
+          "{{crm.field_contact_appointment_date}}"
+        ]
+      },
+      {
+        "id": "n4",
+        "type": "create_task",
+        "title": "Rebook {{contact.name}} — cancelled",
+        "body": "Cancelled by {{appointment.cancelled_by | default:the invitee}}. Reason: {{appointment.cancel_reason | default:none given}}.",
+        "due": "+1d",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
+      },
+      {
+        "id": "n5",
+        "type": "set_tag",
+        "tag": [
+          "stat-cancelled"
+        ]
+      },
+      {
+        "id": "n6",
+        "type": "remove_tag",
+        "tag": [
+          "stat-booked",
+          "stat-self-booked",
+          "stat-set",
+          "stat-confirmed"
+        ]
+      },
+      {
+        "id": "n7",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "template": "*Cancelled:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Was booked with:* {{appointment.closer.name | default:unassigned}} · {{appointment.starts_at | date_company}}\n*Cancelled by:* {{appointment.cancelled_by | default:the invitee}}\n*Reason:* {{appointment.cancel_reason | default:none given}}\n*Phone:* {{contact.phone | default:—}}\n*Rebook task:* due in 1 day for {{appointment.closer.name | default:the team}}"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "cancelled_recorded"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "n3"
+      },
+      {
+        "from": "n3",
+        "to": "n4"
+      },
+      {
+        "from": "n4",
+        "to": "n5"
+      },
+      {
+        "from": "n5",
+        "to": "n6"
+      },
+      {
+        "from": "n6",
+        "to": "n7"
+      },
+      {
+        "from": "n7",
+        "to": "x1"
+      }
+    ]
+  }
+}

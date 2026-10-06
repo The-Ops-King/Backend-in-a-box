@@ -10,7 +10,7 @@ const vocab = new Set([...schema.matchAll(/\('([a-z_.]+)','[a-z]+'\)/g)].map((m)
 
 describe("shipped templates", () => {
   it("has the full core set", () => expect(templates.map((t) => t.slug).sort()).toEqual([
-    "appointment-reminder", "booking-confirmation", "call-booked", "cancellation-rebook", "new-lead", "no-show-recovery", "payment-failed", "payment-received", "post-call-follow-up", "reactivation", "speed-to-lead"]));
+    "appointment-reminder", "booking-confirmation", "call-booked", "call-cancelled", "cancellation-rebook", "new-lead", "no-show-recovery", "payment-failed", "payment-received", "post-call-follow-up", "reactivation", "speed-to-lead"]));
   for (const t of templates) {
     it(`${t.slug}: parses, triggers on a real event, references only known paths, and its manifest is sane`, () => {
       const def = parseDefinition(t.definition);

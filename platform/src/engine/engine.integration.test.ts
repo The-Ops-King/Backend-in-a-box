@@ -31,7 +31,7 @@ const fake: Adapters = {
   },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], listCalendars: async () => [],
     getAppointment: async (_c, id) => ({ id, calendarId: "CAL1", contactId: "GHLC1", startTime: APPT_START.toISO()!, endTime: APPT_START.plus({ minutes: 30 }).toISO()!, status: liveStatus, raw: {} }) }; return { ghl: b, calendly: b }; })(),
-  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
+  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
   sender: {
     sendSms: async (_c, to, body) => { sent.push({ kind: "sms", to, body }); return { externalId: `sms-${sent.length}`, accepted: true }; },
     sendEmail: async (_c, to, subject, html) => { sent.push({ kind: "email", to, body: `${subject}|${html}` }); return { externalId: `em-${sent.length}`, accepted: true }; },
