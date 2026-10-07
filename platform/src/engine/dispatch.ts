@@ -28,7 +28,12 @@ export async function startRun(c: PoolClient, args: { companyId: string; workflo
     values ($1,$2,$3,$4,$5,$6,$7,$8,'active',$9,now(),$10,$11)
     on conflict (workflow_id, reentry_key) do nothing returning id`,
     [args.companyId, args.workflowId, wf.current_version, args.contactId, args.opportunityId ?? null, args.appointmentId ?? null, args.triggerId ?? null, args.event.id, args.triggerNodeId, { event: args.event.data, vars: {} }, key]);
-  if (!row) return null;
+  if (!row) {
+    // the key is held by a run still in flight: remember this trigger on it. If that run stops at a gate it replays us (D30: payment and signature in the same minute).
+    await c.query(`update runs set pending_events = pending_events || $3::jsonb where workflow_id=$1 and reentry_key=$2 and status in ('active','waiting')`,
+      [args.workflowId, key, JSON.stringify([{ event_id: args.event.id, trigger_id: args.triggerId ?? null, trigger_node_id: args.triggerNodeId, contact_id: args.contactId, appointment_id: args.appointmentId ?? null, opportunity_id: args.opportunityId ?? null }])]);
+    return null;
+  }
   await emitEvent(c, { company_id: args.companyId, contact_id: args.contactId, opportunity_id: args.opportunityId ?? null, appointment_id: args.appointmentId ?? null, run_id: row.id, event_type: "run.started", source: "engine", data: { workflow_id: args.workflowId, trigger_node: args.triggerNodeId } });
   return row.id;
 }

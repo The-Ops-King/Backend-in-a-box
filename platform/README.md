@@ -200,7 +200,8 @@ does not announce it twice. In shadow it is skipped like every CRM write. Facts 
 
 **Gate exits.** A run that stops at a `check` before doing anything releases its once-per key, so a
 `once_per_contact` workflow with two triggers (payment, signature) can stop on the first and run on the
-second. **notify_owner** DMs the contact's owner in Slack (looked up by email, cached as
+second. A trigger that arrives while a run still holds the key is remembered on it (`pending_events`)
+and replayed if that run stops at a gate, so two triggers in the same minute cannot lose one. **notify_owner** DMs the contact's owner in Slack (looked up by email, cached as
 `users.slack_user_id`; the app needs `im:write`, `users:read`, `users:read.email`), else posts to the
 fallback channel with an @mention, and optionally creates a CRM task on the contact. **CRM templates:**
 `send_sms` / `send_email` take `ghl_template` (an SMS snippet id or an email builder template id,

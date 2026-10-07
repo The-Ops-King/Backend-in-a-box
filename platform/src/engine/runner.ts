@@ -6,13 +6,14 @@ import { parseDefinition, indexDefinition, type Definition } from "./definition"
 import { buildContext, loadCompany, type RunRow } from "./context";
 import { executeNode, type ExecDeps } from "./executor";
 import { deferIntoWindow } from "./waitrule";
-import { emitEvent } from "./dispatch";
+import { emitEvent, startRun, type EventRow } from "./dispatch";
 
 const LEASE_MIN = 5, MAX_STEPS = 50, BATCH = 100;
 export const RECOVERY_AFTER_MIN = 10;          // D5b: a gap longer than this means we were down
 const RECOVERY_SEND_CAP = 20;                  // per company per tick while catching up: never burst one client's inbox, never let one client's backlog starve another's
 
-export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number };
+type PendingTrigger = { event_id: number; trigger_id: string | null; trigger_node_id: string; contact_id: string; appointment_id: string | null; opportunity_id: string | null };
+export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number; replayed?: number };
 
 /** D5b premise check — reads the booking source live, never the replica. */
 async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ctx" | "now">): Promise<{ ok: true } | { ok: false; why: string }> {
@@ -104,7 +105,18 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           if (out.status === "waiting") { await finish("waiting", undefined, out.until.toJSDate(), out.stay ? node.id : (edgesFrom(node.id).find((e) => e.label !== "timeout") ?? edgesFrom(node.id)[0])?.to ?? null, ctx, !!out.wakeOnReply); report.waiting++; return; }
           if (out.status === "exit") {
             // a run that stopped at a gate did nothing: release its once-per key so the next trigger (payment first, signature later) gets its turn (D30)
-            if (out.gate) await c.query("update runs set reentry_key = reentry_key || ':gate:' || id::text where id=$1", [run.id]);
+            if (out.gate) {
+              await c.query("update runs set reentry_key = reentry_key || ':gate:' || id::text where id=$1", [run.id]);
+              await finish("completed", out.reason, null, node.id, ctx); report.completed++;
+              // triggers that arrived while this run held the key get their turn now, newest last; the first that starts wins the key
+              const pending = (await one<{ pending_events: PendingTrigger[] }>(c, "select pending_events from runs where id=$1", [run.id]))?.pending_events ?? [];
+              for (const p of pending) {
+                const ev = await one<EventRow>(c, "select * from events where id=$1", [p.event_id]); if (!ev) continue;
+                const started = await startRun(c, { companyId: run.company_id, workflowId: run.workflow_id, triggerId: p.trigger_id, triggerNodeId: p.trigger_node_id, event: ev, contactId: p.contact_id, appointmentId: p.appointment_id, opportunityId: p.opportunity_id });
+                if (started) report.replayed = (report.replayed ?? 0) + 1;
+              }
+              return;
+            }
             await finish("completed", out.reason, null, node.id, ctx); report.completed++; return;
           }
           if (out.status === "paused") { await finish("paused", out.reason, null, node.id, ctx); report.paused++; return; }

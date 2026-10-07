@@ -947,4 +947,8 @@ signed, deal closed, unsigned chase).
    ships on the step until someone makes the templates in GHL.
 6. **Phase on the Sales Call**: not added yet (no write scope to create the field). Payment updates
    cash collected; the close writes `closed_won` / `showed`.
+7. **The same-minute race is closed.** A trigger that loses the once-per key to a run still in flight is
+   remembered on that run (`runs.pending_events`). If the run stops at a gate, the queued triggers are
+   replayed in order and the first that starts takes the key; if the run completes, they are dropped,
+   because the once was spent. Payment and signature can now land in the same second.
 

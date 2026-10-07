@@ -583,4 +583,24 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(docSends.slice(nDocs)).toEqual([{ templateId: "TPL-AGREE", contactId: "CCB1", userId: "U1" }]);
     expect(tags.slice(nTags4)).toEqual(["stat-agreement-sent"]); expect(removedTags.at(-1)).toBe("sys-send-agreement-manually");
   });
+
+  it("deal-closed race: two triggers in the same minute, before any tick — the loser is remembered on the in-flight run and replayed after its gate; a signature arriving with a payment closes once", async () => {
+    const who = (await asOperator((c) => one<{ id: string; ghl_contact_id: string }>(c, "select id, ghl_contact_id from contacts where company_id=$1 and ghl_contact_id='CCB1'", [companyId])))!;
+    const sim = (a: "pay" | "sign") => asOperator((c) => simulate({ c, company: { id: companyId, mode: "live", timezone: TZ } as never, contactId: who.id, force: true }, a));
+    // two payments back to back (deposit, then balance), nothing signed: the second deal-closed trigger loses the once-per race to the first, still-unprocessed run
+    expect((await sim("pay")).ok).toBe(true); expect((await sim("pay")).ok).toBe(true);
+    const before = (await runsFor("deal-closed")).filter((x) => x.contact_id === who.id);
+    expect(before).toHaveLength(1); expect(before[0].status).toBe("active");
+    expect((await asOperator((c) => one<{ n: number }>(c, "select jsonb_array_length(pending_events)::int as n from runs where id=$1", [before[0].id])))?.n).toBe(1);
+    const r = await tick(fake, undefined, companyId);
+    expect(r.replayed).toBe(1);   // the first run stopped at its gate (not signed) and handed the key to the queued trigger
+    await tick(fake, undefined, companyId);
+    expect((await runsFor("deal-closed")).filter((x) => x.contact_id === who.id).map((x) => x.exit_reason)).toEqual(["not_yet", "not_yet"]);
+    // now the signature: a fresh run (key released) sees paid + signed and closes; nothing left pending anywhere
+    expect((await sim("sign")).ok).toBe(true);
+    await tick(fake, undefined, companyId); await tick(fake, undefined, companyId);
+    const after = (await runsFor("deal-closed")).filter((x) => x.contact_id === who.id);
+    expect(after.map((x) => x.exit_reason)).toEqual(["not_yet", "not_yet", "closed"]);
+    expect(await asOperator((c) => many(c, "select 1 from runs r join workflows w on w.id=r.workflow_id join workflow_templates t on t.id=w.template_id where r.company_id=$1 and r.contact_id=$2 and t.slug='deal-closed' and jsonb_array_length(r.pending_events) > 0 and r.status in ('active','waiting')", [companyId, who.id]))).toHaveLength(0);
+  });
 });

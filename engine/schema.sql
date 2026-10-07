@@ -460,6 +460,7 @@ create table runs (
   context             jsonb not null default '{}',         -- resolved vars, last reply, etc.
   exit_reason         text,
   reentry_key         text not null,                       -- computed per policy; unique prevents double runs
+  pending_events      jsonb not null default '[]',          -- triggers that arrived while this run held the once-per key; replayed if the run stops at a gate (D30)
   claimed_at          timestamptz,                         -- scheduler lease
   claimed_by          text,
   started_at          timestamptz not null default now(),
