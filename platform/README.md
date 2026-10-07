@@ -134,6 +134,19 @@ way; a Calendly invitee is matched to the GHL contact by email/phone. Calendly i
 engine: a reschedule is one appointment moved, a cancellation is a status change, and
 `update_appointment` is skipped with a note. Facts about the Calendly API are in `calendly/01-api-facts.md`.
 
+## Settings screen (`/c/<slug>/settings`)
+
+Everything a company's installed workflows need, driven by their manifests: connections (GHL location
+and PIT, Anthropic, Whop, Fathom — pasted, stored encrypted, shown only as "set · ends with …"),
+booking source (GHL calendars or Calendly with token and host email), each calendar's call type,
+setter-vs-self rule and question map, every `crm.*` id as a drop-down from the live GHL lists
+(pipelines, stages, contact and opportunity fields, associations, users), Slack bot token and
+channel ids, prompts, dark hours and program price, and the inbound door URLs with the Zapier
+secret. Keys a workflow requires and nobody has set are marked missing; the readiness card at the top
+is the same one the company page shows. Test GHL refreshes the roster; Register Fathom webhook
+creates the webhook from here. Install JSON still works for scripting; the screen writes the same
+bindings.
+
 ## Readiness (is it safe to go live?)
 
 The company page and every workflow page carry a readiness card built from facts
