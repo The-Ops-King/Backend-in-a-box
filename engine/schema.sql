@@ -291,6 +291,7 @@ create table recordings (
   unique (company_id, provider, external_id)
 );
 create index on recordings (company_id, link_status);
+
 create index on recordings (company_id, contact_id);
 
 create table webhook_deliveries (
@@ -549,3 +550,48 @@ create table audit_log (
 );
 
 alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id) on delete set null;
+
+-- Daily rollups (D29). One row per company, local day, dimension and metric; counts and sums only. Rates are computed
+-- when read (numerator / denominator), never stored: an average of averages is wrong. Recomputed from the ledger, so a
+-- row is a cache of facts the engine already holds, not a second source of truth.
+create table metrics_daily (
+  company_id    uuid not null references companies(id) on delete cascade,   -- derived: goes with the company
+  day           date not null,                              -- the company's local day
+  dimension     text not null check (dimension in ('total','setter','closer')),
+  dimension_id  text not null default '',                   -- users.id for setter/closer, '' for total, 'unknown' when the person is not on the roster
+  metric        text not null,
+  value         numeric not null default 0,
+  computed_at   timestamptz not null default now(),
+  primary key (company_id, day, dimension, dimension_id, metric)
+);
+
+-- When each company wants its wrap-ups. Times are the company's local clock. Nothing here is a constant in code.
+create table report_schedules (
+  id                uuid primary key default gen_random_uuid(),
+  company_id        uuid not null references companies(id) on delete cascade,
+  kind              text not null check (kind in ('daily','weekly','monthly')),
+  enabled           boolean not null default true,
+  at_time           time not null default '19:00',
+  weekday           int not null default 1 check (weekday between 1 and 7),          -- weekly: 1 = Monday
+  day_of_month      int not null default 1 check (day_of_month between 1 and 28),    -- monthly
+  channel           text,                                   -- Slack channel id; null → slack.channel.reports binding
+  breakdowns        text[] not null default '{}',           -- 'setter', 'closer'
+  sections          jsonb not null default '{}',            -- {what_they_said: true}
+  last_period_start date,                                   -- the period the last scheduled run covered; fires once per period
+  unique (company_id, kind)
+);
+
+-- Every wrap-up that was generated, scheduled or on demand, so it can be read without Slack.
+create table reports (
+  id            uuid primary key default gen_random_uuid(),
+  company_id    uuid not null references companies(id) on delete cascade,
+  kind          text not null check (kind in ('daily','weekly','monthly')),
+  period_start  date not null,
+  period_end    date not null,                              -- inclusive
+  generated_at  timestamptz not null default now(),
+  on_demand     boolean not null default false,
+  body          text not null,                              -- the Slack text
+  numbers       jsonb not null default '{}',                -- the totals behind it
+  send_id       uuid references sends(id) on delete set null
+);
+create index on reports (company_id, generated_at);

@@ -73,6 +73,11 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // call recordings (D22): same ledger shape as payments
     await c.query(`insert into event_types values ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call') on conflict do nothing`);
     await c.query(`insert into event_types values ('call.logged','call') on conflict do nothing`);   // D28: phone calls the CRM's dialer logged
+    // D29: daily rollups, report schedules and the generated wrap-ups
+    await c.query(`create table if not exists metrics_daily (company_id uuid not null references companies(id) on delete cascade, day date not null, dimension text not null, dimension_id text not null default '', metric text not null, value numeric not null default 0, computed_at timestamptz not null default now(), primary key (company_id, day, dimension, dimension_id, metric))`);
+    await c.query(`create table if not exists report_schedules (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, kind text not null, enabled boolean not null default true, at_time time not null default '19:00', weekday int not null default 1, day_of_month int not null default 1, channel text, breakdowns text[] not null default '{}', sections jsonb not null default '{}', last_period_start date, unique (company_id, kind))`);
+    await c.query(`create table if not exists reports (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, kind text not null, period_start date not null, period_end date not null, generated_at timestamptz not null default now(), on_demand boolean not null default false, body text not null, numbers jsonb not null default '{}', send_id uuid references sends(id) on delete set null)`);
+    await c.query(`create index if not exists reports_company_id_generated_at_idx on reports (company_id, generated_at)`);
     await c.query(`alter table events drop constraint if exists events_source_check`);
     await c.query(`alter table events add constraint events_source_check check (source in (${EVENT_SOURCES}))`);
     await c.query(`create table if not exists recordings (

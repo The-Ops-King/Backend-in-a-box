@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadSettings } from "@/ui/settings-data";
+import { ensureSchedules } from "@/engine/reports";
+import { asOperator } from "@/db/client";
 import { ReadinessCard } from "@/ui/Readiness";
 import { groupOf, type SettingRow } from "@/engine/settings";
-import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, registerFathomAction, saveSlackAction, saveCallTypesAction, describeConfigAction, applyProposalAction, discardProposalAction } from "@/ui/settings-actions";
+import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, registerFathomAction, saveSlackAction, saveCallTypesAction, describeConfigAction, applyProposalAction, discardProposalAction, saveReportScheduleAction, runReportNowAction } from "@/ui/settings-actions";
 import type { Operation } from "@/engine/describe-config";
 export const dynamic = "force-dynamic";
 
@@ -41,6 +43,7 @@ const Hidden = ({ slug, id, section }: { slug: string; id: string; section: stri
 
 export default async function SettingsPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ note?: string; error?: string }> }) {
   const { slug } = await params; const sp = await searchParams; const d = await loadSettings(slug); if (!d) notFound();
+  const schedules = await asOperator((c) => ensureSchedules(c, d.company.id));
   const { company: co, rows, byKey, catalog } = d;
   const row = (k: string) => byKey.get(k) ?? { key: k, kind: k.startsWith("secret.") ? "secret" : "id", required: false, usedBy: [], value: null, masked: null, set: false } as SettingRow;
   const group = (g: ReturnType<typeof groupOf>) => rows.filter((r) => groupOf(r.key) === g);
@@ -194,6 +197,20 @@ export default async function SettingsPage({ params, searchParams }: { params: P
       {group("prompts").map((r) => <label key={r.key}><strong>{humanKey(r.key)}</strong> <span className="mono muted" style={{ fontSize: 11.5 }}>{r.key}{r.usedBy.length ? ` · ${r.usedBy.join(", ")}` : ""}</span><textarea name={`b:${r.key}`} rows={8} defaultValue={r.value ?? ""} /><input type="hidden" name={`k:${r.key}`} value="text" /></label>)}
       {group("prompts").length ? <button className="btn btn-on" type="submit">Save prompts</button> : <div className="muted">No installed workflow uses a prompt.</div>}
     </form>
+
+    <h2 id="reports">Wrap-ups</h2>
+    <p className="sub">What happened today, last week, last month — computed from the engine's own ledger (D29) and posted to Slack on this company's clock. Nothing here is fixed in code: time, day, channel, breakdowns. <Link href={`/c/${slug}/reports`}>Read past wrap-ups</Link>.</p>
+    {schedules.map((r) => <form key={r.kind} action={saveReportScheduleAction} className="form card settings"><Hidden slug={slug} id={co.id} section="reports" /><input type="hidden" name="kind" value={r.kind} />
+      <div style={{ display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}><strong style={{ textTransform: "capitalize" }}>{r.kind}</strong><label><input type="checkbox" name="enabled" defaultChecked={r.enabled} /> enabled</label>{r.last_period_start ? <span className="muted" style={{ fontSize: 12 }}>last sent for {r.last_period_start}</span> : <span className="muted" style={{ fontSize: 12 }}>never sent</span>}</div>
+      <div className="grid g2" style={{ marginTop: 8 }}>
+        <label>Send at ({co.timezone})<input type="time" name="at_time" defaultValue={r.at_time} /></label>
+        {r.kind === "weekly" ? <label>On<select name="weekday" defaultValue={r.weekday}>{["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((dn, i) => <option key={dn} value={i + 1}>{dn}</option>)}</select></label> : null}
+        {r.kind === "monthly" ? <label>On day<input type="number" name="day_of_month" min={1} max={28} defaultValue={r.day_of_month} /></label> : null}
+        <label>Slack channel{d.slackChannels ? <select name="channel" defaultValue={r.channel ?? ""}><option value="">— the reports channel binding —</option>{d.slackChannels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}</select> : <input type="text" name="channel" defaultValue={r.channel ?? ""} placeholder="C0123ABCDEF, or leave blank for slack.channel.reports" />}</label>
+        <div><label><input type="checkbox" name="breakdown:setter" defaultChecked={r.breakdowns.includes("setter")} /> per setter</label> <label><input type="checkbox" name="breakdown:closer" defaultChecked={r.breakdowns.includes("closer")} /> per closer</label> <label><input type="checkbox" name="section:what_they_said" defaultChecked={r.sections.what_they_said !== false} /> what they said (booking-form answers)</label></div>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button className="btn btn-on" type="submit">Save</button><button className="btn" type="submit" formAction={runReportNowAction}>Generate now</button></div>
+    </form>)}
 
     <h2 id="inbound">Inbound doors</h2>
     <div className="card settings">

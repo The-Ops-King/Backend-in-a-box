@@ -256,3 +256,12 @@ rate per setter, speed to lead and set rate from the ledger belong in the nightl
 for the same day; that is a scheduled report over our tables, a different shape from a per-contact
 run, and is designed next.
 
+## 29. Wrap-up follow-ups: Typeform door, history backfill, AI themes, the bot
+2026-10-07. The wrap-up's "what they said" reads booking-form answers (Calendly questions) and
+`intake` rows; Hair's Typeform answers reach GHL as contact fields today and are not tallied until the
+Typeform door exists (one JSON of answers per submission → `intake`). Weekly and monthly wrap-ups
+start thin: history before the engine began watching lives in GHL's Payment / Sales Call objects and
+could be backfilled once into the ledger if Tyler wants it. Not built yet: a Claude roll-up of the
+period's setter-call digests into themes (needs the Anthropic key), and the bot that answers ad-hoc
+questions from the rollups, the ledger and live GHL.
+

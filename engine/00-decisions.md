@@ -878,3 +878,33 @@ Tyler, 2026-10-07, porting Hair's "hourly setter call scrape" Zap. Decisions:
    tells them apart by `recording.kind`. `call-recorded` is unaffected because it listens to
    `recording.received`, which phone calls never emit.
 
+## D29. Three layers: the ledger the engine runs on, daily rollups, pointers for the rest
+Tyler, 2026-10-07, porting the "nightly wrap-up" Zap and settling the data structure.
+
+Tyler's instinct: do not duplicate what GHL already stores; keep per-day numbers and averages; pull a
+specific thing from GHL when someone asks. The engine already stores more than that, and it should,
+because the workflows cannot run without it: events with real timestamps, appointments (waits read
+`starts_at`, "booked after the call" reads `booked_at`), payments, recordings, a thin contact replica.
+That is working state, not a report copy. So:
+
+1. **Ledger** stays, raw rows retained; storage is not the constraint at this scale. Two copies are
+   trimmed: the contact replica keeps only the custom fields a binding names (not hundreds), and form
+   answers live as one JSON (booking answers on the appointment, intake on the contact).
+2. **Daily rollups** (`metrics_daily`): counts and sums per company, local day, dimension, metric.
+   Rates are never stored (an average of averages is wrong); weekly and monthly are sums of days.
+   Recomputed from the ledger, so a rebuild is always possible. Wrap-ups and the bot read these.
+3. **Pointers** for GHL-owned content the engine only acts on; the detail is fetched live.
+
+Why not read GHL at report time, as the Zap did: GHL has no call analytics (Luis's dials, connects
+and talk time exist only here), its object dates come back as display text that needed a 60-line
+parser, record search caps at 100 and lags writes. GHL stays the place to look at ONE contact's calls
+and transcripts, which it answers well.
+
+Wrap-ups: daily / weekly / monthly, every parameter a row in `report_schedules` (time, day, channel,
+breakdowns, sections), nothing in code. 7pm company time by default with no "day is not over" line:
+a team whose calls run to 9pm moves the time. Totals by default, per-setter / per-closer switchable.
+"What they said" reads whatever questions the booking source or intake form actually asked — no list
+of field ids per offer. On demand = the period in progress. The bot ("how many people did Luis call
+this week, how many connected, what was his talk time") answers from layers 2 and 1; it is the
+reason the ledger keeps every call.
+

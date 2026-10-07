@@ -33,7 +33,9 @@ async function saveCursor(c: PoolClient, companyId: string, entity: string, valu
 }
 
 /** Upserts a contact replica + identifiers; returns our id and whether it was new. */
-export async function upsertContact(c: PoolClient, companyId: string, companyTz: string, s: ContactSnapshot): Promise<{ id: string; isNew: boolean; prevTags: string[] }> {
+export async function upsertContact(c: PoolClient, companyId: string, companyTz: string, s: ContactSnapshot, keepFields?: Set<string>): Promise<{ id: string; isNew: boolean; prevTags: string[] }> {
+  // D29: the replica keeps only the custom fields a binding names (crm.field_contact_*); a sub-account can carry hundreds, and form answers live as one JSON on the contact instead
+  if (keepFields) s = { ...s, customFields: Object.fromEntries(Object.entries(s.customFields).filter(([id]) => keepFields.has(id))) };
   const existing = await one<{ id: string; tags: string[] }>(c, "select id, tags from contacts where company_id=$1 and ghl_contact_id=$2", [companyId, s.id]);
   let id = existing?.id;
   if (!id) {
@@ -54,12 +56,16 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
   return { id, isNew: !existing, prevTags: existing?.tags ?? [] };
 }
 
-async function pollContacts(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) {
+/** The custom-field ids the company's bindings name: the only ones the replica keeps. */
+export const boundFieldIds = (bindings: Record<string, string>) => new Set(Object.entries(bindings).filter(([k]) => k.startsWith("crm.field_contact_")).map(([, v]) => v));
+
+async function pollContacts(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
   const { since, isBaseline } = await cursor(c, co.id, "contacts", DateTime.now().minus({ days: 7 }));
   const rows = await adapters.read.contactsChangedSince(ac, since.toISO()!);
   let max = since;
+  const keep = boundFieldIds(bindings);
   for (const s of rows) {
-    const { id, isNew, prevTags } = await upsertContact(c, co.id, co.timezone, s);
+    const { id, isNew, prevTags } = await upsertContact(c, co.id, co.timezone, s, keep);
     rep.contacts++;
     const u = DateTime.fromISO(s.dateUpdated); if (u > max) max = u;
     if (isBaseline) { rep.baselined++; continue; }
@@ -228,7 +234,7 @@ async function pollPendingCalls(c: PoolClient, co: CompanyRow, ac: Company, adap
   }
 }
 
-type EntityPoll = (c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) => Promise<void>;
+type EntityPoll = (c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) => Promise<void>;
 
 /**
  * One transaction PER ENTITY. A SQL error aborts the whole Postgres transaction, so catching inside it and running
@@ -243,7 +249,7 @@ export async function pollAll(adapters: Adapters): Promise<PollReport> {
     let loaded: Awaited<ReturnType<typeof loadCompany>>;
     try { loaded = await asOperator((c) => loadCompany(c, id)); }
     catch (e) { rep.errors.push({ company: id, entity: "bindings", error: `cannot load bindings: ${(e as Error).message}` }); continue; }   // one bad key must not stop every other company
-    const { row: co, adapterCompany: ac } = loaded;
+    const { row: co, adapterCompany: ac, bindings } = loaded;
     if (!ac.pit || !ac.locationId) { rep.errors.push({ company: co.slug, entity: "bindings", error: "crm.location_id / secret.ghl_pit not bound" }); continue; }
     const cals = await asOperator((c) => many<{ external_id: string }>(c, "select external_id from calendars where company_id=$1 and source=$2 and active", [co.id, ac.booking.source]));
     const entities: [string, EntityPoll][] = [
@@ -254,7 +260,7 @@ export async function pollAll(adapters: Adapters): Promise<PollReport> {
     ];
     for (const [entity, fn] of entities) {
       const before = { ...rep };
-      try { await asOperator((c) => fn(c, co, ac, adapters, rep)); }
+      try { await asOperator((c) => fn(c, co, ac, adapters, rep, bindings)); }
       catch (e) {
         Object.assign(rep, before, { errors: rep.errors });   // the transaction rolled back; the report must not count what it undid
         rep.errors.push({ company: co.slug, entity, error: String((e as Error).message) });

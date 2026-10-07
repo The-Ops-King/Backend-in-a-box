@@ -302,6 +302,8 @@ create index on payments (company_id, opportunity_id);
 ```
 
 ```sql
+-- Daily rollups, report schedules and generated wrap-ups (D29) are in schema.sql after recordings: metrics_daily (counts and sums per
+-- company/day/dimension/metric, recomputed from the ledger), report_schedules (per-company clock, channel, breakdowns), reports (as sent).
 -- Call recordings (D22). Same shape as payments: a row per recording the provider reports, linked or not.
 -- Phone calls the CRM's dialer logs live here too (D28): provider 'ghl', external_id = the TYPE_CALL message id, linked_by 'contact',
 -- raw = {kind:'phone', direction, call_status, call_status_raw, duration_sec, caller_ghl_user_id, transcript_status: pending|ready|none, baseline?}.

@@ -12,6 +12,8 @@ import { fathomCreateWebhook } from "@/adapters/fathom/client";
 import { proposeConfig, applyProposal, storeProposal, loadProposal, clearProposal, termsFor, type ConfigFacts } from "@/engine/describe-config";
 import { ghlCatalog } from "@/adapters/ghl/catalog";
 import { many } from "@/db/client";
+import { ensureSchedules, generateReport, periodFor, REPORT_KINDS, type ReportKind } from "@/engine/reports";
+import { DateTime } from "luxon";
 
 const back = (slug: string, q: Record<string, string>, hash = "") => { revalidatePath(`/c/${slug}/settings`); revalidatePath(`/c/${slug}`); redirect(`/c/${slug}/settings?${new URLSearchParams(q).toString()}${hash}`); };
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -204,3 +206,32 @@ export async function discardProposalAction(f: FormData) {
   await asOperator((c) => clearProposal(c, companyId));
   back(slug, { note: "Proposal discarded" }, "#describe");
 }
+
+/** One form per wrap-up kind: on/off, local time, day, channel, breakdowns, sections. */
+export async function saveReportScheduleAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId"), kind = str(f, "kind") as ReportKind;
+  if (!REPORT_KINDS.includes(kind)) return;
+  const breakdowns = ["setter", "closer"].filter((b) => f.get(`breakdown:${b}`) === "on");
+  const at = /^\d{2}:\d{2}$/.test(str(f, "at_time")) ? str(f, "at_time") : "19:00";
+  await asOperator(async (c) => {
+    await ensureSchedules(c, companyId);
+    await c.query(`update report_schedules set enabled=$3, at_time=$4, weekday=$5, day_of_month=$6, channel=nullif($7,''), breakdowns=$8, sections=$9 where company_id=$1 and kind=$2`,
+      [companyId, kind, f.get("enabled") === "on", at, Math.min(7, Math.max(1, Number(str(f, "weekday")) || 1)), Math.min(28, Math.max(1, Number(str(f, "day_of_month")) || 1)), str(f, "channel"), breakdowns, { what_they_said: f.get("section:what_they_said") === "on" }]);
+    await audit(c, companyId, "report.schedule", { kind, enabled: f.get("enabled") === "on", at, breakdowns });
+  });
+  back(slug, { note: `${kind} wrap-up saved` }, "#reports");
+}
+
+/** Generates the period in progress right now (today so far, this week so far, this month so far) and posts it like a scheduled one would. */
+export async function runReportNowAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId"), kind = str(f, "kind") as ReportKind;
+  if (!REPORT_KINDS.includes(kind)) return;
+  const r = await asOperator(async (c) => {
+    const { row, bindings } = await loadCompany(c, companyId);
+    const s = (await ensureSchedules(c, companyId)).find((x) => x.kind === kind)!;
+    return generateReport(c, row, bindings, s, periodFor(kind, DateTime.now().setZone(row.timezone), true), { onDemand: true, toDate: true });
+  });
+  revalidatePath(`/c/${slug}/reports`);
+  redirect(`/c/${slug}/reports?note=${encodeURIComponent(r.posted ? `${kind} wrap-up posted to Slack` : `${kind} wrap-up generated (${r.why === "shadow" ? "shadow: not posted" : r.why ?? "not posted"})`)}#${r.id}`);
+}
+

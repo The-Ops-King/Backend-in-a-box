@@ -1,0 +1,183 @@
+import { DateTime } from "luxon";
+import type { PoolClient } from "pg";
+import { randomUUID } from "node:crypto";
+import { many, one } from "@/db/client";
+import { loadCompany, type CompanyRow } from "./context";
+import { decrypt } from "./crypto";
+import { slackNotifier } from "@/adapters/slack/notifier";
+import { readMetrics, rollupRange, type Breakdown, type Totals } from "./metrics";
+
+/**
+ * Wrap-ups (D29): "what happened today / this week / this month", computed from the daily rollups and posted to Slack
+ * on the company's own schedule. Every number names its denominator; a rate with no denominator is "—", not 0%.
+ * Nothing here is a constant: time, weekday, channel, breakdowns and sections are rows in report_schedules.
+ */
+export type ReportKind = "daily" | "weekly" | "monthly";
+export const REPORT_KINDS: ReportKind[] = ["daily", "weekly", "monthly"];
+export type Schedule = { id: string; company_id: string; kind: ReportKind; enabled: boolean; at_time: string; weekday: number; day_of_month: number; channel: string | null; breakdowns: string[]; sections: Record<string, boolean>; last_period_start: string | null };
+export type Period = { start: string; end: string };   // inclusive ISO dates in the company's zone
+
+const DEFAULTS: Record<ReportKind, Partial<Schedule>> = { daily: { at_time: "19:00" }, weekly: { at_time: "08:00", weekday: 1 }, monthly: { at_time: "08:00", day_of_month: 1 } };
+
+/** The three schedules exist for every company; a missing one is created with the defaults, enabled. */
+export async function ensureSchedules(c: PoolClient, companyId: string): Promise<Schedule[]> {
+  for (const kind of REPORT_KINDS) {
+    const d = DEFAULTS[kind];
+    await c.query("insert into report_schedules (company_id, kind, at_time, weekday, day_of_month) values ($1,$2,$3,$4,$5) on conflict (company_id, kind) do nothing", [companyId, kind, d.at_time, d.weekday ?? 1, d.day_of_month ?? 1]);
+  }
+  const rows = await many<Schedule & { last_period_start: Date | string | null }>(c, "select * from report_schedules where company_id=$1 order by array_position(array['daily','weekly','monthly'], kind)", [companyId]);
+  return rows.map((r) => ({ ...r, at_time: String(r.at_time).slice(0, 5), last_period_start: r.last_period_start ? DateTime.fromJSDate(new Date(r.last_period_start)).toISODate() : null }));
+}
+
+/** The period a scheduled run covers when it fires at `now` (company zone): today; last Monday–Sunday; last month. `toDate` = the period in progress, for on-demand. */
+export function periodFor(kind: ReportKind, now: DateTime<boolean>, toDate = false): Period {
+  if (kind === "daily") return { start: now.toISODate()!, end: now.toISODate()! };
+  if (kind === "weekly") { const w = toDate ? now.startOf("week") : now.startOf("week").minus({ weeks: 1 }); return { start: w.toISODate()!, end: (toDate ? now : w.plus({ days: 6 })).toISODate()! }; }
+  const m = toDate ? now.startOf("month") : now.startOf("month").minus({ months: 1 });
+  return { start: m.toISODate()!, end: (toDate ? now : m.endOf("month")).toISODate()! };
+}
+
+/** Due when it is past the time on the right day and this period has not been sent yet. A missed day (outage) sends on the next tick, never twice. */
+export function isDue(s: Schedule, now: DateTime<boolean>): Period | null {
+  if (!s.enabled) return null;
+  const [h, m] = s.at_time.split(":").map(Number);
+  if (now.hour * 60 + now.minute < h * 60 + m) return null;
+  if (s.kind === "weekly" && now.weekday !== s.weekday) return null;
+  if (s.kind === "monthly" && now.day !== s.day_of_month) return null;
+  const period = periodFor(s.kind, now);
+  return s.last_period_start === period.start ? null : period;
+}
+
+// ---- rendering ---------------------------------------------------------------------------------------------------------
+const W = 34;
+const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+const pct = (n: number, of: number) => (of > 0 ? `${Math.round((n / of) * 100)}%` : "—");
+const mins = (sec: number) => `${Math.round(sec / 60)} min`;
+const row = (label: string, value: string | number, note?: string) => `${label.padEnd(W)}${String(value).padStart(6)}${note ? `   ${note}` : ""}`;
+const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+function heading(kind: ReportKind, period: Period, tz: string, toDate: boolean): string {
+  const s = DateTime.fromISO(period.start, { zone: tz }), e = DateTime.fromISO(period.end, { zone: tz });
+  if (kind === "daily") return `What happened today — ${s.toFormat("cccc, LLL d")}`;
+  if (kind === "weekly") return `${toDate ? "This week so far" : "Last week"} — ${s.toFormat("LLL d")} to ${e.toFormat("LLL d")}`;
+  return `${toDate ? `${s.toFormat("LLLL")} so far` : s.toFormat("LLLL yyyy")}`;
+}
+
+export type Said = { label: string; answered: number; top: [string, number][]; rest: number; restKinds: number }[];
+/** What the period's new bookings answered on the booking form, tallied per question. Reads the questions the booking source carries (D24); no list to maintain. */
+export async function whatTheySaid(c: PoolClient, companyId: string, period: Period, tz: string): Promise<Said> {
+  const from = DateTime.fromISO(period.start, { zone: tz }).startOf("day").toJSDate(), to = DateTime.fromISO(period.end, { zone: tz }).endOf("day").toJSDate();
+  const rows = await many<{ answers: Record<string, unknown> }>(c, "select answers from appointments where company_id=$1 and source<>'test' and booked_at>=$2 and booked_at<=$3 and answers<>'{}'::jsonb", [companyId, from, to]);
+  const intake = await many<{ answers: Record<string, unknown> }>(c, "select attributes as answers from intake where company_id=$1 and submitted_at>=$2 and submitted_at<=$3", [companyId, from, to]);
+  const tally = new Map<string, Map<string, number>>(); const asked = new Map<string, number>();
+  for (const r of [...rows, ...intake]) for (const [q, raw] of Object.entries(r.answers ?? {})) {
+    if (raw === null || raw === undefined || raw === "" || /^(phone|email|name|first_name|last_name)$/i.test(q)) continue;
+    asked.set(q, (asked.get(q) ?? 0) + 1);
+    const bucket = tally.get(q) ?? new Map<string, number>(); tally.set(q, bucket);
+    for (const one of Array.isArray(raw) ? raw : [raw]) { const v = String(one).trim(); if (v) bucket.set(v, (bucket.get(v) ?? 0) + 1); }
+  }
+  return [...tally.entries()].map(([q, bucket]) => { const sorted = [...bucket].sort((a, b) => b[1] - a[1]); const rest = sorted.slice(4); return { label: q.replace(/[_-]+/g, " "), answered: asked.get(q) ?? 0, top: sorted.slice(0, 4), rest: rest.reduce((a, [, n]) => a + n, 0), restKinds: rest.length }; })
+    .sort((a, b) => b.answered - a.answered);
+}
+
+export function renderReport(args: { kind: ReportKind; period: Period; tz: string; toDate: boolean; totals: Totals; setters: Breakdown[]; closers: Breakdown[]; breakdowns: string[]; said: Said }): string {
+  const { totals: t, period, tz, kind, toDate } = args;
+  const v = (k: string) => t[k] ?? 0;
+  const anything = ["leads_new", "dials", "booked", "scheduled", "payments", "deals_won"].some((k) => v(k) > 0) || args.said.length > 0;
+  const head = `*${heading(kind, period, tz, toDate)}*`;
+  if (!anything) return `${head}\n\nNothing yet. No leads, no calls, no bookings, no money.`;
+  const L: string[] = [head, "```"];
+  L.push("NEW LEADS  — people who first appeared");
+  L.push(row("New leads", v("leads_new")));
+  L.push(row("  booked a call the same day", v("leads_booked_same_day"), `${pct(v("leads_booked_same_day"), v("leads_new"))} of them`));
+  if (v("stl_n")) L.push(row("  avg time to first touch", mins(v("stl_sum") / v("stl_n")), `${v("stl_n")} of ${v("leads_new")} reached`));
+  L.push("");
+  L.push("BOOKINGS MADE  — the act of booking happened in the period");
+  L.push(row("Calls booked", v("booked"), "any lead, new or old"));
+  L.push(row("  setter-booked", v("booked_set"), pct(v("booked_set"), v("booked"))));
+  L.push(row("  self-booked", v("booked_self"), pct(v("booked_self"), v("booked"))));
+  L.push("");
+  L.push("SETTER CALLS  — every dial the team made or took");
+  L.push(row("Dials", v("dials")));
+  L.push(row("  connected", v("connects"), `${pct(v("connects"), v("dials"))} connection rate` + (v("talk_sec") ? ` · ${mins(v("talk_sec"))} talking` : "")));
+  L.push(row("  led to a booking", v("calls_set"), `${pct(v("calls_set"), v("connects"))} of connects`));
+  if (v("calls_setting") || v("calls_confirmation")) L.push(row("  read by the AI", v("calls_setting") + v("calls_confirmation"), `${v("calls_setting")} setting · ${v("calls_confirmation")} confirmation`));
+  if (args.breakdowns.includes("setter")) for (const s of args.setters.filter((x) => (x.values.dials ?? 0) > 0)) {
+    const d = s.values; L.push(row(`  ${s.name}`, d.dials ?? 0, `${d.connects ?? 0} connected (${pct(d.connects ?? 0, d.dials ?? 0)}) · ${mins(d.talk_sec ?? 0)} · ${d.calls_set ?? 0} set`));
+  }
+  L.push("");
+  L.push("CALLS ON THE CALENDAR  — booked earlier, due in the period");
+  L.push(row("Scheduled", v("scheduled")));
+  L.push(row("  showed", v("showed"), `${pct(v("showed"), v("scheduled"))} show rate`));
+  L.push(row("  no-show", v("noshow"), pct(v("noshow"), v("scheduled"))));
+  L.push(row("  cancelled", v("cancelled"), pct(v("cancelled"), v("scheduled"))));
+  const unmarked = v("scheduled") - v("showed") - v("noshow") - v("cancelled");
+  if (unmarked > 0) L.push(row("  not yet marked", unmarked, "outcome missing"));
+  if (args.breakdowns.includes("closer")) for (const cl of args.closers.filter((x) => (x.values.scheduled ?? 0) + (x.values.deals_won ?? 0) > 0)) {
+    const d = cl.values; L.push(row(`  ${cl.name}`, d.scheduled ?? 0, `${d.showed ?? 0} showed (${pct(d.showed ?? 0, d.scheduled ?? 0)}) · ${d.deals_won ?? 0} won · ${money(d.revenue ?? 0)}`));
+  }
+  L.push("");
+  if (args.said.length) {
+    L.push("WHAT THEY SAID  — booking-form answers from the period's bookings");
+    for (const q of args.said.slice(0, 10)) {
+      L.push(`${q.label}  (${q.answered} answered)`);
+      for (const [a, n] of q.top) L.push(`  ${String(n).padStart(3)}  ${pct(n, q.answered).padStart(4)}  ${a.length > 62 ? `${a.slice(0, 59)}…` : a}`);
+      if (q.rest) L.push(`  ${String(q.rest).padStart(3)}        spread across ${plural(q.restKinds, "other answer")}`);
+      L.push("");
+    }
+  }
+  L.push("MONEY");
+  L.push(row("Cash collected", money(v("cash")), plural(v("payments"), "payment")));
+  if (v("refunds")) L.push(row("  refunded", money(v("refunded")), plural(v("refunds"), "refund")));
+  L.push(row("Revenue contracted", money(v("revenue")), `${plural(v("deals_won"), "deal")} won`));
+  if (v("revenue") > v("cash") && v("deals_won")) L.push(row("  outstanding", money(v("revenue") - v("cash")), "contracted, not yet collected"));
+  L.push("```");
+  return L.join("\n");
+}
+
+// ---- generate + post -----------------------------------------------------------------------------------------------------
+export type Generated = { id: string; body: string; posted: boolean; why?: string; period: Period };
+
+/** Recomputes the period's days, renders, records the Slack send (posted only live + connected), and stores the report. */
+export async function generateReport(c: PoolClient, company: CompanyRow, bindings: Record<string, string>, s: Schedule, period: Period, opts: { onDemand?: boolean; toDate?: boolean } = {}): Promise<Generated> {
+  await rollupRange(c, company.id, period.start, period.end, company.timezone);
+  const { totals, setters, closers } = await readMetrics(c, company.id, period.start, period.end);
+  const said = s.sections.what_they_said === false ? [] : await whatTheySaid(c, company.id, period, company.timezone);
+  const body = renderReport({ kind: s.kind, period, tz: company.timezone, toDate: !!opts.toDate, totals, setters, closers, breakdowns: s.breakdowns, said });
+  const channelId = s.channel || bindings["slack.channel.reports"] || bindings["slack.channel.bookings"];
+  const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [company.id]);
+  const status = company.mode === "shadow" ? "shadow" : conn && channelId ? "sent" : "suppressed";
+  const send = await one<{ id: string }>(c, `insert into sends (company_id, contact_id, run_id, channel, idempotency_key, rendered_body, status, suppressed_reason, scheduled_for, sent_at)
+    values ($1, null, null, 'slack', $2, $3, $4, $5, now(), case when $4 in ('sent','shadow') then now() end) returning id`,
+    [company.id, `report:${s.kind}:${period.start}:${randomUUID().slice(0, 8)}`, body, status, status === "suppressed" ? (conn ? "unbound: slack channel" : "unbound: slack") : null]);
+  let posted = false, why: string | undefined = status === "sent" ? undefined : status;
+  if (status === "sent") {
+    try { const r = await slackNotifier.post(decrypt(conn!.bot_token), channelId!, body); await c.query("update sends set external_id=$2 where id=$1", [send!.id, r.ts]); posted = true; }
+    catch (e) { why = String((e as Error).message); await c.query("update sends set status='failed', error=$2 where id=$1", [send!.id, why]); }
+  }
+  const rep = await one<{ id: string }>(c, "insert into reports (company_id, kind, period_start, period_end, on_demand, body, numbers, send_id) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id",
+    [company.id, s.kind, period.start, period.end, !!opts.onDemand, body, { totals, setters, closers }, send?.id ?? null]);
+  if (!opts.onDemand) await c.query("update report_schedules set last_period_start=$2 where id=$1", [s.id, period.start]);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'report.generated','report',$2,$3)", [company.id, rep!.id, { kind: s.kind, period, posted, why, on_demand: !!opts.onDemand }]);
+  return { id: rep!.id, body, posted, why, period };
+}
+
+/** Called every tick: each active company's due schedules fire once for their period. One company's failure never stops the next. */
+export async function runDueReports(c: PoolClient, now: DateTime<boolean> = DateTime.now()): Promise<{ generated: { company: string; kind: ReportKind; period: Period; posted: boolean }[]; errors: { company: string; error: string }[] }> {
+  const out = { generated: [] as { company: string; kind: ReportKind; period: Period; posted: boolean }[], errors: [] as { company: string; error: string }[] };
+  for (const co of await many<{ id: string; slug: string }>(c, "select id, slug from companies where status in ('active','hosted')")) {
+    try {
+      const { row, bindings } = await loadCompany(c, co.id);
+      const local = now.setZone(row.timezone);
+      for (const s of await ensureSchedules(c, co.id)) {
+        const period = isDue(s, local); if (!period) continue;
+        const g = await generateReport(c, row, bindings, s, period);
+        out.generated.push({ company: co.slug, kind: s.kind, period, posted: g.posted });
+      }
+    } catch (e) { out.errors.push({ company: co.slug, error: String((e as Error).message) }); }
+  }
+  return out;
+}
+
+export const companyReports = (c: PoolClient, companyId: string, limit = 30) => many<{ id: string; kind: ReportKind; period_start: string; period_end: string; generated_at: Date; on_demand: boolean; body: string; send_status: string | null }>(c,
+  "select r.id, r.kind, r.period_start::text, r.period_end::text, r.generated_at, r.on_demand, r.body, s.status as send_status from reports r left join sends s on s.id=r.send_id where r.company_id=$1 order by r.generated_at desc limit $2", [companyId, limit]);

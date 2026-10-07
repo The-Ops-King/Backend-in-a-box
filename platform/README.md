@@ -124,6 +124,40 @@ fallback on a safety decline. Each read is a `call.analyzed` event and is kept o
 closer's disposition form takes, so `appointment.outcome` and `call.held` fire for a company whose
 booking source has no outcome (Calendly). `pipeline_card` takes `status: won|lost` to close a card.
 
+## Wrap-ups and the rollup layer (D29)
+
+What the engine stores, and why, in three layers:
+
+1. **Ledger** — the facts the workflows run on: events, appointments, opportunities, payments,
+   recordings (meetings and dialer calls), a thin contact replica (name, phone, email, tags and ONLY
+   the custom fields a `crm.field_contact_*` binding names; a sub-account can carry hundreds).
+   Form answers live as one JSON on the booking (`appointments.answers`) or the contact
+   (`intake`), never as a copy of every field.
+2. **Daily rollups** — `metrics_daily`: one row per company, local day, dimension (total / a setter /
+   a closer) and metric, counts and sums only (the table never stores a rate; rates are computed when
+   read from numerator and denominator). Recomputed from the ledger per day, so it is a cache, not a
+   second truth. Harness rows (`source='test'`, `raw.simulated`) never count.
+3. **Pointers** for content the CRM owns and the engine only acts on: fetch the record live when
+   someone wants the detail. The bot (later) answers aggregates from layer 2, what only we hold
+   (calls, timings, transcripts) from layer 1, and a specific contact or deal from GHL live.
+
+Metrics today: new leads, booked the same day, time to first touch (sum + n → average), dials,
+connected, talk seconds, set from a call, setting / confirmation calls read by the AI, calls booked
+(setter- vs self-booked), on the calendar / showed / no-show / cancelled, payments, cash, refunds,
+deals won, revenue. Per setter: dials, connects, talk, sets, bookings they set. Per closer:
+bookings, calendar outcomes, deals, revenue.
+
+**Wrap-ups** are rendered from the rollups and posted to Slack on the company's own clock:
+`report_schedules` has a daily (default 19:00), weekly (Monday 08:00, covering last Mon–Sun) and
+monthly (1st at 08:00, covering last month) row per company — time, day, channel (a Slack id, else
+`slack.channel.reports`, else `slack.channel.bookings`), breakdowns (per setter / per closer) and
+sections (what they said = booking-form answers tallied per question) all live there, edited in
+settings › Wrap-ups. Each fires once per period (`last_period_start`), on the first tick after the
+time; a missed day sends late, never twice. Every generated wrap-up is a `reports` row shown on
+`/c/<slug>/reports` exactly as sent (shadow: recorded, not posted). **Generate now** in settings and
+`POST /api/admin/reports { company, kind, period_start?, period_end? }` make one on demand for the
+period in progress (today so far / this week so far / this month so far).
+
 ## Pipeline cards (D19)
 
 Templates create and move cards on the CRM's pipeline boards (`pipeline_card` node). Pipeline,
