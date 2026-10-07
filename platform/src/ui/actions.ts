@@ -7,6 +7,7 @@ import { linkPayment } from "@/engine/payments";
 import { linkRecording } from "@/engine/recordings";
 import { loadCompany } from "@/engine/context";
 import { simulate, SIM_ACTIONS, type SimAction } from "@/engine/simulate";
+import { saveCopy, type CopyField } from "@/engine/copy";
 import { dispatchEvent } from "@/engine/dispatch";
 
 export async function toggleWorkflow(formData: FormData) {
@@ -77,4 +78,12 @@ export async function simulateAction(formData: FormData) {
     await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,$2,'contact',$3,$4)", [companyId, `simulate.${action}`, contactId, r.ok ? { ...r.detail, runs_started: r.runsStarted, via: "dashboard" } : { refused: r.why }]);
   });
   revalidatePath(`/c/${slug}/contacts/${contactId}`); revalidatePath(`/c/${slug}`);
+}
+
+/** Edit the words of one message in this company's copy of a workflow: a new version, validated, marked as edited. */
+export async function saveCopyAction(formData: FormData) {
+  const slug = String(formData.get("slug")), workflowId = String(formData.get("workflowId")), nodeId = String(formData.get("nodeId")), field = String(formData.get("field")) as CopyField, text = String(formData.get("text") ?? "");
+  const r = await asOperator((c) => saveCopy(c, { workflowId, nodeId, field, text }));
+  revalidatePath(`/c/${slug}/w/${workflowId}`);
+  redirect(`/c/${slug}/w/${workflowId}?${r.ok ? `saved=${nodeId}` : `error=${encodeURIComponent(r.why)}`}#copy-${nodeId}`);
 }

@@ -12,8 +12,8 @@ import { toMermaid } from "@/engine/mermaid";
 import { ago, badge } from "@/ui/format";
 import { toggleWorkflow } from "@/ui/actions";
 export const dynamic = "force-dynamic";
-export default async function WorkflowPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
-  const { slug, id } = await params; const co = await company(slug); const w = await workflow(id); if (!co || !w || w.company_id !== co.id) notFound();
+export default async function WorkflowPage({ params, searchParams }: { params: Promise<{ slug: string; id: string }>; searchParams: Promise<{ saved?: string; error?: string }> }) {
+  const { slug, id } = await params; const sp = await searchParams; const co = await company(slug); const w = await workflow(id); if (!co || !w || w.company_id !== co.id) notFound();
   const all = await readiness(co.id, slug); const mine = all.workflows.find((x) => x.id === w.id);
   const live = await plannedRuns({ workflowId: w.id });
   const ready = { ready: !!mine?.ready && !all.issues.some((i) => i.level === "blocker" && !i.href), issues: all.issues.filter((i) => !i.href || i.href.endsWith(`/w/${w.id}`)), workflows: mine ? [mine] : [] };
@@ -32,7 +32,7 @@ export default async function WorkflowPage({ params }: { params: Promise<{ slug:
     </div>
     <h2>Flow chart</h2>
     {w.definition ? <Mermaid chart={toMermaid(w.definition)} /> : <div className="card ready ready-no"><strong>This workflow's stored definition no longer runs on the current engine.</strong><div className="body">Re-run install for this company to upgrade it to the current template. Until then its triggers are skipped.</div><pre className="json" style={{ marginTop: 10 }}>{w.parseError}</pre></div>}
-    {w.definition ? <><h2>The copy</h2><p className="sub">Every message this workflow can send, in full. ⟨angle brackets⟩ are filled in per contact.</p><CopyPanel def={w.definition} /><h2>The steps, as a table</h2><StepsTable def={w.definition} /></> : null}
+    {w.definition ? <><h2>The copy</h2><p className="sub">Every message this workflow can send, in full. Edit and save: this company's copy gets a new version and is marked as edited.</p><CopyPanel def={w.definition} slug={slug} workflowId={w.id} saved={sp.saved} error={sp.error} /><h2>The steps, as a table</h2><StepsTable def={w.definition} /></> : null}
     <h2>In this workflow right now · {live.length}</h2>
     <NextUp runs={live} slug={slug} tz={co.timezone} showContact />
     <div className="grid g2" style={{ marginTop: 22, alignItems: "start" }}>

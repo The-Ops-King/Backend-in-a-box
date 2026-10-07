@@ -6,6 +6,7 @@ import { installCompany } from "@/engine/install";
 import { companyReadiness } from "@/engine/readiness";
 import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { templates } from "@/templates";
+import { saveCopy } from "@/engine/copy";
 import type { Adapters, BookingRead } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -63,5 +64,26 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
     expect((await asOperator((c) => one<{ current_version: number }>(c, "select current_version from workflows where id=$1", [wf.id])))!.current_version).toBe(1);
     const versions = await asOperator((c) => many(c, "select 1 from workflow_versions where workflow_id=$1", [wf.id]));
     expect(versions).toHaveLength(1);
+  });
+});
+
+describe.skipIf(!process.env.DATABASE_URL)("editing copy", () => {
+  it("saving a message makes a new version of the company's copy, marks it edited, refuses unknown placeholders, and the next install leaves it alone", async () => {
+    const co = (await asOperator((c) => one<{ id: string }>(c, "select id from companies where slug='upg'")))!;
+    const wf = (await asOperator((c) => one<{ id: string; current_version: number }>(c, "select w.id, w.current_version from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='new-lead'", [co.id])))!;
+    // new-lead has no message; use the Slack post on call-cancelled? it is diverged already — install speed-to-lead fresh for this
+    await installCompany({ ...base, templates: ["speed-to-lead"] }, fake);
+    const stl = (await asOperator((c) => one<{ id: string; current_version: number }>(c, "select w.id, w.current_version from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='speed-to-lead'", [co.id])))!;
+    const bad = await asOperator((c) => saveCopy(c, { workflowId: stl.id, nodeId: "n1", field: "template", text: "<p>Hi {{lead.name}}</p>" }));
+    expect(bad).toMatchObject({ ok: false, why: /unknown placeholder/ });
+    const ok = await asOperator((c) => saveCopy(c, { workflowId: stl.id, nodeId: "n1", field: "template", text: "<p>Hey {{contact.first_name}}, grab a time: {{calendar.booking.url}}</p>" }));
+    expect(ok).toEqual({ ok: true, version: stl.current_version + 1 });
+    const after = await asOperator((c) => one<{ current_version: number; diverged: boolean }>(c, "select current_version, diverged from workflows where id=$1", [stl.id]));
+    expect(after).toEqual({ current_version: stl.current_version + 1, diverged: true });
+    const def = await asOperator((c) => one<{ definition: { nodes: { id: string; template?: string }[] } }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [stl.id, stl.current_version + 1]));
+    expect(def!.definition.nodes.find((n) => n.id === "n1")!.template).toContain("grab a time");
+    const r = await installCompany({ ...base, templates: ["speed-to-lead"] }, fake);
+    expect(r.installed[0]).toMatch(/edited since install, left alone/);
+    expect(wf.id).toBeTruthy();
   });
 });
