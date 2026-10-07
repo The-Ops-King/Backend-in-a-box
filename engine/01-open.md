@@ -297,3 +297,14 @@ than copy in the workflow: GHL's email builder templates list via `GET /emails/b
 yet); the send step gets a `template_id` option with inline copy as the fallback. Not built until the
 Whop door and the Documents write scope are in place.
 
+### 30, continued: unsigned-agreement chase (spec captured 2026-10-07)
+Starts on the FIRST payment only. Strict 24h from the payment: check signed → if not, nudge the contact
+owner (assigned user; fall back to `crm.default_closer`) → 24h → check → nudge → 24h → check → nudge.
+Three nudges at most; a signature at any point ends the run (the agreement poll's `agreement.signed`
+wakes and exits it). After the third unanswered nudge: tag `agreement-unsigned` on the contact and
+escalate once to a Slack channel. Nudge = a Slack DM to the owner when the engine can map them (GHL
+user email → Slack user via `users.lookupByEmail`; cache as `users.slack_user_id`); else a channel post
+that @mentions them (`<@U…>`); and a GHL task on the contact assigned to the owner either way, so it is
+visible inside GHL. Slack app scopes this needs when Tyler creates it: `chat:write`, `im:write`,
+`users:read`, `users:read.email` (plus `channels:read`, `groups:read` for the channel picker).
+
