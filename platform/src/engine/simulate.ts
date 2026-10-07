@@ -48,13 +48,18 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
       if (!cal) return { ok: false, why: "no closing calendar is mapped for this company" };
       const start = DateTime.now().setZone(tz).plus({ days: x.daysOut ?? 3 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
       const selfBooked = action === "book-self";
+      // the closer: the calendar's own host when we know it (GHL calendars), else the company's bound default closer, else the first closer on the roster — the poll learns it from the booking source, which a staged booking never touches
+      const closerId = cal.default_user_id
+        ?? (await one<{ id: string }>(c, "select u.id from bindings b join users u on u.company_id=b.company_id and u.ghl_user_id=convert_from(b.value,'utf8') where b.company_id=$1 and b.key='crm.default_closer'", [company.id]))?.id
+        ?? (await one<{ id: string }>(c, "select id from users where company_id=$1 and role='closer' and active order by created_at, name limit 1", [company.id]))?.id ?? null;
+      const closerName = closerId ? (await one<{ name: string }>(c, "select name from users where id=$1", [closerId]))?.name : undefined;
       const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at)
         values ($1,$2,'test',$3,$4,$5,$6,$7,$8,$9,$10,'https://example.test/reschedule','https://example.test/cancel',$11,now(),'confirmed',now()) returning id`,
-        [company.id, contact.id, `test-${randomUUID().slice(0, 8)}`, cal.id, cal.appointment_term, cal.default_user_id, start.toJSDate(), start.plus({ minutes: 45 }).toJSDate(), selfBooked, selfBooked ? null : "Test Setter", JSON.stringify({ utm_source: "sys-test" })]);
+        [company.id, contact.id, `test-${randomUUID().slice(0, 8)}`, cal.id, cal.appointment_term, closerId, start.toJSDate(), start.plus({ minutes: 45 }).toJSDate(), selfBooked, selfBooked ? null : "Test Setter", JSON.stringify({ utm_source: "sys-test" })]);
       const ev = await emitEvent(c, { company_id: company.id, contact_id: contact.id, opportunity_id: null, appointment_id: row!.id, event_type: "appointment.booked", source: "test", data: { source: "test", status: "confirmed", starts_at: start.toISO(), self_booked: selfBooked, simulated: true } });
       const oppId = await ensureOpportunityForBooking(c, company.id, contact.id, row!.id, ev);
       const started = await dispatchEvent(c, { ...ev, opportunity_id: oppId || null }, { ...ctx, appointment: { id: row!.id, starts_at: start.toISO(), term: { category: cal.term_category }, status: "confirmed", self_booked: selfBooked, set_by: selfBooked ? null : "Test Setter" }, opportunity: { id: oppId } });
-      return { ok: true, action, detail: { appointment: row!.id, starts_at: start.toISO(), self_booked: selfBooked, name }, runsStarted: started.length };
+      return { ok: true, action, detail: { appointment: row!.id, starts_at: start.toISO(), self_booked: selfBooked, name, closer: closerName ?? null }, runsStarted: started.length };
     }
     case "reschedule": case "cancel": {
       const a = await openTestAppointment(c, company.id, contact.id);

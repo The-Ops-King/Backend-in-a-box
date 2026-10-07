@@ -167,7 +167,8 @@ contact's zone), `book-self`, `reschedule` (+2 days), `cancel`, `pay` (the progr
 (a Fathom-shaped recording with a short transcript, through the match ladder), `reset` (the engine
 forgets every run, send, card, pursuit and synthetic appointment for that person; the contact stays).
 Synthetic appointments have `source = 'test'` and never exist at a booking source; the premise check
-trusts our row for them. Refused while the company is live (`force: true` on the API overrides).
+trusts our row for them. The closer on a staged booking is the calendar's host when known, else the
+user bound as `crm.default_closer` (a GHL user id), else the first closer on the roster. Refused while the company is live (`force: true` on the API overrides).
 
 ## Dark hours
 
