@@ -142,6 +142,14 @@ present or missing, Slack channels unbound, and the gaps the engine knows it sti
 (`KNOWN_GAPS` — delete the entry when the piece ships). A workflow that is ON with a missing binding is a
 blocker; the same gap on a workflow that is OFF is a note. Nothing here is typed by hand.
 
+### Turning workflows on and off from outside
+
+`GET /api/admin/workflows?company=<slug>` lists a company's workflows with their readiness;
+`POST /api/admin/workflows` with `{ "company": "<slug>", "workflow": "<template slug or name>", "enabled": true|false }`
+flips one. Both take `Authorization: Bearer $CRON_SECRET`. Turning on a workflow that is missing a
+required binding is refused (409) — the same thing the readiness card calls blocking. Every flip is
+in `audit_log`.
+
 ## Smoke journey
 
 `pnpm smoke` (optionally `--template <slug>` repeated to mirror a real company's set) runs "a client

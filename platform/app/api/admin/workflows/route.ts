@@ -1,0 +1,45 @@
+import { NextResponse } from "next/server";
+import { asOperator, many, one } from "@/db/client";
+import { operatorAuthorized } from "@/engine/admin-auth";
+import { companyReadiness } from "@/engine/readiness";
+export const dynamic = "force-dynamic";
+
+/**
+ * Turn a company's workflows on or off from outside the dashboard (a Zap, a script, a go-live checklist).
+ * GET  ?company=<slug>                              → every workflow with its readiness
+ * POST { company: <slug>, workflow: <template slug | name>, enabled: boolean }
+ * Turning ON a workflow with a missing required binding is refused: the dashboard would show it as blocking.
+ * Authorization: Bearer $CRON_SECRET.
+ */
+export async function GET(req: Request) {
+  if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const slug = new URL(req.url).searchParams.get("company");
+  if (!slug) return NextResponse.json({ error: "company is required" }, { status: 400 });
+  return asOperator(async (c) => {
+    const co = await one<{ id: string; mode: string }>(c, "select id, mode from companies where slug=$1", [slug]);
+    if (!co) return NextResponse.json({ error: "no such company" }, { status: 404 });
+    const r = await companyReadiness(c, co.id, `/c/${slug}`);
+    return NextResponse.json({ ok: true, company: slug, mode: co.mode, ready: r.ready, issues: r.issues, workflows: r.workflows });
+  });
+}
+export async function POST(req: Request) {
+  if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const body = (await req.json().catch(() => null)) as { company?: string; workflow?: string; enabled?: boolean } | null;
+  if (!body?.company || !body.workflow || typeof body.enabled !== "boolean") return NextResponse.json({ error: "company, workflow and enabled are required" }, { status: 400 });
+  return asOperator(async (c) => {
+    const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [body.company]);
+    if (!co) return NextResponse.json({ error: "no such company" }, { status: 404 });
+    const wfs = await many<{ id: string; name: string; enabled: boolean; slug: string | null }>(c, "select w.id, w.name, w.enabled, t.slug from workflows w left join workflow_templates t on t.id=w.template_id where w.company_id=$1 and (t.slug=$2 or lower(w.name)=lower($2))", [co.id, body.workflow]);
+    if (wfs.length !== 1) return NextResponse.json({ error: wfs.length ? "ambiguous workflow name" : "no such workflow for this company" }, { status: 404 });
+    const w = wfs[0];
+    if (body.enabled) {
+      const r = await companyReadiness(c, co.id, `/c/${body.company}`); const mine = r.workflows.find((x) => x.id === w.id)!;
+      if (mine.missing.length) return NextResponse.json({ error: `cannot turn on: missing ${mine.missing.join(", ")}`, missing: mine.missing }, { status: 409 });
+    }
+    if (w.enabled !== body.enabled) {
+      await c.query("update workflows set enabled=$2 where id=$1", [w.id, body.enabled]);
+      await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,$2,'workflow',$3,$4,$5)", [co.id, body.enabled ? "workflow.enabled" : "workflow.disabled", w.id, { enabled: w.enabled }, { enabled: body.enabled, via: "api" }]);
+    }
+    return NextResponse.json({ ok: true, workflow: w.name, slug: w.slug, enabled: body.enabled, changed: w.enabled !== body.enabled });
+  });
+}
