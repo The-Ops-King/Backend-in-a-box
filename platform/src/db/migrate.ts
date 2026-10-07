@@ -2,6 +2,7 @@ import { db } from "./client";
 import { SCHEMA } from "./schema.sql";
 
 /** Every event source the engine writes; one list so an added source cannot be missed by a later constraint rebuild. */
+const APPOINTMENT_SOURCES = ["ghl", "calendly", "test"].map((s) => `'${s}'`).join(",");
 const EVENT_SOURCES = ["form", "ghl_poll", "whop", "fathom", "zapier", "engine", "disposition", "command_center", "user", "test"].map((s) => `'${s}'`).join(",");
 
 /** Applies engine/schema.sql (idempotently: skips if `companies` exists) then forces RLS on every tenant table. */
@@ -31,7 +32,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     for (const t of ["calendars", "appointments"]) {
       await c.query(`alter table ${t} add column if not exists source text not null default 'ghl'`);
       await c.query(`alter table ${t} drop constraint if exists ${t}_source_check`);
-      await c.query(`alter table ${t} add constraint ${t}_source_check check (source in ('ghl','calendly'))`);
+      await c.query(`alter table ${t} add constraint ${t}_source_check check (source in (${t === "appointments" ? APPOINTMENT_SOURCES : "'ghl','calendly'"}))`);   // calendars are only ever real; appointments may be staged by the harness
       await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_${t === "calendars" ? "ghl_calendar_id" : "ghl_appointment_id"}_key`);
       await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_source_external_id_key`);
       await c.query(`alter table ${t} add constraint ${t}_company_id_source_external_id_key unique (company_id, source, external_id)`);
@@ -82,8 +83,6 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`create index if not exists recordings_company_id_link_status_idx on recordings (company_id, link_status)`);
     await c.query(`create index if not exists recordings_company_id_contact_id_idx on recordings (company_id, contact_id)`);
     // simulation harness (D23): synthetic appointments and events carry source 'test'; dark-hours policy per company
-    await c.query(`alter table appointments drop constraint if exists appointments_source_check`);
-    await c.query(`alter table appointments add constraint appointments_source_check check (source in ('ghl','calendly','test'))`);
     await c.query(`alter table companies add column if not exists quiet_allow_transactional boolean not null default false`);
     // appointments ↔ form_submissions reference each other; the disposition pointer must not block deleting a submission
     await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);
