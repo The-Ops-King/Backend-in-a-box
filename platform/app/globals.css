@@ -78,3 +78,4 @@ pre.json{background:var(--ink-deep);border:1px solid var(--hair);border-radius:v
 .form select,.form textarea{font:inherit;width:100%;max-width:420px;padding:8px 10px;border:1px solid var(--hair);border-radius:var(--radius-btn);background:var(--ink-deep);color:var(--bone)}
 details.steps summary{cursor:pointer;color:var(--grey-mid);font-size:15px;margin:6px 0 10px;user-select:none}details.steps summary:hover{color:var(--bone)}
 @media(max-width:640px){.wrap{padding:20px 14px 56px}h1{font-size:30px}.nav{padding:0 14px}.stat .n{font-size:30px}}
+.ready{border-left:3px solid var(--accent-line)}.ready-no{border-left-color:var(--red)}.ready-list{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}.ready-list li{display:flex;gap:10px;align-items:baseline;line-height:1.5}.ready-list li .badge{flex:none}

@@ -216,3 +216,15 @@ becomes a `recordings` row, is matched to the contact and their appointment, and
 `appointment.outcome` and `call.held` fire. Still open: the no-show half. Nothing yet marks an
 appointment `noshow` when no recording arrives; that needs a timed sweep (an appointment whose end
 passed N minutes ago with no recording and no outcome → noshow) and is the next piece.
+
+## 25. Readiness: what still stands between a company and "live"
+The dashboard now answers this from facts (`platform/src/engine/readiness.ts`, shown on the company
+page and on each workflow page): company mode, Slack connection, every workflow's required bindings,
+Slack channels unbound, and the gaps the engine knows it still has per template (`KNOWN_GAPS`; remove
+an entry when the piece ships and the warning disappears). For Hair on 2026-10-07 the list is:
+- BLOCKS: Slack not connected (every Slack post is recorded, never posted). Needs a bot token + channel ids.
+- Call recorded is OFF, missing `secret.anthropic_key`; Fathom key not yet given, so no webhook registered (the Zapier door is open).
+- Call recorded: the no-show half (#24) is not built.
+- No Slack channels bound: `slack.channel.bookings`, `slack.channel.payments`, `slack.channel.calls`.
+- Hair's own confirmation / reminder / nurture copy is not ported; only new-lead, call-booked, call-cancelled, payment-recorded, call-recorded are installed, so nothing goes to the prospect after a booking yet.
+- Open question surfaced by the smoke run (`pnpm smoke`): the send window (08:00–20:00) defers a booking confirmation booked at 9pm to 8am the next morning. Transactional confirmations probably should bypass quiet hours; a decision is needed before Hair's confirmation is ported.

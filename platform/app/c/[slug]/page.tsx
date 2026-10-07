@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { company, companyWorkflows, companyContacts, pollHealth, recentRuns, companyEvents } from "@/ui/queries";
+import { company, companyWorkflows, companyContacts, pollHealth, recentRuns, companyEvents, readiness } from "@/ui/queries";
+import { ReadinessCard } from "@/ui/Readiness";
 import { RunsTable } from "@/ui/RunsTable";
 import { ago, badge } from "@/ui/format";
 import { toggleMode } from "@/ui/actions";
 export const dynamic = "force-dynamic";
 export default async function CompanyPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params; const co = await company(slug); if (!co) notFound();
-  const [wfs, contacts, polls, runs, events] = await Promise.all([companyWorkflows(co.id), companyContacts(co.id), pollHealth(co.id), recentRuns(co.id), companyEvents(co.id)]);
+  const [wfs, contacts, polls, runs, events, ready] = await Promise.all([companyWorkflows(co.id), companyContacts(co.id), pollHealth(co.id), recentRuns(co.id), companyEvents(co.id), readiness(co.id, slug)]);
+  const readyOf = new Map(ready.workflows.map((w) => [w.id, w]));
   return (<>
     <p className="sub"><Link href="/">Companies</Link> / {co.name}</p>
     <h1>{co.name}</h1>
@@ -16,9 +18,11 @@ export default async function CompanyPage({ params }: { params: Promise<{ slug: 
       <div style={{ flex: 1, minWidth: 260 }}>{co.mode === "live" ? <><strong>Live.</strong> Enabled workflows send real messages and write tags, notes and appointment changes to GHL.</> : <><strong>Shadow.</strong> Enabled workflows run fully but write nothing to GHL. Every message, tag and note is recorded as what <em>would</em> have happened. Read-only CRM access is enough.</>}</div>
       <form action={toggleMode}><input type="hidden" name="slug" value={slug} /><button className={`btn ${co.mode === "live" ? "btn-off" : "btn-on"}`} type="submit">{co.mode === "live" ? "Switch to shadow" : "Go live"}</button></form>
     </div>
+    <ReadinessCard r={ready} />
     <h2>Workflows</h2>
-    <div className="tbl"><table><thead><tr><th>Workflow</th><th>Triggers</th><th>Re-entry</th><th>Runs</th><th>Enabled</th></tr></thead><tbody>
-      {wfs.map((w) => <tr key={w.id}><td><Link href={`/c/${slug}/w/${w.id}`}><strong>{w.name}</strong></Link> <span className="mono" style={{ color: "var(--muted)" }}>v{w.current_version}{w.diverged ? " · edited" : ""}</span></td><td className="mono">{w.triggers.join(", ")}</td><td className="mono">{w.reentry_policy}</td><td>{w.runs_active} active / {w.runs_total}</td><td><span className={badge(w.enabled ? "active" : "paused")}>{w.enabled ? "on" : "off"}</span></td></tr>)}
+    <div className="tbl"><table><thead><tr><th>Workflow</th><th>Triggers</th><th>Re-entry</th><th>Runs</th><th>Enabled</th><th>Ready</th></tr></thead><tbody>
+      {wfs.map((w) => { const rd = readyOf.get(w.id); return <tr key={w.id}><td><Link href={`/c/${slug}/w/${w.id}`}><strong>{w.name}</strong></Link> <span className="mono" style={{ color: "var(--muted)" }}>v{w.current_version}{w.diverged ? " · edited" : ""}</span></td><td className="mono">{w.triggers.join(", ")}</td><td className="mono">{w.reentry_policy}</td><td>{w.runs_active} active / {w.runs_total}</td><td><span className={badge(w.enabled ? "active" : "paused")}>{w.enabled ? "on" : "off"}</span></td>
+        <td>{!rd ? "—" : rd.ready ? <span className="badge b-live">ready</span> : <span className="badge b-failed" title={[...rd.missing.map((m) => `missing ${m}`), ...rd.gaps].join("\n")}>{rd.missing.length ? `missing ${rd.missing.length} binding${rd.missing.length > 1 ? "s" : ""}` : "not built yet"}</span>}</td></tr>; })}
     </tbody></table></div>
     <h2>Polling</h2>
     <div className="tbl"><table><thead><tr><th>Entity</th><th>Last success</th><th>Failures</th></tr></thead><tbody>

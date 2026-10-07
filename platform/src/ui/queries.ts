@@ -1,5 +1,6 @@
 import { asOperator, many, one } from "@/db/client";
 import { parseDefinition, type Definition } from "@/engine/definition";
+import { companyReadiness } from "@/engine/readiness";
 
 export const listCompanies = () => asOperator((c) => many<{ id: string; name: string; slug: string; status: string; mode: string; timezone: string; contacts: number; workflows: number; active_runs: number; last_poll: Date | null }>(c, `
   select co.id, co.name, co.slug, co.status, co.mode, co.timezone,
@@ -115,3 +116,5 @@ export const companyRecordings = (companyId: string, limit = 50) => asOperator((
          nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as contact, r.appointment_id, a.starts_at as appointment_at, r.analysis, (r.transcript is not null and jsonb_array_length(r.transcript) > 0) as has_transcript
   from recordings r left join contacts ct on ct.id=r.contact_id left join appointments a on a.id=r.appointment_id
   where r.company_id=$1 order by r.started_at desc limit ${limit}`, [companyId]));
+
+export const readiness = (companyId: string, slug: string) => asOperator((c) => companyReadiness(c, companyId, `/c/${slug}`));

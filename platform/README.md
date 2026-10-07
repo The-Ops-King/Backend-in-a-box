@@ -134,6 +134,22 @@ way; a Calendly invitee is matched to the GHL contact by email/phone. Calendly i
 engine: a reschedule is one appointment moved, a cancellation is a status change, and
 `update_appointment` is skipped with a note. Facts about the Calendly API are in `calendly/01-api-facts.md`.
 
+## Readiness (is it safe to go live?)
+
+The company page and every workflow page carry a readiness card built from facts
+(`src/engine/readiness.ts`): shadow vs live, Slack connected or not, each workflow's required bindings
+present or missing, Slack channels unbound, and the gaps the engine knows it still has for a template
+(`KNOWN_GAPS` — delete the entry when the piece ships). A workflow that is ON with a missing binding is a
+blocker; the same gap on a workflow that is OFF is a note. Nothing here is typed by hand.
+
+## Smoke journey
+
+`pnpm smoke` (optionally `--template <slug>` repeated to mirror a real company's set) runs "a client
+comes in, then books a call" through the real engine against `DATABASE_URL` with fake adapters, in a
+throwaway company `smoke` in shadow, and prints the whole story: events in order, each run step by
+step in words, every message or Slack post that would have gone out, the pipeline cards and tags
+afterwards, what is parked for later, and the readiness list. Nothing external is called.
+
 ## Shadow mode (how a client gets migrated)
 
 Every company is in **shadow** until someone presses **Go live**. In shadow the engine polls,

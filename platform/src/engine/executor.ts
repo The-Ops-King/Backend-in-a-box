@@ -132,8 +132,9 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       // the channel binding is optional (manifest marks slack.* not required), so resolve without throwing: unbound → skip the node, keep the run going
       const ref = /^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/.exec(node.channel);
       const channelId = ref ? (resolvePath(d.ctx, ref[1]) as string | undefined) : node.channel;
-      if (!conn || !channelId) { await recordSend(d, node, "slack", "", "suppressed", "unbound: slack"); return { status: "skipped", next, result: { why: conn ? "slack channel not bound" : "slack not connected" } }; }
+      // render first even when it cannot post: the dashboard shows what WOULD have gone to Slack, which is the whole point of shadow
       const text = render(node.template, d.ctx, env(d));
+      if (!conn || !channelId) { await recordSend(d, node, "slack", text, "suppressed", conn ? "unbound: slack channel" : "unbound: slack"); return { status: "skipped", next, result: { why: conn ? "slack channel not bound" : "slack not connected", would_post: text.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next };
       if (shadow(d)) { await d.c.query("update sends set status='shadow', sent_at=now() where id=$1", [send.id]); return { status: "ok", next, result: { shadow: true, would_post: text.slice(0, 120) } }; }
       const { decrypt } = await import("./crypto");
