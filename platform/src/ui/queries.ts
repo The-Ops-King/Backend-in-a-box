@@ -123,3 +123,9 @@ export const companyRecordings = (companyId: string, limit = 50) => asOperator((
 export const readiness = (companyId: string, slug: string) => asOperator((c) => companyReadiness(c, companyId, `/c/${slug}`));
 
 export const problems = () => asOperator((c) => currentProblems(c));
+
+export const triggerCatalog = (companyId: string) => asOperator((c) => many<{ name: string; category: string; workflows: { id: string; name: string; enabled: boolean }[]; seen: number }>(c, `
+  select et.name, et.category,
+    coalesce((select json_agg(json_build_object('id', w.id, 'name', w.name, 'enabled', w.enabled) order by w.name) from workflow_triggers t join workflows w on w.id=t.workflow_id where t.company_id=$1 and t.event_type=et.name), '[]'::json) as workflows,
+    (select count(*) from events e where e.company_id=$1 and e.event_type=et.name and e.occurred_at > now() - interval '30 days')::int as seen
+  from event_types et order by et.category, et.name`, [companyId]));

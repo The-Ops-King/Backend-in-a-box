@@ -170,6 +170,13 @@ Synthetic appointments have `source = 'test'` and never exist at a booking sourc
 trusts our row for them. The closer on a staged booking is the calendar's host when known, else the
 user bound as `crm.default_closer` (a GHL user id), else the first closer on the roster. Refused while the company is live (`force: true` on the API overrides).
 
+## Triggers
+
+`/c/<slug>/triggers` lists every event a workflow can start from, in plain words, where each comes
+from, which of the company's workflows use it, and how often it has been seen. The list is the
+`event_types` table: teaching the engine a new fact (a new door, a new node) adds an event there and
+every company sees it.
+
 ## Seeing what will happen (and when)
 
 Every live run shows its plan: the contact page ("What happens next"), the run page, and the workflow
@@ -185,8 +192,10 @@ After every tick the engine lists its own problems (poll failures, cursors faili
 failed in the last ten minutes, workflow copies that no longer parse, a recovery catch-up), shows them
 on the dashboard home, and POSTs new ones to `OPERATOR_WEBHOOK_URL` (a Zap catch hook or a Slack
 incoming webhook) — once, then hourly while they persist. For the one failure it cannot see (the
-scheduler itself dead), `GET /api/health?assert=fresh` returns 503 when no tick has landed for five
-minutes; point an uptime monitor at it. Recovery after a gap drips at most 20 sends per company per
+scheduler itself dead), a second pg_cron job inside the database (`bb-watchdog`, every five minutes)
+POSTs to the same webhook when the last tick is older than five minutes — installed by
+`POST /api/admin/schedule` once `OPERATOR_WEBHOOK_URL` (or `alertUrl`) is set. No outside monitor is
+needed; `GET /api/health?assert=fresh` (503 when stale) remains for anyone who wants one. Recovery after a gap drips at most 20 sends per company per
 tick, in due order; messages that lost their window are skipped by the validity rules, not sent late.
 `pnpm build` runs the migration first, so a deploy cannot serve code against an older schema.
 

@@ -7,3 +7,9 @@ describe("installTickSchedule input guards", () => {
     await expect(installTickSchedule("https://x.test", "s", 0)).rejects.toThrow(/1–59/);
   });
 });
+import { installWatchdog } from "./schedule";
+describe("installWatchdog input guards", () => {
+  it("rejects a non-https alert URL before touching the database", async () => {
+    await expect(installWatchdog("http://hooks.test/x")).rejects.toThrow(/https URL/);
+  });
+});

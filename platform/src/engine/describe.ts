@@ -23,12 +23,12 @@ export function kindOf(n: Node): NodeKind {
 
 export const KIND_LABEL: Record<NodeKind, string> = { trigger: "Starts when", message: "Message out", crm: "CRM change", decision: "Decision", wait: "Wait", ai: "AI reads", control: "Flow control", exit: "Stops" };
 
-const EVENTS: Record<string, string> = {
+export const EVENT_LABELS: Record<string, string> = {
   "lead.created": "New lead created", "contact.created": "New contact created",
   "appointment.booked": "Appointment booked", "appointment.rescheduled": "Appointment rescheduled", "appointment.status_changed": "Appointment status changed", "appointment.outcome": "Call outcome recorded",
   "call.held": "Call held", "message.received": "Reply received", "tag.added": "Tag added", "tag.removed": "Tag removed",
   "payment.received": "Payment received", "payment.failed": "Payment failed", "payment.paid_in_full": "Paid in full",
-  "recording.received": "Call recording received", "recording.unlinked": "Recording with no matching contact", "recording.linked": "Recording linked to a contact", "call.analyzed": "AI finished reading a call",
+  "recording.received": "Call recording received", "intake.recorded": "Intake answers recorded", "contact.merged": "Two contacts merged", "stage.changed": "Pipeline stage changed", "run.started": "A workflow run started", "run.exited": "A workflow run stopped early", "send.suppressed": "A message was held back", "recording.unlinked": "Recording with no matching contact", "recording.linked": "Recording linked to a contact", "call.analyzed": "AI finished reading a call",
   "opportunity.opened": "Opportunity opened", "opportunity.won": "Deal won", "opportunity.lost": "Opportunity lost", "form.submitted": "Form submitted",
 };
 const PATHS: Record<string, string> = {
@@ -99,7 +99,7 @@ export type NodeText = { title: string; detail?: string; quote?: string };
 /** One line a person understands, plus optional detail and a quoted message. */
 export function describeNode(n: Node): NodeText {
   switch (n.type) {
-    case "trigger": return { title: `${EVENTS[n.event] ?? humanWords(n.event)}${n.match ? ` — ${predicateWords(n.match)}` : ""}` };
+    case "trigger": return { title: `${EVENT_LABELS[n.event] ?? humanWords(n.event)}${n.match ? ` — ${predicateWords(n.match)}` : ""}` };
     case "check": return { title: `Check if ${predicateWords(n.when)}`, detail: `If not → ${exitWords(n.else_exit).toLowerCase()}` };
     case "branch": return { title: "Which way?" };
     case "wait": return { title: waitWords(n.rule), detail: `${n.rule.tz === "contact" ? "Contact's" : "Company's"} time zone${guardWords(n.rule)}` };
