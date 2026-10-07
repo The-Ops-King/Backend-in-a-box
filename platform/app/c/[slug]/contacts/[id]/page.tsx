@@ -7,7 +7,9 @@ import { simulateAction } from "@/ui/actions";
 import { SIM_ACTIONS } from "@/engine/simulate";
 export const dynamic = "force-dynamic";
 const summary = (t: string, d: Record<string, unknown>) => {
-  const pick = ["intent", "outcome", "type", "tag", "plan", "reason", "status", "calendar_id", "amount", "channel"].filter((k) => d[k] !== undefined).map((k) => `${k}: ${String(d[k])}`);
+  // a status change carries {from, to}: say "confirmed → cancelled", never "[object Object]"
+  const show = (v: unknown) => (v && typeof v === "object" && "from" in (v as object) && "to" in (v as object) ? `${String((v as { from: unknown }).from)} → ${String((v as { to: unknown }).to)}` : typeof v === "object" ? JSON.stringify(v) : String(v));
+  const pick = ["intent", "outcome", "type", "tag", "plan", "reason", "status", "starts_at", "calendar_id", "amount", "channel", "cancelled_by", "cancel_reason", "matched_by", "simulated"].filter((k) => d[k] !== undefined && d[k] !== null).map((k) => `${k}: ${show(d[k])}`);
   return pick.length ? pick.join(" · ") : t.startsWith("run.") ? "" : Object.keys(d).length ? JSON.stringify(d).slice(0, 90) : "";
 };
 export default async function ContactPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
