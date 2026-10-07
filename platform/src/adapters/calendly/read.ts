@@ -1,7 +1,7 @@
 import type { AppointmentSnapshot, BookingRead, CalendarConfig, CalendarSnapshot, Company } from "../types";
 import { calendly, calendlyAll, eventUuidOfInvitee, uuidOf } from "./client";
 
-export type RawEventType = { uri: string; name: string; active: boolean; scheduling_url: string; internal_note?: string | null; pooling_type?: string | null; duration: number };
+export type RawEventType = { uri: string; name: string; active: boolean; scheduling_url: string; internal_note?: string | null; pooling_type?: string | null; duration: number; custom_questions?: { name: string; type?: string; position?: number; enabled?: boolean; required?: boolean; answer_choices?: string[] }[]; profile?: { type?: string; name?: string; owner?: string } | null };
 export type RawEvent = { uri: string; name: string; status: "active" | "canceled"; start_time: string; end_time: string; event_type: string; created_at: string; updated_at: string; event_memberships: { user: string; user_email?: string; user_name?: string }[]; invitees_counter: { total: number; active: number } };
 export type RawInvitee = { uri: string; email: string; name: string; first_name?: string | null; last_name?: string | null; status: "active" | "canceled"; timezone?: string | null; rescheduled: boolean; old_invitee?: string | null; new_invitee?: string | null; text_reminder_number?: string | null; no_show?: { uri: string; created_at: string } | null; cancellation?: { canceled_by?: string; reason?: string | null; canceler_type?: string } | null; questions_and_answers?: { question: string; answer: string }[]; reschedule_url?: string | null; cancel_url?: string | null; tracking?: Record<string, string | null> | null; updated_at: string };
 
@@ -72,9 +72,23 @@ async function eventsInWindow(c: Company, from: Date, to: Date): Promise<RawEven
 export const calendlyBooking: BookingRead = {
   async listCalendars(c) {
     const b = cfg(c);
-    // Round-robin (team) event types are missing from the organization listing (verified); listing by user includes them.
-    const path = b.user ? `/event_types?user=${encodeURIComponent(b.user)}&count=100` : `/event_types?organization=${encodeURIComponent(b.organization)}&count=100`;
-    return (await calendlyAll<RawEventType>(b.token, path)).map((t): CalendarSnapshot => ({ id: uuidOf(t.uri), name: t.name.trim(), teamMemberIds: [], bookingUrl: t.scheduling_url, note: t.internal_note ?? undefined, active: t.active }));
+    // Round-robin (team) event types are missing from the organization listing (verified), and an offer can have twenty
+    // calendars across many hosts, so every member's event types are listed and merged; a type shared by several hosts
+    // (round robin) is one calendar with several hosts.
+    const members = b.user ? [{ user: { uri: b.user, email: "", name: "" } }] : await calendlyAll<{ user: { uri: string; email: string; name?: string } }>(b.token, `/organization_memberships?organization=${encodeURIComponent(b.organization)}&count=100`);
+    const byId = new Map<string, CalendarSnapshot>();
+    for (const m of members) {
+      let types: RawEventType[] = [];
+      try { types = await calendlyAll<RawEventType>(b.token, `/event_types?user=${encodeURIComponent(m.user.uri)}&count=100`); } catch { continue; }   // a deactivated member's listing can 403; the rest still count
+      for (const t of types) {
+        const id = uuidOf(t.uri); const host = { name: m.user.name ?? m.user.email, email: m.user.email };
+        const cur = byId.get(id);
+        if (cur) { if (host.email && !cur.hosts?.some((h) => h.email === host.email)) cur.hosts = [...(cur.hosts ?? []), host]; continue; }
+        byId.set(id, { id, name: t.name.trim(), teamMemberIds: [], bookingUrl: t.scheduling_url, note: t.internal_note ?? undefined, active: t.active, pooling: t.pooling_type ?? undefined, hosts: host.email ? [host] : [],
+          questions: (t.custom_questions ?? []).filter((q) => q.enabled !== false).sort((a, z) => (a.position ?? 0) - (z.position ?? 0)).map((q) => ({ name: q.name, type: q.type, position: q.position, required: q.required, choices: q.answer_choices?.length ? q.answer_choices : undefined })) });
+      }
+    }
+    return [...byId.values()].sort((a, z) => a.name.localeCompare(z.name));
   },
   async appointmentsInWindow(c, calendarId, from, to) {
     const b = cfg(c);

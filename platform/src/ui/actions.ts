@@ -8,6 +8,7 @@ import { linkRecording } from "@/engine/recordings";
 import { loadCompany } from "@/engine/context";
 import { simulate, SIM_ACTIONS, type SimAction } from "@/engine/simulate";
 import { saveCopy, type CopyField } from "@/engine/copy";
+import { saveStepEdit, type StepEdit } from "@/engine/edits";
 import { dispatchEvent } from "@/engine/dispatch";
 
 export async function toggleWorkflow(formData: FormData) {
@@ -86,4 +87,23 @@ export async function saveCopyAction(formData: FormData) {
   const r = await asOperator((c) => saveCopy(c, { workflowId, nodeId, field, text }));
   revalidatePath(`/c/${slug}/w/${workflowId}`);
   redirect(`/c/${slug}/w/${workflowId}?${r.ok ? `saved=${nodeId}` : `error=${encodeURIComponent(r.why)}`}#copy-${nodeId}`);
+}
+
+/** GHL-style: set the pipeline, stage, owner, channel or tags on the step itself, in this company's copy. */
+export async function saveStepAction(formData: FormData) {
+  const slug = String(formData.get("slug")), workflowId = String(formData.get("workflowId")), nodeId = String(formData.get("nodeId")), type = String(formData.get("type"));
+  const g = (k: string) => { const v = formData.get(k); return v === null ? undefined : String(v).trim(); };
+  let edit: StepEdit;
+  if (type === "pipeline_card") {
+    // one picker carries "pipelineId|stageId" so the stage always matches its pipeline
+    const combo = g("pipeline_stage"); const [pipeline, stage] = combo ? combo.split("|") : [undefined, undefined];
+    edit = { type, pipeline, stage, name: g("name"), assign_to: g("assign_to"), status: g("status") as StepEdit extends { status?: infer S } ? S : never, if_missing: (g("if_missing") || undefined) as "create" | "skip" | undefined };
+  } else if (type === "slack_post") edit = { type, channel: g("channel") };
+  else if (type === "set_tag" || type === "remove_tag") edit = { type, tags: (g("tags") ?? "").split(/[\n,]/) };
+  else if (type === "update_contact") edit = { type, assign_to: g("assign_to") };
+  else if (type === "create_task") edit = { type, assign_to: g("assign_to"), due: g("due") };
+  else return;
+  const r = await asOperator((c) => saveStepEdit(c, { workflowId, nodeId, edit }));
+  revalidatePath(`/c/${slug}/w/${workflowId}`);
+  redirect(`/c/${slug}/w/${workflowId}?${r.ok ? `saved=${nodeId}` : `error=${encodeURIComponent(r.why)}`}#step-${nodeId}`);
 }

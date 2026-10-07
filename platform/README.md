@@ -147,6 +147,16 @@ is the same one the company page shows. Test GHL refreshes the roster; Register 
 creates the webhook from here. Install JSON still works for scripting; the screen writes the same
 bindings.
 
+Every host's calendars are pulled (Calendly: all organization members, round-robin types once with all
+their hosts) with their real booking questions; each question gets a "use as" name (`setter`,
+`phone`, or an attribute readable as `appointment.answers.<name>`). Call types are the company's own
+words over the four categories. **Tell it how things work** (top of the page) turns a paragraph plus
+the live facts into a proposal — calendars mapped, setter rule, default closer, roles, call types —
+with the questions it still has; apply or discard. Needs an Anthropic key (company or server).
+
+On each workflow page, **Step settings** sets pipelines, stages, owners, Slack channels and tags on the
+step itself from live lists, GHL-style; the choice is written onto the company's copy (D26).
+
 ## Readiness (is it safe to go live?)
 
 The company page and every workflow page carry a readiness card built from facts

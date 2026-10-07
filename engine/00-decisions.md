@@ -810,3 +810,22 @@ Two places the build drifted from this and the correction for each:
 "Adjust on the fly" today: copy editable on the workflow page, on/off per workflow, every id and rule
 on the settings screen, template upgrades for untouched copies. "Create with ease" today: described
 in chat, written as a template, installed; the natural-language builder in the tool comes later.
+
+## D26. Settings live where the work is described: on the step, or in a paragraph
+
+Tyler, 2026-10-07: "I don't want to have to explain every detail in the settings." Three consequences:
+- **Pull before you ask.** Every host's calendars are listed and merged (Calendly: all organization
+  members' event types, round-robin types once with all their hosts), each with its booking questions
+  as the source defines them (`custom_questions`: text, type, choices). The settings screen offers
+  "this question means setter / phone / <attribute>" against the real questions; nobody types
+  question text. Pipelines, stages, fields, associations, users and Slack channels are lists too.
+- **GHL-style, set on the step.** A company's copy of a workflow can carry literal ids on a step:
+  "move it to this pipeline, that stage", "post to #this-channel", "add these tags", "owner James".
+  Templates keep `crm.*` bindings so they stay portable; a copy edited this way is diverged and left
+  alone by upgrades. Bindings become defaults, not a list to fill before anything works.
+- **Say it in text.** "Tell it how things work" takes a paragraph plus the live facts, returns a
+  proposal of operations the engine knows how to apply (map calendar, setter rule, default closer,
+  calendar role, call type) and the questions it still has; a person approves before anything is
+  written. Same operations the forms use. The in-tool builder for workflows themselves is later;
+  this chat is that for now.
+Call types are the company's words (triage, demo, strategy call) over the four core categories.

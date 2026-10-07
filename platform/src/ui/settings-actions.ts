@@ -9,6 +9,9 @@ import { liveAdapters } from "@/adapters";
 import { bookingFor } from "@/adapters/types";
 import { calendlyUserByEmail, calendlyWhoAmI } from "@/adapters/calendly/read";
 import { fathomCreateWebhook } from "@/adapters/fathom/client";
+import { proposeConfig, applyProposal, storeProposal, loadProposal, clearProposal, termsFor, type ConfigFacts } from "@/engine/describe-config";
+import { ghlCatalog } from "@/adapters/ghl/catalog";
+import { many } from "@/db/client";
 
 const back = (slug: string, q: Record<string, string>, hash = "") => { revalidatePath(`/c/${slug}/settings`); revalidatePath(`/c/${slug}`); redirect(`/c/${slug}/settings?${new URLSearchParams(q).toString()}${hash}`); };
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -87,6 +90,8 @@ export async function setBookingSourceAction(f: FormData) {
 export async function saveCalendarAction(f: FormData) {
   const slug = str(f, "slug"), companyId = str(f, "companyId"), externalId = str(f, "externalId");
   const questions: Record<string, string> = {};
+  // the calendar's own questions, each with the name it should be known by ("use as"); blank = ignored
+  for (const [k, v] of f.entries()) { const m = /^use:(\d+)$/.exec(k); if (!m) continue; const name = String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""); const q = str(f, `q:${m[1]}`); if (name && q) questions[name] = q; }
   for (const line of str(f, "questions").split(/\r?\n/)) { const m = /^\s*([a-zA-Z0-9_]+)\s*=\s*(.+?)\s*$/.exec(line); if (m) questions[m[1]] = m[2]; }
   const booking = str(f, "booking"); const term = str(f, "term");
   let error = "";
@@ -140,3 +145,62 @@ export async function saveSlackAction(f: FormData) {
   back(slug, error ? { error } : { note }, "#slack");
 }
 
+
+/** Call types: the company's own words for the four core categories, plus extra named types. */
+export async function saveCallTypesAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId");
+  await asOperator(async (c) => {
+    for (const [k, v] of f.entries()) {
+      const m = /^term:([0-9a-f-]{36}):(name|category|active)$/.exec(k); if (!m) continue;
+      const [, id, field] = m; const val = String(v).trim();
+      if (field === "name" && val) await c.query("update company_terms set name=$3 where id=$1 and company_id=$2", [id, companyId, val]);
+      if (field === "category" && val) await c.query("update company_terms set category=$3 where id=$1 and company_id=$2 and domain='appointment_type'", [id, companyId, val]);
+      if (field === "active") await c.query("update company_terms set active=$3 where id=$1 and company_id=$2", [id, companyId, val === "on"]);
+    }
+    const name = str(f, "new_name"), category = str(f, "new_category");
+    if (name && category) await c.query("insert into company_terms (company_id, domain, name, category, sort) values ($1,'appointment_type',$2,$3,(select coalesce(max(sort),0)+1 from company_terms where company_id=$1 and domain='appointment_type')) on conflict (company_id, domain, name) do update set category=excluded.category, active=true", [companyId, name, category]);
+    await audit(c, companyId, "call_types.saved", { added: name || null });
+  });
+  back(slug, { note: "Call types saved" }, "#calltypes");
+}
+
+async function facts(c: Parameters<Parameters<typeof asOperator>[0]>[0], companyId: string): Promise<{ facts: ConfigFacts; source: string }> {
+  const { adapterCompany, bindings } = await loadCompany(c, companyId);
+  let calendars: ConfigFacts["calendars"] = [];
+  try { calendars = await bookingFor(liveAdapters, adapterCompany).listCalendars(adapterCompany); } catch { /* listed as none; the model will ask */ }
+  const mapped = await many<{ external_id: string; term_category: string; config: { booking?: string; questions?: Record<string, string> } }>(c, "select cal.external_id, t.category as term_category, cal.config from calendars cal join company_terms t on t.id=cal.appointment_term where cal.company_id=$1 and cal.active", [companyId]);
+  const users = await many<{ id: string; name: string; email: string }>(c, "select ghl_user_id as id, name, email from users where company_id=$1 and active and ghl_user_id is not null order by name", [companyId]);
+  const catalog = adapterCompany.pit && adapterCompany.locationId ? await ghlCatalog(adapterCompany.pit, adapterCompany.locationId) : null;
+  return { source: adapterCompany.booking.source, facts: { calendars, mapped: mapped.map((m) => ({ external_id: m.external_id, term_category: m.term_category, booking: m.config?.booking, questions: m.config?.questions })), users, catalog, terms: await termsFor(c, companyId), setterRule: bindings["booking.setter_rule"], defaultCloser: bindings["crm.default_closer"] } };
+}
+
+/** "This is how we do things here": the description plus the live facts go to the model; the proposal waits for approval. */
+export async function describeConfigAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId"), text = str(f, "text");
+  if (!text) back(slug, { error: "Write how things work first." }, "#describe");
+  let error = "";
+  await asOperator(async (c) => {
+    const { bindings } = await loadCompany(c, companyId);
+    const key = bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY;
+    if (!key) { error = "No Anthropic key: set one in Connections (or on the server) first."; return; }
+    try { const { facts: fx } = await facts(c, companyId); const proposal = await proposeConfig(key, fx, text); await storeProposal(c, companyId, text, proposal); }
+    catch (e) { error = `Could not read that: ${String((e as Error).message).slice(0, 200)}`; }
+  });
+  back(slug, error ? { error } : { note: "Read it. Check the proposal below, then apply or discard." }, "#describe");
+}
+export async function applyProposalAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId");
+  let note = "", error = "";
+  await asOperator(async (c) => {
+    const p = await loadProposal(c, companyId); if (!p) { error = "No proposal waiting."; return; }
+    const { facts: fx, source } = await facts(c, companyId);
+    const done = await applyProposal(c, companyId, source, p.value.proposal.operations, fx.calendars);
+    await clearProposal(c, companyId); note = done.length ? `Applied: ${done.join("; ")}` : "Nothing to apply.";
+  });
+  back(slug, error ? { error } : { note }, "#calendars");
+}
+export async function discardProposalAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId");
+  await asOperator((c) => clearProposal(c, companyId));
+  back(slug, { note: "Proposal discarded" }, "#describe");
+}

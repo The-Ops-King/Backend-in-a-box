@@ -26,7 +26,8 @@ export type AppointmentSnapshot = {
 };
 export type MessageSnapshot = { id: string; conversationId: string; contactId: string; channel: "sms" | "email"; direction: "inbound" | "outbound"; body?: string; subject?: string; status?: string; dateAdded: string };
 export type OppSnapshot = { id: string; contactId: string; pipelineId: string; stageId: string; status: string; monetaryValue?: number; updatedAt: string };
-export type CalendarSnapshot = { id: string; name: string; teamMemberIds: string[]; bookingUrl?: string; note?: string; active?: boolean };
+/** `questions`: the booking form as the source defines it (name, type, position, choices), so settings can offer "this question means …" instead of asking for the text. `hosts`: who the calendar belongs to. */
+export type CalendarSnapshot = { id: string; name: string; teamMemberIds: string[]; bookingUrl?: string; note?: string; active?: boolean; questions?: { name: string; type?: string; position?: number; required?: boolean; choices?: string[] }[]; hosts?: { name: string; email: string }[]; pooling?: string };
 export type UserSnapshot = { id: string; email?: string; name: string };
 
 export interface CrmRead {

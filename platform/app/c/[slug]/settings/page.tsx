@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { loadSettings } from "@/ui/settings-data";
 import { ReadinessCard } from "@/ui/Readiness";
 import { groupOf, type SettingRow } from "@/engine/settings";
-import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, registerFathomAction, saveSlackAction } from "@/ui/settings-actions";
+import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, registerFathomAction, saveSlackAction, saveCallTypesAction, describeConfigAction, applyProposalAction, discardProposalAction } from "@/ui/settings-actions";
+import type { Operation } from "@/engine/describe-config";
 export const dynamic = "force-dynamic";
 
 type Opt = { value: string; label: string };
@@ -25,6 +26,16 @@ function Secret({ row, label, hint }: { row: SettingRow; label: string; hint?: s
     <td><input name={`b:${row.key}`} type="password" autoComplete="off" placeholder={row.set ? "paste to replace" : "paste"} /><input type="hidden" name={`k:${row.key}`} value="secret" />{row.set ? <label className="muted" style={{ fontSize: 12.5, marginLeft: 8 }}><input type="checkbox" name={`clear:${row.key}`} /> clear</label> : null}</td>
     <td>{row.set ? <span className="badge b-live">{row.masked}</span> : row.required ? <span className="badge b-failed">missing</span> : <span className="badge b-type">not set</span>}</td>
   </tr>;
+}
+function opWords(op: Operation, d: { liveCalendars: { id: string; name: string }[]; users: { ghl_user_id: string | null; name: string }[] }): string {
+  const cal = (id: string) => d.liveCalendars.find((c) => c.id === id)?.name ?? id;
+  switch (op.op) {
+    case "map_calendar": return `"${cal(op.calendar_id)}" is a ${op.call_type_name ?? op.call_type.replace(/_/g, " ")} call, ${op.booking === "self" ? "always self-booked" : op.booking === "setter" ? "always setter-booked" : op.booking === "question" ? "setter decided by the booking question" : "company rule"}${op.questions && Object.keys(op.questions).length ? `; questions: ${Object.entries(op.questions).map(([k, v]) => `${k} = "${v}"`).join(", ")}` : ""}${op.active === false ? "; inactive" : ""}`;
+    case "set_setter_rule": return `company setter rule → ${op.rule}`;
+    case "set_default_closer": return `default closer → ${d.users.find((u) => u.ghl_user_id === op.user_id)?.name ?? op.user_id}`;
+    case "set_calendar_role": return `"${cal(op.calendar_id)}" is the ${op.role === "closer_call" ? "closer call" : "booking link we send"}`;
+    case "add_call_type": return `new call type "${op.name}" (${op.category.replace(/_/g, " ")})`;
+  }
 }
 const Hidden = ({ slug, id, section }: { slug: string; id: string; section: string }) => <><input type="hidden" name="slug" value={slug} /><input type="hidden" name="companyId" value={id} /><input type="hidden" name="section" value={section} /></>;
 
@@ -51,7 +62,24 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     {sp.note ? <div className="card ready" style={{ marginBottom: 10 }}><strong>{sp.note}</strong></div> : null}
     {sp.error ? <div className="card ready ready-no" style={{ marginBottom: 10 }}><strong>Not saved.</strong> {sp.error}</div> : null}
     <ReadinessCard r={d.readiness} />
-    <nav className="sub" style={{ margin: "10px 0 18px" }}>{["company", "connections", "booking", "calendars", "crm", "slack", "prompts", "inbound"].map((s) => <a key={s} href={`#${s}`} style={{ marginRight: 14 }}>{s[0].toUpperCase() + s.slice(1)}</a>)}</nav>
+    <nav className="sub" style={{ margin: "10px 0 18px" }}>{["describe", "company", "connections", "booking", "calltypes", "calendars", "crm", "slack", "prompts", "inbound"].map((s) => <a key={s} href={`#${s}`} style={{ marginRight: 14 }}>{s[0].toUpperCase() + s.slice(1)}</a>)}</nav>
+
+    <h2 id="describe">Tell it how things work</h2>
+    <form action={describeConfigAction} className="form card settings"><Hidden slug={slug} id={co.id} section="describe" />
+      <p className="sub">Write it the way you'd tell a new ops hire. The engine already sees every calendar with its questions and hosts, the roster, the pipelines. It proposes the settings it can set and asks about what it can't. Nothing is applied until you say so.</p>
+      <textarea name="text" rows={5} defaultValue={d.proposal?.text ?? ""} placeholder={"The '- S' calendar is for setter bookings and the Setter question says who set it. The round-robin strategy call is self-booked. James takes the closing calls. The 30 minute meeting is internal, ignore it."} />
+      <button className="btn btn-on" type="submit">Read it</button>
+    </form>
+    {d.proposal ? <div className="card settings ready">
+      <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}><strong>Proposal</strong><span className="muted">from what you wrote</span></div>
+      <p>{d.proposal.proposal.summary}</p>
+      {d.proposal.proposal.operations.length ? <ul className="ready-list">{d.proposal.proposal.operations.map((op, i) => <li key={i} className="warning"><span className="badge b-type">{op.op.replace(/_/g, " ")}</span> {opWords(op, d)} <span className="muted">— {op.why}</span></li>)}</ul> : <div className="muted">Nothing to change.</div>}
+      {d.proposal.proposal.questions.length ? <><div style={{ marginTop: 10 }}><strong>It still needs to know:</strong></div><ul className="ready-list">{d.proposal.proposal.questions.map((q, i) => <li key={i} className="blocker"><span className="badge b-failed">?</span> {q}</li>)}</ul><div className="muted" style={{ fontSize: 13 }}>Answer in the box above and read it again; what is already settled stays in the proposal.</div></> : null}
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <form action={applyProposalAction}><Hidden slug={slug} id={co.id} section="describe" /><button className="btn btn-on" type="submit" disabled={!d.proposal.proposal.operations.length}>Apply these</button></form>
+        <form action={discardProposalAction}><Hidden slug={slug} id={co.id} section="describe" /><button className="btn btn-off" type="submit">Discard</button></form>
+      </div>
+    </div> : null}
 
     <h2 id="company">Company</h2>
     <form action={saveCompanyAction} className="form card settings"><Hidden slug={slug} id={co.id} section="company" />
@@ -89,12 +117,11 @@ export default async function SettingsPage({ params, searchParams }: { params: P
 
     <h2 id="booking">Booking source</h2>
     <form action={setBookingSourceAction} className="form card settings"><Hidden slug={slug} id={co.id} section="booking" />
-      <p className="sub">Where appointments live. Currently <strong>{d.bookingSource === "calendly" ? "Calendly" : "GHL calendars"}</strong>.</p>
+      <p className="sub">Where appointments live. Currently <strong>{d.bookingSource === "calendly" ? "Calendly" : "GHL calendars"}</strong>. Every host's calendars are pulled; you choose what each one is below.</p>
       <label><input type="radio" name="source" value="ghl" defaultChecked={d.bookingSource === "ghl"} /> GHL calendars (same PIT)</label>
       <label><input type="radio" name="source" value="calendly" defaultChecked={d.bookingSource === "calendly"} /> Calendly</label>
       <div className="grid g2" style={{ marginTop: 8 }}>
         <label>Calendly token (read)<input name="token" type="password" placeholder={row("secret.calendly_token").set ? `kept: ${row("secret.calendly_token").masked}` : "paste"} /></label>
-        <label>Host email (limits event types to one person)<input name="userEmail" type="text" placeholder="james@…" /></label>
         <label>Default phone question<input name="phoneQuestion" type="text" defaultValue={row("calendly.phone_question").value ?? ""} placeholder="Phone Number" /></label>
         <label>Default setter question<input name="setterQuestion" type="text" defaultValue={row("calendly.setter_question").value ?? ""} placeholder="Who set this call?" /></label>
       </div>
@@ -109,19 +136,34 @@ export default async function SettingsPage({ params, searchParams }: { params: P
       <button className="btn btn-on" type="submit">Save booking rules</button>
     </form>
 
+    <h2 id="calltypes">Call types</h2>
+    <form action={saveCallTypesAction} className="form card settings"><Hidden slug={slug} id={co.id} section="calltypes" />
+      <p className="sub">Your words for the kinds of calls (triage, demo, strategy call…), each tied to one of the engine's four categories so reports stay comparable. Templates trigger on the category.</p>
+      <table className="kv-table"><tbody>
+        {d.terms.map((t) => <tr key={t.id}><td><input type="text" name={`term:${t.id}:name`} defaultValue={t.name} /></td><td><select name={`term:${t.id}:category`} defaultValue={t.category}><option value="first_call">first call (triage, discovery)</option><option value="qualifying">qualifying (demo, qualification)</option><option value="closing">closing (the sales call)</option><option value="follow_up">follow-up</option></select></td><td><label><input type="checkbox" name={`term:${t.id}:active`} defaultChecked={t.active} /> active</label>{t.in_use ? <div className="muted" style={{ fontSize: 12 }}>{t.in_use} calendar{t.in_use > 1 ? "s" : ""}</div> : null}</td></tr>)}
+        <tr><td><input type="text" name="new_name" placeholder="add one: e.g. Triage" /></td><td><select name="new_category" defaultValue=""><option value="">— category —</option><option value="first_call">first call</option><option value="qualifying">qualifying</option><option value="closing">closing</option><option value="follow_up">follow-up</option></select></td><td></td></tr>
+      </tbody></table>
+      <button className="btn btn-on" type="submit">Save call types</button>
+    </form>
+
     <h2 id="calendars">Calendars</h2>
     <p className="sub">Each calendar: the call type it books, how setter-vs-self is decided on it, and which booking questions mean what (one per line, <code>name = question text as it appears</code>; <code>setter</code> and <code>phone</code> are special, anything else becomes <code>appointment.answers.name</code>).{d.liveCalendarsError ? <span className="bad"> Could not list calendars from the source: {d.liveCalendarsError}</span> : null}</p>
-    {[...d.calendars.map((c) => ({ id: c.external_id, name: c.name, url: c.booking_url ?? undefined, note: undefined as string | undefined, cur: c })), ...unmapped.map((l) => ({ id: l.id, name: l.name, url: l.bookingUrl, note: l.note, cur: undefined }))].map((c) => (
+    {[...d.calendars.map((c) => { const l = d.liveCalendars.find((x) => x.id === c.external_id); return { id: c.external_id, name: c.name, url: c.booking_url ?? undefined, note: l?.note, hosts: l?.hosts, pooling: l?.pooling, questions: l?.questions, cur: c }; }), ...unmapped.map((l) => ({ id: l.id, name: l.name, url: l.bookingUrl, note: l.note, hosts: l.hosts, pooling: l.pooling, questions: l.questions, cur: undefined }))].map((c) => (
       <form key={c.id} action={saveCalendarAction} className="form card settings calendar"><Hidden slug={slug} id={co.id} section="calendars" />
         <input type="hidden" name="externalId" value={c.id} /><input type="hidden" name="name" value={c.name} /><input type="hidden" name="bookingUrl" value={c.url ?? ""} />
-        <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}><strong>{c.name}</strong><span className="mono muted" style={{ fontSize: 11.5 }}>{c.id}</span>{c.note ? <span className="muted">· {c.note}</span> : null}{c.cur ? <span className={`badge ${c.cur.active ? "b-live" : "b-type"}`}>{c.cur.active ? "active" : "inactive"}</span> : <span className="badge b-shadow">not mapped</span>}</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}><strong>{c.name}</strong><span className="mono muted" style={{ fontSize: 11.5 }}>{c.id}</span>{c.hosts?.length ? <span className="muted">· {c.hosts.map((h) => h.name || h.email).join(", ")}</span> : null}{c.pooling ? <span className="badge b-type">{c.pooling.replace(/_/g, " ")}</span> : null}{c.note ? <span className="muted">· note: {c.note}</span> : null}{c.cur ? <span className={`badge ${c.cur.active ? "b-live" : "b-type"}`}>{c.cur.active ? "active" : "inactive"}</span> : <span className="badge b-shadow">not mapped</span>}</div>
         <div className="grid g4" style={{ marginTop: 8 }}>
           <label>Call type<select name="term" defaultValue={c.cur?.appointment_term ?? ""} required><option value="">—</option>{d.terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
           <label>Setter or self?<select name="booking" defaultValue={c.cur?.config.booking ?? (c.cur?.self_booked === true ? "self" : c.cur?.self_booked === false ? "setter" : "company")}><option value="company">company rule</option><option value="self">always self-booked</option><option value="setter">always setter-booked</option><option value="question">decided by the setter question</option></select></label>
           <label>Role<select name="role" defaultValue={row("calendar.closer_call").value === c.id ? "closer_call" : row("calendar.booking").value === c.id ? "booking" : ""}><option value="">—</option><option value="closer_call">the closer call (calendar.closer_call)</option><option value="booking">the booking link we send (calendar.booking)</option></select></label>
           <label>Active<select name="active" defaultValue={c.cur && !c.cur.active ? "off" : "on"}><option value="on">yes, poll it</option><option value="off">no</option></select></label>
         </div>
-        <label>Questions<textarea name="questions" rows={3} defaultValue={questionsText(c.cur?.config.questions)} placeholder={"setter = Who set this call for you\nphone = Best number\nnoticing_for = How long have you been noticing"} /></label>
+        {c.questions?.length ? <div style={{ marginTop: 8 }}><div className="muted" style={{ fontSize: 12.5, letterSpacing: ".04em", textTransform: "uppercase" }}>This calendar's booking questions · what each one means to the engine</div>
+          <table className="kv-table"><tbody>{c.questions.map((q, i) => { const used = Object.entries(c.cur?.config.questions ?? {}).find(([, text]) => text.trim().toLowerCase() === q.name.trim().toLowerCase() || q.name.trim().toLowerCase().startsWith(text.trim().toLowerCase()))?.[0] ?? (q.type === "phone_number" ? "phone" : "");
+            return <tr key={i}><td><input type="hidden" name={`q:${i}`} value={q.name} />{q.name}<div className="muted" style={{ fontSize: 12 }}>{q.type ?? "text"}{q.required ? " · required" : ""}{q.choices ? ` · ${q.choices.join(" / ")}` : ""}</div></td><td><input type="text" name={`use:${i}`} defaultValue={used} placeholder="ignore" list="use-as" /></td></tr>; })}</tbody></table>
+          <datalist id="use-as"><option value="setter" /><option value="phone" /><option value="email" /><option value="noticing_for" /><option value="hair_loss" /><option value="budget" /><option value="source" /></datalist>
+          <div className="muted" style={{ fontSize: 12.5 }}>Type a name to use the answer: <code>setter</code> and <code>phone</code> are special; anything else is readable in messages as <code>appointment.answers.name</code>. Blank ignores it.</div></div>
+          : <label>Questions (name = question text, one per line)<textarea name="questions" rows={2} defaultValue={questionsText(c.cur?.config.questions)} placeholder={"setter = Who set this call for you\nphone = Best number"} /></label>}
         <button className="btn btn-on" type="submit">{c.cur ? "Save calendar" : "Map this calendar"}</button>
       </form>))}
     {!d.calendars.length && !unmapped.length ? <div className="empty">No calendars yet. Connect the booking source above.</div> : null}
@@ -141,7 +183,8 @@ export default async function SettingsPage({ params, searchParams }: { params: P
       <div style={{ display: "flex", gap: 8 }}><input name="botToken" type="password" placeholder="xoxb-…" style={{ minWidth: 320 }} /><button className="btn btn-on" type="submit">{d.slack ? "Replace token" : "Connect Slack"}</button></div>
     </form>
     <form action={saveBindingsAction} className="form card settings"><Hidden slug={slug} id={co.id} section="slack" />
-      <table className="kv-table"><tbody>{group("slack").map((r) => <Pick key={r.key} row={r} placeholder="C0123ABCDEF (channel id)" />)}</tbody></table>
+      <table className="kv-table"><tbody>{group("slack").map((r) => <Pick key={r.key} row={r} options={d.slackChannels?.map((ch) => ({ value: ch.id, label: `#${ch.name}` }))} placeholder="C0123ABCDEF (channel id)" />)}</tbody></table>
+      {d.slack && !d.slackChannels ? <div className="muted" style={{ fontSize: 13 }}>The bot cannot list channels (needs channels:read and groups:read); paste channel ids.</div> : null}
       <button className="btn btn-on" type="submit">Save channels</button>
     </form>
 
