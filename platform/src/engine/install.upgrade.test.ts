@@ -11,7 +11,7 @@ import type { Adapters, BookingRead } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const fake: Adapters = {
-  read: { contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async () => null, opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [] },
+  read: { contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [] },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [{ id: "CAL", name: "Closer", teamMemberIds: [] }] }; return { ghl: b, calendly: b }; })(),
   write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {} },
   sender: { sendSms: async () => ({ externalId: "s", accepted: true }), sendEmail: async () => ({ externalId: "e", accepted: true }), deliveryStatus: async () => ({ status: "sent" }) },

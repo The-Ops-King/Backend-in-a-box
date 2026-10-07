@@ -28,6 +28,8 @@ export type AppointmentSnapshot = {
 export type MessageSnapshot = { id: string; conversationId: string; contactId: string; channel: "sms" | "email" | "call"; direction: "inbound" | "outbound"; body?: string; subject?: string; status?: string; dateAdded: string; call?: { status: string; durationSec?: number; userId?: string } };
 /** What the CRM holds for a logged call beyond the thread entry. `transcript` is null when the call was not recorded (or not yet transcribed). */
 export type CallMedia = { recordingUrl?: string; transcript: { speaker: string; text: string; timestamp?: string }[] | null };
+export type WonOpportunity = { id: string; contactId: string; pipelineId: string; stageId: string; wonAt: string; createdAt: string; monetaryValue?: number; customFields: Record<string, unknown> };
+export type ObjectRecord = { id: string; createdAt: string; properties: Record<string, unknown> };
 export type OppSnapshot = { id: string; contactId: string; pipelineId: string; stageId: string; status: string; monetaryValue?: number; updatedAt: string };
 /** `questions`: the booking form as the source defines it (name, type, position, choices), so settings can offer "this question means …" instead of asking for the text. `hosts`: who the calendar belongs to. */
 export type CalendarSnapshot = { id: string; name: string; teamMemberIds: string[]; bookingUrl?: string; note?: string; active?: boolean; questions?: { name: string; type?: string; position?: number; required?: boolean; choices?: string[] }[]; hosts?: { name: string; email: string }[]; pooling?: string };
@@ -37,6 +39,11 @@ export interface CrmRead {
   contactsChangedSince(c: Company, sinceIso: string): Promise<ContactSnapshot[]>;
   inboundSince(c: Company, sinceIso: string): Promise<MessageSnapshot[]>;
   callMedia(c: Company, messageId: string): Promise<CallMedia | null>;
+  // history (D29 backfill): the same facts the poll sees going forward, read back over a window, once
+  contactsAddedBetween(c: Company, from: Date, to: Date): Promise<ContactSnapshot[]>;
+  callsBetween(c: Company, from: Date, to: Date): Promise<MessageSnapshot[]>;
+  wonOpportunities(c: Company, from: Date, to: Date): Promise<WonOpportunity[]>;
+  objectRecords(c: Company, objectKey: string): Promise<ObjectRecord[]>;
   opportunitiesSince(c: Company, since: Date): Promise<OppSnapshot[]>;
   getContact(c: Company, id: string): Promise<ContactSnapshot | null>;
   listUsers(c: Company): Promise<UserSnapshot[]>;

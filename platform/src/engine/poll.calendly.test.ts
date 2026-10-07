@@ -16,7 +16,7 @@ const noBooking = { appointmentsInWindow: async () => [], getAppointment: async 
 const recordWrites: Record<string, unknown>[] = [];
 const relations: string[] = [];
 const fake: Adapters = {
-  read: { contactsChangedSince: async (c) => (c.id === companyId ? ghlContacts : []), inboundSince: async () => [], callMedia: async () => null, opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [] },
+  read: { contactsChangedSince: async (c) => (c.id === companyId ? ghlContacts : []), inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [] },
   booking: {
     ghl: noBooking,
     calendly: { listCalendars: async () => [{ id: "ET1", name: "45 Min Strategy Call", teamMemberIds: [] }], getAppointment: async (_c, id) => events.find((e) => e.id === id) ?? null,

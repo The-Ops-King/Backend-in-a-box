@@ -67,6 +67,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table payments add constraint payments_company_id_provider_whop_payment_id_key unique (company_id, provider, whop_payment_id)`);
     await c.query(`create index if not exists payments_company_id_link_status_idx on payments (company_id, link_status)`);
     await c.query(`alter table companies add column if not exists contract_value_default numeric(12,2)`);
+    await c.query(`alter table companies add column if not exists reached_seconds int not null default 60`);   // D29: speed-to-lead "reached" threshold
+    await c.query(`alter table contacts add column if not exists ghl_added_at timestamptz`);
     await c.query(`insert into event_types values ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment') on conflict do nothing`);
     await c.query(`create table if not exists webhook_deliveries (company_id uuid not null references companies(id), provider text not null, delivery_id text not null, received_at timestamptz not null default now(), primary key (company_id, provider, delivery_id))`);
     await c.query(`create table if not exists crm_records (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id), object_key text not null, record_key text not null, ghl_record_id text, contact_id uuid references contacts(id), properties jsonb not null default '{}', created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (company_id, object_key, record_key))`);

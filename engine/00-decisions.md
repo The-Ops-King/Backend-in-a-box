@@ -908,3 +908,18 @@ of field ids per offer. On demand = the period in progress. The bot ("how many p
 this week, how many connected, what was his talk time") answers from layers 2 and 1; it is the
 reason the ledger keeps every call.
 
+### D29, continued (2026-10-07): speed to lead is a dial, history comes from the tools once
+Tyler: "the time from when the lead came in to when the lead was called, and figure out if they were
+reached based on the length of the phone call." So: `leads_called` = a dialer call after the lead's
+CRM arrival time, `stl_sum` = seconds to that first dial (answered or not — a dial is the team acting),
+`leads_reached` = a connected call of at least `companies.reached_seconds` (default 60, a company
+setting, because a 10-second "connected" is a voicemail drop). Automated texts no longer count as a
+touch. Leads are counted by the CRM's own `dateAdded` (kept as `contacts.ghl_added_at`), not by our
+`lead.created` event, so a month of history counts the same way as today.
+
+History: one backfill pass per company over a window, reading GHL and the booking source the way the
+poll does and writing rows only (D29 §1), then rolling the days up. GHL had 114 contacts, 145 threads
+and 48 Sales Call records for Hair's last 30 days, zero Payment records (the Whop Zap never wrote
+them), and 8 won opportunities with no contract value on the field. So the first weekly and monthly
+wrap-ups carry leads, dials, bookings and show outcomes; money history waits for Whop's API.
+

@@ -90,7 +90,8 @@ export function renderReport(args: { kind: ReportKind; period: Period; tz: strin
   L.push("NEW LEADS  — people who first appeared");
   L.push(row("New leads", v("leads_new")));
   L.push(row("  booked a call the same day", v("leads_booked_same_day"), `${pct(v("leads_booked_same_day"), v("leads_new"))} of them`));
-  if (v("stl_n")) L.push(row("  avg time to first touch", mins(v("stl_sum") / v("stl_n")), `${v("stl_n")} of ${v("leads_new")} reached`));
+  L.push(row("  called", v("leads_called"), `${pct(v("leads_called"), v("leads_new"))} of them` + (v("leads_called") ? ` · avg ${mins(v("stl_sum") / v("leads_called"))} from arrival to first dial` : "")));
+  L.push(row("  reached", v("leads_reached"), `${pct(v("leads_reached"), v("leads_called"))} of those called`));
   L.push("");
   L.push("BOOKINGS MADE  — the act of booking happened in the period");
   L.push(row("Calls booked", v("booked"), "any lead, new or old"));
@@ -163,9 +164,9 @@ export async function generateReport(c: PoolClient, company: CompanyRow, binding
 }
 
 /** Called every tick: each active company's due schedules fire once for their period. One company's failure never stops the next. */
-export async function runDueReports(c: PoolClient, now: DateTime<boolean> = DateTime.now()): Promise<{ generated: { company: string; kind: ReportKind; period: Period; posted: boolean }[]; errors: { company: string; error: string }[] }> {
+export async function runDueReports(c: PoolClient, now: DateTime<boolean> = DateTime.now(), onlyCompanyId?: string): Promise<{ generated: { company: string; kind: ReportKind; period: Period; posted: boolean }[]; errors: { company: string; error: string }[] }> {
   const out = { generated: [] as { company: string; kind: ReportKind; period: Period; posted: boolean }[], errors: [] as { company: string; error: string }[] };
-  for (const co of await many<{ id: string; slug: string }>(c, "select id, slug from companies where status in ('active','hosted')")) {
+  for (const co of await many<{ id: string; slug: string }>(c, "select id, slug from companies where status in ('active','hosted') and ($1::uuid is null or id=$1)", [onlyCompanyId ?? null])) {
     try {
       const { row, bindings } = await loadCompany(c, co.id);
       const local = now.setZone(row.timezone);

@@ -13,7 +13,7 @@ export type Totals = Record<string, number>;
 export type Breakdown = { id: string; name: string; values: Totals };
 
 export const METRIC_LABELS: Record<string, string> = {
-  leads_new: "new leads", leads_booked_same_day: "booked the same day", stl_n: "leads reached", stl_sum: "seconds to first touch (sum)",
+  leads_new: "new leads", leads_booked_same_day: "booked the same day", leads_called: "leads called", stl_sum: "seconds to first dial (sum)", leads_reached: "leads reached",
   dials: "dials", connects: "connected", talk_sec: "talk seconds", calls_set: "set from a call", calls_setting: "setting calls", calls_confirmation: "confirmation calls",
   booked: "calls booked", booked_self: "self-booked", booked_set: "setter-booked",
   scheduled: "on the calendar", showed: "showed", noshow: "no-show", cancelled: "cancelled",
@@ -36,26 +36,24 @@ export async function rollupDay(c: PoolClient, companyId: string, day: string, t
     else if (v) rows.push({ dimension, dimension_id: id, metric, value: v });
   };
 
-  // leads: lead.created events (the contacts poll, a form, never the harness); same-day = an appointment booked after the lead arrived, that day
+  // leads: contacts by the CRM's own arrival time (so history counts the same way as today); same-day = an appointment booked after they arrived, that day
   const leads = await one<{ n: number; same: number }>(c, `
     select count(*)::int as n,
-           count(*) filter (where exists (select 1 from appointments a where a.company_id=e.company_id and a.contact_id=e.contact_id and a.source<>'test' and a.booked_at>=e.occurred_at and a.booked_at<$3))::int as same
-    from events e where e.company_id=$1 and e.event_type='lead.created' and e.source<>'test' and e.occurred_at>=$2 and e.occurred_at<$3`, p);
+           count(*) filter (where exists (select 1 from appointments a where a.company_id=ct.company_id and a.contact_id=ct.id and a.source<>'test' and a.booked_at>=ct.ghl_added_at and a.booked_at<$3))::int as same
+    from contacts ct where ct.company_id=$1 and ct.merged_into is null and ct.ghl_added_at>=$2 and ct.ghl_added_at<$3`, p);
   add("total", "", "leads_new", leads?.n ?? 0); add("total", "", "leads_booked_same_day", leads?.same ?? 0);
 
-  // speed to lead: seconds from lead.created to the first thing the team did (a dialer call, an outbound message, a send)
-  const stl = await one<{ n: number; sum: number }>(c, `
-    select count(*)::int as n, coalesce(sum(secs),0)::float as sum from (
-      select e.contact_id, min(extract(epoch from (t.at - e.occurred_at))) as secs
-      from events e
-      join lateral (
-        select r.started_at as at from recordings r where r.company_id=e.company_id and r.contact_id=e.contact_id and r.provider='ghl' and coalesce(r.raw->>'simulated','')='' and r.started_at>=e.occurred_at
-        union all select m.occurred_at from messages m where m.company_id=e.company_id and m.contact_id=e.contact_id and m.direction='outbound' and m.occurred_at>=e.occurred_at
-        union all select s.sent_at from sends s where s.company_id=e.company_id and s.contact_id=e.contact_id and s.channel in ('sms','email') and s.status in ('sent','shadow') and s.sent_at>=e.occurred_at
-      ) t on true
-      where e.company_id=$1 and e.event_type='lead.created' and e.source<>'test' and e.occurred_at>=$2 and e.occurred_at<$3
-      group by e.contact_id) x`, p);
-  add("total", "", "stl_n", stl?.n ?? 0); add("total", "", "stl_sum", stl?.sum ?? 0);
+  // speed to lead (Tyler, 2026-10-07): from the lead arriving to the FIRST DIAL, answered or not; "reached" = a connected call at least reached_seconds long
+  const reachedSec = (await one<{ s: number }>(c, "select reached_seconds as s from companies where id=$1", [companyId]))?.s ?? 60;
+  const stl = await one<{ called: number; sum: number; reached: number }>(c, `
+    select count(*) filter (where first_dial is not null)::int as called, coalesce(sum(extract(epoch from (first_dial - ghl_added_at))) filter (where first_dial is not null),0)::float as sum,
+           count(*) filter (where reached)::int as reached
+    from (
+      select ct.id, ct.ghl_added_at,
+             (select min(r.started_at) from recordings r where r.company_id=ct.company_id and r.contact_id=ct.id and r.provider='ghl' and coalesce(r.raw->>'simulated','')='' and r.started_at>=ct.ghl_added_at) as first_dial,
+             exists (select 1 from recordings r where r.company_id=ct.company_id and r.contact_id=ct.id and r.provider='ghl' and coalesce(r.raw->>'simulated','')='' and r.started_at>=ct.ghl_added_at and r.raw->>'call_status'='connected' and (r.raw->>'duration_sec')::int >= $4) as reached
+      from contacts ct where ct.company_id=$1 and ct.merged_into is null and ct.ghl_added_at>=$2 and ct.ghl_added_at<$3) x`, [...p, reachedSec]);
+  add("total", "", "leads_called", stl?.called ?? 0); add("total", "", "stl_sum", stl?.sum ?? 0); add("total", "", "leads_reached", stl?.reached ?? 0);
 
   // dialer calls by setter (the user who dialed); a call "set" when a booking followed within a day
   const calls = await many<{ setter: string; dials: number; connects: number; talk_sec: number; calls_set: number; calls_setting: number; calls_confirmation: number }>(c, `

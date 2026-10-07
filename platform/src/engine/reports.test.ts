@@ -33,10 +33,10 @@ describe("report periods and due-ness (pure)", () => {
   });
   it("renders rates with their denominators and '—' for zero-of-zero", () => {
     const text = renderReport({ kind: "daily", period: { start: "2026-10-06", end: "2026-10-06" }, tz: "UTC", toDate: false, breakdowns: ["setter"], said: [],
-      totals: { leads_new: 4, leads_booked_same_day: 1, dials: 10, connects: 4, talk_sec: 600, calls_set: 2, booked: 3, booked_set: 2, booked_self: 1, scheduled: 0, showed: 0, noshow: 0, cancelled: 0, payments: 1, cash: 1000, deals_won: 1, revenue: 3000, stl_n: 2, stl_sum: 1200 },
+      totals: { leads_new: 4, leads_booked_same_day: 1, leads_called: 2, leads_reached: 1, dials: 10, connects: 4, talk_sec: 600, calls_set: 2, booked: 3, booked_set: 2, booked_self: 1, scheduled: 0, showed: 0, noshow: 0, cancelled: 0, payments: 1, cash: 1000, deals_won: 1, revenue: 3000, stl_n: 2, stl_sum: 1200 },
       setters: [{ id: "u1", name: "Lu Setter", values: { dials: 10, connects: 4, talk_sec: 600, calls_set: 2 } }], closers: [] });
     expect(text).toContain("40% connection rate"); expect(text).toContain("50% of connects"); expect(text).toContain("25% of them");
-    expect(text).toMatch(/showed\s+0\s+— show rate/); expect(text).toContain("Lu Setter"); expect(text).toContain("avg time to first touch"); expect(text).toContain("outstanding");
+    expect(text).toMatch(/showed\s+0\s+— show rate/); expect(text).toContain("Lu Setter"); expect(text).toContain("avg 10 min from arrival to first dial"); expect(text).toMatch(/reached\s+1\s+50% of those called/); expect(text).toContain("outstanding");
     expect(renderReport({ kind: "weekly", period: { start: "2026-09-28", end: "2026-10-04" }, tz: "UTC", toDate: false, breakdowns: [], said: [], totals: {}, setters: [], closers: [] })).toContain("Nothing yet");
   });
 });
@@ -49,16 +49,15 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='rp'");
-      if (co) { for (const t of ["wrapups", "wrapup_schedules", "rollups_daily", "sends", "events", "recordings", "payments", "appointments", "opportunities", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { for (const t of ["wrapups", "wrapup_schedules", "rollups_daily", "poll_cursors", "sends", "events", "recordings", "payments", "appointments", "opportunities", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('RP','rp','UTC') returning id"))!.id;
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3)", [companyId, Buffer.from("L"), encrypt("p")]);
       setter = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id) values ($1,'lu@x.com','Lu Setter','setter','GS') returning id", [companyId]))!.id;
       closer = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id) values ($1,'sam@x.com','Sam Closer','closer','GC') returning id", [companyId]))!.id;
       term = (await one<{ id: string }>(c, "insert into company_terms (company_id, domain, name, category) values ($1,'appointment_type','Closing','closing') returning id", [companyId]))!.id;
-      const mk = async (n: string) => (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,$2,$2) returning id", [companyId, n]))!.id;
-      c1 = await mk("A"); c2 = await mk("B"); c3 = await mk("C");
-      // two real leads today, one harness lead (never counts)
-      for (const [cid, src] of [[c1, "ghl_poll"], [c2, "ghl_poll"], [c3, "test"]] as const) await c.query("insert into events (company_id, contact_id, event_type, occurred_at, source) values ($1,$2,'lead.created',$3,$4)", [companyId, cid, at(9), src]);
+      const mk = async (n: string, added: Date | null) => (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, ghl_added_at) values ($1,$2,$2,$3) returning id", [companyId, n, added]))!.id;
+      // two leads arrived at 9:00 today; C has no CRM arrival time (a replica the booking poll created) and is not a lead
+      c1 = await mk("A", at(9)); c2 = await mk("B", at(9)); c3 = await mk("C", null);
       // calls: A dialed at 9:10 (connected 3 min, booking followed), B no-answer, B connected 90s; a simulated call never counts
       const call = async (cid: string, ext: string, status: string, dur: number, h: number, m: number, extra: Record<string, unknown> = {}) => {
         const { recording } = await recordPhoneCall(c, companyId, { externalId: ext, contactId: cid, startedAt: at(h, m), durationSec: dur, direction: "outbound", status, callerGhlUserId: "GS", raw: extra });
@@ -78,8 +77,8 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
   it("counts leads, dials, connects, talk time, sets, bookings, outcomes and money — harness rows excluded; a call booked today for today is both a booking and on the calendar", async () => {
     await asOperator((c) => rollupDay(c, companyId, day, "UTC"));
     const { totals, setters, closers } = await asOperator((c) => readMetrics(c, companyId, day, day));
-    expect(totals).toMatchObject({ leads_new: 2, leads_booked_same_day: 1, dials: 3, connects: 2, talk_sec: 270, calls_set: 1, calls_setting: 2, booked: 1, booked_set: 1, booked_self: 0, scheduled: 2, showed: 1, noshow: 0, cancelled: 0, payments: 1, cash: 1000, refunds: 1, refunded: 200, deals_won: 1, revenue: 3000, stl_n: 2 });
-    expect(totals.stl_sum).toBe(600 + 1200);   // A: 9:00 → 9:10 call; B: 9:00 → the 9:20 no-answer dial (an attempt is a touch)
+    expect(totals).toMatchObject({ leads_new: 2, leads_booked_same_day: 1, leads_called: 2, leads_reached: 2, dials: 3, connects: 2, talk_sec: 270, calls_set: 1, calls_setting: 2, booked: 1, booked_set: 1, booked_self: 0, scheduled: 2, showed: 1, noshow: 0, cancelled: 0, payments: 1, cash: 1000, refunds: 1, refunded: 200, deals_won: 1, revenue: 3000 });
+    expect(totals.stl_sum).toBe(600 + 1200);   // A: 9:00 → 9:10 dial; B: 9:00 → the 9:20 no-answer dial (a dial is a dial); both later connected ≥ 60s → reached
     expect(setters).toEqual([{ id: setter, name: "Lu Setter", values: expect.objectContaining({ dials: 3, connects: 2, talk_sec: 270, calls_set: 1, booked_set: 1 }) }]);
     expect(closers).toEqual([{ id: closer, name: "Sam Closer", values: expect.objectContaining({ booked: 1, booked_set: 1, scheduled: 2, showed: 1, deals_won: 1, revenue: 3000 }) }]);
     // recomputing is idempotent
@@ -92,12 +91,12 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
     expect(r.body).toContain("67% connection rate"); expect(r.body).toContain("Lu Setter"); expect(r.body).toContain("Sam Closer"); expect(r.body).toContain("$1,000"); expect(r.body).toContain("$3,000");
     expect(await asOperator((c) => one(c, "select 1 from sends where company_id=$1 and channel='slack' and status='shadow' and rendered_body like '%What happened today%'", [companyId]))).toBeTruthy();
     const at1905 = DateTime.fromISO(`${day}T19:05:00`, { zone: "UTC" });
-    const first = await asOperator((c) => runDueReports(c, at1905));
+    const first = await asOperator((c) => runDueReports(c, at1905, companyId));
     expect(first.generated.filter((g) => g.company === "rp").map((g) => g.kind)).toEqual(["daily"]);
-    const again = await asOperator((c) => runDueReports(c, at1905.plus({ minutes: 1 })));
+    const again = await asOperator((c) => runDueReports(c, at1905.plus({ minutes: 1 }), companyId));
     expect(again.generated.filter((g) => g.company === "rp")).toEqual([]);
     expect(await asOperator((c) => many(c, "select 1 from wrapups where company_id=$1", [companyId]))).toHaveLength(2);
     // before 7pm nothing fires
-    expect((await asOperator((c) => runDueReports(c, DateTime.fromISO(`${day}T18:00:00`, { zone: "UTC" }).plus({ days: 1 })))).generated.filter((g) => g.company === "rp")).toEqual([]);
+    expect((await asOperator((c) => runDueReports(c, DateTime.fromISO(`${day}T18:00:00`, { zone: "UTC" }).plus({ days: 1 }), companyId))).generated.filter((g) => g.company === "rp")).toEqual([]);
   });
 });

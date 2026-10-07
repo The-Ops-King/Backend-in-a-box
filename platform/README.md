@@ -141,7 +141,9 @@ What the engine stores, and why, in three layers:
    someone wants the detail. The bot (later) answers aggregates from layer 2, what only we hold
    (calls, timings, transcripts) from layer 1, and a specific contact or deal from GHL live.
 
-Metrics today: new leads, booked the same day, time to first touch (sum + n → average), dials,
+Metrics today: new leads (by the CRM's own arrival time, `contacts.ghl_added_at`), booked the same
+day, called (a dial happened after arrival; sum of seconds to the first dial → average), reached (a
+connected dial at least `companies.reached_seconds` long, default 60, set per company in settings), dials,
 connected, talk seconds, set from a call, setting / confirmation calls read by the AI, calls booked
 (setter- vs self-booked), on the calendar / showed / no-show / cancelled, payments, cash, refunds,
 deals won, revenue. Per setter: dials, connects, talk, sets, bookings they set. Per closer:
@@ -157,6 +159,17 @@ time; a missed day sends late, never twice. Every generated wrap-up is a `wrapup
 `/c/<slug>/reports` exactly as sent (shadow: recorded, not posted). **Generate now** in settings and
 `POST /api/admin/reports { company, kind, period_start?, period_end? }` make one on demand for the
 period in progress (today so far / this week so far / this month so far).
+
+### History (backfill)
+
+`POST /api/admin/backfill { company, days? | from?, to? }` (Bearer `$CRON_SECRET`, default 30 days)
+reads the window back the way the poll reads forward and writes rows only — no events, no runs:
+contacts with their arrival time (and only the bound custom fields), every dialer call with its
+transcript, bookings from the booking source, outcomes the old Zaps left on GHL's Sales Call object
+(matched by the booking id, else contact + call date; never overwriting an outcome the engine already
+has), won opportunities (contract value from `crm.field_opportunity_contract_value`, else the
+opportunity's value), then rolls every day up. Keyed on source ids, so re-running is safe. Payments are
+not in it: GHL holds no Payment records for Hair, so payment history needs the provider's own API.
 
 ## Pipeline cards (D19)
 

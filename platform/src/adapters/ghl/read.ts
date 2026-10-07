@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import { ghl, GhlError } from "./client";
-import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, MessageSnapshot, OppSnapshot, UserSnapshot } from "../types";
+import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, MessageSnapshot, ObjectRecord, OppSnapshot, UserSnapshot, WonOpportunity } from "../types";
 
 type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; tags?: string[]; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string };
 const mapContact = (c: RawContact): ContactSnapshot => ({
@@ -60,6 +60,65 @@ export const ghlRead: CrmRead = {
     const transcript = segs.map((s) => ({ speaker: String(s.speaker ?? "?"), text: String(s.transcript ?? s.text ?? "").trim(), ...(typeof s.startTime === "number" ? { timestamp: `${Math.floor(s.startTime / 60)}:${String(Math.floor(s.startTime % 60)).padStart(2, "0")}` } : {}) })).filter((s) => s.text);
     if (!transcript.length) return { transcript: null };
     return { recordingUrl: `https://services.leadconnectorhq.com/conversations/messages/${messageId}/locations/${c.locationId}/recording`, transcript };
+  },
+  async contactsAddedBetween(c, from, to) {
+    const out: ContactSnapshot[] = [];
+    for (let page = 1; page < 50; page++) {
+      const r = await ghl<{ contacts: RawContact[] }>(c.pit, "POST", "/contacts/search", { body: { locationId: c.locationId, page, pageLimit: 100, filters: [{ field: "dateAdded", operator: "range", value: { gte: from.toISOString(), lte: to.toISOString() } }], sort: [{ field: "dateAdded", direction: "asc" }] } });
+      out.push(...r.contacts.map(mapContact));
+      if (r.contacts.length < 100) break;
+    }
+    return out;
+  },
+  /** Every call entry in every thread touched inside the window. Threads are read newest-first and the walk stops once a thread's last activity predates the window. */
+  async callsBetween(c, from, to) {
+    const out: MessageSnapshot[] = [];
+    let startAfter: number | undefined;
+    for (let page = 0; page < 20; page++) {
+      const q = `/conversations/search?locationId=${c.locationId}&sortBy=last_message_date&sort=desc&limit=100${startAfter ? `&startAfterDate=${startAfter}` : ""}`;
+      const r = await ghl<{ conversations: { id: string; contactId: string; lastMessageDate: string | number }[] }>(c.pit, "GET", q, { version: "2021-04-15" });
+      const convs = r.conversations ?? []; if (!convs.length) break;
+      let stop = false;
+      for (const conv of convs) {
+        const lastMs = typeof conv.lastMessageDate === "number" ? conv.lastMessageDate : Date.parse(String(conv.lastMessageDate));
+        if (lastMs < from.getTime()) { stop = true; break; }
+        const m = await ghl<{ messages: { messages: { id: string; direction: string; messageType: string; status?: string; dateAdded: string; userId?: string; meta?: { call?: { status?: string; duration?: number } } }[] } }>(c.pit, "GET", `/conversations/${conv.id}/messages?limit=100`, { version: "2021-04-15" });
+        for (const msg of m.messages?.messages ?? []) {
+          if (msg.messageType !== "TYPE_CALL") continue;
+          const t = Date.parse(msg.dateAdded); if (t < from.getTime() || t > to.getTime()) continue;
+          const call = msg.meta?.call ?? {};
+          out.push({ id: msg.id, conversationId: conv.id, contactId: conv.contactId, channel: "call", direction: msg.direction as "inbound" | "outbound", status: msg.status, dateAdded: msg.dateAdded, call: { status: String(call.status ?? msg.status ?? ""), durationSec: typeof call.duration === "number" ? call.duration : undefined, userId: msg.userId } });
+        }
+        const last = typeof conv.lastMessageDate === "number" ? conv.lastMessageDate : Date.parse(String(conv.lastMessageDate));
+        startAfter = last;
+      }
+      if (stop || convs.length < 100) break;
+    }
+    return out;
+  },
+  async wonOpportunities(c, from, to) {
+    const out: WonOpportunity[] = [];
+    for (let page = 1; page < 50; page++) {
+      const r = await ghl<{ opportunities: { id: string; contact?: { id: string }; pipelineId: string; pipelineStageId: string; status: string; monetaryValue?: number; lastStageChangeAt?: string; lastStatusChangeAt?: string; updatedAt: string; createdAt: string; customFields?: { id: string; fieldValue?: unknown; value?: unknown }[] }[] }>(
+        c.pit, "GET", `/opportunities/search?location_id=${c.locationId}&status=won&limit=100&page=${page}`);
+      const opps = r.opportunities ?? [];
+      for (const o of opps) {
+        const wonAt = o.lastStatusChangeAt ?? o.lastStageChangeAt ?? o.updatedAt;
+        const t = Date.parse(wonAt); if (t < from.getTime() || t > to.getTime()) continue;
+        out.push({ id: o.id, contactId: o.contact?.id ?? "", pipelineId: o.pipelineId, stageId: o.pipelineStageId, wonAt, createdAt: o.createdAt, monetaryValue: o.monetaryValue, customFields: Object.fromEntries((o.customFields ?? []).map((f) => [f.id, f.fieldValue ?? f.value])) });
+      }
+      if (opps.length < 100) break;
+    }
+    return out;
+  },
+  async objectRecords(c, objectKey) {
+    const out: ObjectRecord[] = [];
+    for (let page = 1; page < 50; page++) {
+      const r = await ghl<{ records: { id: string; createdAt: string; properties: Record<string, unknown> }[] }>(c.pit, "POST", `/objects/${objectKey}/records/search`, { body: { locationId: c.locationId, page, pageLimit: 100, query: "" } });
+      const recs = r.records ?? []; out.push(...recs.map((x) => ({ id: x.id, createdAt: x.createdAt, properties: x.properties ?? {} })));
+      if (recs.length < 100) break;
+    }
+    return out;
   },
   async opportunitiesSince(c, since) {
     const d = DateTime.fromJSDate(since).toFormat("MM-dd-yyyy");

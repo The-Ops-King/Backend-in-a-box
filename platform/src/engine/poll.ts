@@ -45,11 +45,11 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
   }
   const tz = s.timezone ?? companyTz;
   if (!id) {
-    const row = await one<{ id: string }>(c, `insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone, timezone_source, tags, ghl_fields, ghl_updated_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, [companyId, s.id, s.firstName ?? null, s.lastName ?? null, tz, s.timezone ? "ghl" : "company_default", s.tags, s.customFields, s.dateUpdated]);
+    const row = await one<{ id: string }>(c, `insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone, timezone_source, tags, ghl_fields, ghl_updated_at, ghl_added_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`, [companyId, s.id, s.firstName ?? null, s.lastName ?? null, tz, s.timezone ? "ghl" : "company_default", s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null]);
     id = row!.id;
   } else {
-    await c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), tags=$5, ghl_fields=$6, ghl_updated_at=$7, updated_at=now() where id=$1", [id, s.firstName ?? null, s.lastName ?? null, s.timezone ?? null, s.tags, s.customFields, s.dateUpdated]);
+    await c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), tags=$5, ghl_fields=$6, ghl_updated_at=$7, ghl_added_at=coalesce(ghl_added_at,$8), ghl_contact_id=coalesce(ghl_contact_id,$9), updated_at=now() where id=$1", [id, s.firstName ?? null, s.lastName ?? null, s.timezone ?? null, s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.id]);
   }
   for (const [kind, value] of [["ghl_contact", s.id], ["email", normEmail(s.email)], ["phone", normPhone(s.phone)]] as const)
     if (value) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,$3,$4) on conflict (company_id, kind, value) do nothing", [companyId, id, kind, value]);

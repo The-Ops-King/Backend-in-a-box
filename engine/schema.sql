@@ -17,6 +17,7 @@ create table companies (
   archived_at       timestamptz,
   purge_after_months int not null default 12,
   -- opportunity lifecycle rules (per-company settings, Tyler: "depends on workflow and settings")
+  reached_seconds   int not null default 60,            -- a connected dial at least this long counts as the lead being reached (speed to lead)
   contract_value_default numeric(12,2),                 -- the program price; a new opportunity's contract_value until a closer sets one
   opp_opens_on      text not null default 'first_booking'
                     check (opp_opens_on in ('lead_created','first_booking','pipeline_entry')),
@@ -57,6 +58,7 @@ create table contacts (
   attributes      jsonb not null default '{}',            -- DERIVED: merge of intake rows, ours
   merged_into     uuid references contacts(id),           -- set when this record was folded into another
   ghl_updated_at  timestamptz,
+  ghl_added_at    timestamptz,                            -- when the CRM first saw them: the lead's arrival for every dated question
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now(),
   unique (company_id, ghl_contact_id)

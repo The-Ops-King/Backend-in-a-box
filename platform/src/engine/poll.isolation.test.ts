@@ -15,7 +15,7 @@ const relations: string[] = [];
 const fake: Adapters = {
   read: {
     contactsChangedSince: async (c) => (c.id === companyId ? contacts : []),
-    inboundSince: async () => { if (inboundThrows) throw new Error("ghl 500"); return []; }, callMedia: async () => null,
+    inboundSince: async () => { if (inboundThrows) throw new Error("ghl 500"); return []; }, callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [],
     opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [],
   },
   booking: { ghl: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }, calendly: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] } },

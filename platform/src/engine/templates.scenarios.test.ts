@@ -30,7 +30,7 @@ const recordWrites: Record<string, unknown>[] = [];
 const relations: string[] = [];
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async () => null, opportunitiesSince: async () => [],
+    contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], opportunitiesSince: async () => [],
     getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }),
     listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }],
   },
