@@ -9,3 +9,14 @@
 | Events we record | `payment.succeeded` → ledger row, `payment.failed` → failed row (amount from `total`), `refund.created` → negative row keyed by the refund id (`data.payment_id` in raw). Others ignored with 200. |
 | Delivery | At-least-once; same `webhook-id` on every retry of a delivery (we store it in `webhook_deliveries` before parsing). Retries for ~3 days. Must answer 2xx within 5 seconds. Order not guaranteed. |
 | Our endpoint | `POST /api/webhooks/whop/<companyId>`; secret bound per company as `secret.whop_webhook` (install `whop: { webhookSecret }`). |
+
+## REST API (verified 2026-10-07, Hair's account API key)
+- Base `https://api.whop.com/api/v1`, `Authorization: Bearer apik_…`.
+- `GET /payments?created_after&created_before&first=50&order=created_at&direction=asc` → `{ data, page_info{has_next_page,end_cursor} }`;
+  cursor with `after=`. The list and the detail both carry `customer_email`, `customer_phone`, `member_id`, `status`
+  (paid | open | void | …), `substatus`, `total.amount` (decimal string), `refunded_amount`, `paid_at`, `account_id` (biz_…),
+  `billing_reason` (`subscription_create` for a plan's first charge). `user` lacks email unless the key has `member:email:read`.
+- `POST /webhooks { url, api_version: "v1", enabled, events[] }` → `{ id: hook_…, webhook_secret }`; the secret is shown once.
+  Needs `developer:manage_webhook`. `GET /webhooks` wants `account_id`. `/me`, `/account` do not exist; `/companies` needs `company:basic:read`.
+- Hair's first real payment: `pay_aWgRacWKddVBAK`, $750, 2026-10-05, `subscription_create`.
+

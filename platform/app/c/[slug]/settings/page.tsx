@@ -107,7 +107,8 @@ export default async function SettingsPage({ params, searchParams }: { params: P
         <Pick row={locRow} placeholder="location id" />
         <Secret row={ghlRow} label="Private Integration Token" hint="Read-only is enough for shadow. Live needs contacts.write, opportunities.write, objects/record.write." />
         <Secret row={row("secret.anthropic_key")} label="Anthropic API key" hint="For the AI steps (call reviews). Per company; the server key is the fallback." />
-        <Secret row={row("secret.whop_webhook")} label="Whop webhook signing secret" hint="Only for Whop's own webhook. The Zapier door needs nothing here." />
+        <Secret row={row("secret.whop_api_key")} label="Whop API key" hint="Lets the engine create its own Whop webhook and backfill payment history. Needs payment:basic:read and developer:manage_webhook." />
+        <Secret row={row("secret.whop_webhook")} label="Whop webhook signing secret" hint="Set when the engine creates the webhook from the API key, or paste one from a webhook you made in Whop." />
         <Secret row={row("secret.fathom_api_key")} label="Fathom API key" hint="Lets the engine register its own webhook (button below)." />
         <Secret row={row("secret.fathom_webhook")} label="Fathom webhook secret" hint="Set by the register button, or paste one from a webhook you made in Fathom." />
       </tbody></table>

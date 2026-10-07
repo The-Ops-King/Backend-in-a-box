@@ -8,20 +8,23 @@ import { applyAppointment, boundFieldIds, upsertContact } from "./poll";
 import { recordPhoneCall, settlePhoneCall } from "./recordings";
 import { outcomeTermFor } from "./disposition";
 import { rollupRange } from "./metrics";
+import { recordPayment, type PaymentInput } from "./payments";
+import { paymentInputs, whopListPayments } from "@/adapters/whop/client";
 
 /**
  * History (D29): the facts the poll would have seen had the engine been watching, read back once over a window and written
- * the way a baseline poll writes them — rows only, no events, no workflow starts. Contacts (arrival time), dialer calls (with
+ * the way a baseline poll writes them — rows only, no workflow starts (the payments ledger keeps its own payment.* facts). Contacts (arrival time), dialer calls (with
  * transcripts), bookings from the booking source, sales-call outcomes the old Zaps wrote onto GHL's Sales Call object, and
- * won opportunities. Payments are not here: GHL holds none for Hair (the Whop Zap wrote no Payment records), so payment
- * history needs the provider's own API. Re-running is safe: every write is keyed on the source's id.
+ * won opportunities, and payments from the processor's own API when a Whop key is bound (GHL holds no Payment records for
+ * Hair; the Whop Zap never wrote them). Re-running is safe: every write is keyed on the source's id.
  */
-export type BackfillReport = { from: string; to: string; contacts: number; calls: number; callsWithTranscript: number; appointments: number; outcomes: number; outcomesUnmatched: number; won: number; days: number; errors: string[] };
+export type BackfillReport = { from: string; to: string; contacts: number; calls: number; callsWithTranscript: number; appointments: number; outcomes: number; outcomesUnmatched: number; won: number; payments: number; paymentsUnlinked: number; days: number; errors: string[] };
+export type PaymentsSource = (from: Date, to: Date) => Promise<PaymentInput[]>;
 
 const OUTCOME_CATEGORY: Record<string, string> = { showed: "showed", show: "showed", no_show: "noshow", noshow: "noshow", "no-show": "noshow", cancelled: "cancelled", canceled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" };
 
-export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, bindings: Record<string, string>, window: { from: Date; to: Date }): Promise<BackfillReport> {
-  const rep: BackfillReport = { from: window.from.toISOString(), to: window.to.toISOString(), contacts: 0, calls: 0, callsWithTranscript: 0, appointments: 0, outcomes: 0, outcomesUnmatched: 0, won: 0, days: 0, errors: [] };
+export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, bindings: Record<string, string>, window: { from: Date; to: Date }, payments?: PaymentsSource): Promise<BackfillReport> {
+  const rep: BackfillReport = { from: window.from.toISOString(), to: window.to.toISOString(), contacts: 0, calls: 0, callsWithTranscript: 0, appointments: 0, outcomes: 0, outcomesUnmatched: 0, won: 0, payments: 0, paymentsUnlinked: 0, days: 0, errors: [] };
   const step = async (name: string, fn: () => Promise<void>) => { try { await fn(); } catch (e) { rep.errors.push(`${name}: ${String((e as Error).message).slice(0, 300)}`); } };
 
   await step("contacts", async () => {
@@ -85,6 +88,17 @@ export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company
         on conflict (company_id, ghl_opportunity_id) do update set status='won', won_at=coalesce(opportunities.won_at, excluded.won_at), contract_value=coalesce(opportunities.contract_value, excluded.contract_value)`,
         [co.id, contact.id, o.id, new Date(o.createdAt), new Date(o.wonAt), value]);
       rep.won += r.rowCount ?? 0;
+    }
+  });
+
+  await step("payments", async () => {
+    // the processor's own list (Whop API key bound), through the same ledger path as a webhook: linked by email / phone / member id, else unlinked for the dashboard to fix
+    const source = payments ?? (bindings["secret.whop_api_key"] ? async (f: Date, t: Date) => (await whopListPayments(bindings["secret.whop_api_key"], f, t)).flatMap(paymentInputs) : null);
+    if (!source) return;
+    for (const p of await source(window.from, window.to)) {
+      const r = await recordPayment(c, co.id, p);
+      if (r.outcome === "duplicate") continue;
+      rep.payments++; if (r.outcome === "unlinked") rep.paymentsUnlinked++;
     }
   });
 

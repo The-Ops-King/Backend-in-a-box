@@ -8,6 +8,7 @@ import { calendlyUserByEmail, calendlyWhoAmI } from "@/adapters/calendly/read";
 import { loadCompany } from "./context";
 import { defaultPrompts } from "@/prompts";
 import { fathomCreateWebhook } from "@/adapters/fathom/client";
+import { whopCreateWebhook } from "@/adapters/whop/client";
 
 /**
  * A calendar's mapping: the kind of call it books; optionally how setter-vs-self is decided on it (`booking`: self | setter |
@@ -25,7 +26,7 @@ export type InstallInput = {
   closerCall?: string;                   // external id bound as calendar.closer_call
   bookingCalendar?: string;              // external id bound as calendar.booking (first-call / self-book link used by lead and reactivation templates)
   crm?: Record<string, string>;          // extra crm.* bindings a template needs: pipeline and stage ids, custom field ids (key without the crm. prefix)
-  whop?: { webhookSecret: string };      // Whop → /api/webhooks/whop/<companyId>; the ws_ signing secret
+  whop?: { webhookSecret?: string; apiKey?: string };   // Whop → /api/webhooks/whop/<companyId>; a ws_ signing secret, or an API key and the engine creates the webhook itself (and can backfill payments)
   /** Call recordings. `apiKey` registers Fathom's webhook at install (needs PUBLIC_URL); `webhookSecret` binds one made by hand. Either way the Zapier door is open too. */
   recording?: { source: "fathom"; apiKey?: string; webhookSecret?: string };
   anthropicKey?: string;                 // bound as secret.anthropic_key; the analyze node reads it (env ANTHROPIC_API_KEY is the fallback)
@@ -83,6 +84,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     for (const [k, v] of Object.entries(input.crm ?? {})) await bind(`crm.${k}`, "id", v);
     if (input.setterRule) await bind("booking.setter_rule", "text", input.setterRule);
     if (input.whop?.webhookSecret) await bind("secret.whop_webhook", "secret", input.whop.webhookSecret);
+    if (input.whop?.apiKey) await bind("secret.whop_api_key", "secret", input.whop.apiKey);
     if (input.recording?.webhookSecret) await bind("secret.fathom_webhook", "secret", input.recording.webhookSecret);
     if (input.recording?.apiKey) await bind("secret.fathom_api_key", "secret", input.recording.apiKey);
     if (input.anthropicKey) await bind("secret.anthropic_key", "secret", input.anthropicKey);
@@ -160,6 +162,12 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       const hook = await fathomCreateWebhook(input.recording.apiKey, `${publicUrl}/api/webhooks/fathom/${companyId}`);
       await bind("secret.fathom_webhook", "secret", hook.secret); await bind("fathom.webhook_id", "id", hook.id);
       fathomWebhook = hook.id;
+    }
+    // Whop: with an API key and no signing secret yet, the engine creates its own webhook (api v1, payment + refund events) and keeps the secret it is shown once
+    if (input.whop?.apiKey && !input.whop.webhookSecret && !boundKeys.has("secret.whop_webhook")) {
+      if (!publicUrl) throw new Error("whop.apiKey given but PUBLIC_URL is not set: cannot tell Whop where to deliver");
+      const hook = await whopCreateWebhook(input.whop.apiKey, `${publicUrl}/api/webhooks/whop/${companyId}`);
+      await bind("secret.whop_webhook", "secret", hook.webhook_secret); await bind("whop.webhook_id", "id", hook.id);
     }
     return { companyId, calendars: calendarsOut, installed, inbound: { secret: inboundPlain, zapierPaymentUrl: `/api/webhooks/zapier/${companyId}/payment`, zapierRecordingUrl: `/api/webhooks/zapier/${companyId}/recording`, whopWebhookUrl: `/api/webhooks/whop/${companyId}`, fathomWebhookUrl: `/api/webhooks/fathom/${companyId}`, fathomWebhook } };
   });

@@ -17,7 +17,7 @@ const appts: AppointmentSnapshot[] = [{ id: "evt-1", calendarId: "CAL", contactI
 const fake: Adapters = {
   read: {
     contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async (_c, id) => (id === "call-1" ? { recordingUrl: "https://ghl.test/call-1", transcript: [{ speaker: "0", text: "hi" }] } : { transcript: null }),
-    contactsAddedBetween: async () => [{ id: "G1", firstName: "Hist", tags: [], customFields: { F1: "x", F2: "y" }, dateUpdated: d(6, 9).toISO()!, dateAdded: d(6, 9).toISO()! }, { id: "G2", firstName: "Old", tags: [], customFields: {}, dateUpdated: d(3, 9).toISO()!, dateAdded: d(3, 9).toISO()! }],
+    contactsAddedBetween: async () => [{ id: "G1", firstName: "Hist", email: "hist@x.com", tags: [], customFields: { F1: "x", F2: "y" }, dateUpdated: d(6, 9).toISO()!, dateAdded: d(6, 9).toISO()! }, { id: "G2", firstName: "Old", tags: [], customFields: {}, dateUpdated: d(3, 9).toISO()!, dateAdded: d(3, 9).toISO()! }],
     callsBetween: async () => [
       { id: "call-1", conversationId: "cv1", contactId: "G1", channel: "call", direction: "outbound", status: "completed", dateAdded: d(6, 9).plus({ minutes: 7 }).toISO()!, call: { status: "completed", durationSec: 140, userId: "GS" } },
       { id: "call-2", conversationId: "cv2", contactId: "G2", channel: "call", direction: "outbound", status: "no-answer", dateAdded: d(3, 9).plus({ minutes: 30 }).toISO()!, call: { status: "no-answer", userId: "GS" } }],
@@ -38,7 +38,7 @@ describe.skipIf(!HAS_DB)("history backfill", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='bf'");
-      if (co) { for (const t of ["poll_cursors", "wrapup_schedules", "rollups_daily", "events", "recordings", "appointments", "opportunities", "calendars", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { for (const t of ["poll_cursors", "wrapup_schedules", "rollups_daily", "payments", "events", "recordings", "appointments", "opportunities", "calendars", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('BF','bf','UTC') returning id"))!.id;
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'crm.field_contact_f1','id',$4),($1,'crm.field_opportunity_contract_value','id',$5)", [companyId, Buffer.from("L"), encrypt("p"), Buffer.from("F1"), Buffer.from("CV")]);
       const term = (await one<{ id: string }>(c, "insert into company_terms (company_id, domain, name, category) values ($1,'appointment_type','Closing','closing') returning id", [companyId]))!.id;
@@ -47,11 +47,14 @@ describe.skipIf(!HAS_DB)("history backfill", () => {
     });
   });
   it("writes rows only, keyed on source ids, and rolls the days up", async () => {
-    const r = await asOperator(async (c) => { const { row, adapterCompany, bindings } = await loadCompany(c, companyId); return backfillCompany(c, row, adapterCompany, fake, bindings, { from: d(30, 0).toJSDate(), to: new Date() }); });
-    expect(r).toMatchObject({ contacts: 2, calls: 2, callsWithTranscript: 1, appointments: 1, outcomes: 1, outcomesUnmatched: 1, won: 1, errors: [] });
+    const payments = async () => [{ providerPaymentId: "pay_1", amount: 750, status: "succeeded" as const, paidAt: d(4, 11).toJSDate(), email: "hist@x.com", raw: { backfill: true } }, { providerPaymentId: "pay_2", amount: 100, status: "succeeded" as const, paidAt: d(2, 11).toJSDate(), email: "nobody@x.com", raw: { backfill: true } }];
+    const r = await asOperator(async (c) => { const { row, adapterCompany, bindings } = await loadCompany(c, companyId); return backfillCompany(c, row, adapterCompany, fake, bindings, { from: d(30, 0).toJSDate(), to: new Date() }, payments); });
+    expect(r).toMatchObject({ contacts: 2, calls: 2, callsWithTranscript: 1, appointments: 1, outcomes: 1, outcomesUnmatched: 1, won: 1, payments: 2, paymentsUnlinked: 1, errors: [] });
     const g1 = await asOperator((c) => one<{ ghl_added_at: Date; ghl_fields: Record<string, unknown> }>(c, "select ghl_added_at, ghl_fields from contacts where company_id=$1 and ghl_contact_id='G1'", [companyId]));
     expect(g1!.ghl_added_at.toISOString()).toBe(d(6, 9).toISO()); expect(g1!.ghl_fields).toEqual({ F1: "x" });   // only the bound field is kept
-    expect(await asOperator((c) => many(c, "select 1 from events where company_id=$1", [companyId]))).toHaveLength(0);
+    // the payments ledger records its own facts (payment.received / payment.unlinked); nothing else is emitted and no workflow starts
+    expect((await asOperator((c) => many<{ event_type: string }>(c, "select distinct event_type from events where company_id=$1 order by 1", [companyId]))).map((e) => e.event_type)).toEqual(["payment.received", "payment.unlinked"]);
+    expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1", [companyId]))).toHaveLength(0);
     const appt = await asOperator((c) => one<{ status: string; cat: string }>(c, "select a.status, t.category as cat from appointments a join company_terms t on t.id=a.outcome_term where a.company_id=$1 and a.external_id='evt-1'", [companyId]));
     expect(appt).toEqual({ status: "showed", cat: "showed" });
     expect(await asOperator((c) => one<{ contract_value: string }>(c, "select contract_value from opportunities where company_id=$1 and ghl_opportunity_id='opp-1'", [companyId]))).toEqual({ contract_value: "2500.00" });
@@ -60,9 +63,9 @@ describe.skipIf(!HAS_DB)("history backfill", () => {
     const day5 = await asOperator((c) => readMetrics(c, companyId, d(5, 0).toISODate()!, d(5, 0).toISODate()!));
     expect(day5.totals).toMatchObject({ scheduled: 1, showed: 1 });
     const day4 = await asOperator((c) => readMetrics(c, companyId, d(4, 0).toISODate()!, d(4, 0).toISODate()!));
-    expect(day4.totals).toMatchObject({ deals_won: 1, revenue: 2500 });
+    expect(day4.totals).toMatchObject({ deals_won: 1, revenue: 2500, payments: 1, cash: 750 });
     // the same window again changes nothing
-    const again = await asOperator(async (c) => { const { row, adapterCompany, bindings } = await loadCompany(c, companyId); return backfillCompany(c, row, adapterCompany, fake, bindings, { from: d(30, 0).toJSDate(), to: new Date() }); });
-    expect(again).toMatchObject({ contacts: 2, calls: 0, appointments: 0, outcomes: 0, won: 1 });
+    const again = await asOperator(async (c) => { const { row, adapterCompany, bindings } = await loadCompany(c, companyId); return backfillCompany(c, row, adapterCompany, fake, bindings, { from: d(30, 0).toJSDate(), to: new Date() }, payments); });
+    expect(again).toMatchObject({ contacts: 2, calls: 0, appointments: 0, outcomes: 0, won: 1, payments: 0 });
   });
 });

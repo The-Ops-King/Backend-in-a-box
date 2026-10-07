@@ -60,6 +60,12 @@ instance, 5 second idle timeout.
 
 ## Payments (D21)
 
+**Whop by API key.** Install with `whop: { apiKey }` (or paste it in settings › Connections) and the
+engine creates its own Whop webhook (api v1; payment.succeeded, payment.failed, refund.created) at
+`/api/webhooks/whop/<companyId>`, binding the signing secret it is shown once (`secret.whop_webhook`,
+`whop.webhook_id`), the same way it registers with Fathom. The key also powers the payment history
+backfill. Needs `payment:basic:read` and `developer:manage_webhook` on the key.
+
 Whop posts to `/api/webhooks/whop/<companyId>` (signature verified, Standard Webhooks). Each
 payment is a ledger row linked by member id, email or phone, or left **unlinked** with a team
 alert and a row on `/c/<slug>/payments` where an operator links it to a contact. Linking settles
@@ -168,8 +174,9 @@ contacts with their arrival time (and only the bound custom fields), every diale
 transcript, bookings from the booking source, outcomes the old Zaps left on GHL's Sales Call object
 (matched by the booking id, else contact + call date; never overwriting an outcome the engine already
 has), won opportunities (contract value from `crm.field_opportunity_contract_value`, else the
-opportunity's value), then rolls every day up. Keyed on source ids, so re-running is safe. Payments are
-not in it: GHL holds no Payment records for Hair, so payment history needs the provider's own API.
+opportunity's value), and payments from Whop's own API when `secret.whop_api_key` is bound (through the
+same ledger path as a webhook: linked by email / phone / member id, else unlinked for the dashboard to
+fix), then rolls every day up. Keyed on source ids, so re-running is safe.
 
 ## Pipeline cards (D19)
 
