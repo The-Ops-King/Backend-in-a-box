@@ -15,14 +15,14 @@ const relations: string[] = [];
 const fake: Adapters = {
   read: {
     contactsChangedSince: async (c) => (c.id === companyId ? contacts : []),
-    inboundSince: async () => { if (inboundThrows) throw new Error("ghl 500"); return []; }, callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [],
+    inboundSince: async () => { if (inboundThrows) throw new Error("ghl 500"); return []; }, callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [],
     opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [],
   },
   booking: { ghl: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }, calendly: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] } },
-  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createRecord: async (_c, _o, props) => { recordWrites.push({ op: "create", ...props }); return { id: `rec-${recordWrites.length}` }; }, updateRecord: async (_c, _o, id, props) => { recordWrites.push({ op: "update", id, ...props }); }, relateRecords: async (_c, a, f, s) => { relations.push(`${a}:${f}>${s}`); }, createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {} },
-  sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }) },
+  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createRecord: async (_c, _o, props) => { recordWrites.push({ op: "create", ...props }); return { id: `rec-${recordWrites.length}` }; }, updateRecord: async (_c, _o, id, props) => { recordWrites.push({ op: "update", id, ...props }); }, relateRecords: async (_c, a, f, s) => { relations.push(`${a}:${f}>${s}`); }, createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "doc-x" }) },
+  sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },
   classifier: { choice: async () => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
-  notifier: { post: async () => ({ ts: "1" }) },
+  notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null },
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 const snap = (id: string, when: string): ContactSnapshot => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: when, dateAdded: when });
@@ -46,7 +46,7 @@ describe.skipIf(!process.env.DATABASE_URL)("poll entity isolation", () => {
     expect(r.contacts).toBe(0);   // the rollback undid ok1, so the report must not claim it (other test companies return no contacts)
     expect(await asOperator((c) => many(c, "select 1 from contacts where company_id=$1", [companyId]))).toHaveLength(0);
     const cursors = await asOperator((c) => many<{ entity: string; consecutive_failures: number }>(c, "select entity, consecutive_failures from poll_cursors where company_id=$1 order by 1", [companyId]));
-    expect(cursors.map((x) => x.entity)).toEqual(["conversations"]);   // failure creates no contacts row (baseline not over); conversations committed on its own
+    expect(cursors.map((x) => x.entity)).toEqual(["agreements", "conversations"]);   // failure creates no contacts row (baseline not over); conversations committed on its own
   });
   it("a vendor error in conversations after a good contacts poll keeps the contacts commit and counts the failure", async () => {
     contacts = [snap("ok1", "2026-10-01T00:00:00Z")];

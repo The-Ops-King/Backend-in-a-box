@@ -4,14 +4,14 @@ import { z } from "zod";
 export type Predicate =
   | { eq: [unknown, unknown] } | { neq: [unknown, unknown] }
   | { gt: [unknown, unknown] } | { gte: [unknown, unknown] } | { lt: [unknown, unknown] } | { lte: [unknown, unknown] }
-  | { in: [unknown, unknown[]] } | { exists: string }
+  | { in: [unknown, unknown[]] } | { has: [unknown, unknown] } | { exists: string }
   | { and: Predicate[] } | { or: Predicate[] } | { not: Predicate };
 export const Predicate: z.ZodType<Predicate> = z.lazy(() =>
   z.union([
     z.object({ eq: z.tuple([z.unknown(), z.unknown()]) }), z.object({ neq: z.tuple([z.unknown(), z.unknown()]) }),
     z.object({ gt: z.tuple([z.unknown(), z.unknown()]) }), z.object({ gte: z.tuple([z.unknown(), z.unknown()]) }),
     z.object({ lt: z.tuple([z.unknown(), z.unknown()]) }), z.object({ lte: z.tuple([z.unknown(), z.unknown()]) }),
-    z.object({ in: z.tuple([z.unknown(), z.array(z.unknown())]) }), z.object({ exists: z.string() }),
+    z.object({ in: z.tuple([z.unknown(), z.array(z.unknown())]) }), z.object({ has: z.tuple([z.unknown(), z.unknown()]) }), z.object({ exists: z.string() }),
     z.object({ and: z.array(Predicate) }), z.object({ or: z.array(Predicate) }), z.object({ not: Predicate }),
   ]),
 );
@@ -40,8 +40,13 @@ export const Node = z.discriminatedUnion("type", [
   // Waits for an inbound reply (woken the minute one arrives) or until `timeout`; follows the edge labeled "timeout" if none, else exits `no_reply`.
   z.object({ ...base, type: z.literal("wait_for_reply"), timeout: z.string(), channel: z.enum(["sms", "email", "any"]).default("any") }),
   // kind: "human" reads like a person wrote it and always respects dark hours; "transactional" is an automated receipt ("you're booked") the company may let through at any hour
-  z.object({ ...base, type: z.literal("send_sms"), template: z.string(), kind: z.enum(["human", "transactional"]).default("human"), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
-  z.object({ ...base, type: z.literal("send_email"), subject: z.string(), template: z.string(), kind: z.enum(["human", "transactional"]).default("human"), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
+  // ghl_template: the CRM's own SMS snippet / email builder template id (or a {{crm.*}} binding); when set and found, the team's copy in the CRM wins over `template` (D30)
+  z.object({ ...base, type: z.literal("send_sms"), template: z.string(), ghl_template: z.string().optional(), kind: z.enum(["human", "transactional"]).default("human"), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
+  z.object({ ...base, type: z.literal("send_email"), subject: z.string(), template: z.string(), ghl_template: z.string().optional(), kind: z.enum(["human", "transactional"]).default("human"), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
+  // Sends a Documents & Contracts template to the contact from `sender` (a CRM user id), and records it in the agreements ledger. Skipped in shadow like every CRM write.
+  z.object({ ...base, type: z.literal("send_document"), template: z.string(), sender: z.string().optional(), name: z.string().optional() }),
+  // Nudges the contact's owner (CRM assignee, else crm.default_closer): a Slack DM when the owner can be found in Slack, else the fallback channel with an @mention; plus a CRM task on the contact when `task` is set.
+  z.object({ ...base, type: z.literal("notify_owner"), template: z.string(), fallback_channel: z.string().optional(), task: z.object({ title: z.string(), due: z.string().default("+1d") }).optional() }),
   z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string() }),
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string() }),
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),
@@ -114,6 +119,7 @@ export function extractManifest(def: Definition): { bindings: ManifestEntry[] } 
   walk(def.nodes); walk(def.edges);
   // an analyze node needs the company's Anthropic key even though no template mentions it
   if (def.nodes.some((n) => n.type === "analyze")) refs.add("secret.anthropic_key");
+  // a notify_owner node posts to Slack even without a channel binding (it DMs), so slack.channel.alerts is only the fallback; nothing to add
   const out = new Map<string, ManifestEntry>();
   for (const ref of refs) {
     for (const [prefix, kind] of Object.entries(BINDING_PREFIXES)) {

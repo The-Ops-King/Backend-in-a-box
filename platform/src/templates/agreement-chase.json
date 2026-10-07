@@ -1,0 +1,214 @@
+{
+  "slug": "agreement-chase",
+  "name": "Unsigned agreement chase",
+  "category": "agreements",
+  "description": "Starts on the first payment and runs once per contact: every 24 hours it checks whether the agreement has been signed; while it has not, the contact's owner gets a Slack DM (or an @mention in the alerts channel) and a CRM task, three times at most. A signature at any point ends it. After the third unanswered nudge the contact is tagged agreement-unsigned and the alerts channel is told once.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_contact",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "payment.received",
+        "match": {
+          "eq": [
+            "{{event.prior_total}}",
+            0
+          ]
+        }
+      },
+      {
+        "id": "w1",
+        "type": "wait",
+        "rule": {
+          "anchor": "now",
+          "offset": "+24h",
+          "tz": "company"
+        }
+      },
+      {
+        "id": "c1",
+        "type": "check",
+        "when": {
+          "eq": [
+            "{{contact.agreement_signed}}",
+            false
+          ]
+        },
+        "else_exit": "signed"
+      },
+      {
+        "id": "v1",
+        "type": "set_var",
+        "key": "nudge",
+        "value": 1
+      },
+      {
+        "id": "n1",
+        "type": "notify_owner",
+        "template": "*Agreement still unsigned* · <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> paid ${{contact.cash_collected}} on {{contact.first_paid_at | date_company}} and has not signed the purchase agreement. Nudge {{vars.nudge}} of 3.",
+        "fallback_channel": "{{slack.channel.alerts}}",
+        "task": {
+          "title": "Chase the unsigned agreement: {{contact.name | default:contact}}",
+          "due": "+1d"
+        }
+      },
+      {
+        "id": "w2",
+        "type": "wait",
+        "rule": {
+          "anchor": "now",
+          "offset": "+24h",
+          "tz": "company"
+        }
+      },
+      {
+        "id": "c2",
+        "type": "check",
+        "when": {
+          "eq": [
+            "{{contact.agreement_signed}}",
+            false
+          ]
+        },
+        "else_exit": "signed"
+      },
+      {
+        "id": "v2",
+        "type": "set_var",
+        "key": "nudge",
+        "value": 2
+      },
+      {
+        "id": "n2",
+        "type": "notify_owner",
+        "template": "*Agreement still unsigned* · <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> paid ${{contact.cash_collected}} on {{contact.first_paid_at | date_company}} and has not signed the purchase agreement. Nudge {{vars.nudge}} of 3.",
+        "fallback_channel": "{{slack.channel.alerts}}",
+        "task": {
+          "title": "Chase the unsigned agreement: {{contact.name | default:contact}}",
+          "due": "+1d"
+        }
+      },
+      {
+        "id": "w3",
+        "type": "wait",
+        "rule": {
+          "anchor": "now",
+          "offset": "+24h",
+          "tz": "company"
+        }
+      },
+      {
+        "id": "c3",
+        "type": "check",
+        "when": {
+          "eq": [
+            "{{contact.agreement_signed}}",
+            false
+          ]
+        },
+        "else_exit": "signed"
+      },
+      {
+        "id": "v3",
+        "type": "set_var",
+        "key": "nudge",
+        "value": 3
+      },
+      {
+        "id": "n3",
+        "type": "notify_owner",
+        "template": "*Agreement still unsigned* · <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> paid ${{contact.cash_collected}} on {{contact.first_paid_at | date_company}} and has not signed the purchase agreement. Nudge {{vars.nudge}} of 3.",
+        "fallback_channel": "{{slack.channel.alerts}}",
+        "task": {
+          "title": "Chase the unsigned agreement: {{contact.name | default:contact}}",
+          "due": "+1d"
+        }
+      },
+      {
+        "id": "g1",
+        "type": "set_tag",
+        "tag": [
+          "agreement-unsigned"
+        ]
+      },
+      {
+        "id": "s1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.alerts}}",
+        "template": "*Agreement unsigned after 3 nudges:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · paid ${{contact.cash_collected}} · owner {{contact.owner.name | default:unassigned}}. Tagged agreement-unsigned."
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "unsigned_after_3"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "w1"
+      },
+      {
+        "from": "w1",
+        "to": "c1"
+      },
+      {
+        "from": "c1",
+        "to": "v1"
+      },
+      {
+        "from": "v1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "w2"
+      },
+      {
+        "from": "w2",
+        "to": "c2"
+      },
+      {
+        "from": "c2",
+        "to": "v2"
+      },
+      {
+        "from": "v2",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "w3"
+      },
+      {
+        "from": "w3",
+        "to": "c3"
+      },
+      {
+        "from": "c3",
+        "to": "v3"
+      },
+      {
+        "from": "v3",
+        "to": "n3"
+      },
+      {
+        "from": "n3",
+        "to": "g1"
+      },
+      {
+        "from": "g1",
+        "to": "s1"
+      },
+      {
+        "from": "s1",
+        "to": "x1"
+      }
+    ]
+  }
+}

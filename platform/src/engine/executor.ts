@@ -16,7 +16,7 @@ export type StepOutcome =
   | { status: "ok"; next: string | null; result?: Record<string, unknown> }
   | { status: "skipped" | "stale"; next: string | null; result?: Record<string, unknown> }
   | { status: "waiting"; until: DateTime; stay?: boolean; wakeOnReply?: boolean; result?: Record<string, unknown> }   // stay: re-execute this same node on wake; wakeOnReply: an inbound message wakes it early
-  | { status: "exit"; reason: string; result?: Record<string, unknown> }
+  | { status: "exit"; reason: string; result?: Record<string, unknown>; gate?: boolean }   // gate: stopped at a check before doing anything, so the run does not count toward "once per …" (D30)
   | { status: "paused"; reason: string; result?: Record<string, unknown> }
   | { status: "failed"; error: string };
 
@@ -58,6 +58,11 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
     if (!node.substitute_template) return { status: "failed", error: "on_stale=substitute but no substitute_template" };
     template = node.substitute_template; substituted = true;
   }
+  // D30: the CRM's own template, when the step names one and it exists, replaces the inline copy (SMS: the snippet body is rendered here; email: the CRM builds it)
+  const ghlTemplateId = node.ghl_template ? render(node.ghl_template, d.ctx, env(d)) : "";
+  let viaCrmEmailTemplate = false;
+  if (ghlTemplateId && node.type === "send_sms") { const snippet = await d.adapters.sender.smsTemplateBody(d.adapterCompany, ghlTemplateId).catch(() => null); if (snippet) template = snippet; }
+  if (ghlTemplateId && node.type === "send_email") viaCrmEmailTemplate = true;
   let body: string, subject = "";
   try { body = render(template, d.ctx, env(d)); if (node.type === "send_email") subject = render(node.subject, d.ctx, env(d)); }
   catch (e) {
@@ -76,7 +81,7 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   const ghlContactId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
   const r = node.type === "send_sms"
     ? await d.adapters.sender.sendSms(d.adapterCompany, ghlContactId, body)
-    : await d.adapters.sender.sendEmail(d.adapterCompany, ghlContactId, subject, body);
+    : viaCrmEmailTemplate ? await d.adapters.sender.sendEmailTemplate(d.adapterCompany, ghlContactId, ghlTemplateId) : await d.adapters.sender.sendEmail(d.adapterCompany, ghlContactId, subject, body);
   await d.c.query("update sends set status=$2, external_id=$3, error=$4, sent_at=case when $2='sent' then now() end where id=$1", [send.id, r.accepted ? "sent" : "failed", r.externalId || null, r.error ?? null]);
   await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: r.accepted ? "message.sent" : "send.suppressed", source: "engine", data: { channel, node: node.id, external_id: r.externalId, error: r.error, substituted } });
   return r.accepted ? { status: "ok", next, result: { external_id: r.externalId, substituted } } : { status: "failed", error: r.error ?? "send rejected" };
@@ -108,6 +113,46 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     }
 
     case "send_sms": case "send_email": return doSend(d, node);
+    case "send_document": {
+      const contact = d.ctx.contact as { ghl_contact_id?: string | null; agreement_signed?: boolean } | undefined;
+      const templateId = render(node.template, d.ctx, env(d)), sender = node.sender ? render(node.sender, d.ctx, env(d)) || undefined : undefined;
+      const name = node.name ? render(node.name, d.ctx, env(d)) : null;
+      if (!templateId) return { status: "failed", error: `send_document ${node.id}: template rendered empty (bind crm.agreement_template)` };
+      if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_send_document: { template: templateId, sender, to: contact?.ghl_contact_id } } };
+      if (!contact?.ghl_contact_id) return { status: "failed", error: "send_document: contact has no CRM id yet" };
+      const sent = await d.adapters.write.sendDocumentTemplate(d.adapterCompany, { templateId, contactId: contact.ghl_contact_id, userId: sender });
+      const { recordSentByEngine } = await import("./agreements");
+      if (sent.id) await recordSentByEngine(d.c, d.company.id, d.run.contact_id, sent.id, name);
+      return { status: "ok", next, result: { document: sent.id, template: templateId, sender } };
+    }
+    case "notify_owner": {
+      const owner = (d.ctx.contact as { owner?: { name: string; email: string; ghl_user_id: string; slack_user_id: string | null } } | undefined)?.owner;
+      const text = render(node.template, d.ctx, env(d));
+      const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
+      const out: Record<string, unknown> = { owner: owner?.name ?? null };
+      if (node.task) {
+        const dueAt = d.now.plus(parseDuration(node.task.due)).toJSDate(), title = render(node.task.title, d.ctx, env(d));
+        if (shadow(d)) out.would_create_task = { title, due: dueAt.toISOString(), assignedUserId: owner?.ghl_user_id };
+        else if (contact?.ghl_contact_id) out.task = (await d.adapters.write.createTask(d.adapterCompany, contact.ghl_contact_id, { title, body: text, dueAt, assignedUserId: owner?.ghl_user_id })).id;
+      }
+      const conn = await one<{ bot_token: Buffer }>(d.c, "select bot_token from slack_connections where company_id=$1", [d.company.id]);
+      const fallback = node.fallback_channel ? (/^\{\{/.test(node.fallback_channel) ? (resolvePath(d.ctx, node.fallback_channel.replace(/[{}\s]/g, "")) as string | undefined) : node.fallback_channel) : undefined;
+      let slackUser = owner?.slack_user_id ?? null;
+      if (conn && owner && !slackUser && !shadow(d)) {
+        const { decrypt } = await import("./crypto");
+        slackUser = await d.adapters.notifier.lookupUserByEmail(decrypt(conn.bot_token), owner.email).catch(() => null);
+        if (slackUser) await d.c.query("update users set slack_user_id=$2 where company_id=$1 and ghl_user_id=$3", [d.company.id, slackUser, owner.ghl_user_id]);
+      }
+      const target = slackUser ?? fallback;
+      const body = slackUser ? text : `${owner?.name ? `*${owner.name}* ` : ""}${text}`;
+      if (!conn || !target) { await recordSend(d, node, "slack", body, "suppressed", conn ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, why: conn ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
+      const send = await recordSend(d, node, "slack", body, "queued"); if (!send) return { status: "skipped", next, result: out };
+      if (shadow(d)) { await d.c.query("update sends set status='shadow', sent_at=now() where id=$1", [send.id]); return { status: "ok", next, result: { ...out, shadow: true, dm: !!slackUser, would_post: body.slice(0, 120) } }; }
+      const { decrypt } = await import("./crypto");
+      const r = await d.adapters.notifier.post(decrypt(conn.bot_token), target, body);
+      await d.c.query("update sends set status='sent', external_id=$2, sent_at=now() where id=$1", [send.id, r.ts]);
+      return { status: "ok", next, result: { ...out, dm: !!slackUser, ts: r.ts } };
+    }
 
     case "wait_for_reply": {
       // boundary = our last send in this run (so a reply to something earlier doesn't count), else run start
@@ -161,7 +206,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const els = edges.find((e) => e.else); if (els) return { status: "ok", next: els.to, result: { edge: els.to, else: true } };
       return { status: "failed", error: `branch ${node.id}: no edge matched and no else` };
     }
-    case "check": return evaluate(node.when, d.ctx) ? { status: "ok", next } : { status: "exit", reason: node.else_exit };
+    case "check": return evaluate(node.when, d.ctx) ? { status: "ok", next } : { status: "exit", reason: node.else_exit, gate: true };
 
     case "set_tag": case "remove_tag": {
       const ghlId = (d.ctx.contact as { ghl_contact_id?: string | null }).ghl_contact_id;
@@ -204,8 +249,9 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const name = node.name ? render(node.name, d.ctx, env(d)) : card?.name ?? "";
       const customFields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== "");
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
-      if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
+      // no open card and told not to create one: nothing to do, whatever else is or is not resolvable (a status-only step has no stage of its own)
       if (!card && node.if_missing === "skip") return { status: "skipped", next, result: { why: "no open card on this board to move; this step never creates one" } };
+      if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
       const write = { pipelineId, stageId, name, status: node.status ?? ("open" as const), assignedUserId, customFields };
       // the pursuit the card belongs to: the run's, else the contact's open one, else a new one
       let oppId = d.run.opportunity_id ?? card?.opportunity_id ?? (await one<{ id: string }>(d.c, "select id from opportunities where company_id=$1 and contact_id=$2 and status='open' order by opened_at desc limit 1", [d.company.id, d.run.contact_id]))?.id;

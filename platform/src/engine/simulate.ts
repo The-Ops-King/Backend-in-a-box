@@ -6,6 +6,7 @@ import type { CompanyRow } from "./context";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { ensureOpportunityForBooking, applyPayment } from "./lifecycle";
 import { phoneFacts, recordPhoneCall, recordRecording, settlePhoneCall } from "./recordings";
+import { applyDocument, facts as agreementFacts } from "./agreements";
 
 /**
  * D23: the test harness lives in the engine, not in the CRM. A simulated step is a real event through the real
@@ -14,7 +15,7 @@ import { phoneFacts, recordPhoneCall, recordRecording, settlePhoneCall } from ".
  * the poll sees on a contact, by the admin API, or by a button on the contact page. Refused for a live company unless
  * forced: in live mode a run would write real tags and cards for the test person.
  */
-export const SIM_ACTIONS = ["create", "book", "book-self", "reschedule", "cancel", "pay", "record", "call", "reset"] as const;
+export const SIM_ACTIONS = ["create", "book", "book-self", "reschedule", "cancel", "pay", "record", "call", "agreement", "sign", "reset"] as const;
 export type SimAction = (typeof SIM_ACTIONS)[number];
 export const simTag = (tag: string): SimAction | null => { const m = /^sys-test-([a-z-]+)$/.exec(tag.trim().toLowerCase()); return m && (SIM_ACTIONS as readonly string[]).includes(m[1]) ? (m[1] as SimAction) : null; };
 
@@ -104,6 +105,15 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
         { speaker: "0", text: "The specialist walks you through pricing on the call. Does Thursday at two work?" }, { speaker: "1", text: "Thursday at two works." }] });
       return { ok: true, action, detail: { recording: row.id, caller: row.recorded_by_name }, runsStarted: event ? (await dispatchEvent(c, event, { ...ctx, recording: { id: row.id, ...phoneFacts(row) } })).length : 0 };
     }
+    case "agreement": case "sign": {
+      // a document the CRM would list: `agreement` = sent and unsigned; `sign` = the same document (or a new one) completed now
+      const existing = await one<{ external_id: string; sent_at: Date }>(c, "select external_id, sent_at from agreements where company_id=$1 and contact_id=$2 and signed_at is null order by sent_at desc limit 1", [company.id, contact.id]);
+      const ext = action === "sign" && existing ? existing.external_id : `test-doc-${randomUUID().slice(0, 8)}`;
+      const createdAt = existing && action === "sign" ? existing.sent_at.toISOString() : new Date().toISOString();
+      const { row, events } = await applyDocument(c, company.id, { id: ext, name: "Purchase agreement (test)", status: action === "sign" ? "completed" : "sent", contactId: contact.ghl_contact_id ?? undefined, createdAt, signedAt: action === "sign" ? new Date().toISOString() : undefined, raw: { simulated: true } }, contact.id);
+      let runs = 0; for (const ev of events) runs += (await dispatchEvent(c, ev, { ...ctx, agreement: agreementFacts(row) })).length;
+      return { ok: true, action, detail: { agreement: row.id, status: row.status, events: events.map((e) => e.event_type) }, runsStarted: runs };
+    }
     case "reset": {
       // the engine forgets everything it did for this person; the contact row and identifiers stay (they mirror the CRM)
       const runs = await many<{ id: string }>(c, "select id from runs where company_id=$1 and contact_id=$2", [company.id, contact.id]);
@@ -113,6 +123,7 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
       await c.query("update appointments set disposition_id=null where company_id=$1 and contact_id=$2", [company.id, contact.id]);
       await c.query("delete from form_submissions where company_id=$1 and contact_id=$2", [company.id, contact.id]);
       await c.query("delete from recordings where company_id=$1 and contact_id=$2", [company.id, contact.id]);
+      await c.query("delete from agreements where company_id=$1 and contact_id=$2", [company.id, contact.id]);
       await c.query("delete from crm_records where company_id=$1 and contact_id=$2", [company.id, contact.id]);
       await c.query("delete from payments where company_id=$1 and contact_id=$2", [company.id, contact.id]);
       await c.query("delete from events where company_id=$1 and contact_id=$2", [company.id, contact.id]);

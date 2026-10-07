@@ -1,0 +1,94 @@
+{
+  "slug": "agreement-send-manually",
+  "name": "Send agreement manually",
+  "category": "agreements",
+  "description": "Someone adds the tag sys-send-agreement-manually in the CRM: unless the agreement is already signed, the purchase agreement is sent for signature from the bound sender, stat-agreement-sent is added, the trigger tag is removed so it can be used again, and a note records it.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "tag.added",
+        "match": {
+          "eq": [
+            "{{event.tag}}",
+            "sys-send-agreement-manually"
+          ]
+        }
+      },
+      {
+        "id": "c1",
+        "type": "check",
+        "when": {
+          "eq": [
+            "{{contact.agreement_signed}}",
+            false
+          ]
+        },
+        "else_exit": "already_signed"
+      },
+      {
+        "id": "d1",
+        "type": "send_document",
+        "template": "{{crm.agreement_template}}",
+        "sender": "{{crm.agreement_sender | default:}}",
+        "name": "Purchase agreement"
+      },
+      {
+        "id": "g1",
+        "type": "set_tag",
+        "tag": [
+          "stat-agreement-sent"
+        ]
+      },
+      {
+        "id": "g2",
+        "type": "remove_tag",
+        "tag": [
+          "sys-send-agreement-manually"
+        ]
+      },
+      {
+        "id": "m1",
+        "type": "note",
+        "template": "AGREEMENT SENT — {{now | date_company}} · sent manually from {{contact.owner.name | default:the team}}"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "sent"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "c1"
+      },
+      {
+        "from": "c1",
+        "to": "d1"
+      },
+      {
+        "from": "d1",
+        "to": "g1"
+      },
+      {
+        "from": "g1",
+        "to": "g2"
+      },
+      {
+        "from": "g2",
+        "to": "m1"
+      },
+      {
+        "from": "m1",
+        "to": "x1"
+      }
+    ]
+  }
+}

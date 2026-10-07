@@ -923,3 +923,28 @@ and 48 Sales Call records for Hair's last 30 days, zero Payment records (the Who
 them), and 8 won opportunities with no contract value on the field. So the first weekly and monthly
 wrap-ups carry leads, dials, bookings and show outcomes; money history waits for Whop's API.
 
+## D30. Agreements: the CRM's documents are a ledger, and a gate exit does not spend the "once"
+Tyler, 2026-10-07, porting Hair's agreement workflows (send manually, payment received, agreement
+signed, deal closed, unsigned chase).
+
+1. **The CRM's Documents & Contracts is the source of truth for sent and signed**, mirrored into an
+   `agreements` ledger by the poll like payments and recordings. `agreement.signed` fires exactly once
+   per document, on the first poll that sees it completed. No GHL workflow, no tag, needed to know.
+2. **Sending stays in the engine** (`send_document` from Dr. Allan) even though the token cannot send
+   yet: in shadow every CRM write is skipped anyway, and the step works the moment the documents send
+   scope is granted (Tyler: after the tests pass). Until then nothing in GHL has to change.
+3. **"Either order, only once" is an engine rule, not a tag dance.** Deal closed listens to the first
+   payment and the signature with `once_per_contact`; its first step is a gate (paid AND signed AND not
+   already a customer). A run that stops at a gate releases its once-per key, so the other event can
+   run it later. `stat-customer` is still written, as the belt-and-braces guard Tyler asked for and so
+   GHL users can see it.
+4. **Owner nudges go to a person, not a channel**: Slack DM to the contact's owner (CRM assignee, else
+   the default closer), found by email; the channel with an @mention is the fallback; a CRM task on the
+   contact either way, so it is visible inside GHL. Strict 24 hours from the payment, three nudges,
+   then a tag and one escalation.
+5. **Welcome copy can live in the CRM**: a send step may name a GHL SMS snippet or email builder
+   template; the CRM's copy wins when it exists, the step's copy is the fallback. Hair's welcome text
+   ships on the step until someone makes the templates in GHL.
+6. **Phase on the Sales Call**: not added yet (no write scope to create the field). Payment updates
+   cash collected; the close writes `closed_won` / `showed`.
+

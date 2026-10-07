@@ -75,6 +75,11 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // call recordings (D22): same ledger shape as payments
     await c.query(`insert into event_types values ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call') on conflict do nothing`);
     await c.query(`insert into event_types values ('call.logged','call') on conflict do nothing`);   // D28: phone calls the CRM's dialer logged
+    await c.query(`insert into event_types values ('agreement.sent','agreement'), ('agreement.signed','agreement') on conflict do nothing`);   // D30
+    await c.query(`alter table contacts add column if not exists assigned_ghl_user_id text`);
+    await ownsOrAbsent(c, "agreements", "signed_at");
+    await c.query(`create table if not exists agreements (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, contact_id uuid references contacts(id), external_id text not null, name text, status text not null, sent_at timestamptz not null, signed_at timestamptz, sent_by text, raw jsonb not null default '{}', updated_at timestamptz not null default now(), unique (company_id, external_id))`);
+    await c.query(`create index if not exists agreements_company_id_contact_id_idx on agreements (company_id, contact_id)`);
     // D29: daily rollups, wrap-up schedules and the generated wrap-ups. The database is shared with other apps (a foreign `reports`
     // table exists in production), so each name is checked first: a same-named table that is not ours fails loudly instead of
     // being half-used by `create table if not exists`.

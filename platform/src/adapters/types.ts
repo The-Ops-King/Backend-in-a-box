@@ -7,7 +7,9 @@ export type BookingConfig =
   | { source: "calendly"; token: string; organization: string; user?: string; phoneQuestion?: string; setterQuestion?: string; calendars?: Record<string, CalendarConfig> };
 export type Company = { id: string; locationId: string; pit: string; timezone: string; booking: BookingConfig };
 
-export type ContactSnapshot = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; tags: string[]; customFields: Record<string, unknown>; dateUpdated: string; dateAdded: string };
+export type ContactSnapshot = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string; tags: string[]; customFields: Record<string, unknown>; dateUpdated: string; dateAdded: string };
+/** A Documents & Contracts document as the CRM lists it (D30). `contactId` is the primary signer. */
+export type DocumentSnapshot = { id: string; name?: string; status: string; contactId?: string; createdAt: string; updatedAt?: string; signedAt?: string; raw?: Record<string, unknown> };
 /** One booking as the source reports it. `contactId` when the source is the CRM; `invitee` identity when it is not. */
 export type AppointmentSnapshot = {
   id: string; calendarId: string;
@@ -44,6 +46,7 @@ export interface CrmRead {
   callsBetween(c: Company, from: Date, to: Date): Promise<MessageSnapshot[]>;
   wonOpportunities(c: Company, from: Date, to: Date): Promise<WonOpportunity[]>;
   objectRecords(c: Company, objectKey: string): Promise<ObjectRecord[]>;
+  documents(c: Company): Promise<DocumentSnapshot[]>;
   opportunitiesSince(c: Company, since: Date): Promise<OppSnapshot[]>;
   getContact(c: Company, id: string): Promise<ContactSnapshot | null>;
   listUsers(c: Company): Promise<UserSnapshot[]>;
@@ -67,6 +70,8 @@ export interface CrmWrite {
   relateRecords(c: Company, associationId: string, firstRecordId: string, secondRecordId: string): Promise<void>;
   createOpportunity(c: Company, input: OpportunityWrite & { contactId: string }): Promise<{ id: string }>;
   updateOpportunity(c: Company, id: string, patch: Partial<OpportunityWrite>): Promise<void>;
+  /** Documents & Contracts: create a document from a template and send it to the contact, from `userId`. Needs the token's documents send scope. */
+  sendDocumentTemplate(c: Company, input: { templateId: string; contactId: string; userId?: string }): Promise<{ id: string }>;
 }
 export type ContactWrite = { firstName?: string; lastName?: string; phone?: string; timezone?: string; assignedUserId?: string; customFields?: { id: string; field_value: string }[] };
 /** A pipeline card as the CRM sees it. `customFields` are CRM field ids with already-rendered values. */
@@ -75,6 +80,10 @@ export type SendResult = { externalId: string; accepted: boolean; error?: string
 export interface Sender {
   sendSms(c: Company, contactId: string, body: string): Promise<SendResult>;
   sendEmail(c: Company, contactId: string, subject: string, html: string): Promise<SendResult>;
+  /** An email built from one of the CRM's own email templates, so the team edits copy in the CRM (D30). */
+  sendEmailTemplate(c: Company, contactId: string, templateId: string): Promise<SendResult>;
+  /** The body of one of the CRM's SMS snippets, rendered by the engine before sending. Null when it does not exist. */
+  smsTemplateBody(c: Company, templateId: string): Promise<string | null>;
   deliveryStatus(c: Company, externalId: string): Promise<{ status: string; error?: string }>;
 }
 export type Classification = { value: string; confidence: number; distribution: Record<string, number>; unclear: boolean };
@@ -83,6 +92,8 @@ export interface Classifier {
 }
 export interface Notifier {
   post(token: string, channelId: string, text: string): Promise<{ ts: string }>;
+  /** Slack user id for an email (users.lookupByEmail; needs users:read.email), null when unknown. A DM is a post to that id. */
+  lookupUserByEmail(token: string, email: string): Promise<string | null>;
 }
 /** A long-form read of a document (a call transcript) against an instruction, answered as text or as JSON. */
 export type AnalysisRequest = { system: string; input: string; format: "json" | "text"; maxTokens?: number; model?: string };

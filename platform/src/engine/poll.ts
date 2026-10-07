@@ -7,8 +7,9 @@ import { dispatchEvent, emitEvent } from "./dispatch";
 import { ensureOpportunityForBooking, ensureUser, userIdByEmail } from "./lifecycle";
 import { simTag, simulate } from "./simulate";
 import { pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, TRANSCRIPT_WAIT_MIN, type RecordingRow } from "./recordings";
+import { applyDocument, facts as agreementFacts } from "./agreements";
 
-export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
+export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; agreements: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
 const normPhone = (p?: string) => p ? p.replace(/[^\d+]/g, "").replace(/^(\d{10})$/, "+1$1") : undefined;
 const normEmail = (e?: string) => e?.trim().toLowerCase() || undefined;
@@ -45,11 +46,11 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
   }
   const tz = s.timezone ?? companyTz;
   if (!id) {
-    const row = await one<{ id: string }>(c, `insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone, timezone_source, tags, ghl_fields, ghl_updated_at, ghl_added_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`, [companyId, s.id, s.firstName ?? null, s.lastName ?? null, tz, s.timezone ? "ghl" : "company_default", s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null]);
+    const row = await one<{ id: string }>(c, `insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone, timezone_source, tags, ghl_fields, ghl_updated_at, ghl_added_at, assigned_ghl_user_id)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`, [companyId, s.id, s.firstName ?? null, s.lastName ?? null, tz, s.timezone ? "ghl" : "company_default", s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.assignedTo ?? null]);
     id = row!.id;
   } else {
-    await c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), tags=$5, ghl_fields=$6, ghl_updated_at=$7, ghl_added_at=coalesce(ghl_added_at,$8), ghl_contact_id=coalesce(ghl_contact_id,$9), updated_at=now() where id=$1", [id, s.firstName ?? null, s.lastName ?? null, s.timezone ?? null, s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.id]);
+    await c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), tags=$5, ghl_fields=$6, ghl_updated_at=$7, ghl_added_at=coalesce(ghl_added_at,$8), ghl_contact_id=coalesce(ghl_contact_id,$9), assigned_ghl_user_id=$10, updated_at=now() where id=$1", [id, s.firstName ?? null, s.lastName ?? null, s.timezone ?? null, s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.id, s.assignedTo ?? null]);
   }
   for (const [kind, value] of [["ghl_contact", s.id], ["email", normEmail(s.email)], ["phone", normPhone(s.phone)]] as const)
     if (value) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,$3,$4) on conflict (company_id, kind, value) do nothing", [companyId, id, kind, value]);
@@ -234,6 +235,17 @@ async function pollPendingCalls(c: PoolClient, co: CompanyRow, ac: Company, adap
   }
 }
 
+/** Documents & Contracts (D30): every document the location sent, mirrored; new → agreement.sent, first completion → agreement.signed. The first pass is a silent baseline. */
+async function pollAgreements(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) {
+  const { isBaseline } = await cursor(c, co.id, "agreements", DateTime.now());
+  for (const d of await adapters.read.documents(ac)) {
+    const contact = d.contactId ? await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id=$2", [co.id, d.contactId]) : null;
+    const { row, events } = await applyDocument(c, co.id, d, contact?.id ?? null, { silent: isBaseline });
+    for (const ev of events) { rep.agreements++; rep.eventsDispatched += (await dispatchEvent(c, ev, { contact: { id: row.contact_id }, agreement: agreementFacts(row) })).length; }
+  }
+  await saveCursor(c, co.id, "agreements", DateTime.now().toISO()!, true);
+}
+
 type EntityPoll = (c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) => Promise<void>;
 
 /**
@@ -242,7 +254,7 @@ type EntityPoll = (c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapter
  * commits or rolls back on its own; the failure counter is written afterwards in a fresh transaction.
  */
 export async function pollAll(adapters: Adapters): Promise<PollReport> {
-  const rep: PollReport = { companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, calls: 0, eventsDispatched: 0, baselined: 0, errors: [] };
+  const rep: PollReport = { companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, calls: 0, agreements: 0, eventsDispatched: 0, baselined: 0, errors: [] };
   const companies = await asOperator((c) => many<{ id: string }>(c, "select id from companies where status in ('active','hosted')"));
   for (const { id } of companies) {
     rep.companies++;
@@ -257,6 +269,7 @@ export async function pollAll(adapters: Adapters): Promise<PollReport> {
       ...cals.map((cal): [string, EntityPoll] => [`appointments:${cal.external_id}`, (c, co, ac, adapters, rep) => pollCalendar(c, co, ac, adapters, rep, cal.external_id)]),
       ["conversations", pollInbound],
       ["calls", pollPendingCalls],
+      ["agreements", pollAgreements],
     ];
     for (const [entity, fn] of entities) {
       const before = { ...rep };

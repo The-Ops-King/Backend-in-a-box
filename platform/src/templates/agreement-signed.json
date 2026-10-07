@@ -1,0 +1,61 @@
+{
+  "slug": "agreement-signed",
+  "name": "Agreement signed",
+  "category": "agreements",
+  "description": "The signer completed the purchase agreement (the engine watches the CRM's documents): stat-agreement-signed is added, a dated note goes on the contact, and the team sees it in Slack with what has been paid so far. Deal closed takes it from here when payment is also in.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "agreement.signed"
+      },
+      {
+        "id": "g1",
+        "type": "set_tag",
+        "tag": [
+          "stat-agreement-signed"
+        ]
+      },
+      {
+        "id": "m1",
+        "type": "note",
+        "template": "AGREEMENT SIGNED — {{agreement.signed_at | date_company}} · {{agreement.name | default:agreement}}"
+      },
+      {
+        "id": "s1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.deals}}",
+        "template": "*Agreement signed:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{agreement.name | default:agreement}}\n*Signed:* {{agreement.signed_at | date_company}} · *Paid so far:* ${{contact.cash_collected}} · *Owner:* {{contact.owner.name | default:unassigned}}"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "recorded"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "g1"
+      },
+      {
+        "from": "g1",
+        "to": "m1"
+      },
+      {
+        "from": "m1",
+        "to": "s1"
+      },
+      {
+        "from": "s1",
+        "to": "x1"
+      }
+    ]
+  }
+}

@@ -3,6 +3,7 @@ import { many, one } from "@/db/client";
 import { decrypt } from "./crypto";
 import type { BookingConfig, Company } from "@/adapters/types";
 import { transcriptText, type RecordingRow } from "./recordings";
+import { latestAgreement, facts as agreementFacts, type AgreementRow } from "./agreements";
 
 export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date };
 export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; status: string; sms_enabled: boolean; mode: "shadow" | "live" };
@@ -25,7 +26,7 @@ export async function loadCompany(c: PoolClient, companyId: string): Promise<{ r
 
 /** Builds what `{{…}}` resolves against. Secrets are never placed in the context. */
 export async function buildContext(c: PoolClient, run: RunRow, company: CompanyRow, bindings: Record<string, string>): Promise<Record<string, unknown>> {
-  const contact = await one<Record<string, unknown>>(c, `select ct.id, ct.ghl_contact_id, ct.first_name, ct.last_name, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, ct.timezone, ct.tags, ct.attributes, ct.ghl_fields,
+  const contact = await one<Record<string, unknown>>(c, `select ct.id, ct.ghl_contact_id, ct.first_name, ct.last_name, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, ct.timezone, ct.tags, ct.attributes, ct.ghl_fields, ct.assigned_ghl_user_id,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='phone' limit 1) as phone,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='email' limit 1) as email
     from contacts ct where ct.id=$1`, [run.contact_id]);
@@ -77,6 +78,18 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     cards[k.slice("crm.pipeline_".length)] = card ? { id: card.ghl_opportunity_id ?? "", stage: card.ghl_stage_id, name: card.name, owner: card.owner_name ? { name: card.owner_name, first_name: card.owner_name.split(" ")[0], ghl_user_id: card.owner_ghl } : undefined } : undefined;
   }
   ctx.cards = cards;
+  if (run.contact_id) {
+    // D30 facts the agreement and close flows check: has this person paid, have they signed, who owns them in the CRM, and the latest CRM record of each object we wrote for them
+    const pay = await one<{ n: number; total: string; first_at: Date | null }>(c, "select count(*)::int as n, coalesce(sum(amount),0)::text as total, min(paid_at) as first_at from payments where company_id=$1 and contact_id=$2 and status='succeeded'", [company.id, run.contact_id]);
+    const agr: AgreementRow | null = (await latestAgreement(c, company.id, run.contact_id)) ?? null;
+    const ownerGhl = (contact?.assigned_ghl_user_id as string | null) ?? bindings["crm.default_closer"] ?? null;
+    const owner = ownerGhl ? await one<{ id: string; name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select id, name, email, ghl_user_id, slack_user_id from users where company_id=$1 and ghl_user_id=$2", [company.id, ownerGhl]) : null;
+    const recs = await many<{ object_key: string; record_key: string; ghl_record_id: string | null }>(c, "select distinct on (object_key) object_key, record_key, ghl_record_id from crm_records where company_id=$1 and contact_id=$2 order by object_key, updated_at desc", [company.id, run.contact_id]);
+    ctx.contact = { ...(ctx.contact as Record<string, unknown> ?? {}), paid: (pay?.n ?? 0) > 0, payments_count: pay?.n ?? 0, cash_collected: Number(pay?.total ?? 0), first_paid_at: pay?.first_at?.toISOString() ?? null,
+      agreement_signed: !!agr?.signed_at, agreement_sent: !!agr, owner: owner ? { name: owner.name, first_name: owner.name.split(" ")[0], email: owner.email, ghl_user_id: owner.ghl_user_id, slack_user_id: owner.slack_user_id, inherited: !contact?.assigned_ghl_user_id } : undefined };
+    ctx.agreement = agr ? agreementFacts(agr) : {};
+    ctx.records = Object.fromEntries(recs.map((r) => [r.object_key.replace(/^custom_objects\./, ""), { key: r.record_key, id: r.ghl_record_id ?? "" }]));
+  }
   for (const [k, v] of Object.entries(bindings)) {
     if (k.startsWith("secret.")) continue;
     if (k.startsWith("calendar.")) {

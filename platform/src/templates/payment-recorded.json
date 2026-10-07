@@ -2,7 +2,7 @@
   "slug": "payment-recorded",
   "name": "Payment recorded",
   "category": "payments",
-  "description": "A payment landed in the ledger: cash collected on the contact becomes the running total, revenue generated is stamped once with the program price, pay-plan-active or pay-paid-full is set, the payment is written to the CRM's Payment object and linked to the contact and the closer card, and the team gets a Slack line. Nothing goes to the customer from here.",
+  "description": "A payment landed in the ledger: cash collected on the contact becomes the running total, revenue generated is stamped once with the program price, pay-plan-active or pay-paid-full is set, the payment is written to the CRM's Payment object and linked to the contact and the closer card. On the first payment, if the agreement is not signed yet, the purchase agreement is sent for signature, stat-agreement-sent is added and the closer card moves to Agreement Sent. A dated note records the payment, the Sales Call record's cash collected is updated when there is one, and the team gets the Slack line. Nothing goes to the customer from here.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -96,10 +96,53 @@
         ]
       },
       {
+        "id": "a0",
+        "type": "branch"
+      },
+      {
+        "id": "a1",
+        "type": "send_document",
+        "template": "{{crm.agreement_template}}",
+        "sender": "{{crm.agreement_sender | default:}}",
+        "name": "Purchase agreement"
+      },
+      {
+        "id": "a2",
+        "type": "set_tag",
+        "tag": [
+          "stat-agreement-sent"
+        ]
+      },
+      {
+        "id": "a3",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_agreement_sent}}",
+        "if_missing": "skip"
+      },
+      {
+        "id": "m1",
+        "type": "note",
+        "template": "PAYMENT RECEIVED — {{event.paid_at | date_company}} · ${{event.amount}} ({{event.kind}}) · collected {{event.running_total}} of {{event.contract_value | default:?}}"
+      },
+      {
+        "id": "b2",
+        "type": "branch"
+      },
+      {
+        "id": "r2",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{records.sales_call.key}}",
+        "properties": {
+          "cash_collected": "{{event.running_total}}"
+        }
+      },
+      {
         "id": "n5",
         "type": "slack_post",
         "channel": "{{slack.channel.payments}}",
-        "template": "*Payment:* {{event.amount}} {{event.currency | upper}} · {{event.kind}}\n*From:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Collected so far:* {{event.running_total}} of {{event.contract_value | default:?}} · outstanding {{event.outstanding | default:?}}\n*Closer:* {{cards.closer.owner.name | default:unassigned}} · *Setter:* {{contact.fields.setter | default:none}}"
+        "template": "*Payment received:* {{event.amount}} {{event.currency | upper}} · {{event.kind}}\n*From:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Collected so far:* {{event.running_total}} of {{event.contract_value | default:?}} · outstanding {{event.outstanding | default:?}}\n*Closer:* {{cards.closer.owner.name | default:unassigned}} · *Setter:* {{contact.fields.setter | default:none}}"
       },
       {
         "id": "x1",
@@ -166,12 +209,73 @@
         "to": "n4"
       },
       {
-        "from": "n4",
-        "to": "n5"
-      },
-      {
         "from": "n5",
         "to": "x1"
+      },
+      {
+        "from": "n4",
+        "to": "a0"
+      },
+      {
+        "from": "a0",
+        "to": "a1",
+        "when": {
+          "and": [
+            {
+              "eq": [
+                "{{event.prior_total}}",
+                0
+              ]
+            },
+            {
+              "eq": [
+                "{{contact.agreement_signed}}",
+                false
+              ]
+            }
+          ]
+        },
+        "label": "first payment, agreement not signed"
+      },
+      {
+        "from": "a0",
+        "to": "m1",
+        "else": true,
+        "label": "otherwise"
+      },
+      {
+        "from": "a1",
+        "to": "a2"
+      },
+      {
+        "from": "a2",
+        "to": "a3"
+      },
+      {
+        "from": "a3",
+        "to": "m1"
+      },
+      {
+        "from": "m1",
+        "to": "b2"
+      },
+      {
+        "from": "b2",
+        "to": "r2",
+        "when": {
+          "exists": "records.sales_call.key"
+        },
+        "label": "has a Sales Call record"
+      },
+      {
+        "from": "b2",
+        "to": "n5",
+        "else": true,
+        "label": "no Sales Call record"
+      },
+      {
+        "from": "r2",
+        "to": "n5"
       }
     ]
   }

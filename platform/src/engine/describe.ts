@@ -11,7 +11,7 @@ export type NodeKind = "trigger" | "message" | "crm" | "decision" | "wait" | "ai
 export function kindOf(n: Node): NodeKind {
   switch (n.type) {
     case "trigger": return "trigger";
-    case "send_sms": case "send_email": case "slack_post": return "message";
+    case "send_sms": case "send_email": case "slack_post": case "send_document": case "notify_owner": return "message";
     case "set_tag": case "remove_tag": case "note": case "update_appointment": case "update_opportunity": case "pipeline_card": case "update_contact": case "create_task": case "crm_record": case "record_outcome": return "crm";
     case "check": case "branch": return "decision";
     case "wait": case "wait_for_reply": return "wait";
@@ -28,7 +28,7 @@ export const EVENT_LABELS: Record<string, string> = {
   "appointment.booked": "Appointment booked", "appointment.rescheduled": "Appointment rescheduled", "appointment.status_changed": "Appointment status changed", "appointment.outcome": "Call outcome recorded",
   "call.held": "Call held", "message.received": "Reply received", "tag.added": "Tag added", "tag.removed": "Tag removed",
   "payment.received": "Payment received", "payment.failed": "Payment failed", "payment.paid_in_full": "Paid in full",
-  "recording.received": "Call recording received", "intake.recorded": "Intake answers recorded", "contact.merged": "Two contacts merged", "stage.changed": "Pipeline stage changed", "run.started": "A workflow run started", "run.exited": "A workflow run stopped early", "send.suppressed": "A message was held back", "recording.unlinked": "Recording with no matching contact", "recording.linked": "Recording linked to a contact", "call.analyzed": "AI finished reading a call", "call.logged": "Phone call logged",
+  "recording.received": "Call recording received", "intake.recorded": "Intake answers recorded", "contact.merged": "Two contacts merged", "stage.changed": "Pipeline stage changed", "run.started": "A workflow run started", "run.exited": "A workflow run stopped early", "send.suppressed": "A message was held back", "recording.unlinked": "Recording with no matching contact", "recording.linked": "Recording linked to a contact", "call.analyzed": "AI finished reading a call", "call.logged": "Phone call logged", "agreement.sent": "Agreement sent", "agreement.signed": "Agreement signed",
   "opportunity.opened": "Opportunity opened", "opportunity.won": "Deal won", "opportunity.lost": "Opportunity lost", "form.submitted": "Form submitted",
 };
 const PATHS: Record<string, string> = {
@@ -41,6 +41,7 @@ const PATHS: Record<string, string> = {
   "opportunity.status": "opportunity status", "company.name": "company name", "calendar.closer_call.url": "booking link", "calendar.booking.url": "booking link", "now": "today",
   "recording.transcript_text": "the transcript", "recording.share_url": "recording link", "recording.title": "meeting title", "recording.started_at": "recording start", "recording.duration_min": "call length (minutes)", "recording.closer.name": "closer", "recording.closer.ghl_user_id": "the closer", "recording.recorded_by.name": "who recorded", "recording.summary": "the recorder's summary", "recording.invitee_names": "attendees", "recording.matched_by": "how the contact was matched", "recording.external_id": "recording id",
   "recording.duration_sec": "call length (seconds)", "recording.caller.name": "who dialed", "recording.caller.ghl_user_id": "who dialed", "recording.led_to_booking": "a booking after the call", "recording.has_transcript": "a transcript", "recording.kind": "kind of recording", "recording.connected": "the call connected", "recording.direction": "call direction", "recording.status": "call status", "recording.url": "the recording",
+  "contact.paid": "they have paid", "contact.agreement_signed": "they have signed the agreement", "contact.agreement_sent": "an agreement was sent", "contact.owner.name": "the contact's owner", "contact.owner.ghl_user_id": "the contact's owner", "contact.payments_count": "number of payments", "contact.cash_collected": "cash collected", "event.prior_total": "what they had paid before this", "agreement.signed_at": "when they signed", "agreement.name": "the agreement", "records.sales_call.key": "their Sales Call record", "crm.agreement_template": "the agreement template", "crm.agreement_sender": "who the agreement is from",
   "vars.min_seconds": "minimum call length (seconds)", "vars.classify.call_type": "the call type", "vars.notes.digest": "the AI digest", "vars.notes.fit_quality": "fit score", "vars.booked_flag": "led-to-booking flag", "vars.outcome_line": "outcome line",
   "appointment.id": "an appointment", "appointment.external_id": "appointment id", "appointment.outcome": "appointment outcome", "event.appointment_matched": "a matching appointment",
 };
@@ -74,6 +75,7 @@ export function predicateWords(p: Predicate): string {
   if ("gt" in p) return `${pathWords(p.gt[0])} > ${value(p.gt[1])}`; if ("gte" in p) return `${pathWords(p.gte[0])} ≥ ${value(p.gte[1])}`;
   if ("lt" in p) return `${pathWords(p.lt[0])} < ${value(p.lt[1])}`; if ("lte" in p) return `${pathWords(p.lte[0])} ≤ ${value(p.lte[1])}`;
   if ("in" in p) return `${pathWords(p.in[0])} is one of ${p.in[1].map(value).join(", ")}`;
+  if ("has" in p) return `${pathWords(p.has[0])} include ${value(p.has[1])}`;
   if ("and" in p) return p.and.map(predicateWords).join(" and "); if ("or" in p) return p.or.map(predicateWords).join(" or ");
   if ("not" in p) return `not (${predicateWords(p.not)})`;
   return JSON.stringify(p);
@@ -110,6 +112,8 @@ export function describeNode(n: Node): NodeText {
     case "send_sms": return { title: n.kind === "transactional" ? "Send text (automated receipt, may go out in dark hours)" : "Send text", quote: templateWords(n.template), detail: n.validity?.min_lead ? `Only if at least ${durationWords(n.validity.min_lead)} before the call; otherwise ${n.on_stale === "skip" ? "skip it" : n.on_stale === "substitute" ? "send the fallback" : "pause for a human"}` : undefined };
     case "send_email": return { title: `Send email: “${templateWords(n.subject)}”`, quote: templateWords(n.template), detail: n.kind === "transactional" ? "Automated receipt: may go out in dark hours if the company allows it" : undefined };
     case "slack_post": return { title: `Post to Slack (${pathWords(n.channel)})`, quote: templateWords(n.template) };
+    case "send_document": return { title: `Send ${pathWords(n.template)} for signature`, detail: `${n.sender ? `From ${pathWords(n.sender)}; ` : ""}recorded in the agreements ledger; the poll reports when it is signed` };
+    case "notify_owner": return { title: "Nudge the contact's owner", quote: templateWords(n.template), detail: `Slack DM when the owner is in Slack${n.fallback_channel ? `, else ${pathWords(n.fallback_channel)} with an @mention` : ""}${n.task ? `; CRM task “${templateWords(n.task.title)}” due in ${durationWords(n.task.due)}` : ""}` };
     case "classify": return { title: "AI reads the reply", detail: `Decides between the ${humanWords(n.domain)} options; below ${Math.round(n.threshold * 100)}% sure counts as unclear` };
     case "analyze": return { title: `AI reads ${pathWords(n.input)} with ${pathWords(n.prompt)}`, detail: `Answer saved as ${humanWords(n.into)}${n.format === "json" ? " (structured)" : ""}` };
     case "record_outcome": return { title: `Record the appointment as ${value(n.outcome)}`, detail: n.call_outcome ? `Call outcome ${value(n.call_outcome)}` : "On our record of the appointment; a show also fires “call held”" };

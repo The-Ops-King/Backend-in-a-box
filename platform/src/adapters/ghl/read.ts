@@ -1,10 +1,10 @@
 import { DateTime } from "luxon";
 import { ghl, GhlError } from "./client";
-import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, MessageSnapshot, ObjectRecord, OppSnapshot, UserSnapshot, WonOpportunity } from "../types";
+import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, MessageSnapshot, ObjectRecord, OppSnapshot, UserSnapshot, WonOpportunity } from "../types";
 
-type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; tags?: string[]; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string };
+type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string | null; tags?: string[]; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string };
 const mapContact = (c: RawContact): ContactSnapshot => ({
-  id: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, timezone: c.timezone,
+  id: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, timezone: c.timezone, assignedTo: c.assignedTo ?? undefined,
   tags: c.tags ?? [], customFields: Object.fromEntries((c.customFields ?? []).map((f) => [f.id, f.value])),
   dateUpdated: c.dateUpdated, dateAdded: c.dateAdded,
 });
@@ -117,6 +117,21 @@ export const ghlRead: CrmRead = {
       const r = await ghl<{ records: { id: string; createdAt: string; properties: Record<string, unknown> }[] }>(c.pit, "POST", `/objects/${objectKey}/records/search`, { body: { locationId: c.locationId, page, pageLimit: 100, query: "" } });
       const recs = r.records ?? []; out.push(...recs.map((x) => ({ id: x.id, createdAt: x.createdAt, properties: x.properties ?? {} })));
       if (recs.length < 100) break;
+    }
+    return out;
+  },
+  /** Documents & Contracts (verified 2026-10-07): `GET /proposals/document?locationId&limit<=21&skip`; status sent | viewed | completed; recipients[] carries the signer contact id, hasCompleted, signedDate. */
+  async documents(c) {
+    const out: DocumentSnapshot[] = [];
+    for (let skip = 0; skip < 21 * 40; skip += 21) {
+      const r = await ghl<{ documents: { _id: string; name?: string; status: string; createdAt: string; updatedAt?: string; recipients?: { id: string; entityName?: string; isPrimary?: boolean; role?: string; hasCompleted?: boolean; signedDate?: string | null }[] }[]; total?: number }>(
+        c.pit, "GET", `/proposals/document?locationId=${c.locationId}&limit=21&skip=${skip}`);
+      const docs = r.documents ?? [];
+      for (const d of docs) {
+        const signer = (d.recipients ?? []).find((x) => x.entityName === "contacts" && (x.isPrimary || x.role === "signer")) ?? (d.recipients ?? []).find((x) => x.entityName === "contacts");
+        out.push({ id: d._id, name: d.name, status: d.status, contactId: signer?.id, createdAt: d.createdAt, updatedAt: d.updatedAt, signedAt: signer?.signedDate ?? undefined, raw: { recipients: (d.recipients ?? []).map((x) => ({ id: x.id, hasCompleted: x.hasCompleted, signedDate: x.signedDate })) } });
+      }
+      if (docs.length < 21 || (r.total !== undefined && out.length >= r.total)) break;
     }
     return out;
   },

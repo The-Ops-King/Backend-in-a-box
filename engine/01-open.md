@@ -266,7 +266,7 @@ on GHL's field, so revenue history is a count of deals until Whop fills it. Not 
 period's setter-call digests into themes (needs the Anthropic key), and the bot that answers ad-hoc
 questions from the rollups, the ledger and live GHL.
 
-## 30. Agreement workflows (spec captured 2026-10-07, not built)
+## 30. Agreement workflows (spec captured 2026-10-07; built the same day as D30 — send step waits on the documents scope)
 Tyler walked through three GHL workflows to port, pending Deal Closed:
 - **Send agreement manually**: tag `sys-send-agreement-manually` → send the "3000 Purchase Agreement"
   template (GHL Documents & Contracts, template `6a9099fcde81e5217a748adb`) from Dr. Allan

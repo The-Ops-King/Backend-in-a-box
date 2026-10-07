@@ -37,7 +37,8 @@ async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ct
   return { ok: true };
 }
 
-export async function tick(adapters: Adapters, now = DateTime.now()): Promise<TickReport> {
+/** `onlyCompanyId` limits the claim to one company (tests share a database; an operator may want one company run now). */
+export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompanyId?: string): Promise<TickReport> {
   const report: TickReport = { claimed: 0, completed: 0, waiting: 0, exited: 0, failed: 0, paused: 0, recovery: false, staleExits: 0, sends: 0 };
   const claimedBy = `tick-${now.toMillis()}`;
 
@@ -50,8 +51,8 @@ export async function tick(adapters: Adapters, now = DateTime.now()): Promise<Ti
     // timestamp (ms) lost a race against Postgres now() (µs) when a wake and a tick landed in the same millisecond.
     return many<RunRow>(c, `update runs set claimed_at=now(), claimed_by=$1 where id in (
         select id from runs where status in ('active','waiting') and next_run_at <= now()
-          and (claimed_at is null or claimed_at < now() - interval '${LEASE_MIN} minutes')
-        order by next_run_at limit ${BATCH} for update skip locked) returning *`, [claimedBy]);
+          and (claimed_at is null or claimed_at < now() - interval '${LEASE_MIN} minutes') and ($2::uuid is null or company_id=$2)
+        order by next_run_at limit ${BATCH} for update skip locked) returning *`, [claimedBy, onlyCompanyId ?? null]);
   });
   report.claimed = runs.length;
   const sendsThisTick = new Map<string, number>();   // company → sends this tick (recovery cap is per company)
@@ -101,7 +102,11 @@ export async function tick(adapters: Adapters, now = DateTime.now()): Promise<Ti
           if (out.status === "ok" && (node.type === "send_sms" || node.type === "send_email")) { sendsThisTick.set(run.company_id, (sendsThisTick.get(run.company_id) ?? 0) + 1); report.sends++; }
 
           if (out.status === "waiting") { await finish("waiting", undefined, out.until.toJSDate(), out.stay ? node.id : (edgesFrom(node.id).find((e) => e.label !== "timeout") ?? edgesFrom(node.id)[0])?.to ?? null, ctx, !!out.wakeOnReply); report.waiting++; return; }
-          if (out.status === "exit") { await finish("completed", out.reason, null, node.id, ctx); report.completed++; return; }
+          if (out.status === "exit") {
+            // a run that stopped at a gate did nothing: release its once-per key so the next trigger (payment first, signature later) gets its turn (D30)
+            if (out.gate) await c.query("update runs set reentry_key = reentry_key || ':gate:' || id::text where id=$1", [run.id]);
+            await finish("completed", out.reason, null, node.id, ctx); report.completed++; return;
+          }
           if (out.status === "paused") { await finish("paused", out.reason, null, node.id, ctx); report.paused++; return; }
           if (out.status === "failed") { await finish("failed", out.error, null, node.id, ctx); report.failed++; return; }
           if (out.next === null) { await finish("failed", `node ${node.id} (${node.type}) has no outgoing edge`, null, node.id, ctx); report.failed++; return; }

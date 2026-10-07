@@ -104,6 +104,7 @@ export async function saveStepAction(formData: FormData) {
   else if (type === "create_task") edit = { type, assign_to: g("assign_to"), due: g("due") };
   else if (type === "set_var") edit = { type, value: g("value") };
   else if (type === "wait") edit = { type, offset: g("offset") };
+  else if (type === "send_sms" || type === "send_email") edit = { type, ghl_template: g("ghl_template") };
   else return;
   const r = await asOperator((c) => saveStepEdit(c, { workflowId, nodeId, edit }));
   revalidatePath(`/c/${slug}/w/${workflowId}`);

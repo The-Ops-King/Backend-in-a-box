@@ -1,0 +1,171 @@
+{
+  "slug": "deal-closed",
+  "name": "Deal closed",
+  "category": "agreements",
+  "description": "Fires on the first payment or on the signed agreement, in either order, and runs once: when the contact has both paid and signed and is not yet tagged stat-customer, they become a customer — stat-customer, the closer card to Closed - Won (won), the setter card won, the Sales Call record closed won / showed with cash collected, the welcome email and text, and Slack. A payment without a signature (or the reverse) stops at the check and waits for the other half.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_contact",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "payment.received"
+      },
+      {
+        "id": "t2",
+        "type": "trigger",
+        "event": "agreement.signed"
+      },
+      {
+        "id": "c1",
+        "type": "check",
+        "when": {
+          "and": [
+            {
+              "eq": [
+                "{{contact.paid}}",
+                true
+              ]
+            },
+            {
+              "eq": [
+                "{{contact.agreement_signed}}",
+                true
+              ]
+            },
+            {
+              "not": {
+                "has": [
+                  "{{contact.tags}}",
+                  "stat-customer"
+                ]
+              }
+            }
+          ]
+        },
+        "else_exit": "not_yet"
+      },
+      {
+        "id": "g1",
+        "type": "set_tag",
+        "tag": [
+          "stat-customer"
+        ]
+      },
+      {
+        "id": "p1",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_closed_won}}",
+        "status": "won",
+        "if_missing": "skip"
+      },
+      {
+        "id": "p2",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "status": "won",
+        "if_missing": "skip"
+      },
+      {
+        "id": "b1",
+        "type": "branch"
+      },
+      {
+        "id": "r1",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{records.sales_call.key}}",
+        "properties": {
+          "disposition": "closed_won",
+          "outcome": "showed",
+          "cash_collected": "{{contact.cash_collected}}"
+        }
+      },
+      {
+        "id": "e1",
+        "type": "send_email",
+        "kind": "transactional",
+        "subject": "Welcome — Let's Get You Ready for Your First Coaching Call",
+        "template": "<p>Hi {{contact.first_name}},</p><p>Welcome, and congratulations on taking action early. Catching hair changes in their earliest stages is one of the biggest advantages you can give yourself, and I'm glad to be your coach through this.</p><p>First, an important note about what this is (and isn't)</p><p>I want to be completely clear from the start: this is a lifestyle and wellness coaching relationship. I am your coach, not your doctor. Our work together does not create a doctor-patient relationship, I do not diagnose medical conditions, and I do not prescribe or manage medications. My role is to guide you toward the habits, nutrition, stress management, and tracking practices that support the healthiest possible hair — and to help you become an informed, organized partner in your own care.</p><p>As a coach, I am not able to prescribe medications. However, as we have discussed, your enrollment includes a $2,000 program credit that can be applied toward the cost of any treatments you may ultimately need. Whether any such treatments are appropriate for you is a decision made between you and a licensed clinician. During our first one-on-one coaching session, we will review your goals and circumstances together that are customized to you and your specific stage. From here I will help guide you toward reputable resources—including over-the-counter options and licensed telehealth providers—so you can obtain exactly what you need from the appropriate source.</p><p>Here are your next steps before our first call coming up...</p><p>To make our first session as productive as possible, please complete as many of the following as you can:</p><p>1. Complete your intake questionnaire. This is the single most important step — it tells me about your history, lifestyle, and goals so we don't spend our call gathering basics. https://saveyourhairtoday.com/in-take</p><p>2. Take your baseline \"before\" photos. Use consistent lighting (same spot, same time of day), the same distance, and capture four views: front/hairline, top/crown looking down, and both sides. Keep the same phone and angle each time so future photos are truly comparable. We'll use these to track progress objectively over the months ahead. Take those photos and send directly to me via telegram at the telegram account below</p><p>3. Make a list of everything you currently take. Include all prescription medications, over-the-counter products, vitamins, and supplements — with doses. Some common medications and supplements can affect hair, and your clinician will want an accurate list too. Send that to me in our 1-on-1 thread in the telegram below</p><p>4. Note any recent major life events or health changes in the last 6–12 months — significant stress, illness, rapid weight change, dietary changes, or new medications. These often matter for the timeline of hair changes. Send that to me in our 1-on-1 thread in the telegram below</p><p>5. Do a quick honest audit of four lifestyle anchors: sleep (hours and quality), nutrition (especially protein and overall diet quality), stress level, and smoking/alcohol use. Just jot down where you honestly stand — no judgment, this is our starting point. Send that to me in our 1-on-1 thread in the telegram below</p><p>6. Think about your goals and your \"why.\" What does success look like to you in 6 and 12 months? Being specific helps us set realistic, honest expectations together. Send that to me in our 1-on-1 thread in the telegram below</p><p>7. Set aside a private, quiet 45–60 minutes for our first call, with your photos and lists in front of you. Book your call here https://calendly.com/allan-saveyourhairtoday</p><p>A word on expectations</p><p>Hair responds slowly. Meaningful changes from lifestyle work and any medical treatments can take time. Our goal is by weeks 2 to 4, you'll see less hair coming out in the shower. This is the first sign the protocol is active. By month 6, most clients see 30 to 50% less scalp visibility in their progress photos. By weeks 12 to 24, existing follicles that were thinning start producing visibly thicker hair. So your consistency matters far more than intensity. We'll set clear, realistic milestones together on our first call so you always know what \"on track\" looks like.</p><p>If you have any questions before we talk, just reply to this email or text me in our telegram thread</p><p>Looking forward to getting started,</p><p>Dr. Allan Parungao</p><p>-The Hair Surgeon's Scorecard</p><p>Telegram: @DrEastside</p><p>This message is for general wellness and educational coaching purposes only. It is not medical advice, does not establish a doctor-patient relationship, and is not a substitute for care from a licensed healthcare provider.</p>"
+      },
+      {
+        "id": "e2",
+        "type": "send_sms",
+        "kind": "transactional",
+        "template": "Congrats on taking action to save your hair.\n\nYour next steps have been emailed to you, please make sure to check your email for the subject line \"Welcome -- Let's get you ready for your first coaching call\" from Allan P.\n\nPlease follow the instructions in that email, and let us know if you have any issues"
+      },
+      {
+        "id": "s1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.deals}}",
+        "template": "*Deal closed:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Cash collected:* ${{contact.cash_collected}} · *Owner:* {{contact.owner.name | default:unassigned}} · *Signed:* {{agreement.signed_at | date_company}}\nWelcome email and text sent."
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "closed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "c1"
+      },
+      {
+        "from": "t2",
+        "to": "c1"
+      },
+      {
+        "from": "c1",
+        "to": "g1"
+      },
+      {
+        "from": "g1",
+        "to": "p1"
+      },
+      {
+        "from": "p1",
+        "to": "p2"
+      },
+      {
+        "from": "p2",
+        "to": "b1"
+      },
+      {
+        "from": "b1",
+        "to": "r1",
+        "when": {
+          "exists": "records.sales_call.key"
+        },
+        "label": "has a Sales Call record"
+      },
+      {
+        "from": "b1",
+        "to": "e1",
+        "else": true,
+        "label": "no Sales Call record"
+      },
+      {
+        "from": "r1",
+        "to": "e1"
+      },
+      {
+        "from": "e1",
+        "to": "e2"
+      },
+      {
+        "from": "e2",
+        "to": "s1"
+      },
+      {
+        "from": "s1",
+        "to": "x1"
+      }
+    ]
+  }
+}

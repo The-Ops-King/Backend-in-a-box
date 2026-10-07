@@ -13,13 +13,13 @@ let messages: MessageSnapshot[] = [];
 const media = new Map<string, CallMedia>();
 const contacts: ContactSnapshot[] = [{ id: "GC1", firstName: "Ana", tags: [], customFields: {}, dateUpdated: "2026-10-01T00:00:00Z", dateAdded: "2026-10-01T00:00:00Z" }];
 const fake: Adapters = {
-  read: { contactsChangedSince: async (c) => (c.id === companyId ? contacts : []), inboundSince: async (c) => (c.id === companyId ? messages : []), callMedia: async (_c, id) => media.get(id) ?? { transcript: null }, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], opportunitiesSince: async () => [],
+  read: { contactsChangedSince: async (c) => (c.id === companyId ? contacts : []), inboundSince: async (c) => (c.id === companyId ? messages : []), callMedia: async (_c, id) => media.get(id) ?? { transcript: null }, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
     getContact: async (_c, id) => (id === "GC-NEW" ? { id, firstName: "Newly", tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() } : null), listUsers: async () => [{ id: "U9", name: "Lu Setter", email: "lu@x.com" }] },
   booking: { ghl: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }, calendly: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] } },
-  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {} },
-  sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }) },
+  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "doc-x" }) },
+  sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },
   classifier: { choice: async () => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
-  notifier: { post: async () => ({ ts: "1" }) },
+  notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null },
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 const ago = (min: number) => new Date(Date.now() - min * 60e3).toISOString();

@@ -23,13 +23,13 @@ const fake: Adapters = {
       { id: "call-2", conversationId: "cv2", contactId: "G2", channel: "call", direction: "outbound", status: "no-answer", dateAdded: d(3, 9).plus({ minutes: 30 }).toISO()!, call: { status: "no-answer", userId: "GS" } }],
     wonOpportunities: async () => [{ id: "opp-1", contactId: "G1", pipelineId: "P", stageId: "S", wonAt: d(4, 12).toISO()!, createdAt: d(6, 10).toISO()!, monetaryValue: 0, customFields: { CV: "2500" } }],
     objectRecords: async (_c, key) => (key === "custom_objects.sales_call" ? [{ id: "sc1", createdAt: d(6, 10).toISO()!, properties: { external_id: "evt-1", contact_id: "G1", call_date: d(5, 15).toISODate(), outcome: "showed" } }, { id: "sc2", createdAt: d(6, 10).toISO()!, properties: { external_id: "evt-none", outcome: "no_show" } }] : []),
-    opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [{ id: "GS", name: "Lu Setter", email: "lu@x.com" }, { id: "GC", name: "Sam Closer", email: "sam@x.com" }],
+    documents: async () => [], opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [{ id: "GS", name: "Lu Setter", email: "lu@x.com" }, { id: "GC", name: "Sam Closer", email: "sam@x.com" }],
   },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => appts, getAppointment: async () => null, listCalendars: async () => [{ id: "CAL", name: "Closing", teamMemberIds: ["GC"] }] }; return { ghl: b, calendly: b }; })(),
-  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {} },
-  sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }) },
+  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "doc-x" }) },
+  sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },
   classifier: { choice: async () => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
-  notifier: { post: async () => ({ ts: "1" }) },
+  notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null },
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 

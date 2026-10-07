@@ -41,6 +41,11 @@ confirmation email went out through GHL into the contact's thread, the reminder 
 | payment-recorded | payment linked to a contact | cash collected on the contact = running total; revenue generated stamped once with the program price; `pay-paid-full` (and `pay-plan-active` off) when cleared, else `pay-plan-active`; Payment custom-object record written and linked to the contact and the closer card; Slack line. Needs `crm.field_contact_cash_collected`, `crm.field_contact_revenue_generated`, `crm.assoc_payment_contact`, `crm.assoc_payment_opportunity`, `crm.pipeline_closer`; `slack.channel.payments` optional |
 | call-recorded | a call recording matched to a contact | AI decides whether it is a sales call (else stop), pulls the notes and scores the call against the rubric (`analyze` nodes on `prompt.call_classify` / `prompt.call_notes` / `prompt.call_rubric`); when an appointment matched: appointment recorded as showed (`call.held` fires), `stat-showed`, setter card → Showed and won; Sales Call record written and linked; notes on the contact; Slack review. Needs `secret.anthropic_key`, `crm.stage_setter_showed`, `crm.assoc_sales_call_contact`, `crm.assoc_sales_call_opportunity`; `slack.channel.calls` optional |
 | setter-call-logged | the dialer logged a connected phone call (`call.logged`) | under the minimum length (a `set_var` knob, 60s, editable on the step) or no recording → stop; 15 minutes after the call the AI says setting / confirmation / other (`prompt.setter_call_classify`; other → stop), writes the digest with pains, goals, triage and a fit score (`prompt.setter_call_notes`); whether a booking followed is read from our appointments; Discovery Call record written and linked to the contact (`led_to_booking` checkbox as `["yes"]`), digest as a note, Slack post. Needs `secret.anthropic_key`, `crm.assoc_discovery_call_contact`; `slack.channel.setter_calls` optional |
+| agreement-send-manually | tag `sys-send-agreement-manually` added | unless already signed: `send_document` (the Documents & Contracts template `crm.agreement_template`, from `crm.agreement_sender`), tag `stat-agreement-sent`, trigger tag removed, note |
+| agreement-signed | the signer completed the agreement (`agreement.signed`, from the documents poll) | tag `stat-agreement-signed`, dated note, Slack (`slack.channel.deals`) |
+| deal-closed | first payment OR agreement signed, either order, once per contact | gate: paid AND signed AND not tagged `stat-customer` (else stop, and the stop does not use up the "once"); then `stat-customer`, closer card → Closed - Won (won), setter card won, Sales Call record `closed_won` / `showed` with cash collected, welcome email + text (CRM templates by id when set on the step, else the copy on the step), Slack. Needs `crm.stage_closer_closed_won`; `slack.channel.deals` optional |
+| agreement-chase | first payment | 24h → unsigned? → nudge the owner (Slack DM, else `slack.channel.alerts` with an @mention; CRM task on the contact) → 24h → … three nudges at most; a signature ends it; after the third: tag `agreement-unsigned`, one alerts post |
+| payment-recorded (extended) | payment linked | as before, plus on the first payment with no signature: send the agreement, `stat-agreement-sent`, closer card → Agreement Sent (`crm.stage_closer_agreement_sent`); dated note; Sales Call record cash collected updated when there is one |
 | new-lead | lead created | with a phone: setter-pipeline card "Name -- New" (stage New Lead, stage-entered date today) + tag `stat-new`; without a phone: exit `no_phone`. Needs `crm.pipeline_setter`, `crm.stage_setter_new_lead`, `crm.field_opportunity_stage_entered` (install `crm: {...}`) |
 
 Every message is a template on the workflow, editable per company once the editor exists; until
@@ -178,6 +183,30 @@ opportunity's value), and payments from Whop's own API when `secret.whop_api_key
 same ledger path as a webhook: linked by email / phone / member id, else unlinked for the dashboard to
 fix), then rolls every day up. Keyed on source ids, so re-running is safe.
 
+## Agreements (D30)
+
+GHL's Documents & Contracts is read by the poll (`GET /proposals/document`, 21 per page): every document the
+location sent is a row in `agreements` (document id, signer contact, status sent / viewed / completed,
+`signed_at`). A new row is `agreement.sent`; the first time the signer has completed it is
+`agreement.signed`, once, whatever order the poll sees things in. The first pass is a silent baseline.
+`send_document` sends a template to the contact from a CRM user (needs the token's documents send
+scope; the request body is unverified until that scope exists) and records the row first so the poll
+does not announce it twice. In shadow it is skipped like every CRM write. Facts every run can check:
+`contact.paid`, `contact.payments_count`, `contact.cash_collected`, `contact.first_paid_at`,
+`contact.agreement_signed`, `contact.agreement_sent`, `contact.owner` (the CRM assignee, else
+`crm.default_closer`; name, email, Slack id when known), `agreement.*` (the latest agreement), and
+`records.<object>.key` (the latest CRM record of each object the engine wrote for them). Predicates gain
+`has` (a list contains a value): `{"has": ["{{contact.tags}}", "stat-customer"]}`.
+
+**Gate exits.** A run that stops at a `check` before doing anything releases its once-per key, so a
+`once_per_contact` workflow with two triggers (payment, signature) can stop on the first and run on the
+second. **notify_owner** DMs the contact's owner in Slack (looked up by email, cached as
+`users.slack_user_id`; the app needs `im:write`, `users:read`, `users:read.email`), else posts to the
+fallback channel with an @mention, and optionally creates a CRM task on the contact. **CRM templates:**
+`send_sms` / `send_email` take `ghl_template` (an SMS snippet id or an email builder template id,
+editable on the step), and the CRM's copy wins when it exists. Harness actions `agreement` (a sent,
+unsigned document) and `sign` (completed) stage the document side.
+
 ## Pipeline cards (D19)
 
 Templates create and move cards on the CRM's pipeline boards (`pipeline_card` node). Pipeline,
@@ -272,7 +301,8 @@ the step instead of performing it. Three ways, same code:
   with `Authorization: Bearer $CRON_SECRET`.
 
 Actions: `create` (a lead comes in), `book` (a setter books the closing call, 3 days out, 2pm in the
-contact's zone), `book-self`, `reschedule` (+2 days), `cancel`, `pay` (the program price), `record`
+contact's zone), `book-self`, `reschedule` (+2 days), `cancel`, `pay` (the program price), `agreement`
+(an agreement sent and unsigned), `sign` (the agreement completed), `record`
 (a Fathom-shaped recording with a short transcript, through the match ladder), `call` (a connected
 3-minute dialer call 20 minutes ago with a setting-call transcript, dialed by the roster's setter),
 `reset` (the engine

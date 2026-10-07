@@ -15,6 +15,7 @@ export function evaluate(p: Predicate, ctx: Record<string, unknown>): boolean {
   if ("lt" in p) return num(operand(p.lt[0], ctx)) < num(operand(p.lt[1], ctx));
   if ("lte" in p) return num(operand(p.lte[0], ctx)) <= num(operand(p.lte[1], ctx));
   if ("in" in p) { const v = operand(p.in[0], ctx); return p.in[1].some((x) => operand(x, ctx) == v); }
+  if ("has" in p) { const list = operand(p.has[0], ctx), v = operand(p.has[1], ctx); return Array.isArray(list) ? list.some((x) => x == v) : typeof list === "string" ? list.split(",").map((x) => x.trim()).includes(String(v)) : false; }
   if ("exists" in p) { const v = resolvePath(ctx, p.exists); return v !== undefined && v !== null && v !== ""; }
   if ("and" in p) return p.and.every((q) => evaluate(q, ctx));
   if ("or" in p) return p.or.some((q) => evaluate(q, ctx));

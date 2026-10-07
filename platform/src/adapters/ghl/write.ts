@@ -21,6 +21,11 @@ export const ghlWrite: CrmWrite = {
     return { id: r.task?.id ?? r.id ?? "" };
   },
   // Custom objects: properties use the SHORT key (not the custom_objects.x.y fieldKey); owners is an array on create and { add: [...] } on update (verified in the Zap this replaces)
+  /** UNVERIFIED body (the send scope was not on the token when written, 2026-10-07): POST /proposals/templates/send { locationId, templateId, contactId, userId, medium }. Fix here if GHL wants another shape. */
+  async sendDocumentTemplate(c, input) {
+    const r = await ghl<{ _id?: string; id?: string; document?: { _id?: string; id?: string } }>(c.pit, "POST", "/proposals/templates/send", { body: { locationId: c.locationId, templateId: input.templateId, contactId: input.contactId, ...(input.userId ? { userId: input.userId } : {}), medium: "email" } });
+    return { id: r.document?._id ?? r.document?.id ?? r._id ?? r.id ?? "" };
+  },
   async createRecord(c, objectKey, properties, ownerUserId) {
     const r = await ghl<{ record?: { id: string }; id?: string }>(c.pit, "POST", `/objects/${objectKey}/records`, { body: { locationId: c.locationId, properties, ...(ownerUserId ? { owners: [ownerUserId] } : {}) } });
     return { id: r.record?.id ?? r.id ?? "" };

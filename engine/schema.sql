@@ -59,6 +59,7 @@ create table contacts (
   merged_into     uuid references contacts(id),           -- set when this record was folded into another
   ghl_updated_at  timestamptz,
   ghl_added_at    timestamptz,                            -- when the CRM first saw them: the lead's arrival for every dated question
+  assigned_ghl_user_id text,                              -- the contact's owner in the CRM (assignedTo)
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now(),
   unique (company_id, ghl_contact_id)
@@ -318,6 +319,7 @@ insert into event_types values
   ('message.sent','message'), ('message.received','message'), ('reply.classified','message'),
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
   ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'),
+  ('agreement.sent','agreement'), ('agreement.signed','agreement'),
   ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'),
   ('run.started','engine'), ('run.exited','engine'), ('send.suppressed','engine');
 
@@ -598,3 +600,22 @@ create table wrapups (
   send_id       uuid references sends(id) on delete set null
 );
 create index on wrapups (company_id, generated_at);
+
+-- Agreements (D30): every document the CRM's Documents & Contracts sent to a contact, mirrored by the poll. One row per
+-- document; `signed_at` is set once when the signer completes it, and that transition is the `agreement.signed` event.
+create table agreements (
+  id             uuid primary key default gen_random_uuid(),
+  company_id     uuid not null references companies(id) on delete cascade,
+  contact_id     uuid references contacts(id),
+  external_id    text not null,                              -- the CRM document id
+  name           text,
+  status         text not null,                              -- sent | viewed | completed | … as the CRM reports it
+  sent_at        timestamptz not null,
+  signed_at      timestamptz,
+  sent_by        text,                                       -- 'engine' when a send_document step created it, else null
+  raw            jsonb not null default '{}',
+  updated_at     timestamptz not null default now(),
+  unique (company_id, external_id)
+);
+create index on agreements (company_id, contact_id);
+

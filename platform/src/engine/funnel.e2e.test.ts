@@ -26,13 +26,13 @@ const booking: BookingRead = { appointmentsInWindow: async () => [], listCalenda
 const recordWrites: Record<string, unknown>[] = [];
 const relations: string[] = [];
 const fake: Adapters = {
-  read: { contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], opportunitiesSince: async () => [], getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }), listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }] },
+  read: { contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }), listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }] },
   booking: { ghl: booking, calendly: booking },
   write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createRecord: async (_c, _o, props) => { recordWrites.push({ op: "create", ...props }); return { id: `rec-${recordWrites.length}` }; }, updateRecord: async (_c, _o, id, props) => { recordWrites.push({ op: "update", id, ...props }); }, relateRecords: async (_c, a, f, s) => { relations.push(`${a}:${f}>${s}`); },
-    createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; }, updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); } },
-  sender: { sendSms: async (_c, _to, body) => { sent.push({ kind: "sms", body }); return { externalId: `s${sent.length}`, accepted: true }; }, sendEmail: async (_c, _to, subject, html) => { sent.push({ kind: "email", body: `${subject}|${html}` }); return { externalId: `e${sent.length}`, accepted: true }; }, deliveryStatus: async () => ({ status: "sent" }) },
+    createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; }, updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); }, sendDocumentTemplate: async () => ({ id: "doc-x" }) },
+  sender: { sendSms: async (_c, _to, body) => { sent.push({ kind: "sms", body }); return { externalId: `s${sent.length}`, accepted: true }; }, sendEmail: async (_c, _to, subject, html) => { sent.push({ kind: "email", body: `${subject}|${html}` }); return { externalId: `e${sent.length}`, accepted: true }; }, deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },
   classifier: { choice: async (): Promise<Classification> => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
-  notifier: { post: async () => ({ ts: "1" }) },
+  notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null },
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 let companyId: string, contactId: string;
@@ -68,7 +68,7 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
 
   it("lead created → setter card + tag, speed-to-lead starts", async () => {
     await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: {} }), { contact: { id: contactId } }));
-    await tick(fake);
+    await tick(fake, undefined, companyId);
     expect(await run("new-lead")).toMatchObject({ status: "completed", exit_reason: "done" });
     expect(oppWrites).toEqual([expect.objectContaining({ op: "create", contactId: "CF1", pipelineId: "PIPE-SETTER", stageId: "STAGE-NEW", name: "Jordan Lee -- New" })]);
     expect(tags).toEqual(["stat-new"]);
@@ -84,7 +84,7 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
     const card = await asOperator((c) => one<{ id: string; name: string; opportunity_id: string }>(c, "select id, name, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id='PIPE-SETTER'", [companyId, contactId]));
     expect(card!.opportunity_id).toBe(pursuit!.id);
     expect(appt!.opportunity_id).toBe(pursuit!.id);   // the booking lands on the pursuit new-lead opened, no second opportunity
-    const n = sent.length; await tick(fake);
+    const n = sent.length; await tick(fake, undefined, companyId);
     expect(await run("booking-confirmation")).toMatchObject({ status: "completed", appointment_id: appt!.id, opportunity_id: pursuit!.id });
     expect(sent.slice(n).map((s) => s.kind)).toEqual(["email"]);
     const rem = await run("appointment-reminder");
@@ -97,7 +97,7 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
     const before = (await runs()).length, n = sent.length;
     await apply(snap("A1", moved, "confirmed"));
     expect(await asOperator((c) => many(c, "select 1 from appointments where company_id=$1 and contact_id=$2", [companyId, contactId]))).toHaveLength(1);
-    await tick(fake);
+    await tick(fake, undefined, companyId);
     const rem = await run("appointment-reminder");
     expect(rem.status).toBe("waiting"); expect(rem.current_node).toBe("n1");
     expect(rem.next_run_at!.getTime()).toBe(morningOf(moved).toMillis());
@@ -108,7 +108,7 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
   it("cancel → rebook sequence sends, the reminder exits as moot, the journey reads in order", async () => {
     const current = await asOperator((c) => one<{ starts_at: Date }>(c, "select starts_at from appointments where company_id=$1 and external_id='A1'", [companyId]));
     await apply(snap("A1", DateTime.fromJSDate(current!.starts_at), "cancelled"));
-    const n = sent.length; await tick(fake);
+    const n = sent.length; await tick(fake, undefined, companyId);
     expect(await run("cancellation-rebook")).toMatchObject({ status: "completed", exit_reason: "sent" });
     expect(sent.slice(n).map((s) => s.kind).sort()).toEqual(["email", "sms"]);
     const rem = await run("appointment-reminder");

@@ -9,4 +9,10 @@ export const slackNotifier: Notifier = {
     if (!data.ok) throw new Error(`slack: ${data.error}`);
     return { ts: data.ts! };
   },
+  async lookupUserByEmail(token, email) {
+    const res = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = (await res.json()) as { ok: boolean; user?: { id: string }; error?: string };
+    if (!data.ok) { if (data.error === "users_not_found") return null; throw new Error(`slack: ${data.error}`); }
+    return data.user?.id ?? null;
+  },
 };

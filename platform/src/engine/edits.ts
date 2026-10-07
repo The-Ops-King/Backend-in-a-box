@@ -15,7 +15,8 @@ export type StepEdit =
   | { type: "update_contact"; assign_to?: string }
   | { type: "create_task"; assign_to?: string; due?: string }
   | { type: "set_var"; value?: string }          // a knob the workflow reads (minimum call length, a threshold); numbers stay numbers
-  | { type: "wait"; offset?: string };           // how long the wait is ("+15m", "+2h", "day_of@08:00")
+  | { type: "wait"; offset?: string }            // how long the wait is ("+15m", "+2h", "day_of@08:00")
+  | { type: "send_sms" | "send_email"; ghl_template?: string };   // the CRM's own snippet / email template id; empty = use the copy on the step
 const OFFSET = /^[+-]?\d+\s*(s|m|h|d|w)$|^(day_of|day_before|day_after)@\d{2}:\d{2}$/;
 
 export async function saveStepEdit(c: PoolClient, args: { workflowId: string; nodeId: string; edit: StepEdit; by?: string }): Promise<{ ok: true; version: number; changed: string[] } | { ok: false; why: string }> {
@@ -41,6 +42,7 @@ export async function saveStepEdit(c: PoolClient, args: { workflowId: string; no
   else if (e.type === "set_tag" || e.type === "remove_tag") { if (e.tags) { const tags = e.tags.map((t) => t.trim()).filter(Boolean); if (!tags.length) return { ok: false, why: "at least one tag" }; set("tag", tags); } }
   else if (e.type === "update_contact") { if (e.assign_to !== undefined) { const setObj = { ...((node.set as Record<string, unknown>) ?? {}) }; if (e.assign_to) setObj.assign_to = e.assign_to; else delete setObj.assign_to; if (JSON.stringify(setObj) !== JSON.stringify(node.set)) { node.set = setObj; changed.push("assign_to"); } } }
   else if (e.type === "create_task") { if (e.assign_to !== undefined) set("assign_to", e.assign_to); if (e.due) set("due", e.due); }
+  else if (e.type === "send_sms" || e.type === "send_email") { if (e.ghl_template !== undefined) set("ghl_template", e.ghl_template); }
   else if (e.type === "set_var") { if (e.value !== undefined) { const v: unknown = /^-?\d+(\.\d+)?$/.test(e.value) ? Number(e.value) : e.value; if (JSON.stringify(node.value) !== JSON.stringify(v)) { node.value = v; changed.push("value"); } } }
   else if (e.type === "wait") { if (e.offset) { const offset = e.offset.replace(/\s+/g, ""); if (!OFFSET.test(offset)) return { ok: false, why: `"${e.offset}" is not a wait: use +15m, +2h, -1d, or day_of@08:00` }; const rule = { ...(node.rule as Record<string, unknown>), offset }; if (JSON.stringify(rule) !== JSON.stringify(node.rule)) { node.rule = rule; changed.push("offset"); } } }
   if (!changed.length) return { ok: true, version: w.current_version, changed };
