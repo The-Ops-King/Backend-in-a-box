@@ -829,3 +829,26 @@ Tyler, 2026-10-07: "I don't want to have to explain every detail in the settings
   written. Same operations the forms use. The in-tool builder for workflows themselves is later;
   this chat is that for now.
 Call types are the company's words (triage, demo, strategy call) over the four core categories.
+
+## D27. For now, this chat is the agent
+
+Tyler, 2026-10-07: the goal right now is to tell Claude in natural language and have it configure
+everything: a new offer, a new workflow, a workflow copied from one offer to another. The in-software
+agent each company can talk to comes later. So the operating mode until then:
+
+1. Tyler describes it in his words: which client, what triggers it, what it does step by step, what
+   the team sees. Claude maps that onto what exists (the node vocabulary, the trigger list, the
+   company's calendars, pipelines, stages, fields, channels) and asks only for what cannot be pulled
+   or inferred — in batches of at most five questions.
+2. Claude builds it as a template (portable: bindings for ids and copy), installs it on the named
+   company, and reports what the readiness check says is still missing. New ids are set with the step
+   pickers or by Tyler naming them here; copy is either given here or edited on the page.
+3. Copying a workflow to another offer is "install the template on that company": the manifest lists
+   what the new company has not got (copy, channel, stage…), Claude asks for exactly those, and the
+   flow chart on the new company's page is the proof.
+4. Everything stays visible in the dashboard: chart, steps table, copy, step settings, what happens
+   next, readiness. Nothing is configured that cannot be seen there.
+5. A new offer is the same shape: booking source and token, which calendars are what, what triggers
+   which workflows. Claude runs install, then the settings page shows what remains.
+When the in-tool agent arrives it follows the same contract: pull before asking, propose before
+applying, show the result as a chart.

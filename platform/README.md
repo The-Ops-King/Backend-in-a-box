@@ -134,6 +134,19 @@ way; a Calendly invitee is matched to the GHL contact by email/phone. Calendly i
 engine: a reschedule is one appointment moved, a cancellation is a status change, and
 `update_appointment` is skipped with a note. Facts about the Calendly API are in `calendly/01-api-facts.md`.
 
+## Asking for things (D27)
+
+Until the in-tool agent exists, the chat is the agent. Three shapes cover almost everything:
+
+- **New offer**: the client's name, the booking source (GHL or Calendly) and its token, the GHL location
+  and PIT, which calendars are which kind of call and how setter vs self is decided on each, which
+  workflows to turn on. → install, then the settings page shows what is still missing.
+- **New workflow**: which client, what starts it (see the Triggers page) and any condition, the steps in
+  order (text / email / wait until… / move to pipeline X stage Y / tag / task / note / Slack), what the
+  team should see. → a template, installed on that client, chart to check, copy editable on the page.
+- **Copy a workflow to another offer**: "copy X from A to B". → installed on B; the manifest says which
+  copy, channel, stage or field B has not got, and those are the only questions asked.
+
 ## Settings screen (`/c/<slug>/settings`)
 
 Everything a company's installed workflows need, driven by their manifests: connections (GHL location
