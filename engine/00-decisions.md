@@ -784,3 +784,29 @@ and punctuation do not matter. Mapped answers land on the appointment as `answer
 addressable in templates (`{{appointment.answers.noticing_for}}`), so intake captured at booking is
 usable without a form or a CRM field. Lead attribution (D25, not yet built) will read these same
 answers plus the booking link's UTM tracking; Tyler's rule is last touch wins, with the history kept.
+
+## D25. The engine is the brain and the connector; the work happens in the tools
+
+Tyler, 2026-10-07: "This is the engine, the brain, the connector. Everything happens through GHL or
+whatever tool we're using, not the engine itself. Like Zapier or other middleware, but we connect it
+and have our pre-built plans and automations that we can adjust on the fly, and create new ones with
+ease."
+
+Operating rule that follows: anything a human works from must exist in the tool they work in (GHL
+cards, tags, notes, custom objects, Slack), written by the engine. What the engine keeps for itself
+is what middleware has to keep to do its job: the facts it has seen (replica of contacts and
+appointments, the payments and recordings ledgers), the timers and runs in flight, the versions of
+each company's workflows, and what would have happened in shadow. The dashboard is for seeing and
+configuring, never the place the team does the work.
+
+Two places the build drifted from this and the correction for each:
+- The disposition form writes the outcome to our appointment row only (D8/D12). Under D25 it must
+  also land in GHL: the Sales Call record (as call-recorded already does) and the tags the team's
+  smart lists key on. To do when the form is rebuilt to Tyler's real questions.
+- Intake answers captured at booking (`appointment.answers.*`) are engine-side until a workflow
+  writes them to contact fields. Hair's call-booked already writes the appointment date and setter;
+  any answer the team needs to see gets the same treatment, per client, through the workflow.
+
+"Adjust on the fly" today: copy editable on the workflow page, on/off per workflow, every id and rule
+on the settings screen, template upgrades for untouched copies. "Create with ease" today: described
+in chat, written as a template, installed; the natural-language builder in the tool comes later.
