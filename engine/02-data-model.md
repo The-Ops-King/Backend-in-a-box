@@ -301,6 +301,36 @@ create table payments (
 create index on payments (company_id, opportunity_id);
 ```
 
+```sql
+-- Call recordings (D22). Same shape as payments: a row per recording the provider reports, linked or not.
+create table recordings (
+  id               uuid primary key default gen_random_uuid(),
+  company_id       uuid not null references companies(id),
+  contact_id       uuid references contacts(id),
+  appointment_id   uuid references appointments(id),
+  provider         text not null default 'fathom',
+  external_id      text not null,                        -- Fathom recording id
+  title            text,
+  started_at       timestamptz not null,
+  ended_at         timestamptz,
+  duration_min     int,
+  url              text,
+  share_url        text,
+  recorded_by_email text,
+  recorded_by_name text,
+  invitees         jsonb not null default '[]',          -- [{name, email, isExternal}]
+  transcript       jsonb,                                -- [{speaker, email, text, timestamp}]
+  summary          text,
+  analysis         jsonb not null default '{}',          -- what analyze nodes produced, keyed by `into`
+  link_status      text not null default 'unlinked' check (link_status in ('linked','unlinked')),
+  linked_by        text,                                 -- email | name | calendar | manual
+  unlinked_reason  text,
+  raw              jsonb not null default '{}',
+  received_at      timestamptz not null default now(),
+  unique (company_id, provider, external_id)
+);
+```
+
 `total_collected ≥ contract_value` — the thing GHL couldn't do — is
 `sum(amount) filter (where status='succeeded')` grouped by `opportunity_id`, compared to
 `opportunities.contract_value`. The engine emits `payment.paid_in_full` when it crosses.
@@ -322,6 +352,8 @@ insert into event_types values
   ('call.held','call'),
   ('message.sent','message'), ('message.received','message'), ('reply.classified','message'),
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'),
+  ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
+  ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'),
   ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'),
   ('run.started','engine'), ('run.exited','engine'), ('send.suppressed','engine');
 
@@ -334,7 +366,7 @@ create table events (
   run_id          uuid,
   event_type      text not null references event_types(name),
   occurred_at     timestamptz not null,
-  source          text not null check (source in ('form','ghl_poll','whop','engine','disposition','command_center','user')),
+  source          text not null check (source in ('form','ghl_poll','whop','fathom','zapier','engine','disposition','command_center','user')),
   data            jsonb not null default '{}'
 );
 create index on events (company_id, contact_id, occurred_at);

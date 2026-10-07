@@ -5,6 +5,7 @@ import { recordPayment } from "@/engine/payments";
 import { dispatchEvent } from "@/engine/dispatch";
 import { parseZapierPayment } from "@/engine/webhooks/zapier";
 import { notifyTeam } from "@/engine/notify";
+import { zapierAuthorized } from "@/engine/inbound";
 export const dynamic = "force-dynamic";
 
 /**
@@ -17,9 +18,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
   try { body = (await req.json()) as Record<string, unknown>; } catch { return NextResponse.json({ error: "body is not JSON" }, { status: 400 }); }
   return asOperator(async (c) => {
     const { row: company, bindings } = await loadCompany(c, companyId);
-    const secret = bindings["secret.zapier_inbound"];
-    const given = req.headers.get("x-engine-secret") ?? (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-    if (!secret || !given || given !== secret) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    if (!zapierAuthorized(req, bindings)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     const parsed = parseZapierPayment(body);
     if (!parsed.ok) return NextResponse.json({ error: parsed.why }, { status: 400 });
     const r = await recordPayment(c, companyId, parsed.input);

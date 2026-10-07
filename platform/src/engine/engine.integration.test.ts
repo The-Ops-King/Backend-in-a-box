@@ -41,6 +41,7 @@ const fake: Adapters = {
   },
   classifier: { choice: async (_s, input): Promise<Classification> => /yes|see you/i.test(input) ? { value: "confirmed", confidence: 0.96, distribution: { confirmed: 0.96 }, unclear: false } : { value: "unclear", confidence: 0.3, distribution: { unclear: 0.3 }, unclear: true } },
   notifier: { post: async () => ({ ts: "1" }) },
+  analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 
 describe.skipIf(!HAS_DB)("engine end to end", () => {

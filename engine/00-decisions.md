@@ -698,3 +698,32 @@ its kind is derived from what came before (deposit / installment / balance / pai
 refund), and `payment.received` carries running total, outstanding and `cleared`. Refunds are
 negative rows. Idempotency is two-layered: the provider's delivery id, then the payment id.
 Nothing customer-facing is sent from the ledger; templates decide that.
+
+## D22. Every inbound fact has more than one door, and every door lands on the same ledger
+
+Tyler, 2026-10-07: "I want multiple options for triggers. That's the point. It's an out-of-the-box
+solution that is customizable." A client picks how a fact reaches the engine; the engine does not
+care which door it came through. Payments: Whop's own webhook, or a Zap forwarding it. Recordings:
+Fathom's own webhook, or a Zap forwarding it. Bookings: GHL calendars, or Calendly (D18). Behind
+each door is one normaliser into one input shape, then one ingest path: ledger row, identity
+ladder, team alert on a miss, workflows on a hit. Templates trigger on the event
+(`payment.received`, `recording.received`), never on the transport, so a company can switch doors
+without touching a workflow. Adding a provider means a parser and a route, nothing else.
+
+Recordings follow the payments ledger shape (D21): a `recordings` row per recording the provider
+reports, linked by a ladder (an invitee email on a known contact → an invitee name that is exactly
+one contact → the recorder is a closer we know and had exactly one appointment within two hours of
+the recording start). One unambiguous hit or nothing; a miss is an `unlinked` row with the reason,
+a team alert, and a row on the company's Recordings page where an operator links it by hand (the
+attendee's email is then remembered). Once the person is known, the appointment is theirs nearest
+the recording start within a day, or none. The transcript lives on the row and is read into a run's
+context each tick, never copied into it.
+
+What a recording means is a workflow decision, not an ingest decision. The `analyze` node reads the
+transcript against a prompt bound per company (`prompt.<name>`, editable text, defaults shipped),
+answered as JSON the rest of the run can address (`{{vars.notes.disposition}}`). "Is this a sales
+call" is the first such read; a no stops the run and writes nothing. A show is recorded by the
+`record_outcome` node onto OUR appointment row (the same path as the closer's form), which is what
+makes `call.held` fire for a company whose booking source has no outcome (01-open #24). The
+Anthropic key is per company (`secret.anthropic_key`); analysis runs in shadow too, because seeing
+what the AI would say is the point of shadow.

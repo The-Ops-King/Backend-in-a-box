@@ -33,6 +33,7 @@ const fake: Adapters = {
   sender: { sendSms: async (_c, _to, body) => { sent.push({ kind: "sms", body }); return { externalId: `s${sent.length}`, accepted: true }; }, sendEmail: async (_c, _to, subject, html) => { sent.push({ kind: "email", body: `${subject}|${html}` }); return { externalId: `e${sent.length}`, accepted: true }; }, deliveryStatus: async () => ({ status: "sent" }) },
   classifier: { choice: async (): Promise<Classification> => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
   notifier: { post: async () => ({ ts: "1" }) },
+  analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 let companyId: string, contactId: string;
 const runs = () => asOperator((c) => many<{ slug: string; status: string; current_node: string | null; exit_reason: string | null; next_run_at: Date | null; appointment_id: string | null; opportunity_id: string | null }>(c,

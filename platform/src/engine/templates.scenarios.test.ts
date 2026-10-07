@@ -12,6 +12,7 @@ import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
 import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from "@/adapters/types";
+import { recordRecording, linkRecording, type RecordingInput } from "@/engine/recordings";
 
 const HAS_DB = !!process.env.DATABASE_URL;
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -45,7 +46,14 @@ const fake: Adapters = {
   },
   classifier: { choice: async (): Promise<Classification> => ({ value: "confirmed", confidence: 0.95, distribution: { confirmed: 0.95 }, unclear: false }) },
   notifier: { post: async () => ({ ts: "1" }) },
+  // answers by which prompt is asked, the way the real model would: classify → is it a sales call, notes → the write-up, rubric → the score
+  analyst: { analyze: async (_k, req) => { analyses.push(req.system.slice(0, 40)); const parsed = /sales call:/.test(req.system) ? { is_sales_call: salesCall, call_kind: "closing", confidence: 0.96, reason: "prospect discussed buying" }
+    : /note-taker/.test(req.system) ? { summary: "Wants to fix thinning; decided to start.", pain: ["thinning at the crown"], objections: [{ objection: "price", quote: "that is a lot right now", handled: true }], disposition: "closed_won", primary_objection: "price", next_step: "onboarding call", quotes: ["I just want it to stop"] }
+    : { overall_score: 8, scores: { discovery: 9 }, strengths: ["asked about timeline"], misses: ["no urgency close"], coaching: ["ask for the card earlier"] };
+    return { text: JSON.stringify(parsed), parsed, model: "fake", usage: { input: 1000, output: 100, cacheRead: 0 } }; } },
 };
+const analyses: string[] = [];
+let salesCall = true;
 const since = () => sent.length;
 const bySlug = (slug: string) => asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug=$2", [companyId, slug]));
 const runsFor = (slug: string) => asOperator((c) => many<{ id: string; status: string; current_node: string | null; exit_reason: string | null; next_run_at: Date | null; contact_id: string }>(c, "select r.id, r.status, r.current_node, r.exit_reason, r.next_run_at, r.contact_id from runs r join workflows w on w.id=r.workflow_id join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug=$2 order by r.started_at", [companyId, slug]));
@@ -72,17 +80,18 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='scn'");
       if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
         await c.query("update appointments set disposition_id=null where company_id=$1", [co.id]);
-        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "crm_records", "webhook_deliveries", "payments", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+        for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "crm_records", "webhook_deliveries", "payments", "recordings", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
         await c.query("delete from companies where id=$1", [co.id]); }
     });
     const r = await installCompany({ name: "Scenarios", slug: "scn", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live",
       crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_setter_direct_booked: "STAGE-DIRECT", stage_setter_appointment_set: "STAGE-SET", stage_closer_scheduled: "STAGE-SCHED", stage_setter_cancelled: "STAGE-S-CANCEL", stage_closer_cancelled: "STAGE-C-CANCEL", field_contact_appointment_date: "CF-APPT-DATE", field_contact_setter: "CF-SETTER", field_opportunity_setter_owner: "CF-SETTER-OWNER",
-        field_contact_cash_collected: "CF-CASH", field_contact_revenue_generated: "CF-REV", assoc_payment_contact: "ASSOC-PC", assoc_payment_opportunity: "ASSOC-PO" }, contractValueDefault: 2999 }, fake);
+        field_contact_cash_collected: "CF-CASH", field_contact_revenue_generated: "CF-REV", assoc_payment_contact: "ASSOC-PC", assoc_payment_opportunity: "ASSOC-PO",
+        stage_setter_showed: "STAGE-SHOWED", assoc_sales_call_contact: "ASSOC-SC", assoc_sales_call_opportunity: "ASSOC-SO" }, contractValueDefault: 2999, anthropicKey: "sk-ant-fake" }, fake);
     companyId = r.companyId;
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
     // the test database is shared with the other suites; park their leftover runs so this file's ticks only ever send for this company
     await asOperator((c) => c.query("update runs set next_run_at = now() + interval '1 day' where company_id <> $1 and status in ('active','waiting')", [companyId]));
-    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(13);
+    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(14);
   });
 
   it("speed-to-lead: email + SMS now; a reply → tag engaged; silence → second email", async () => {
@@ -346,6 +355,71 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(recordWrites.slice(nRec2)[0]).toMatchObject({ op: "create", transaction_id: "pay_leo_2", type: "balance" });
     const ours = await asOperator((c) => many<{ record_key: string; ghl_record_id: string }>(c, "select record_key, ghl_record_id from crm_records where company_id=$1 and contact_id=$2 and object_key='custom_objects.payment' order by created_at", [companyId, id]));
     expect(ours.map((x) => x.record_key)).toEqual(["pay_leo_1", "pay_leo_2"]);
+  });
+
+  it("call-recorded: a Fathom recording matched by invitee email → AI classifies, notes, scores; appointment marked showed (call.held fires), stat-showed, setter card to Showed + won, Sales Call record linked, note, Slack; an internal meeting stops at the check", async () => {
+    // Leo Park (setter-booked scenario, closer card owned by U1) has an appointment ACB2 and a setter card
+    const id = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CCB2'", [companyId])))!.id;
+    const appt = (await asOperator((c) => one<{ id: string; starts_at: Date; external_id: string }>(c, "select id, starts_at, external_id from appointments where company_id=$1 and contact_id=$2 order by starts_at desc limit 1", [companyId, id])))!;
+    const rec: RecordingInput = { externalId: "fathom-1001", title: "Leo Park and Sam Closer", startedAt: new Date(appt.starts_at.getTime() + 2 * 60e3), durationMin: 43, shareUrl: "https://fathom.video/share/abc",
+      recordedBy: { name: "Sam Closer", email: "sam@x.com" }, invitees: [{ name: "Sam Closer", email: "sam@x.com", isExternal: false }, { name: "Leo Park", email: "cb2@x.com", isExternal: true }],
+      transcript: [{ speaker: "Sam Closer", text: "Thanks for hopping on." }, { speaker: "Leo Park", text: "I just want it to stop." }] };
+    const nTags = tags.length, nOpp = oppWrites.length, nRec = recordWrites.length, nRel = relations.length, nAn = analyses.length;
+    const r = await asOperator((c) => recordRecording(c, companyId, rec));
+    expect(r.outcome).toBe("linked"); if (r.outcome !== "linked") return;
+    expect(r.contactId).toBe(id); expect(r.recording.linked_by).toBe("email"); expect(r.appointmentId).toBe(appt.id);
+    await asOperator((c) => dispatchEvent(c, r.event, { contact: { id }, appointment: { id: appt.id } }));
+    await tick(fake);
+    const run = (await runsFor("call-recorded")).find((x) => x.contact_id === id)!;
+    expect(run).toMatchObject({ status: "completed", exit_reason: "recorded" });
+    expect(analyses.slice(nAn)).toHaveLength(3);
+    expect(tags.slice(nTags)).toEqual(["stat-showed"]);
+    expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", stageId: "STAGE-SHOWED", status: "won" })]);   // the setter card; the closer card is untouched
+    const setterCard = await asOperator((c) => one<{ status: string; ghl_stage_id: string }>(c, "select status, ghl_stage_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id='PIPE-SETTER'", [companyId, id]));
+    expect(setterCard).toEqual({ status: "won", ghl_stage_id: "STAGE-SHOWED" });
+    const rw = recordWrites.slice(nRec); expect(rw).toHaveLength(1);
+    expect(rw[0]).toMatchObject({ op: "create", external_id: appt.external_id, outcome: "showed", contact_id: "CCB2", closer: "Sam Closer", duration_min: 43, disposition: "closed_won", objection_primary: "price", recording_url: "https://fathom.video/share/abc" });
+    expect(relations.slice(nRel)).toEqual([`ASSOC-SC:CCB2>rec-${nRec + 1}`, `ASSOC-SO:rec-${nRec + 1}>${rw[0].opportunity_id}`]);
+    const a = await asOperator((c) => one<{ outcome: string | null }>(c, "select t.category as outcome from appointments a left join company_terms t on t.id=a.outcome_term where a.id=$1", [appt.id]));
+    expect(a?.outcome).toBe("showed");
+    const evs = await asOperator((c) => many<{ event_type: string }>(c, "select event_type from events where company_id=$1 and contact_id=$2 and event_type in ('appointment.outcome','call.held','call.analyzed') order by id", [companyId, id]));
+    expect(evs.map((e) => e.event_type)).toEqual(["call.analyzed", "call.analyzed", "call.analyzed", "appointment.outcome", "call.held"]);
+    const stored = await asOperator((c) => one<{ analysis: Record<string, unknown> }>(c, "select analysis from recordings where id=$1", [r.recording.id]));
+    expect(Object.keys(stored!.analysis).sort()).toEqual(["classify", "notes", "rubric"]);
+    const slack = await asOperator((c) => one<{ rendered_body: string; suppressed_reason: string | null }>(c, "select rendered_body, suppressed_reason from sends where run_id=$1 and channel='slack'", [run.id]));
+    expect(slack?.suppressed_reason).toMatch(/slack/);   // channel unbound in this test company; the text is still what matters
+    // a replay of the same recording records nothing new
+    expect((await asOperator((c) => recordRecording(c, companyId, rec))).outcome).toBe("duplicate");
+    // an internal meeting: the AI says not a sales call → nothing written
+    salesCall = false;
+    const internal: RecordingInput = { ...rec, externalId: "fathom-1002", title: "Team sync", invitees: rec.invitees, transcript: [{ speaker: "Sam Closer", text: "Pipeline review." }] };
+    const r2 = await asOperator((c) => recordRecording(c, companyId, internal));
+    expect(r2.outcome).toBe("linked"); if (r2.outcome !== "linked") return;
+    const nTags2 = tags.length, nRec2 = recordWrites.length;
+    await asOperator((c) => dispatchEvent(c, r2.event, { contact: { id } }));
+    await tick(fake); salesCall = true;
+    const run2 = (await runsFor("call-recorded")).filter((x) => x.contact_id === id).at(-1)!;
+    expect(run2).toMatchObject({ status: "completed", exit_reason: "not_a_sales_call" });
+    expect(tags.length).toBe(nTags2); expect(recordWrites.length).toBe(nRec2);
+  });
+
+  it("call-recorded, unmatched: a stranger's recording is unlinked with a reason; linking it by hand starts the workflow and remembers the email", async () => {
+    const rec: RecordingInput = { externalId: "fathom-2001", title: "Intro call", startedAt: new Date(Date.now() - 30 * 86400e3), durationMin: 20, recordedBy: { email: "sam@x.com" }, invitees: [{ name: "Sam Closer", email: "sam@x.com" }, { name: "Nobody Known", email: "stranger@z.com" }], transcript: [{ speaker: "Nobody Known", text: "Hi." }] };
+    const r = await asOperator((c) => recordRecording(c, companyId, rec));
+    expect(r.outcome).toBe("unlinked"); if (r.outcome !== "unlinked") return;
+    expect(r.reason).toMatch(/nobody in the CRM matches stranger@z.com/);
+    const id = await newContact("CSTR", "other@z.com");
+    const { event } = await asOperator((c) => linkRecording(c, companyId, r.recording.id, id));
+    expect(event.event_type).toBe("recording.received"); expect(event.data.matched_by).toBe("manual"); expect(event.data.appointment_matched).toBe(false);
+    const ids = await asOperator((c) => many<{ value: string }>(c, "select value from contact_identifiers where contact_id=$1 and kind='email' order by value", [id]));
+    expect(ids.map((x) => x.value)).toEqual(["other@z.com", "stranger@z.com"]);
+    await asOperator((c) => dispatchEvent(c, event, { contact: { id } }));
+    await tick(fake);
+    const run = (await runsFor("call-recorded")).find((x) => x.contact_id === id)!;
+    expect(run).toMatchObject({ status: "completed", exit_reason: "recorded" });
+    const rw = recordWrites.at(-1)!; expect(rw.external_id).toBe("fathom-fathom-2001"); expect(rw.scheduled_at).toBeUndefined();   // no appointment: keyed by the recording, nothing marked showed
+    const slack = await asOperator((c) => one<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [run.id]));
+    expect(slack).toBeTruthy();
   });
 
   it("sms_enabled=false: SMS nodes are suppressed and the run continues", async () => {

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { asOperator, one } from "@/db/client";
 import { recordDisposition } from "@/engine/disposition";
 import { linkPayment } from "@/engine/payments";
+import { linkRecording } from "@/engine/recordings";
 import { dispatchEvent } from "@/engine/dispatch";
 
 export async function toggleWorkflow(formData: FormData) {
@@ -49,4 +50,17 @@ export async function linkPaymentAction(formData: FormData) {
     await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'payment.linked','payment',$2,$3)", [companyId, paymentId, { contact_id: contactId }]);
   });
   revalidatePath(`/c/${slug}/payments`); revalidatePath(`/c/${slug}`);
+}
+
+/** Operator links an unmatched recording to a contact. The recording settles and call-recorded starts, exactly as if it had matched on arrival. */
+export async function linkRecordingAction(formData: FormData) {
+  const slug = String(formData.get("slug")), companyId = String(formData.get("companyId")), recordingId = String(formData.get("recordingId")), contactId = String(formData.get("contactId") ?? "");
+  if (!contactId) return;
+  await asOperator(async (c) => {
+    const { event, appointmentId } = await linkRecording(c, companyId, recordingId, contactId);
+    const appt = appointmentId ? await one<Record<string, unknown>>(c, "select a.id, a.starts_at, a.status, json_build_object('category', t.category) as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [appointmentId]) : null;
+    await dispatchEvent(c, event, { contact: { id: contactId }, appointment: appt ?? undefined });
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'recording.linked','recording',$2,$3)", [companyId, recordingId, { contact_id: contactId }]);
+  });
+  revalidatePath(`/c/${slug}/recordings`); revalidatePath(`/c/${slug}`);
 }

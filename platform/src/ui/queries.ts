@@ -108,3 +108,10 @@ export const companyPayments = (companyId: string, limit = 50) => asOperator((c)
 export const contactsByEmailOrName = (companyId: string, q: string) => asOperator((c) => many<{ id: string; name: string; email: string | null }>(c, `
   select ct.id, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='email' limit 1) as email
   from contacts ct where ct.company_id=$1 and ct.merged_into is null and (exists (select 1 from contact_identifiers i where i.contact_id=ct.id and i.kind='email' and i.value=lower($2)) or lower(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) like '%'||lower($2)||'%') order by ct.updated_at desc limit 8`, [companyId, q.trim()]));
+
+export type RecordingListRow = { id: string; provider: string; external_id: string; title: string | null; started_at: Date; duration_min: number | null; share_url: string | null; recorded_by_email: string | null; recorded_by_name: string | null; invitees: { name?: string; email?: string }[]; link_status: string; linked_by: string | null; unlinked_reason: string | null; contact_id: string | null; contact: string | null; appointment_id: string | null; appointment_at: Date | null; analysis: Record<string, unknown>; has_transcript: boolean };
+export const companyRecordings = (companyId: string, limit = 50) => asOperator((c) => many<RecordingListRow>(c, `
+  select r.id, r.provider, r.external_id, r.title, r.started_at, r.duration_min, r.share_url, r.recorded_by_email, r.recorded_by_name, r.invitees, r.link_status, r.linked_by, r.unlinked_reason, r.contact_id,
+         nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as contact, r.appointment_id, a.starts_at as appointment_at, r.analysis, (r.transcript is not null and jsonb_array_length(r.transcript) > 0) as has_transcript
+  from recordings r left join contacts ct on ct.id=r.contact_id left join appointments a on a.id=r.appointment_id
+  where r.company_id=$1 order by r.started_at desc limit ${limit}`, [companyId]));

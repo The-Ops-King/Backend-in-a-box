@@ -66,6 +66,18 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`insert into event_types values ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment') on conflict do nothing`);
     await c.query(`create table if not exists webhook_deliveries (company_id uuid not null references companies(id), provider text not null, delivery_id text not null, received_at timestamptz not null default now(), primary key (company_id, provider, delivery_id))`);
     await c.query(`create table if not exists crm_records (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id), object_key text not null, record_key text not null, ghl_record_id text, contact_id uuid references contacts(id), properties jsonb not null default '{}', created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (company_id, object_key, record_key))`);
+    // call recordings (D22): same ledger shape as payments
+    await c.query(`insert into event_types values ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call') on conflict do nothing`);
+    await c.query(`alter table events drop constraint if exists events_source_check`);
+    await c.query(`alter table events add constraint events_source_check check (source in ('form','ghl_poll','whop','fathom','zapier','engine','disposition','command_center','user'))`);
+    await c.query(`create table if not exists recordings (
+      id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id), contact_id uuid references contacts(id), appointment_id uuid references appointments(id),
+      provider text not null default 'fathom', external_id text not null, title text, started_at timestamptz not null, ended_at timestamptz, duration_min int, url text, share_url text,
+      recorded_by_email text, recorded_by_name text, invitees jsonb not null default '[]', transcript jsonb, summary text, analysis jsonb not null default '{}',
+      link_status text not null default 'unlinked' check (link_status in ('linked','unlinked')), linked_by text, unlinked_reason text, raw jsonb not null default '{}', received_at timestamptz not null default now(),
+      unique (company_id, provider, external_id))`);
+    await c.query(`create index if not exists recordings_company_id_link_status_idx on recordings (company_id, link_status)`);
+    await c.query(`create index if not exists recordings_company_id_contact_id_idx on recordings (company_id, contact_id)`);
     // appointments ↔ form_submissions reference each other; the disposition pointer must not block deleting a submission
     await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);
     await c.query(`alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id) on delete set null`);

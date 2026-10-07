@@ -6,6 +6,8 @@ import { templates } from "@/templates";
 import { bookingFor, type Adapters, type BookingConfig, type Company } from "@/adapters/types";
 import { calendlyUserByEmail, calendlyWhoAmI } from "@/adapters/calendly/read";
 import { loadCompany } from "./context";
+import { defaultPrompts } from "@/prompts";
+import { fathomCreateWebhook } from "@/adapters/fathom/client";
 
 /** A calendar's mapping: the kind of call it books, and optionally whether every booking on it is self-booked (true) or setter-booked (false). */
 export type CalendarMapping = string | { term: string; selfBooked?: boolean };
@@ -18,6 +20,10 @@ export type InstallInput = {
   bookingCalendar?: string;              // external id bound as calendar.booking (first-call / self-book link used by lead and reactivation templates)
   crm?: Record<string, string>;          // extra crm.* bindings a template needs: pipeline and stage ids, custom field ids (key without the crm. prefix)
   whop?: { webhookSecret: string };      // Whop → /api/webhooks/whop/<companyId>; the ws_ signing secret
+  /** Call recordings. `apiKey` registers Fathom's webhook at install (needs PUBLIC_URL); `webhookSecret` binds one made by hand. Either way the Zapier door is open too. */
+  recording?: { source: "fathom"; apiKey?: string; webhookSecret?: string };
+  anthropicKey?: string;                 // bound as secret.anthropic_key; the analyze node reads it (env ANTHROPIC_API_KEY is the fallback)
+  prompts?: Record<string, string>;      // prompt.<name> overrides; defaults from src/prompts fill the rest
   contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
   templates?: string[];                  // slugs; default all
   enable?: boolean;                      // default false — Tyler's rule: build off, enable deliberately
@@ -26,7 +32,8 @@ export type InstallInput = {
 };
 
 /** D16: upload info, pick templates, done. Idempotent. Workflows install OFF unless enable=true. */
-export async function installCompany(input: InstallInput, adapters: Adapters): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: { zapierPaymentUrl: string; secret: string } }> {
+export type Inbound = { secret: string; zapierPaymentUrl: string; zapierRecordingUrl: string; whopWebhookUrl: string; fathomWebhookUrl: string; fathomWebhook?: string };
+export async function installCompany(input: InstallInput, adapters: Adapters): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: Inbound }> {
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   const calMap: Record<string, { term: string; selfBooked?: boolean }> = Object.fromEntries(Object.entries(input.calendars ?? {}).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
   // resolve the booking source outside the transaction: it talks to Calendly.
@@ -64,6 +71,13 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     }
     for (const [k, v] of Object.entries(input.crm ?? {})) await bind(`crm.${k}`, "id", v);
     if (input.whop?.webhookSecret) await bind("secret.whop_webhook", "secret", input.whop.webhookSecret);
+    if (input.recording?.webhookSecret) await bind("secret.fathom_webhook", "secret", input.recording.webhookSecret);
+    if (input.recording?.apiKey) await bind("secret.fathom_api_key", "secret", input.recording.apiKey);
+    if (input.anthropicKey) await bind("secret.anthropic_key", "secret", input.anthropicKey);
+    // prompts: the company's own text wins; a default fills any prompt a template needs that nobody wrote yet
+    const boundKeys = new Set((await many<{ key: string }>(c, "select key from bindings where company_id=$1", [companyId])).map((b) => b.key));
+    for (const [k, v] of Object.entries(input.prompts ?? {})) await bind(`prompt.${k}`, "text", v);
+    for (const [k, v] of Object.entries(defaultPrompts)) if (!boundKeys.has(`prompt.${k}`) && !(input.prompts ?? {})[k]) await bind(`prompt.${k}`, "text", v);
     // the secret a Zap uses to post into this company; made once, shown on every install so it can be copied again
     let inboundSecret = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='secret.zapier_inbound'", [companyId]))?.value;
     const inboundPlain = inboundSecret ? (await import("./crypto")).decrypt(inboundSecret) : `zi_${randomBytes(24).toString("base64url")}`;
@@ -106,6 +120,15 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       if (input.enable && !missing.length) await c.query("update workflows set enabled=true where id=$1", [wf!.id]);
       installed.push(`${t.slug} → ${missing.length ? `OFF, missing: ${missing.join(", ")}` : input.enable ? "enabled" : "installed OFF"}`);
     }
-    return { companyId, calendars: calendarsOut, installed, inbound: { zapierPaymentUrl: `/api/webhooks/zapier/${companyId}/payment`, secret: inboundPlain } };
+    // Fathom's webhook is registered once per company and remembered; a re-install never makes a second one
+    let fathomWebhook = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='fathom.webhook_id'", [companyId]))?.value.toString("utf8");
+    const publicUrl = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
+    if (input.recording?.apiKey && !fathomWebhook) {
+      if (!publicUrl) throw new Error("recording.apiKey given but PUBLIC_URL is not set: cannot tell Fathom where to deliver");
+      const hook = await fathomCreateWebhook(input.recording.apiKey, `${publicUrl}/api/webhooks/fathom/${companyId}`);
+      await bind("secret.fathom_webhook", "secret", hook.secret); await bind("fathom.webhook_id", "id", hook.id);
+      fathomWebhook = hook.id;
+    }
+    return { companyId, calendars: calendarsOut, installed, inbound: { secret: inboundPlain, zapierPaymentUrl: `/api/webhooks/zapier/${companyId}/payment`, zapierRecordingUrl: `/api/webhooks/zapier/${companyId}/recording`, whopWebhookUrl: `/api/webhooks/whop/${companyId}`, fathomWebhookUrl: `/api/webhooks/fathom/${companyId}`, fathomWebhook } };
   });
 }

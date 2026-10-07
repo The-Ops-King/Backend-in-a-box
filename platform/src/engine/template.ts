@@ -58,7 +58,49 @@ const filters: Record<string, Filter> = {
   lower: (v) => String(v ?? "").toLowerCase(),
   first_name: (v) => String(v ?? "").trim().split(/\s+/)[0] ?? "",
   default: (v, arg) => (v === undefined || v === null || v === "" ? arg : v),
+  json: (v) => (v === undefined ? "" : JSON.stringify(v, null, 2)),
+  // an analysis object as Slack / note text: keys become labels, lists become bullets, anything named like a quote is a blockquote
+  lines: (v) => renderLines(v),
+  truncate: (v, arg) => { const n = Number(arg ?? 300); const s = String(v ?? ""); return s.length > n ? `${s.slice(0, n - 1)}…` : s; },
 };
+
+const isEmpty = (v: unknown) => v === null || v === undefined || v === "" || (Array.isArray(v) && !v.length) || (typeof v === "object" && !Array.isArray(v) && !Object.keys(v as object).length);
+const label = (k: string) => k.replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\s+/g, " ").trim().replace(/\b\w/g, (c) => c.toUpperCase());
+const scalar = (v: unknown) => (typeof v === "boolean" ? (v ? "Yes" : "No") : String(v));
+const isQuoteKey = (k: string) => /quote|verbatim|said/i.test(k);
+/** Generic: walks whatever shape the analysis has, so a prompt change never breaks the message. */
+export function renderLines(v: unknown): string {
+  if (typeof v === "string") return v;
+  const out: string[] = [];
+  const walk = (key: string, value: unknown, depth: number) => {
+    if (isEmpty(value)) return;
+    const pad = "    ".repeat(depth), name = label(key);
+    if (Array.isArray(value)) {
+      if (value.every((x) => typeof x !== "object" || x === null)) {
+        const items = value.filter((x) => !isEmpty(x)).map(scalar); if (!items.length) return;
+        if (isQuoteKey(key)) { out.push(`${pad}*${name}:*`); items.forEach((q) => out.push(`${pad}> _"${q}"_`)); }
+        else if (items.length <= 3 && items.join(", ").length <= 90) out.push(`${pad}*${name}:* ${items.join(", ")}`);
+        else { out.push(`${pad}*${name}:*`); items.forEach((i) => out.push(`${pad}• ${i}`)); }
+        return;
+      }
+      out.push(`${pad}*${name}:*`);
+      for (const obj of value as Record<string, unknown>[]) {
+        if (isEmpty(obj)) continue;
+        const keys = Object.keys(obj).filter((k) => !isEmpty(obj[k])); if (!keys.length) continue;
+        if (keys.length === 1) { out.push(`${pad}• ${scalar(obj[keys[0]])}`); continue; }
+        const lead = keys.find((k) => /name|type|title|label|pain|desire|objection/i.test(k));
+        if (lead) { out.push(`${pad}• *${scalar(obj[lead])}*`); keys.filter((k) => k !== lead).forEach((k) => walk(k, obj[k], depth + 1)); }
+        else keys.forEach((k) => walk(k, obj[k], depth + 1));
+      }
+      return;
+    }
+    if (typeof value === "object") { const o = value as Record<string, unknown>; const keys = Object.keys(o).filter((k) => !isEmpty(o[k])); if (!keys.length) return; out.push(`${pad}*${name}:*`); keys.forEach((k) => walk(k, o[k], depth + 1)); return; }
+    if (isQuoteKey(key)) out.push(`${pad}> _"${scalar(value)}"_`); else out.push(`${pad}*${name}:* ${scalar(value)}`);
+  };
+  if (v && typeof v === "object" && !Array.isArray(v)) Object.entries(v as Record<string, unknown>).forEach(([k, x]) => walk(k, x, 0));
+  else walk("value", v, 0);
+  return out.join("\n");
+}
 function toDT(v: unknown, tz: string): DateTime {
   const dt = v instanceof Date ? DateTime.fromJSDate(v) : typeof v === "string" ? DateTime.fromISO(v) : DateTime.invalid("not a date");
   if (!dt.isValid) throw new Error(`not a datetime: ${String(v)}`);
@@ -83,7 +125,7 @@ export function render(template: string, ctx: Record<string, unknown>, env: Rend
 }
 
 /** Save-time check: every {{path}} must be a known root. Bindings are checked against the manifest separately. */
-export const KNOWN_ROOTS = ["contact", "appointment", "opportunity", "company", "calendar", "slack", "reply", "event", "vars", "crm", "secret", "now", "cards", "record"];
+export const KNOWN_ROOTS = ["contact", "appointment", "opportunity", "company", "calendar", "slack", "reply", "event", "vars", "crm", "secret", "now", "cards", "record", "recording", "prompt"];
 export function referencedPaths(template: string): string[] {
   return [...template.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)/g)].map((m) => m[1]);
 }

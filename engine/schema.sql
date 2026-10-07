@@ -258,6 +258,38 @@ create table crm_records (
 );
 
 -- Idempotency for inbound webhooks: the provider's delivery id, so a retried delivery is a no-op before any parsing.
+-- Call recordings (D22). One row per recording the provider reports, linked to a person or not, same shape as the
+-- payments ledger: identity is a ladder (invitee email → invitee name → the closer's calendar around the start time),
+-- a miss is an unlinked row the team fixes by hand. The transcript lives here, never in a run's context.
+create table recordings (
+  id               uuid primary key default gen_random_uuid(),
+  company_id       uuid not null references companies(id),
+  contact_id       uuid references contacts(id),
+  appointment_id   uuid references appointments(id),
+  provider         text not null default 'fathom',
+  external_id      text not null,                        -- Fathom recording id
+  title            text,
+  started_at       timestamptz not null,
+  ended_at         timestamptz,
+  duration_min     int,
+  url              text,                                 -- provider page (login)
+  share_url        text,                                 -- the link a person clicks
+  recorded_by_email text,
+  recorded_by_name text,
+  invitees         jsonb not null default '[]',          -- [{name, email, is_external}]
+  transcript       jsonb,                                -- [{speaker, email, text, timestamp}]
+  summary          text,                                 -- provider's own summary, markdown
+  analysis         jsonb not null default '{}',          -- what the analyze nodes produced, keyed by the node's `into`
+  link_status      text not null default 'unlinked' check (link_status in ('linked','unlinked')),
+  linked_by        text,                                 -- email | name | calendar | manual
+  unlinked_reason  text,
+  raw              jsonb not null default '{}',
+  received_at      timestamptz not null default now(),
+  unique (company_id, provider, external_id)
+);
+create index on recordings (company_id, link_status);
+create index on recordings (company_id, contact_id);
+
 create table webhook_deliveries (
   company_id   uuid not null references companies(id),
   provider     text not null,
@@ -279,6 +311,7 @@ insert into event_types values
   ('call.held','call'),
   ('message.sent','message'), ('message.received','message'), ('reply.classified','message'),
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
+  ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'),
   ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'),
   ('run.started','engine'), ('run.exited','engine'), ('send.suppressed','engine');
 
@@ -291,7 +324,7 @@ create table events (
   run_id          uuid,
   event_type      text not null references event_types(name),
   occurred_at     timestamptz not null,
-  source          text not null check (source in ('form','ghl_poll','whop','engine','disposition','command_center','user')),
+  source          text not null check (source in ('form','ghl_poll','whop','fathom','zapier','engine','disposition','command_center','user')),
   data            jsonb not null default '{}'
 );
 create index on events (company_id, contact_id, occurred_at);

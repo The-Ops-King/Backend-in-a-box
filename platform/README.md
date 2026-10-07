@@ -39,6 +39,7 @@ confirmation email went out through GHL into the contact's thread, the reminder 
 | call-booked | closing call booked or moved | contact gets appointment date + closer as owner; setter card → Direct Booked Call ("-- Direct") or Appointment Set ("-- Set", setter stamped); closer card created/moved to Scheduled ("-- Direct" / "-- Setter Booked"); tags `stat-booked` + `stat-self-booked`/`stat-set`, nurture tags off; Slack card with intake answers, reschedule link, UTM source. Needs the setter/closer pipeline + stage ids and the custom field ids as `crm.*`; `slack.channel.bookings` optional |
 | call-cancelled | closing call cancelled (a reschedule never fires this) | setter and closer cards → their cancelled stage (move only); appointment date cleared on the contact; rebook task for the closer due in a day with who cancelled and why; `stat-cancelled` on, booked tags off; Slack note. Needs `crm.stage_setter_cancelled`, `crm.stage_closer_cancelled` |
 | payment-recorded | payment linked to a contact | cash collected on the contact = running total; revenue generated stamped once with the program price; `pay-paid-full` (and `pay-plan-active` off) when cleared, else `pay-plan-active`; Payment custom-object record written and linked to the contact and the closer card; Slack line. Needs `crm.field_contact_cash_collected`, `crm.field_contact_revenue_generated`, `crm.assoc_payment_contact`, `crm.assoc_payment_opportunity`, `crm.pipeline_closer`; `slack.channel.payments` optional |
+| call-recorded | a call recording matched to a contact | AI decides whether it is a sales call (else stop), pulls the notes and scores the call against the rubric (`analyze` nodes on `prompt.call_classify` / `prompt.call_notes` / `prompt.call_rubric`); when an appointment matched: appointment recorded as showed (`call.held` fires), `stat-showed`, setter card → Showed and won; Sales Call record written and linked; notes on the contact; Slack review. Needs `secret.anthropic_key`, `crm.stage_setter_showed`, `crm.assoc_sales_call_contact`, `crm.assoc_sales_call_opportunity`; `slack.channel.calls` optional |
 | new-lead | lead created | with a phone: setter-pipeline card "Name -- New" (stage New Lead, stage-entered date today) + tag `stat-new`; without a phone: exit `no_phone`. Needs `crm.pipeline_setter`, `crm.stage_setter_new_lead`, `crm.field_opportunity_stage_entered` (install `crm: {...}`) |
 
 Every message is a template on the workflow, editable per company once the editor exists; until
@@ -73,6 +74,36 @@ Zapier, then **Webhooks by Zapier → POST** to `/api/webhooks/zapier/<companyId
 mapped fields: `transaction_id`, `amount`, `email`, `phone`, `member_id`, `paid_at`, `status`
 (`succeeded` default, or `failed` / `refunded`). Same ledger, same linking, same idempotency on
 the transaction id, so a replayed Zap changes nothing.
+
+## Recordings (D22)
+
+A call recording reaches the engine through either door: Fathom's own webhook at
+`/api/webhooks/fathom/<companyId>` (Standard Webhooks, secret `secret.fathom_webhook`; install
+registers it for you with `recording: { source: "fathom", apiKey }` when `PUBLIC_URL` is set), or a
+Zap posting to `/api/webhooks/zapier/<companyId>/recording` with the same `x-engine-secret` as the
+payment door (body: `recording_id`, `title`, `started_at`, `duration_seconds` or `duration_minutes`,
+`share_url`, `recorded_by_email`, `invitees` as "Name <email>, …" or an array, `transcript` as text or
+an array, `summary`). Either way it is a `recordings` row, matched by invitee email → invitee name →
+the recorder's calendar (one appointment within two hours), or left **unmatched** with the reason, a
+team alert, and a row on `/c/<slug>/recordings` where an operator links it. A linked recording
+emits `recording.received` (with the contact's appointment nearest the start, within a day) and
+templates take it from there. Facts about Fathom's API are in `fathom/01-api-facts.md`.
+
+### Reading a call with AI
+
+The `analyze` node sends the transcript (`{{recording.transcript_text}}` by default) to Claude with a
+prompt bound per company as `prompt.<name>` (kind `text`, defaults shipped in `src/prompts`,
+override with `prompts: { call_notes: "…" }` at install). The answer is parsed as JSON and stored
+under `vars.<into>`, so later steps address its fields (`{{vars.notes.disposition}}`) or render the
+whole thing as Slack/note text with the `lines` filter (`{{vars.notes | lines}}`). The key is
+`secret.anthropic_key` per company (`anthropicKey` at install; env `ANTHROPIC_API_KEY` is the
+fallback); without one the node fails loudly. Analysis runs in shadow too: it writes nothing to the
+CRM, and seeing what the AI would say is the point. Model: Claude Opus 5.5, prompt cached, server-side
+fallback on a safety decline. Each read is a `call.analyzed` event and is kept on the recording row.
+
+`record_outcome` writes an outcome (showed / noshow) onto our appointment row, the same path the
+closer's disposition form takes, so `appointment.outcome` and `call.held` fire for a company whose
+booking source has no outcome (Calendly). `pipeline_card` takes `status: won|lost` to close a card.
 
 ## Pipeline cards (D19)
 
@@ -127,7 +158,7 @@ disagree). Shape and fill say what a step *is*; the outline says what *happened*
 | box | amber | a change in the CRM (tag, note, pipeline card, appointment) |
 | diamond | grey | a decision (check, branch); a check's "if not" path is a dashed edge to its stop |
 | double bar | dark | a wait (for a time, or for a reply) |
-| box | violet | the AI reads a reply |
+| box | violet | the AI reads something (a reply, a transcript) |
 | double circle | dark | the run stops, with its reason |
 
 Outline: green solid = ran, blue dashed = waiting here, red = failed, amber dotted = skipped or
@@ -218,6 +249,8 @@ Once the repo is connected and `DATABASE_URL` exists: push → deploy → migrat
 → the cron takes it from there. `/api/health` should return `{ok:true, companies:N}`.
 
 ## Not built yet (deliberately)
+
+- The no-show half of D22: an appointment with no recording after it ended is not marked `noshow` yet (needs a timed sweep).
 
 Visual editor · app-level login · hosted intake and EOD forms (disposition exists) · signed
 disposition links for Slack · Slack OAuth · opportunity polling from GHL (ours are rule-driven) ·

@@ -1,26 +1,8 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import type { PaymentInput } from "../payments";
+import { verifyStandardWebhook } from "./standard";
 
-/**
- * Whop webhooks follow Standard Webhooks (verified in whop/01-api-facts.md): headers webhook-id, webhook-timestamp,
- * webhook-signature "v1,<base64>"; the signature is HMAC-SHA256 over "{id}.{timestamp}.{raw body}" with the ws_…
- * secret as the key. Timestamps older than five minutes are rejected (replay).
- */
-export function verifyWhopSignature(secret: string, headers: { id: string | null; timestamp: string | null; signature: string | null }, raw: string, now = Date.now()): { ok: true } | { ok: false; why: string } {
-  if (!headers.id || !headers.timestamp || !headers.signature) return { ok: false, why: "missing webhook headers" };
-  const ts = Number(headers.timestamp);
-  if (!Number.isFinite(ts) || Math.abs(now / 1000 - ts) > 300) return { ok: false, why: "timestamp outside tolerance" };
-  const payload = `${headers.id}.${headers.timestamp}.${raw}`;
-  // the secret is used as given (ws_…); Standard Webhooks' whsec_ base64 form is accepted too
-  const keys: Buffer[] = [Buffer.from(secret, "utf8")];
-  if (secret.startsWith("whsec_")) { try { keys.push(Buffer.from(secret.slice(6), "base64")); } catch { /* not base64 */ } }
-  const given = headers.signature.split(/\s+/).map((s) => s.replace(/^v1,/, "")).filter(Boolean);
-  for (const key of keys) {
-    const expected = createHmac("sha256", key).update(payload).digest("base64");
-    for (const g of given) { const a = Buffer.from(g), b = Buffer.from(expected); if (a.length === b.length && timingSafeEqual(a, b)) return { ok: true }; }
-  }
-  return { ok: false, why: "signature mismatch" };
-}
+/** Whop signs with Standard Webhooks (whop/01-api-facts.md); the ws_ secret is used as given. */
+export const verifyWhopSignature = verifyStandardWebhook;
 
 export type WhopEnvelope = { id: string; type: string; api_version?: string; timestamp?: string; account_id?: string; company_id?: string; data: Record<string, unknown> };
 

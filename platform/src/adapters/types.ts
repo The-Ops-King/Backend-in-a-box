@@ -69,5 +69,11 @@ export interface Classifier {
 export interface Notifier {
   post(token: string, channelId: string, text: string): Promise<{ ts: string }>;
 }
-export type Adapters = { read: CrmRead; booking: Record<BookingSource, BookingRead>; write: CrmWrite; sender: Sender; classifier: Classifier; notifier: Notifier };
+/** A long-form read of a document (a call transcript) against an instruction, answered as text or as JSON. */
+export type AnalysisRequest = { system: string; input: string; format: "json" | "text"; maxTokens?: number; model?: string };
+export type AnalysisResult = { text: string; parsed?: unknown; parseError?: string; repaired?: boolean; refused?: string; model: string; usage: { input: number; output: number; cacheRead: number } };
+export interface Analyst {
+  analyze(apiKey: string, req: AnalysisRequest): Promise<AnalysisResult>;
+}
+export type Adapters = { read: CrmRead; booking: Record<BookingSource, BookingRead>; write: CrmWrite; sender: Sender; classifier: Classifier; notifier: Notifier; analyst: Analyst };
 export const bookingFor = (a: Adapters, c: Company): BookingRead => a.booking[c.booking.source];

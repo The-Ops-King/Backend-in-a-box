@@ -25,6 +25,7 @@ const fake: Adapters = {
   sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }) },
   classifier: { choice: async () => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
   notifier: { post: async () => ({ ts: "1" }) },
+  analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 const T0 = "2026-10-20T16:00:00.000Z", T1 = "2026-10-22T18:00:00.000Z";
 const appt = (id: string, over: Partial<AppointmentSnapshot> = {}): AppointmentSnapshot => ({ id, calendarId: "ET1", startTime: T0, endTime: "2026-10-20T16:45:00.000Z", status: "confirmed", assignedUserEmail: "james@x.com", invitee: { email: "pete@x.com", phone: "+18605551234", firstName: "Pete", lastName: "G", timezone: "America/Denver" }, raw: {}, ...over });

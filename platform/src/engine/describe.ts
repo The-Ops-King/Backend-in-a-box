@@ -12,22 +12,23 @@ export function kindOf(n: Node): NodeKind {
   switch (n.type) {
     case "trigger": return "trigger";
     case "send_sms": case "send_email": case "slack_post": return "message";
-    case "set_tag": case "remove_tag": case "note": case "update_appointment": case "update_opportunity": case "pipeline_card": case "update_contact": case "create_task": case "crm_record": return "crm";
+    case "set_tag": case "remove_tag": case "note": case "update_appointment": case "update_opportunity": case "pipeline_card": case "update_contact": case "create_task": case "crm_record": case "record_outcome": return "crm";
     case "check": case "branch": return "decision";
     case "wait": case "wait_for_reply": return "wait";
-    case "classify": return "ai";
+    case "classify": case "analyze": return "ai";
     case "set_var": case "start_workflow": case "pause_runs": return "control";
     case "exit": return "exit";
   }
 }
 
-export const KIND_LABEL: Record<NodeKind, string> = { trigger: "Starts when", message: "Message out", crm: "CRM change", decision: "Decision", wait: "Wait", ai: "AI reads the reply", control: "Flow control", exit: "Stops" };
+export const KIND_LABEL: Record<NodeKind, string> = { trigger: "Starts when", message: "Message out", crm: "CRM change", decision: "Decision", wait: "Wait", ai: "AI reads", control: "Flow control", exit: "Stops" };
 
 const EVENTS: Record<string, string> = {
   "lead.created": "New lead created", "contact.created": "New contact created",
   "appointment.booked": "Appointment booked", "appointment.rescheduled": "Appointment rescheduled", "appointment.status_changed": "Appointment status changed", "appointment.outcome": "Call outcome recorded",
   "call.held": "Call held", "message.received": "Reply received", "tag.added": "Tag added", "tag.removed": "Tag removed",
   "payment.received": "Payment received", "payment.failed": "Payment failed", "payment.paid_in_full": "Paid in full",
+  "recording.received": "Call recording received", "recording.unlinked": "Recording with no matching contact", "recording.linked": "Recording linked to a contact", "call.analyzed": "AI finished reading a call",
   "opportunity.opened": "Opportunity opened", "opportunity.won": "Deal won", "opportunity.lost": "Opportunity lost", "form.submitted": "Form submitted",
 };
 const PATHS: Record<string, string> = {
@@ -38,6 +39,8 @@ const PATHS: Record<string, string> = {
   "event.status.to": "new status", "event.status.from": "previous status", "event.outcome": "outcome", "event.tag": "tag",
   "reply.intent": "the reply", "reply.last_inbound.body": "their reply", "reply.last_outbound.body": "our last message", "reply.top_guesses": "top guesses",
   "opportunity.status": "opportunity status", "company.name": "company name", "calendar.closer_call.url": "booking link", "calendar.booking.url": "booking link", "now": "today",
+  "recording.transcript_text": "the transcript", "recording.share_url": "recording link", "recording.title": "meeting title", "recording.started_at": "recording start", "recording.duration_min": "call length (minutes)", "recording.closer.name": "closer", "recording.closer.ghl_user_id": "the closer", "recording.recorded_by.name": "who recorded", "recording.summary": "the recorder's summary", "recording.invitee_names": "attendees", "recording.matched_by": "how the contact was matched", "recording.external_id": "recording id",
+  "appointment.id": "an appointment", "appointment.external_id": "appointment id", "appointment.outcome": "appointment outcome", "event.appointment_matched": "a matching appointment",
 };
 const VALUES: Record<string, string> = { noshow: "no-show", reschedule_request: "a reschedule request", follow_up: "follow up", first_call: "first call", closing: "closing call" };
 
@@ -54,6 +57,8 @@ export function pathWords(p: unknown): string {
   if (path.startsWith("contact.fields.")) return humanWords(path.slice("contact.fields.".length));
   if (path.startsWith("cards.")) return `the ${humanWords(path.split(".")[1])} card${path.split(".").length > 2 ? ` ${humanWords(path.split(".").slice(2).join(" "))}` : ""}`;
   if (path.startsWith("record.")) return `the record ${humanWords(path.slice(7))}`;
+  if (path.startsWith("prompt.")) return `the “${humanWords(path.slice(7))}” prompt`;
+  if (path.startsWith("recording.")) return humanWords(path.slice(10));
   return humanWords(path.split(".").slice(-2).join(" "));
 }
 /** Message templates keep their text; bindings inside become their plain name so the chart does not show `{{calendar.closer_call.url}}`. */
@@ -87,7 +92,7 @@ export function waitWords(rule: WaitRule): string {
 }
 const guardWords = (rule: WaitRule) => rule.guard ? ` (if that is less than ${durationWords(rule.guard.min_lead)} away, use ${waitWords({ ...rule, offset: rule.guard.fallback, guard: undefined }).replace(/^Wait until /, "")} instead)` : "";
 
-export const exitWords = (reason: string) => ({ done: "Done", booked: "Done: booking recorded", cancelled_recorded: "Done: cancellation recorded", recorded: "Done: recorded", sent: "Done: sent", replied: "Done: they replied", no_reply: "Stop: no reply", no_phone: "Stop: no phone number", confirmed: "Done: confirmed", cancelled: "Done: cancelled", reschedule_sent: "Done: reschedule link sent", handed_to_human: "Stop: handed to a human", escalated: "Stop: escalated", sequence_done: "Done: sequence finished" } as Record<string, string>)[reason] ?? `Stop: ${humanWords(reason)}`;
+export const exitWords = (reason: string) => ({ done: "Done", not_a_sales_call: "Stop: not a sales call", recorded_no_appointment: "Done: recorded, no appointment matched", booked: "Done: booking recorded", cancelled_recorded: "Done: cancellation recorded", recorded: "Done: recorded", sent: "Done: sent", replied: "Done: they replied", no_reply: "Stop: no reply", no_phone: "Stop: no phone number", confirmed: "Done: confirmed", cancelled: "Done: cancelled", reschedule_sent: "Done: reschedule link sent", handed_to_human: "Stop: handed to a human", escalated: "Stop: escalated", sequence_done: "Done: sequence finished" } as Record<string, string>)[reason] ?? `Stop: ${humanWords(reason)}`;
 
 export type NodeText = { title: string; detail?: string; quote?: string };
 
@@ -103,6 +108,8 @@ export function describeNode(n: Node): NodeText {
     case "send_email": return { title: `Send email: “${templateWords(n.subject)}”`, quote: templateWords(n.template) };
     case "slack_post": return { title: `Post to Slack (${pathWords(n.channel)})`, quote: templateWords(n.template) };
     case "classify": return { title: "AI reads the reply", detail: `Decides between the ${humanWords(n.domain)} options; below ${Math.round(n.threshold * 100)}% sure counts as unclear` };
+    case "analyze": return { title: `AI reads ${pathWords(n.input)} with ${pathWords(n.prompt)}`, detail: `Answer saved as ${humanWords(n.into)}${n.format === "json" ? " (structured)" : ""}` };
+    case "record_outcome": return { title: `Record the appointment as ${value(n.outcome)}`, detail: n.call_outcome ? `Call outcome ${value(n.call_outcome)}` : "On our record of the appointment; a show also fires “call held”" };
     case "set_tag": { const t = Array.isArray(n.tag) ? n.tag : [n.tag]; return { title: `Add tag${t.length > 1 ? "s" : ""} ${t.map((x) => `“${x}”`).join(", ")}` }; }
     case "remove_tag": { const t = Array.isArray(n.tag) ? n.tag : [n.tag]; return { title: `Remove tag${t.length > 1 ? "s" : ""} ${t.map((x) => `“${x}”`).join(", ")}` }; }
     case "update_contact": {
@@ -114,7 +121,7 @@ export function describeNode(n: Node): NodeText {
     case "update_opportunity": return { title: `Update opportunity: ${Object.entries(n.set).map(([k, v]) => `${humanWords(k)} → ${value(v)}`).join(", ")}` };
     case "pipeline_card": return {
       title: n.stage ? `${n.if_missing === "skip" ? "Move" : "Create or move"} pipeline card${n.name ? ` “${templateWords(n.name)}”` : ""}` : `Update the ${pathWords(n.pipeline)} card`,
-      detail: `${n.stage ? `In the ${pathWords(n.pipeline)}, stage ${pathWords(n.stage)}` : "Card stays where it is"}${n.assign_to ? `; owner → ${pathWords(n.assign_to)}` : ""}${n.fields.length ? `; set ${n.fields.map((f) => `${pathWords(f.id)} = ${templateWords(f.value)}`).join(", ")}` : ""}${n.if_missing === "skip" ? "; only if the card already exists" : ""}` };
+      detail: `${n.stage ? `In the ${pathWords(n.pipeline)}, stage ${pathWords(n.stage)}` : "Card stays where it is"}${n.status ? `; marked ${n.status}` : ""}${n.assign_to ? `; owner → ${pathWords(n.assign_to)}` : ""}${n.fields.length ? `; set ${n.fields.map((f) => `${pathWords(f.id)} = ${templateWords(f.value)}`).join(", ")}` : ""}${n.if_missing === "skip" ? "; only if the card already exists" : ""}` };
     case "crm_record": return { title: `Write ${humanWords(n.object.replace(/^custom_objects\./, ""))} record`, detail: `Keyed by ${pathWords(n.key)}; ${Object.keys(n.properties).length} fields${n.relate.length ? `; linked to ${n.relate.length} related record${n.relate.length > 1 ? "s" : ""}` : ""}` };
     case "create_task": return { title: `Task for ${n.assign_to ? pathWords(n.assign_to) : "the team"}: “${templateWords(n.title)}”`, detail: `Due in ${durationWords(n.due)}`, quote: n.body ? templateWords(n.body) : undefined };
     case "set_var": return { title: `Remember ${humanWords(n.key)} = ${typeof n.value === "string" ? templateWords(n.value) : JSON.stringify(n.value)}` };

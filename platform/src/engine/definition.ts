@@ -55,7 +55,13 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("update_appointment"), set: z.record(z.unknown()) }),
   z.object({ ...base, type: z.literal("update_opportunity"), set: z.record(z.unknown()) }),
   // A card on a CRM pipeline board. One open card per contact per pipeline: re-firing moves/renames it instead of duplicating. Cards hang off the contact's one open opportunity.
-  z.object({ ...base, type: z.literal("pipeline_card"), pipeline: z.string(), stage: z.string().optional(), name: z.string().optional(), assign_to: z.string().optional(), if_missing: z.enum(["create", "skip"]).default("create"), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
+  // `status` closes the card (won/lost): the board's terminal column. A closed card no longer counts as the contact's open card on that board.
+  z.object({ ...base, type: z.literal("pipeline_card"), pipeline: z.string(), stage: z.string().optional(), name: z.string().optional(), assign_to: z.string().optional(), status: z.enum(["open", "won", "lost", "abandoned"]).optional(), if_missing: z.enum(["create", "skip"]).default("create"), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
+  // Reads a document (the call transcript by default) against a prompt bound per company ({{prompt.<name>}}), answer stored under vars.<into>.
+  // json: the answer is parsed and its fields are addressable ({{vars.notes.summary}}); text: stored as a string.
+  z.object({ ...base, type: z.literal("analyze"), prompt: z.string(), input: z.string().default("{{recording.transcript_text}}"), into: z.string(), format: z.enum(["json", "text"]).default("json"), max_tokens: z.number().int().positive().optional() }),
+  // Writes the appointment's outcome on OUR row (showed / noshow / …), the same path the closer's disposition form takes; call.held follows a show.
+  z.object({ ...base, type: z.literal("record_outcome"), outcome: z.string(), call_outcome: z.string().optional(), notes: z.string().optional() }),
   // A record on a CRM custom object (payment, sales call, …), upserted by our own key so the CRM's lagging search is never consulted.
   // `properties` values are templates; an empty rendered value is left out. `relate` links the record to other records by association id.
   z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string(), properties: z.record(z.string()), owner: z.string().optional(),
@@ -95,7 +101,7 @@ export type Definition = z.infer<typeof Definition>;
 
 // ---- manifest: every {{binding}} the definition references (D3) --------------------
 export type ManifestEntry = { key: string; kind: "secret" | "id" | "text" | "channel" | "number"; required: boolean; resolves?: string };
-const BINDING_PREFIXES: Record<string, ManifestEntry["kind"]> = { "crm.": "id", "calendar.": "id", "slack.channel.": "channel", "secret.": "secret" };
+const BINDING_PREFIXES: Record<string, ManifestEntry["kind"]> = { "crm.": "id", "calendar.": "id", "slack.channel.": "channel", "secret.": "secret", "prompt.": "text" };
 
 export function extractManifest(def: Definition): { bindings: ManifestEntry[] } {
   const refs = new Set<string>();
@@ -105,12 +111,14 @@ export function extractManifest(def: Definition): { bindings: ManifestEntry[] } 
     else if (v && typeof v === "object") Object.values(v).forEach(walk);
   };
   walk(def.nodes); walk(def.edges);
+  // an analyze node needs the company's Anthropic key even though no template mentions it
+  if (def.nodes.some((n) => n.type === "analyze")) refs.add("secret.anthropic_key");
   const out = new Map<string, ManifestEntry>();
   for (const ref of refs) {
     for (const [prefix, kind] of Object.entries(BINDING_PREFIXES)) {
       if (!ref.startsWith(prefix)) continue;
       // calendar.closer_call.url → binding key calendar.closer_call
-      const key = prefix === "calendar." ? ref.split(".").slice(0, 2).join(".") : prefix === "slack.channel." ? ref.split(".").slice(0, 3).join(".") : ref;
+      const key = prefix === "calendar." || prefix === "prompt." ? ref.split(".").slice(0, 2).join(".") : prefix === "slack.channel." ? ref.split(".").slice(0, 3).join(".") : ref;
       const required = kind !== "channel";
       out.set(key, { key, kind, required, ...(prefix === "calendar." ? { resolves: "calendars" } : {}) });
     }

@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { decrypt } from "./crypto";
 import type { BookingConfig, Company } from "@/adapters/types";
+import { transcriptText, type RecordingRow } from "./recordings";
 
 export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date };
 export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; status: string; sms_enabled: boolean; mode: "shadow" | "live" };
@@ -42,8 +43,16 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     vars: (run.context.vars as Record<string, unknown>) ?? {},
     reply: { ...((run.context.reply as Record<string, unknown>) ?? {}), ...derivedReply },   // last_inbound/last_outbound are re-derived every tick; intent/confidence from classify persist
     event: run.context.event ?? {},
-    calendar: {}, slack: { channel: {} }, crm: {},
+    calendar: {}, slack: { channel: {} }, crm: {}, prompt: {},
   };
+  // the recording a run was started by (recording.received) — read from the ledger every tick, never copied into the run's context
+  const recId = (run.context.event as { recording_id?: string } | undefined)?.recording_id;
+  if (recId) {
+    const r = await one<RecordingRow & { closer_name: string | null; closer_ghl: string | null }>(c, "select r.*, u.name as closer_name, u.ghl_user_id as closer_ghl from recordings r left join users u on u.company_id=r.company_id and lower(u.email)=r.recorded_by_email where r.id=$1", [recId]);
+    if (r) ctx.recording = { id: r.id, provider: r.provider, external_id: r.external_id, title: r.title, started_at: r.started_at.toISOString(), ended_at: r.ended_at?.toISOString(), duration_min: r.duration_min, url: r.url, share_url: r.share_url,
+      recorded_by: { name: r.recorded_by_name, email: r.recorded_by_email }, closer: r.closer_name ? { name: r.closer_name, first_name: r.closer_name.split(" ")[0], ghl_user_id: r.closer_ghl } : undefined,
+      invitees: r.invitees, invitee_names: r.invitees.map((i) => i.name).filter(Boolean).join(", "), transcript_text: transcriptText(r.transcript), has_transcript: !!r.transcript?.length, summary: r.summary, matched_by: r.linked_by, analysis: r.analysis };
+  }
   if (run.appointment_id) {
     const a = await one<Record<string, unknown>>(c, `
       select a.id, a.source, a.external_id, a.starts_at, a.ends_at, a.status, a.self_booked, a.set_by, a.reschedule_url, a.cancel_url, a.tracking, a.cancelled_by, a.cancel_reason,
@@ -69,6 +78,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       (ctx.calendar as Record<string, unknown>)[key] = { id: v, name: cal?.name, url: bindings[`${k}.url`] ?? cal?.booking_url ?? `https://api.leadconnectorhq.com/widget/booking/${v}` };
     } else if (k.startsWith("slack.channel.")) ((ctx.slack as { channel: Record<string, string> }).channel)[k.slice("slack.channel.".length)] = v;
     else if (k.startsWith("crm.")) (ctx.crm as Record<string, string>)[k.slice(4)] = v;
+    else if (k.startsWith("prompt.")) (ctx.prompt as Record<string, string>)[k.slice(7)] = v;
   }
   return ctx;
 }

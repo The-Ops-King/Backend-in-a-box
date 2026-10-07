@@ -1,0 +1,227 @@
+{
+  "slug": "call-recorded",
+  "name": "Call recorded",
+  "category": "calls",
+  "description": "A call recording arrived and was matched to a contact: the AI decides whether it is a sales call (anything else stops here), pulls the notes and scores the call against the rubric; when an appointment matched, the appointment is recorded as showed, stat-showed is added and the setter card moves to Showed and is marked won; the Sales Call record is written and linked, the notes go on the contact, and the team gets the review in Slack.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "recording.received"
+      },
+      {
+        "id": "a1",
+        "type": "analyze",
+        "prompt": "{{prompt.call_classify}}",
+        "into": "classify"
+      },
+      {
+        "id": "c1",
+        "type": "check",
+        "when": {
+          "eq": [
+            "{{vars.classify.is_sales_call}}",
+            true
+          ]
+        },
+        "else_exit": "not_a_sales_call"
+      },
+      {
+        "id": "a2",
+        "type": "analyze",
+        "prompt": "{{prompt.call_notes}}",
+        "into": "notes"
+      },
+      {
+        "id": "a3",
+        "type": "analyze",
+        "prompt": "{{prompt.call_rubric}}",
+        "into": "rubric"
+      },
+      {
+        "id": "b1",
+        "type": "branch"
+      },
+      {
+        "id": "o1",
+        "type": "record_outcome",
+        "outcome": "showed"
+      },
+      {
+        "id": "o2",
+        "type": "set_tag",
+        "tag": [
+          "stat-showed"
+        ]
+      },
+      {
+        "id": "o3",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_showed}}",
+        "status": "won",
+        "if_missing": "skip"
+      },
+      {
+        "id": "k1",
+        "type": "set_var",
+        "key": "call_key",
+        "value": "{{appointment.external_id}}"
+      },
+      {
+        "id": "k3",
+        "type": "set_var",
+        "key": "appt_line",
+        "value": "*Appointment:* {{appointment.starts_at | date_company}} · marked showed"
+      },
+      {
+        "id": "k2",
+        "type": "set_var",
+        "key": "call_key",
+        "value": "{{recording.provider}}-{{recording.external_id}}"
+      },
+      {
+        "id": "k4",
+        "type": "set_var",
+        "key": "appt_line",
+        "value": "⚠️ No appointment matched this recording — nothing marked showed. Check the contact's bookings."
+      },
+      {
+        "id": "r1",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{vars.call_key}}",
+        "properties": {
+          "display_label": "{{contact.name | default:Unknown}} — {{recording.started_at | date_company:yyyy-MM-dd}}",
+          "external_id": "{{vars.call_key}}",
+          "contact_id": "{{contact.ghl_contact_id | default:}}",
+          "opportunity_id": "{{cards.closer.id | default:}}",
+          "scheduled_at": "{{appointment.starts_at | default:}}",
+          "call_date": "{{recording.started_at | date_company:yyyy-MM-dd}}",
+          "outcome": "showed",
+          "recording_url": "{{recording.share_url | default:}}",
+          "transcript_ref": "{{recording.url | default:}}",
+          "closer": "{{recording.closer.name | default:}}",
+          "duration_min": "{{recording.duration_min | default:}}",
+          "disposition": "{{vars.notes.disposition | default:}}",
+          "objection_primary": "{{vars.notes.primary_objection | default:}}",
+          "next_step": "{{vars.notes.next_step | default:}}",
+          "next_step_date": "{{vars.notes.next_step_date | default:}}",
+          "payment_terms": "{{vars.notes.payment_terms | default:}}",
+          "setter": "{{contact.fields.setter | default:}}"
+        },
+        "relate": [
+          {
+            "association": "{{crm.assoc_sales_call_contact}}",
+            "first": "{{contact.ghl_contact_id | default:}}",
+            "second": "{{record.id}}"
+          },
+          {
+            "association": "{{crm.assoc_sales_call_opportunity}}",
+            "first": "{{record.id}}",
+            "second": "{{cards.closer.id | default:}}"
+          }
+        ],
+        "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}} · {{recording.closer.name | default:closer unknown}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}"
+      },
+      {
+        "id": "n1",
+        "type": "note",
+        "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.closer.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}"
+      },
+      {
+        "id": "s1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.calls}}",
+        "template": "*Call:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{recording.title | default:untitled}} · {{recording.duration_min | default:?}} min · *Closer:* {{recording.closer.name | default:unknown}}\n{{vars.appt_line}}\n\n{{vars.notes | lines}}\n\n*Call review:* {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\n*Recording:* {{recording.share_url | default:—}}"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "recorded"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "a1"
+      },
+      {
+        "from": "a1",
+        "to": "c1"
+      },
+      {
+        "from": "c1",
+        "to": "a2"
+      },
+      {
+        "from": "a2",
+        "to": "a3"
+      },
+      {
+        "from": "a3",
+        "to": "b1"
+      },
+      {
+        "from": "b1",
+        "to": "o1",
+        "when": {
+          "exists": "appointment.id"
+        },
+        "label": "appointment matched"
+      },
+      {
+        "from": "b1",
+        "to": "k2",
+        "else": true,
+        "label": "no appointment matched"
+      },
+      {
+        "from": "o1",
+        "to": "o2"
+      },
+      {
+        "from": "o2",
+        "to": "o3"
+      },
+      {
+        "from": "o3",
+        "to": "k1"
+      },
+      {
+        "from": "k1",
+        "to": "k3"
+      },
+      {
+        "from": "k3",
+        "to": "r1"
+      },
+      {
+        "from": "k2",
+        "to": "k4"
+      },
+      {
+        "from": "k4",
+        "to": "r1"
+      },
+      {
+        "from": "r1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "s1"
+      },
+      {
+        "from": "s1",
+        "to": "x1"
+      }
+    ]
+  }
+}

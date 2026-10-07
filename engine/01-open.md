@@ -209,3 +209,10 @@ Calendly carries an invitee `no_show` mark (mapped to `noshow` when present) but
 use it. Hair's truth is: a Fathom recording exists for the call → showed, otherwise no-show.
 That is the next automation to build; until then Hair appointments have no outcome and the
 no-show-recovery and post-call-follow-up workflows cannot start for them.
+
+Status 2026-10-07: the show half is built (D22). A Fathom recording (direct webhook or via a Zap)
+becomes a `recordings` row, is matched to the contact and their appointment, and the
+`call-recorded` template records the appointment as showed through `record_outcome`, so
+`appointment.outcome` and `call.held` fire. Still open: the no-show half. Nothing yet marks an
+appointment `noshow` when no recording arrives; that needs a timed sweep (an appointment whose end
+passed N minutes ago with no recording and no outcome → noshow) and is the next piece.

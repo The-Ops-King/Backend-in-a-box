@@ -23,6 +23,7 @@ const fake: Adapters = {
   sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }) },
   classifier: { choice: async () => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
   notifier: { post: async () => ({ ts: "1" }) },
+  analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 const snap = (id: string, when: string): ContactSnapshot => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: when, dateAdded: when });
 

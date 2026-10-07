@@ -8,6 +8,7 @@ import { render, resolvePath, parseDuration, StaleTemplateError, UnknownPathErro
 import { computeWaitUntil, deferIntoWindow } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
 import { emitEvent } from "./dispatch";
+import { applyOutcome, outcomeTermFor } from "./disposition";
 
 export type StepOutcome =
   | { status: "ok"; next: string | null; result?: Record<string, unknown> }
@@ -202,7 +203,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
       if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
       if (!card && node.if_missing === "skip") return { status: "skipped", next, result: { why: "no open card on this board to move; this step never creates one" } };
-      const write = { pipelineId, stageId, name, status: "open" as const, assignedUserId, customFields };
+      const write = { pipelineId, stageId, name, status: node.status ?? ("open" as const), assignedUserId, customFields };
       // the pursuit the card belongs to: the run's, else the contact's open one, else a new one
       let oppId = d.run.opportunity_id ?? card?.opportunity_id ?? (await one<{ id: string }>(d.c, "select id from opportunities where company_id=$1 and contact_id=$2 and status='open' order by opened_at desc limit 1", [d.company.id, d.run.contact_id]))?.id;
       if (!oppId) {
@@ -212,18 +213,18 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const ownerRow = assignedUserId ? await one<{ id: string }>(d.c, "select id from users where company_id=$1 and ghl_user_id=$2", [d.company.id, assignedUserId]) : undefined;
       if (card) {
         if (!shadow(d) && card.ghl_opportunity_id) await d.adapters.write.updateOpportunity(d.adapterCompany, card.ghl_opportunity_id, write);
-        await d.c.query("update pipeline_cards set name=$2, ghl_stage_id=$3, assigned_user_id=coalesce($4, assigned_user_id), updated_at=now() where id=$1", [card.id, name, stageId, ownerRow?.id ?? null]);
+        await d.c.query("update pipeline_cards set name=$2, ghl_stage_id=$3, assigned_user_id=coalesce($4, assigned_user_id), status=coalesce($5, status), updated_at=now() where id=$1", [card.id, name, stageId, ownerRow?.id ?? null, node.status ?? null]);
       } else {
         let ghlId: string | null = null;
         if (!shadow(d)) {
           if (!contact?.ghl_contact_id) return { status: "failed", error: "pipeline_card: contact has no CRM id yet" };
           ghlId = (await d.adapters.write.createOpportunity(d.adapterCompany, { ...write, contactId: contact.ghl_contact_id })).id;
         }
-        await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, assigned_user_id) values ($1,$2,$3,$4,$5,$6,$7,$8)", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name, ownerRow?.id ?? null]);
+        await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, assigned_user_id, status) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name, ownerRow?.id ?? null, node.status ?? "open"]);
       }
       if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
       d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card ? "moved" : "created", name, stage: stageId, fields: customFields } };
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card ? "moved" : "created", name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), fields: customFields } };
     }
     case "crm_record": {
       const objectKey = render(node.object, d.ctx, env(d)), key = render(node.key, d.ctx, env(d));
@@ -282,6 +283,37 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const allowed = new Set(["status", "contract_value", "installments"]);
       for (const [k, v] of Object.entries(node.set)) if (allowed.has(k)) await d.c.query(`update opportunities set ${k}=$2 where id=$1`, [d.run.opportunity_id, v]);
       return { status: "ok", next };
+    }
+    case "analyze": {
+      // not a CRM write, so it runs in shadow too: seeing what the AI would say about a call is the point of shadow
+      const apiKey = d.bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) return { status: "failed", error: "analyze: no Anthropic key — bind secret.anthropic_key for this company" };
+      const system = render(node.prompt, d.ctx, env(d)).trim();
+      if (!system) return { status: "failed", error: `analyze ${node.id}: prompt rendered empty (is the prompt.* binding set?)` };
+      const input = render(node.input, d.ctx, env(d)).trim();
+      if (!input) return { status: "skipped", next, result: { why: "nothing to analyze: input rendered empty (no transcript?)" } };
+      const r = await d.adapters.analyst.analyze(apiKey, { system, input, format: node.format, maxTokens: node.max_tokens });
+      if (r.refused) return { status: "failed", error: `analyze ${node.id}: the model declined (${r.refused})` };
+      const value = node.format === "json" ? (r.parsed ?? { raw: r.text, parse_error: r.parseError }) : r.text;
+      setPath(d.ctx, `vars.${node.into}`, value);
+      const recId = (d.ctx.recording as { id?: string } | undefined)?.id;
+      if (recId) await d.c.query("update recordings set analysis = analysis || $2::jsonb where id=$1", [recId, JSON.stringify({ [node.into]: value })]);
+      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "call.analyzed", source: "engine", data: { node: node.id, into: node.into, model: r.model, tokens: r.usage, parsed: node.format !== "json" || !!r.parsed, repaired: r.repaired ?? false, recording_id: recId } });
+      return node.format === "json" && !r.parsed
+        ? { status: "ok", next, result: { into: node.into, parsed: false, parse_error: r.parseError, model: r.model, tokens: r.usage } }
+        : { status: "ok", next, result: { into: node.into, parsed: true, repaired: r.repaired ?? false, model: r.model, tokens: r.usage, preview: typeof value === "string" ? value.slice(0, 160) : JSON.stringify(value).slice(0, 160) } };
+    }
+    case "record_outcome": {
+      if (!d.run.appointment_id) return { status: "failed", error: "record_outcome with no appointment on run" };
+      const category = render(node.outcome, d.ctx, env(d));
+      const termId = await outcomeTermFor(d.c, d.company.id, category);
+      if (!termId) return { status: "failed", error: `record_outcome: no appointment_outcome term for "${category}"` };
+      const callTerm = node.call_outcome ? await one<{ id: string }>(d.c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2 and active limit 1", [d.company.id, render(node.call_outcome, d.ctx, env(d))]) : null;
+      const notes = node.notes ? render(node.notes, d.ctx, env(d)) : undefined;
+      // ours, never the CRM: a show is a fact about our appointment row, so shadow mode records it too
+      const r = await applyOutcome(d.c, { companyId: d.company.id, appointmentId: d.run.appointment_id, outcomeTermId: termId, callOutcomeTermId: callTerm?.id ?? null, notes, source: "engine", runId: d.run.id, by: `workflow:${node.id}` });
+      if (d.ctx.appointment) (d.ctx.appointment as Record<string, unknown>).outcome = r.outcome;
+      return { status: "ok", next, result: { outcome: r.outcome, events: r.events, runs_started: r.runs } };
     }
     case "set_var": { const v = typeof node.value === "string" ? render(node.value, d.ctx, env(d)) : node.value; setPath(d.ctx, `vars.${node.key}`, v); return { status: "ok", next }; }
     case "pause_runs": {
