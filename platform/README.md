@@ -133,7 +133,7 @@ What the engine stores, and why, in three layers:
    the custom fields a `crm.field_contact_*` binding names; a sub-account can carry hundreds).
    Form answers live as one JSON on the booking (`appointments.answers`) or the contact
    (`intake`), never as a copy of every field.
-2. **Daily rollups** — `metrics_daily`: one row per company, local day, dimension (total / a setter /
+2. **Daily rollups** — `rollups_daily`: one row per company, local day, dimension (total / a setter /
    a closer) and metric, counts and sums only (the table never stores a rate; rates are computed when
    read from numerator and denominator). Recomputed from the ledger per day, so it is a cache, not a
    second truth. Harness rows (`source='test'`, `raw.simulated`) never count.
@@ -148,12 +148,12 @@ deals won, revenue. Per setter: dials, connects, talk, sets, bookings they set. 
 bookings, calendar outcomes, deals, revenue.
 
 **Wrap-ups** are rendered from the rollups and posted to Slack on the company's own clock:
-`report_schedules` has a daily (default 19:00), weekly (Monday 08:00, covering last Mon–Sun) and
+`wrapup_schedules` has a daily (default 19:00), weekly (Monday 08:00, covering last Mon–Sun) and
 monthly (1st at 08:00, covering last month) row per company — time, day, channel (a Slack id, else
 `slack.channel.reports`, else `slack.channel.bookings`), breakdowns (per setter / per closer) and
 sections (what they said = booking-form answers tallied per question) all live there, edited in
 settings › Wrap-ups. Each fires once per period (`last_period_start`), on the first tick after the
-time; a missed day sends late, never twice. Every generated wrap-up is a `reports` row shown on
+time; a missed day sends late, never twice. Every generated wrap-up is a `wrapups` row shown on
 `/c/<slug>/reports` exactly as sent (shadow: recorded, not posted). **Generate now** in settings and
 `POST /api/admin/reports { company, kind, period_start?, period_end? }` make one on demand for the
 period in progress (today so far / this week so far / this month so far).

@@ -73,11 +73,17 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // call recordings (D22): same ledger shape as payments
     await c.query(`insert into event_types values ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call') on conflict do nothing`);
     await c.query(`insert into event_types values ('call.logged','call') on conflict do nothing`);   // D28: phone calls the CRM's dialer logged
-    // D29: daily rollups, report schedules and the generated wrap-ups
-    await c.query(`create table if not exists metrics_daily (company_id uuid not null references companies(id) on delete cascade, day date not null, dimension text not null, dimension_id text not null default '', metric text not null, value numeric not null default 0, computed_at timestamptz not null default now(), primary key (company_id, day, dimension, dimension_id, metric))`);
-    await c.query(`create table if not exists report_schedules (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, kind text not null, enabled boolean not null default true, at_time time not null default '19:00', weekday int not null default 1, day_of_month int not null default 1, channel text, breakdowns text[] not null default '{}', sections jsonb not null default '{}', last_period_start date, unique (company_id, kind))`);
-    await c.query(`create table if not exists reports (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, kind text not null, period_start date not null, period_end date not null, generated_at timestamptz not null default now(), on_demand boolean not null default false, body text not null, numbers jsonb not null default '{}', send_id uuid references sends(id) on delete set null)`);
-    await c.query(`create index if not exists reports_company_id_generated_at_idx on reports (company_id, generated_at)`);
+    // D29: daily rollups, wrap-up schedules and the generated wrap-ups. The database is shared with other apps (a foreign `reports`
+    // table exists in production), so each name is checked first: a same-named table that is not ours fails loudly instead of
+    // being half-used by `create table if not exists`.
+    // the first D29 deploy created two tables under the old names before failing on the foreign "reports"; drop them only if they are ours
+    for (const [t, col] of [["metrics_daily", "dimension"], ["report_schedules", "last_period_start"]] as const)
+      if ((await c.query("select 1 from information_schema.columns where table_schema='public' and table_name=$1 and column_name=$2", [t, col])).rowCount) await c.query(`drop table ${t}`);
+    for (const [t, col] of [["rollups_daily", "dimension"], ["wrapup_schedules", "last_period_start"], ["wrapups", "period_start"]] as const) await ownsOrAbsent(c, t, col);
+    await c.query(`create table if not exists rollups_daily (company_id uuid not null references companies(id) on delete cascade, day date not null, dimension text not null, dimension_id text not null default '', metric text not null, value numeric not null default 0, computed_at timestamptz not null default now(), primary key (company_id, day, dimension, dimension_id, metric))`);
+    await c.query(`create table if not exists wrapup_schedules (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, kind text not null, enabled boolean not null default true, at_time time not null default '19:00', weekday int not null default 1, day_of_month int not null default 1, channel text, breakdowns text[] not null default '{}', sections jsonb not null default '{}', last_period_start date, unique (company_id, kind))`);
+    await c.query(`create table if not exists wrapups (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, kind text not null, period_start date not null, period_end date not null, generated_at timestamptz not null default now(), on_demand boolean not null default false, body text not null, numbers jsonb not null default '{}', send_id uuid references sends(id) on delete set null)`);
+    await c.query(`create index if not exists wrapups_company_id_generated_at_idx on wrapups (company_id, generated_at)`);
     await c.query(`alter table events drop constraint if exists events_source_check`);
     await c.query(`alter table events add constraint events_source_check check (source in (${EVENT_SOURCES}))`);
     await c.query(`create table if not exists recordings (
@@ -128,6 +134,14 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
   } finally {
     c.release();
   }
+}
+
+/** A table we are about to `create if not exists` must be ours (has our sentinel column) or absent; anything else belongs to another app. */
+async function ownsOrAbsent(c: import("pg").PoolClient, table: string, sentinelColumn: string): Promise<void> {
+  const t = await c.query("select 1 from information_schema.tables where table_schema='public' and table_name=$1", [table]);
+  if (t.rowCount === 0) return;
+  const col = await c.query("select 1 from information_schema.columns where table_schema='public' and table_name=$1 and column_name=$2", [table, sentinelColumn]);
+  if (col.rowCount === 0) throw new Error(`table "${table}" exists in this database but is not the engine's (no column "${sentinelColumn}"): pick another name or move the engine to its own schema`);
 }
 
 /** Table names declared in engine/schema.sql plus engine-internal additions. */

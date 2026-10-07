@@ -49,7 +49,7 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='rp'");
-      if (co) { for (const t of ["reports", "report_schedules", "metrics_daily", "sends", "events", "recordings", "payments", "appointments", "opportunities", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { for (const t of ["wrapups", "wrapup_schedules", "rollups_daily", "sends", "events", "recordings", "payments", "appointments", "opportunities", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('RP','rp','UTC') returning id"))!.id;
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3)", [companyId, Buffer.from("L"), encrypt("p")]);
       setter = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id) values ($1,'lu@x.com','Lu Setter','setter','GS') returning id", [companyId]))!.id;
@@ -96,7 +96,7 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
     expect(first.generated.filter((g) => g.company === "rp").map((g) => g.kind)).toEqual(["daily"]);
     const again = await asOperator((c) => runDueReports(c, at1905.plus({ minutes: 1 })));
     expect(again.generated.filter((g) => g.company === "rp")).toEqual([]);
-    expect(await asOperator((c) => many(c, "select 1 from reports where company_id=$1", [companyId]))).toHaveLength(2);
+    expect(await asOperator((c) => many(c, "select 1 from wrapups where company_id=$1", [companyId]))).toHaveLength(2);
     // before 7pm nothing fires
     expect((await asOperator((c) => runDueReports(c, DateTime.fromISO(`${day}T18:00:00`, { zone: "UTC" }).plus({ days: 1 })))).generated.filter((g) => g.company === "rp")).toEqual([]);
   });

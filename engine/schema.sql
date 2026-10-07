@@ -554,7 +554,7 @@ alter table appointments add constraint appointments_disposition_fk foreign key 
 -- Daily rollups (D29). One row per company, local day, dimension and metric; counts and sums only. Rates are computed
 -- when read (numerator / denominator), never stored: an average of averages is wrong. Recomputed from the ledger, so a
 -- row is a cache of facts the engine already holds, not a second source of truth.
-create table metrics_daily (
+create table rollups_daily (
   company_id    uuid not null references companies(id) on delete cascade,   -- derived: goes with the company
   day           date not null,                              -- the company's local day
   dimension     text not null check (dimension in ('total','setter','closer')),
@@ -566,7 +566,7 @@ create table metrics_daily (
 );
 
 -- When each company wants its wrap-ups. Times are the company's local clock. Nothing here is a constant in code.
-create table report_schedules (
+create table wrapup_schedules (
   id                uuid primary key default gen_random_uuid(),
   company_id        uuid not null references companies(id) on delete cascade,
   kind              text not null check (kind in ('daily','weekly','monthly')),
@@ -581,8 +581,9 @@ create table report_schedules (
   unique (company_id, kind)
 );
 
--- Every wrap-up that was generated, scheduled or on demand, so it can be read without Slack.
-create table reports (
+-- Every wrap-up that was generated, scheduled or on demand, so it can be read without Slack. (Named wrapups, not reports: the
+-- production Postgres is shared with other apps and already had a "reports" table; see ownsOrAbsent in migrate.ts.)
+create table wrapups (
   id            uuid primary key default gen_random_uuid(),
   company_id    uuid not null references companies(id) on delete cascade,
   kind          text not null check (kind in ('daily','weekly','monthly')),
@@ -594,4 +595,4 @@ create table reports (
   numbers       jsonb not null default '{}',                -- the totals behind it
   send_id       uuid references sends(id) on delete set null
 );
-create index on reports (company_id, generated_at);
+create index on wrapups (company_id, generated_at);

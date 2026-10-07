@@ -890,7 +890,7 @@ That is working state, not a report copy. So:
 1. **Ledger** stays, raw rows retained; storage is not the constraint at this scale. Two copies are
    trimmed: the contact replica keeps only the custom fields a binding names (not hundreds), and form
    answers live as one JSON (booking answers on the appointment, intake on the contact).
-2. **Daily rollups** (`metrics_daily`): counts and sums per company, local day, dimension, metric.
+2. **Daily rollups** (`rollups_daily`): counts and sums per company, local day, dimension, metric.
    Rates are never stored (an average of averages is wrong); weekly and monthly are sums of days.
    Recomputed from the ledger, so a rebuild is always possible. Wrap-ups and the bot read these.
 3. **Pointers** for GHL-owned content the engine only acts on; the detail is fetched live.
@@ -900,7 +900,7 @@ and talk time exist only here), its object dates come back as display text that 
 parser, record search caps at 100 and lags writes. GHL stays the place to look at ONE contact's calls
 and transcripts, which it answers well.
 
-Wrap-ups: daily / weekly / monthly, every parameter a row in `report_schedules` (time, day, channel,
+Wrap-ups: daily / weekly / monthly, every parameter a row in `wrapup_schedules` (time, day, channel,
 breakdowns, sections), nothing in code. 7pm company time by default with no "day is not over" line:
 a team whose calls run to 9pm moves the time. Totals by default, per-setter / per-closer switchable.
 "What they said" reads whatever questions the booking source or intake form actually asked — no list

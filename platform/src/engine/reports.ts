@@ -10,7 +10,7 @@ import { readMetrics, rollupRange, type Breakdown, type Totals } from "./metrics
 /**
  * Wrap-ups (D29): "what happened today / this week / this month", computed from the daily rollups and posted to Slack
  * on the company's own schedule. Every number names its denominator; a rate with no denominator is "—", not 0%.
- * Nothing here is a constant: time, weekday, channel, breakdowns and sections are rows in report_schedules.
+ * Nothing here is a constant: time, weekday, channel, breakdowns and sections are rows in wrapup_schedules.
  */
 export type ReportKind = "daily" | "weekly" | "monthly";
 export const REPORT_KINDS: ReportKind[] = ["daily", "weekly", "monthly"];
@@ -23,9 +23,9 @@ const DEFAULTS: Record<ReportKind, Partial<Schedule>> = { daily: { at_time: "19:
 export async function ensureSchedules(c: PoolClient, companyId: string): Promise<Schedule[]> {
   for (const kind of REPORT_KINDS) {
     const d = DEFAULTS[kind];
-    await c.query("insert into report_schedules (company_id, kind, at_time, weekday, day_of_month) values ($1,$2,$3,$4,$5) on conflict (company_id, kind) do nothing", [companyId, kind, d.at_time, d.weekday ?? 1, d.day_of_month ?? 1]);
+    await c.query("insert into wrapup_schedules (company_id, kind, at_time, weekday, day_of_month) values ($1,$2,$3,$4,$5) on conflict (company_id, kind) do nothing", [companyId, kind, d.at_time, d.weekday ?? 1, d.day_of_month ?? 1]);
   }
-  const rows = await many<Schedule & { last_period_start: Date | string | null }>(c, "select * from report_schedules where company_id=$1 order by array_position(array['daily','weekly','monthly'], kind)", [companyId]);
+  const rows = await many<Schedule & { last_period_start: Date | string | null }>(c, "select * from wrapup_schedules where company_id=$1 order by array_position(array['daily','weekly','monthly'], kind)", [companyId]);
   return rows.map((r) => ({ ...r, at_time: String(r.at_time).slice(0, 5), last_period_start: r.last_period_start ? DateTime.fromJSDate(new Date(r.last_period_start)).toISODate() : null }));
 }
 
@@ -155,9 +155,9 @@ export async function generateReport(c: PoolClient, company: CompanyRow, binding
     try { const r = await slackNotifier.post(decrypt(conn!.bot_token), channelId!, body); await c.query("update sends set external_id=$2 where id=$1", [send!.id, r.ts]); posted = true; }
     catch (e) { why = String((e as Error).message); await c.query("update sends set status='failed', error=$2 where id=$1", [send!.id, why]); }
   }
-  const rep = await one<{ id: string }>(c, "insert into reports (company_id, kind, period_start, period_end, on_demand, body, numbers, send_id) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id",
+  const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers, send_id) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id",
     [company.id, s.kind, period.start, period.end, !!opts.onDemand, body, { totals, setters, closers }, send?.id ?? null]);
-  if (!opts.onDemand) await c.query("update report_schedules set last_period_start=$2 where id=$1", [s.id, period.start]);
+  if (!opts.onDemand) await c.query("update wrapup_schedules set last_period_start=$2 where id=$1", [s.id, period.start]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'report.generated','report',$2,$3)", [company.id, rep!.id, { kind: s.kind, period, posted, why, on_demand: !!opts.onDemand }]);
   return { id: rep!.id, body, posted, why, period };
 }
@@ -180,4 +180,4 @@ export async function runDueReports(c: PoolClient, now: DateTime<boolean> = Date
 }
 
 export const companyReports = (c: PoolClient, companyId: string, limit = 30) => many<{ id: string; kind: ReportKind; period_start: string; period_end: string; generated_at: Date; on_demand: boolean; body: string; send_status: string | null }>(c,
-  "select r.id, r.kind, r.period_start::text, r.period_end::text, r.generated_at, r.on_demand, r.body, s.status as send_status from reports r left join sends s on s.id=r.send_id where r.company_id=$1 order by r.generated_at desc limit $2", [companyId, limit]);
+  "select r.id, r.kind, r.period_start::text, r.period_end::text, r.generated_at, r.on_demand, r.body, s.status as send_status from wrapups r left join sends s on s.id=r.send_id where r.company_id=$1 order by r.generated_at desc limit $2", [companyId, limit]);

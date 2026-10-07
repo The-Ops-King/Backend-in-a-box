@@ -66,7 +66,7 @@ async function narrateSince(companyId: string, contactId: string, sinceEventId: 
   await asOperator(async (c) => {
     const co = await one<{ id: string }>(c, "select id from companies where slug='smoke'");
     if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]); await c.query("update appointments set disposition_id=null where company_id=$1", [co.id]);
-      for (const t of ["reports", "report_schedules", "metrics_daily", "sends", "runs", "events", "workflow_triggers", "workflows", "messages", "crm_records", "webhook_deliveries", "payments", "recordings", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+      for (const t of ["wrapups", "wrapup_schedules", "rollups_daily", "sends", "runs", "events", "workflow_triggers", "workflows", "messages", "crm_records", "webhook_deliveries", "payments", "recordings", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
       await c.query("delete from companies where id=$1", [co.id]); }
   });
   const inst = await installCompany({ name: "Smoke (synthetic)", slug: "smoke", timezone: TZ, locationId: "LOC-SMOKE", pit: "pit-fake", mode: "shadow", enable: true,

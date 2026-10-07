@@ -101,8 +101,8 @@ export async function rollupDay(c: PoolClient, companyId: string, day: string, t
   for (const m of ["deals_won", "revenue"] as const) { let t = 0; for (const r of won) { add("closer", r.closer, m, r[m]); t += Number(r[m]) || 0; } add("total", "", m, t); }
 
   for (const [metric, value] of Object.entries(totals)) rows.push({ dimension: "total", dimension_id: "", metric, value });
-  await c.query("delete from metrics_daily where company_id=$1 and day=$2", [companyId, day]);
-  for (const r of rows) await c.query("insert into metrics_daily (company_id, day, dimension, dimension_id, metric, value) values ($1,$2,$3,$4,$5,$6)", [companyId, day, r.dimension, r.dimension_id, r.metric, r.value]);
+  await c.query("delete from rollups_daily where company_id=$1 and day=$2", [companyId, day]);
+  for (const r of rows) await c.query("insert into rollups_daily (company_id, day, dimension, dimension_id, metric, value) values ($1,$2,$3,$4,$5,$6)", [companyId, day, r.dimension, r.dimension_id, r.metric, r.value]);
   return rows;
 }
 
@@ -113,7 +113,7 @@ export async function rollupRange(c: PoolClient, companyId: string, from: string
 
 /** Sums the rollups over a period: totals plus one row per setter / closer, named from the roster. */
 export async function readMetrics(c: PoolClient, companyId: string, from: string, to: string): Promise<{ totals: Totals; setters: Breakdown[]; closers: Breakdown[] }> {
-  const rows = await many<{ dimension: string; dimension_id: string; metric: string; value: string }>(c, "select dimension, dimension_id, metric, sum(value)::text as value from metrics_daily where company_id=$1 and day between $2 and $3 group by 1,2,3", [companyId, from, to]);
+  const rows = await many<{ dimension: string; dimension_id: string; metric: string; value: string }>(c, "select dimension, dimension_id, metric, sum(value)::text as value from rollups_daily where company_id=$1 and day between $2 and $3 group by 1,2,3", [companyId, from, to]);
   const totals: Totals = {}; const by = new Map<string, Breakdown>();
   const names = new Map((await many<{ id: string; name: string }>(c, "select id::text as id, name from users where company_id=$1", [companyId])).map((u) => [u.id, u.name]));
   for (const r of rows) {

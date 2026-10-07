@@ -215,7 +215,7 @@ export async function saveReportScheduleAction(f: FormData) {
   const at = /^\d{2}:\d{2}$/.test(str(f, "at_time")) ? str(f, "at_time") : "19:00";
   await asOperator(async (c) => {
     await ensureSchedules(c, companyId);
-    await c.query(`update report_schedules set enabled=$3, at_time=$4, weekday=$5, day_of_month=$6, channel=nullif($7,''), breakdowns=$8, sections=$9 where company_id=$1 and kind=$2`,
+    await c.query(`update wrapup_schedules set enabled=$3, at_time=$4, weekday=$5, day_of_month=$6, channel=nullif($7,''), breakdowns=$8, sections=$9 where company_id=$1 and kind=$2`,
       [companyId, kind, f.get("enabled") === "on", at, Math.min(7, Math.max(1, Number(str(f, "weekday")) || 1)), Math.min(28, Math.max(1, Number(str(f, "day_of_month")) || 1)), str(f, "channel"), breakdowns, { what_they_said: f.get("section:what_they_said") === "on" }]);
     await audit(c, companyId, "report.schedule", { kind, enabled: f.get("enabled") === "on", at, breakdowns });
   });
