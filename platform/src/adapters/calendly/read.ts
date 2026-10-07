@@ -62,8 +62,8 @@ async function eventsInWindow(c: Company, from: Date, to: Date): Promise<RawEven
   const key = `${c.id}:${from.toISOString()}:${to.toISOString()}`;
   const hit = listCache.get(key);
   if (hit && Date.now() - hit.at < 15_000) return hit.events;
+  // organization-wide: bookings on every host's calendars; the calendar filter happens in appointmentsInWindow
   const q = new URLSearchParams({ organization: b.organization, min_start_time: from.toISOString(), max_start_time: to.toISOString(), count: "100", sort: "start_time:asc" });
-  if (b.user) q.set("user", b.user);
   const events = await calendlyAll<RawEvent>(b.token, `/scheduled_events?${q}`);
   listCache.set(key, { at: Date.now(), events });
   return events;
@@ -75,7 +75,8 @@ export const calendlyBooking: BookingRead = {
     // Round-robin (team) event types are missing from the organization listing (verified), and an offer can have twenty
     // calendars across many hosts, so every member's event types are listed and merged; a type shared by several hosts
     // (round robin) is one calendar with several hosts.
-    const members = b.user ? [{ user: { uri: b.user, email: "", name: "" } }] : await calendlyAll<{ user: { uri: string; email: string; name?: string } }>(b.token, `/organization_memberships?organization=${encodeURIComponent(b.organization)}&count=100`);
+    // `calendly.user` used to scope this to one host; an offer with many hosts needs them all, so every member is listed (D26)
+    const members = await calendlyAll<{ user: { uri: string; email: string; name?: string } }>(b.token, `/organization_memberships?organization=${encodeURIComponent(b.organization)}&count=100`);
     const byId = new Map<string, CalendarSnapshot>();
     for (const m of members) {
       let types: RawEventType[] = [];

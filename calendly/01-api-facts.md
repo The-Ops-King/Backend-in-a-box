@@ -8,7 +8,7 @@ is enough for polling. Verified against the Save Your Hair organization with Dr 
 |---|---|
 | Who am I | `GET /users/me` → `resource.uri`, `resource.current_organization`. Needed for everything else. |
 | Members | `GET /organization_memberships?organization=<uri>` → `user.uri`, `user.email`, `role`. Resolves a host email to a user uri. |
-| Event types | `GET /event_types?user=<uri>` lists that host's types **including round-robin ones**. `?organization=<uri>` omits round-robin types (verified: 5 returned, the two strategy call types missing). Always list by user. |
+| Event types | `GET /event_types?user=<uri>` lists that host's types **including round-robin ones**. `?organization=<uri>` omits round-robin types (verified: 5 returned, the two strategy call types missing). We list every organization member by user and merge (D26); a round-robin type shared by several hosts is one calendar with all its hosts. Each type carries `custom_questions[]` (`name`, `type` e.g. phone_number / string / single_select, `position`, `enabled`, `required`, `answer_choices[]`) and `profile`/`pooling_type` — verified on Hair's two strategy-call types. |
 | Internal note | `event_types[].internal_note` — Hair uses it to mark "Round Robin for Direct Booking" vs "Setter - <name>". We read it at install and store `self_booked` per calendar; we never parse it at runtime. |
 | Scheduling link | `event_types[].scheduling_url` → `calendars.booking_url` → `{{calendar.*.url}}`. |
 | Events | `GET /scheduled_events?organization=&user=&min_start_time=&max_start_time=&count=100&sort=start_time:asc`, paginated by `pagination.next_page` (full URL). `status` is `active` or `canceled`. No "updated since" filter: poll a window and diff, same as GHL calendars. |
