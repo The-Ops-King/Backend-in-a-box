@@ -238,3 +238,11 @@ as a new workflow version with its triggers re-synced; an edited copy is left al
 Dispatch skips a copy that does not parse (audit `workflow.unparseable`) instead of failing the poll,
 and readiness shows it as a blocker. Still open: the `jtr` company's copies are from day one and need
 a re-install to upgrade; runs already in flight stay pinned to the version they started on.
+
+## 27. Version 2: edit everything in the UI, with an agent in it
+Tyler, 2026-10-07. V1 is this chat: he describes, Claude builds and installs, and the dashboard shows
+it worked (chart, steps table, copy, step settings, what happens next, readiness, test harness runs).
+V2 moves the editing into the UI: copy (done), timing of waits, reordering and adding steps, switching
+triggers and conditions, and an agent inside the tool that each company can talk to. Standing practice
+until then: every workflow Claude installs is proven on a test contact with the harness in shadow, and
+the report says what it did and where to look.
