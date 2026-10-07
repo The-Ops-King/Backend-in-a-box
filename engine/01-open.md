@@ -266,3 +266,20 @@ on GHL's field, so revenue history is a count of deals until Whop fills it. Not 
 period's setter-call digests into themes (needs the Anthropic key), and the bot that answers ad-hoc
 questions from the rollups, the ledger and live GHL.
 
+## 30. Agreement workflows (spec captured 2026-10-07, not built)
+Tyler walked through three GHL workflows to port, pending Deal Closed:
+- **Send agreement manually**: tag `sys-send-agreement-manually` → send the "3000 Purchase Agreement"
+  template (GHL Documents & Contracts, template `6a9099fcde81e5217a748adb`) from Dr. Allan
+  (allan@saveyourhairtoday.com, user `4wrjXxkJOLJv6FuAOikb`) → tag `stat-agreement-sent`.
+- **Payment received** (first Whop payment only, Whop → engine door directly; the Zapier → tag → GHL
+  workflow chain retires): if not signed, send + tag as above → note "payment received @ date" →
+  Sales Call record reflects the current phase → closer card → Agreement Sent
+  (`decaf73e-bb76-4eb6-97f5-a3c613a62961`, pipeline `TImaLginykFGirx5loC9`) → Slack "Payment received".
+- **Agreement signed**: new event from polling `GET /proposals/document` (status `completed`,
+  recipient `signedDate`) → tag `stat-agreement-signed` → note "Agreement signed @ date" → Slack.
+Phase on the Sales Call: paid-but-unsigned and signed-but-unpaid must read differently, both → closed.
+Proposed a `phase` field (agreement_sent → deposit_paid → agreement_signed → closed_won); Tyler: not yet,
+no write scope. Blockers Tyler owns: Documents & Contracts write scopes on the PIT (send endpoints 401
+today; reads work), a Whop webhook secret or API key (the engine has never received a Whop payment for
+Hair; the $750 tests went through Zapier), and the Deal Closed walkthrough.
+
