@@ -228,3 +228,13 @@ an entry when the piece ships and the warning disappears). For Hair on 2026-10-0
 - No Slack channels bound: `slack.channel.bookings`, `slack.channel.payments`, `slack.channel.calls`.
 - Hair's own confirmation / reminder / nurture copy is not ported; only new-lead, call-booked, call-cancelled, payment-recorded, call-recorded are installed, so nothing goes to the prospect after a booking yet.
 - Resolved 2026-10-07 (D23): sends carry `kind: human | transactional`; the company setting `quiet_allow_transactional` decides whether receipts go out in dark hours. Hair's choice (transactional allowed, or nothing at all) still has to be made when its confirmation copy is ported.
+
+## 26. Template upgrades (found by the real-contact test, 2026-10-07)
+Hair's New lead copy was installed from the first template version, whose `create_opportunity` node
+was renamed `pipeline_card` the same day. Install never touched an existing copy, so the stored
+definition stopped parsing and the first real lead would have taken the contacts poll down with it.
+Fixed: a re-run of install upgrades every untouched copy (`diverged = false`) to the current template
+as a new workflow version with its triggers re-synced; an edited copy is left alone and reported.
+Dispatch skips a copy that does not parse (audit `workflow.unparseable`) instead of failing the poll,
+and readiness shows it as a blocker. Still open: the `jtr` company's copies are from day one and need
+a re-install to upgrade; runs already in flight stay pinned to the version they started on.

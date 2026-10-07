@@ -41,7 +41,10 @@ export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record
   const started: string[] = [];
   for (const t of triggers) {
     const ver = await one<{ definition: unknown }>(c, "select v.definition from workflow_versions v join workflows w on w.id=v.workflow_id and w.current_version=v.version where w.id=$1", [t.workflow_id]);
-    const { nodes } = indexDefinition(parseDefinition(ver!.definition));
+    let nodes: ReturnType<typeof indexDefinition>["nodes"];
+    // one workflow whose stored definition no longer parses (an old template version, a bad edit) must not take the whole poll down with it
+    try { nodes = indexDefinition(parseDefinition(ver!.definition)).nodes; }
+    catch (err) { await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'workflow.unparseable','workflow',$2,$3)", [e.company_id, t.workflow_id, { event: e.event_type, error: String((err as Error).message).slice(0, 300) }]); continue; }
     const node = nodes.get(t.node_id);
     if (!node || node.type !== "trigger") continue;
     if (node.match && !evaluate(node.match, { ...matchCtx, event: { ...e.data, _source: e.source, _type: e.event_type } })) continue;

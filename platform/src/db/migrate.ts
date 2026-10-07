@@ -1,6 +1,9 @@
 import { db } from "./client";
 import { SCHEMA } from "./schema.sql";
 
+/** Every event source the engine writes; one list so an added source cannot be missed by a later constraint rebuild. */
+const EVENT_SOURCES = ["form", "ghl_poll", "whop", "fathom", "zapier", "engine", "disposition", "command_center", "user", "test"].map((s) => `'${s}'`).join(",");
+
 /** Applies engine/schema.sql (idempotently: skips if `companies` exists) then forces RLS on every tenant table. */
 export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[] }> {
   const c = await db().connect();
@@ -69,7 +72,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // call recordings (D22): same ledger shape as payments
     await c.query(`insert into event_types values ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call') on conflict do nothing`);
     await c.query(`alter table events drop constraint if exists events_source_check`);
-    await c.query(`alter table events add constraint events_source_check check (source in ('form','ghl_poll','whop','fathom','zapier','engine','disposition','command_center','user'))`);
+    await c.query(`alter table events add constraint events_source_check check (source in (${EVENT_SOURCES}))`);
     await c.query(`create table if not exists recordings (
       id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id), contact_id uuid references contacts(id), appointment_id uuid references appointments(id),
       provider text not null default 'fathom', external_id text not null, title text, started_at timestamptz not null, ended_at timestamptz, duration_min int, url text, share_url text,
@@ -81,8 +84,6 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // simulation harness (D23): synthetic appointments and events carry source 'test'; dark-hours policy per company
     await c.query(`alter table appointments drop constraint if exists appointments_source_check`);
     await c.query(`alter table appointments add constraint appointments_source_check check (source in ('ghl','calendly','test'))`);
-    await c.query(`alter table events drop constraint if exists events_source_check`);
-    await c.query(`alter table events add constraint events_source_check check (source in ('form','ghl_poll','whop','fathom','zapier','engine','disposition','command_center','user','test'))`);
     await c.query(`alter table companies add column if not exists quiet_allow_transactional boolean not null default false`);
     // appointments ↔ form_submissions reference each other; the disposition pointer must not block deleting a submission
     await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);

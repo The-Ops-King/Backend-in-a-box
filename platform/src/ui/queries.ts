@@ -50,7 +50,9 @@ export const workflow = (id: string) => asOperator(async (c) => {
   const versions = await many<{ version: number; saved_at: Date; note: string | null }>(c, "select version, saved_at, note from workflow_versions where workflow_id=$1 order by version desc", [id]);
   const bound = (await many<{ key: string }>(c, "select key from bindings where company_id=$1", [w.company_id])).map((b) => b.key);
   const stats = await one<{ total: number; completed: number; waiting: number; exited: number; failed: number }>(c, `select count(*) as total, count(*) filter (where status='completed') as completed, count(*) filter (where status in ('active','waiting')) as waiting, count(*) filter (where status='exited') as exited, count(*) filter (where status='failed') as failed from runs where workflow_id=$1`, [id]);
-  return { ...w, definition: parseDefinition(v!.definition), manifest: v!.manifest, versions, bound, stats: stats! };
+  let definition: Definition | null = null, parseError: string | null = null;
+  try { definition = parseDefinition(v!.definition); } catch (e) { parseError = String((e as Error).message); }
+  return { ...w, definition, parseError, manifest: v!.manifest, versions, bound, stats: stats! };
 });
 
 export const run = (id: string) => asOperator(async (c) => {
