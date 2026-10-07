@@ -45,7 +45,8 @@ export function paymentInputs(p: WhopPayment): PaymentInput[] {
 export type WhopWebhook = { id: string; url: string; enabled: boolean; events: string[]; api_version: string; webhook_secret: string };
 export const WHOP_EVENTS = ["payment.succeeded", "payment.failed", "refund.created"];
 export async function whopCreateWebhook(apiKey: string, url: string): Promise<WhopWebhook> {
-  const res = await fetch(`${BASE}/webhooks`, { method: "POST", headers: headers(apiKey), body: JSON.stringify({ url, api_version: "v1", enabled: true, events: WHOP_EVENTS }) });
+  // `api_version` is rejected since 2026-10 ("new webhooks always use the v1 events"); payload shape is pinned with api_version_date, left unpinned here
+  const res = await fetch(`${BASE}/webhooks`, { method: "POST", headers: headers(apiKey), body: JSON.stringify({ url, enabled: true, events: WHOP_EVENTS }) });
   if (!res.ok) throw new Error(`whop: create webhook ${res.status} ${(await res.text()).slice(0, 200)}`);
   const w = (await res.json()) as WhopWebhook;
   if (!w.webhook_secret) throw new Error("whop: webhook created but no signing secret returned (the key may lack developer:manage_webhook)");

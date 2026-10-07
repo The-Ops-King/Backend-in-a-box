@@ -23,9 +23,13 @@ export type PaymentsSource = (from: Date, to: Date) => Promise<PaymentInput[]>;
 
 const OUTCOME_CATEGORY: Record<string, string> = { showed: "showed", show: "showed", no_show: "noshow", noshow: "noshow", "no-show": "noshow", cancelled: "cancelled", canceled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" };
 
-export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, bindings: Record<string, string>, window: { from: Date; to: Date }, payments?: PaymentsSource): Promise<BackfillReport> {
+export type BackfillStep = "contacts" | "calls" | "appointments" | "outcomes" | "won" | "payments";
+export const BACKFILL_STEPS: BackfillStep[] = ["contacts", "calls", "appointments", "outcomes", "won", "payments"];
+
+/** `only` narrows the pass (a payments-only pull after a key is bound, say); the rollup always runs. */
+export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, bindings: Record<string, string>, window: { from: Date; to: Date }, payments?: PaymentsSource, only?: BackfillStep[]): Promise<BackfillReport> {
   const rep: BackfillReport = { from: window.from.toISOString(), to: window.to.toISOString(), contacts: 0, calls: 0, callsWithTranscript: 0, appointments: 0, outcomes: 0, outcomesUnmatched: 0, won: 0, payments: 0, paymentsUnlinked: 0, days: 0, errors: [] };
-  const step = async (name: string, fn: () => Promise<void>) => { try { await fn(); } catch (e) { rep.errors.push(`${name}: ${String((e as Error).message).slice(0, 300)}`); } };
+  const step = async (name: BackfillStep | "rollups", fn: () => Promise<void>) => { if (name !== "rollups" && only && !only.includes(name)) return; try { await fn(); } catch (e) { rep.errors.push(`${name}: ${String((e as Error).message).slice(0, 300)}`); } };
 
   await step("contacts", async () => {
     const keep = boundFieldIds(bindings);

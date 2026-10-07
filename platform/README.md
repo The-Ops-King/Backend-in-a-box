@@ -168,7 +168,7 @@ period in progress (today so far / this week so far / this month so far).
 
 ### History (backfill)
 
-`POST /api/admin/backfill { company, days? | from?, to? }` (Bearer `$CRON_SECRET`, default 30 days)
+`POST /api/admin/backfill { company, days? | from?, to?, steps? }` (Bearer `$CRON_SECRET`, default 30 days; keep a window to about two weeks per call, the request has 300 s; `steps` narrows to e.g. `["payments"]`)
 reads the window back the way the poll reads forward and writes rows only — no events, no runs:
 contacts with their arrival time (and only the bound custom fields), every dialer call with its
 transcript, bookings from the booking source, outcomes the old Zaps left on GHL's Sales Call object
