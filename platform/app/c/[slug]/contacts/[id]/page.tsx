@@ -5,6 +5,8 @@ import { company, contact } from "@/ui/queries";
 import { ago, badge, when } from "@/ui/format";
 import { simulateAction } from "@/ui/actions";
 import { SIM_ACTIONS } from "@/engine/simulate";
+import { NextUp } from "@/ui/Plan";
+import { plannedRuns } from "@/ui/plan";
 export const dynamic = "force-dynamic";
 const summary = (t: string, d: Record<string, unknown>) => {
   // a status change carries {from, to}: say "confirmed → cancelled", never "[object Object]"
@@ -15,6 +17,7 @@ const summary = (t: string, d: Record<string, unknown>) => {
 export default async function ContactPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
   const { slug, id } = await params; const co = await company(slug); const ct = await contact(id); if (!co || !ct || ct.company_id !== co.id) notFound();
   const name = `${ct.first_name ?? ""} ${ct.last_name ?? ""}`.trim() || "Contact";
+  const live = await plannedRuns({ contactId: ct.id });
   return (<>
     <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / {name}</p>
     <h1>{name}</h1>
@@ -26,7 +29,9 @@ export default async function ContactPage({ params }: { params: Promise<{ slug: 
           <button className={`btn ${a === "reset" ? "btn-off" : ""}`} type="submit" disabled={co.mode === "live"}>{({ create: "Lead comes in", book: "Setter books a call", "book-self": "Books themselves", reschedule: "Reschedules", cancel: "Cancels", pay: "Pays", record: "Call recorded", reset: "Forget this person's runs" } as Record<string, string>)[a]}</button></form>)}
       </div>
     </details>
-    <div className="grid g2" style={{ alignItems: "start" }}>
+    <h2>What happens next</h2>
+    <NextUp runs={live} slug={slug} tz={co.timezone} />
+    <div className="grid g2" style={{ alignItems: "start", marginTop: 18 }}>
       <div>
         <h2 style={{ marginTop: 0 }}>Journey</h2>
         {ct.journey.length === 0 ? <div className="empty">No events yet.</div> :

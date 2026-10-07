@@ -5,6 +5,7 @@ import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { pollAll } from "@/engine/poll";
 import { installCompany } from "@/engine/install";
+import { decideSelfBooked } from "@/engine/poll";
 import type { Adapters, AppointmentSnapshot, ContactSnapshot } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -107,5 +108,18 @@ describe.skipIf(!process.env.DATABASE_URL)("Calendly as the booking source", () 
     events = [appt("EV3", { invitee: { firstName: "Nobody" } })];
     const r = await pollAll(fake);
     expect(r.appointmentsNew).toBe(0); expect(r.errors.filter((e) => e.company === "cal")).toEqual([]);
+  });
+});
+
+describe("setter rule (D24)", () => {
+  it("calendar: the calendar decides; question: a named setter decides; either: a setter calendar or a name means setter-booked", () => {
+    expect(decideSelfBooked("calendar", true, "Luis")).toBe(true);
+    expect(decideSelfBooked("calendar", null, "Luis")).toBeNull();
+    expect(decideSelfBooked("question", null, "Luis")).toBe(false);
+    expect(decideSelfBooked("question", true, "")).toBe(true);
+    expect(decideSelfBooked("either", true, "Luis")).toBe(false);
+    expect(decideSelfBooked("either", false, undefined)).toBe(false);
+    expect(decideSelfBooked("either", null, undefined)).toBe(true);
+    expect(decideSelfBooked(undefined, false, undefined)).toBe(false);
   });
 });

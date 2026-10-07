@@ -749,3 +749,27 @@ A human-sounding message always waits for the company's send window; a transacti
 ("you're booked") goes out at any hour only when `companies.quiet_allow_transactional` is true
 (install `quietHours: { start, end, allowTransactional }`). This answers the smoke-run finding in
 01-open #25 without special-casing any template.
+
+## D24. Setter attribution is a per-company rule, not a template fact
+
+Tyler, 2026-10-07: "there are different ways setter calendars get triggered. Sometimes it's one
+calendar with a specific 'who set this' question." Offers differ, so the rule is bound per company
+(`booking.setter_rule`, install `setterRule`) and the template only ever reads
+`appointment.self_booked`: `calendar` (the calendar is a setter calendar or not — Hair's two event
+types, the default), `question` (one calendar; a setter named in the booking question means
+setter-booked, no name means self-booked), `either`. A fourth strategy for GHL-native bookings (the
+assigned user's role, or a tag on the appointment) can be added as a value without touching a
+template. The harness states the fact outright because it stages the booking itself.
+
+Same day, three operating rules the real-contact test and the "will it fire?" question forced:
+- **The engine reports its own problems.** After every tick: poll failures, cursors failing five
+  times in a row, runs failed in the last ten minutes, workflow copies that no longer parse, a
+  recovery catch-up. Posted once to `OPERATOR_WEBHOOK_URL`, repeated hourly while they persist, shown
+  on the dashboard home. The one thing the engine cannot report is its own scheduler being dead, so
+  `/api/health?assert=fresh` answers 503 when there has been no tick for five minutes — an outside
+  monitor pings it.
+- **Recovery drips per company.** The catch-up cap (20 sends per tick) is per company, so one
+  client's backlog cannot starve another's, and sends are processed in due order; a message that
+  has lost its window (validity) is skipped by the existing staleness rules rather than sent late.
+- **Migrate runs in the build.** `pnpm build` applies the schema before Next compiles, so a deploy can
+  never serve code against yesterday's tables. A migration that fails fails the deploy.

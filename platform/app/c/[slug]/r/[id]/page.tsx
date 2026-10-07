@@ -5,13 +5,17 @@ import { Flow } from "@/ui/Flow";
 import { Mermaid } from "@/ui/Mermaid";
 import { toMermaid } from "@/engine/mermaid";
 import { ago, badge, when } from "@/ui/format";
+import { PlanList } from "@/ui/Plan";
+import { plannedRuns } from "@/ui/plan";
 export const dynamic = "force-dynamic";
 export default async function RunPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
   const { slug, id } = await params; const co = await company(slug); const r = await run(id); if (!co || !r || r.company_id !== co.id) notFound();
+  const plan = ["active", "waiting"].includes(r.status) ? (await plannedRuns({ contactId: r.contact_id })).find((p) => p.run_id === r.id)?.plan ?? [] : [];
   return (<>
     <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / <Link href={`/c/${slug}/w/${r.workflow_id}`}>{r.workflow}</Link> / run</p>
     <h1>{r.workflow} · <Link href={`/c/${slug}/contacts/${r.contact_id}`}>{r.contact.trim() || "contact"}</Link></h1>
     <p className="sub"><span className={badge(r.status)}>{r.status}</span>{r.exit_reason ? ` · ${r.exit_reason}` : ""} · started {ago(r.started_at)}{r.status === "waiting" && r.next_run_at ? ` · next ${when(r.next_run_at, co.timezone)}` : ""}{r.appt ? ` · appointment ${when(r.appt.starts_at, co.timezone)} (${r.appt.term}, ${r.appt.status})` : ""}</p>
+    {["active", "waiting"].includes(r.status) ? <><h2>What happens next</h2><div className="card"><PlanList plan={plan} tz={co.timezone} /></div></> : null}
     <h2>Where this run is</h2>
     <Mermaid chart={toMermaid(r.definition, r.steps, r.current_node)} />
     <div className="grid g2" style={{ alignItems: "start" }}>

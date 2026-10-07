@@ -47,7 +47,7 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
       const cal = await closerCalendar(c, company.id);
       if (!cal) return { ok: false, why: "no closing calendar is mapped for this company" };
       const start = DateTime.now().setZone(tz).plus({ days: x.daysOut ?? 3 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
-      const selfBooked = action === "book-self";
+      const selfBooked = action === "book-self";   // the harness states the fact outright; the company's setter rule is what the poll applies to a real booking
       // the closer: the calendar's own host when we know it (GHL calendars), else the company's bound default closer, else the first closer on the roster — the poll learns it from the booking source, which a staged booking never touches
       const closerId = cal.default_user_id
         ?? (await one<{ id: string }>(c, "select u.id from bindings b join users u on u.company_id=b.company_id and u.ghl_user_id=convert_from(b.value,'utf8') where b.company_id=$1 and b.key='crm.default_closer'", [company.id]))?.id

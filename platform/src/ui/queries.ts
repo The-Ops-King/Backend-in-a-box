@@ -1,6 +1,7 @@
 import { asOperator, many, one } from "@/db/client";
 import { parseDefinition, type Definition } from "@/engine/definition";
 import { companyReadiness } from "@/engine/readiness";
+import { currentProblems } from "@/engine/alerts";
 
 export const listCompanies = () => asOperator((c) => many<{ id: string; name: string; slug: string; status: string; mode: string; timezone: string; contacts: number; workflows: number; active_runs: number; last_poll: Date | null }>(c, `
   select co.id, co.name, co.slug, co.status, co.mode, co.timezone,
@@ -120,3 +121,5 @@ export const companyRecordings = (companyId: string, limit = 50) => asOperator((
   where r.company_id=$1 order by r.started_at desc limit ${limit}`, [companyId]));
 
 export const readiness = (companyId: string, slug: string) => asOperator((c) => companyReadiness(c, companyId, `/c/${slug}`));
+
+export const problems = () => asOperator((c) => currentProblems(c));

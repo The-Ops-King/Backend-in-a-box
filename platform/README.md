@@ -170,6 +170,32 @@ Synthetic appointments have `source = 'test'` and never exist at a booking sourc
 trusts our row for them. The closer on a staged booking is the calendar's host when known, else the
 user bound as `crm.default_closer` (a GHL user id), else the first closer on the roster. Refused while the company is live (`force: true` on the API overrides).
 
+## Seeing what will happen (and when)
+
+Every live run shows its plan: the contact page ("What happens next"), the run page, and the workflow
+page ("In this workflow right now") list, step by step, what the engine will do and the time it will
+release the contact to each step — computed with the same wait, dark-hours and guard rules the runner
+uses (`src/engine/project.ts`). The plan stops at a decision or a reply-wait, because the engine
+cannot know the answer yet. The workflow page also shows the flow as a table (step, kind, what it
+does, where it goes) for checking a flow without reading the chart.
+
+## The engine watching itself
+
+After every tick the engine lists its own problems (poll failures, cursors failing repeatedly, runs
+failed in the last ten minutes, workflow copies that no longer parse, a recovery catch-up), shows them
+on the dashboard home, and POSTs new ones to `OPERATOR_WEBHOOK_URL` (a Zap catch hook or a Slack
+incoming webhook) — once, then hourly while they persist. For the one failure it cannot see (the
+scheduler itself dead), `GET /api/health?assert=fresh` returns 503 when no tick has landed for five
+minutes; point an uptime monitor at it. Recovery after a gap drips at most 20 sends per company per
+tick, in due order; messages that lost their window are skipped by the validity rules, not sent late.
+`pnpm build` runs the migration first, so a deploy cannot serve code against an older schema.
+
+### Setter attribution (D24)
+
+`setterRule` at install (`booking.setter_rule`): `calendar` (default — a separate setter calendar or
+event type), `question` (one calendar; a setter named in the booking question means setter-booked),
+`either`. Templates only read `appointment.self_booked`.
+
 ## Dark hours
 
 Every company has a send window (`send_window_start` / `send_window_end`, default 08:00–20:00 in the

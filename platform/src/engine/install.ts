@@ -16,6 +16,8 @@ export type InstallInput = {
   /** Where appointments live. Default: the CRM's own calendars. Calendly: a read token; `userEmail` narrows event types and events to one host. */
   booking?: { source: "ghl" } | { source: "calendly"; token: string; userEmail?: string; phoneQuestion?: string; setterQuestion?: string };
   calendars?: Record<string, CalendarMapping>;   // calendar / event type external id → closing | first_call | qualifying | follow_up
+  /** How setter-booked vs self-booked is decided (D24): by the calendar (default), by the setter question on the booking, or either. */
+  setterRule?: "calendar" | "question" | "either";
   closerCall?: string;                   // external id bound as calendar.closer_call
   bookingCalendar?: string;              // external id bound as calendar.booking (first-call / self-book link used by lead and reactivation templates)
   crm?: Record<string, string>;          // extra crm.* bindings a template needs: pipeline and stage ids, custom field ids (key without the crm. prefix)
@@ -75,6 +77,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       await c.query("delete from bindings where company_id=$1 and key in ('secret.calendly_token','calendly.organization','calendly.user','calendly.phone_question','calendly.setter_question')", [companyId]);
     }
     for (const [k, v] of Object.entries(input.crm ?? {})) await bind(`crm.${k}`, "id", v);
+    if (input.setterRule) await bind("booking.setter_rule", "text", input.setterRule);
     if (input.whop?.webhookSecret) await bind("secret.whop_webhook", "secret", input.whop.webhookSecret);
     if (input.recording?.webhookSecret) await bind("secret.fathom_webhook", "secret", input.recording.webhookSecret);
     if (input.recording?.apiKey) await bind("secret.fathom_api_key", "secret", input.recording.apiKey);

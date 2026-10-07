@@ -10,7 +10,7 @@ import { emitEvent } from "./dispatch";
 
 const LEASE_MIN = 5, MAX_STEPS = 50, BATCH = 100;
 export const RECOVERY_AFTER_MIN = 10;          // D5b: a gap longer than this means we were down
-const RECOVERY_SEND_CAP = 20;                  // drip the backlog; never burst
+const RECOVERY_SEND_CAP = 20;                  // per company per tick while catching up: never burst one client's inbox, never let one client's backlog starve another's
 
 export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number };
 
@@ -54,7 +54,7 @@ export async function tick(adapters: Adapters, now = DateTime.now()): Promise<Ti
         order by next_run_at limit ${BATCH} for update skip locked) returning *`, [claimedBy]);
   });
   report.claimed = runs.length;
-  let sendsThisTick = 0;
+  const sendsThisTick = new Map<string, number>();   // company → sends this tick (recovery cap is per company)
 
   for (const run of runs) {
     try {
@@ -88,7 +88,7 @@ export async function tick(adapters: Adapters, now = DateTime.now()): Promise<Ti
             // dark hours: a human-sounding message always waits for the window; a transactional one ("you're booked") goes out at once only if the company allows it
             const w = node.kind === "transactional" && company.quiet_allow_transactional ? { deferred: false as const, at: now } : deferIntoWindow(now, tz, company.send_window_start, company.send_window_end);
             if (w.deferred) { await c.query("insert into run_steps (run_id,node_id,node_type,status,result,finished_at) values ($1,$2,$3,'waiting',$4,now())", [run.id, node.id, node.type, { quiet_hours_until: w.at.toISO() }]); await finish("waiting", undefined, w.at.toJSDate(), node.id, ctx); report.waiting++; return; }
-            if (report.recovery && sendsThisTick >= RECOVERY_SEND_CAP) { await finish("waiting", undefined, now.plus({ minutes: 1 }).toJSDate(), node.id, ctx); report.waiting++; return; }
+            if (report.recovery && (sendsThisTick.get(run.company_id) ?? 0) >= RECOVERY_SEND_CAP) { await finish("waiting", undefined, now.plus({ minutes: 1 }).toJSDate(), node.id, ctx); report.waiting++; return; }
           }
 
           const step = await one<{ id: string }>(c, "insert into run_steps (run_id,node_id,node_type,status) values ($1,$2,$3,'waiting') returning id", [run.id, node.id, node.type]);
@@ -98,7 +98,7 @@ export async function tick(adapters: Adapters, now = DateTime.now()): Promise<Ti
           try { out = await executeNode(deps, node); } catch (e) { out = { status: "failed", error: String((e as Error).message).slice(0, 500) }; }
           await c.query("update run_steps set status=$2, result=$3, error=$4, finished_at=now() where id=$1",
             [step!.id, out.status === "exit" || out.status === "paused" ? "ok" : out.status === "waiting" ? "waiting" : out.status, "result" in out ? out.result ?? {} : {}, "error" in out ? out.error : null]);
-          if (out.status === "ok" && (node.type === "send_sms" || node.type === "send_email")) { sendsThisTick++; report.sends++; }
+          if (out.status === "ok" && (node.type === "send_sms" || node.type === "send_email")) { sendsThisTick.set(run.company_id, (sendsThisTick.get(run.company_id) ?? 0) + 1); report.sends++; }
 
           if (out.status === "waiting") { await finish("waiting", undefined, out.until.toJSDate(), out.stay ? node.id : (edgesFrom(node.id).find((e) => e.label !== "timeout") ?? edgesFrom(node.id)[0])?.to ?? null, ctx, !!out.wakeOnReply); report.waiting++; return; }
           if (out.status === "exit") { await finish("completed", out.reason, null, node.id, ctx); report.completed++; return; }

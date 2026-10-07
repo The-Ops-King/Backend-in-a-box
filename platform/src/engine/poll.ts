@@ -98,10 +98,27 @@ async function resolveContactForBooking(c: PoolClient, co: CompanyRow, ac: Compa
   return { id: row!.id };
 }
 
+/**
+ * Setter or self-booked is decided by the company's rule (D24), because offers differ:
+ *   calendar  — the calendar says (a separate setter event type / calendar)                      [default]
+ *   question  — the booking question names the setter; no name → self-booked (one calendar for both)
+ *   either    — setter-booked if the calendar is a setter calendar OR a setter was named
+ */
+export function decideSelfBooked(rule: string | undefined, calendarSelfBooked: boolean | null, setBy: string | undefined | null): boolean | null {
+  const named = !!(setBy && setBy.trim());
+  switch (rule) {
+    case "question": return !named;
+    case "either": return calendarSelfBooked === false || named ? false : calendarSelfBooked === true ? true : !named;
+    default: return calendarSelfBooked;
+  }
+}
+
 export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot, rep?: PollReport, baseline = false): Promise<void> {
   const source = ac.booking.source;
-  const cal = await one<{ id: string; appointment_term: string; self_booked: boolean | null }>(c, "select id, appointment_term, self_booked from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
-  if (!cal) return;
+  const calRow = await one<{ id: string; appointment_term: string; self_booked: boolean | null }>(c, "select id, appointment_term, self_booked from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
+  if (!calRow) return;
+  const rule = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='booking.setter_rule'", [co.id]))?.value.toString("utf8");
+  const cal = { ...calRow, self_booked: decideSelfBooked(rule, calRow.self_booked, s.setBy) };
   // a cancelled booking that was rescheduled is carried by its replacement (same appointment, new time); nothing to do here
   if (s.rescheduledTo) return;
   const contact = await resolveContactForBooking(c, co, ac, adapters, s);
