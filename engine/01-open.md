@@ -283,3 +283,17 @@ no write scope. Blockers Tyler owns: Documents & Contracts write scopes on the P
 today; reads work), a Whop webhook secret or API key (the engine has never received a Whop payment for
 Hair; the $750 tests went through Zapier), and the Deal Closed walkthrough.
 
+### 30, continued: Deal Closed (spec captured 2026-10-07)
+Fires when the first payment is in AND the agreement is signed, in either order, once: triggers
+`payment.received` and `agreement.signed`, `reentry: once_per_contact`, first check "paid AND signed
+AND not tagged stat-customer" (the tag is a belt-and-braces guard Tyler asked for), else exit. Then:
+tag `stat-customer` → closer card to Closed - Won (`bff1a4e7-4c38-4c82-82e4-e78ada6884b5`), status
+won → setter card status won where it sits (the setter pipeline has no closed stage; Tyler to say if
+he wants one added) → Sales Call record disposition `closed_won`, outcome `showed` (payment already
+updated the rest) → welcome email + welcome SMS (copy in `engine/copy/hair-welcome.md`, same for plan
+and paid-in-full) → Slack. Tyler wants the messages to be GHL templates referenced by the step rather
+than copy in the workflow: GHL's email builder templates list via `GET /emails/builder?locationId`
+(verified, 2 on Hair) and SMS snippets via `GET /locations/{loc}/templates` (verified, none on Hair
+yet); the send step gets a `template_id` option with inline copy as the fallback. Not built until the
+Whop door and the Documents write scope are in place.
+
