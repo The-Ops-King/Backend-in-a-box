@@ -3,6 +3,8 @@ import { Fragment } from "react";
 import { notFound } from "next/navigation";
 import { company, contact } from "@/ui/queries";
 import { ago, badge, when } from "@/ui/format";
+import { simulateAction } from "@/ui/actions";
+import { SIM_ACTIONS } from "@/engine/simulate";
 export const dynamic = "force-dynamic";
 const summary = (t: string, d: Record<string, unknown>) => {
   const pick = ["intent", "outcome", "type", "tag", "plan", "reason", "status", "calendar_id", "amount", "channel"].filter((k) => d[k] !== undefined).map((k) => `${k}: ${String(d[k])}`);
@@ -15,6 +17,13 @@ export default async function ContactPage({ params }: { params: Promise<{ slug: 
     <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / {name}</p>
     <h1>{name}</h1>
     <p className="sub">{ct.timezone ?? co.timezone} · in GHL as <code>{ct.ghl_contact_id ?? "—"}</code> · {ct.tags.length ? ct.tags.join(", ") : "no tags"}</p>
+    <details className="card" style={{ marginBottom: 12 }}>
+      <summary><strong>Test harness</strong> <span className="muted">— stage a step for this person behind the scenes. Nothing reaches GHL, Calendly or a Zap{co.mode === "live" ? "; refused while the company is live" : ""}. Same as adding a <code>sys-test-&lt;action&gt;</code> tag in GHL.</span></summary>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+        {SIM_ACTIONS.map((a) => <form key={a} action={simulateAction}><input type="hidden" name="slug" value={slug} /><input type="hidden" name="companyId" value={co.id} /><input type="hidden" name="contactId" value={ct.id} /><input type="hidden" name="action" value={a} />
+          <button className={`btn ${a === "reset" ? "btn-off" : ""}`} type="submit" disabled={co.mode === "live"}>{({ create: "Lead comes in", book: "Setter books a call", "book-self": "Books themselves", reschedule: "Reschedules", cancel: "Cancels", pay: "Pays", record: "Call recorded", reset: "Forget this person's runs" } as Record<string, string>)[a]}</button></form>)}
+      </div>
+    </details>
     <div className="grid g2" style={{ alignItems: "start" }}>
       <div>
         <h2 style={{ marginTop: 0 }}>Journey</h2>

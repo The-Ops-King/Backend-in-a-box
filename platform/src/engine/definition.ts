@@ -39,8 +39,9 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("wait"), rule: WaitRule }),
   // Waits for an inbound reply (woken the minute one arrives) or until `timeout`; follows the edge labeled "timeout" if none, else exits `no_reply`.
   z.object({ ...base, type: z.literal("wait_for_reply"), timeout: z.string(), channel: z.enum(["sms", "email", "any"]).default("any") }),
-  z.object({ ...base, type: z.literal("send_sms"), template: z.string(), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
-  z.object({ ...base, type: z.literal("send_email"), subject: z.string(), template: z.string(), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
+  // kind: "human" reads like a person wrote it and always respects dark hours; "transactional" is an automated receipt ("you're booked") the company may let through at any hour
+  z.object({ ...base, type: z.literal("send_sms"), template: z.string(), kind: z.enum(["human", "transactional"]).default("human"), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
+  z.object({ ...base, type: z.literal("send_email"), subject: z.string(), template: z.string(), kind: z.enum(["human", "transactional"]).default("human"), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
   z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string() }),
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string() }),
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),

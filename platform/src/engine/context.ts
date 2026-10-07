@@ -5,7 +5,7 @@ import type { BookingConfig, Company } from "@/adapters/types";
 import { transcriptText, type RecordingRow } from "./recordings";
 
 export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date };
-export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; status: string; sms_enabled: boolean; mode: "shadow" | "live" };
+export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; status: string; sms_enabled: boolean; mode: "shadow" | "live" };
 
 export async function loadCompany(c: PoolClient, companyId: string): Promise<{ row: CompanyRow; adapterCompany: Company; bindings: Record<string, string> }> {
   const row = await one<CompanyRow>(c, "select * from companies where id=$1", [companyId]);

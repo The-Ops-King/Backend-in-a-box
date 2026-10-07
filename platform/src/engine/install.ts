@@ -29,6 +29,8 @@ export type InstallInput = {
   enable?: boolean;                      // default false — Tyler's rule: build off, enable deliberately
   smsEnabled?: boolean;                  // default true; false when the sub-account has no number
   mode?: "shadow" | "live";             // default shadow: nothing is written to the CRM until you say live
+  /** Dark hours. Sends wait for the window; `allowTransactional` lets automated receipts ("you're booked") through at any hour. */
+  quietHours?: { start?: string; end?: string; allowTransactional?: boolean };
 };
 
 /** D16: upload info, pick templates, done. Idempotent. Workflows install OFF unless enable=true. */
@@ -83,6 +85,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     const inboundPlain = inboundSecret ? (await import("./crypto")).decrypt(inboundSecret) : `zi_${randomBytes(24).toString("base64url")}`;
     if (!inboundSecret) await bind("secret.zapier_inbound", "secret", inboundPlain);
     if (input.contractValueDefault !== undefined) await c.query("update companies set contract_value_default=$2 where id=$1", [companyId, input.contractValueDefault]);
+    if (input.quietHours) await c.query("update companies set send_window_start=coalesce($2, send_window_start), send_window_end=coalesce($3, send_window_end), quiet_allow_transactional=coalesce($4, quiet_allow_transactional) where id=$1", [companyId, input.quietHours.start ?? null, input.quietHours.end ?? null, input.quietHours.allowTransactional ?? null]);
     const ac: Company = { id: companyId, locationId: input.locationId, pit: input.pit, timezone: input.timezone, booking };
     for (const u of await adapters.read.listUsers(ac))
       await c.query(`insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'closer',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name`, [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);

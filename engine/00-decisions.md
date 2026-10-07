@@ -727,3 +727,25 @@ call" is the first such read; a no stops the run and writes nothing. A show is r
 makes `call.held` fire for a company whose booking source has no outcome (01-open #24). The
 Anthropic key is per company (`secret.anthropic_key`); analysis runs in shadow too, because seeing
 what the AI would say is the point of shadow.
+
+## D23. The test harness lives in the engine; a simulated step is a real run on a synthetic fact
+
+Tyler, 2026-10-07: a real-contact test has to go "totally behind the scenes"; Hair's live Zaps and
+GHL workflows must not fire. So the harness does not touch anything outside the engine. A
+`sys-test-<action>` tag seen by the poll on a contact (or the same action from the contact page or
+`POST /api/admin/simulate`) stages the FACT synthetically and then runs everything real: a
+`lead.created` event, an appointment with `source = 'test'` that exists only in our table (the
+premise check reads our row for that source instead of asking Calendly), a cancel or reschedule on
+it, a payment through the ledger, a recording through the match ladder. Events carry `source =
+'test'` and `simulated: true`. The tag itself is an instruction, never a `tag.added` event.
+`sys-test-reset` makes the engine forget everything it did for that person (runs, sends, cards,
+pursuits, synthetic appointments); the contact and identifiers stay because they mirror the CRM.
+The harness is refused for a live company unless forced: live means the run would write real tags
+and cards for the test person. Actions: create, book (setter), book-self, reschedule, cancel, pay,
+record, reset.
+
+Dark hours, same day: `send_sms` / `send_email` carry `kind: human | transactional` (default human).
+A human-sounding message always waits for the company's send window; a transactional receipt
+("you're booked") goes out at any hour only when `companies.quiet_allow_transactional` is true
+(install `quietHours: { start, end, allowTransactional }`). This answers the smoke-run finding in
+01-open #25 without special-casing any template.

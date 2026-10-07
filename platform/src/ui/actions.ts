@@ -5,6 +5,8 @@ import { asOperator, one } from "@/db/client";
 import { recordDisposition } from "@/engine/disposition";
 import { linkPayment } from "@/engine/payments";
 import { linkRecording } from "@/engine/recordings";
+import { loadCompany } from "@/engine/context";
+import { simulate, SIM_ACTIONS, type SimAction } from "@/engine/simulate";
 import { dispatchEvent } from "@/engine/dispatch";
 
 export async function toggleWorkflow(formData: FormData) {
@@ -63,4 +65,16 @@ export async function linkRecordingAction(formData: FormData) {
     await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'recording.linked','recording',$2,$3)", [companyId, recordingId, { contact_id: contactId }]);
   });
   revalidatePath(`/c/${slug}/recordings`); revalidatePath(`/c/${slug}`);
+}
+
+/** Stage a synthetic step for this contact from the dashboard (D23): nothing reaches the CRM, Calendly or a Zap. */
+export async function simulateAction(formData: FormData) {
+  const slug = String(formData.get("slug")), companyId = String(formData.get("companyId")), contactId = String(formData.get("contactId")), action = String(formData.get("action"));
+  if (!(SIM_ACTIONS as readonly string[]).includes(action)) return;
+  await asOperator(async (c) => {
+    const { row } = await loadCompany(c, companyId);
+    const r = await simulate({ c, company: row, contactId }, action as SimAction);
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,$2,'contact',$3,$4)", [companyId, `simulate.${action}`, contactId, r.ok ? { ...r.detail, runs_started: r.runsStarted, via: "dashboard" } : { refused: r.why }]);
+  });
+  revalidatePath(`/c/${slug}/contacts/${contactId}`); revalidatePath(`/c/${slug}`);
 }

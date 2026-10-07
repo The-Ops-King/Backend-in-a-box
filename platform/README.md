@@ -150,6 +150,33 @@ flips one. Both take `Authorization: Bearer $CRON_SECRET`. Turning on a workflow
 required binding is refused (409) — the same thing the readiness card calls blocking. Every flip is
 in `audit_log`.
 
+## Test harness: a real contact, behind the scenes (D23)
+
+To see what the engine would do for a real person without firing a single Zap or GHL workflow, stage
+the step instead of performing it. Three ways, same code:
+
+- In GHL, add a tag `sys-test-<action>` to the contact. The next poll runs the action and drops the
+  tag from the engine's view (it never becomes a `tag.added` event). Remove the tag in GHL afterwards
+  so it can be used again.
+- On the contact page in the dashboard, the **Test harness** buttons.
+- `POST /api/admin/simulate` `{ "company": "<slug>", "contact": "<email | GHL id | our id>", "action": "<action>" }`
+  with `Authorization: Bearer $CRON_SECRET`.
+
+Actions: `create` (a lead comes in), `book` (a setter books the closing call, 3 days out, 2pm in the
+contact's zone), `book-self`, `reschedule` (+2 days), `cancel`, `pay` (the program price), `record`
+(a Fathom-shaped recording with a short transcript, through the match ladder), `reset` (the engine
+forgets every run, send, card, pursuit and synthetic appointment for that person; the contact stays).
+Synthetic appointments have `source = 'test'` and never exist at a booking source; the premise check
+trusts our row for them. Refused while the company is live (`force: true` on the API overrides).
+
+## Dark hours
+
+Every company has a send window (`send_window_start` / `send_window_end`, default 08:00–20:00 in the
+contact's zone). A `send_sms` / `send_email` node is `kind: "human"` by default and always waits for
+the window. Mark a node `kind: "transactional"` for an automated receipt ("you're booked") and set
+`quiet_allow_transactional` on the company (install `quietHours: { start, end, allowTransactional }`)
+to let those through at any hour. Nothing human-sounding ever goes out in the dark.
+
 ## Smoke journey
 
 `pnpm smoke` (optionally `--template <slug>` repeated to mirror a real company's set) runs "a client

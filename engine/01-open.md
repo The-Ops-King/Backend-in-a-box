@@ -227,4 +227,4 @@ an entry when the piece ships and the warning disappears). For Hair on 2026-10-0
 - Call recorded: the no-show half (#24) is not built.
 - No Slack channels bound: `slack.channel.bookings`, `slack.channel.payments`, `slack.channel.calls`.
 - Hair's own confirmation / reminder / nurture copy is not ported; only new-lead, call-booked, call-cancelled, payment-recorded, call-recorded are installed, so nothing goes to the prospect after a booking yet.
-- Open question surfaced by the smoke run (`pnpm smoke`): the send window (08:00–20:00) defers a booking confirmation booked at 9pm to 8am the next morning. Transactional confirmations probably should bypass quiet hours; a decision is needed before Hair's confirmation is ported.
+- Resolved 2026-10-07 (D23): sends carry `kind: human | transactional`; the company setting `quiet_allow_transactional` decides whether receipts go out in dark hours. Hair's choice (transactional allowed, or nothing at all) still has to be made when its confirmation copy is ported.

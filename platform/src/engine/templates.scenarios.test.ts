@@ -13,6 +13,7 @@ import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
 import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from "@/adapters/types";
 import { recordRecording, linkRecording, type RecordingInput } from "@/engine/recordings";
+import { simulate } from "@/engine/simulate";
 
 const HAS_DB = !!process.env.DATABASE_URL;
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -284,7 +285,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator((c) => c.query("update calendars set self_booked=false where company_id=$1 and external_id='CAL'", [companyId]));
     // a setter card already exists from new-lead
     await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: {} }), { contact: { id } }));
-    await withPhone(id, "+16025550199"); await tick(fake);
+    await withPhone(id, "+16025550911"); await tick(fake);
     const start = DateTime.now().plus({ days: 5 }).setZone(TZ).set({ hour: 13, minute: 0, second: 0, millisecond: 0 });
     const snap: AppointmentSnapshot = { id: "ACB2", calendarId: "CAL", contactId: "CCB2", assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 45 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), setBy: "Luis", raw: {} };
     apptStore.set("ACB2", snap);
@@ -420,6 +421,53 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const rw = recordWrites.at(-1)!; expect(rw.external_id).toBe("fathom-fathom-2001"); expect(rw.scheduled_at).toBeUndefined();   // no appointment: keyed by the recording, nothing marked showed
     const slack = await asOperator((c) => one<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [run.id]));
     expect(slack).toBeTruthy();
+  });
+
+  it("test harness: sys-test create → book → cancel → reset drive the real workflows on a synthetic appointment that survives the premise check; refused when live", async () => {
+    const id = await newContact("CSIM", "sim@x.com"); await withPhone(id, "+16025550922");
+    await asOperator((c) => c.query("update contacts set first_name='Sim', last_name='Person' where id=$1", [id]));
+    const sim = (action: Parameters<typeof simulate>[1]) => asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return simulate({ c, company: row, contactId: id }, action); });
+    const live = await sim("create"); expect(live).toMatchObject({ ok: false, why: expect.stringMatching(/live/) });   // this company runs live; the harness refuses
+    await asOperator((c) => c.query("update companies set mode='shadow' where id=$1", [companyId]));
+    expect(await sim("create")).toMatchObject({ ok: true, runsStarted: 2 });   // new-lead + speed-to-lead
+    await tick(fake);
+    expect((await runsFor("new-lead")).find((r) => r.contact_id === id)).toMatchObject({ status: "completed", exit_reason: "done" });
+    const b = await sim("book"); expect(b).toMatchObject({ ok: true }); if (!b.ok) return;
+    const appt = await asOperator((c) => one<{ source: string; status: string; set_by: string; self_booked: boolean }>(c, "select source, status, set_by, self_booked from appointments where id=$1", [b.detail.appointment as string]));
+    expect(appt).toEqual({ source: "test", status: "confirmed", set_by: "Test Setter", self_booked: false });
+    await tick(fake);
+    const booked = (await runsFor("call-booked")).find((r) => r.contact_id === id)!; expect(booked).toMatchObject({ status: "completed", exit_reason: "booked" });   // premise appointment_exists held on a 'test' source
+    const cards = await asOperator((c) => many<{ ghl_pipeline_id: string; ghl_stage_id: string; name: string }>(c, "select ghl_pipeline_id, ghl_stage_id, name from pipeline_cards where company_id=$1 and contact_id=$2 order by ghl_pipeline_id", [companyId, id]));
+    expect(cards).toEqual([{ ghl_pipeline_id: "PIPE-CLOSER", ghl_stage_id: "STAGE-SCHED", name: "Sim Person -- Setter Booked" }, { ghl_pipeline_id: "PIPE-SETTER", ghl_stage_id: "STAGE-SET", name: "Sim Person -- Set" }]);
+    expect(await sim("cancel")).toMatchObject({ ok: true });
+    await tick(fake);
+    expect((await runsFor("call-cancelled")).find((r) => r.contact_id === id)).toMatchObject({ status: "completed", exit_reason: "cancelled_recorded" });
+    expect(await sim("reset")).toMatchObject({ ok: true });
+    expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and contact_id=$2", [companyId, id]))).toHaveLength(0);
+    expect(await asOperator((c) => many(c, "select 1 from appointments where company_id=$1 and contact_id=$2", [companyId, id]))).toHaveLength(0);
+    expect(await asOperator((c) => one(c, "select 1 from contacts where id=$1", [id]))).toBeTruthy();   // the person stays; only what the engine did is gone
+    await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
+  });
+
+  it("dark hours: a human-sounding send waits for the window; a transactional one goes out only when the company allows it", async () => {
+    const id = await newContact("CDARK", "dark@x.com"); await withPhone(id, "+16025550177");
+    // a window that is closed right now, in the contact's zone
+    const now = DateTime.now().setZone(TZ); const closedStart = now.plus({ hours: 2 }).toFormat("HH:mm"), closedEnd = now.plus({ hours: 3 }).toFormat("HH:mm");
+    await asOperator((c) => c.query("update companies set send_window_start=$2, send_window_end=$3, quiet_allow_transactional=false where id=$1", [companyId, closedStart, closedEnd]));
+    const n = sent.length;
+    await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "form", data: {} }), { contact: { id } }));
+    await tick(fake);
+    expect(sent.length).toBe(n);   // speed-to-lead's first email waited
+    expect((await runsFor("speed-to-lead")).find((r) => r.contact_id === id)).toMatchObject({ status: "waiting", current_node: "n1" });
+    // mark that first email transactional and allow transactional sends in dark hours → it goes out at once
+    const wf = (await bySlug("speed-to-lead"))!;
+    await asOperator((c) => c.query(`update workflow_versions set definition = jsonb_set(definition, '{nodes,1,kind}', '"transactional"') where workflow_id=$1`, [wf.id]));
+    await asOperator((c) => c.query("update companies set quiet_allow_transactional=true where id=$1", [companyId]));
+    await asOperator((c) => c.query("update runs set next_run_at=now() where company_id=$1 and contact_id=$2", [companyId, id]));
+    await tick(fake);
+    expect(sent.slice(n).map((s) => s.kind)).toEqual(["email"]);   // the SMS that follows is human and still waits
+    expect((await runsFor("speed-to-lead")).find((r) => r.contact_id === id)).toMatchObject({ status: "waiting", current_node: "n2" });
+    await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59', quiet_allow_transactional=false where id=$1", [companyId]));
   });
 
   it("sms_enabled=false: SMS nodes are suppressed and the run continues", async () => {

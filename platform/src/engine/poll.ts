@@ -5,6 +5,7 @@ import { bookingFor, type Adapters, type AppointmentSnapshot, type Company, type
 import { loadCompany, type CompanyRow } from "./context";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { ensureOpportunityForBooking, ensureUser, userIdByEmail } from "./lifecycle";
+import { simTag, simulate } from "./simulate";
 
 export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
@@ -63,7 +64,12 @@ async function pollContacts(c: PoolClient, co: CompanyRow, ac: Company, adapters
     if (isBaseline) { rep.baselined++; continue; }
     const ctx = { contact: { id, ghl_contact_id: s.id, tags: s.tags } };
     if (isNew) rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: s.id } }), ctx)).length;
-    for (const t of s.tags.filter((t) => !prevTags.includes(t))) rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "tag.added", source: "ghl_poll", data: { tag: t } }), ctx)).length;
+    for (const t of s.tags.filter((t) => !prevTags.includes(t))) {
+      // a sys-test-<action> tag is an instruction to the harness, not a fact about the person: it never becomes a tag.added event
+      const sim = simTag(t);
+      if (sim) { const r = await simulate({ c, company: co, contactId: id }, sim); if (r.ok) rep.eventsDispatched += r.runsStarted; await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "run.exited", source: "test", data: { harness: sim, ...(r.ok ? { detail: r.detail, runs_started: r.runsStarted } : { refused: r.why }) } }); continue; }
+      rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "tag.added", source: "ghl_poll", data: { tag: t } }), ctx)).length;
+    }
     for (const t of prevTags.filter((t) => !s.tags.includes(t))) rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "tag.removed", source: "ghl_poll", data: { tag: t } }), ctx)).length;
   }
   await saveCursor(c, co.id, "contacts", max.toISO()!, true);

@@ -20,8 +20,10 @@ async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ct
   if (chk === "none") return { ok: true };
   if (chk === "contact_exists") return (await one(d.c, "select 1 from contacts where id=$1 and merged_into is null", [d.run.contact_id])) ? { ok: true } : { ok: false, why: "contact gone" };
   if (chk === "opportunity_open") return (await one(d.c, "select 1 from opportunities where id=$1 and status='open'", [d.run.opportunity_id])) ? { ok: true } : { ok: false, why: "opportunity not open" };
-  const a = await one<{ external_id: string; source: string }>(d.c, "select external_id, source from appointments where id=$1", [d.run.appointment_id]);
+  const a = await one<{ external_id: string; source: string; status: string; starts_at: Date }>(d.c, "select external_id, source, status, starts_at from appointments where id=$1", [d.run.appointment_id]);
   if (!a) return { ok: false, why: "appointment missing" };
+  // a simulated appointment (D23) exists only in our table: our row is the truth
+  if (a.source === "test") return chk === "appointment_exists" ? { ok: true } : a.status === "cancelled" ? { ok: false, why: "appointment cancelled" } : a.starts_at <= new Date() ? { ok: false, why: "appointment already happened" } : { ok: true };
   if (a.source !== d.adapterCompany.booking.source) return { ok: false, why: `appointment belongs to booking source ${a.source}; company now uses ${d.adapterCompany.booking.source}` };
   const live = await bookingFor(d.adapters, d.adapterCompany).getAppointment(d.adapterCompany, a.external_id);
   if (!live) return { ok: false, why: "appointment deleted at the booking source" };
@@ -83,7 +85,8 @@ export async function tick(adapters: Adapters, now = DateTime.now()): Promise<Ti
           // 2. send window — any send outside the company's hours waits for the next opening (D5d), then premise re-runs
           if (node.type === "send_sms" || node.type === "send_email") {
             const tz = (ctx.contact as { timezone?: string })?.timezone ?? company.timezone;
-            const w = deferIntoWindow(now, tz, company.send_window_start, company.send_window_end);
+            // dark hours: a human-sounding message always waits for the window; a transactional one ("you're booked") goes out at once only if the company allows it
+            const w = node.kind === "transactional" && company.quiet_allow_transactional ? { deferred: false as const, at: now } : deferIntoWindow(now, tz, company.send_window_start, company.send_window_end);
             if (w.deferred) { await c.query("insert into run_steps (run_id,node_id,node_type,status,result,finished_at) values ($1,$2,$3,'waiting',$4,now())", [run.id, node.id, node.type, { quiet_hours_until: w.at.toISO() }]); await finish("waiting", undefined, w.at.toJSDate(), node.id, ctx); report.waiting++; return; }
             if (report.recovery && sendsThisTick >= RECOVERY_SEND_CAP) { await finish("waiting", undefined, now.plus({ minutes: 1 }).toJSDate(), node.id, ctx); report.waiting++; return; }
           }

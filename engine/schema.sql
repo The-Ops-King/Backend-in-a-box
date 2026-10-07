@@ -9,6 +9,7 @@ create table companies (
   timezone          text not null,                      -- IANA, e.g. America/Phoenix
   send_window_start time not null default '08:00',
   send_window_end   time not null default '20:00',
+  quiet_allow_transactional boolean not null default false,   -- dark hours: true lets transactional sends ("you're booked") through; human-sounding sends always wait
   sms_enabled       boolean not null default true,      -- false when the sub-account has no number; SMS nodes skip
   mode              text not null default 'shadow' check (mode in ('shadow','live')),  -- shadow: run everything, write nothing to the CRM, record what would have gone out
   status            text not null default 'active'
@@ -187,7 +188,7 @@ create table appointments (
   company_id           uuid not null references companies(id),
   contact_id           uuid not null references contacts(id),
   opportunity_id       uuid references opportunities(id),
-  source               text not null default 'ghl' check (source in ('ghl','calendly')),
+  source               text not null default 'ghl' check (source in ('ghl','calendly','test')),   -- test: staged by the simulation harness, never at a booking source
   external_id          text not null,                                -- GHL appointment id or Calendly scheduled event uuid
   calendar_id          uuid references calendars(id),
   appointment_term     uuid not null references company_terms(id),  -- from the calendar at booking; overridable
@@ -324,7 +325,7 @@ create table events (
   run_id          uuid,
   event_type      text not null references event_types(name),
   occurred_at     timestamptz not null,
-  source          text not null check (source in ('form','ghl_poll','whop','fathom','zapier','engine','disposition','command_center','user')),
+  source          text not null check (source in ('form','ghl_poll','whop','fathom','zapier','engine','disposition','command_center','user','test')),
   data            jsonb not null default '{}'
 );
 create index on events (company_id, contact_id, occurred_at);

@@ -78,6 +78,12 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
       unique (company_id, provider, external_id))`);
     await c.query(`create index if not exists recordings_company_id_link_status_idx on recordings (company_id, link_status)`);
     await c.query(`create index if not exists recordings_company_id_contact_id_idx on recordings (company_id, contact_id)`);
+    // simulation harness (D23): synthetic appointments and events carry source 'test'; dark-hours policy per company
+    await c.query(`alter table appointments drop constraint if exists appointments_source_check`);
+    await c.query(`alter table appointments add constraint appointments_source_check check (source in ('ghl','calendly','test'))`);
+    await c.query(`alter table events drop constraint if exists events_source_check`);
+    await c.query(`alter table events add constraint events_source_check check (source in ('form','ghl_poll','whop','fathom','zapier','engine','disposition','command_center','user','test'))`);
+    await c.query(`alter table companies add column if not exists quiet_allow_transactional boolean not null default false`);
     // appointments ↔ form_submissions reference each other; the disposition pointer must not block deleting a submission
     await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);
     await c.query(`alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id) on delete set null`);
