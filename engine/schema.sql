@@ -139,6 +139,7 @@ create table calendars (
   appointment_term uuid not null references company_terms(id),   -- which kind of call this calendar books
   default_user_id  uuid references users(id),
   self_booked      boolean,                                       -- every booking on this calendar is self-booked (true) / setter-booked (false); null = unknown
+  config               jsonb not null default '{}',   -- D24: {booking: self|setter|question, questions: {setter: 'Who set this call?', phone: '...', <attribute>: '<question text>'}}
   booking_url      text,                                          -- public scheduling link, used by {{calendar.*.url}}
   active           boolean not null default true,
   unique (company_id, source, external_id)
@@ -197,6 +198,7 @@ create table appointments (
   ends_at              timestamptz not null,
   self_booked          boolean,
   set_by               text,                                       -- setter's name when the booking source carries it
+  answers              jsonb not null default '{}',                -- booking-form answers by the name the calendar's config gave them (D24)
   reschedule_url       text,                                       -- per-booking self-service links (Calendly); null for GHL calendars
   cancel_url           text,
   tracking             jsonb not null default '{}',                -- utm_* etc. as the booking source reported them

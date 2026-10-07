@@ -84,6 +84,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`create index if not exists recordings_company_id_contact_id_idx on recordings (company_id, contact_id)`);
     // simulation harness (D23): synthetic appointments and events carry source 'test'; dark-hours policy per company
     await c.query(`alter table companies add column if not exists quiet_allow_transactional boolean not null default false`);
+    await c.query(`alter table calendars add column if not exists config jsonb not null default '{}'`);
+    await c.query(`alter table appointments add column if not exists answers jsonb not null default '{}'`);
     // appointments ↔ form_submissions reference each other; the disposition pointer must not block deleting a submission
     await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);
     await c.query(`alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id) on delete set null`);

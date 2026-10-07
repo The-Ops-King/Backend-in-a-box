@@ -199,11 +199,20 @@ needed; `GET /api/health?assert=fresh` (503 when stale) remains for anyone who w
 tick, in due order; messages that lost their window are skipped by the validity rules, not sent late.
 `pnpm build` runs the migration first, so a deploy cannot serve code against an older schema.
 
-### Setter attribution (D24)
+### Setter attribution and booking questions (D24)
 
-`setterRule` at install (`booking.setter_rule`): `calendar` (default — a separate setter calendar or
-event type), `question` (one calendar; a setter named in the booking question means setter-booked),
-`either`. Templates only read `appointment.self_booked`.
+Company default: `setterRule` at install (`booking.setter_rule`): `calendar` (a separate setter
+calendar or event type), `question` (one calendar; a setter named in the booking question means
+setter-booked), `either`. Per calendar, which wins: `calendars: { "<id>": { term: "closing", booking:
+"question", questions: { setter: "Who set this call for you", phone: "Best number", noticing_for: "How
+long have you been noticing" } } }`. Question texts are matched case-insensitively on a prefix. Mapped
+answers are on the appointment as `{{appointment.answers.<name>}}`. Templates only read
+`appointment.self_booked`, `appointment.set_by` and `appointment.answers.*`.
+
+### The copy
+
+The workflow page shows every message the workflow can send, in full, with ⟨placeholders⟩ visible.
+Editing copy without touching the flow is the next build (text bindings per company).
 
 ## Dark hours
 

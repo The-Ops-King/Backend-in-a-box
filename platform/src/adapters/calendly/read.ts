@@ -1,4 +1,4 @@
-import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, Company } from "../types";
+import type { AppointmentSnapshot, BookingRead, CalendarConfig, CalendarSnapshot, Company } from "../types";
 import { calendly, calendlyAll, eventUuidOfInvitee, uuidOf } from "./client";
 
 export type RawEventType = { uri: string; name: string; active: boolean; scheduling_url: string; internal_note?: string | null; pooling_type?: string | null; duration: number };
@@ -9,18 +9,28 @@ const DEFAULT_PHONE_QUESTION = "phone number";
 const DEFAULT_SETTER_QUESTION = "setter";
 const cfg = (c: Company) => { if (c.booking.source !== "calendly") throw new Error(`company ${c.id} does not book through Calendly`); return c.booking; };
 
-/** Calendly's cancel-then-create reschedule shows up on the invitee: the old one points at `new_invitee`, the new one at `old_invitee`. */
-export function mapEvent(e: RawEvent, inv: RawInvitee | undefined, phoneQuestion = DEFAULT_PHONE_QUESTION, setterQuestion = DEFAULT_SETTER_QUESTION): AppointmentSnapshot {
-  const answerTo = (label: string) => inv?.questions_and_answers?.find((x) => x.question.trim().toLowerCase() === label.trim().toLowerCase())?.answer?.trim() || undefined;
-  const phone = inv?.text_reminder_number || answerTo(phoneQuestion);
-  const setBy = answerTo(setterQuestion);
+/**
+ * Calendly's cancel-then-create reschedule shows up on the invitee: the old one points at `new_invitee`, the new one at `old_invitee`.
+ * Questions differ per event type and sit in different orders, so answers are read by question text from the calendar's own
+ * config (D24) — `questions: { setter: "Who set this call?", phone: "Best number", hair_loss: "…" }` — falling back to the
+ * company-level phone/setter questions. A question text matches on a case-insensitive prefix, so trailing punctuation or a
+ * "(required)" suffix on the form does not break it.
+ */
+export function mapEvent(e: RawEvent, inv: RawInvitee | undefined, phoneQuestion = DEFAULT_PHONE_QUESTION, setterQuestion = DEFAULT_SETTER_QUESTION, cal?: CalendarConfig): AppointmentSnapshot {
+  const norm = (x: string) => x.trim().toLowerCase().replace(/\s+/g, " ");
+  const answerTo = (label: string) => inv?.questions_and_answers?.find((x) => { const q = norm(x.question), l = norm(label); return q === l || q.startsWith(l); })?.answer?.trim() || undefined;
+  const q = cal?.questions ?? {};
+  const phone = inv?.text_reminder_number || answerTo(q.phone ?? phoneQuestion);
+  const setBy = answerTo(q.setter ?? setterQuestion);
+  const answers: Record<string, string> = {};
+  for (const [key, label] of Object.entries(q)) { const a = answerTo(label); if (a) answers[key] = a; }
   const [first, ...rest] = (inv?.name ?? "").trim().split(/\s+/);
   const host = e.event_memberships?.[0];
   const status = e.status === "canceled" ? "cancelled" : inv?.no_show ? "noshow" : "confirmed";
   return {
     id: uuidOf(e.uri), calendarId: uuidOf(e.event_type),
     invitee: inv ? { email: inv.email?.trim().toLowerCase() || undefined, phone, firstName: inv.first_name ?? first ?? undefined, lastName: inv.last_name ?? (rest.length ? rest.join(" ") : undefined), timezone: inv.timezone ?? undefined } : undefined,
-    assignedUserEmail: host?.user_email?.toLowerCase(), assignedUserId: undefined, setBy,
+    assignedUserEmail: host?.user_email?.toLowerCase(), assignedUserId: undefined, setBy, answers: Object.keys(answers).length ? answers : undefined,
     rescheduleUrl: inv?.reschedule_url ?? undefined, cancelUrl: inv?.cancel_url ?? undefined,
     cancellation: inv?.cancellation ? { by: inv.cancellation.canceled_by, reason: inv.cancellation.reason ?? undefined, byType: inv.cancellation.canceler_type } : undefined,
     tracking: inv?.tracking ? Object.fromEntries(Object.entries(inv.tracking).filter((kv): kv is [string, string] => !!kv[1])) : undefined,
@@ -73,7 +83,7 @@ export const calendlyBooking: BookingRead = {
     const seen = new Set<string>();
     for (const e of mine) {
       const inv = await inviteeOf(b.token, e);
-      const snap = mapEvent(e, inv, b.phoneQuestion, b.setterQuestion);
+      const snap = mapEvent(e, inv, b.phoneQuestion, b.setterQuestion, b.calendars?.[calendarId]);
       out.push(snap); seen.add(snap.id);
       // the replacement of a rescheduled booking may sit outside the window; fetch it so the move happens in the same pass
       if (snap.rescheduledTo && !seen.has(snap.rescheduledTo) && !mine.some((x) => uuidOf(x.uri) === snap.rescheduledTo)) {
@@ -87,7 +97,7 @@ export const calendlyBooking: BookingRead = {
     const b = cfg(c);
     try {
       const { resource } = await calendly<{ resource: RawEvent }>(b.token, `/scheduled_events/${id}`);
-      return mapEvent(resource, await inviteeOf(b.token, resource), b.phoneQuestion, b.setterQuestion);
+      return mapEvent(resource, await inviteeOf(b.token, resource), b.phoneQuestion, b.setterQuestion, b.calendars?.[uuidOf(resource.event_type)]);
     } catch (e) { if ((e as { status?: number }).status === 404) return null; throw e; }
   },
 };

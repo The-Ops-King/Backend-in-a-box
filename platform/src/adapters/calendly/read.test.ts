@@ -51,3 +51,14 @@ describe("Calendly → AppointmentSnapshot", () => {
     expect(eventUuidOfInvitee(null)).toBe("");
   });
 });
+
+describe("per-calendar questions (D24)", () => {
+  it("answers are read by the question text the calendar config names, prefix-matched; the setter decides self vs setter when the calendar says so", () => {
+    const e = { uri: "https://api.calendly.com/scheduled_events/E1", name: "Call", status: "active", start_time: "2026-10-20T18:00:00Z", end_time: "2026-10-20T18:45:00Z", event_type: "https://api.calendly.com/event_types/T1", created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z", event_memberships: [{ user: "u", user_email: "james@x.com" }], invitees_counter: { total: 1, active: 1 } } as const;
+    const inv = { uri: "https://api.calendly.com/scheduled_events/E1/invitees/I1", email: "ann@x.com", name: "Ann Lee", status: "active", rescheduled: false, updated_at: "2026-10-01T00:00:00Z",
+      questions_and_answers: [{ question: "Who set this call for you? (required)", answer: "Luis" }, { question: "How long have you been noticing hair loss?", answer: "2 years" }, { question: "Best number to reach you", answer: "602-555-0101" }] } as const;
+    const snap = mapEvent(e as never, inv as never, undefined, undefined, { booking: "question", questions: { setter: "Who set this call for you", phone: "Best number", noticing_for: "How long have you been noticing" } });
+    expect(snap.setBy).toBe("Luis"); expect(snap.invitee?.phone).toBe("602-555-0101");
+    expect(snap.answers).toEqual({ setter: "Luis", phone: "602-555-0101", noticing_for: "2 years" });
+  });
+});

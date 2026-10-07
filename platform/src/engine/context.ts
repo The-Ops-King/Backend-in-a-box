@@ -13,9 +13,12 @@ export async function loadCompany(c: PoolClient, companyId: string): Promise<{ r
   const rows = await many<{ key: string; kind: string; value: Buffer }>(c, "select key, kind, value from bindings where company_id=$1", [companyId]);
   const bindings: Record<string, string> = {};
   for (const b of rows) bindings[b.key] = b.kind === "secret" ? decrypt(b.value) : b.value.toString("utf8");
+  // per-calendar rules (D24) ride along with the booking config so the adapter can read answers by the right question text
+  const calRows = await many<{ external_id: string; config: Record<string, unknown> }>(c, "select external_id, config from calendars where company_id=$1 and active and config <> '{}'::jsonb", [companyId]);
+  const calendars = calRows.length ? Object.fromEntries(calRows.map((r) => [r.external_id, r.config])) : undefined;
   const booking: BookingConfig = bindings["secret.calendly_token"]
-    ? { source: "calendly", token: bindings["secret.calendly_token"], organization: bindings["calendly.organization"] ?? "", user: bindings["calendly.user"] || undefined, phoneQuestion: bindings["calendly.phone_question"] || undefined, setterQuestion: bindings["calendly.setter_question"] || undefined }
-    : { source: "ghl" };
+    ? { source: "calendly", token: bindings["secret.calendly_token"], organization: bindings["calendly.organization"] ?? "", user: bindings["calendly.user"] || undefined, phoneQuestion: bindings["calendly.phone_question"] || undefined, setterQuestion: bindings["calendly.setter_question"] || undefined, calendars }
+    : { source: "ghl", calendars };
   const adapterCompany: Company = { id: row.id, locationId: bindings["crm.location_id"] ?? "", pit: bindings["secret.ghl_pit"] ?? "", timezone: row.timezone, booking };
   return { row, adapterCompany, bindings };
 }
@@ -55,7 +58,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   }
   if (run.appointment_id) {
     const a = await one<Record<string, unknown>>(c, `
-      select a.id, a.source, a.external_id, a.starts_at, a.ends_at, a.status, a.self_booked, a.set_by, a.reschedule_url, a.cancel_url, a.tracking, a.cancelled_by, a.cancel_reason,
+      select a.id, a.source, a.external_id, a.starts_at, a.ends_at, a.status, a.self_booked, a.set_by, a.answers, a.reschedule_url, a.cancel_url, a.tracking, a.cancelled_by, a.cancel_reason,
              json_build_object('name', t.name, 'category', t.category) as term,
              json_build_object('id', u.id, 'first_name', split_part(u.name,' ',1), 'name', u.name, 'ghl_user_id', u.ghl_user_id) as closer
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id

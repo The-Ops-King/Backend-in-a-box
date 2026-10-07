@@ -121,5 +121,9 @@ describe("setter rule (D24)", () => {
     expect(decideSelfBooked("either", false, undefined)).toBe(false);
     expect(decideSelfBooked("either", null, undefined)).toBe(true);
     expect(decideSelfBooked(undefined, false, undefined)).toBe(false);
+    // the calendar's own rule beats the company default
+    expect(decideSelfBooked("calendar", true, "Luis", "question")).toBe(false);
+    expect(decideSelfBooked("question", null, "Luis", "self")).toBe(true);
+    expect(decideSelfBooked("question", null, undefined, "setter")).toBe(false);
   });
 });

@@ -9,8 +9,12 @@ import { loadCompany } from "./context";
 import { defaultPrompts } from "@/prompts";
 import { fathomCreateWebhook } from "@/adapters/fathom/client";
 
-/** A calendar's mapping: the kind of call it books, and optionally whether every booking on it is self-booked (true) or setter-booked (false). */
-export type CalendarMapping = string | { term: string; selfBooked?: boolean };
+/**
+ * A calendar's mapping: the kind of call it books; optionally how setter-vs-self is decided on it (`booking`: self | setter |
+ * question, or the older `selfBooked` flag), and which of its booking questions answer what (`questions`: setter, phone, and
+ * any attribute name → the question text as it appears on the form). D24.
+ */
+export type CalendarMapping = string | { term: string; selfBooked?: boolean; booking?: "self" | "setter" | "question"; questions?: Record<string, string> };
 export type InstallInput = {
   name: string; slug: string; timezone: string; locationId: string; pit: string;
   /** Where appointments live. Default: the CRM's own calendars. Calendly: a read token; `userEmail` narrows event types and events to one host. */
@@ -42,7 +46,7 @@ const canon = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof 
 export type Inbound = { secret: string; zapierPaymentUrl: string; zapierRecordingUrl: string; whopWebhookUrl: string; fathomWebhookUrl: string; fathomWebhook?: string };
 export async function installCompany(input: InstallInput, adapters: Adapters): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: Inbound }> {
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
-  const calMap: Record<string, { term: string; selfBooked?: boolean }> = Object.fromEntries(Object.entries(input.calendars ?? {}).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
+  const calMap: Record<string, { term: string; selfBooked?: boolean; booking?: "self" | "setter" | "question"; questions?: Record<string, string> }> = Object.fromEntries(Object.entries(input.calendars ?? {}).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
   // resolve the booking source outside the transaction: it talks to Calendly.
   // Omitting `booking` on a re-install keeps whatever the company already uses; it never silently flips it back to GHL.
   let booking: BookingConfig = { source: "ghl" };
@@ -102,10 +106,13 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       const m = calMap[k.id]; if (!m) { calendarsOut.push(`skip "${k.name}" (${k.id}) — no mapping${k.note ? ` [${k.note}]` : ""}`); continue; }
       const term = terms.find((t) => t.category === m.term)?.id; if (!term) { calendarsOut.push(`unknown category ${m.term} for ${k.id}`); continue; }
       const du = k.teamMemberIds[0] ? await one<{ id: string }>(c, "select id from users where company_id=$1 and ghl_user_id=$2", [companyId, k.teamMemberIds[0]]) : undefined;
-      await c.query(`insert into calendars (company_id, source, external_id, name, appointment_term, default_user_id, self_booked, booking_url) values ($1,$2,$3,$4,$5,$6,$7,$8)
-        on conflict (company_id, source, external_id) do update set name=excluded.name, appointment_term=excluded.appointment_term, self_booked=excluded.self_booked, booking_url=coalesce(excluded.booking_url, calendars.booking_url), active=true`,
-        [companyId, booking.source, k.id, k.name, term, du?.id ?? null, m.selfBooked ?? null, k.bookingUrl ?? null]);
-      calendarsOut.push(`"${k.name}" → ${m.term}${m.selfBooked === undefined ? "" : m.selfBooked ? " (self-booked)" : " (setter-booked)"}`);
+      const selfBooked = m.selfBooked ?? (m.booking === "self" ? true : m.booking === "setter" ? false : null);
+      const config = { ...(m.booking ? { booking: m.booking } : {}), ...(m.questions ? { questions: m.questions } : {}) };
+      await c.query(`insert into calendars (company_id, source, external_id, name, appointment_term, default_user_id, self_booked, booking_url, config) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        on conflict (company_id, source, external_id) do update set name=excluded.name, appointment_term=excluded.appointment_term, self_booked=excluded.self_booked, booking_url=coalesce(excluded.booking_url, calendars.booking_url), config=case when excluded.config='{}'::jsonb then calendars.config else excluded.config end, active=true`,
+        [companyId, booking.source, k.id, k.name, term, du?.id ?? null, selfBooked, k.bookingUrl ?? null, JSON.stringify(config)]);
+      const how = m.booking === "question" ? " (setter decided by the booking question)" : selfBooked === null ? "" : selfBooked ? " (self-booked)" : " (setter-booked)";
+      calendarsOut.push(`"${k.name}" → ${m.term}${how}${m.questions ? `; questions: ${Object.keys(m.questions).join(", ")}` : ""}`);
     }
     for (const unknownId of Object.keys(calMap).filter((id) => !listed.some((k) => k.id === id))) calendarsOut.push(`mapping for ${unknownId} matches no calendar at the booking source`);
     // calendars of the other source go quiet rather than being deleted: their appointments and history stay

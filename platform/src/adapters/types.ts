@@ -1,8 +1,10 @@
 export type BookingSource = "ghl" | "calendly";
 /** Where a company's appointments live. The CRM (GHL calendars) or a separate scheduler (Calendly event types). */
+/** Per-calendar booking rules (D24): how setter-vs-self is decided on this calendar, and which booking question answers what. */
+export type CalendarConfig = { booking?: "self" | "setter" | "question"; questions?: Record<string, string> };
 export type BookingConfig =
-  | { source: "ghl" }
-  | { source: "calendly"; token: string; organization: string; user?: string; phoneQuestion?: string; setterQuestion?: string };
+  | { source: "ghl"; calendars?: Record<string, CalendarConfig> }
+  | { source: "calendly"; token: string; organization: string; user?: string; phoneQuestion?: string; setterQuestion?: string; calendars?: Record<string, CalendarConfig> };
 export type Company = { id: string; locationId: string; pit: string; timezone: string; booking: BookingConfig };
 
 export type ContactSnapshot = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; tags: string[]; customFields: Record<string, unknown>; dateUpdated: string; dateAdded: string };
@@ -14,6 +16,7 @@ export type AppointmentSnapshot = {
   assignedUserId?: string; assignedUserEmail?: string;
   startTime: string; endTime: string; status: string; title?: string; dateUpdated?: string; dateAdded?: string;
   setBy?: string;             // the setter's name when the source carries it (Calendly question on the setter event type)
+  answers?: Record<string, string>;   // booking-form answers keyed by the name the calendar config gave them
   rescheduleUrl?: string; cancelUrl?: string;   // per-booking self-service links when the source has them (Calendly)
   cancellation?: { by?: string; reason?: string; byType?: string };   // who cancelled and why, when the source says
   tracking?: Record<string, string>;            // utm_* and the like, as the source reports them

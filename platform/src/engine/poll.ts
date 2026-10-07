@@ -104,8 +104,12 @@ async function resolveContactForBooking(c: PoolClient, co: CompanyRow, ac: Compa
  *   question  — the booking question names the setter; no name → self-booked (one calendar for both)
  *   either    — setter-booked if the calendar is a setter calendar OR a setter was named
  */
-export function decideSelfBooked(rule: string | undefined, calendarSelfBooked: boolean | null, setBy: string | undefined | null): boolean | null {
+export function decideSelfBooked(rule: string | undefined, calendarSelfBooked: boolean | null, setBy: string | undefined | null, perCalendar?: "self" | "setter" | "question"): boolean | null {
   const named = !!(setBy && setBy.trim());
+  // the calendar's own rule wins over the company default
+  if (perCalendar === "self") return true;
+  if (perCalendar === "setter") return false;
+  if (perCalendar === "question") return !named;
   switch (rule) {
     case "question": return !named;
     case "either": return calendarSelfBooked === false || named ? false : calendarSelfBooked === true ? true : !named;
@@ -115,10 +119,10 @@ export function decideSelfBooked(rule: string | undefined, calendarSelfBooked: b
 
 export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot, rep?: PollReport, baseline = false): Promise<void> {
   const source = ac.booking.source;
-  const calRow = await one<{ id: string; appointment_term: string; self_booked: boolean | null }>(c, "select id, appointment_term, self_booked from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
+  const calRow = await one<{ id: string; appointment_term: string; self_booked: boolean | null; config: { booking?: "self" | "setter" | "question" } }>(c, "select id, appointment_term, self_booked, config from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
   if (!calRow) return;
   const rule = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='booking.setter_rule'", [co.id]))?.value.toString("utf8");
-  const cal = { ...calRow, self_booked: decideSelfBooked(rule, calRow.self_booked, s.setBy) };
+  const cal = { ...calRow, self_booked: decideSelfBooked(rule, calRow.self_booked, s.setBy, calRow.config?.booking) };
   // a cancelled booking that was rescheduled is carried by its replacement (same appointment, new time); nothing to do here
   if (s.rescheduledTo) return;
   const contact = await resolveContactForBooking(c, co, ac, adapters, s);
@@ -132,8 +136,8 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
     if (prior) { await c.query("update appointments set external_id=$2, reschedule_url=coalesce($3, reschedule_url), cancel_url=coalesce($4, cancel_url) where id=$1", [prior.id, s.id, s.rescheduleUrl ?? null, s.cancelUrl ?? null]); existing = { ...prior, external_id: s.id }; }
   }
   if (!existing) {
-    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.setBy ?? null, s.rescheduleUrl ?? null, s.cancelUrl ?? null, s.tracking ?? {}, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null]);
+    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.setBy ?? null, JSON.stringify(s.answers ?? {}), s.rescheduleUrl ?? null, s.cancelUrl ?? null, s.tracking ?? {}, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null]);
     if (baseline) { if (rep) rep.baselined++; return; }   // replica only; an appointment that existed before install is not a new booking
     const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: row!.id, event_type: "appointment.booked", source: "ghl_poll", data: { source, calendar_id: s.calendarId, status: s.status, starts_at: s.startTime, self_booked: cal.self_booked } });
     const oppId = await ensureOpportunityForBooking(c, co.id, contact.id, row!.id, ev);

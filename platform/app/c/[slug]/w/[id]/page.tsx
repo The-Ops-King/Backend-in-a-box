@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { company, workflow, readiness } from "@/ui/queries";
 import { ReadinessCard } from "@/ui/Readiness";
 import { StepsTable } from "@/ui/StepsTable";
+import { CopyPanel } from "@/ui/CopyPanel";
 import { NextUp } from "@/ui/Plan";
 import { plannedRuns } from "@/ui/plan";
 import { Flow } from "@/ui/Flow";
@@ -31,7 +32,7 @@ export default async function WorkflowPage({ params }: { params: Promise<{ slug:
     </div>
     <h2>Flow chart</h2>
     {w.definition ? <Mermaid chart={toMermaid(w.definition)} /> : <div className="card ready ready-no"><strong>This workflow's stored definition no longer runs on the current engine.</strong><div className="body">Re-run install for this company to upgrade it to the current template. Until then its triggers are skipped.</div><pre className="json" style={{ marginTop: 10 }}>{w.parseError}</pre></div>}
-    {w.definition ? <><h2>The steps, as a table</h2><StepsTable def={w.definition} /></> : null}
+    {w.definition ? <><h2>The copy</h2><p className="sub">Every message this workflow can send, in full. ⟨angle brackets⟩ are filled in per contact.</p><CopyPanel def={w.definition} /><h2>The steps, as a table</h2><StepsTable def={w.definition} /></> : null}
     <h2>In this workflow right now · {live.length}</h2>
     <NextUp runs={live} slug={slug} tz={co.timezone} showContact />
     <div className="grid g2" style={{ marginTop: 22, alignItems: "start" }}>

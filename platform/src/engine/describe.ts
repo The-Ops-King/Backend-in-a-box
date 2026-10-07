@@ -59,6 +59,7 @@ export function pathWords(p: unknown): string {
   if (path.startsWith("record.")) return `the record ${humanWords(path.slice(7))}`;
   if (path.startsWith("prompt.")) return `the “${humanWords(path.slice(7))}” prompt`;
   if (path.startsWith("recording.")) return humanWords(path.slice(10));
+  if (path.startsWith("appointment.answers.")) return `their answer to ${humanWords(path.slice("appointment.answers.".length))}`;
   return humanWords(path.split(".").slice(-2).join(" "));
 }
 /** Message templates keep their text; bindings inside become their plain name so the chart does not show `{{calendar.closer_call.url}}`. */

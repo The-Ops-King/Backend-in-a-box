@@ -773,3 +773,14 @@ Same day, three operating rules the real-contact test and the "will it fire?" qu
   has lost its window (validity) is skipped by the existing staleness rules rather than sent late.
 - **Migrate runs in the build.** `pnpm build` applies the schema before Next compiles, so a deploy can
   never serve code against yesterday's tables. A migration that fails fails the deploy.
+
+### D24, continued (2026-10-07): questions live on the calendar, answers live on the appointment
+
+Every calendar asks different questions in a different order, so each calendar carries its own
+`config`: `booking` (self | setter | question — beats the company rule) and `questions`, a map from
+the name we want to the question text as it appears on that form (`setter`, `phone`, and any intake
+attribute such as `noticing_for`). Matching is case-insensitive on a prefix, so "(required)" suffixes
+and punctuation do not matter. Mapped answers land on the appointment as `answers.<name>` and are
+addressable in templates (`{{appointment.answers.noticing_for}}`), so intake captured at booking is
+usable without a form or a CRM field. Lead attribution (D25, not yet built) will read these same
+answers plus the booking link's UTM tracking; Tyler's rule is last touch wins, with the history kept.
