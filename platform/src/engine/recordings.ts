@@ -19,7 +19,7 @@ export type RecordingInput = {
   summary?: string;
   raw?: Record<string, unknown>;
 };
-export type RecordingRow = { id: string; company_id: string; contact_id: string | null; appointment_id: string | null; provider: string; external_id: string; title: string | null; started_at: Date; ended_at: Date | null; duration_min: number | null; url: string | null; share_url: string | null; recorded_by_email: string | null; recorded_by_name: string | null; invitees: { name?: string; email?: string; isExternal?: boolean }[]; transcript: { speaker: string; email?: string; text: string; timestamp?: string }[] | null; summary: string | null; analysis: Record<string, unknown>; link_status: string; linked_by: string | null; unlinked_reason: string | null; received_at: Date };
+export type RecordingRow = { id: string; company_id: string; contact_id: string | null; appointment_id: string | null; provider: string; external_id: string; title: string | null; started_at: Date; ended_at: Date | null; duration_min: number | null; url: string | null; share_url: string | null; recorded_by_email: string | null; recorded_by_name: string | null; invitees: { name?: string; email?: string; isExternal?: boolean }[]; transcript: { speaker: string; email?: string; text: string; timestamp?: string }[] | null; summary: string | null; analysis: Record<string, unknown>; link_status: string; linked_by: string | null; unlinked_reason: string | null; raw: Record<string, unknown>; received_at: Date };
 export type RecordResult =
   | { outcome: "duplicate"; recording: RecordingRow }
   | { outcome: "linked"; recording: RecordingRow; event: EventRow; contactId: string; appointmentId: string | null }
@@ -121,5 +121,44 @@ export async function linkRecording(c: PoolClient, companyId: string, recordingI
   await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: out.event.opportunity_id, appointment_id: out.appointmentId, event_type: "recording.linked", source: "user", data: { recording_id: r.id, by: "manual" } });
   return out;
 }
+
+// ---- phone calls (D28) -----------------------------------------------------------------------------------------------
+/**
+ * A call the CRM's dialer logged is a recording too, and lives in the same ledger: provider 'ghl', the call entry's id as
+ * external_id, the contact known outright (the thread names them, so no ladder). What is different is timing: the entry
+ * appears the moment the call ends, the transcript minutes later, so a connected call sits `pending` and is settled by a
+ * later poll (transcript found, or the wait ran out). Every call is kept, answered or not — connection rate and
+ * speed-to-lead are read from this table later. `call.logged` fires once per call, when it settles.
+ */
+export type PhoneCallInput = { externalId: string; contactId: string; startedAt: Date; durationSec: number; direction: "inbound" | "outbound"; status: string; callerGhlUserId?: string; conversationUrl?: string; raw?: Record<string, unknown> };
+/** GHL's dialer vocabulary → ours. Unknown statuses are kept as given so nothing is silently rewritten. */
+export const callOutcome = (status: string) => ({ completed: "connected", answered: "connected", "no-answer": "no_answer", noanswer: "no_answer", busy: "busy", failed: "failed", canceled: "failed", cancelled: "failed", voicemail: "voicemail" } as Record<string, string>)[status.toLowerCase()] ?? status.toLowerCase();
+export const TRANSCRIPT_WAIT_MIN = 30;   // a connected call with no transcript yet is re-checked for this long, then settles without one
+
+export async function recordPhoneCall(c: PoolClient, companyId: string, input: PhoneCallInput): Promise<{ recording: RecordingRow; isNew: boolean }> {
+  const outcome = callOutcome(input.status);
+  const connected = outcome === "connected" && input.durationSec > 0;
+  const caller = input.callerGhlUserId ? await one<{ name: string; email: string }>(c, "select name, email from users where company_id=$1 and ghl_user_id=$2", [companyId, input.callerGhlUserId]) : null;
+  const raw = { ...(input.raw ?? {}), kind: "phone", direction: input.direction, call_status: outcome, call_status_raw: input.status, duration_sec: input.durationSec, caller_ghl_user_id: input.callerGhlUserId ?? null, transcript_status: connected ? "pending" : "none" };
+  const inserted = await one<RecordingRow>(c, `insert into recordings (company_id, contact_id, provider, external_id, title, started_at, ended_at, duration_min, share_url, recorded_by_email, recorded_by_name, invitees, link_status, linked_by, raw)
+    values ($1,$2,'ghl',$3,$4,$5,$6,$7,$8,$9,$10,'[]','linked','contact',$11) on conflict (company_id, provider, external_id) do nothing returning *`,
+    [companyId, input.contactId, input.externalId, `${input.direction === "inbound" ? "Inbound" : "Outbound"} call · ${outcome.replace("_", " ")}`, input.startedAt, new Date(input.startedAt.getTime() + input.durationSec * 1000), Math.round(input.durationSec / 60), input.conversationUrl ?? null,
+      caller ? normEmail(caller.email) ?? null : null, caller?.name ?? null, raw]);
+  if (inserted) return { recording: inserted, isNew: true };
+  return { recording: (await one<RecordingRow>(c, "select * from recordings where company_id=$1 and provider='ghl' and external_id=$2", [companyId, input.externalId]))!, isNew: false };
+}
+
+/** Writes the transcript (or the fact there is none) and fires `call.logged` exactly once. `silent` for the baseline poll: the row is kept, nothing is dispatched. */
+export async function settlePhoneCall(c: PoolClient, r: RecordingRow, media: { recordingUrl?: string; transcript: RecordingRow["transcript"] | null } | null, opts: { silent?: boolean } = {}): Promise<{ recording: RecordingRow; event: EventRow | null }> {
+  const has = !!media?.transcript?.length;
+  const raw = { ...r.raw, transcript_status: has ? "ready" : "none", ...(opts.silent ? { baseline: true } : {}) };
+  const row = (await one<RecordingRow>(c, "update recordings set transcript=$2, url=coalesce($3, url), raw=$4 where id=$1 returning *", [r.id, has ? JSON.stringify(media!.transcript) : null, media?.recordingUrl ?? null, raw]))!;
+  if (opts.silent) return { recording: row, event: null };
+  const event = await emitEvent(c, { company_id: r.company_id, contact_id: r.contact_id, opportunity_id: null, appointment_id: null, event_type: "call.logged", source: "ghl_poll", occurred_at: r.started_at, data: eventData(row, phoneFacts(row)) });
+  return { recording: row, event };
+}
+/** The call as a trigger sees it (`{{recording.*}}` in a match), the same fields context.ts exposes to the run. */
+export const phoneFacts = (r: RecordingRow) => { const raw = r.raw as Record<string, unknown>; return { kind: "phone", direction: raw.direction, status: raw.call_status, connected: raw.call_status === "connected", duration_sec: raw.duration_sec, has_transcript: !!r.transcript?.length, caller: r.recorded_by_name }; };
+export const pendingPhoneCalls = (c: PoolClient, companyId: string, limit = 20) => many<RecordingRow>(c, "select * from recordings where company_id=$1 and provider='ghl' and raw->>'transcript_status'='pending' order by started_at limit $2", [companyId, limit]);
 
 export const unlinkedRecordings = (c: PoolClient, companyId: string) => many<RecordingRow>(c, "select * from recordings where company_id=$1 and link_status='unlinked' order by started_at desc", [companyId]);

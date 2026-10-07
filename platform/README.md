@@ -40,6 +40,7 @@ confirmation email went out through GHL into the contact's thread, the reminder 
 | call-cancelled | closing call cancelled (a reschedule never fires this) | setter and closer cards → their cancelled stage (move only); appointment date cleared on the contact; rebook task for the closer due in a day with who cancelled and why; `stat-cancelled` on, booked tags off; Slack note. Needs `crm.stage_setter_cancelled`, `crm.stage_closer_cancelled` |
 | payment-recorded | payment linked to a contact | cash collected on the contact = running total; revenue generated stamped once with the program price; `pay-paid-full` (and `pay-plan-active` off) when cleared, else `pay-plan-active`; Payment custom-object record written and linked to the contact and the closer card; Slack line. Needs `crm.field_contact_cash_collected`, `crm.field_contact_revenue_generated`, `crm.assoc_payment_contact`, `crm.assoc_payment_opportunity`, `crm.pipeline_closer`; `slack.channel.payments` optional |
 | call-recorded | a call recording matched to a contact | AI decides whether it is a sales call (else stop), pulls the notes and scores the call against the rubric (`analyze` nodes on `prompt.call_classify` / `prompt.call_notes` / `prompt.call_rubric`); when an appointment matched: appointment recorded as showed (`call.held` fires), `stat-showed`, setter card → Showed and won; Sales Call record written and linked; notes on the contact; Slack review. Needs `secret.anthropic_key`, `crm.stage_setter_showed`, `crm.assoc_sales_call_contact`, `crm.assoc_sales_call_opportunity`; `slack.channel.calls` optional |
+| setter-call-logged | the dialer logged a connected phone call (`call.logged`) | under the minimum length (a `set_var` knob, 60s, editable on the step) or no recording → stop; 15 minutes after the call the AI says setting / confirmation / other (`prompt.setter_call_classify`; other → stop), writes the digest with pains, goals, triage and a fit score (`prompt.setter_call_notes`); whether a booking followed is read from our appointments; Discovery Call record written and linked to the contact (`led_to_booking` checkbox as `["yes"]`), digest as a note, Slack post. Needs `secret.anthropic_key`, `crm.assoc_discovery_call_contact`; `slack.channel.setter_calls` optional |
 | new-lead | lead created | with a phone: setter-pipeline card "Name -- New" (stage New Lead, stage-entered date today) + tag `stat-new`; without a phone: exit `no_phone`. Needs `crm.pipeline_setter`, `crm.stage_setter_new_lead`, `crm.field_opportunity_stage_entered` (install `crm: {...}`) |
 
 Every message is a template on the workflow, editable per company once the editor exists; until
@@ -88,6 +89,24 @@ the recorder's calendar (one appointment within two hours), or left **unmatched*
 team alert, and a row on `/c/<slug>/recordings` where an operator links it. A linked recording
 emits `recording.received` (with the contact's appointment nearest the start, within a day) and
 templates take it from there. Facts about Fathom's API are in `fathom/01-api-facts.md`.
+
+### Phone calls the dialer logs (D28)
+
+A call placed or taken in GHL is a `TYPE_CALL` entry in the contact's conversation, and the
+conversations poll turns every one of them (answered or not) into a `recordings` row: provider `ghl`,
+the entry's id as `external_id`, linked straight to the contact (the thread names them, no ladder),
+`raw` carrying the dialer's facts (`direction`, `call_status` normalised to connected / voicemail /
+no_answer / busy / failed, `duration_sec`, `caller_ghl_user_id`), `recorded_by_*` = the user who
+dialed. GHL writes the entry when the call ends and the transcript minutes later, so a connected call
+sits `raw.transcript_status = pending` and the `calls` poll re-reads it each tick, settling it when the
+transcript lands (stored as `transcript`, recording link as `url`) or after 30 minutes without one.
+`call.logged` fires once per call, at settle, with `recording.kind = phone`, `connected`,
+`duration_sec`, `has_transcript`, `direction`, `status`, `caller` available to trigger matches and
+to the run (`recording.caller.name`, `recording.led_to_booking` = an appointment booked after the
+call started, read live). A call is never a reply: it does not wake `wait_for_reply`, and `TYPE_ACTIVITY`
+entries are skipped too. Every call stays in the ledger for connection-rate and speed-to-lead
+reporting later. Recording is not on for every call in GHL (verified on Hair: 2 of 4 long calls had
+one), so a connected call with no transcript is a normal case, not an error.
 
 ### Reading a call with AI
 
@@ -200,7 +219,9 @@ the step instead of performing it. Three ways, same code:
 
 Actions: `create` (a lead comes in), `book` (a setter books the closing call, 3 days out, 2pm in the
 contact's zone), `book-self`, `reschedule` (+2 days), `cancel`, `pay` (the program price), `record`
-(a Fathom-shaped recording with a short transcript, through the match ladder), `reset` (the engine
+(a Fathom-shaped recording with a short transcript, through the match ladder), `call` (a connected
+3-minute dialer call 20 minutes ago with a setting-call transcript, dialed by the roster's setter),
+`reset` (the engine
 forgets every run, send, card, pursuit and synthetic appointment for that person; the contact stays).
 Synthetic appointments have `source = 'test'` and never exist at a booking source; the premise check
 trusts our row for them. The closer on a staged booking is the calendar's host when known, else the

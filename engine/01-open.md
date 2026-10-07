@@ -246,3 +246,13 @@ V2 moves the editing into the UI: copy (done), timing of waits, reordering and a
 triggers and conditions, and an agent inside the tool that each company can talk to. Standing practice
 until then: every workflow Claude installs is proven on a test contact with the harness in shadow, and
 the report says what it did and where to look.
+
+## 28. Call recording is partial on Hair; reports over the call ledger come later
+2026-10-07. Of the four Hair dialer calls over a minute in the last three days, two had a recording
+and transcript and two did not (one of them 172 seconds, still none 30 minutes later). Either the
+setter toggles recording per call or the number's recording setting is partial — check in GHL. The
+engine keeps every call either way (D28) and only classifies the ones with a transcript. Connection
+rate per setter, speed to lead and set rate from the ledger belong in the nightly digest Tyler asked
+for the same day; that is a scheduled report over our tables, a different shape from a per-contact
+run, and is designed next.
+

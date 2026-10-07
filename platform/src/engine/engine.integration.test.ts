@@ -28,7 +28,7 @@ const recordWrites: Record<string, unknown>[] = [];
 const relations: string[] = [];
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], inboundSince: async () => [], opportunitiesSince: async () => [],
+    contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async () => null, opportunitiesSince: async () => [],
     getContact: async () => null, listUsers: async () => [{ id: "GHLU1", name: "Sam Closer", email: "sam@x.com" }],
   },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], listCalendars: async () => [],

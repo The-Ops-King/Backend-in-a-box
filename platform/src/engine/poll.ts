@@ -1,13 +1,14 @@
 import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { asOperator, many, one } from "@/db/client";
-import { bookingFor, type Adapters, type AppointmentSnapshot, type Company, type ContactSnapshot } from "@/adapters/types";
+import { bookingFor, type Adapters, type AppointmentSnapshot, type Company, type ContactSnapshot, type MessageSnapshot } from "@/adapters/types";
 import { loadCompany, type CompanyRow } from "./context";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { ensureOpportunityForBooking, ensureUser, userIdByEmail } from "./lifecycle";
 import { simTag, simulate } from "./simulate";
+import { pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, TRANSCRIPT_WAIT_MIN, type RecordingRow } from "./recordings";
 
-export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
+export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
 const normPhone = (p?: string) => p ? p.replace(/[^\d+]/g, "").replace(/^(\d{10})$/, "+1$1") : undefined;
 const normEmail = (e?: string) => e?.trim().toLowerCase() || undefined;
@@ -177,8 +178,13 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
   const msgs = await adapters.read.inboundSince(ac, since.toISO()!);
   let max = since;
   for (const m of msgs) {
-    const contact = await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id=$2", [co.id, m.contactId]);
+    let contact = await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id=$2", [co.id, m.contactId]);
+    if (!contact && m.channel === "call") {   // a call to a brand-new lead can land before the contacts poll has them; the call is a fact worth keeping, so fetch the person now
+      const live = await adapters.read.getContact(ac, m.contactId);
+      if (live) contact = { id: (await upsertContact(c, co.id, co.timezone, live)).id };
+    }
     if (!contact) continue;
+    if (m.channel === "call") { await applyCall(c, co, ac, adapters, m, contact.id, isBaseline, rep); const d = DateTime.fromISO(m.dateAdded); if (d > max) max = d; continue; }
     const ins = await one<{ id: string }>(c, `insert into messages (company_id, contact_id, ghl_message_id, ghl_conversation_id, channel, direction, body, subject, sent_by, status, occurred_at)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) on conflict (company_id, ghl_message_id) do nothing returning id`,
       [co.id, contact.id, m.id, m.conversationId, m.channel, m.direction, m.body ?? null, m.subject ?? null, m.direction === "inbound" ? null : "other", m.status ?? null, m.dateAdded]);
@@ -194,6 +200,34 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
   await saveCursor(c, co.id, "conversations", max.toISO()!, true);
 }
 
+/** A call entry in the thread → a ledger row. Connected calls wait for their transcript (settled here if it is already there, else by pollPendingCalls); the rest settle at once. */
+async function applyCall(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, m: MessageSnapshot, contactId: string, isBaseline: boolean, rep: PollReport) {
+  const call = m.call ?? { status: m.status ?? "" };
+  if (call.userId) await ensureUser(c, adapters, ac, call.userId);
+  const { recording, isNew } = await recordPhoneCall(c, co.id, { externalId: m.id, contactId, startedAt: new Date(m.dateAdded), durationSec: call.durationSec ?? 0, direction: m.direction, status: call.status, callerGhlUserId: call.userId,
+    conversationUrl: `https://app.gohighlevel.com/v2/location/${ac.locationId}/conversations/conversations/${m.contactId}` });
+  if (!isNew) return;
+  rep.calls++;
+  if (recording.raw.transcript_status === "pending") {
+    const media = await adapters.read.callMedia(ac, m.id);
+    if (!media?.transcript && !isBaseline) return;   // stays pending; the calls poll settles it when the transcript lands or the wait runs out
+    await settleCall(c, recording, media, contactId, isBaseline, rep);
+  } else await settleCall(c, recording, null, contactId, isBaseline, rep);
+}
+async function settleCall(c: PoolClient, r: RecordingRow, media: Awaited<ReturnType<Adapters["read"]["callMedia"]>>, contactId: string, silent: boolean, rep: PollReport) {
+  const { recording, event } = await settlePhoneCall(c, r, media, { silent });
+  if (event) rep.eventsDispatched += (await dispatchEvent(c, event, { contact: { id: contactId }, recording: { id: recording.id, ...phoneFacts(recording) } })).length;
+}
+/** Connected calls still waiting for a transcript: re-read each tick, settle on a transcript or once the wait has run out. */
+async function pollPendingCalls(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) {
+  for (const r of await pendingPhoneCalls(c, co.id)) {
+    const media = await adapters.read.callMedia(ac, r.external_id);
+    const expired = Date.now() - r.started_at.getTime() > TRANSCRIPT_WAIT_MIN * 60e3;
+    if (!media?.transcript && !expired) continue;
+    await settleCall(c, r, media, r.contact_id!, false, rep);
+  }
+}
+
 type EntityPoll = (c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) => Promise<void>;
 
 /**
@@ -202,7 +236,7 @@ type EntityPoll = (c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapter
  * commits or rolls back on its own; the failure counter is written afterwards in a fresh transaction.
  */
 export async function pollAll(adapters: Adapters): Promise<PollReport> {
-  const rep: PollReport = { companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, eventsDispatched: 0, baselined: 0, errors: [] };
+  const rep: PollReport = { companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, calls: 0, eventsDispatched: 0, baselined: 0, errors: [] };
   const companies = await asOperator((c) => many<{ id: string }>(c, "select id from companies where status in ('active','hosted')"));
   for (const { id } of companies) {
     rep.companies++;
@@ -216,6 +250,7 @@ export async function pollAll(adapters: Adapters): Promise<PollReport> {
       ["contacts", pollContacts],
       ...cals.map((cal): [string, EntityPoll] => [`appointments:${cal.external_id}`, (c, co, ac, adapters, rep) => pollCalendar(c, co, ac, adapters, rep, cal.external_id)]),
       ["conversations", pollInbound],
+      ["calls", pollPendingCalls],
     ];
     for (const [entity, fn] of entities) {
       const before = { ...rep };

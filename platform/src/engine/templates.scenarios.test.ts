@@ -12,7 +12,7 @@ import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
 import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from "@/adapters/types";
-import { recordRecording, linkRecording, type RecordingInput } from "@/engine/recordings";
+import { recordRecording, linkRecording, recordPhoneCall, settlePhoneCall, phoneFacts, type RecordingInput } from "@/engine/recordings";
 import { simulate } from "@/engine/simulate";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -30,7 +30,7 @@ const recordWrites: Record<string, unknown>[] = [];
 const relations: string[] = [];
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], inboundSince: async () => [], opportunitiesSince: async () => [],
+    contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async () => null, opportunitiesSince: async () => [],
     getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }),
     listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }],
   },
@@ -48,13 +48,16 @@ const fake: Adapters = {
   classifier: { choice: async (): Promise<Classification> => ({ value: "confirmed", confidence: 0.95, distribution: { confirmed: 0.95 }, unclear: false }) },
   notifier: { post: async () => ({ ts: "1" }) },
   // answers by which prompt is asked, the way the real model would: classify → is it a sales call, notes → the write-up, rubric → the score
-  analyst: { analyze: async (_k, req) => { analyses.push(req.system.slice(0, 40)); const parsed = /sales call:/.test(req.system) ? { is_sales_call: salesCall, call_kind: "closing", confidence: 0.96, reason: "prospect discussed buying" }
+  analyst: { analyze: async (_k, req) => { analyses.push(req.system.slice(0, 40)); const parsed = /setters and leads/.test(req.system) ? { call_type: setterCallType, confidence: 0.9, reason: "qualifying toward a booking" }
+    : /setter phone calls/.test(req.system) ? { summary: "Thinning for a year, wants it handled; asked about price and took Thursday at two.", pains: "getting worse for about a year", goals: "feel like himself again", triage: "", fit_quality: 8, digest: "Thinning for a year, wants it handled; asked about price and took Thursday at two.\nPains: getting worse for about a year\nGoals: feel like himself again\nFit: 8/10 — named the problem, a timeline and asked about price" }
+    : /sales call:/.test(req.system) ? { is_sales_call: salesCall, call_kind: "closing", confidence: 0.96, reason: "prospect discussed buying" }
     : /note-taker/.test(req.system) ? { summary: "Wants to fix thinning; decided to start.", pain: ["thinning at the crown"], objections: [{ objection: "price", quote: "that is a lot right now", handled: true }], disposition: "closed_won", primary_objection: "price", next_step: "onboarding call", quotes: ["I just want it to stop"] }
     : { overall_score: 8, scores: { discovery: 9 }, strengths: ["asked about timeline"], misses: ["no urgency close"], coaching: ["ask for the card earlier"] };
     return { text: JSON.stringify(parsed), parsed, model: "fake", usage: { input: 1000, output: 100, cacheRead: 0 } }; } },
 };
 const analyses: string[] = [];
 let salesCall = true;
+let setterCallType = "setting";
 const since = () => sent.length;
 const bySlug = (slug: string) => asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug=$2", [companyId, slug]));
 const runsFor = (slug: string) => asOperator((c) => many<{ id: string; status: string; current_node: string | null; exit_reason: string | null; next_run_at: Date | null; contact_id: string }>(c, "select r.id, r.status, r.current_node, r.exit_reason, r.next_run_at, r.contact_id from runs r join workflows w on w.id=r.workflow_id join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug=$2 order by r.started_at", [companyId, slug]));
@@ -85,14 +88,14 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
         await c.query("delete from companies where id=$1", [co.id]); }
     });
     const r = await installCompany({ name: "Scenarios", slug: "scn", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live",
-      crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_setter_direct_booked: "STAGE-DIRECT", stage_setter_appointment_set: "STAGE-SET", stage_closer_scheduled: "STAGE-SCHED", stage_setter_cancelled: "STAGE-S-CANCEL", stage_closer_cancelled: "STAGE-C-CANCEL", field_contact_appointment_date: "CF-APPT-DATE", field_contact_setter: "CF-SETTER", field_opportunity_setter_owner: "CF-SETTER-OWNER",
+      crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_setter_direct_booked: "STAGE-DIRECT", stage_setter_appointment_set: "STAGE-SET", stage_closer_scheduled: "STAGE-SCHED", stage_setter_cancelled: "STAGE-S-CANCEL", stage_closer_cancelled: "STAGE-C-CANCEL", field_contact_appointment_date: "CF-APPT-DATE", field_contact_setter: "CF-SETTER", field_opportunity_setter_owner: "CF-SETTER-OWNER", assoc_discovery_call_contact: "ASSOC-DC",
         field_contact_cash_collected: "CF-CASH", field_contact_revenue_generated: "CF-REV", assoc_payment_contact: "ASSOC-PC", assoc_payment_opportunity: "ASSOC-PO",
         stage_setter_showed: "STAGE-SHOWED", assoc_sales_call_contact: "ASSOC-SC", assoc_sales_call_opportunity: "ASSOC-SO" }, contractValueDefault: 2999, anthropicKey: "sk-ant-fake" }, fake);
     companyId = r.companyId;
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
     // the test database is shared with the other suites; park their leftover runs so this file's ticks only ever send for this company
     await asOperator((c) => c.query("update runs set next_run_at = now() + interval '1 day' where company_id <> $1 and status in ('active','waiting')", [companyId]));
-    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(14);
+    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(15);
   });
 
   it("speed-to-lead: email + SMS now; a reply → tag engaged; silence → second email", async () => {
@@ -479,5 +482,51 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const r = (await runsFor("speed-to-lead")).find((r) => r.contact_id === id)!; expect(r.status).toBe("waiting"); expect(r.current_node).toBe("n3");
     const sup = await asOperator((c) => one<{ suppressed_reason: string }>(c, "select suppressed_reason from sends where run_id=$1 and channel='sms'", [r.id]));
     expect(sup?.suppressed_reason).toMatch(/sms_disabled/);
+  });
+
+  it("setter-call-logged: a connected dialer call with a transcript → 15 minutes after the call the AI calls it a setting call, digest, Discovery Call record linked to the contact, note, Slack; too short / no transcript / 'where are you' each stop at their check; a fresh call waits", async () => {
+    const id = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CCB2'", [companyId])))!.id;
+    const transcript = [{ speaker: "0", text: "Hey Leo, got two minutes?" }, { speaker: "1", text: "Sure. It has been getting worse for a year. What does it cost?" }, { speaker: "0", text: "The specialist covers that. Thursday at two?" }, { speaker: "1", text: "Works." }];
+    const logCall = (ext: string, durationSec: number, minutesAgo: number, withTranscript: boolean, status = "completed") => asOperator(async (c) => {
+      const { recording } = await recordPhoneCall(c, companyId, { externalId: ext, contactId: id, startedAt: new Date(Date.now() - minutesAgo * 60e3), durationSec, direction: "outbound", status, callerGhlUserId: "U1", conversationUrl: "https://app.gohighlevel.com/v2/location/L/conversations/conversations/CCB2" });
+      const { recording: row, event } = await settlePhoneCall(c, recording, withTranscript ? { recordingUrl: `https://ghl.test/${ext}/recording`, transcript } : { transcript: null });
+      await dispatchEvent(c, event!, { contact: { id }, recording: { id: row.id, ...phoneFacts(row) } });
+      return row;
+    });
+    const lastRun = async () => (await runsFor("setter-call-logged")).filter((x) => x.contact_id === id).at(-1)!;
+    // 1. the real thing: 3 minutes, 20 minutes ago, transcript present
+    const nRec = recordWrites.length, nRel = relations.length, nAn = analyses.length;
+    const row = await logCall("call-1", 184, 20, true);
+    expect(row.raw).toMatchObject({ kind: "phone", call_status: "connected", duration_sec: 184, transcript_status: "ready" });
+    expect(row.recorded_by_name).toBe("Sam Closer");
+    await tick(fake); await tick(fake);
+    const run = await lastRun();
+    expect(run).toMatchObject({ status: "completed", exit_reason: "posted" });
+    expect(analyses.slice(nAn)).toHaveLength(2);
+    const rw = recordWrites.slice(nRec); expect(rw).toHaveLength(1);
+    expect(rw[0]).toMatchObject({ op: "create", external_id: "call-1", contact_id: "CCB2", direction: "outbound", duration_sec: 184, setter: "Sam Closer", outcome: "connected", recording_url: "https://ghl.test/call-1/recording" });
+    expect(rw[0].led_to_booking).toEqual(["yes"]);   // Leo's appointment was booked (by this test run) after the call started → the checkbox is written as the CRM wants it
+    expect(relations.slice(nRel)).toEqual([`ASSOC-DC:CCB2>rec-${nRec + 1}`]);
+    const slack = await asOperator((c) => one<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [run.id]));
+    expect(slack?.rendered_body).toContain("setting"); expect(slack?.rendered_body).toContain("Fit: 8/10"); expect(slack?.rendered_body).toContain("Set — a booking followed this call");
+    const stored = await asOperator((c) => one<{ analysis: Record<string, unknown> }>(c, "select analysis from recordings where id=$1", [row.id]));
+    expect(Object.keys(stored!.analysis).sort()).toEqual(["classify", "notes"]);
+    // 2. a 30-second connect stops before the wait; 3. a connected call nobody recorded stops too; neither reaches the AI
+    const nAn2 = analyses.length;
+    await logCall("call-2", 30, 20, true); await tick(fake); expect(await lastRun()).toMatchObject({ status: "completed", exit_reason: "too_short" });
+    await logCall("call-3", 120, 20, false); await tick(fake); expect(await lastRun()).toMatchObject({ status: "completed", exit_reason: "no_transcript" });
+    expect(analyses.length).toBe(nAn2);
+    // 4. "are you joining the call?" → the AI says other → nothing written
+    setterCallType = "other"; const nRec4 = recordWrites.length;
+    await logCall("call-4", 95, 20, true); await tick(fake); await tick(fake); setterCallType = "setting";
+    expect(await lastRun()).toMatchObject({ status: "completed", exit_reason: "not_a_setting_call" }); expect(recordWrites.length).toBe(nRec4);
+    // 5. a call that just ended waits for its 15 minutes (so the booking the setter makes right after shows up)
+    await logCall("call-5", 200, 2, true); await tick(fake);
+    const waiting = await lastRun(); expect(waiting.status).toBe("waiting");
+    expect(Math.abs(DateTime.fromJSDate(waiting.next_run_at!).diffNow("minutes").minutes - 13)).toBeLessThan(1.5);
+    // 6. a no-answer never starts the workflow at all (trigger wants a connected call)
+    const nRuns = (await runsFor("setter-call-logged")).length;
+    await logCall("call-6", 0, 20, false, "no-answer"); await tick(fake);
+    expect((await runsFor("setter-call-logged")).length).toBe(nRuns);
   });
 });

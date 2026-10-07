@@ -12,4 +12,5 @@ import callBooked from "./call-booked.json";
 import callCancelled from "./call-cancelled.json";
 import paymentRecorded from "./payment-recorded.json";
 import callRecorded from "./call-recorded.json";
-export const templates = [confirmation, reminder, speedToLead, noShow, cancellation, postCall, paymentReceived, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded] as const;
+import setterCallLogged from "./setter-call-logged.json";
+export const templates = [confirmation, reminder, speedToLead, noShow, cancellation, postCall, paymentReceived, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged] as const;

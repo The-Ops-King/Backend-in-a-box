@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
-import { ghl } from "./client";
-import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, ContactSnapshot, CrmRead, MessageSnapshot, OppSnapshot, UserSnapshot } from "../types";
+import { ghl, GhlError } from "./client";
+import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, MessageSnapshot, OppSnapshot, UserSnapshot } from "../types";
 
 type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; tags?: string[]; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string };
 const mapContact = (c: RawContact): ContactSnapshot => ({
@@ -33,14 +33,33 @@ export const ghlRead: CrmRead = {
     for (const conv of r.conversations ?? []) {
       const last = typeof conv.lastMessageDate === "number" ? DateTime.fromMillis(conv.lastMessageDate) : DateTime.fromISO(String(conv.lastMessageDate));
       if (last <= since) break;
-      const m = await ghl<{ messages: { messages: { id: string; direction: string; messageType: string; body?: string; subject?: string; status?: string; dateAdded: string }[] } }>(
+      const m = await ghl<{ messages: { messages: { id: string; direction: string; messageType: string; body?: string; subject?: string; status?: string; dateAdded: string; userId?: string; meta?: { call?: { status?: string; duration?: number } } }[] } }>(
         c.pit, "GET", `/conversations/${conv.id}/messages?limit=20`, { version: "2021-04-15" });
       for (const msg of m.messages?.messages ?? []) {
         if (DateTime.fromISO(msg.dateAdded) <= since) continue;
-        out.push({ id: msg.id, conversationId: conv.id, contactId: conv.contactId, channel: msg.messageType === "TYPE_EMAIL" ? "email" : "sms", direction: msg.direction as "inbound" | "outbound", body: msg.messageType === "TYPE_EMAIL" ? undefined : msg.body, subject: msg.subject, status: msg.status, dateAdded: msg.dateAdded });
+        const type = msg.messageType ?? "";
+        if (/^TYPE_ACTIVITY/.test(type)) continue;   // "opportunity moved", "appointment booked" entries are the CRM talking to itself, not the contact
+        const base = { id: msg.id, conversationId: conv.id, contactId: conv.contactId, direction: msg.direction as "inbound" | "outbound", status: msg.status, dateAdded: msg.dateAdded };
+        if (type === "TYPE_CALL") { const call = msg.meta?.call ?? {}; out.push({ ...base, channel: "call", call: { status: String(call.status ?? msg.status ?? ""), durationSec: typeof call.duration === "number" ? call.duration : undefined, userId: msg.userId } }); continue; }
+        out.push({ ...base, channel: type === "TYPE_EMAIL" ? "email" : "sms", body: type === "TYPE_EMAIL" ? undefined : msg.body, subject: msg.subject });
       }
     }
     return out;
+  },
+  /**
+   * Transcription is the proof a recording exists: GHL answers 400 CONVERSATIONS_MSG_RECORDING_NOT_FOUND for a call that was
+   * not recorded, and the recording endpoint itself streams the whole WAV (no HEAD), so it is never probed. Verified 2026-10-07:
+   * the body is an array of {speaker, transcript, startTime, endTime} segments; speaker is 0 (the dialer's side) or 1.
+   */
+  async callMedia(c, messageId): Promise<CallMedia | null> {
+    type Seg = { speaker?: number | string; transcript?: string; text?: string; startTime?: number };
+    let segs: Seg[];
+    try { const r = await ghl<Seg[] | { transcription?: Seg[]; transcript?: string }>(c.pit, "GET", `/conversations/locations/${c.locationId}/messages/${messageId}/transcription`, { version: "2021-04-15" });
+      segs = Array.isArray(r) ? r : Array.isArray(r?.transcription) ? r.transcription : typeof r?.transcript === "string" ? [{ speaker: 0, transcript: r.transcript }] : []; }
+    catch (e) { if (e instanceof GhlError && (e.status === 400 || e.status === 404 || e.status === 422)) return { transcript: null }; throw e; }
+    const transcript = segs.map((s) => ({ speaker: String(s.speaker ?? "?"), text: String(s.transcript ?? s.text ?? "").trim(), ...(typeof s.startTime === "number" ? { timestamp: `${Math.floor(s.startTime / 60)}:${String(Math.floor(s.startTime % 60)).padStart(2, "0")}` } : {}) })).filter((s) => s.text);
+    if (!transcript.length) return { transcript: null };
+    return { recordingUrl: `https://services.leadconnectorhq.com/conversations/messages/${messageId}/locations/${c.locationId}/recording`, transcript };
   },
   async opportunitiesSince(c, since) {
     const d = DateTime.fromJSDate(since).toFormat("MM-dd-yyyy");

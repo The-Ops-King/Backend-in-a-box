@@ -28,7 +28,7 @@ export const EVENT_LABELS: Record<string, string> = {
   "appointment.booked": "Appointment booked", "appointment.rescheduled": "Appointment rescheduled", "appointment.status_changed": "Appointment status changed", "appointment.outcome": "Call outcome recorded",
   "call.held": "Call held", "message.received": "Reply received", "tag.added": "Tag added", "tag.removed": "Tag removed",
   "payment.received": "Payment received", "payment.failed": "Payment failed", "payment.paid_in_full": "Paid in full",
-  "recording.received": "Call recording received", "intake.recorded": "Intake answers recorded", "contact.merged": "Two contacts merged", "stage.changed": "Pipeline stage changed", "run.started": "A workflow run started", "run.exited": "A workflow run stopped early", "send.suppressed": "A message was held back", "recording.unlinked": "Recording with no matching contact", "recording.linked": "Recording linked to a contact", "call.analyzed": "AI finished reading a call",
+  "recording.received": "Call recording received", "intake.recorded": "Intake answers recorded", "contact.merged": "Two contacts merged", "stage.changed": "Pipeline stage changed", "run.started": "A workflow run started", "run.exited": "A workflow run stopped early", "send.suppressed": "A message was held back", "recording.unlinked": "Recording with no matching contact", "recording.linked": "Recording linked to a contact", "call.analyzed": "AI finished reading a call", "call.logged": "Phone call logged",
   "opportunity.opened": "Opportunity opened", "opportunity.won": "Deal won", "opportunity.lost": "Opportunity lost", "form.submitted": "Form submitted",
 };
 const PATHS: Record<string, string> = {
@@ -40,12 +40,14 @@ const PATHS: Record<string, string> = {
   "reply.intent": "the reply", "reply.last_inbound.body": "their reply", "reply.last_outbound.body": "our last message", "reply.top_guesses": "top guesses",
   "opportunity.status": "opportunity status", "company.name": "company name", "calendar.closer_call.url": "booking link", "calendar.booking.url": "booking link", "now": "today",
   "recording.transcript_text": "the transcript", "recording.share_url": "recording link", "recording.title": "meeting title", "recording.started_at": "recording start", "recording.duration_min": "call length (minutes)", "recording.closer.name": "closer", "recording.closer.ghl_user_id": "the closer", "recording.recorded_by.name": "who recorded", "recording.summary": "the recorder's summary", "recording.invitee_names": "attendees", "recording.matched_by": "how the contact was matched", "recording.external_id": "recording id",
+  "recording.duration_sec": "call length (seconds)", "recording.caller.name": "who dialed", "recording.caller.ghl_user_id": "who dialed", "recording.led_to_booking": "a booking after the call", "recording.has_transcript": "a transcript", "recording.kind": "kind of recording", "recording.connected": "the call connected", "recording.direction": "call direction", "recording.status": "call status", "recording.url": "the recording",
+  "vars.min_seconds": "minimum call length (seconds)", "vars.classify.call_type": "the call type", "vars.notes.digest": "the AI digest", "vars.notes.fit_quality": "fit score", "vars.booked_flag": "led-to-booking flag", "vars.outcome_line": "outcome line",
   "appointment.id": "an appointment", "appointment.external_id": "appointment id", "appointment.outcome": "appointment outcome", "event.appointment_matched": "a matching appointment",
 };
-const VALUES: Record<string, string> = { noshow: "no-show", reschedule_request: "a reschedule request", follow_up: "follow up", first_call: "first call", closing: "closing call" };
+const VALUES: Record<string, string> = { noshow: "no-show", reschedule_request: "a reschedule request", follow_up: "follow up", first_call: "first call", closing: "closing call", setting: "a setting call", confirmation: "a confirmation call", phone: "a phone call", meeting: "a meeting" };
 
 export const humanWords = (s: string) => s.replace(/^crm\./, "").replace(/[_.-]+/g, " ").replace(/\s+/g, " ").trim();
-const value = (v: unknown) => typeof v === "string" ? VALUES[v] ?? `“${humanWords(v)}”` : JSON.stringify(v);
+const value = (v: unknown) => typeof v === "string" ? (/^\{\{/.test(v) ? `the ${pathWords(v)}` : VALUES[v] ?? `“${humanWords(v)}”`) : JSON.stringify(v);   // a {{path}} on the right is a thing, not a literal
 /** `{{a.b}}` or a bare path → the words a person uses for it. */
 export function pathWords(p: unknown): string {
   if (typeof p !== "string") return String(p);

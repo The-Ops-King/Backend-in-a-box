@@ -252,3 +252,28 @@ the poll interval.
 | Custom fields | `GET /locations/{id}/customFields?model=opportunity` → ids. DATE fields accept `YYYY-MM-DD`. |
 | Tasks | `POST /contacts/{id}/tasks` body `{ title, body, dueDate (ISO), completed: false, assignedTo? }` → `task.id`. |
 | Clearing a custom field | `PUT /contacts/{id}` with `customFields: [{ id, field_value: "" }]` returns 200; for some field types (native phone, possibly DATE) the empty write is accepted and ignored. Read back to be sure. |
+
+## Calls in the conversation thread (verified 2026-10-07, Hair location)
+
+- A phone call is a message with `messageType: "TYPE_CALL"` in `GET /conversations/:id/messages`
+  (Version 2021-04-15). Fields: `direction`, `status` (`completed` | `no-answer` | `failed` | `busy` |
+  `voicemail` | `canceled`), `userId` (who dialed), `meta.call.duration` (seconds, present only when
+  it connected), `meta.call.status`, `dateAdded` (call end-ish), `altId` (the carrier call sid). No body.
+- Recording: `GET /conversations/messages/:messageId/locations/:locationId/recording` streams the
+  WAV (`audio/x-wav`, ~1 MB/min) with 200, or 422 when the call was not recorded. No HEAD. Opening
+  that URL needs the bearer token, so it is not a link for Slack.
+- Transcription: `GET /conversations/locations/:locationId/messages/:messageId/transcription`
+  (Version 2021-04-15) returns an **array** of `{speaker: 0|1, mediaChannel, sentenceIndex,
+  transcript, startTime, endTime, words}` when it exists, and 400
+  `CONVERSATIONS_MSG_RECORDING_NOT_FOUND` ("Transcription does not exist") otherwise. Speaker 0 is the
+  dialer's side. The Zap's note that this endpoint "never returned content" was wrong for this account.
+- Recording is not on for every call: 2 of 4 connected calls over a minute had one. A connected
+  172-second call had none 30 minutes after it ended, so "not yet" and "never" look identical.
+- `TYPE_ACTIVITY_*` entries (opportunity moved, appointment booked) sit in the same list and are not
+  messages from the contact.
+- The conversation deep link people can open: `https://app.gohighlevel.com/v2/location/:loc/conversations/conversations/:contactId`.
+- Custom object `custom_objects.discovery_call` on Hair: display_label, external_id, contact_id,
+  occurred_at (TEXT), direction (inbound|outbound), duration_sec (NUMERICAL), setter, outcome
+  (connected|voicemail|no_answer|busy|failed), recording_url, led_to_booking (CHECKBOX, option `yes`,
+  written as `["yes"]`). Association `6aa08fc3b1739b9f7dd9f337` is contact → discovery_call.
+

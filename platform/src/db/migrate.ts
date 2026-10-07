@@ -72,6 +72,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`create table if not exists crm_records (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id), object_key text not null, record_key text not null, ghl_record_id text, contact_id uuid references contacts(id), properties jsonb not null default '{}', created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (company_id, object_key, record_key))`);
     // call recordings (D22): same ledger shape as payments
     await c.query(`insert into event_types values ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call') on conflict do nothing`);
+    await c.query(`insert into event_types values ('call.logged','call') on conflict do nothing`);   // D28: phone calls the CRM's dialer logged
     await c.query(`alter table events drop constraint if exists events_source_check`);
     await c.query(`alter table events add constraint events_source_check check (source in (${EVENT_SOURCES}))`);
     await c.query(`create table if not exists recordings (

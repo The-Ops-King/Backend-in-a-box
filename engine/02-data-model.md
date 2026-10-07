@@ -303,6 +303,8 @@ create index on payments (company_id, opportunity_id);
 
 ```sql
 -- Call recordings (D22). Same shape as payments: a row per recording the provider reports, linked or not.
+-- Phone calls the CRM's dialer logs live here too (D28): provider 'ghl', external_id = the TYPE_CALL message id, linked_by 'contact',
+-- raw = {kind:'phone', direction, call_status, call_status_raw, duration_sec, caller_ghl_user_id, transcript_status: pending|ready|none, baseline?}.
 create table recordings (
   id               uuid primary key default gen_random_uuid(),
   company_id       uuid not null references companies(id),

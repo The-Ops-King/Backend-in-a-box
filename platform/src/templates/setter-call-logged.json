@@ -1,0 +1,248 @@
+{
+  "slug": "setter-call-logged",
+  "name": "Setter call logged",
+  "category": "calls",
+  "description": "The dialer logged a connected phone call: calls shorter than the minimum stop here, so do calls with no recording (nothing to read). Fifteen minutes after the call the AI decides whether it was a setting call or a confirmation call (anything else — 'are you joining?', voicemails, wrong numbers — stops here), writes the digest with pains, goals, triage and a fit score, records whether a booking followed, writes the Discovery Call record and links it to the contact, leaves the digest as a note, and posts it to Slack. Every call, answered or not, is kept in the recordings ledger regardless.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "call.logged",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{recording.kind}}",
+                "phone"
+              ]
+            },
+            {
+              "eq": [
+                "{{recording.connected}}",
+                true
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "v1",
+        "type": "set_var",
+        "key": "min_seconds",
+        "value": 60
+      },
+      {
+        "id": "c1",
+        "type": "check",
+        "when": {
+          "gte": [
+            "{{recording.duration_sec}}",
+            "{{vars.min_seconds}}"
+          ]
+        },
+        "else_exit": "too_short"
+      },
+      {
+        "id": "c2",
+        "type": "check",
+        "when": {
+          "eq": [
+            "{{recording.has_transcript}}",
+            true
+          ]
+        },
+        "else_exit": "no_transcript"
+      },
+      {
+        "id": "w1",
+        "type": "wait",
+        "rule": {
+          "anchor": "recording.started_at",
+          "offset": "+15m",
+          "tz": "company"
+        }
+      },
+      {
+        "id": "a1",
+        "type": "analyze",
+        "prompt": "{{prompt.setter_call_classify}}",
+        "into": "classify"
+      },
+      {
+        "id": "c3",
+        "type": "check",
+        "when": {
+          "in": [
+            "{{vars.classify.call_type}}",
+            [
+              "setting",
+              "confirmation"
+            ]
+          ]
+        },
+        "else_exit": "not_a_setting_call"
+      },
+      {
+        "id": "a2",
+        "type": "analyze",
+        "prompt": "{{prompt.setter_call_notes}}",
+        "into": "notes"
+      },
+      {
+        "id": "b1",
+        "type": "branch"
+      },
+      {
+        "id": "y1",
+        "type": "set_var",
+        "key": "booked_flag",
+        "value": "[\"yes\"]"
+      },
+      {
+        "id": "y2",
+        "type": "set_var",
+        "key": "outcome_line",
+        "value": "Set — a booking followed this call"
+      },
+      {
+        "id": "n1",
+        "type": "set_var",
+        "key": "booked_flag",
+        "value": ""
+      },
+      {
+        "id": "n2",
+        "type": "set_var",
+        "key": "outcome_line",
+        "value": "No booking yet"
+      },
+      {
+        "id": "r1",
+        "type": "crm_record",
+        "object": "custom_objects.discovery_call",
+        "key": "{{recording.external_id}}",
+        "owner": "{{recording.caller.ghl_user_id | default:}}",
+        "properties": {
+          "display_label": "{{contact.name | default:Unknown}} — {{recording.started_at | date_company}}",
+          "external_id": "{{recording.external_id}}",
+          "contact_id": "{{contact.ghl_contact_id | default:}}",
+          "occurred_at": "{{recording.started_at | date_company}}",
+          "direction": "{{recording.direction}}",
+          "duration_sec": "{{recording.duration_sec}}",
+          "setter": "{{recording.caller.name | default:}}",
+          "outcome": "{{recording.status}}",
+          "recording_url": "{{recording.url | default:}}",
+          "led_to_booking": "{{vars.booked_flag}}"
+        },
+        "relate": [
+          {
+            "association": "{{crm.assoc_discovery_call_contact}}",
+            "first": "{{contact.ghl_contact_id | default:}}",
+            "second": "{{record.id}}"
+          }
+        ]
+      },
+      {
+        "id": "m1",
+        "type": "note",
+        "template": "SETTER CALL — {{recording.started_at | date_company}} · {{recording.caller.name | default:setter unknown}} · {{vars.classify.call_type}} · {{recording.duration_min}} min\n\n{{vars.notes.digest}}\n\nOutcome: {{vars.outcome_line}}"
+      },
+      {
+        "id": "s1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.setter_calls}}",
+        "template": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{recording.duration_min}} min · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | default:}}|Open the conversation in GHL>"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "posted"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "v1"
+      },
+      {
+        "from": "v1",
+        "to": "c1"
+      },
+      {
+        "from": "c1",
+        "to": "c2"
+      },
+      {
+        "from": "c2",
+        "to": "w1"
+      },
+      {
+        "from": "w1",
+        "to": "a1"
+      },
+      {
+        "from": "a1",
+        "to": "c3"
+      },
+      {
+        "from": "c3",
+        "to": "a2"
+      },
+      {
+        "from": "a2",
+        "to": "b1"
+      },
+      {
+        "from": "b1",
+        "to": "y1",
+        "when": {
+          "eq": [
+            "{{recording.led_to_booking}}",
+            true
+          ]
+        },
+        "label": "a booking followed"
+      },
+      {
+        "from": "b1",
+        "to": "n1",
+        "else": true,
+        "label": "no booking"
+      },
+      {
+        "from": "y1",
+        "to": "y2"
+      },
+      {
+        "from": "y2",
+        "to": "r1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "r1"
+      },
+      {
+        "from": "r1",
+        "to": "m1"
+      },
+      {
+        "from": "m1",
+        "to": "s1"
+      },
+      {
+        "from": "s1",
+        "to": "x1"
+      }
+    ]
+  }
+}

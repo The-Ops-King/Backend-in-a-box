@@ -102,6 +102,8 @@ export async function saveStepAction(formData: FormData) {
   else if (type === "set_tag" || type === "remove_tag") edit = { type, tags: (g("tags") ?? "").split(/[\n,]/) };
   else if (type === "update_contact") edit = { type, assign_to: g("assign_to") };
   else if (type === "create_task") edit = { type, assign_to: g("assign_to"), due: g("due") };
+  else if (type === "set_var") edit = { type, value: g("value") };
+  else if (type === "wait") edit = { type, offset: g("offset") };
   else return;
   const r = await asOperator((c) => saveStepEdit(c, { workflowId, nodeId, edit }));
   revalidatePath(`/c/${slug}/w/${workflowId}`);

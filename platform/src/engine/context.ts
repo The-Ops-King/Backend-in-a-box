@@ -54,7 +54,11 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     const r = await one<RecordingRow & { closer_name: string | null; closer_ghl: string | null }>(c, "select r.*, u.name as closer_name, u.ghl_user_id as closer_ghl from recordings r left join users u on u.company_id=r.company_id and lower(u.email)=r.recorded_by_email where r.id=$1", [recId]);
     if (r) ctx.recording = { id: r.id, provider: r.provider, external_id: r.external_id, title: r.title, started_at: r.started_at.toISOString(), ended_at: r.ended_at?.toISOString(), duration_min: r.duration_min, url: r.url, share_url: r.share_url,
       recorded_by: { name: r.recorded_by_name, email: r.recorded_by_email }, closer: r.closer_name ? { name: r.closer_name, first_name: r.closer_name.split(" ")[0], ghl_user_id: r.closer_ghl } : undefined,
-      invitees: r.invitees, invitee_names: r.invitees.map((i) => i.name).filter(Boolean).join(", "), transcript_text: transcriptText(r.transcript), has_transcript: !!r.transcript?.length, summary: r.summary, matched_by: r.linked_by, analysis: r.analysis };
+      invitees: r.invitees, invitee_names: r.invitees.map((i) => i.name).filter(Boolean).join(", "), transcript_text: transcriptText(r.transcript), has_transcript: !!r.transcript?.length, summary: r.summary, matched_by: r.linked_by, analysis: r.analysis,
+      // phone calls (D28): the dialer's facts, who dialed, and whether a booking followed — read live, so a 15-minute wait sees the booking the setter made after hanging up
+      kind: r.raw.kind === "phone" ? "phone" : "meeting", direction: r.raw.direction, status: r.raw.call_status, connected: r.raw.call_status === "connected", duration_sec: r.raw.duration_sec ?? (r.duration_min != null ? r.duration_min * 60 : undefined),
+      caller: r.closer_name ? { name: r.closer_name, first_name: r.closer_name.split(" ")[0], ghl_user_id: r.closer_ghl } : undefined,
+      led_to_booking: r.contact_id ? !!(await one(c, "select 1 from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled' and booked_at >= $3 limit 1", [r.company_id, r.contact_id, r.started_at])) : false };
   }
   if (run.appointment_id) {
     const a = await one<Record<string, unknown>>(c, `

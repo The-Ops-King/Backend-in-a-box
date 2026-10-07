@@ -10,6 +10,8 @@ import type { CompanyRow, RunRow } from "./context";
 import { emitEvent } from "./dispatch";
 import { applyOutcome, outcomeTermFor } from "./disposition";
 
+const jsonArrayOr = (r: string): unknown => { try { const v = JSON.parse(r); return Array.isArray(v) ? v : r; } catch { return r; } };
+
 export type StepOutcome =
   | { status: "ok"; next: string | null; result?: Record<string, unknown> }
   | { status: "skipped" | "stale"; next: string | null; result?: Record<string, unknown> }
@@ -231,7 +233,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const objectKey = render(node.object, d.ctx, env(d)), key = render(node.key, d.ctx, env(d));
       if (!objectKey || !key) return { status: "failed", error: `crm_record ${node.id}: object or key rendered empty` };
       const properties: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(node.properties)) { const r = render(v, d.ctx, env(d)); if (r !== "") properties[k] = /^-?\d+(\.\d+)?$/.test(r) && /amount|total|count|score|duration|min$/i.test(k) ? Number(r) : r; }
+      // a rendered `["yes"]` is a checkbox / multi-option value (the CRM wants an array); numbers go as numbers on amount-like keys
+      for (const [k, v] of Object.entries(node.properties)) { const r = render(v, d.ctx, env(d)); if (r === "") continue; properties[k] = /^\[.*\]$/s.test(r) ? jsonArrayOr(r) : /^-?\d+(\.\d+)?$/.test(r) && /amount|total|count|score|duration|min$/i.test(k) ? Number(r) : r; }
       const owner = node.owner ? render(node.owner, d.ctx, env(d)) || undefined : undefined;
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
       let ghlId = existing?.ghl_record_id ?? null;

@@ -852,3 +852,29 @@ agent each company can talk to comes later. So the operating mode until then:
    which workflows. Claude runs install, then the settings page shows what remains.
 When the in-tool agent arrives it follows the same contract: pull before asking, propose before
 applying, show the result as a chart.
+
+## D28. A dialer call is a recording; every call is kept; the AI only reads what has a transcript
+Tyler, 2026-10-07, porting Hair's "hourly setter call scrape" Zap. Decisions:
+
+1. **Event-driven, not hourly.** The conversations poll already walks every thread each minute; a
+   `TYPE_CALL` entry there becomes a row in the recordings ledger (provider `ghl`) the minute it
+   appears. No fixed-window dedupe: the ledger's unique key is the dedupe.
+2. **Every call is a fact, answered or not.** No-answer, busy, voicemail, 10-second connects — all
+   rows, with who dialed and the outcome. Connection rate and speed-to-lead are read from this table;
+   nothing has to be re-scraped later. Only the workflow filters.
+3. **Transcript or nothing.** Without a transcript nobody knows whether it was a setting call, so no
+   Discovery Call record and no Slack post. Recording is not on for every call in GHL (2 of 4 long
+   Hair calls had one); the ledger says so per call and the operator can turn recording on in GHL.
+4. **The transcript lags the call**, so a connected call waits (re-read every tick, 30 minutes at
+   most) and `call.logged` fires once, at settle. The workflow then waits 15 minutes from the call's
+   start so the booking the setter makes right after hanging up is visible as `led_to_booking`.
+5. **Classification is the engine's `analyze` step on Claude**, same as `call-recorded`: setting /
+   confirmation / other. "Are you joining?", voicemails, wrong numbers are `other` and stop. Both
+   setting and confirmation calls get the same digest; the prompt is told to keep a thin
+   confirmation call to one line and to add pains / goals / triage only when they came up.
+6. **The 60-second floor is a knob on the workflow** (`set_var min_seconds`, editable in step
+   settings), not a constant in the poll. `wait` offsets are editable the same way.
+7. **Phone and meeting recordings share one ledger and one `{{recording.*}}` surface**; a trigger
+   tells them apart by `recording.kind`. `call-recorded` is unaffected because it listens to
+   `recording.received`, which phone calls never emit.
+

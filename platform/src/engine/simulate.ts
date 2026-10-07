@@ -5,7 +5,7 @@ import { many, one } from "@/db/client";
 import type { CompanyRow } from "./context";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { ensureOpportunityForBooking, applyPayment } from "./lifecycle";
-import { recordRecording } from "./recordings";
+import { phoneFacts, recordPhoneCall, recordRecording, settlePhoneCall } from "./recordings";
 
 /**
  * D23: the test harness lives in the engine, not in the CRM. A simulated step is a real event through the real
@@ -14,7 +14,7 @@ import { recordRecording } from "./recordings";
  * the poll sees on a contact, by the admin API, or by a button on the contact page. Refused for a live company unless
  * forced: in live mode a run would write real tags and cards for the test person.
  */
-export const SIM_ACTIONS = ["create", "book", "book-self", "reschedule", "cancel", "pay", "record", "reset"] as const;
+export const SIM_ACTIONS = ["create", "book", "book-self", "reschedule", "cancel", "pay", "record", "call", "reset"] as const;
 export type SimAction = (typeof SIM_ACTIONS)[number];
 export const simTag = (tag: string): SimAction | null => { const m = /^sys-test-([a-z-]+)$/.exec(tag.trim().toLowerCase()); return m && (SIM_ACTIONS as readonly string[]).includes(m[1]) ? (m[1] as SimAction) : null; };
 
@@ -89,6 +89,20 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
       if (r.outcome !== "linked") return { ok: false, why: r.outcome === "duplicate" ? "duplicate recording id" : `recording did not link to this contact: ${r.reason}` };
       const appt = r.appointmentId ? await one<Record<string, unknown>>(c, "select a.id, a.starts_at, a.status, json_build_object('category', t.category) as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [r.appointmentId]) : null;
       return { ok: true, action, detail: { recording: r.recording.id, appointment: r.appointmentId }, runsStarted: (await dispatchEvent(c, r.event, { ...ctx, appointment: appt ?? undefined })).length };
+    }
+    case "call": {
+      // a connected setter call, 20 minutes ago so the template's wait is already over, with a transcript the classifier will read as a setting call
+      const setter = await one<{ ghl_user_id: string }>(c, "select ghl_user_id from users where company_id=$1 and ghl_user_id is not null and active order by (role='setter') desc, name limit 1", [company.id]);
+      const loc = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='crm.location_id'", [company.id]))?.value.toString("utf8");
+      const { recording, isNew } = await recordPhoneCall(c, company.id, { externalId: `test-call-${randomUUID().slice(0, 8)}`, contactId: contact.id, startedAt: new Date(Date.now() - 20 * 60e3), durationSec: 184, direction: "outbound", status: "completed", callerGhlUserId: setter?.ghl_user_id,
+        conversationUrl: loc && contact.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/conversations/conversations/${contact.ghl_contact_id}` : undefined, raw: { simulated: true } });
+      if (!isNew) return { ok: false, why: "duplicate call id" };
+      const { recording: row, event } = await settlePhoneCall(c, recording, { transcript: [
+        { speaker: "0", text: `Hey ${name.split(" ")[0]}, this is the team calling about the form you filled out. Got two minutes?` }, { speaker: "1", text: "Yeah, sure." },
+        { speaker: "0", text: "What made you reach out?" }, { speaker: "1", text: "It has been getting worse for about a year and I want to deal with it before it gets any further." },
+        { speaker: "0", text: "Makes sense. If we could fix that, what would that change for you?" }, { speaker: "1", text: "Honestly just feeling like myself again. What does it cost?" },
+        { speaker: "0", text: "The specialist walks you through pricing on the call. Does Thursday at two work?" }, { speaker: "1", text: "Thursday at two works." }] });
+      return { ok: true, action, detail: { recording: row.id, caller: row.recorded_by_name }, runsStarted: event ? (await dispatchEvent(c, event, { ...ctx, recording: { id: row.id, ...phoneFacts(row) } })).length : 0 };
     }
     case "reset": {
       // the engine forgets everything it did for this person; the contact row and identifiers stay (they mirror the CRM)
