@@ -1,6 +1,6 @@
 import "./_env";
 /**
- * pnpm install:company --name "Save Your Hair" --slug syh --tz America/Phoenix --location <id> --pit <pit> \
+ * pnpm install:company --name "Save Your Hair" --slug syh --tz America/Phoenix --location <id> [--pit <pit>] \
  *   --calendar <id>=closing --calendar <id>=first_call[:self|:setter] [--closer-call <id>] [--booking <id>] [--template <slug>] [--enable] [--no-sms] [--live]
  *   [--calendly-token <token> [--calendly-user <host email>] [--calendly-phone-question "Phone Number"]]   appointments from Calendly event types instead of GHL calendars
  *   [--fathom-key <api key>] [--fathom-secret <whsec_…>] [--anthropic-key <key>] [--prompt <name>=<file>] [--crm <key>=<id>]
@@ -17,7 +17,7 @@ const need = (k: string) => { const v = opt(k); if (!v) { console.error(`--${k} 
 (async () => {
   const out = await installCompany({
     bookingCalendar: opt("booking"),
-    name: need("name"), slug: need("slug"), timezone: need("tz"), locationId: need("location"), pit: need("pit"),
+    name: need("name"), slug: need("slug"), timezone: need("tz"), locationId: need("location"), pit: opt("pit"),   // omit on a re-install: the stored token is kept
     calendars: Object.fromEntries(all("calendar").map((s) => { const [id, rest] = s.split("=") as [string, string]; const [term, kind] = rest.split(":"); return [id, kind ? { term, selfBooked: kind === "self" } : term]; })),
     booking: opt("calendly-token") ? { source: "calendly", token: opt("calendly-token")!, userEmail: opt("calendly-user"), phoneQuestion: opt("calendly-phone-question") } : undefined,
     closerCall: opt("closer-call"),

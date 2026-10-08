@@ -56,6 +56,15 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
     expect(started2).toHaveLength(1);
   });
 
+  it("a re-install without a pit keeps the stored token; a new company without one is refused", async () => {
+    const { slug: _s, pit: _p, ...rest } = base;
+    const again = await installCompany({ ...rest, slug: "upg" }, fake);
+    expect(again.companyId).toBe(companyId);
+    const stored = await asOperator((c) => one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='secret.ghl_pit'", [companyId]));
+    expect((await import("@/engine/crypto")).decrypt(stored!.value)).toBe("pit-fake");
+    await expect(installCompany({ ...rest, slug: "upg-nopit" }, fake)).rejects.toThrow(/pit is required/);
+  });
+
   it("an edited copy is left alone when the template moves on", async () => {
     const wf = (await asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='call-cancelled'", [companyId])))!;
     await asOperator((c) => c.query("update workflows set diverged=true, diverged_at=now(), template_version=0 where id=$1", [wf.id]));

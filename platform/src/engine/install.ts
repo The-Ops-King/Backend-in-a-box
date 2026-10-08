@@ -1,5 +1,5 @@
 import { asOperator, one, many } from "@/db/client";
-import { encrypt } from "./crypto";
+import { encrypt, decrypt } from "./crypto";
 import { randomBytes } from "node:crypto";
 import { extractManifest, parseDefinition, indexDefinition } from "./definition";
 import { templates } from "@/templates";
@@ -17,7 +17,9 @@ import { whopCreateWebhook } from "@/adapters/whop/client";
  */
 export type CalendarMapping = string | { term: string; selfBooked?: boolean; booking?: "self" | "setter" | "question"; questions?: Record<string, string> };
 export type InstallInput = {
-  name: string; slug: string; timezone: string; locationId: string; pit: string;
+  name: string; slug: string; timezone: string; locationId: string;
+  /** The CRM private integration token. Required the first time; a re-install may omit it and keeps the one already stored (tokens rotate; template upgrades should not need the secret again). */
+  pit?: string;
   /** Where appointments live. Default: the CRM's own calendars. Calendly: a read token; `userEmail` narrows event types and events to one host. */
   booking?: { source: "ghl" } | { source: "calendly"; token: string; userEmail?: string; phoneQuestion?: string; setterQuestion?: string };
   calendars?: Record<string, CalendarMapping>;   // calendar / event type external id → closing | first_call | qualifying | follow_up
@@ -66,6 +68,9 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     booking = { source: "calendly", token: input.booking.token, organization: me.organization, user, phoneQuestion: input.booking.phoneQuestion, setterQuestion: input.booking.setterQuestion };
   }
   return asOperator(async (c) => {
+    const storedPit = input.pit ? null : await one<{ value: Buffer }>(c, "select b.value from bindings b join companies co on co.id=b.company_id where co.slug=$1 and b.key='secret.ghl_pit'", [input.slug]);
+    const pit = input.pit ?? (storedPit ? decrypt(storedPit.value) : null);
+    if (!pit) throw new Error("pit is required: this company has no CRM token stored yet");
     // re-running install never silently flips a live company back to shadow or re-enables SMS: only explicitly passed values change
     const co = await one<{ id: string }>(c, `insert into companies (name, slug, timezone, sms_enabled, mode) values ($1,$2,$3,coalesce($4,true),coalesce($5,'shadow'))
       on conflict (slug) do update set name=excluded.name, timezone=excluded.timezone,
@@ -75,7 +80,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories on conflict (company_id, domain, name) do nothing`, [companyId]);
     const bind = (key: string, kind: string, value: string) =>
       c.query(`insert into bindings (company_id, key, kind, value) values ($1,$2,$3,$4) on conflict (company_id, key) do update set value=excluded.value, updated_at=now()`, [companyId, key, kind, kind === "secret" ? encrypt(value) : Buffer.from(value)]);
-    await bind("crm.location_id", "id", input.locationId); await bind("secret.ghl_pit", "secret", input.pit);
+    await bind("crm.location_id", "id", input.locationId); await bind("secret.ghl_pit", "secret", pit);
     if (booking.source === "calendly") {
       await bind("secret.calendly_token", "secret", booking.token); await bind("calendly.organization", "id", booking.organization);
       await bind("calendly.user", "id", booking.user ?? ""); await bind("calendly.phone_question", "text", booking.phoneQuestion ?? ""); await bind("calendly.setter_question", "text", booking.setterQuestion ?? "");
@@ -100,7 +105,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (!inboundSecret) await bind("secret.zapier_inbound", "secret", inboundPlain);
     if (input.contractValueDefault !== undefined) await c.query("update companies set contract_value_default=$2 where id=$1", [companyId, input.contractValueDefault]);
     if (input.quietHours) await c.query("update companies set send_window_start=coalesce($2, send_window_start), send_window_end=coalesce($3, send_window_end), quiet_allow_transactional=coalesce($4, quiet_allow_transactional) where id=$1", [companyId, input.quietHours.start ?? null, input.quietHours.end ?? null, input.quietHours.allowTransactional ?? null]);
-    const ac: Company = { id: companyId, locationId: input.locationId, pit: input.pit, timezone: input.timezone, booking };
+    const ac: Company = { id: companyId, locationId: input.locationId, pit, timezone: input.timezone, booking };
     for (const u of await adapters.read.listUsers(ac))
       await c.query(`insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'closer',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name`, [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);
     const terms = await many<{ id: string; category: string }>(c, "select id, category from company_terms where company_id=$1 and domain='appointment_type' and is_default", [companyId]);
