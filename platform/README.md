@@ -446,6 +446,7 @@ pnpm install:company --name "Save Your Hair" --slug syh --tz America/Phoenix \
 #   --calendly-token <read token> --calendly-user james@company.com --calendar <uuid>=closing:self --calendar <uuid>=closing:setter
 pnpm tick                       # one poll + one scheduler pass; this is what the cron does
 # Workflows install OFF. Add --enable to the install command (or flip `workflows.enabled`) when you mean it.
+# Re-running install upgrades untouched template copies; --pit may be omitted then (the stored token is kept).
 pnpm test
 ```
 
