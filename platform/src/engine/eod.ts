@@ -7,6 +7,7 @@ import { decrypt } from "./crypto";
 import { loadCompany, type CompanyRow } from "./context";
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { destinationsFor } from "./alerts";
+import { mergeEodFields, missingAnswers, totalsOf, outcomeLabel, MONEY, type CallEntry, type CallOutcome, type DayTotals, type EodField } from "./eod-form";
 
 /**
  * D34. The closer's end-of-day report: one link per closer, no login. Opening it shows their day prefilled from what the
@@ -15,17 +16,21 @@ import { destinationsFor } from "./alerts";
  * from the prefill is posted to the alerts channel, because a wrong prefill is a data gap to fix at the source.
  * A DM goes out at the company's end-of-day time on days they had calls and have not filed; filing gets a ✅ on that DM.
  */
-export type CallOutcome = "close" | "follow_up" | "no_show" | "lost" | "";
-export type CallEntry = {
-  appointment_id: string; contact_id: string; contact: string; starts_at: string; href_contact: string | null;
-  attendance: "showed" | "no_show" | ""; outcome: CallOutcome;
-  revenue: number | null; cash: number | null;                  // a close
-  next_date: string | null; next_steps: string;                // a follow-up
-  pains: string; goals: string; objections: string; notes: string;
-  recording_url: string | null;
-};
-export type EodPrefill = { day: string; closer: { id: string; name: string; email: string }; company: { id: string; name: string; slug: string; timezone: string }; calls_count: number; closes: number; cash: number; revenue: number; calls: CallEntry[] };
-export type EodAnswers = { calls_count: number; closes: number; cash: number; revenue: number; calls: CallEntry[]; general_notes?: string };
+export type { CallOutcome, CallEntry, EodField, DayTotals } from "./eod-form";
+export type EodPrefill = DayTotals & { day: string; closer: { id: string; name: string; email: string }; company: { id: string; name: string; slug: string; timezone: string }; calls: CallEntry[] };
+export type EodAnswers = DayTotals & { calls: CallEntry[]; day_answers: Record<string, string> };
+
+/** The company's end-of-day form: their edits over the defaults (forms, purpose 'eod'; none stored = the defaults). */
+export async function loadEodForm(c: PoolClient, companyId: string): Promise<EodField[]> {
+  const row = await one<{ fields: EodField[] }>(c, "select fields from forms where company_id=$1 and purpose='eod' and active order by version desc limit 1", [companyId]);
+  return mergeEodFields(row?.fields);
+}
+export async function saveEodForm(c: PoolClient, companyId: string, fields: EodField[]): Promise<void> {
+  const merged = mergeEodFields(fields);
+  const row = await one<{ id: string }>(c, "select id from forms where company_id=$1 and purpose='eod' and active order by version desc limit 1", [companyId]);
+  if (row) await c.query("update forms set fields=$2, version=version+1 where id=$1", [row.id, JSON.stringify(merged)]);
+  else await c.query("insert into forms (company_id, purpose, name, fields) values ($1,'eod','End of day',$2)", [companyId, JSON.stringify(merged)]);
+}
 
 export const DAY_FMT = "yyyy-MM-dd";
 export const todayFor = (tz: string, now = DateTime.now()) => now.setZone(tz).toFormat(DAY_FMT);
@@ -44,7 +49,7 @@ const num = (v: unknown): number => (v === null || v === undefined || v === "" ?
 const str = (v: unknown): string => (typeof v === "string" ? v : Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x : (x as { objection?: string })?.objection ?? JSON.stringify(x))).join("; ") : v == null ? "" : String(v));
 
 /** Their day as the engine saw it. Every value here is a prefill the closer may correct. */
-export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: string; name: string; email: string }, day: string, base = ""): Promise<EodPrefill> {
+export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: string; name: string; email: string }, day: string): Promise<EodPrefill> {
   const tz = company.timezone;
   const from = DateTime.fromFormat(day, DAY_FMT, { zone: tz }).startOf("day"), to = from.endOf("day");
   const appts = await many<{ id: string; contact_id: string; contact: string; ghl_contact_id: string | null; starts_at: Date; status: string; outcome_cat: string | null; call_outcome_cat: string | null; notes: string | null }>(c, `
@@ -54,68 +59,94 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     from appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
     where a.company_id=$1 and a.assigned_user_id=$2 and a.starts_at >= $3 and a.starts_at <= $4 and a.status not in ('cancelled','invalid') order by a.starts_at`, [company.id, closer.id, from.toJSDate(), to.toJSDate()]);
   const calls: CallEntry[] = [];
-  let closes = 0, cash = 0, revenue = 0;
   const loc = (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='crm.location_id'", [company.id]))?.v.toString("utf8");
+  const price = num(company.contract_value_default);
   for (const a of appts) {
     const rec = await one<{ share_url: string | null; analysis: Record<string, unknown> }>(c, "select share_url, analysis from recordings where company_id=$1 and (appointment_id=$2 or (contact_id=$3 and started_at between $4 and $5)) order by started_at desc limit 1", [company.id, a.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
     const notes = (rec?.analysis?.notes ?? {}) as Record<string, unknown>;
     const pay = await one<{ total: string }>(c, "select coalesce(sum(amount),0)::text as total from payments where company_id=$1 and contact_id=$2 and status='succeeded' and paid_at between $3 and $4", [company.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
     const won = await one<{ v: string | null }>(c, "select contract_value::text as v from opportunities where company_id=$1 and contact_id=$2 and status='won' and won_at between $3 and $4 order by won_at desc limit 1", [company.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
-    const paid = num(pay?.total);
+    const paid = num(pay?.total), contract = won?.v ? num(won.v) : price;
     const disp = str(notes.disposition);
-    const attendance: CallEntry["attendance"] = a.status === "showed" || a.outcome_cat === "showed" ? "showed" : a.status === "noshow" || a.outcome_cat === "noshow" ? "no_show" : rec ? "showed" : "";
-    const outcome: CallOutcome = a.call_outcome_cat === "closed" || paid > 0 || won ? "close" : a.call_outcome_cat === "follow_up" || disp === "follow_up" || disp === "close_pending" ? "follow_up" : a.call_outcome_cat === "lost" || disp === "lost" || disp === "dq" ? "lost" : attendance === "no_show" ? "no_show" : disp === "closed_won" ? "close" : "";
-    if (outcome === "close") { closes++; cash += paid; revenue += won?.v ? num(won.v) : paid; }
-    calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null,
-      attendance, outcome, revenue: outcome === "close" ? (won?.v ? num(won.v) : paid || null) : null, cash: outcome === "close" ? paid || null : null,
-      next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), pains: str(notes.pain), goals: str(notes.desire), objections: str(notes.objections), notes: a.notes ?? str(notes.summary), recording_url: rec?.share_url ?? null });
+    // what the ledger says first (a recorded outcome, then money), then Jev's read of the transcript, then the appointment's status
+    const outcome: CallOutcome = a.outcome_cat === "noshow" || a.status === "noshow" ? "no_show" : a.outcome_cat === "rescheduled" ? "rescheduled"
+      : a.call_outcome_cat === "closed" ? "closed" : a.call_outcome_cat === "deposit" ? "deposit" : a.call_outcome_cat === "follow_up" ? "follow_up" : a.call_outcome_cat === "lost" ? "lost" : a.call_outcome_cat === "unqualified" ? "dq"
+      : paid > 0 ? (contract > 0 && paid < contract ? "deposit" : "closed") : won ? "closed"
+      : disp === "closed_won" ? "closed" : disp === "follow_up" || disp === "close_pending" ? "follow_up" : disp === "lost" ? "lost" : disp === "dq" ? "dq" : "";
+    const money = MONEY.includes(outcome);
+    const aboutParts = [str(notes.summary), str(notes.pain) && `Pains: ${str(notes.pain)}`, str(notes.desire) && `Goals: ${str(notes.desire)}`, str(notes.objections) && `Objections: ${str(notes.objections)}`].filter(Boolean);
+    calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null, recording_url: rec?.share_url ?? null,
+      outcome, revenue: money ? contract || paid || null : null, cash: money ? paid || null : null,
+      next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {} });
   }
-  return { day, closer, company: { id: company.id, name: company.name, slug: company.slug, timezone: tz }, calls_count: calls.length, closes, cash, revenue, calls, ...(base ? {} : {}) };
+  return { day, closer, company: { id: company.id, name: company.name, slug: company.slug, timezone: tz }, ...totalsOf(calls), calls };
 }
 
 export type Change = { field: string; from: unknown; to: unknown; contact?: string };
-/** What the closer corrected, as lines a person reads: "calls today 6 → 7", "Sarah: attendance showed → no_show". */
+/** What the closer corrected, as lines a person reads: "calls today 6 → 7", "Sarah: outcome Follow up → Closed". */
 export function diffAnswers(pre: EodPrefill, ans: EodAnswers): Change[] {
   const out: Change[] = [];
-  for (const k of ["calls_count", "closes", "cash", "revenue"] as const) if (num(pre[k]) !== num(ans[k])) out.push({ field: k.replace(/_/g, " "), from: pre[k], to: ans[k] });
+  for (const k of ["calls_count", "closes", "deposits", "cash", "revenue"] as const) if (num(pre[k]) !== num(ans[k])) out.push({ field: k.replace(/_/g, " "), from: pre[k], to: ans[k] });
   for (const call of ans.calls) {
     const p = pre.calls.find((x) => x.appointment_id === call.appointment_id); if (!p) continue;
-    for (const k of ["attendance", "outcome", "revenue", "cash", "next_date"] as const) { const a = p[k] ?? "", b = call[k] ?? ""; if (String(a) !== String(b) && !(a === "" && b === "")) out.push({ field: k.replace(/_/g, " "), from: a || "blank", to: b || "blank", contact: p.contact }); }
+    if (p.outcome !== call.outcome) out.push({ field: "outcome", from: outcomeLabel(p.outcome), to: outcomeLabel(call.outcome), contact: p.contact });
+    for (const k of ["revenue", "cash", "next_date"] as const) { const a = p[k] ?? "", b = call[k] ?? ""; if (String(a) !== String(b) && !(a === "" && b === "")) out.push({ field: k.replace(/_/g, " "), from: a || "blank", to: b || "blank", contact: p.contact }); }
   }
   return out;
 }
 
-/** File the day: store it, record each call's outcome through the disposition path, tell the alerts channel what was corrected, tick the DM. */
+/** The disposition note for one call: everything the closer said about it, one line per thing. */
+function dispositionNotes(call: CallEntry, fields: EodField[]): string {
+  const lines = [
+    call.about && `About: ${call.about}`,
+    call.notes,
+    call.outcome === "dq" && (call.dq_reason || call.dq_note) ? `DQ: ${[call.dq_reason, call.dq_note].filter(Boolean).join(" - ")}` : "",
+    call.outcome === "follow_up" && (call.next_steps || call.next_date) ? `Next: ${call.next_steps}${call.next_date ? ` by ${call.next_date}` : ""}` : "",
+    MONEY.includes(call.outcome) ? `${outcomeLabel(call.outcome)}: contract ${call.revenue ?? "?"}, cash ${call.cash ?? "?"}` : "",
+    ...fields.filter((f) => f.scope === "call" && !f.builtin && call.extra?.[f.key]).map((f) => `${f.label}: ${call.extra[f.key]}`),
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
+/** File the day: check the required answers, store it, record each call's outcome through the disposition path, tell the alerts channel what was corrected, tick the DM. */
 export async function submitEod(c: PoolClient, adapters: Adapters, args: { token: string; day: string; answers: EodAnswers }): Promise<{ ok: true; changes: Change[]; recorded: number } | { ok: false; why: string }> {
   const closer = await closerByToken(c, args.token); if (!closer || !closer.active || !closer.company_id) return { ok: false, why: "this link is not for anyone" };
   const { row: company } = await loadCompany(c, closer.company_id);
+  const fields = await loadEodForm(c, company.id);
+  const missing = missingAnswers(fields, args.answers.calls, args.answers.day_answers ?? {});
+  if (missing.length) return { ok: false, why: `Still needed: ${missing.join("; ")}` };
   const pre = await prefill(c, company, closer, args.day);
   const changes = diffAnswers(pre, args.answers);
   let recorded = 0;
-  const showed = await outcomeTermFor(c, company.id, "showed"), noshow = await outcomeTermFor(c, company.id, "noshow");
+  const outcomeTerm = async (cat: string) => outcomeTermFor(c, company.id, cat);
   const callTerm = async (cat: string) => (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2 and active order by is_default desc, sort limit 1", [company.id, cat]))?.id ?? null;
   for (const call of args.answers.calls) {
-    if (!call.attendance) continue;
-    const outcomeTermId = call.attendance === "showed" ? showed : noshow; if (!outcomeTermId) continue;
-    const callOutcomeTermId = call.attendance === "no_show" ? null : call.outcome === "close" ? await callTerm("closed") : call.outcome === "follow_up" ? await callTerm("follow_up") : call.outcome === "lost" ? await callTerm("lost") : null;
-    const notes = [call.notes, call.pains && `Pains: ${call.pains}`, call.goals && `Goals: ${call.goals}`, call.objections && `Objections: ${call.objections}`, call.next_steps && `Next: ${call.next_steps}${call.next_date ? ` by ${call.next_date}` : ""}`, call.outcome === "close" ? `Closed: revenue ${call.revenue ?? "?"}, cash ${call.cash ?? "?"}` : ""].filter(Boolean).join("\n");
-    try { await recordDisposition(c, { companyId: company.id, appointmentId: call.appointment_id, outcomeTermId, callOutcomeTermId, notes, userId: closer.id }); recorded++; } catch { /* an appointment that vanished: the rest still files */ }
+    if (!call.outcome) continue;
+    const outcomeTermId = await outcomeTerm(call.outcome === "no_show" ? "noshow" : call.outcome === "rescheduled" ? "rescheduled" : "showed"); if (!outcomeTermId) continue;
+    const callCat = call.outcome === "closed" ? "closed" : call.outcome === "deposit" ? "deposit" : call.outcome === "follow_up" ? "follow_up" : call.outcome === "lost" ? "lost" : call.outcome === "dq" ? "unqualified" : null;
+    const callOutcomeTermId = callCat ? (await callTerm(callCat)) ?? (callCat === "deposit" ? await callTerm("closed") : null) : null;
+    try { await recordDisposition(c, { companyId: company.id, appointmentId: call.appointment_id, outcomeTermId, callOutcomeTermId, notes: dispositionNotes(call, fields), userId: closer.id }); recorded++; } catch { /* an appointment that vanished: the rest still files */ }
   }
   const row = await one<{ id: string; dm_channel: string | null; dm_ts: string | null }>(c, `insert into eod_reports (company_id, user_id, day, prefill, answers, changes, submitted_at) values ($1,$2,$3,$4,$5,$6,now())
     on conflict (company_id, user_id, day) do update set prefill=excluded.prefill, answers=excluded.answers, changes=excluded.changes, submitted_at=now() returning id, dm_channel, dm_ts`, [company.id, closer.id, args.day, JSON.stringify(pre), JSON.stringify(args.answers), JSON.stringify(changes)]);
   // Slack: a ✅ on the reminder, and the corrections to the alerts channel
   const dest = await destinationsFor(c, company.id);
+  const tally = totalsLine(args.answers);
   if (dest.slackToken) {
-    if (row?.dm_channel && row.dm_ts) { await adapters.notifier.react(dest.slackToken, row.dm_channel, row.dm_ts, "white_check_mark").catch(() => false); await adapters.notifier.post(dest.slackToken, row.dm_channel, `✅ Got it. ${args.answers.calls_count} call${args.answers.calls_count === 1 ? "" : "s"}, ${args.answers.closes} close${args.answers.closes === 1 ? "" : "s"}, $${args.answers.cash.toLocaleString("en-US")} collected.`, { name: "End of day", icon: ":clipboard:" }, row.dm_ts).catch(() => null); }
+    if (row?.dm_channel && row.dm_ts) { await adapters.notifier.react(dest.slackToken, row.dm_channel, row.dm_ts, "white_check_mark").catch(() => false); await adapters.notifier.post(dest.slackToken, row.dm_channel, `✅ Got it. ${tally}.`, { name: "End of day", icon: ":clipboard:" }, row.dm_ts).catch(() => null); }
     if (dest.channel) {
       const lines = changes.map((ch) => `• ${ch.contact ? `${ch.contact}: ` : ""}${ch.field} ${fmt(ch.from)} → ${fmt(ch.to)}`);
-      const text = `📝 *${closer.name}* filed ${DateTime.fromFormat(args.day, DAY_FMT).toFormat("ccc LLL d")}: ${args.answers.calls_count} calls, ${args.answers.closes} closes, $${args.answers.cash.toLocaleString("en-US")} cash, $${args.answers.revenue.toLocaleString("en-US")} revenue.${lines.length ? `\n*Corrected from what the engine had:*\n${lines.join("\n")}` : "\nNothing corrected: the prefill matched."}`;
+      const dayLines = fields.filter((f) => f.scope === "day" && args.answers.day_answers?.[f.key]).map((f) => `*${f.label}* ${args.answers.day_answers[f.key]}`);
+      const text = `📝 *${closer.name}* filed ${DateTime.fromFormat(args.day, DAY_FMT).toFormat("ccc LLL d")}: ${tally}.${lines.length ? `\n*Corrected from what the engine had:*\n${lines.join("\n")}` : "\nNothing corrected: the prefill matched."}${dayLines.length ? `\n${dayLines.join("\n")}` : ""}`;
       await adapters.notifier.post(dest.slackToken, dest.channel, text, { name: "End of day", icon: ":clipboard:" }).catch(() => null);
     }
   }
   return { ok: true, changes, recorded };
 }
 const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") : String(v ?? "blank"));
+const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+/** "3 calls, 1 close, 1 deposit, $1,500 cash, $4,000 revenue" (deposits only when there are any). */
+export const totalsLine = (t: DayTotals) => [plural(t.calls_count, "call"), plural(t.closes, "close"), t.deposits ? plural(t.deposits, "deposit") : "", `$${t.cash.toLocaleString("en-US")} cash`, `$${t.revenue.toLocaleString("en-US")} revenue`].filter(Boolean).join(", ");
 
 /** At the company's end-of-day time: every closer with calls that day and no filed report gets one DM with their link. Once per day. */
 export async function remindDue(c: PoolClient, adapters: Adapters, now = DateTime.now(), onlyCompanyId?: string): Promise<{ reminded: { company: string; closer: string }[] }> {
@@ -127,7 +158,7 @@ export async function remindDue(c: PoolClient, adapters: Adapters, now = DateTim
     const [hh, mm] = co.eod_at.split(":").map(Number); if (local.hour < hh || (local.hour === hh && local.minute < mm)) continue;
     const from = local.startOf("day").toJSDate(), to = local.endOf("day").toJSDate();
     const closers = await many<{ id: string; name: string; email: string }>(c, `select distinct u.id, u.name, u.email from users u join appointments a on a.assigned_user_id=u.id
-      where u.company_id=$1 and u.active and a.starts_at between $2 and $3 and a.status not in ('cancelled','invalid')
+      where u.company_id=$1 and u.active and u.role='closer' and a.starts_at between $2 and $3 and a.status not in ('cancelled','invalid')
       and not exists (select 1 from eod_reports r where r.user_id=u.id and r.day=$4 and (r.submitted_at is not null or r.reminded_at is not null))`, [co.id, from, to, day]);
     if (!closers.length) continue;
     const dest = await destinationsFor(c, co.id); if (!dest.slackToken) continue;

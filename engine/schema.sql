@@ -37,7 +37,7 @@ create table users (
   email         text not null,
   name          text not null,
   role          text not null
-                check (role in ('operator','owner','manager','closer','setter')),
+                check (role in ('operator','owner','manager','closer','setter','staff')),   -- staff: on the CRM roster, takes no calls; only closers get the end-of-day link (D34)
   ghl_user_id   text,
   slack_user_id text,
   report_token  text unique,        -- the closer's standing end-of-day link (D34)
@@ -96,8 +96,8 @@ insert into core_categories (domain, value, label, sort) values
   ('appointment_outcome','showed','Showed',1),       ('appointment_outcome','noshow','No-show',2),
   ('appointment_outcome','cancelled','Cancelled',3), ('appointment_outcome','rescheduled','Rescheduled',4),
   ('call_outcome','qualified','Qualified',1),        ('call_outcome','unqualified','Unqualified',2),
-  ('call_outcome','follow_up','Follow-up',3),        ('call_outcome','closed','Closed',4),
-  ('call_outcome','lost','Lost',5),
+  ('call_outcome','follow_up','Follow-up',3),        ('call_outcome','deposit','Deposit',4),
+  ('call_outcome','closed','Closed',5),              ('call_outcome','lost','Lost',6),
   ('payment_plan','pif','Paid in full',1),           ('payment_plan','installments','Installments',2),
   ('lost_reason','price','Price',1), ('lost_reason','timing','Timing',2), ('lost_reason','fit','Fit',3),
   ('lost_reason','ghosted','Ghosted',4), ('lost_reason','other','Other',5),
@@ -349,7 +349,7 @@ create table forms (
   appointment_term uuid references company_terms(id),  -- required when purpose = disposition
   name             text not null,
   version          int not null default 1,
-  fields           jsonb not null,    -- [{key,label,type,required,enum_values,min,max,help}]
+  fields           jsonb not null,    -- [{key,label,type,required,enum_values,min,max,help}]; purpose eod: EodField[] (src/engine/eod-form.ts)
   active           boolean not null default true,
   created_at       timestamptz not null default now(),
   unique (company_id, purpose, appointment_term)        -- one disposition form per call type

@@ -1002,3 +1002,13 @@ report. One standing link per closer, no login; a DM at the company's end-of-day
 DM when filed. Outcomes go through the same disposition path as the form, so nothing downstream has two doors.
 Setters later; the post-call variant is the same form cut to one call.
 
+Amended the same day, after Tyler saw the form on his phone: one question first ("what happened on the call?"),
+the rest appears for that answer; outcomes are Closed, Deposit, Follow up, Lost, DQ, Rescheduled / cancelled on the
+call, No-show, and attendance is implied (no "showed" next to "no-show"); pains and goals fold into one "about this
+prospect"; DQ asks why (a select the company edits) plus a note; what is required and which questions exist are the
+company's (`forms`, purpose eod), so one offer can demand notes and another not, and "what did I do well" is one
+line to add, not a build. A deposit is its own outcome and its own count, not a close: money short of the contract.
+Not everyone on the CRM roster takes calls: the roster arrives as staff, closers are named (settings § Team or the
+install input), and only closers get the link and the DM. The closer's page stands alone, no nav, no way into the
+dashboard; auth comes later and the link is the door until then.
+

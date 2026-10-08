@@ -107,6 +107,10 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table users add column if not exists report_token text unique`);
     await c.query(`alter table companies add column if not exists eod_enabled boolean not null default true`);
     await c.query(`alter table companies add column if not exists eod_at time not null default '18:00'`);
+    await c.query(`alter table users drop constraint if exists users_role_check`);
+    await c.query(`alter table users add constraint users_role_check check (role in ('operator','owner','manager','closer','setter','staff'))`);
+    await c.query(`insert into core_categories (domain, value, label, sort) values ('call_outcome','deposit','Deposit',4) on conflict (domain, value) do nothing`);
+    await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select co.id, 'call_outcome', 'Deposit', 'deposit', true, 4 from companies co where exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome' and t.category='closed') and not exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome' and t.category='deposit') on conflict (company_id, domain, name) do nothing`);
     await ownsOrAbsent(c, "eod_reports", "prefill");
     await c.query(`create table if not exists eod_reports (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, user_id uuid not null references users(id) on delete cascade, day date not null, prefill jsonb, answers jsonb, changes jsonb not null default '[]', reminded_at timestamptz, dm_channel text, dm_ts text, submitted_at timestamptz, unique (company_id, user_id, day))`);
     await c.query(`alter table events drop constraint if exists events_source_check`);

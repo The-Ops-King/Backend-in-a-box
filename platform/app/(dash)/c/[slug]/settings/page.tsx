@@ -6,7 +6,8 @@ import { SaveButton } from "@/ui/SaveButton";
 import { asOperator } from "@/db/client";
 import { ReadinessCard } from "@/ui/Readiness";
 import { groupOf, type SettingRow } from "@/engine/settings";
-import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, saveSlackAction, saveCallTypesAction, describeConfigAction, applyProposalAction, discardProposalAction, saveReportScheduleAction, runReportNowAction, saveHealthAction, runHealthNowAction } from "@/ui/settings-actions";
+import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, saveSlackAction, saveCallTypesAction, describeConfigAction, applyProposalAction, discardProposalAction, saveReportScheduleAction, runReportNowAction, saveHealthAction, runHealthNowAction, saveTeamAction, saveEodFormAction } from "@/ui/settings-actions";
+import { OUTCOMES, outcomeLabel } from "@/engine/eod-form";
 import { CHECKS, ensureHealth } from "@/engine/health";
 import type { Operation } from "@/engine/describe-config";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,11 @@ function Pick({ row, options, placeholder }: { row: SettingRow; options?: Opt[];
       : <input name={`b:${row.key}`} type="text" defaultValue={cur} placeholder={placeholder ?? (row.set ? "" : "not set")} />}<input type="hidden" name={`k:${row.key}`} value={row.kind} /></td>
     <td>{row.set ? <span className="badge b-live">set</span> : row.required ? <span className="badge b-failed">missing</span> : <span className="badge b-type">optional</span>}</td>
   </tr>;
+}
+/** Which outcomes a per-call question follows; none ticked = any. Per-call only; a day question ignores it. */
+function WhenPicker({ k, when, scope }: { k: string; when?: string[]; scope: string }) {
+  if (scope === "day") return <span>once, for the day</span>;
+  return <div className="when">{OUTCOMES.map((o) => <label key={o.value}><input type="checkbox" name={`when:${k}:${o.value}`} defaultChecked={when?.includes(o.value) ?? false} /> {o.label}</label>)}</div>;
 }
 function Secret({ row, label, hint }: { row: SettingRow; label: string; hint?: string }) {
   return <tr className={row.required && !row.set ? "missing" : ""}>
@@ -105,6 +111,39 @@ export default async function SettingsPage({ params, searchParams }: { params: P
       </div>
       <div className="muted" style={{ fontSize: 13 }}>Mode is {co.mode}; switch it on the company page.</div>
       <SaveButton>Save company</SaveButton>
+    </form>
+
+    <h2 id="team">Team</h2>
+    <p className="sub">The roster comes from the CRM; who takes calls is yours to say. Only closers get the end-of-day link and DM. Calls = appointments ever assigned to them, a hint, not a rule.</p>
+    <form action={saveTeamAction} className="form card settings"><Hidden slug={slug} id={co.id} section="team" />
+      <div className="tbl"><table><thead><tr><th>Name</th><th>Email</th><th>Calls</th><th>Role</th></tr></thead><tbody>{d.users.map((u) => <tr key={u.id}>
+        <td><strong>{u.name}</strong></td><td className="mono muted" style={{ fontSize: 12.5 }}>{u.email}</td><td>{u.calls || ""}</td>
+        <td><select name={`role:${u.id}`} defaultValue={u.role}>{["closer", "setter", "manager", "owner", "staff"].map((r) => <option key={r} value={r}>{r}</option>)}</select></td>
+      </tr>)}</tbody></table></div>
+      <SaveButton>Save roles</SaveButton>
+    </form>
+
+    <h2 id="eodform">End-of-day form</h2>
+    <p className="sub">What each closer is asked per call, after they pick what happened. The engine keeps the built-in keys (it reads contract value, cash, next date, DQ reason); the labels, what is required, the option lists and any question you add are yours. A question with no outcome ticked shows after any outcome. <Link href={`/c/${slug}/eod`}>Filed reports and links</Link>.</p>
+    <form action={saveEodFormAction} className="form card settings eodform"><Hidden slug={slug} id={co.id} section="eodform" />
+      <input type="hidden" name="fields" value={d.eodForm.map((x) => x.key).join(",")} />
+      <div className="tbl"><table><thead><tr><th>Question</th><th>Shown</th><th>Type</th><th>Required</th><th>Options / help</th></tr></thead><tbody>
+        {d.eodForm.map((x) => <tr key={x.key}>
+          <td><input type="hidden" name={`builtin:${x.key}`} value={x.builtin ? "1" : "0"} /><input type="text" name={`label:${x.key}`} defaultValue={x.label} required={!!x.builtin} /><div className="mono muted" style={{ fontSize: 11 }}>{x.key}{x.builtin ? " · built in" : <label style={{ marginLeft: 8 }}><input type="checkbox" name={`delete:${x.key}`} /> remove</label>}</div></td>
+          <td style={{ fontSize: 12.5 }}>{x.scope === "day" ? "once, for the day" : x.key === "outcome" ? "first, every call" : x.builtin ? (x.when ? `after ${x.when.map(outcomeLabel).join(", ")}` : "after any outcome") : <WhenPicker k={x.key} when={x.when} scope={x.scope} />}</td>
+          <td style={{ fontSize: 12.5 }}>{x.builtin ? x.type : <select name={`type:${x.key}`} defaultValue={x.type}>{["text", "textarea", "select", "money", "number", "date"].map((t) => <option key={t} value={t}>{t}</option>)}</select>}</td>
+          <td><label><input type="checkbox" name={`required:${x.key}`} defaultChecked={x.required} /> required</label></td>
+          <td>{x.type === "select" && x.key !== "outcome" ? <textarea name={`options:${x.key}`} rows={3} defaultValue={(x.options ?? []).join("\n")} placeholder="one option per line" /> : null}<input type="text" name={`help:${x.key}`} defaultValue={x.help ?? ""} placeholder="help text (optional)" /></td>
+        </tr>)}
+        <tr className="eodform-new">
+          <td><input type="text" name="label:new" placeholder="Add a question, e.g. What did I do well?" /><div className="muted" style={{ fontSize: 11 }}>new</div></td>
+          <td style={{ fontSize: 12.5 }}><select name="scope:new" defaultValue="call"><option value="call">per call</option><option value="day">once, for the day</option></select><WhenPicker k="new" scope="call" /></td>
+          <td><select name="type:new" defaultValue="textarea">{["text", "textarea", "select", "money", "number", "date"].map((t) => <option key={t} value={t}>{t}</option>)}</select></td>
+          <td><label><input type="checkbox" name="required:new" /> required</label></td>
+          <td><textarea name="options:new" rows={3} placeholder="options, one per line (select only)" /><input type="text" name="help:new" placeholder="help text (optional)" /></td>
+        </tr>
+      </tbody></table></div>
+      <SaveButton>Save form</SaveButton>
     </form>
 
     <h2 id="connections">Connections</h2>

@@ -37,6 +37,8 @@ export type InstallInput = {
   alerts?: { slackChannel?: string; email?: string; emailFrom?: string; webhook?: string; resendKey?: string; asName?: string; asIcon?: string };
   prompts?: Record<string, string>;      // prompt.<name> overrides; defaults from src/prompts fill the rest
   contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
+  /** Who takes calls: emails (or CRM user ids) from the roster. Only closers get the end-of-day link and DM (D34); everyone else on the roster is staff. Omitted: roles stay as they are. */
+  closers?: string[];
   templates?: string[];                  // slugs; default all
   enable?: boolean;                      // default false — Tyler's rule: build off, enable deliberately
   smsEnabled?: boolean;                  // default true; false when the sub-account has no number
@@ -125,7 +127,12 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (input.quietHours) await c.query("update companies set send_window_start=coalesce($2, send_window_start), send_window_end=coalesce($3, send_window_end), quiet_allow_transactional=coalesce($4, quiet_allow_transactional) where id=$1", [companyId, input.quietHours.start ?? null, input.quietHours.end ?? null, input.quietHours.allowTransactional ?? null]);
     const ac: Company = { id: companyId, locationId: input.locationId, pit, timezone: input.timezone, booking };
     for (const u of await adapters.read.listUsers(ac))
-      await c.query(`insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'closer',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name`, [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);
+      await c.query(`insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'staff',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name`, [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);
+    if (input.closers) {
+      const who = input.closers.map((x) => x.toLowerCase());
+      await c.query("update users set role='staff' where company_id=$1 and role='closer' and not (lower(email)=any($2) or ghl_user_id=any($2))", [companyId, who]);
+      await c.query("update users set role='closer' where company_id=$1 and role in ('staff','closer') and (lower(email)=any($2) or ghl_user_id=any($2))", [companyId, who]);
+    }
     const terms = await many<{ id: string; category: string }>(c, "select id, category from company_terms where company_id=$1 and domain='appointment_type' and is_default", [companyId]);
     const calendarsOut: string[] = [];
     const listed = await bookingFor(adapters, ac).listCalendars(ac);

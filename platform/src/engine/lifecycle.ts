@@ -35,7 +35,7 @@ export async function ensureUser(c: PoolClient, adapters: Adapters, co: Company,
   const roster = await adapters.read.listUsers(co);
   const found = roster.find((r) => r.id === ghlUserId);
   if (!found) return null;
-  const row = await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'closer',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name returning id",
+  const row = await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'staff',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name returning id",
     [co.id, found.email ?? `${ghlUserId}@unclaimed.local`, found.name || ghlUserId, ghlUserId]);
   return row!.id;
 }

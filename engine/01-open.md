@@ -335,6 +335,8 @@ disposition form, prefilled from Jev's notes when there are any). Decisions aske
 before asking (30 min after the scheduled end proposed), DM with channel fallback, the disposition form's
 questions (Tyler owes them), whether a no-show answer starts the no-show texts, re-nudge cadence. Builds on
 #24 (the no-show half of call-recorded).
+The disposition form's questions are answered by the end-of-day form's definition (D34 amended): the post-call
+ask-back is that form cut to one call, so it reads `forms` purpose eod, not a second list.
 
 ## 33. Health probes to verify against live vendors
 

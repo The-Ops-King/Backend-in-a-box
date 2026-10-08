@@ -17,6 +17,8 @@ import { ensureSchedules, generateReport, periodFor, REPORT_KINDS, type ReportKi
 import { CHECKS, ensureHealth, sweepCompany } from "@/engine/health";
 import { announceDue } from "@/engine/alerts";
 import { DateTime } from "luxon";
+import { saveEodForm } from "@/engine/eod";
+import { OUTCOMES, type CallOutcome, type EodField, type FieldType } from "@/engine/eod-form";
 
 const back = (slug: string, q: Record<string, string>, hash = "") => { revalidatePath(`/c/${slug}/settings`); revalidatePath(`/c/${slug}`); redirect(`/c/${slug}/settings?${new URLSearchParams(q).toString()}${hash}`); };
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -74,7 +76,7 @@ export async function testGhlAction(f: FormData) {
     if (!adapterCompany.pit || !adapterCompany.locationId) { error = "Location id and PIT must both be set first."; return; }
     try {
       const users = await liveAdapters.read.listUsers(adapterCompany);
-      for (const u of users) await c.query(`insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'closer',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name`, [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);
+      for (const u of users) await c.query(`insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'staff',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name`, [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);
       note = `GHL connected: ${users.length} users on the roster`;
     } catch (e) { error = `GHL refused: ${String((e as Error).message).slice(0, 160)}`; }
   });
@@ -297,3 +299,44 @@ export async function reregisterWebhookAction(f: FormData) {
   redirect(`/c/${slug}/health?note=${encodeURIComponent(note)}`);
 }
 
+
+const ROLES = ["closer", "setter", "manager", "owner", "staff"];
+/** Who is a closer. The roster comes from the CRM with everyone as staff; only closers get the end-of-day link and DM (D34). */
+export async function saveTeamAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId");
+  const changes: Record<string, string> = {};
+  await asOperator(async (c) => {
+    for (const [k, v] of f.entries()) {
+      if (!k.startsWith("role:") || typeof v !== "string" || !ROLES.includes(v)) continue;
+      const id = k.slice(5);
+      const r = await c.query("update users set role=$3 where id=$1 and company_id=$2 and role<>$3 and role<>'operator'", [id, companyId, v]);
+      if (r.rowCount) changes[id] = v;
+    }
+    if (Object.keys(changes).length) await audit(c, companyId, "team.roles", changes);
+  });
+  back(slug, { note: Object.keys(changes).length ? `Roles saved: ${Object.keys(changes).length} changed` : "Roles unchanged" }, "#team");
+}
+
+const FIELD_TYPES: FieldType[] = ["select", "text", "textarea", "money", "number", "date"];
+const slugKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+/** The company's end-of-day form: labels, what is required, the option lists, and their own questions (per call or per day). */
+export async function saveEodFormAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId");
+  const keys = String(f.get("fields") ?? "").split(",").filter(Boolean);
+  const outcomes = OUTCOMES.map((o) => o.value);
+  const fields: EodField[] = [];
+  const readOne = (k: string, builtin: boolean): EodField | null => {
+    if (builtin) return { key: k, label: str(f, `label:${k}`), type: "text", scope: "call", required: f.get(`required:${k}`) === "on", help: str(f, `help:${k}`) || undefined, options: str(f, `options:${k}`).split("\n").map((x) => x.trim()).filter(Boolean), builtin: true };
+    if (f.get(`delete:${k}`) === "on") return null;
+    const label = str(f, `label:${k}`); if (!label) return null;
+    const type = str(f, `type:${k}`) as FieldType, scope = str(f, `scope:${k}`) === "day" ? "day" : "call";
+    const when = outcomes.filter((o) => f.get(`when:${k}:${o}`) === "on") as CallOutcome[];
+    return { key: k, label, type: FIELD_TYPES.includes(type) ? type : "text", scope, required: f.get(`required:${k}`) === "on", help: str(f, `help:${k}`) || undefined, when: scope === "call" && when.length ? when : undefined, options: type === "select" ? str(f, `options:${k}`).split("\n").map((x) => x.trim()).filter(Boolean) : undefined, builtin: false };
+  };
+  for (const k of keys) { const fld = readOne(k, f.get(`builtin:${k}`) === "1"); if (fld) fields.push(fld); }
+  // a new question
+  const newLabel = str(f, "label:new");
+  if (newLabel) { let key = slugKey(newLabel) || "q"; while (fields.some((x) => x.key === key)) key = `${key}_2`; const fld = readOne("new", false); if (fld) fields.push({ ...fld, key }); }
+  await asOperator(async (c) => { await saveEodForm(c, companyId, fields); await audit(c, companyId, "eod.form", { fields: fields.map((x) => `${x.key}${x.required ? "*" : ""}`) }); });
+  back(slug, { note: "End-of-day form saved" }, "#eodform");
+}

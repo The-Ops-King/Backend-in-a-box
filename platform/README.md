@@ -344,22 +344,40 @@ timeline; the definition under Advanced has them.
 
 ## The closer's end-of-day report (D34)
 
-One standing link per closer (`/eod/<token>`, no login), today by default, arrows to other days. It opens prefilled
-from the engine's own ledger: calls on their calendar that day; for each, attendance (from the appointment's status,
-else the recording), what happened (closed when a payment or a won opportunity landed that day, follow-up or lost
-from Jev's read of the transcript), pains, goals, objections, next step and date, notes, links to the CRM contact and
-the recording; at the top, calls, closes, cash collected (payments that day) and revenue (contract value won that
-day). A close shows revenue and cash; a follow-up shows the next date and steps. Every value is editable.
+One standing link per closer (`/eod/<token>`, no login), today by default, arrows to other days. The page stands
+alone: no nav, no link to the dashboard (its own layout; the dashboard pages live under `app/(dash)`). It opens
+prefilled from the engine's own ledger: calls on their calendar that day; for each, what happened (no-show or
+rescheduled from the appointment's status; closed, deposit, follow up, lost or DQ from a recorded outcome, else from
+money that day, else from Jev's read of the transcript), contract value and cash, next step and date, "about this
+prospect" (Jev's summary with the pains, goals and objections), notes, links to the CRM contact and the recording;
+at the top, calls, closes, deposits, cash collected and revenue. Every value is editable.
+
+Each call asks one thing first, what happened, and the questions that follow appear once it is picked: closed or
+deposit show contract value and cash; follow up shows the next date and steps; DQ shows a reason (a select) and a
+note; the held outcomes show "about this prospect"; notes follow any outcome. A deposit is a payment short of the
+contract value (prefilled when what was paid that day is less than the contract or the program price); it is counted
+on its own, not as a close, and its cash and contract value are in the totals. Attendance is implied by the outcome:
+no-show and rescheduled record the appointment outcome, everything else records showed plus the call outcome
+(`call_outcome` terms: closed, deposit, follow_up, lost, unqualified for DQ).
+
+The form is the company's (`forms`, purpose `eod`; `src/engine/eod-form.ts` holds the defaults and the merge):
+labels, what is required, the option lists (DQ reasons) and their own questions, per call (after chosen outcomes,
+or any) or once for the day ("What did I do well?"), edited in settings § End-of-day form. The engine keeps the
+built-in keys it reads. Required answers are checked in the browser and again on submit; a day with a blank
+required answer is not filed and says what is still needed.
 
 Submitting files `eod_reports` (prefill, answers, what changed), records each call's outcome through the disposition
-path (`recordDisposition`: the appointment's outcome, `call.held`, the no-show sequence and CRM records follow), posts
-a summary to the company's alerts channel with the corrections ("Leo Ortiz: attendance blank → showed"), because a
-wrong prefill is a data gap to fix at the source, and puts a ✅ and a "Got it" reply on the reminder DM. Submitting
-again replaces the day.
+path (`recordDisposition`: the appointment's outcome, `call.held`, the no-show sequence and CRM records follow; the
+disposition note carries about, notes, DQ reason, next step, money and the company's own answers), posts a summary
+to the company's alerts channel with the corrections ("Leo Ortiz: outcome Deposit → Closed") and the day's answers,
+because a wrong prefill is a data gap to fix at the source, and puts a ✅ and a "Got it" reply on the reminder DM.
+Submitting again replaces the day.
 
-The reminder goes out at the company's end-of-day time (`companies.eod_at`, settings; `eod_enabled` turns it off),
-once per closer per day, only on days they had calls and have not filed: a Slack DM with their link. Filed reports and
-every closer's link: `/c/<slug>/eod`. Tested in `eod.test.ts`.
+Who is a closer is a role on the roster (settings § Team; install input `closers`: emails or CRM user ids). The CRM
+roster comes in as `staff`; only `closer` rows get a link and the DM. The reminder goes out at the company's
+end-of-day time (`companies.eod_at`, settings; `eod_enabled` turns it off), once per closer per day, only on days
+they had calls and have not filed: a Slack DM with their link. Filed reports and every closer's link: `/c/<slug>/eod`.
+Tested in `eod.test.ts`.
 
 ## Readiness (is it safe to go live?)
 
