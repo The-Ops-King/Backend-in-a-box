@@ -343,5 +343,14 @@ questions (Tyler owes them), whether a no-show answer starts the no-show texts, 
 exercised only through fakes so far; the first live sweep on Hair verifies the GHL one. Fathom `GET /webhooks`
 is a guess (returns null → the sweep falls back to delivery age). Whop `GET /webhooks/{id}` likewise.
 Tyler says Calendly exposes whether a host's calendar is connected; if that is an API field rather than the
-dashboard, the sweep should read it instead of inferring from availability.
+dashboard, the sweep should read it instead of inferring from availability. Hair books through Calendly
+(two "45 Min Strategy Call" event types), so its first live sweep exercised the Calendly probe (the 400 on a
+7-day-from-now window was fixed the same hour); the GHL free-slots probe is still unexercised live.
+
+## 34. Typeform and other inbound doors: verify the URL, offer the fix
+
+Tyler, 2026-10-08: "if we have a Typeform connected and the URL changes somehow we get an alert, and a
+'click yes to fix'". The Whop and Fathom webhooks have that now (verified each sweep, re-registered from the
+health page). Typeform is not integrated yet (#29): when it is, its webhook is registered by the engine from
+a Typeform token, verified each sweep (`GET /forms/{id}/webhooks`), and re-registered from the same button.
 

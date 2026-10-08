@@ -21,3 +21,5 @@ is enough for polling. Verified against the Save Your Hair organization with Dr 
 | Rate limit | Headers `x-ratelimit-limit: 500`, `x-ratelimit-remaining`, `x-ratelimit-reset: 60` (per minute, per token). 429 → back off. One-minute polling of one host is ~5 requests/minute steady state. |
 | Timestamps | ISO 8601 with six fractional digits (`2026-10-08T16:00:00.000000Z`). |
 | Writes | None used. Cancelling via API exists (`POST /scheduled_events/{uuid}/cancellation`) but the engine treats Calendly as read-only. |
+| Available times | `GET /event_type_available_times?event_type=<uri>&start_time=&end_time=` — start must be in the future and the window at most 7 days (a window of exactly 7 days from "now" is refused with 400; the sweep asks from now+1 min for 6d23h). Used as the "is this host's calendar still connected" signal: no times over a week on an active type is the alert (D33). |
+

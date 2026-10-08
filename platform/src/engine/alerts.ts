@@ -139,7 +139,8 @@ export async function announceDue(c: PoolClient, adapters: Adapters, now = new D
     if (dest.slackToken && channel) {
       if (repeat && a.slack_ts) said = !!(await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} Still open after ${hoursOpen(a.first_seen, now)}h: ${a.text.slice(0, 300)}`, as, a.slack_ts).catch(() => null));
       else {
-        const r = await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} *${where}${a.source === "step" ? "Run failed" : a.source === "health" ? "Health check" : a.source === "poll" ? "Polling" : "Engine"}*\n${a.text}${link ? `\n<${link}|Open>` : ""}`, as).catch(() => null);
+        const fix = (a.detail as { fix?: { label: string } }).fix;
+        const r = await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} *${where}${a.source === "step" ? "Run failed" : a.source === "health" ? "Health check" : a.source === "poll" ? "Polling" : "Engine"}*\n${a.text}${link ? `\n<${link}|Open>${fix ? ` · <${link}#fix|${fix.label}>` : ""}` : ""}`, as).catch(() => null);
         if (r) { said = true; await c.query("update alerts set slack_channel=$2, slack_ts=$3 where id=$1", [a.id, channel, r.ts]); }
       }
     }

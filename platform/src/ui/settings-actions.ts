@@ -275,3 +275,23 @@ export async function runHealthNowAction(f: FormData) {
   redirect(`/c/${slug}/health?note=${encodeURIComponent(`Swept ${r.findings.length} checks: ${failing ? `${failing} failing` : "all fine"}${r.raised ? `, ${r.raised} new alert${r.raised > 1 ? "s" : ""} posted` : ""}${r.resolved ? `, ${r.resolved} resolved` : ""}`)}`);
 }
 
+/** "Click to fix" (D33): make the webhook again, bind the new secret and id, and say so on the health page. */
+export async function reregisterWebhookAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId"), provider = str(f, "provider");
+  const base = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
+  let note = "";
+  await asOperator(async (c) => {
+    const { bindings } = await loadCompany(c, companyId);
+    try {
+      if (provider === "whop") { if (!bindings["secret.whop_api_key"]) throw new Error("no Whop API key"); const hook = await whopCreateWebhook(bindings["secret.whop_api_key"], `${base}/api/webhooks/whop/${companyId}`); await setBinding(c, companyId, "secret.whop_webhook", "secret", hook.webhook_secret); await setBinding(c, companyId, "whop.webhook_id", "id", hook.id); note = `Whop webhook re-registered (${hook.id}).`; }
+      else if (provider === "fathom") { if (!bindings["secret.fathom_api_key"]) throw new Error("no Fathom API key"); const hook = await fathomCreateWebhook(bindings["secret.fathom_api_key"], `${base}/api/webhooks/fathom/${companyId}`); await setBinding(c, companyId, "secret.fathom_webhook", "secret", hook.secret); await setBinding(c, companyId, "fathom.webhook_id", "id", hook.id); note = `Fathom webhook re-registered (${hook.id}).`; }
+      else throw new Error(`unknown provider ${provider}`);
+      await audit(c, companyId, "webhook.reregistered", { provider, note });
+      const s = await sweepCompany(c, companyId, liveAdapters); await announceDue(c, liveAdapters);
+      note += ` Swept again: ${s.findings.filter((x) => !x.ok).length} failing.`;
+    } catch (e) { note = `Could not re-register the ${provider} webhook: ${String((e as Error).message).slice(0, 160)}`; }
+  });
+  revalidatePath(`/c/${slug}/health`);
+  redirect(`/c/${slug}/health?note=${encodeURIComponent(note)}`);
+}
+

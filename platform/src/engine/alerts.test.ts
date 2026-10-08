@@ -37,7 +37,8 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='alrt'");
       if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
         for (const t of ["alerts", "health_checks", "sends", "runs", "events", "contact_identifiers", "contacts", "workflow_triggers", "workflows", "slack_connections", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
-      await c.query("delete from alerts where company_id is null"); await c.query("delete from engine_state where key='alerts_cursor'");
+      await c.query("delete from alerts where company_id is null");
+      await c.query("insert into engine_state (key, value, updated_at) values ('alerts_cursor', $1, now()) on conflict (key) do update set value=$1", [{ since: new Date().toISOString() }]);   // other suites' failed runs are not this test's
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode) values ('Alert Co','alrt','America/New_York','live') returning id"))!.id;
       await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories", [companyId]);
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'alerts.slack_channel','channel',$4),($1,'slack.channel.deals','channel',$5),($1,'crm.pipeline_closer','id',$6),($1,'crm.stage_closer_won','id',$7),($1,'crm.field_contact_setter','id',$8)",
@@ -99,14 +100,14 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
       ghlFreeSlots: async (_p, cal) => ({ ok: true, slots: cal === "CAL2" ? slotsB : 12 }),
       ghlCatalog: async () => ({ users: [], pipelines: [{ id: "PIPE1", name: "Closer", stages: [{ id: "STAGE_OK", name: "Won" }] }], contactFields: [{ id: "FLD1", name: "Setter" }], opportunityFields: [], associations: [], objects: [], errors: [] }),
       calendlyWhoAmI: async () => { throw new Error("not used"); }, calendlyAvailableTimes: async () => ({ ok: true, slots: 1 }),
-      whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }),
+      whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }), urlOk: async () => ({ ok: true, status: 200 }),
     };
     await asOperator((c) => c.query("insert into health_checks (company_id, channel, as_name, as_icon) values ($1,'CHEALTH','Health check',':stethoscope:') on conflict (company_id) do update set channel='CHEALTH', as_name='Health check', as_icon=':stethoscope:'", [companyId]));
     const r = await asOperator((c) => sweepCompany(c, companyId, fake, probes));
     const failing = r.findings.filter((f) => !f.ok);
     expect(failing.map((f) => `${f.check}${f.item ? `:${f.item}` : ""}`).sort()).toEqual(["ghl_calendars:CAL2", "ghl_pipelines:crm.stage_closer_won", "slack:CNOTIN"]);
     expect(failing.find((f) => f.item === "CAL2")!.text).toMatch(/"Closer B" has no bookable slot in the next 7 days/);
-    expect(r.findings.filter((f) => f.ok).map((f) => f.check)).toEqual(expect.arrayContaining(["ghl_token", "ghl_calendars", "ghl_fields", "workflows"]));
+    expect(r.findings.filter((f) => f.ok).map((f) => f.check)).toEqual(expect.arrayContaining(["ghl_token", "ghl_calendars", "ghl_fields", "steps", "urls"]));
     expect(CHECKS.map((c) => c.id)).toContain("anthropic");
     const ann = await asOperator((c) => announceDue(c, fake));
     expect(ann.posted).toBe(3);

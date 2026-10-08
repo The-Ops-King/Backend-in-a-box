@@ -12,13 +12,15 @@ import { calendlyAvailableTimes } from "@/adapters/calendly/health";
 import { whopGetWebhook, whopPing } from "@/adapters/whop/client";
 import { fathomListWebhooks, fathomPing } from "@/adapters/fathom/client";
 import { anthropicPing } from "@/adapters/anthropic/health";
+import { workflowRefs, VERIFIES } from "./coverage";
+import { parseDefinition } from "./definition";
 
 /**
  * D33. The hourly sweep: a read-only look at every connection a company runs on. Its own automation, with its own
  * clock, channel, face and list of checks. It says nothing while everything works; a check that fails becomes an alert
  * (source `health`) and clears itself when the next sweep finds it fine.
  */
-export type Finding = { check: string; item?: string; ok: boolean; level: Level; text: string; detail?: Record<string, unknown> };
+export type Finding = { check: string; item?: string; ok: boolean; level: Level; text: string; detail?: Record<string, unknown>; fix?: { label: string; action: "reregister_whop" | "reregister_fathom" } };
 export type HealthRow = { company_id: string; enabled: boolean; every_minutes: number; channel: string | null; as_name: string | null; as_icon: string | null; checks: Record<string, boolean>; last_run_at: Date | null; last_result: Finding[] };
 
 export const CHECKS: { id: string; label: string; about: string }[] = [
@@ -35,7 +37,8 @@ export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "fathom_webhook", label: "Fathom webhook", about: "the recording webhook is still registered (or, when Fathom cannot list webhooks, that deliveries keep arriving)" },
   { id: "slack", label: "Slack", about: "the bot token is alive and the bot is in every channel the workflows post to" },
   { id: "anthropic", label: "Anthropic key", about: "the AI key still answers (the company's, else the server's)" },
-  { id: "workflows", label: "Workflows ready", about: "no enabled workflow is missing a binding or carries a copy the engine cannot run" },
+  { id: "steps", label: "Every step can fire", about: "each enabled workflow's steps are walked and everything they depend on outside the engine is checked: bindings exist in the CRM, channels have the bot, prompts and keys are set, custom objects and events exist, hand-off targets are on; kinds that cannot be verified are listed as such" },
+  { id: "urls", label: "Links in copy", about: "every fixed http(s) link a message sends (booking pages, forms) still answers; a link that moved is an alert" },
 ];
 
 export async function ensureHealth(c: PoolClient, companyId: string): Promise<HealthRow> {
@@ -48,8 +51,19 @@ export type HealthProbes = {
   ghlLocationOk: typeof ghlLocationOk; ghlFreeSlots: typeof ghlFreeSlots; ghlCatalog: typeof ghlCatalog;
   calendlyWhoAmI: typeof calendlyWhoAmI; calendlyAvailableTimes: typeof calendlyAvailableTimes;
   whopPing: typeof whopPing; whopGetWebhook: typeof whopGetWebhook; fathomPing: typeof fathomPing; fathomListWebhooks: typeof fathomListWebhooks; anthropicPing: typeof anthropicPing;
+  urlOk: (url: string) => Promise<{ ok: boolean; status?: number; error?: string }>;
 };
-export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, calendlyWhoAmI, calendlyAvailableTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing };
+/** Does a link a person will click still answer? HEAD first, GET when HEAD is refused; anything under 400 after redirects is fine. */
+export async function urlOk(url: string): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
+  try {
+    let res = await fetch(url, { method: "HEAD", redirect: "follow", signal: ctl.signal });
+    if (res.status === 405 || res.status === 403 || res.status === 501) res = await fetch(url, { method: "GET", redirect: "follow", signal: ctl.signal });
+    return { ok: res.status < 400, status: res.status };
+  } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 120) }; }
+  finally { clearTimeout(t); }
+}
+export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, calendlyWhoAmI, calendlyAvailableTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, urlOk };
 
 const DAYS_AHEAD = 7;
 
@@ -59,7 +73,9 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
   const on = (id: string) => row.checks[id] !== false;
   const out: Finding[] = [];
   const ok = (check: string, text: string, item?: string, detail?: Record<string, unknown>) => out.push({ check, item, ok: true, level: "warning", text, detail });
-  const bad = (check: string, level: Level, text: string, item?: string, detail?: Record<string, unknown>) => out.push({ check, item, ok: false, level, text, detail });
+  const bad = (check: string, level: Level, text: string, item?: string, detail?: Record<string, unknown>, fix?: Finding["fix"]) => out.push({ check, item, ok: false, level, text, detail, fix });
+  const channelCache = new Map<string, { ok: boolean; name?: string; member?: boolean; error?: string }>();
+  const channelInfo = async (token: string, id: string) => { if (!channelCache.has(id)) channelCache.set(id, await adapters.notifier.channelInfo(token, id).catch((e) => ({ ok: false, error: String((e as Error).message) }))); return channelCache.get(id)!; };
   const from = now.toJSDate(), to = now.plus({ days: DAYS_AHEAD }).toJSDate();
   const connected = !!ac.pit && !!ac.locationId;
 
@@ -130,7 +146,8 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
         const t = live.find((x) => x.id === cal.external_id);
         if (!t) { bad("calendly_calendars", "error", `Event type "${cal.name}" is gone from Calendly.`, cal.external_id); continue; }
         if (t.active === false) { bad("calendly_calendars", "warning", `Event type "${cal.name}" is turned off in Calendly.`, cal.external_id); continue; }
-        const r = await probes.calendlyAvailableTimes(token, `https://api.calendly.com/event_types/${cal.external_id}`, from, to);
+        // the API wants a start in the future and a window of at most 7 days: a minute from now, six days and 23 hours long
+        const r = await probes.calendlyAvailableTimes(token, `https://api.calendly.com/event_types/${cal.external_id}`, now.plus({ minutes: 1 }).toJSDate(), now.plus({ days: 6, hours: 23 }).toJSDate());
         if (!r.ok) bad("calendly_calendars", "error", `Event type "${cal.name}": availability cannot be read: ${r.error}`, cal.external_id);
         else if (r.slots === 0) bad("calendly_calendars", "warning", `Event type "${cal.name}" has no available time in the next ${DAYS_AHEAD} days. A host's connected calendar may have dropped, or availability is off.`, cal.external_id);
         else ok("calendly_calendars", `"${cal.name}": ${r.slots} available times in the next ${DAYS_AHEAD} days.`, cal.external_id, { slots: r.slots });
@@ -144,8 +161,8 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
   if (on("whop_webhook") && bindings["secret.whop_api_key"] && bindings["whop.webhook_id"]) {
     const r = await probes.whopGetWebhook(bindings["secret.whop_api_key"], bindings["whop.webhook_id"]);
     if (!r.ok) bad("whop_webhook", "warning", `Cannot read the Whop webhook: ${r.error}`);
-    else if (!r.found) bad("whop_webhook", "error", `The Whop payment webhook (${bindings["whop.webhook_id"]}) no longer exists. Payments will stop arriving; re-save the Whop key to register a new one.`);
-    else if (r.enabled === false) bad("whop_webhook", "error", `The Whop payment webhook is disabled.`);
+    else if (!r.found) bad("whop_webhook", "error", `The Whop payment webhook (${bindings["whop.webhook_id"]}) no longer exists. Payments will stop arriving.`, undefined, undefined, { label: "Re-register the Whop webhook", action: "reregister_whop" });
+    else if (r.enabled === false) bad("whop_webhook", "error", `The Whop payment webhook is disabled.`, undefined, undefined, { label: "Re-register the Whop webhook", action: "reregister_whop" });
     else ok("whop_webhook", `Webhook ${bindings["whop.webhook_id"]} is registered and enabled.`);
   }
 
@@ -155,7 +172,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
     let list: Awaited<ReturnType<typeof fathomListWebhooks>> = null, err: string | null = null;
     try { list = await probes.fathomListWebhooks(bindings["secret.fathom_api_key"]); } catch (e) { err = String((e as Error).message).slice(0, 160); }
     if (err) bad("fathom_webhook", "warning", `Cannot list Fathom webhooks: ${err}`);
-    else if (list) { if (list.some((w) => w.id === bindings["fathom.webhook_id"])) ok("fathom_webhook", `Webhook ${bindings["fathom.webhook_id"]} is registered.`); else bad("fathom_webhook", "error", `The Fathom recording webhook (${bindings["fathom.webhook_id"]}) is gone. Recordings will stop arriving; re-save the Fathom key to register a new one.`); }
+    else if (list) { if (list.some((w) => w.id === bindings["fathom.webhook_id"])) ok("fathom_webhook", `Webhook ${bindings["fathom.webhook_id"]} is registered.`); else bad("fathom_webhook", "error", `The Fathom recording webhook (${bindings["fathom.webhook_id"]}) is gone. Recordings will stop arriving.`, undefined, undefined, { label: "Re-register the Fathom webhook", action: "reregister_fathom" }); }
     else {
       // no listing: the best read-only signal is whether deliveries keep coming
       const last = await one<{ at: Date | null }>(c, "select max(received_at) as at from webhook_deliveries where company_id=$1 and provider='fathom'", [company.id]);
@@ -179,7 +196,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
         const seen = new Set<string>(); let fine = 0;
         for (const [k, id] of channels) {
           if (!id || seen.has(id)) continue; seen.add(id);
-          const info: { ok: boolean; name?: string; member?: boolean; error?: string } = await adapters.notifier.channelInfo(token, id).catch((e) => ({ ok: false, error: String((e as Error).message) }));
+          const info = await channelInfo(token, id);
           if (!info.ok) bad("slack", "error", `Channel for ${k} (${id}) cannot be read: ${info.error ?? "unknown"}.`, id);
           else if (info.member === false) bad("slack", "warning", `The bot is not in #${info.name ?? id} (${k}); posts there will fail. Invite it.`, id);
           else fine++;
@@ -195,14 +212,70 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
     if (key) { const r = await probes.anthropicPing(key); if (r.ok) ok("anthropic", `${bindings["secret.anthropic_key"] ? "Company" : "Server"} key answers.`); else bad("anthropic", "error", `Anthropic key rejected: ${r.error}`); }
   }
 
-  // Workflows
-  if (on("workflows")) {
-    const r = await companyReadiness(c, company.id, `/c/${company.slug}`);
-    const blockers = r.issues.filter((i) => i.level === "blocker");
-    for (const b of blockers) bad("workflows", "error", b.text, b.href ?? undefined);
-    const offMissing = r.workflows.filter((w) => w.enabled && w.missing.length);
-    for (const w of offMissing) if (!blockers.some((b) => b.href?.endsWith(w.id))) bad("workflows", "error", `"${w.name}" is on but missing ${w.missing.join(", ")}.`, w.id);
-    if (!blockers.length && !offMissing.length) ok("workflows", `${r.workflows.filter((w) => w.enabled).length} workflows on, nothing missing.`);
+  // Every step of every enabled workflow: what it depends on outside the engine, verified (coverage.ts lists it from the definition)
+  if (on("steps")) {
+    const wfs = await many<{ id: string; name: string; slug: string | null; definition: unknown }>(c, "select w.id, w.name, t.slug, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version left join workflow_templates t on t.id=w.template_id where w.company_id=$1 and w.enabled order by w.name", [company.id]);
+    const allWfs = await many<{ name: string; slug: string | null; enabled: boolean }>(c, "select w.name, t.slug, w.enabled from workflows w left join workflow_templates t on t.id=w.template_id where w.company_id=$1", [company.id]);
+    const events = new Set((await many<{ name: string }>(c, "select name from event_types")).map((e) => e.name));
+    const domains = new Set((await many<{ domain: string }>(c, "select distinct domain from core_categories")).map((d) => d.domain));
+    const cals = new Set((await many<{ external_id: string }>(c, "select external_id from calendars where company_id=$1 and active", [company.id])).map((x) => x.external_id));
+    const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [company.id]);
+    const token = conn ? (await import("./crypto")).decrypt(conn.bot_token) : null;
+    const stages = new Set(catalog?.pipelines.flatMap((p) => p.stages.map((s) => s.id)) ?? []), pipes = new Set(catalog?.pipelines.map((p) => p.id) ?? []), cf = new Set(catalog?.contactFields.map((f) => f.id) ?? []), of = new Set(catalog?.opportunityFields.map((f) => f.id) ?? []), assocs = new Set(catalog?.associations.map((a) => a.id) ?? []), objects = new Set(catalog?.objects.flatMap((o) => [o.key, o.key.replace(/^custom_objects\./, "")]) ?? []), users = new Set(catalog?.users.map((u) => u.id) ?? []);
+    const unverifiable: string[] = [];
+    for (const wf of wfs) {
+      let def; try { def = parseDefinition(wf.definition); } catch (e) { bad("steps", "error", `"${wf.name}" no longer parses on this engine and is skipped: ${String((e as Error).message).slice(0, 120)}. Re-install upgrades it.`, wf.id); continue; }
+      const before = out.length; let verified = 0;
+      const miss = (text: string, level: Level = "error") => bad("steps", level, `"${wf.name}": ${text}`, wf.id);
+      for (const r of workflowRefs(def)) {
+        if (VERIFIES[r.kind] === "unverifiable") { unverifiable.push(`${wf.name}: ${r.what} (${r.value})`); continue; }
+        switch (r.kind) {
+          case "binding": {
+            const v = bindings[r.value];
+            if (!v) { if (r.value.startsWith("slack.channel.")) miss(`step ${r.node} posts to ${r.value}, which is not bound; those posts are skipped.`, "warning"); else miss(`step ${r.node} needs ${r.value}, which is not bound.`); break; }
+            if (r.value === "crm.agreement_template") { unverifiable.push(`${wf.name}: the agreement template (${v})`); break; }
+            if (!catalog && r.value.startsWith("crm.") && r.value !== "crm.location_id") break;   // ghl_token already said the CRM cannot be read
+            if (r.value.startsWith("crm.pipeline_") && !pipes.has(v)) miss(`step ${r.node}: pipeline ${r.value} (${v}) no longer exists in the CRM.`);
+            else if (r.value.startsWith("crm.stage_") && !stages.has(v)) miss(`step ${r.node}: stage ${r.value} (${v}) no longer exists in the CRM.`);
+            else if (r.value.startsWith("crm.field_contact_") && !cf.has(v)) miss(`step ${r.node}: contact field ${r.value} (${v}) no longer exists in the CRM.`);
+            else if (r.value.startsWith("crm.field_opportunity_") && !of.has(v)) miss(`step ${r.node}: opportunity field ${r.value} (${v}) no longer exists in the CRM.`);
+            else if (r.value.startsWith("crm.assoc_") && !assocs.has(v)) miss(`step ${r.node}: association ${r.value} (${v}) no longer exists in the CRM.`);
+            else if ((r.value === "crm.default_closer" || r.value === "crm.agreement_sender") && !users.has(v)) miss(`step ${r.node}: ${r.value} (${v}) is no longer a user in the location.`);
+            else if (r.value.startsWith("calendar.") && !cals.has(v)) miss(`step ${r.node}: ${r.value} points at a calendar (${v}) that is not active for this company.`);
+            else if (r.value.startsWith("slack.channel.") && token) { const info = await channelInfo(token, v); if (!info.ok) miss(`step ${r.node}: channel ${r.value} (${v}) cannot be read: ${info.error ?? "unknown"}.`); else verified++; break; }   // membership is the slack check's finding, once per channel
+            else verified++;
+            break;
+          }
+          case "custom_object": if (catalog && !objects.has(r.value)) miss(`step ${r.node} writes ${r.value}, which no longer exists in the CRM.`); else verified++; break;
+          case "workflow": { const target = allWfs.find((w) => w.slug === r.value || w.name.toLowerCase() === r.value.toLowerCase()); if (!target) miss(`step ${r.node} hands off to "${r.value}", which is not installed.`); else if (!target.enabled) miss(`step ${r.node} hands off to "${r.value}", which is off.`, "warning"); else verified++; break; }
+          case "classify_domain": if (!domains.has(r.value)) miss(`step ${r.node} classifies into "${r.value}", which has no options.`); else verified++; break;
+          case "event": if (!events.has(r.value)) miss(`trigger ${r.node} listens for "${r.value}", which the engine never emits.`); else verified++; break;
+          case "anthropic": if (!(bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY)) miss(`step ${r.node} needs an Anthropic key and none is set.`); else verified++; break;
+          case "slack": if (!conn) miss(`step ${r.node} posts to Slack, which is not connected; those posts are skipped.`, "warning"); else verified++; break;
+          case "url": verified++; break;   // checked once per unique link under "urls"
+        }
+      }
+      if (out.length === before) ok("steps", `"${wf.name}": ${verified} dependencies verified.`, wf.id);
+    }
+    if (!wfs.length) ok("steps", "No workflows on.");
+    if (unverifiable.length) ok("steps", `Not verifiable from here: ${[...new Set(unverifiable)].join("; ")}.`, "unverifiable");
+  }
+
+  // Links in copy: a page that moved is found the hour it moves, not when a lead clicks it
+  if (on("urls")) {
+    const wfs = await many<{ name: string; definition: unknown }>(c, "select w.name, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 and w.enabled", [company.id]);
+    const links = new Map<string, string[]>();
+    for (const wf of wfs) { let def; try { def = parseDefinition(wf.definition); } catch { continue; } for (const r of workflowRefs(def)) if (r.kind === "url") links.set(r.value, [...(links.get(r.value) ?? []), wf.name]); }
+    for (const [k, v] of Object.entries(bindings)) if (k.startsWith("calendar.") && k.endsWith(".url") && /^https?:/.test(v)) links.set(v, [...(links.get(v) ?? []), k]);
+    const skip = (u: string) => /gohighlevel\.com\/v2\/location|slack\.com|fathom\.video\/calls/.test(u);   // app links behind a login answer with a redirect to sign in, not a 404
+    let fine = 0;
+    for (const [url, where] of links) {
+      if (skip(url)) continue;
+      const r = await probes.urlOk(url);
+      if (r.ok) fine++; else bad("urls", "error", `${url} (used by ${[...new Set(where)].join(", ")}) no longer answers: ${r.error ?? `HTTP ${r.status}`}.`, url);
+    }
+    if (!links.size) ok("urls", "No fixed links in copy.");
+    else if (fine === [...links.keys()].filter((u) => !skip(u)).length) ok("urls", `${fine} link${fine === 1 ? "" : "s"} answer.`);
   }
   return out;
 }
@@ -213,7 +286,7 @@ export async function sweepCompany(c: PoolClient, companyId: string, adapters: A
   const { row: company } = await loadCompany(c, companyId);
   const findings = await sweep(c, company, adapters, probes, row, now);
   await c.query("update health_checks set last_run_at=$2, last_result=$3 where company_id=$1", [companyId, now.toJSDate(), JSON.stringify(findings)]);
-  const present: AlertInput[] = findings.filter((f) => !f.ok).map((f) => ({ companyId, key: `health:${f.check}${f.item ? `:${f.item}` : ""}`, level: f.level, source: "health", text: f.text, detail: f.detail, href: `/c/${company.slug}/health` }));
+  const present: AlertInput[] = findings.filter((f) => !f.ok).map((f) => ({ companyId, key: `health:${f.check}${f.item ? `:${f.item}` : ""}`, level: f.level, source: "health", text: f.text, detail: { ...(f.detail ?? {}), ...(f.fix ? { fix: f.fix } : {}) }, href: `/c/${company.slug}/health` }));
   const r = await reconcile(c, companyId, "health", present, now.toJSDate());
   return { findings, ...r };
 }

@@ -315,6 +315,18 @@ other and clears itself on the next clean sweep. `Sweep now` on the health page 
 Probes live in `src/adapters/*/health.ts` and are injectable (`HealthProbes`), so `src/engine/health.ts`
 is tested without the vendors (`alerts.test.ts`).
 
+**Every step is covered by construction.** `src/engine/coverage.ts` lists what each workflow depends on
+outside the engine from the definition itself: every `{{crm.*}}`, `{{calendar.*}}`, `{{slack.channel.*}}`,
+`{{prompt.*}}`, `{{secret.*}}` a step reads, plus what each node type needs (`NODE_NEEDS`: the trigger's
+event, a custom object, a hand-off target, a classifier domain, the AI key, Slack, a CRM template, the
+documents scope) and every fixed http(s) link in copy. The sweep's "Every step can fire" check walks every
+enabled workflow and verifies each of those (bound, exists in the CRM, channel readable, event emitted,
+target installed and on), and lists the kinds it cannot verify (`VERIFIES`). "Links in copy" fetches every
+fixed link once per sweep. `coverage.test.ts` fails when a node type is added without a `NODE_NEEDS` entry
+or a shipped template needs a kind nobody decided how to verify, so a new step cannot ship unchecked.
+A finding that the engine can repair carries a fix (`Re-register the Whop webhook`): a button on the health
+page and a link in the Slack alert.
+
 ## Readiness (is it safe to go live?)
 
 The company page and every workflow page carry a readiness card built from facts
