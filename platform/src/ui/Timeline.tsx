@@ -1,6 +1,7 @@
 import type { Definition } from "@/engine/definition";
 import { branchTitle, describeNode, exitWords } from "@/engine/describe";
 import { badge, stamp } from "./format";
+import { stepLabel } from "./Outline";
 
 type Step = { node_id: string; node_type: string; status: string; started_at: Date; finished_at: Date | null; result: Record<string, unknown>; error: string | null };
 type Send = { channel: string; status: string; rendered_body: string; sent_at: Date | null; suppressed_reason: string | null; error: string | null };
@@ -16,7 +17,9 @@ export function Timeline({ def, steps, sends, tz, startedAt, status, exitReason,
     const r = s.result ?? {};
     if (s.error) return s.error;
     const bits: string[] = [];
-    if (r.shadow) bits.push("shadow");
+    if (r.shadow) bits.push("shadow: nothing written to the CRM or sent to the contact; this is what it would have done");
+    if (r.kind === "noop") bits.push("nothing to do here, by design");
+    if (r.kind === "blocked") bits.push("could not run: something is missing (alerted)");
     for (const k of Object.keys(r)) if (k.startsWith("would_")) bits.push(`${k.replace(/^would_/, "would ").replace(/_/g, " ")}: ${short(r[k])}`);
     if (typeof r.why === "string") bits.push(r.why);
     if (typeof r.value === "string") bits.push(r.value);
@@ -31,9 +34,9 @@ export function Timeline({ def, steps, sends, tz, startedAt, status, exitReason,
   const lastStep = steps.at(-1);
   return <ol className="tl">
     <li className="tl-row st-ok"><span className="tl-t">{stamp(startedAt, tz)}</span><span className="tl-w">Started{def.nodes.find((n) => n.type === "trigger") ? `: ${words(def.nodes.find((n) => n.type === "trigger")!.id)}` : ""}</span></li>
-    {steps.filter((s) => s.node_type !== "trigger" && s.node_type !== "exit").map((s, i) => <li key={i} className={`tl-row st-${s.status}`}>
+    {steps.filter((s) => s.node_type !== "trigger" && s.node_type !== "exit" && s.node_type !== "set_var").map((s, i) => <li key={i} className={`tl-row st-${stepLabel(s).cls === "shadow" ? "ok" : stepLabel(s).cls}`}>
       <span className="tl-t">{stamp(s.started_at, tz)}</span>
-      <span className="tl-w">{words(s.node_id)}<span className={badge(s.status)} style={{ marginLeft: 8 }}>{s.status}</span>{detail(s) ? <span className={`tl-d ${s.error ? "bad" : ""}`}>{detail(s)}</span> : null}</span>
+      <span className="tl-w">{words(s.node_id)}<span className={badge(stepLabel(s).cls)} style={{ marginLeft: 8 }}>{stepLabel(s).text}</span>{detail(s) ? <span className={`tl-d ${s.error ? "bad" : ""}`}>{detail(s)}</span> : null}</span>
     </li>)}
     {status === "waiting" && nextRunAt ? <li className="tl-row st-waiting"><span className="tl-t">{stamp(nextRunAt, tz)}</span><span className="tl-w">Next: {currentNode ? words(currentNode) : "continues"}<span className="badge b-waiting" style={{ marginLeft: 8 }}>scheduled</span></span></li> : null}
     {["completed", "exited", "failed", "paused"].includes(status) ? <li className={`tl-row st-${status === "completed" ? "ok" : status}`}><span className="tl-t">{stamp(lastStep?.finished_at ?? lastStep?.started_at ?? startedAt, tz)}</span><span className="tl-w">{status === "completed" ? exitWords(exitReason ?? "done") : status === "failed" ? "Failed" : status === "paused" ? "Paused" : `Stopped: ${(exitReason ?? "").replace(/_/g, " ")}`}{status === "failed" && exitReason ? <span className="tl-d bad">{exitReason}</span> : null}</span></li> : null}

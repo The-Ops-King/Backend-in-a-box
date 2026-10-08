@@ -66,7 +66,7 @@ async function recordSend(d: ExecDeps, node: Node, channel: "sms" | "email" | "s
 
 async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "send_email" }>): Promise<StepOutcome> {
   const next = single(d, node.id);
-  if (node.type === "send_sms" && d.company.sms_enabled === false) { await recordSend(d, node, "sms", "", "suppressed", "sms_disabled: company has no number"); return { status: "skipped", next, result: { why: "sms disabled for company" } }; }
+  if (node.type === "send_sms" && d.company.sms_enabled === false) { await recordSend(d, node, "sms", "", "suppressed", "sms_disabled: company has no number"); return { status: "skipped", next, result: { kind: "noop", why: "sms disabled for company" } }; }
   const v = validityOk(d, node);
   let template = node.template, substituted = false;
   if (!v.ok) {
@@ -89,7 +89,7 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   }
   const channel = node.type === "send_sms" ? "sms" : "email";
   const send = await recordSend(d, node, channel, body, "queued");
-  if (!send) return { status: "skipped", next, result: { why: "already sent (idempotency)" } };
+  if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already sent (idempotency)" } };
   if (shadow(d)) {
     await d.c.query("update sends set status='shadow', sent_at=now() where id=$1", [send.id]);
     await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "message.sent", source: "engine", data: { channel, node: node.id, shadow: true, substituted } });
@@ -159,8 +159,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const slackUser = owner?.slack_user_id ?? null;   // resolveMentions already looked the owner up
       const target = slackUser ?? fallback;
       const body = slackUser ? text : `${owner?.name ? `*${owner.name}* ` : ""}${text}`;
-      if (!conn || !target) { await recordSend(d, node, "slack", body, "suppressed", conn ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, why: conn ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
-      const send = await recordSend(d, node, "slack", body, "queued"); if (!send) return { status: "skipped", next, result: out };
+      if (!conn || !target) { await recordSend(d, node, "slack", body, "suppressed", conn ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, kind: "blocked", why: conn ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
+      const send = await recordSend(d, node, "slack", body, "queued"); if (!send) return { status: "skipped", next, result: { ...out, kind: "noop", why: "already posted (idempotency)" } };
       const r = await d.adapters.notifier.post(decrypt(conn.bot_token), target, shadow(d) ? `${SHADOW_PREFIX}${body}` : body, persona(d, node.as));
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
       return { status: "ok", next, result: { ...out, ...(shadow(d) ? { shadow: true } : {}), dm: !!slackUser, ts: r.ts } };
@@ -195,10 +195,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (conn) await resolveMentions(d, decrypt(conn.bot_token));
       // render first even when it cannot post: the dashboard shows what WOULD have gone to Slack, which is the whole point of shadow
       const text = render(node.template, d.ctx, env(d));
-      if (!conn || !channelId) { await recordSend(d, node, "slack", text, "suppressed", conn ? "unbound: slack channel" : "unbound: slack"); return { status: "skipped", next, result: { why: conn ? "slack channel not bound" : "slack not connected", would_post: text.slice(0, 160) } }; }
+      if (!conn || !channelId) { await recordSend(d, node, "slack", text, "suppressed", conn ? "unbound: slack channel" : "unbound: slack"); return { status: "skipped", next, result: { kind: "blocked", why: conn ? "slack channel not bound" : "slack not connected", would_post: text.slice(0, 160) } }; }
       // a thread reply needs the parent's ts from earlier in this run; without one (parent skipped) it posts to the channel and says so
       const parentTs = node.thread_of ? (resolvePath(d.ctx, `vars.__slack.${node.thread_of}`) as string | undefined) : undefined;
-      const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next };
+      const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already posted (idempotency)" } };
       // Slack is the team, not the CRM or the contact: in shadow the post still goes out, marked, so the team sees what the engine would do (D31)
       const r = await d.adapters.notifier.post(decrypt(conn.bot_token), channelId, shadow(d) && !parentTs ? `${SHADOW_PREFIX}${text}` : text, persona(d, node.as), parentTs);
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
@@ -266,7 +266,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const customFields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== "");
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
       // no open card and told not to create one: nothing to do, whatever else is or is not resolvable (a status-only step has no stage of its own)
-      if (!card && node.if_missing === "skip") return { status: "skipped", next, result: { why: "no open card on this board to move; this step never creates one" } };
+      if (!card && node.if_missing === "skip") return { status: "skipped", next, result: { kind: "noop", why: "no open card on this board to move; this step never creates one" } };
       if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
       const write = { pipelineId, stageId, name, status: node.status ?? ("open" as const), assignedUserId, customFields };
       // the pursuit the card belongs to: the run's, else the contact's open one, else a new one
@@ -325,7 +325,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const patch = { firstName: r(node.set.first_name), lastName: r(node.set.last_name), phone: r(node.set.phone), timezone: r(node.set.timezone), assignedUserId: r(node.set.assign_to),
         customFields: [...node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== ""), ...cleared] };
       const nothing = !patch.firstName && !patch.lastName && !patch.phone && !patch.timezone && !patch.assignedUserId && !patch.customFields.length;
-      if (nothing) return { status: "skipped", next, result: { why: "nothing to write: every value rendered empty" } };
+      if (nothing) return { status: "skipped", next, result: { kind: "noop", why: "nothing to write: every value rendered empty" } };
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "update_contact: contact has no CRM id yet" };
       await d.adapters.write.updateContact(d.adapterCompany, contact.ghl_contact_id, patch);
@@ -353,12 +353,12 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "analyze": {
       // not a CRM write, so it runs in shadow too: seeing what the AI would say about a call is the point of shadow
       const apiKey = d.bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY;
-      const soft = (error: string): StepOutcome => node.optional ? { status: "skipped", next, result: { why: error } } : { status: "failed", error };
+      const soft = (error: string): StepOutcome => node.optional ? { status: "skipped", next, result: { kind: "blocked", why: error } } : { status: "failed", error };
       if (!apiKey) return soft("analyze: no Anthropic key — bind secret.anthropic_key for this company");
       const system = render(node.prompt, d.ctx, env(d)).trim();
       if (!system) return soft(`analyze ${node.id}: prompt rendered empty (is the prompt.* binding set?)`);
       const input = render(node.input, d.ctx, env(d)).trim();
-      if (!input) return { status: "skipped", next, result: { why: "nothing to analyze: input rendered empty (no transcript?)" } };
+      if (!input) return { status: "skipped", next, result: { kind: "noop", why: "nothing to analyze: input rendered empty (no transcript?)" } };
       let r: Awaited<ReturnType<typeof d.adapters.analyst.analyze>>;
       try { r = await d.adapters.analyst.analyze(apiKey, { system, input, format: node.format, maxTokens: node.max_tokens }); }
       catch (e) { if (node.optional) return soft(`analyze: ${(e as Error).message}`); throw e; }

@@ -21,11 +21,12 @@ import { parseDefinition } from "./definition";
  * (source `health`) and clears itself when the next sweep finds it fine.
  */
 export type Finding = { check: string; item?: string; ok: boolean; level: Level; text: string; detail?: Record<string, unknown>; fix?: { label: string; action: "reregister_whop" | "reregister_fathom" } };
-export type HealthRow = { company_id: string; enabled: boolean; every_minutes: number; channel: string | null; as_name: string | null; as_icon: string | null; checks: Record<string, boolean>; last_run_at: Date | null; last_result: Finding[] };
+export type HealthRow = { company_id: string; enabled: boolean; every_minutes: number; channel: string | null; as_name: string | null; as_icon: string | null; checks: Record<string, boolean>; min_slots: number; slots_days: number; last_run_at: Date | null; last_result: Finding[] };
 
 export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "ghl_token", label: "GoHighLevel token", about: "the private integration token still opens the location" },
-  { id: "ghl_calendars", label: "GHL calendars bookable", about: "every mapped calendar returns free slots over the next 7 days; a closer's calendar sync dropping shows up here as no slots" },
+  { id: "ghl_calendars", label: "GHL calendars bookable", about: "every mapped calendar returns free slots over the next days; a closer's calendar sync dropping shows up here as no slots" },
+  { id: "availability", label: "Low availability", about: "a calendar with fewer bookable slots than the threshold over the next days is an alert, before leads find a full calendar" },
   { id: "ghl_pipelines", label: "Pipelines and stages", about: "every bound pipeline and stage still exists in the CRM" },
   { id: "ghl_fields", label: "Custom fields", about: "every bound contact and opportunity field still exists" },
   { id: "ghl_users", label: "Team", about: "closers on calendars and cards are still users in the location" },
@@ -66,6 +67,7 @@ export async function urlOk(url: string): Promise<{ ok: boolean; status?: number
 export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, calendlyWhoAmI, calendlyAvailableTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, urlOk };
 
 const DAYS_AHEAD = 7;
+type SlotRead = { name: string; id: string; slots: number };
 
 /** Runs every enabled check for one company. Read-only against every vendor. */
 export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, row: HealthRow, now = DateTime.now()): Promise<Finding[]> {
@@ -76,8 +78,10 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
   const bad = (check: string, level: Level, text: string, item?: string, detail?: Record<string, unknown>, fix?: Finding["fix"]) => out.push({ check, item, ok: false, level, text, detail, fix });
   const channelCache = new Map<string, { ok: boolean; name?: string; member?: boolean; error?: string }>();
   const channelInfo = async (token: string, id: string) => { if (!channelCache.has(id)) channelCache.set(id, await adapters.notifier.channelInfo(token, id).catch((e) => ({ ok: false, error: String((e as Error).message) }))); return channelCache.get(id)!; };
-  const from = now.toJSDate(), to = now.plus({ days: DAYS_AHEAD }).toJSDate();
+  const days = Math.min(DAYS_AHEAD, Math.max(1, row.slots_days || DAYS_AHEAD));
+  const from = now.toJSDate(), to = now.plus({ days }).toJSDate();
   const connected = !!ac.pit && !!ac.locationId;
+  const slotReads: SlotRead[] = [];
 
   // GoHighLevel
   let catalog: Catalog | null = null;
@@ -91,8 +95,8 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
     for (const cal of cals) {
       const r = await probes.ghlFreeSlots(ac.pit, cal.external_id, from, to, company.timezone);
       if (!r.ok) bad("ghl_calendars", "error", `Calendar "${cal.name}" cannot be read: ${r.error}`, cal.external_id);
-      else if (r.slots === 0) bad("ghl_calendars", "warning", `Calendar "${cal.name}" has no bookable slot in the next ${DAYS_AHEAD} days. A closer's connected calendar may have dropped, or availability is off.`, cal.external_id);
-      else ok("ghl_calendars", `"${cal.name}": ${r.slots} bookable slots in the next ${DAYS_AHEAD} days.`, cal.external_id, { slots: r.slots });
+      else if (r.slots === 0) bad("ghl_calendars", "warning", `Calendar "${cal.name}" has no bookable slot in the next ${days} days. A closer's connected calendar may have dropped, or availability is off.`, cal.external_id);
+      else { ok("ghl_calendars", `"${cal.name}": ${r.slots} bookable slots in the next ${days} days.`, cal.external_id, { slots: r.slots }); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots }); }
     }
     if (!cals.length) ok("ghl_calendars", "No GHL calendars mapped.");
   }
@@ -147,13 +151,20 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
         if (!t) { bad("calendly_calendars", "error", `Event type "${cal.name}" is gone from Calendly.`, cal.external_id); continue; }
         if (t.active === false) { bad("calendly_calendars", "warning", `Event type "${cal.name}" is turned off in Calendly.`, cal.external_id); continue; }
         // the API wants a start in the future and a window of at most 7 days: a minute from now, six days and 23 hours long
-        const r = await probes.calendlyAvailableTimes(token, `https://api.calendly.com/event_types/${cal.external_id}`, now.plus({ minutes: 1 }).toJSDate(), now.plus({ days: 6, hours: 23 }).toJSDate());
+        const r = await probes.calendlyAvailableTimes(token, `https://api.calendly.com/event_types/${cal.external_id}`, now.plus({ minutes: 1 }).toJSDate(), now.plus({ days: days - 1, hours: 23 }).toJSDate());
         if (!r.ok) bad("calendly_calendars", "error", `Event type "${cal.name}": availability cannot be read: ${r.error}`, cal.external_id);
-        else if (r.slots === 0) bad("calendly_calendars", "warning", `Event type "${cal.name}" has no available time in the next ${DAYS_AHEAD} days. A host's connected calendar may have dropped, or availability is off.`, cal.external_id);
-        else ok("calendly_calendars", `"${cal.name}": ${r.slots} available times in the next ${DAYS_AHEAD} days.`, cal.external_id, { slots: r.slots });
+        else if (r.slots === 0) bad("calendly_calendars", "warning", `Event type "${cal.name}" has no available time in the next ${days} days. A host's connected calendar may have dropped, or availability is off.`, cal.external_id);
+        else { ok("calendly_calendars", `"${cal.name}": ${r.slots} available times in the next ${days} days.`, cal.external_id, { slots: r.slots }); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots }); }
       }
       if (live && !mapped.length) ok("calendly_calendars", "No Calendly event types mapped.");
     }
+  }
+
+  // Low availability: the calendar is alive but nearly full (or nearly closed); the threshold is the company's own
+  if (on("availability") && slotReads.length) {
+    const low = slotReads.filter((s) => s.slots < row.min_slots);
+    for (const s of low) bad("availability", "warning", `"${s.name}" has only ${s.slots} bookable ${s.slots === 1 ? "slot" : "slots"} in the next ${days} days (alert below ${row.min_slots}).`, s.id, { slots: s.slots, min: row.min_slots });
+    if (!low.length) ok("availability", `${slotReads.length} calendar${slotReads.length === 1 ? "" : "s"} at or above ${row.min_slots} bookable slots over ${days} days.`);
   }
 
   // Whop

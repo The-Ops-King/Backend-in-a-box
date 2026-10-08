@@ -42,7 +42,7 @@ export default async function WorkflowPage({ params }: { params: Promise<{ slug:
     <p className="sub">Read top to bottom. Hover a line for what it produces, as an example. Changes go through the chat, not this page.</p>
     {w.definition ? <>
       <Outline def={w.definition} company={{ name: co.name, timezone: co.timezone }} bindings={bindings} pk={pk} />
-      <div className="peek"><input type="checkbox" id="peek-chart" className="peek-t" /><label htmlFor="peek-chart" className="peek-h">Flow chart · the branches and where each one goes <span className="muted">· hover or tap</span></label><div className="peek-body"><Mermaid chart={toMermaid(w.definition)} /></div></div>
+      <h3 className="chart-h">Flow chart · the branches and where each one goes</h3><Mermaid chart={toMermaid(w.definition)} />
     </> : <div className="card ready ready-no"><strong>This workflow's stored definition no longer runs on the current engine.</strong><div className="body">Re-run install for this company to upgrade it to the current template. Until then its triggers are skipped.</div><pre className="json" style={{ marginTop: 10 }}>{w.parseError}</pre></div>}
     <h2>In this workflow right now · {live.length}</h2>
     <NextUp runs={live} slug={slug} tz={co.timezone} showContact />

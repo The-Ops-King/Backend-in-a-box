@@ -57,7 +57,8 @@ export function Outline({ def, company, bindings = {}, pk, steps = [], currentNo
     }
   };
 
-  const shown = order.filter((id) => { const n = byId.get(id)!; return !(n.type === "exit" && row(n).label === "Complete."); });   // "done" is implied; a stop with a reason still shows
+  // "done" is implied; a stop with a reason still shows. set_var is plumbing (assembling a line of copy), not a step a person needs to read: Advanced has the definition
+  const shown = order.filter((id) => { const n = byId.get(id)!; return !(n.type === "exit" && row(n).label === "Complete.") && n.type !== "set_var"; });
   return <ol className="outline">{shown.map((id) => {
     const n = byId.get(id)!; const r = row(n); const st = lastStep.get(id); const here = !st && currentNode === id;
     const after = out(id).filter((e) => n.type !== "branch" && n.type !== "wait_for_reply" && n.type !== "exit" && (e.label || e.when || e.else));   // a labelled edge off a non-branch node is a fork worth naming
@@ -65,11 +66,18 @@ export function Outline({ def, company, bindings = {}, pk, steps = [], currentNo
       <span className="ol-n">{index.get(id)}</span>
       <span className="ol-label">{r.label}{n.type === "exit" ? "" : ":"}</span>
       <span className="ol-value">{r.value}{after.length ? <span className="ol-forks">{after.map((e, i) => <span key={i} className="ol-edge">{edgeWords(e)} → {stepRef(e.to)}</span>)}</span> : null}</span>
-      {st ? <span className={badge(st.status)}>{st.status}</span> : null}{here ? <span className="badge b-waiting">here now</span> : null}
+      {st ? <span className={badge(stepLabel(st).cls)}>{stepLabel(st).text}</span> : null}{here ? <span className="badge b-waiting">here now</span> : null}
       {st?.error ? <div className="ol-err">{st.error}</div> : null}
       {r.hover}
     </li>; })}</ol>;
 }
 
+/** What a step's status means to a person: a shadow write is "shadow", a skip with nothing to do is "nothing to do", a skip because something is missing is "blocked". */
+export function stepLabel(st: { status: string; result?: Record<string, unknown> }): { text: string; cls: string } {
+  const r = st.result ?? {};
+  if (st.status === "ok" && r.shadow) return { text: "shadow", cls: "shadow" };
+  if (st.status === "skipped") return r.kind === "blocked" ? { text: "blocked", cls: "stale" } : r.kind === "noop" ? { text: "nothing to do", cls: "skipped" } : { text: "skipped", cls: "skipped" };
+  return { text: st.status, cls: st.status };
+}
 const strip = (s: string | undefined) => (s ?? "").replace(/<[^|>]+\|([^>]+)>/g, "$1").replace(/<\/?(p|br|div|ul|li|strong|em|b|i|a|span|h\d)[^>]*>/gi, " ").replace(/\s+\n/g, "\n").replace(/[ \t]+/g, " ").trim();
 const firstLine = (s: string | undefined) => { const t = strip(s).split("\n").map((x) => x.trim()).filter(Boolean)[0] ?? ""; return t.length > 90 ? `${t.slice(0, 89)}…` : t; };

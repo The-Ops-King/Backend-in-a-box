@@ -260,7 +260,8 @@ export async function saveHealthAction(f: FormData) {
   const checks = Object.fromEntries(CHECKS.map((c) => [c.id, f.get(`check:${c.id}`) === "on"]));
   await asOperator(async (c) => {
     await ensureHealth(c, companyId);
-    await c.query("update health_checks set enabled=$2, every_minutes=$3, channel=nullif($4,''), as_name=nullif($5,''), as_icon=nullif($6,''), checks=$7 where company_id=$1", [companyId, f.get("enabled") === "on", every, str(f, "channel"), str(f, "as_name"), str(f, "as_icon"), checks]);
+    const minSlots = Math.max(0, Number(str(f, "min_slots")) || 0), slotsDays = Math.min(7, Math.max(1, Number(str(f, "slots_days")) || 7));
+    await c.query("update health_checks set enabled=$2, every_minutes=$3, channel=nullif($4,''), as_name=nullif($5,''), as_icon=nullif($6,''), checks=$7, min_slots=$8, slots_days=$9 where company_id=$1", [companyId, f.get("enabled") === "on", every, str(f, "channel"), str(f, "as_name"), str(f, "as_icon"), checks, minSlots, slotsDays]);
     await audit(c, companyId, "health.settings", { enabled: f.get("enabled") === "on", every, checks });
   });
   back(slug, { note: "Health check saved" }, "#health");

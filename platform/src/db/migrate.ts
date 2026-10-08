@@ -101,6 +101,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`create unique index if not exists alerts_open_one on alerts (coalesce(company_id, '00000000-0000-0000-0000-000000000000'::uuid), key) where resolved_at is null`);
     await c.query(`create index if not exists alerts_company_id_resolved_at_last_seen_idx on alerts (company_id, resolved_at, last_seen)`);
     await c.query(`create table if not exists health_checks (company_id uuid primary key references companies(id) on delete cascade, enabled boolean not null default true, every_minutes int not null default 60 check (every_minutes between 5 and 1440), channel text, as_name text, as_icon text, checks jsonb not null default '{}', last_run_at timestamptz, last_result jsonb not null default '[]')`);
+    await c.query(`alter table health_checks add column if not exists min_slots int not null default 3`);
+    await c.query(`alter table health_checks add column if not exists slots_days int not null default 7`);
     await c.query(`alter table events drop constraint if exists events_source_check`);
     await c.query(`alter table events add constraint events_source_check check (source in (${EVENT_SOURCES}))`);
     await c.query(`create table if not exists recordings (

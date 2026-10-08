@@ -81,8 +81,18 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
     const r = await raise(c, { companyId: f.company_id, key: `step:${f.workflow_id}:${f.current_node ?? "start"}`, level: "error", source: "step", text: `"${f.workflow}" failed at ${step}${f.contact ? ` for ${f.contact}` : ""}: ${(f.exit_reason ?? "unknown error").slice(0, 300)}`, detail: { run_id: f.id, node: f.current_node, error: f.exit_reason }, href: `/c/${f.slug}/r/${f.id}` }, now);
     if (r.isNew) raised++;
   }
+  // a step that could not do its job (Slack not connected, no AI key) is not a failure of the run, but you want to know the minute it happens
+  const blocked = await many<{ run_id: string; company_id: string; slug: string; workflow_id: string; workflow: string; node_id: string; why: string | null; contact: string }>(c,
+    `select r.id as run_id, r.company_id, co.slug, r.workflow_id, w.name as workflow, s.node_id, s.result->>'why' as why, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact
+     from run_steps s join runs r on r.id=s.run_id join workflows w on w.id=r.workflow_id join companies co on co.id=r.company_id left join contacts ct on ct.id=r.contact_id
+     where s.status='skipped' and s.result->>'kind'='blocked' and s.finished_at > $1 and s.finished_at <= $2 order by s.finished_at`, [since, now]);
+  for (const b of blocked) {
+    const step = await stepWords(c, b.workflow_id, b.node_id);
+    const r = await raise(c, { companyId: b.company_id, key: `blocked:${b.workflow_id}:${b.node_id}`, level: "warning", source: "step", text: `"${b.workflow}" could not run ${step}${b.contact ? ` for ${b.contact}` : ""}: ${(b.why ?? "blocked").slice(0, 200)}. The run went on without it.`, detail: { run_id: b.run_id, node: b.node_id, why: b.why }, href: `/c/${b.slug}/r/${b.run_id}` }, now);
+    if (r.isNew) raised++;
+  }
   await c.query("insert into engine_state (key, value, updated_at) values ('alerts_cursor', $1, now()) on conflict (key) do update set value=$1, updated_at=now()", [{ since: now.toISOString() }]);
-  // a step alert is over once a later run of that workflow gets past that step
+  // a step alert (failed or blocked) is over once a later run of that workflow gets past that step
   const openSteps = await many<AlertRow>(c, "select * from alerts where source='step' and resolved_at is null");
   for (const a of openSteps) {
     const [, wf, node] = a.key.split(":");
@@ -140,7 +150,7 @@ export async function announceDue(c: PoolClient, adapters: Adapters, now = new D
       if (repeat && a.slack_ts) said = !!(await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} Still open after ${hoursOpen(a.first_seen, now)}h: ${a.text.slice(0, 300)}`, as, a.slack_ts).catch(() => null));
       else {
         const fix = (a.detail as { fix?: { label: string } }).fix;
-        const r = await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} *${where}${a.source === "step" ? "Run failed" : a.source === "health" ? "Health check" : a.source === "poll" ? "Polling" : "Engine"}*\n${a.text}${link ? `\n<${link}|Open>${fix ? ` · <${link}#fix|${fix.label}>` : ""}` : ""}`, as).catch(() => null);
+        const r = await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} *${where}${a.source === "step" ? (a.key.startsWith("blocked:") ? "Step could not run" : "Run failed") : a.source === "health" ? "Health check" : a.source === "poll" ? "Polling" : "Engine"}*\n${a.text}${link ? `\n<${link}|Open>${fix ? ` · <${link}#fix|${fix.label}>` : ""}` : ""}`, as).catch(() => null);
         if (r) { said = true; await c.query("update alerts set slack_channel=$2, slack_ts=$3 where id=$1", [a.id, channel, r.ts]); }
       }
     }

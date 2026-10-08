@@ -23,7 +23,7 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
     {["active", "waiting"].includes(r.status) ? <><h2>What happens next</h2><div className="card"><PlanList plan={plan} tz={co.timezone} /></div></> : null}
     <h2>The path, on the workflow</h2>
     <Outline def={r.definition} company={{ name: co.name, timezone: co.timezone }} pk={pk} steps={r.steps} currentNode={r.current_node} />
-    <div className="peek"><input type="checkbox" id="peek-chart" className="peek-t" /><label htmlFor="peek-chart" className="peek-h">Flow chart · this run's path on the branches <span className="muted">· hover or tap</span></label><div className="peek-body"><Mermaid chart={toMermaid(r.definition, r.steps, r.current_node)} /></div></div>
+    <h3 className="chart-h">Flow chart · this run's path on the branches</h3><Mermaid chart={toMermaid(r.definition, r.steps, r.current_node)} />
     <details className="adv"><summary>Advanced · context and raw steps</summary>
       <div className="tbl" style={{ marginTop: 12 }}><table><thead><tr><th>Node</th><th>Status</th><th>When</th><th>Result</th></tr></thead><tbody>{r.steps.map((s, i) => <tr key={i}><td className="mono">{s.node_id} <span style={{ color: "var(--muted)" }}>{s.node_type}</span></td><td><span className={badge(s.status)}>{s.status}</span></td><td>{stamp(s.started_at, co.timezone)}</td><td className="mono muted" style={{ fontSize: 12 }}>{s.error ?? JSON.stringify(s.result)}</td></tr>)}</tbody></table></div>
       <h3>Context</h3>

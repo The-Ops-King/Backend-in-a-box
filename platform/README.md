@@ -327,6 +327,17 @@ or a shipped template needs a kind nobody decided how to verify, so a new step c
 A finding that the engine can repair carries a fix (`Re-register the Whop webhook`): a button on the health
 page and a link in the Slack alert.
 
+**Low availability** is its own check with its own thresholds on the settings page (`min_slots`, `slots_days`):
+a calendar that is alive but has fewer bookable slots than the threshold over the window is a warning, so a
+full (or quietly closed) calendar is known before leads find it.
+
+**A skipped step says why.** Every skip carries a kind: `noop` (nothing to do, by design: no card to move,
+SMS off for the company, already sent) or `blocked` (something is missing: Slack not connected, a channel not
+bound, no AI key). The timeline shows "nothing to do" or "blocked" instead of a bare "skipped", a shadow
+write shows "shadow", and a blocked step raises a warning alert the minute it happens, cleared when a later
+run gets past that step. "Remember" steps (`set_var`, copy plumbing) are not shown in the outline or the
+timeline; the definition under Advanced has them.
+
 ## Readiness (is it safe to go live?)
 
 The company page and every workflow page carry a readiness card built from facts

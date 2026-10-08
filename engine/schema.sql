@@ -652,6 +652,8 @@ create table health_checks (
   as_name        text,
   as_icon        text,
   checks         jsonb not null default '{}',            -- {"<check id>": false} turns one off; absent = on
+  min_slots      int not null default 3,                 -- low availability: fewer bookable slots than this over slots_days is an alert
+  slots_days     int not null default 7 check (slots_days between 1 and 7),
   last_run_at    timestamptz,
   last_result    jsonb not null default '[]'             -- [{check, item, ok, level, text}] from the last sweep
 );

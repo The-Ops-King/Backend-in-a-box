@@ -229,6 +229,8 @@ export default async function SettingsPage({ params, searchParams }: { params: P
         <label>Slack channel{d.slackChannels ? <select name="channel" defaultValue={health.channel ?? ""}><option value="">— the alerts channel —</option>{d.slackChannels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}</select> : <input type="text" name="channel" defaultValue={health.channel ?? ""} placeholder="C0123ABCDEF (channel id)" />}</label>
         <label>Posts as (name)<input type="text" name="as_name" defaultValue={health.as_name ?? ""} placeholder="blank = the alerts name" /></label>
         <label>Icon<input type="text" name="as_icon" defaultValue={health.as_icon ?? ""} placeholder=":stethoscope:" /></label>
+        <label>Low availability: alert when a calendar has fewer than<input type="number" name="min_slots" min={0} defaultValue={health.min_slots} /></label>
+        <label>bookable slots in the next (days, up to 7)<input type="number" name="slots_days" min={1} max={7} defaultValue={health.slots_days} /></label>
       </div>
       <div className="muted" style={{ fontSize: 12.5, letterSpacing: ".04em", textTransform: "uppercase", margin: "12px 0 4px" }}>Checks</div>
       <div className="checks">{CHECKS.map((ck) => <label key={ck.id}><input type="checkbox" name={`check:${ck.id}`} defaultChecked={health.checks[ck.id] !== false} /> <strong>{ck.label}</strong> <span className="muted">· {ck.about}</span></label>)}</div>

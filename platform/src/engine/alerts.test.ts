@@ -87,7 +87,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(a, JSON.stringify({ a, posts })).toMatchObject({ raised: 2, posted: 1 });   // the engine-wide notice has nowhere to go without an operator webhook; the company's poll alert is posted
     expect(posts[0].text).toMatch(/Polling\*\nPolling contacts has failed 2 times in a row: GHL 500/);
     await asOperator((c) => c.query("update poll_cursors set consecutive_failures=0 where company_id=$1", [companyId]));
-    a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(t.getTime() + 60e3)));
+    a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep));   // real time: a cursor a minute ahead would hide the next test's steps
     expect(a.resolved).toBe(2);
     expect(posts).toHaveLength(2); expect(posts[1].text).toMatch(/^✅ Resolved/);   // the poll alert closes in its thread; the recovery notice closes quietly
   });
@@ -102,7 +102,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
       calendlyWhoAmI: async () => { throw new Error("not used"); }, calendlyAvailableTimes: async () => ({ ok: true, slots: 1 }),
       whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }), urlOk: async () => ({ ok: true, status: 200 }),
     };
-    await asOperator((c) => c.query("insert into health_checks (company_id, channel, as_name, as_icon) values ($1,'CHEALTH','Health check',':stethoscope:') on conflict (company_id) do update set channel='CHEALTH', as_name='Health check', as_icon=':stethoscope:'", [companyId]));
+    await asOperator((c) => c.query("insert into health_checks (company_id, channel, as_name, as_icon, min_slots) values ($1,'CHEALTH','Health check',':stethoscope:',10) on conflict (company_id) do update set channel='CHEALTH', as_name='Health check', as_icon=':stethoscope:', min_slots=10", [companyId]));
     const r = await asOperator((c) => sweepCompany(c, companyId, fake, probes));
     const failing = r.findings.filter((f) => !f.ok);
     expect(failing.map((f) => `${f.check}${f.item ? `:${f.item}` : ""}`).sort()).toEqual(["ghl_calendars:CAL2", "ghl_pipelines:crm.stage_closer_won", "slack:CNOTIN"]);
@@ -118,11 +118,35 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     slotsB = 9; await asOperator((c) => c.query("update bindings set value=$2 where company_id=$1 and key='crm.stage_closer_won'", [companyId, Buffer.from("STAGE_OK")]));
     await asOperator((c) => c.query("update alerts set announced_at = now() - interval '61 minutes' where company_id=$1 and resolved_at is null", [companyId]));
     const r2 = await asOperator((c) => sweepCompany(c, companyId, fake, probes));
-    expect(r2.resolved).toBe(2); expect(r2.findings.filter((f) => !f.ok).map((f) => f.item)).toEqual(["CNOTIN"]);
+    expect(r2.resolved).toBe(2); expect(r2.findings.filter((f) => !f.ok).map((f) => `${f.check}:${f.item}`).sort()).toEqual(["availability:CAL2", "slack:CNOTIN"]);   // 9 slots is bookable, but under the company's threshold of 10
+    expect(r2.findings.find((f) => f.check === "availability")!.text).toMatch(/"Closer B" has only 9 bookable slots in the next 7 days \(alert below 10\)/);
     const ann2 = await asOperator((c) => announceDue(c, fake));
-    expect(ann2, JSON.stringify({ ann2, posts })).toMatchObject({ resolved: 2, repeated: 1, posted: 0 });
+    expect(ann2, JSON.stringify({ ann2, posts })).toMatchObject({ resolved: 2, repeated: 1, posted: 1 });   // the low-availability warning is new
     expect(reactions).toHaveLength(2);
     expect((await asOperator((c) => one<{ last_result: unknown[] }>(c, "select last_result from health_checks where company_id=$1", [companyId])))!.last_result.length).toBeGreaterThan(5);
+  });
+
+  it("a step that could not run (Slack channel not bound) is a warning the minute it happens, labelled so, and clears when a later run posts", async () => {
+    posts.length = 0;
+    const def = { schema: 1, reentry: "always", premise: { check: "contact_exists" }, nodes: [{ id: "t1", type: "trigger", event: "tag.removed" }, { id: "s1", type: "slack_post", channel: "{{slack.channel.nope}}", template: "hi" }, { id: "x1", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "s1" }, { from: "s1", to: "x1" }] };
+    const wfId = await asOperator(async (c) => {
+      const d = parseDefinition(def), m = extractManifest(d);
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Say hi','always',true) returning id", [companyId]))!;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [wf.id, def, m]);
+      for (const trig of indexDefinition(d).triggers) await c.query("insert into workflow_triggers (company_id, workflow_id, node_id, event_type, match) values ($1,$2,$3,$4,$5)", [companyId, wf.id, trig.id, trig.event, trig.match ?? {}]);
+      return wf.id;
+    });
+    const fireRemove = () => asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: null, event_type: "tag.removed", source: "test", data: { tag: "x" } }), { contact: { id: contactId } }));
+    await fireRemove(); const t = await tick(fake, undefined, companyId);
+    expect(t.failed).toBe(0); expect(t.completed).toBe(1);   // the run completes: the post was skipped, not fatal
+    expect((await asOperator((c) => one<{ result: { kind: string } }>(c, "select result from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_id='s1'", [wfId])))!.result.kind).toBe("blocked");
+    const a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep));
+    expect(a).toMatchObject({ raised: 1, posted: 1 });
+    expect(posts.at(-1)!.text).toMatch(/🟡 \*Alert Co · Step could not run\*\n"Say hi" could not run step s1 \(Post to Slack \(channel nope\)\) for Leo Ortiz: slack channel not bound\. The run went on without it\./);
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.nope','channel',$2)", [companyId, Buffer.from("CNOPE")]));
+    await fireRemove(); await tick(fake, undefined, companyId);
+    const a2 = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep));
+    expect(a2.resolved).toBe(1); expect(posts.at(-1)!.text).toMatch(/^✅ Resolved/);
   });
 
   it("raise/resolve are idempotent per open key", async () => {
