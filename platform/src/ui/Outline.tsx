@@ -2,6 +2,7 @@ import type { Definition, Node } from "@/engine/definition";
 import { branchTitle, collapsePlumbing, describeNode, durationWords, edgeWords, exitWords, EVENT_LABELS, humanWords, pathWords, predicateWords, waitWords, walkOrder } from "@/engine/describe";
 import { exampleContext, nodeExamples, type Example } from "@/engine/example";
 import { evaluate } from "@/engine/predicate";
+import { SlackPreview } from "./SlackPreview";
 import { badge } from "./format";
 import type { Pickers } from "./settings-data";
 
@@ -25,6 +26,7 @@ export function Outline({ def: full, company, bindings = {}, pk, steps = [], cur
   const userName = (v: string | undefined) => { const id = ref(v); return pk?.users.find((u) => u.ghl_user_id === id)?.name ?? (id ? pathWords(v!) : undefined); };
   const stepRef = (id: string) => { const to = byId.get(id); return <span className="ol-ref">#{index.get(id)} {to ? (to.type === "branch" ? branchTitle(def, id) : describeNode(to).title) : id}</span>; };
   const examples = (n: Node) => nodeExamples(n, ctx, tz);
+  const slackBox = (n: Node & { type: "slack_post" | "notify_owner" }) => { const ex = examples(n)[0]?.example; if (!ex) return null; const ch = n.type === "slack_post" ? channelName(n.channel) : "DM to the owner"; return <div className="ol-tip ol-tip-slack"><div className="ol-tip-h">As it would post{ex.exact ? "" : " · template"}</div><SlackPreview name={n.as?.name ?? (bindings["slack.name"] || company.name)} icon={n.as?.icon ?? bindings["slack.icon"]} text={ex.text} channel={ch.replace(/^#/, "")} /><div className="ol-tip-f">Example with a made-up contact. Names, amounts and dates are placeholders.</div></div>; };
   const exampleBox = (list: { label: string; example: Example }[]) => list.length ? <div className="ol-tip">{list.map((x, i) => <div key={i}><div className="ol-tip-h">{x.label}{x.example.exact ? " · example" : " · template"}</div><div className="ol-tip-b">{strip(x.example.text)}</div></div>)}<div className="ol-tip-f">Example with a made-up contact. Names, amounts and dates are placeholders.</div></div> : null;
 
   const row = (n: Node): Row => {
@@ -43,8 +45,8 @@ export function Outline({ def: full, company, bindings = {}, pk, steps = [], cur
       case "wait_for_reply": return { label: "Wait for a reply", value: `up to ${durationWords(n.timeout)}`, hover: <div className="ol-tip"><div className="ol-tip-b">{out(n.id).map((e) => `${edgeWords(e)} → #${index.get(e.to)}`).join(" · ") || "continues the minute one arrives"}</div></div> };
       case "send_sms": return { label: "Send text", value: firstLine(examples(n)[0]?.example.text), hover: exampleBox(examples(n)) };
       case "send_email": return { label: "Send email", value: strip(examples(n)[0]?.example.text ?? n.subject), hover: exampleBox(examples(n)) };
-      case "slack_post": return { label: n.thread_of ? "Reply in that thread" : "Post to Slack", value: <span>{channelName(n.channel)}{n.as?.name ? <span className="muted"> · as “{n.as.name}”</span> : null}</span>, hover: exampleBox(examples(n)) };
-      case "notify_owner": return { label: "Nudge the owner", value: <span>Slack DM{n.fallback_channel ? <span className="muted"> · else {channelName(n.fallback_channel)}</span> : null}{n.task ? <span className="muted"> · CRM task</span> : null}</span>, hover: exampleBox(examples(n)) };
+      case "slack_post": return { label: n.thread_of ? "Reply in that thread" : "Post to Slack", value: <span>{channelName(n.channel)}{n.as?.name ? <span className="muted"> · as “{n.as.name}”</span> : null}</span>, hover: slackBox(n) };
+      case "notify_owner": return { label: "Nudge the owner", value: <span>Slack DM{n.fallback_channel ? <span className="muted"> · else {channelName(n.fallback_channel)}</span> : null}{n.task ? <span className="muted"> · CRM task</span> : null}</span>, hover: slackBox(n) };
       case "send_document": return { label: "Send for signature", value: pathWords(n.template), hover: <div className="ol-tip"><div className="ol-tip-b">{describeNode(n).detail}</div></div> };
       case "set_tag": { const t = Array.isArray(n.tag) ? n.tag : [n.tag]; return { label: t.length > 1 ? "Add tags" : "Add tag", value: t.map((x, i) => <code key={i} className="ol-tag">{x}</code>) }; }
       case "remove_tag": { const t = Array.isArray(n.tag) ? n.tag : [n.tag]; return { label: t.length > 1 ? "Remove tags" : "Remove tag", value: t.map((x, i) => <code key={i} className="ol-tag">{x}</code>) }; }
@@ -71,7 +73,7 @@ export function Outline({ def: full, company, bindings = {}, pk, steps = [], cur
   return <ol className="outline">{shown.map((id) => {
     const n = byId.get(id)!; const r = row(n); const st = lastStep.get(id); const here = !st && currentNode === id;
     const after = out(id).filter((e) => n.type !== "branch" && n.type !== "wait_for_reply" && n.type !== "exit" && (e.label || e.when || e.else));   // a labelled edge off a non-branch node is a fork worth naming
-    return <li key={id} className={`ol-row ${r.hover ? "has-tip" : ""} ${st ? `st-${st.status}` : here ? "st-here" : ""} ${r.muted ? "ol-muted" : ""}`}>
+    return <li key={id} tabIndex={r.hover ? 0 : undefined} className={`ol-row ${r.hover ? "has-tip" : ""} ${st ? `st-${st.status}` : here ? "st-here" : ""} ${r.muted ? "ol-muted" : ""}`}>
       <span className="ol-n">{index.get(id)}</span>
       <span className="ol-label">{r.label}{n.type === "exit" ? "" : ":"}</span>
       <span className="ol-value">{r.value}{after.length ? <span className="ol-forks">{after.map((e, i) => <span key={i} className="ol-edge">{edgeWords(e)} → {stepRef(e.to)}</span>)}</span> : null}</span>

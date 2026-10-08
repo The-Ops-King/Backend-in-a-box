@@ -20,9 +20,11 @@ function shape(n: Node, text: string): string {
     default: return `[${t}]`;
   }
 }
+/** Word-wrap at ~24 characters so a box never clips its words (the chart's font is wider than the one mermaid measures with). */
+const wrap = (s: string, width = 24): string => { const out: string[] = []; let cur = ""; for (const w of s.split(/\s+/)) { if (cur && (cur + " " + w).length > width) { out.push(cur); cur = w; } else cur = cur ? `${cur} ${w}` : w; } if (cur) out.push(cur); return out.join("<br/>"); };
 function label(def: Definition, n: Node): string {
   const d = n.type === "branch" ? { title: branchTitle(def, n.id) } : describeNode(n);
-  return d.quote ? `${esc(d.title)}<br/><i>${esc(trunc(d.quote, 60))}</i>` : esc(trunc(d.title, 70));
+  return d.quote ? `${wrap(esc(d.title))}<br/><i>${wrap(esc(trunc(d.quote, 60)))}</i>` : wrap(esc(trunc(d.title, 70)));
 }
 const edgeLabel = (e: Edge) => esc(edgeWords(e));
 
@@ -37,6 +39,9 @@ export const STATUS_STROKE: Record<string, string> = { ok: "#7cc094", waiting: "
 export function toMermaid(def: Definition, steps: Step[] = [], currentNode?: string | null): string {
   const lines = ["flowchart TD"];
   def = collapsePlumbing(def);   // no "Remember …" boxes: the chart shows what happens, not how copy is assembled
+  // "Done" is implied, as in the outline: a plain done-exit and the edges into it are not drawn; a stop with a reason is
+  const doneExits = new Set(def.nodes.filter((n) => n.type === "exit" && exitWords(n.reason).startsWith("Done")).map((n) => n.id));
+  def = { ...def, nodes: def.nodes.filter((n) => !doneExits.has(n.id)), edges: def.edges.filter((e) => !doneExits.has(e.to) && !doneExits.has(e.from)) };
   for (const n of def.nodes) lines.push(`  ${n.id}${shape(n, label(def, n))}`);
   for (const e of def.edges) { const l = edgeLabel(e); lines.push(l ? `  ${e.from} -->|${l}| ${e.to}` : `  ${e.from} --> ${e.to}`); }
   // a check's "if not" path is an exit reason, not an edge; draw it dashed to the matching exit so nothing floats unexplained

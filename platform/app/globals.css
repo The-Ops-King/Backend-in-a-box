@@ -157,3 +157,14 @@ details.adv[open] summary{border-radius:var(--radius-card) var(--radius-card) 0 
 .chart-h{font-family:var(--mono);font-size:12.5px;font-weight:500;margin:16px 0 8px;text-transform:uppercase;letter-spacing:.14em;color:var(--grey-dim)}
 .tl-row.st-stale{border-left-color:var(--amber)}
 .tl-pre{font:13px/1.5 var(--mono);color:var(--grey-mid);background:var(--ink-deep);border:1px solid var(--hair-soft);border-radius:6px;padding:8px 10px;margin:6px 0 0;white-space:pre-wrap}
+/* popovers open on hover, and on tap (focus) on phones */
+.ol-row.has-tip:focus-within .ol-tip{display:block}.ol-row.has-tip{outline:none}.ol-row.has-tip:focus-within{background:var(--raised-2)}
+.ol-tip-slack{max-width:560px}
+/* a Slack message, as Slack draws it */
+.sl{background:#1a1d21;border:1px solid #2c2f33;border-radius:8px;padding:10px 12px;font-family:"Lato","Inter",system-ui,sans-serif;color:#d1d2d3;white-space:normal}
+.sl-ch{font-size:12px;color:#9a9b9d;margin-bottom:8px;font-weight:600}
+.sl-msg{display:grid;grid-template-columns:36px 1fr;gap:10px;align-items:start}
+.sl-av{width:36px;height:36px;border-radius:6px;background:#2c2f33;display:flex;align-items:center;justify-content:center;font-size:22px;overflow:hidden}.sl-av img{width:100%;height:100%;object-fit:cover}.sl-av-x{font-size:16px;font-weight:700;color:#fff}
+.sl-hd{display:flex;gap:6px;align-items:baseline;margin-bottom:2px}.sl-name{font-weight:900;color:#fff;font-size:15px}.sl-app{font-size:10px;font-weight:700;color:#d1d2d3;background:#3a3d42;border-radius:3px;padding:1px 4px;letter-spacing:.02em}.sl-time{font-size:12px;color:#9a9b9d}
+.sl-text{font-size:15px;line-height:1.46;color:#d1d2d3;overflow-wrap:anywhere}.sl-text strong{color:#fff;font-weight:700}.sl-link{color:#1d9bd1;text-decoration:none}.sl-link:hover{text-decoration:underline}.sl-mention{color:#1d9bd1;background:#1d9bd12e;border-radius:3px;padding:0 2px}
+.sl-quote{border-left:4px solid #4a4d52;padding-left:10px;color:#b9bbbe}.sl-bullet{padding-left:6px}.sl-gap{height:8px}
