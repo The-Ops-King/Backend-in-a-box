@@ -3,6 +3,7 @@ import { branchTitle, collapsePlumbing, describeNode, durationWords, edgeWords, 
 import { exampleContext, nodeExamples, type Example } from "@/engine/example";
 import { evaluate } from "@/engine/predicate";
 import { SlackPreview } from "./SlackPreview";
+import { TapTips } from "./TapTips";
 import { badge } from "./format";
 import type { Pickers } from "./settings-data";
 
@@ -70,10 +71,10 @@ export function Outline({ def: full, company, bindings = {}, pk, steps = [], cur
 
   // "done" is implied; a stop with a reason still shows. set_var is plumbing (assembling a line of copy), not a step a person needs to read: Advanced has the definition
   const shown = order.filter((id) => { const n = byId.get(id)!; return !(n.type === "exit" && row(n).label === "Complete."); });
-  return <ol className="outline">{shown.map((id) => {
+  return <ol className="outline"><TapTips />{shown.map((id) => {
     const n = byId.get(id)!; const r = row(n); const st = lastStep.get(id); const here = !st && currentNode === id;
     const after = out(id).filter((e) => n.type !== "branch" && n.type !== "wait_for_reply" && n.type !== "exit" && (e.label || e.when || e.else));   // a labelled edge off a non-branch node is a fork worth naming
-    return <li key={id} tabIndex={r.hover ? 0 : undefined} className={`ol-row ${r.hover ? "has-tip" : ""} ${st ? `st-${st.status}` : here ? "st-here" : ""} ${r.muted ? "ol-muted" : ""}`}>
+    return <li key={id} className={`ol-row ${r.hover ? "has-tip" : ""} ${st ? `st-${st.status}` : here ? "st-here" : ""} ${r.muted ? "ol-muted" : ""}`}>
       <span className="ol-n">{index.get(id)}</span>
       <span className="ol-label">{r.label}{n.type === "exit" ? "" : ":"}</span>
       <span className="ol-value">{r.value}{after.length ? <span className="ol-forks">{after.map((e, i) => <span key={i} className="ol-edge">{edgeWords(e)} → {stepRef(e.to)}</span>)}</span> : null}</span>

@@ -24,7 +24,7 @@ function shape(n: Node, text: string): string {
 const wrap = (s: string, width = 24): string => { const out: string[] = []; let cur = ""; for (const w of s.split(/\s+/)) { if (cur && (cur + " " + w).length > width) { out.push(cur); cur = w; } else cur = cur ? `${cur} ${w}` : w; } if (cur) out.push(cur); return out.join("<br/>"); };
 function label(def: Definition, n: Node): string {
   const d = n.type === "branch" ? { title: branchTitle(def, n.id) } : describeNode(n);
-  return d.quote ? `${wrap(esc(d.title))}<br/><i>${wrap(esc(trunc(d.quote, 60)))}</i>` : wrap(esc(trunc(d.title, 70)));
+  return d.quote ? `${wrap(esc(d.title))}<br/>${wrap(esc(trunc(d.quote.replace(/[*_~]/g, ""), 60)))}` : wrap(esc(trunc(d.title, 70)));   // Slack's *bold* marks would read as markdown in the chart
 }
 const edgeLabel = (e: Edge) => esc(edgeWords(e));
 

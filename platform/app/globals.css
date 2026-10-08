@@ -58,7 +58,7 @@ td{padding:12px 14px;font-size:15.5px;border-bottom:1px solid var(--hair-soft);v
 .node .edges{margin-top:10px;display:grid;gap:5px}.node .edge{font-size:14.5px;color:var(--grey-mid)}.node .edge b{color:var(--accent-text);font-weight:500}
 
 .chart{background:var(--raised);border:1px solid var(--hair);border-radius:var(--radius-card);padding:14px}
-.chart-svg{overflow-x:auto}.chart-svg svg{max-width:100%;height:auto}
+.chart-svg{overflow-x:auto;display:flex;justify-content:center}.chart-svg svg{max-width:100%;height:auto;margin:0 auto}
 .chart-svg .edgeLabel{color:var(--bone)}.chart-svg .edgeLabel p,.chart-svg .edgeLabel span{background:var(--raised)!important;color:var(--bone)!important;font-size:14px}
 .legend{display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:14px;padding-top:12px;border-top:1px solid var(--hair)}
 .legend-group{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}.legend-h{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--grey-mid);margin-right:4px}
@@ -103,7 +103,7 @@ details.steps summary{cursor:pointer;color:var(--grey-mid);font-size:15px;margin
 .ol-row.st-ok,.ol-row.st-completed{border-left:3px solid var(--accent-text)}.ol-row.st-waiting,.ol-row.st-here{border-left:3px solid var(--blue)}.ol-row.st-failed{border-left:3px solid var(--red)}.ol-row.st-skipped,.ol-row.st-stale{border-left:3px solid var(--amber)}
 .ol-row.has-tip .ol-value{cursor:help;text-decoration:underline dotted var(--grey-dim);text-underline-offset:4px}
 .ol-tip{display:none;position:absolute;z-index:20;left:34px;right:18px;top:calc(100% - 4px);max-width:720px;background:var(--ink-deep);border:1px solid var(--hair);border-radius:var(--radius-card);padding:12px 14px;box-shadow:0 18px 40px rgba(0,0,0,.55);font-size:14.5px;color:var(--bone);white-space:pre-wrap;line-height:1.5}
-.ol-row.has-tip:hover .ol-tip{display:block}
+
 .ol-tip-h{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--grey-dim);margin:6px 0 4px}.ol-tip-h:first-child{margin-top:0}
 .ol-tip-b{color:var(--bone)}.ol-tip-f{margin-top:8px;font-size:12px;color:var(--grey-dim)}
 /* the timeline: one contact, one run, with the clock */
@@ -175,3 +175,7 @@ details.adv[open] summary{border-radius:var(--radius-card) var(--radius-card) 0 
 .eod-submit{font-size:17px;padding:12px 22px;margin-top:8px}
 @media(max-width:860px){.eod-top{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.eod-top{grid-template-columns:1fr}.eod .g3{grid-template-columns:1fr}}
+.ol-row.open .ol-tip{display:block}.ol-row.open{background:var(--raised-2)}
+.ol-row.has-tip:focus-within .ol-tip{display:none}
+@media(hover:hover){.ol-row.has-tip:hover .ol-tip{display:block}}
+@media(hover:none){.ol-row.has-tip .ol-value{text-decoration:underline dotted var(--grey-dim)}}
