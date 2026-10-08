@@ -114,7 +114,7 @@ export function render(template: string, ctx: Record<string, unknown>, env: Rend
   return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
     const [pathRaw, ...pipes] = expr.split("|").map((s) => s.trim());
     let v = resolvePath(ctx, pathRaw);
-    if (v === undefined && !pipes.some((p) => p.startsWith("default"))) throw new UnknownPathError(`unknown path {{${pathRaw}}}`);
+    if (v === undefined && !pipes.some((p) => p.startsWith("default") || p.startsWith("prefix"))) throw new UnknownPathError(`unknown path {{${pathRaw}}}`);   // default: and prefix: are the two pipes that mean "may be absent"
     for (const pipe of pipes) {
       // split on the FIRST colon only — "date:h:mma" has a colon inside its argument
       const i = pipe.indexOf(":"); const name = (i < 0 ? pipe : pipe.slice(0, i)).trim(); const arg = i < 0 ? undefined : pipe.slice(i + 1).trim();
