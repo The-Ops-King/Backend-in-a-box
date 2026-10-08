@@ -63,6 +63,8 @@ const filters: Record<string, Filter> = {
   json: (v) => (v === undefined ? "" : JSON.stringify(v, null, 2)),
   // an analysis object as Slack / note text: keys become labels, lists become bullets, anything named like a quote is a blockquote
   lines: (v) => renderLines(v),
+  // a picklist guard: the value only when it is one of the allowed ones, else nothing (the CRM drops an unknown option silently, which reads like the field was never written)
+  oneof: (v, arg) => (typeof v === "string" && (arg ?? "").split(",").map((x) => x.trim()).includes(v) ? v : ""),
   truncate: (v, arg) => { const n = Number(arg ?? 300); const s = String(v ?? ""); return s.length > n ? `${s.slice(0, n - 1)}…` : s; },
   // a labelled line only when there is a value: {{contact.fields.setter | prefix:*Setter:* }} → "*Setter:* Luis", or nothing at all
   prefix: (v, arg) => (v === undefined || v === null || v === "" ? "" : `${arg ?? ""} ${v}`.trim()),
@@ -124,7 +126,7 @@ export function render(template: string, ctx: Record<string, unknown>, env: Rend
   return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
     const [pathRaw, ...pipes] = expr.split("|").map((s) => s.trim());
     let v = resolvePath(ctx, pathRaw);
-    if (v === undefined && !pipes.some((p) => /^(default|prefix|line|link|bullets)\b/.test(p))) throw new UnknownPathError(`unknown path {{${pathRaw}}}`);   // these pipes mean "may be absent"
+    if (v === undefined && !pipes.some((p) => /^(default|prefix|line|link|bullets|oneof)\b/.test(p))) throw new UnknownPathError(`unknown path {{${pathRaw}}}`);   // these pipes mean "may be absent"
     for (const pipe of pipes) {
       // split on the FIRST colon only — "date:h:mma" has a colon inside its argument
       const i = pipe.indexOf(":"); const name = (i < 0 ? pipe : pipe.slice(0, i)).trim(); const arg = i < 0 ? undefined : pipe.slice(i + 1).trim();

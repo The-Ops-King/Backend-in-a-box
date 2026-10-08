@@ -4,7 +4,7 @@
   "category": "booking",
   "stage": "booking",
   "sort": 10,
-  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off, meta booked call goes on, the owner gets a task to send a personal video, and the team gets the Slack card with the intake answers.",
+  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off, meta booked call goes on, the owner gets a task to send a personal video, the Sales Call record is created (the recording updates it later; a reschedule moves it), and the team gets the Slack card with the intake answers.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -175,6 +175,35 @@
         "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
       },
       {
+        "id": "k4",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{appointment.external_id}}",
+        "properties": {
+          "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
+          "external_id": "{{appointment.external_id}}",
+          "contact_id": "{{contact.ghl_contact_id | default:}}",
+          "opportunity_id": "{{cards.closer.id | default:}}",
+          "scheduled_at": "{{appointment.starts_at}}",
+          "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
+          "closer": "{{appointment.closer.name | default:}}",
+          "setter": "{{appointment.set_by | default:}}",
+          "outcome": "scheduled"
+        },
+        "relate": [
+          {
+            "association": "{{crm.assoc_sales_call_contact}}",
+            "first": "{{contact.ghl_contact_id | default:}}",
+            "second": "{{record.id}}"
+          },
+          {
+            "association": "{{crm.assoc_sales_call_opportunity}}",
+            "first": "{{record.id}}",
+            "second": "{{cards.closer.id | default:}}"
+          }
+        ]
+      },
+      {
         "id": "n4",
         "type": "slack_post",
         "channel": "{{slack.channel.bookings}}",
@@ -287,6 +316,10 @@
       },
       {
         "from": "k3",
+        "to": "k4"
+      },
+      {
+        "from": "k4",
         "to": "n4"
       }
     ]

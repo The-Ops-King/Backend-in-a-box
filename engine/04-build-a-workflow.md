@@ -113,7 +113,7 @@ Filters: `relative` (deliberately imprecise, recomputed at send time: "in about 
 throws on a past target so a stale message never ships, which `on_stale` then handles), `date:<luxon fmt>`,
 `date_company:<fmt>` (company zone), `tz:<zone>`, `upper` `lower` `first_name`, `default:<text>`, `prefix:<label>`,
 `line:<label>` (its own line, only when present), `link:<label>` (a Slack link only when there is a URL), `money`,
-`bullets`, `lines` (an analysis object as labelled lines), `truncate:<n>`, `json`.
+`bullets`, `lines` (an analysis object as labelled lines), `truncate:<n>`, `json`, `oneof:a,b,c` (a picklist guard: the value only when it is one of these, else nothing; the CRM drops an unknown option silently).
 
 Predicates (triggers, checks, branch edges): `{ "eq": [a, b] }` `neq` `gt` `gte` `lt` `lte` `{ "in": [a, [..]] }`
 `{ "has": [list, item] }` `{ "exists": "path" }` `{ "and": [...] }` `{ "or": [...] }` `{ "not": p }`. Left sides are

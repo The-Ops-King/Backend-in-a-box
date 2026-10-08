@@ -4,7 +4,7 @@
   "category": "calls",
   "stage": "call",
   "sort": 10,
-  "description": "A call recording arrived and was matched to a contact: the AI decides whether it is a sales call (anything else stops here), pulls the notes and scores the call against the rubric; when an appointment matched, the appointment is recorded as showed, stat-showed is added and the setter card moves to Showed and is marked won; the Sales Call record is written and linked, the notes go on the contact, and the team gets the review in Slack.",
+  "description": "A call recording arrived and was matched to a contact: the AI decides whether it is a sales call (anything else stops here), pulls the notes and scores the call against the rubric; when an appointment matched, the appointment is recorded as showed, stat-showed is added and the setter card moves to Showed and is marked won; the team gets the review in Slack first (so a CRM hiccup never hides that the call happened), then the Sales Call record is updated (created at booking by call-booked) and the notes go on the contact. Picklist values that the CRM would silently drop are filtered before they are written.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -111,8 +111,8 @@
           "transcript_ref": "{{recording.url | default:}}",
           "closer": "{{recording.closer.name | default:}}",
           "duration_min": "{{recording.duration_min | default:}}",
-          "disposition": "{{vars.notes.disposition | default:}}",
-          "objection_primary": "{{vars.notes.primary_objection | default:}}",
+          "disposition": "{{vars.notes.disposition | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}",
+          "objection_primary": "{{vars.notes.primary_objection | oneof:price,partner,timing,fear,medical,burned_before,competitor,think_about_it | default:}}",
           "next_step": "{{vars.notes.next_step | default:}}",
           "next_step_date": "{{vars.notes.next_step_date | default:}}",
           "payment_terms": "{{vars.notes.payment_terms | default:}}",
@@ -225,23 +225,15 @@
         "to": "k3"
       },
       {
-        "from": "k3",
-        "to": "r1"
-      },
-      {
         "from": "k2",
         "to": "k4"
       },
       {
+        "from": "k3",
+        "to": "s1"
+      },
+      {
         "from": "k4",
-        "to": "r1"
-      },
-      {
-        "from": "r1",
-        "to": "n1"
-      },
-      {
-        "from": "n1",
         "to": "s1"
       },
       {
@@ -250,6 +242,14 @@
       },
       {
         "from": "s2",
+        "to": "r1"
+      },
+      {
+        "from": "r1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
         "to": "x1"
       }
     ]

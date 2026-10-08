@@ -349,7 +349,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const notClient = (t: string) => t !== "client";   // payment-received (the customer-facing template) also runs here and tags client
     expect(tags.slice(nTags).filter(notClient)).toEqual(["pay-plan-active", "stat-agreement-sent"]); expect(removedTags.slice(nRm)).toEqual([]);   // first payment, nothing signed → the agreement goes out
     expect(docSends.at(-1)).toEqual({ templateId: "TPL-AGREE", contactId: "CCB2", userId: "U1" });
-    const rec = recordWrites.slice(nRec); expect(rec).toHaveLength(1);
+    const rec = recordWrites.slice(nRec); expect(rec).toHaveLength(2);   // the Payment record, then the payment stamped on the Sales Call record call-booked created
+    expect(rec[1]).toMatchObject({ op: "update" });
     expect(rec[0]).toMatchObject({ op: "create", transaction_id: "pay_leo_1", amount: 1500, type: "deposit", status: "succeeded", processor: "whop", contact_id: "CCB2", closer: "Sam Closer", setter: "Luis" });
     expect(String(rec[0].opportunity_id)).toMatch(/^ghl-opp-/);   // the closer card's CRM id
     expect(relations.slice(nRel)).toEqual([`ASSOC-PC:CCB2>rec-${nRec + 1}`, `ASSOC-PO:rec-${nRec + 1}>${rec[0].opportunity_id}`]);
@@ -386,8 +387,9 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const setterCard = await asOperator((c) => one<{ status: string; ghl_stage_id: string }>(c, "select status, ghl_stage_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id='PIPE-SETTER'", [companyId, id]));
     expect(setterCard).toEqual({ status: "won", ghl_stage_id: "STAGE-SHOWED" });
     const rw = recordWrites.slice(nRec); expect(rw).toHaveLength(1);
-    expect(rw[0]).toMatchObject({ op: "create", external_id: appt.external_id, outcome: "showed", contact_id: "CCB2", closer: "Sam Closer", duration_min: 43, disposition: "closed_won", objection_primary: "price", recording_url: "https://fathom.video/share/abc" });
-    expect(relations.slice(nRel)).toEqual([`ASSOC-SC:CCB2>rec-${nRec + 1}`, `ASSOC-SO:rec-${nRec + 1}>${rw[0].opportunity_id}`]);
+    // the record was created at booking (call-booked); the recording updates that same one
+    expect(rw[0]).toMatchObject({ op: "update", external_id: appt.external_id, outcome: "showed", contact_id: "CCB2", closer: "Sam Closer", duration_min: 43, disposition: "closed_won", objection_primary: "price", recording_url: "https://fathom.video/share/abc" });
+    expect(relations.slice(nRel)).toEqual([`ASSOC-SC:CCB2>${rw[0].id}`, `ASSOC-SO:${rw[0].id}>${rw[0].opportunity_id}`]);
     const a = await asOperator((c) => one<{ outcome: string | null }>(c, "select t.category as outcome from appointments a left join company_terms t on t.id=a.outcome_term where a.id=$1", [appt.id]));
     expect(a?.outcome).toBe("showed");
     const evs = await asOperator((c) => many<{ event_type: string }>(c, "select event_type from events where company_id=$1 and contact_id=$2 and event_type in ('appointment.outcome','call.held','call.analyzed') order by id", [companyId, id]));
