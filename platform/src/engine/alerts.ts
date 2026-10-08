@@ -147,11 +147,15 @@ export async function announceDue(c: PoolClient, adapters: Adapters, now = new D
     const repeat = a.announce_count > 0;
     let said = false;   // counted only when something actually went out; an alert with no destination is still marked so it is not retried every minute
     if (dest.slackToken && channel) {
-      if (repeat && a.slack_ts) said = !!(await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} Still open after ${hoursOpen(a.first_seen, now)}h: ${a.text.slice(0, 300)}`, as, a.slack_ts).catch(() => null));
+      if (repeat && a.slack_ts) { const thread = (a.detail as { thread?: string }).thread; said = !!(await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} Still open after ${hoursOpen(a.first_seen, now)}h: ${a.text.slice(0, 300)}${thread ? `\n${thread}` : ""}`, as, a.slack_ts).catch(() => null)); }   // the hourly repeat carries the fresh breakdown
       else {
         const fix = (a.detail as { fix?: { label: string } }).fix; const extra = (a.detail as { link?: string; link_label?: string });
         const r = await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} *${where}${a.source === "step" ? (a.key.startsWith("blocked:") ? "Step could not run" : "Run failed") : a.source === "health" ? "Health check" : a.source === "poll" ? "Polling" : "Engine"}*\n${a.text}${link ? `\n<${link}|Open>${fix ? ` · <${link}#fix|${fix.label}>` : ""}` : ""}${extra.link ? `${link ? " · " : "\n"}<${extra.link}|${extra.link_label ?? "Open"}>` : ""}`, as).catch(() => null);
-        if (r) { said = true; await c.query("update alerts set slack_channel=$2, slack_ts=$3 where id=$1", [a.id, channel, r.ts]); }
+        if (r) {
+          said = true; await c.query("update alerts set slack_channel=$2, slack_ts=$3 where id=$1", [a.id, channel, r.ts]);
+          // the detail that belongs under the post, not in it: the next days' availability at a glance
+          const thread = (a.detail as { thread?: string }).thread; if (thread) await adapters.notifier.post(dest.slackToken, channel, thread, as, r.ts).catch(() => null);
+        }
       }
     }
     if (!repeat && (await sendEmail(dest, `${a.level === "error" ? "Error" : "Warning"}: ${where}${a.text.slice(0, 80)}`, `${where}${a.text}${link ? `\n\n${link}` : ""}`))) said = true;

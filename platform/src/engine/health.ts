@@ -20,7 +20,15 @@ import { parseDefinition } from "./definition";
  * clock, channel, face and list of checks. It says nothing while everything works; a check that fails becomes an alert
  * (source `health`) and clears itself when the next sweep finds it fine.
  */
-export type Finding = { check: string; item?: string; ok: boolean; level: Level; text: string; detail?: Record<string, unknown>; fix?: { label: string; action: "reregister_whop" | "reregister_fathom" }; href?: string; hrefLabel?: string };
+export type Finding = { check: string; item?: string; ok: boolean; level: Level; text: string; detail?: Record<string, unknown>; fix?: { label: string; action: "reregister_whop" | "reregister_fathom" }; href?: string; hrefLabel?: string; thread?: string };
+
+/** The next days at a glance: "Thu Oct 9 · 2 (10:00am, 2:00pm)" per day, "none" where the calendar is closed or full. Posted in the alert's thread. */
+export function availabilityBreakdown(times: string[], from: DateTime, days: number, tz: string): string {
+  const byDay = new Map<string, string[]>();
+  for (let i = 0; i < days; i++) byDay.set(from.setZone(tz).plus({ days: i }).toISODate()!, []);
+  for (const t of times) { const d = DateTime.fromISO(t).setZone(tz); const k = d.toISODate()!; if (byDay.has(k)) byDay.get(k)!.push(d.toFormat("h:mma").toLowerCase()); }
+  return [...byDay.entries()].map(([k, list]) => `${DateTime.fromISO(k, { zone: tz }).toFormat("ccc LLL d")} · ${list.length ? `${list.length} (${list.slice(0, 8).join(", ")}${list.length > 8 ? ", …" : ""})` : "none"}`).join("\n");
+}
 export type HealthRow = { company_id: string; enabled: boolean; every_minutes: number; channel: string | null; as_name: string | null; as_icon: string | null; checks: Record<string, boolean>; min_slots: number; slots_days: number; last_run_at: Date | null; last_result: Finding[] };
 
 export const CHECKS: { id: string; label: string; about: string }[] = [
@@ -67,7 +75,7 @@ export async function urlOk(url: string): Promise<{ ok: boolean; status?: number
 export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, calendlyWhoAmI, calendlyAvailableTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, urlOk };
 
 const DAYS_AHEAD = 7;
-type SlotRead = { name: string; id: string; slots: number; href?: string };
+type SlotRead = { name: string; id: string; slots: number; href?: string; times: string[] };
 
 /** Runs every enabled check for one company. Read-only against every vendor. */
 export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, row: HealthRow, now = DateTime.now()): Promise<Finding[]> {
@@ -285,7 +293,7 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
       const r = await probes.ghlFreeSlots(ac.pit, cal.external_id, from, to, company.timezone);
       if (!r.ok) bad("ghl_calendars", "error", `Calendar "${cal.name}" cannot be read: ${r.error}`, cal.external_id, undefined, link(cal));
       else if (r.slots === 0) bad("ghl_calendars", "warning", `Calendar "${cal.name}" has no bookable slot in the next ${days} days. A closer's connected calendar may have dropped, or availability is off.`, cal.external_id, undefined, link(cal));
-      else { ok("ghl_calendars", `"${cal.name}": ${r.slots} bookable slots in the next ${days} days.`, cal.external_id, { slots: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots, href: link(cal) }); }
+      else { ok("ghl_calendars", `"${cal.name}": ${r.slots} bookable slots in the next ${days} days.`, cal.external_id, { slots: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots, href: link(cal), times: r.times }); }
     }
     if (!cals.length && !only) ok("ghl_calendars", "No GHL calendars mapped.");
   }
@@ -301,16 +309,17 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
       const r = await probes.calendlyAvailableTimes(token, `https://api.calendly.com/event_types/${cal.external_id}`, now.plus({ minutes: 1 }).toJSDate(), now.plus({ days: days - 1, hours: 23 }).toJSDate());
       if (!r.ok) bad("calendly_calendars", "error", `Event type "${cal.name}": availability cannot be read: ${r.error}`, cal.external_id, undefined, link(cal));
       else if (r.slots === 0) bad("calendly_calendars", "warning", `Event type "${cal.name}" has no available time in the next ${days} days. A host's connected calendar may have dropped, or availability is off.`, cal.external_id, undefined, link(cal));
-      else { ok("calendly_calendars", `"${cal.name}": ${r.slots} available times in the next ${days} days.`, cal.external_id, { slots: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots, href: link(cal) }); }
+      else { ok("calendly_calendars", `"${cal.name}": ${r.slots} available times in the next ${days} days.`, cal.external_id, { slots: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots, href: link(cal), times: r.times }); }
     }
     if (live && !cals.length && !only) ok("calendly_calendars", "No Calendly event types mapped.");
   }
   // Low availability: the calendar is alive but nearly full (or nearly closed); the threshold is the company's own
   if (on("availability") && slotReads.length) {
     const low = slotReads.filter((s) => s.slots < row.min_slots);
-    for (const s of low) bad("availability", "warning", `"${s.name}" has only ${s.slots} bookable ${s.slots === 1 ? "slot" : "slots"} in the next ${days} days (alert below ${row.min_slots}).`, s.id, { slots: s.slots, min: row.min_slots }, s.href);
+    for (const s of low) { bad("availability", "warning", `"${s.name}" has only ${s.slots} bookable ${s.slots === 1 ? "slot" : "slots"} in the next ${days} days (alert below ${row.min_slots}).`, s.id, { slots: s.slots, min: row.min_slots }, s.href); out[out.length - 1].thread = `*${s.name} · next ${days} days*\n${availabilityBreakdown(s.times, now, days, company.timezone)}`; }
     if (!low.length && !only) ok("availability", `${slotReads.length} calendar${slotReads.length === 1 ? "" : "s"} at or above ${row.min_slots} bookable slots over ${days} days.`);
     for (const s of slotReads) if (s.slots >= row.min_slots && only) ok("availability", `"${s.name}": ${s.slots} bookable slots, at or above ${row.min_slots}.`, s.id, { slots: s.slots }, s.href);
+    for (const s of slotReads) { const f = out.find((x) => x.check === "availability" && x.item === s.id); if (f && !f.thread) f.thread = `*${s.name} · next ${days} days*\n${availabilityBreakdown(s.times, now, days, company.timezone)}`; }
   }
   return out;
 }
@@ -331,7 +340,7 @@ export async function checkCalendarsAfterBookings(c: PoolClient, adapters: Adapt
     // the stored sweep result shows what was just seen for this calendar
     const kept = (row.last_result as Finding[]).filter((f) => f.item !== m.external_id || !["ghl_calendars", "calendly_calendars", "availability"].includes(f.check));
     await c.query("update health_checks set last_result=$2 where company_id=$1", [m.company_id, JSON.stringify([...kept, ...findings])]);
-    const present: AlertInput[] = findings.filter((f) => !f.ok).map((f) => ({ companyId: m.company_id, key: `health:${f.check}:${f.item}`, level: f.level, source: "health", text: f.text, detail: { ...(f.detail ?? {}), link: f.href, link_label: f.hrefLabel }, href: `/c/${m.slug}/health` }));
+    const present: AlertInput[] = findings.filter((f) => !f.ok).map((f) => ({ companyId: m.company_id, key: `health:${f.check}:${f.item}`, level: f.level, source: "health", text: f.text, detail: { ...(f.detail ?? {}), link: f.href, link_label: f.hrefLabel, ...(f.thread ? { thread: f.thread } : {}) }, href: `/c/${m.slug}/health` }));
     let raised = 0, resolved = 0;
     for (const check of ["ghl_calendars", "calendly_calendars", "availability"]) { const r = await reconcile(c, m.company_id, "health", present.filter((p) => p.key.startsWith(`health:${check}:`)), now.toJSDate(), `health:${check}:${m.external_id}`); raised += r.raised; resolved += r.resolved; }
     out.checked.push({ company: m.slug, calendar: m.name, raised, resolved });
@@ -345,7 +354,7 @@ export async function sweepCompany(c: PoolClient, companyId: string, adapters: A
   const { row: company } = await loadCompany(c, companyId);
   const findings = await sweep(c, company, adapters, probes, row, now);
   await c.query("update health_checks set last_run_at=$2, last_result=$3 where company_id=$1", [companyId, now.toJSDate(), JSON.stringify(findings)]);
-  const present: AlertInput[] = findings.filter((f) => !f.ok).map((f) => ({ companyId, key: `health:${f.check}${f.item ? `:${f.item}` : ""}`, level: f.level, source: "health", text: f.text, detail: { ...(f.detail ?? {}), ...(f.fix ? { fix: f.fix } : {}), ...(f.href ? { link: f.href, link_label: f.hrefLabel } : {}) }, href: `/c/${company.slug}/health` }));
+  const present: AlertInput[] = findings.filter((f) => !f.ok).map((f) => ({ companyId, key: `health:${f.check}${f.item ? `:${f.item}` : ""}`, level: f.level, source: "health", text: f.text, detail: { ...(f.detail ?? {}), ...(f.fix ? { fix: f.fix } : {}), ...(f.href ? { link: f.href, link_label: f.hrefLabel } : {}), ...(f.thread ? { thread: f.thread } : {}) }, href: `/c/${company.slug}/health` }));
   const r = await reconcile(c, companyId, "health", present, now.toJSDate());
   return { findings, ...r };
 }

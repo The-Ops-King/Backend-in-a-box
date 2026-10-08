@@ -1,6 +1,7 @@
 import type { Definition, Node } from "@/engine/definition";
 import { branchTitle, collapsePlumbing, describeNode, durationWords, edgeWords, exitWords, EVENT_LABELS, humanWords, pathWords, predicateWords, waitWords, walkOrder } from "@/engine/describe";
 import { exampleContext, nodeExamples, type Example } from "@/engine/example";
+import { evaluate } from "@/engine/predicate";
 import { badge } from "./format";
 import type { Pickers } from "./settings-data";
 
@@ -28,7 +29,14 @@ export function Outline({ def: full, company, bindings = {}, pk, steps = [], cur
 
   const row = (n: Node): Row => {
     switch (n.type) {
-      case "trigger": return { label: "When", value: EVENT_LABELS[n.event] ?? humanWords(n.event), hover: <div className="ol-tip"><div className="ol-tip-b">{n.match ? `Only when ${predicateWords(n.match)}.` : `Every time the engine sees “${EVENT_LABELS[n.event] ?? humanWords(n.event)}” for a contact.`}</div></div> };
+      case "trigger": {
+        // which of this company's calendars count: the match is evaluated against each calendar's own facts (call type, setter or self), the way the engine does at booking time
+        const cals = n.event.startsWith("appointment.") && pk ? pk.calendars.filter((k) => k.active).filter((k) => { try { return !n.match || evaluate(n.match, { appointment: { term: { category: k.category, name: k.term_name }, self_booked: k.self_booked ?? false } }); } catch { return true; } }) : [];
+        return { label: "When", value: EVENT_LABELS[n.event] ?? humanWords(n.event), hover: <div className="ol-tip">
+          <div className="ol-tip-b">{n.match ? `Only when ${predicateWords(n.match)}.` : `Every time the engine sees “${EVENT_LABELS[n.event] ?? humanWords(n.event)}” for a contact.`}</div>
+          {n.event.startsWith("appointment.") && pk ? <><div className="ol-tip-h">Calendars that count</div><div className="ol-tip-b">{cals.length ? cals.map((k) => `${k.name} (${k.term_name}${k.self_booked === true ? ", self-booked" : k.self_booked === false ? ", setter-booked" : ""})`).join(" · ") : "none of this company's calendars match"}</div></> : null}
+        </div> };
+      }
       case "check": return { label: "Only if", value: predicateWords(n.when), hover: <div className="ol-tip"><div className="ol-tip-b">Otherwise: {exitWords(n.else_exit).toLowerCase()}.</div></div> };
       case "branch": return { label: "Depending on", value: <span>{out(n.id).map((e, i) => <span key={i} className="ol-edge">{edgeWords(e) || "otherwise"} → {stepRef(e.to)}</span>)}</span> };
       case "wait": return { label: "Wait", value: waitWords(n.rule).replace(/^Wait (until )?/, ""), hover: <div className="ol-tip"><div className="ol-tip-b">{describeNode(n).detail}</div></div> };

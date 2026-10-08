@@ -156,3 +156,4 @@ details.adv[open] summary{border-radius:var(--radius-card) var(--radius-card) 0 
 @media(max-width:640px){.kv-table td:last-child{white-space:normal}}
 .chart-h{font-family:var(--mono);font-size:12.5px;font-weight:500;margin:16px 0 8px;text-transform:uppercase;letter-spacing:.14em;color:var(--grey-dim)}
 .tl-row.st-stale{border-left-color:var(--amber)}
+.tl-pre{font:13px/1.5 var(--mono);color:var(--grey-mid);background:var(--ink-deep);border:1px solid var(--hair-soft);border-radius:6px;padding:8px 10px;margin:6px 0 0;white-space:pre-wrap}

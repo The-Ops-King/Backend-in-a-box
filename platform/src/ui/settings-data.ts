@@ -65,11 +65,13 @@ export async function loadSettings(slug: string): Promise<SettingsData | null> {
 }
 
 /** What the step pickers on a workflow page need: names for ids, lists to pick from. Cheap when GHL is not connected. */
-export type Pickers = { catalog: Catalog | null; users: { ghl_user_id: string; name: string }[]; slackChannels: { id: string; name: string }[] | null; bindings: Record<string, string>; pipelineName: (id: string) => string; stageName: (id: string) => string; userName: (id: string) => string; channelName: (id: string) => string; resolve: (v: string | undefined) => string };
+export type PickerCalendar = { external_id: string; name: string; category: string; term_name: string; self_booked: boolean | null; booking_url: string | null; active: boolean };
+export type Pickers = { catalog: Catalog | null; users: { ghl_user_id: string; name: string }[]; slackChannels: { id: string; name: string }[] | null; bindings: Record<string, string>; calendars: PickerCalendar[]; pipelineName: (id: string) => string; stageName: (id: string) => string; userName: (id: string) => string; channelName: (id: string) => string; resolve: (v: string | undefined) => string };
 export async function loadPickers(companyId: string): Promise<Pickers> {
   return asOperator(async (c) => {
     const { adapterCompany, bindings } = await loadCompany(c, companyId);
     const users = await many<{ ghl_user_id: string; name: string }>(c, "select ghl_user_id, name from users where company_id=$1 and active and ghl_user_id is not null order by name", [companyId]);
+    const calendars = await many<PickerCalendar>(c, "select cal.external_id, cal.name, t.category, t.name as term_name, cal.self_booked, cal.booking_url, cal.active from calendars cal join company_terms t on t.id=cal.appointment_term where cal.company_id=$1 and cal.source=$2 order by cal.name", [companyId, adapterCompany.booking.source]);
     const catalog = adapterCompany.pit && adapterCompany.locationId ? await ghlCatalog(adapterCompany.pit, adapterCompany.locationId) : null;
     const tok = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [companyId]);
     const slackChannels = tok ? await listSlackChannels(decrypt(tok.bot_token)) : null;
@@ -79,6 +81,6 @@ export async function loadPickers(companyId: string): Promise<Pickers> {
     const stageName = (id: string) => { for (const p of catalog?.pipelines ?? []) { const st = p.stages.find((x) => x.id === id); if (st) return `${p.name} › ${st.name}`; } return id; };
     const userName = (id: string) => users.find((u) => u.ghl_user_id === id)?.name ?? catalog?.users.find((u) => u.id === id)?.name ?? id;
     const channelName = (id: string) => slackChannels?.find((ch) => ch.id === id)?.name ?? id;
-    return { catalog, users, slackChannels, bindings: safe, pipelineName, stageName, userName, channelName, resolve };
+    return { catalog, users, slackChannels, bindings: safe, calendars, pipelineName, stageName, userName, channelName, resolve };
   });
 }
