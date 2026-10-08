@@ -37,3 +37,33 @@ describe("render", () => {
     expect(render("{{contact.fields.setter | prefix:*Setter:* }}", { contact: { fields: {} } }, env)).toBe("");
   });
 });
+
+describe("Slack line filters", () => {
+  const env = { tz: "America/Phoenix" };
+  it("money: thousands separators, cents only when there are cents, nothing for nothing", () => {
+    expect(render("${{event.amount | money}}", { event: { amount: 2999 } }, env)).toBe("$2,999");
+    expect(render("${{event.amount | money}}", { event: { amount: "2999.5" } }, env)).toBe("$2,999.50");
+    expect(render("{{contact.revenue | money | default:—}}", { contact: {} }, env)).toBe("—");
+  });
+  it("line: a labelled line of its own only when there is a value; link: a Slack link only when there is a URL", () => {
+    expect(render("*Name:* Leo{{contact.setter.mention | line:*Setter:*}}\n*Cash:* 1", { contact: { setter: { mention: "<@U1>" } } }, env)).toBe("*Name:* Leo\n*Setter:* <@U1>\n*Cash:* 1");
+    expect(render("*Name:* Leo{{contact.setter.mention | line:*Setter:*}}\n*Cash:* 1", { contact: {} }, env)).toBe("*Name:* Leo\n*Cash:* 1");
+    expect(render("{{recording.share_url | link:Fathom | line:*Recording:*}}", { recording: { share_url: "https://f.io/x" } }, env)).toBe("\n*Recording:* <https://f.io/x|Fathom>");
+    expect(render("{{recording.share_url | link:Fathom | line:*Recording:*}}", { recording: {} }, env)).toBe("");
+  });
+  it("bullets: a short list on one line, a long one as bullets, objects by their lead field", () => {
+    expect(render("{{v | bullets}}", { v: ["thinning crown", "receding"] }, env)).toBe("thinning crown, receding");
+    expect(render("{{v | bullets}}", { v: [{ objection: "price", quote: "too much", handled: true }, { objection: "partner" }] }, env)).toBe("price, partner");
+    expect(render("{{v | bullets}}", { v: ["a very long first pain point about hair loss", "a second long point about confidence at work"] }, env)).toBe("\n• a very long first pain point about hair loss\n• a second long point about confidence at work");
+    expect(render("{{v | bullets | default:—}}", { v: [] }, env)).toBe("—");
+  });
+});
+
+describe("date filters on an absent value", () => {
+  const env = { tz: "America/Phoenix", companyTz: "America/New_York" };
+  it("pass it through so a default can catch it", () => {
+    expect(render("{{contact.first_booked_at | date_company:ccc LLL d | default:—}}", { contact: {} }, env)).toBe("—");
+    expect(render("{{contact.first_booked_at | date_company:ccc LLL d | default:—}}", { contact: { first_booked_at: "2026-10-01T15:00:00Z" } }, env)).toBe("Thu Oct 1");
+    expect(() => render("{{contact.first_booked_at | date_company}}", { contact: {} }, env)).toThrow(UnknownPathError);   // no default: still refused at save
+  });
+});

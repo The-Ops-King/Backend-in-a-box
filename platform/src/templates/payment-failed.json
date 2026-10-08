@@ -41,7 +41,15 @@
         "id": "n4",
         "type": "slack_post",
         "channel": "{{slack.channel.owner}}",
-        "template": "{{contact.first_name}}'s payment failed two days ago and hasn't been fixed."
+        "template": "{{contact.first_name}}'s payment failed two days ago and hasn't been fixed.",
+        "as": {
+          "name": "Payment failed",
+          "icon": [
+            ":warning:",
+            ":credit_card:",
+            ":rotating_light:"
+          ]
+        }
       },
       {
         "id": "x1",

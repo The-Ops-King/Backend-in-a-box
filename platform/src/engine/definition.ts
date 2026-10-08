@@ -33,6 +33,8 @@ export const Validity = z.object({
 export const OnStale = z.enum(["skip", "substitute", "escalate"]);
 
 // ---- nodes (the instruction set, 02-data-model §10) ----------------------------
+/** Who a Slack post appears from: a name and an emoji / image URL, or a list of icons one is picked from per post. */
+const Persona = z.object({ name: z.string().optional(), icon: z.union([z.string(), z.array(z.string())]).optional() });
 const base = { id: z.string().min(1) };
 export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("trigger"), event: z.string(), match: Predicate.optional() }),
@@ -46,9 +48,10 @@ export const Node = z.discriminatedUnion("type", [
   // Sends a Documents & Contracts template to the contact from `sender` (a CRM user id), and records it in the agreements ledger. Skipped in shadow like every CRM write.
   z.object({ ...base, type: z.literal("send_document"), template: z.string(), sender: z.string().optional(), name: z.string().optional() }),
   // Nudges the contact's owner (CRM assignee, else crm.default_closer): a Slack DM when the owner can be found in Slack, else the fallback channel with an @mention; plus a CRM task on the contact when `task` is set.
-  z.object({ ...base, type: z.literal("notify_owner"), template: z.string(), fallback_channel: z.string().optional(), task: z.object({ title: z.string(), due: z.string().default("+1d") }).optional(), as: z.object({ name: z.string().optional(), icon: z.string().optional() }).optional() }),
+  z.object({ ...base, type: z.literal("notify_owner"), template: z.string(), fallback_channel: z.string().optional(), task: z.object({ title: z.string(), due: z.string().default("+1d") }).optional(), as: Persona.optional() }),
   // `as`: the display name and icon the post appears under (Zapier-style), blank = the app; editable on the step
-  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string(), as: z.object({ name: z.string().optional(), icon: z.string().optional() }).optional() }),
+  // thread_of: the id of an earlier slack_post in this run; this one goes into that message's thread (the scorecard under the call post)
+  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string(), as: Persona.optional(), thread_of: z.string().optional() }),
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string() }),
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),
   z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string() }),
@@ -66,7 +69,8 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("pipeline_card"), pipeline: z.string(), stage: z.string().optional(), name: z.string().optional(), assign_to: z.string().optional(), status: z.enum(["open", "won", "lost", "abandoned"]).optional(), if_missing: z.enum(["create", "skip"]).default("create"), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
   // Reads a document (the call transcript by default) against a prompt bound per company ({{prompt.<name>}}), answer stored under vars.<into>.
   // json: the answer is parsed and its fields are addressable ({{vars.notes.summary}}); text: stored as a string.
-  z.object({ ...base, type: z.literal("analyze"), prompt: z.string(), input: z.string().default("{{recording.transcript_text}}"), into: z.string(), format: z.enum(["json", "text"]).default("json"), max_tokens: z.number().int().positive().optional() }),
+  // optional: decoration (a congratulations line); when the AI cannot run the step is skipped and the run goes on without the value
+  z.object({ ...base, type: z.literal("analyze"), prompt: z.string(), input: z.string().default("{{recording.transcript_text}}"), into: z.string(), format: z.enum(["json", "text"]).default("json"), max_tokens: z.number().int().positive().optional(), optional: z.boolean().default(false) }),
   // Writes the appointment's outcome on OUR row (showed / noshow / …), the same path the closer's disposition form takes; call.held follows a show.
   z.object({ ...base, type: z.literal("record_outcome"), outcome: z.string(), call_outcome: z.string().optional(), notes: z.string().optional() }),
   // A record on a CRM custom object (payment, sales call, …), upserted by our own key so the CRM's lagging search is never consulted.

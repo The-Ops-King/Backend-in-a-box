@@ -204,10 +204,19 @@ second. A trigger that arrives while a run still holds the key is remembered on 
 and replayed if that run stops at a gate, so two triggers in the same minute cannot lose one. **notify_owner** DMs the contact's owner in Slack (looked up by email, cached as
 `users.slack_user_id`; the app needs `im:write`, `users:read`, `users:read.email`), else posts to the
 fallback channel with an @mention, and optionally creates a CRM task on the contact. **CRM templates:**
-Every Slack post can carry its own display name and icon (`as: { name, icon }` on `slack_post` and
-`notify_owner`, editable on the step; company defaults as bindings `slack.name` / `slack.icon`; needs the app scope
-`chat:write.customize`). Template filter `prefix:` renders a labelled line only when the value exists
-(`{{contact.fields.setter | prefix:*Setter:* }}`). `send_sms` / `send_email` take `ghl_template` (an SMS snippet id or an email builder template id,
+Every Slack post carries its own display name and icon (`as: { name, icon }` on `slack_post` and
+`notify_owner`; `icon` may be a list, one picked at random per post, so each kind of post has its own faces: a phone or
+a calendar for a booking, money bags for a payment, a party for a close, pen and paper for an agreement; company
+defaults as bindings `slack.name` / `slack.icon`; needs the app scope `chat:write.customize`). A post with
+`thread_of: <step id>` replies in the thread of that earlier post (the call scorecard under the call post).
+Context facts for posts: `contact.closer` (the open closer card's owner, else the contact's owner), `contact.setter`
+(the setter field, matched to a team member of that exact name), each with `.mention` (`<@U…>` once looked up in
+Slack by email, else the name), `contact.first_booked_at`, `contact.days_to_close` (first booking → first payment),
+`contact.revenue` (the opportunity's value, else the program price), `contact.source` (`crm.field_contact_lead_source`).
+Template filters: `prefix:` and `line:` render a labelled value only when it exists (`line:` on its own line),
+`link:Label` makes a Slack link only when there is a URL, `money` adds separators, `bullets` lists an array; the
+date filters pass an absent value through to `default:`. An `analyze` step marked `optional` is skipped, not
+failed, when the AI cannot run (the one-line congratulations on a close). `send_sms` / `send_email` take `ghl_template` (an SMS snippet id or an email builder template id,
 editable on the step), and the CRM's copy wins when it exists. Harness actions `agreement` (a sent,
 unsigned document) and `sign` (completed) stage the document side.
 

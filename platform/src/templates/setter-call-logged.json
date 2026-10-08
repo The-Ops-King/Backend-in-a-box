@@ -157,7 +157,15 @@
         "id": "s1",
         "type": "slack_post",
         "channel": "{{slack.channel.setter_calls}}",
-        "template": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{recording.duration_min}} min · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | default:}}|Open the conversation in GHL>"
+        "template": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{recording.duration_min}} min · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | default:}}|Open the conversation in GHL>",
+        "as": {
+          "name": "Setter call",
+          "icon": [
+            ":telephone_receiver:",
+            ":speech_balloon:",
+            ":headphones:"
+          ]
+        }
       },
       {
         "id": "x1",

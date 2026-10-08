@@ -142,7 +142,17 @@
         "id": "n5",
         "type": "slack_post",
         "channel": "{{slack.channel.payments}}",
-        "template": "*Payment received:* ${{event.amount}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Closer:* {{cards.closer.owner.name | default:unassigned}}\n{{contact.fields.setter | prefix:*Setter:* }}"
+        "template": "*Payment received:* ${{event.amount | money}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.name | default:unassigned}}{{contact.setter.name | line:*Setter:*}}",
+        "as": {
+          "name": "Payment received",
+          "icon": [
+            ":moneybag:",
+            ":money_with_wings:",
+            ":money_mouth_face:",
+            ":dollar:",
+            ":heavy_dollar_sign:"
+          ]
+        }
       },
       {
         "id": "x1",

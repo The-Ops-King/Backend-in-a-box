@@ -139,7 +139,31 @@
         "id": "s1",
         "type": "slack_post",
         "channel": "{{slack.channel.calls}}",
-        "template": "*Call:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{recording.title | default:untitled}} · {{recording.duration_min | default:?}} min · *Closer:* {{recording.closer.name | default:unknown}}\n{{vars.appt_line}}\n\n{{vars.notes | lines}}\n\n*Call review:* {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\n*Recording:* {{recording.share_url | default:—}}"
+        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{recording.share_url | link:Fathom | line:*Recording:*}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{recording.duration_min | default:?}} min\n\n*Outcome:* {{vars.notes.disposition | default:unclear}}\n*Pain:* {{vars.notes.pain | bullets | default:—}}\n*Goal:* {{vars.notes.desire | bullets | default:—}}\n*Objections:* {{vars.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.notes.next_step | default:—}}{{vars.notes.next_step_date | prefix: by}}",
+        "as": {
+          "name": "Call recorded",
+          "icon": [
+            ":studio_microphone:",
+            ":headphones:",
+            ":movie_camera:",
+            ":speech_balloon:"
+          ]
+        }
+      },
+      {
+        "id": "s2",
+        "type": "slack_post",
+        "channel": "{{slack.channel.calls}}",
+        "thread_of": "s1",
+        "as": {
+          "name": "Call review",
+          "icon": [
+            ":clipboard:",
+            ":bar_chart:",
+            ":mag:"
+          ]
+        },
+        "template": "*Scorecard:* {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}"
       },
       {
         "id": "x1",
@@ -220,6 +244,10 @@
       },
       {
         "from": "s1",
+        "to": "s2"
+      },
+      {
+        "from": "s2",
         "to": "x1"
       }
     ]

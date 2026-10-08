@@ -12,8 +12,21 @@ import { applyOutcome, outcomeTermFor } from "./disposition";
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
-/** The step's own name/icon, else the company's defaults (bindings slack.name / slack.icon), else the app. */
-const persona = (d: ExecDeps, as?: { name?: string; icon?: string }) => ({ name: as?.name ? render(as.name, d.ctx, env(d)) : d.bindings["slack.name"], icon: as?.icon ? render(as.icon, d.ctx, env(d)) : d.bindings["slack.icon"] });
+/** The step's own name/icon, else the company's defaults (bindings slack.name / slack.icon), else the app. A list of icons is handed on whole; the notifier picks one per post. */
+const persona = (d: ExecDeps, as?: { name?: string; icon?: string | string[] }) => ({ name: as?.name ? render(as.name, d.ctx, env(d)) : d.bindings["slack.name"], icon: as?.icon ? (Array.isArray(as.icon) ? as.icon.map((i) => render(i, d.ctx, env(d))) : render(as.icon, d.ctx, env(d))) : d.bindings["slack.icon"] });
+type Person = { name: string; email?: string | null; ghl_user_id?: string | null; slack_user_id?: string | null; mention?: string };
+/** The people a post may @mention (contact.closer, contact.setter, contact.owner): look each up in Slack by email once and remember it, so `{{contact.closer.mention}}` is a real mention, not a name. */
+async function resolveMentions(d: ExecDeps, botToken: string): Promise<void> {
+  const contact = d.ctx.contact as Record<string, unknown> | undefined; if (!contact) return;
+  for (const key of ["closer", "setter", "owner"]) {
+    const p = contact[key] as Person | undefined;
+    if (!p || p.slack_user_id || !p.email) continue;
+    const id = await d.adapters.notifier.lookupUserByEmail(botToken, p.email).catch(() => null);
+    if (!id) continue;
+    p.slack_user_id = id; p.mention = `<@${id}>`;
+    if (p.ghl_user_id) await d.c.query("update users set slack_user_id=$2 where company_id=$1 and ghl_user_id=$3", [d.company.id, id, p.ghl_user_id]);
+  }
+}
 const jsonArrayOr = (r: string): unknown => { try { const v = JSON.parse(r); return Array.isArray(v) ? v : r; } catch { return r; } };
 
 export type StepOutcome =
@@ -131,6 +144,9 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     }
     case "notify_owner": {
       const owner = (d.ctx.contact as { owner?: { name: string; email: string; ghl_user_id: string; slack_user_id: string | null } } | undefined)?.owner;
+      const conn = await one<{ bot_token: Buffer }>(d.c, "select bot_token from slack_connections where company_id=$1", [d.company.id]);
+      const { decrypt } = await import("./crypto");
+      if (conn) await resolveMentions(d, decrypt(conn.bot_token));
       const text = render(node.template, d.ctx, env(d));
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
       const out: Record<string, unknown> = { owner: owner?.name ?? null };
@@ -139,19 +155,12 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
         if (shadow(d)) out.would_create_task = { title, due: dueAt.toISOString(), assignedUserId: owner?.ghl_user_id };
         else if (contact?.ghl_contact_id) out.task = (await d.adapters.write.createTask(d.adapterCompany, contact.ghl_contact_id, { title, body: text, dueAt, assignedUserId: owner?.ghl_user_id })).id;
       }
-      const conn = await one<{ bot_token: Buffer }>(d.c, "select bot_token from slack_connections where company_id=$1", [d.company.id]);
       const fallback = node.fallback_channel ? (/^\{\{/.test(node.fallback_channel) ? (resolvePath(d.ctx, node.fallback_channel.replace(/[{}\s]/g, "")) as string | undefined) : node.fallback_channel) : undefined;
-      let slackUser = owner?.slack_user_id ?? null;
-      if (conn && owner && !slackUser) {
-        const { decrypt } = await import("./crypto");
-        slackUser = await d.adapters.notifier.lookupUserByEmail(decrypt(conn.bot_token), owner.email).catch(() => null);
-        if (slackUser) await d.c.query("update users set slack_user_id=$2 where company_id=$1 and ghl_user_id=$3", [d.company.id, slackUser, owner.ghl_user_id]);
-      }
+      const slackUser = owner?.slack_user_id ?? null;   // resolveMentions already looked the owner up
       const target = slackUser ?? fallback;
       const body = slackUser ? text : `${owner?.name ? `*${owner.name}* ` : ""}${text}`;
       if (!conn || !target) { await recordSend(d, node, "slack", body, "suppressed", conn ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, why: conn ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", body, "queued"); if (!send) return { status: "skipped", next, result: out };
-      const { decrypt } = await import("./crypto");
       const r = await d.adapters.notifier.post(decrypt(conn.bot_token), target, shadow(d) ? `${SHADOW_PREFIX}${body}` : body, persona(d, node.as));
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
       return { status: "ok", next, result: { ...out, ...(shadow(d) ? { shadow: true } : {}), dm: !!slackUser, ts: r.ts } };
@@ -182,15 +191,19 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       // the channel binding is optional (manifest marks slack.* not required), so resolve without throwing: unbound → skip the node, keep the run going
       const ref = /^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/.exec(node.channel);
       const channelId = ref ? (resolvePath(d.ctx, ref[1]) as string | undefined) : node.channel;
+      const { decrypt } = await import("./crypto");
+      if (conn) await resolveMentions(d, decrypt(conn.bot_token));
       // render first even when it cannot post: the dashboard shows what WOULD have gone to Slack, which is the whole point of shadow
       const text = render(node.template, d.ctx, env(d));
       if (!conn || !channelId) { await recordSend(d, node, "slack", text, "suppressed", conn ? "unbound: slack channel" : "unbound: slack"); return { status: "skipped", next, result: { why: conn ? "slack channel not bound" : "slack not connected", would_post: text.slice(0, 160) } }; }
+      // a thread reply needs the parent's ts from earlier in this run; without one (parent skipped) it posts to the channel and says so
+      const parentTs = node.thread_of ? (resolvePath(d.ctx, `vars.__slack.${node.thread_of}`) as string | undefined) : undefined;
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next };
       // Slack is the team, not the CRM or the contact: in shadow the post still goes out, marked, so the team sees what the engine would do (D31)
-      const { decrypt } = await import("./crypto");
-      const r = await d.adapters.notifier.post(decrypt(conn.bot_token), channelId, shadow(d) ? `${SHADOW_PREFIX}${text}` : text, persona(d, node.as));
+      const r = await d.adapters.notifier.post(decrypt(conn.bot_token), channelId, shadow(d) && !parentTs ? `${SHADOW_PREFIX}${text}` : text, persona(d, node.as), parentTs);
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ts: r.ts } };
+      setPath(d.ctx, `vars.__slack.${node.id}`, r.ts);
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null } : {}) } };
     }
 
     case "classify": {
@@ -340,12 +353,15 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "analyze": {
       // not a CRM write, so it runs in shadow too: seeing what the AI would say about a call is the point of shadow
       const apiKey = d.bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) return { status: "failed", error: "analyze: no Anthropic key — bind secret.anthropic_key for this company" };
+      const soft = (error: string): StepOutcome => node.optional ? { status: "skipped", next, result: { why: error } } : { status: "failed", error };
+      if (!apiKey) return soft("analyze: no Anthropic key — bind secret.anthropic_key for this company");
       const system = render(node.prompt, d.ctx, env(d)).trim();
-      if (!system) return { status: "failed", error: `analyze ${node.id}: prompt rendered empty (is the prompt.* binding set?)` };
+      if (!system) return soft(`analyze ${node.id}: prompt rendered empty (is the prompt.* binding set?)`);
       const input = render(node.input, d.ctx, env(d)).trim();
       if (!input) return { status: "skipped", next, result: { why: "nothing to analyze: input rendered empty (no transcript?)" } };
-      const r = await d.adapters.analyst.analyze(apiKey, { system, input, format: node.format, maxTokens: node.max_tokens });
+      let r: Awaited<ReturnType<typeof d.adapters.analyst.analyze>>;
+      try { r = await d.adapters.analyst.analyze(apiKey, { system, input, format: node.format, maxTokens: node.max_tokens }); }
+      catch (e) { if (node.optional) return soft(`analyze: ${(e as Error).message}`); throw e; }
       if (r.refused) return { status: "failed", error: `analyze ${node.id}: the model declined (${r.refused})` };
       const value = node.format === "json" ? (r.parsed ?? { raw: r.text, parse_error: r.parseError }) : r.text;
       setPath(d.ctx, `vars.${node.into}`, value);

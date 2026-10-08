@@ -85,8 +85,25 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     const ownerGhl = (contact?.assigned_ghl_user_id as string | null) ?? bindings["crm.default_closer"] ?? null;
     const owner = ownerGhl ? await one<{ id: string; name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select id, name, email, ghl_user_id, slack_user_id from users where company_id=$1 and ghl_user_id=$2", [company.id, ownerGhl]) : null;
     const recs = await many<{ object_key: string; record_key: string; ghl_record_id: string | null }>(c, "select distinct on (object_key) object_key, record_key, ghl_record_id from crm_records where company_id=$1 and contact_id=$2 order by object_key, updated_at desc", [company.id, run.contact_id]);
-    ctx.contact = { ...(ctx.contact as Record<string, unknown> ?? {}), paid: (pay?.n ?? 0) > 0, payments_count: pay?.n ?? 0, cash_collected: Number(pay?.total ?? 0), first_paid_at: pay?.first_at?.toISOString() ?? null,
-      agreement_signed: !!agr?.signed_at, agreement_sent: !!agr, owner: owner ? { name: owner.name, first_name: owner.name.split(" ")[0], email: owner.email, ghl_user_id: owner.ghl_user_id, slack_user_id: owner.slack_user_id, inherited: !contact?.assigned_ghl_user_id } : undefined };
+    // who the closer is, one answer for every post: the open closer card's owner, else whoever owns the contact in the CRM
+    const closerCard = bindings["crm.pipeline_closer"] ? await one<{ id: string; name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select u.id, u.name, u.email, u.ghl_user_id, u.slack_user_id from pipeline_cards p join users u on u.id=p.assigned_user_id where p.company_id=$1 and p.contact_id=$2 and p.ghl_pipeline_id=$3 and p.status in ('open','won') order by (p.status='open') desc, p.created_at desc limit 1", [company.id, run.contact_id, bindings["crm.pipeline_closer"]]) : null;
+    const closer = closerCard ?? owner;
+    // the setter is a name the team typed on the contact (crm.field_contact_setter); a team member of exactly that name can be @mentioned
+    const setterName = typeof fields.setter === "string" ? fields.setter.trim() : "";
+    const setterUser = setterName ? await one<{ name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select name, email, ghl_user_id, slack_user_id from users where company_id=$1 and lower(name)=lower($2) limit 1", [company.id, setterName]) : null;
+    const firstBooking = await one<{ at: Date | null }>(c, "select min(starts_at) as at from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled'", [company.id, run.contact_id]);
+    const firstBookedAt = firstBooking?.at ?? null, firstPaidAt = pay?.first_at ?? null;
+    const daysToClose = firstBookedAt && firstPaidAt ? Math.max(0, Math.round((firstPaidAt.getTime() - firstBookedAt.getTime()) / 86_400_000)) : undefined;
+    // what the deal is worth: the contact's opportunity (open first, else won), falling back to the program price
+    const opp = await one<{ v: string | null }>(c, "select coalesce(o.contract_value, co.contract_value_default)::text as v from opportunities o join companies co on co.id=o.company_id where o.company_id=$1 and o.contact_id=$2 and o.status in ('open','won') order by (o.status='open') desc, o.opened_at desc limit 1", [company.id, run.contact_id]);
+    const revenue = opp?.v != null ? Number(opp.v) : undefined;
+    const person = (u: { name: string; email: string; ghl_user_id: string; slack_user_id: string | null }) => ({ name: u.name, first_name: u.name.split(" ")[0], email: u.email, ghl_user_id: u.ghl_user_id, slack_user_id: u.slack_user_id, mention: u.slack_user_id ? `<@${u.slack_user_id}>` : u.name });
+    ctx.contact = { ...(ctx.contact as Record<string, unknown> ?? {}), paid: (pay?.n ?? 0) > 0, payments_count: pay?.n ?? 0, cash_collected: Number(pay?.total ?? 0), first_paid_at: firstPaidAt?.toISOString() ?? null,
+      agreement_signed: !!agr?.signed_at, agreement_sent: !!agr, owner: owner ? { ...person(owner), inherited: !contact?.assigned_ghl_user_id } : undefined,
+      closer: closer ? { ...person(closer), from: closerCard ? "closer card" : "contact owner" } : undefined,
+      setter: setterName ? (setterUser ? person(setterUser) : { name: setterName, first_name: setterName.split(" ")[0], mention: setterName }) : undefined,
+      first_booked_at: firstBookedAt?.toISOString() ?? undefined, days_to_close: daysToClose, revenue,
+      source: typeof fields.lead_source === "string" && fields.lead_source ? fields.lead_source : undefined };
     ctx.agreement = agr ? agreementFacts(agr) : {};
     ctx.records = Object.fromEntries(recs.map((r) => [r.object_key.replace(/^custom_objects\./, ""), { key: r.record_key, id: r.ghl_record_id ?? "" }]));
   }

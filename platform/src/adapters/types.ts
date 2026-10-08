@@ -91,9 +91,11 @@ export interface Classifier {
   choice(state: string | undefined, input: string, options: string[], threshold: number): Promise<Classification>;
 }
 /** Who the post appears to come from (Slack `chat:write.customize`): a display name and an emoji (":calendar:") or an image URL. Blank = the app itself. */
-export type SlackPersona = { name?: string; icon?: string };
+/** Who a post appears from. `icon` is an emoji (`:tada:`), an image URL, or a list of either: one is picked at random per post. */
+export type SlackPersona = { name?: string; icon?: string | string[] };
 export interface Notifier {
-  post(token: string, channelId: string, text: string, as?: SlackPersona): Promise<{ ts: string }>;
+  /** `threadTs` replies in that message's thread instead of posting to the channel. */
+  post(token: string, channelId: string, text: string, as?: SlackPersona, threadTs?: string): Promise<{ ts: string }>;
   /** Slack user id for an email (users.lookupByEmail; needs users:read.email), null when unknown. A DM is a post to that id. */
   lookupUserByEmail(token: string, email: string): Promise<string | null>;
 }

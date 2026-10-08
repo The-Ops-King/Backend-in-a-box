@@ -958,3 +958,12 @@ engine would do. Slack is the team, not the CRM or the contact, so in shadow eve
 owner nudges, team alerts, wrap-ups) goes out with a "🧪 shadow —" prefix when Slack is connected,
 and the send is recorded as `shadow`. Nothing else in shadow leaves the engine.
 
+### D31, continued (2026-10-08): posts have faces, mentions and threads
+
+Each kind of post has its own name and a small list of icons, one picked per post (booking: phone or calendar;
+payment: money; close: celebration; agreement: pen and paper; call: microphone). The close post @mentions the
+closer and the setter (looked up in Slack by email once, remembered on the team; the setter by exact name match
+against the team, else printed plain). The call post is the facts (name, recording, outcome, pain, goal, objections,
+next steps) and the scorecard goes into its thread. Days to close counts first booking → first payment. The AI's
+congratulations line is optional decoration: no key, no line, the post still goes out.
+

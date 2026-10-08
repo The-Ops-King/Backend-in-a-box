@@ -100,10 +100,35 @@
         "template": "Congrats on taking action to save your hair.\n\nYour next steps have been emailed to you, please make sure to check your email for the subject line \"Welcome -- Let's get you ready for your first coaching call\" from Allan P.\n\nPlease follow the instructions in that email, and let us know if you have any issues"
       },
       {
+        "id": "a1",
+        "type": "analyze",
+        "prompt": "{{prompt.close_cheer}}",
+        "format": "text",
+        "max_tokens": 80,
+        "into": "cheer",
+        "input": "Closer: {{contact.closer.name | default:the closer}}\nClient first name: {{contact.first_name | default:the client}}\nCash collected: ${{contact.cash_collected | money}}\nDeal value: ${{contact.revenue | money | default:unknown}}\nDays from first booking to payment: {{contact.days_to_close | default:unknown}}\nLead source: {{contact.source | default:unknown}}",
+        "optional": true
+      },
+      {
         "id": "s1",
         "type": "slack_post",
         "channel": "{{slack.channel.deals}}",
-        "template": "*Deal closed:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Cash collected:* ${{contact.cash_collected}} · *Owner:* {{contact.owner.name | default:unassigned}} · *Signed:* {{agreement.signed_at | date_company}}\nWelcome email and text sent."
+        "template": "*NEW CLOSE!* Well done {{contact.closer.mention | default:team}}!\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{contact.setter.mention | line:*Setter:*}}\n*Cash Collected:* ${{contact.cash_collected | money}}\n*Revenue Generated:* ${{contact.revenue | money | default:—}}\n\n*First Booking:* {{contact.first_booked_at | date_company:ccc LLL d | default:—}}\n*Days to Close:* {{contact.days_to_close | default:—}}\n\n*Source:* {{contact.source | default:—}}{{vars.cheer | line:}}",
+        "as": {
+          "name": "NEW CLOSE",
+          "icon": [
+            ":tada:",
+            ":boom:",
+            ":partying_face:",
+            ":bomb:",
+            ":mirror_ball:",
+            ":man_dancing:",
+            ":dancer:",
+            ":fire:",
+            ":rocket:",
+            ":champagne:"
+          ]
+        }
       },
       {
         "id": "x1",
@@ -160,6 +185,10 @@
       },
       {
         "from": "e2",
+        "to": "a1"
+      },
+      {
+        "from": "a1",
         "to": "s1"
       },
       {

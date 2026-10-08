@@ -55,6 +55,14 @@
         "task": {
           "title": "Chase the unsigned agreement: {{contact.name | default:contact}}",
           "due": "+1d"
+        },
+        "as": {
+          "name": "Agreement unsigned",
+          "icon": [
+            ":warning:",
+            ":memo:",
+            ":hourglass_flowing_sand:"
+          ]
         }
       },
       {
@@ -91,6 +99,14 @@
         "task": {
           "title": "Chase the unsigned agreement: {{contact.name | default:contact}}",
           "due": "+1d"
+        },
+        "as": {
+          "name": "Agreement unsigned",
+          "icon": [
+            ":warning:",
+            ":memo:",
+            ":hourglass_flowing_sand:"
+          ]
         }
       },
       {
@@ -127,6 +143,14 @@
         "task": {
           "title": "Chase the unsigned agreement: {{contact.name | default:contact}}",
           "due": "+1d"
+        },
+        "as": {
+          "name": "Agreement unsigned",
+          "icon": [
+            ":warning:",
+            ":memo:",
+            ":hourglass_flowing_sand:"
+          ]
         }
       },
       {
@@ -140,7 +164,15 @@
         "id": "s1",
         "type": "slack_post",
         "channel": "{{slack.channel.alerts}}",
-        "template": "*Agreement unsigned after 3 nudges:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · paid ${{contact.cash_collected}} · owner {{contact.owner.name | default:unassigned}}. Tagged agreement-unsigned."
+        "template": "*Agreement unsigned after 3 nudges:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · paid ${{contact.cash_collected}} · owner {{contact.owner.name | default:unassigned}}. Tagged agreement-unsigned.",
+        "as": {
+          "name": "Agreement unsigned",
+          "icon": [
+            ":warning:",
+            ":memo:",
+            ":hourglass_flowing_sand:"
+          ]
+        }
       },
       {
         "id": "x1",

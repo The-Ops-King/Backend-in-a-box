@@ -48,12 +48,14 @@ export function relative(target: DateTime, mode: "auto" | "minutes" | "hours", n
 type Filter = (v: unknown, arg: string | undefined, env: RenderEnv) => unknown;
 export type RenderEnv = { now?: DateTime; tz: string; companyTz?: string };
 
+const absent = (v: unknown) => v === undefined || v === null || v === "";
 const filters: Record<string, Filter> = {
-  relative: (v, arg, env) => relative(toDT(v, env.tz), (arg as "auto" | "minutes" | "hours") ?? "auto", (env.now ?? DateTime.now()).setZone(env.tz)),
-  date: (v, arg, env) => toDT(v, env.tz).toFormat(arg ?? "ccc, LLL d 'at' h:mma"),
+  // the date filters pass an absent value through untouched, so `{{contact.first_booked_at | date_company | default:—}}` reads as "—" instead of throwing
+  relative: (v, arg, env) => (absent(v) ? undefined : relative(toDT(v, env.tz), (arg as "auto" | "minutes" | "hours") ?? "auto", (env.now ?? DateTime.now()).setZone(env.tz))),
+  date: (v, arg, env) => (absent(v) ? undefined : toDT(v, env.tz).toFormat(arg ?? "ccc, LLL d 'at' h:mma")),
   // same as date, in the company's zone: lists the team reads (Slack, pipeline cards) stay in one zone
-  date_company: (v, arg, env) => toDT(v, env.companyTz ?? env.tz).toFormat(arg ?? "ccc LLL d · h:mm a ZZZZ"),
-  tz: (v, arg) => toDT(v, arg ?? "UTC").toISO(),
+  date_company: (v, arg, env) => (absent(v) ? undefined : toDT(v, env.companyTz ?? env.tz).toFormat(arg ?? "ccc LLL d · h:mm a ZZZZ")),
+  tz: (v, arg) => (absent(v) ? undefined : toDT(v, arg ?? "UTC").toISO()),
   upper: (v) => String(v ?? "").toUpperCase(),
   lower: (v) => String(v ?? "").toLowerCase(),
   first_name: (v) => String(v ?? "").trim().split(/\s+/)[0] ?? "",
@@ -64,6 +66,14 @@ const filters: Record<string, Filter> = {
   truncate: (v, arg) => { const n = Number(arg ?? 300); const s = String(v ?? ""); return s.length > n ? `${s.slice(0, n - 1)}…` : s; },
   // a labelled line only when there is a value: {{contact.fields.setter | prefix:*Setter:* }} → "*Setter:* Luis", or nothing at all
   prefix: (v, arg) => (v === undefined || v === null || v === "" ? "" : `${arg ?? ""} ${v}`.trim()),
+  // a Slack link only when there is a URL: {{recording.share_url | link:Fathom}} → <https://…|Fathom>, or nothing
+  link: (v, arg) => (v === undefined || v === null || v === "" ? "" : `<${String(v)}|${arg ?? String(v)}>`),
+  // like prefix, on its own line: "\n*Setter:* Luis" after the line before it, or nothing at all (no blank line left behind)
+  line: (v, arg) => (v === undefined || v === null || v === "" ? "" : `\n${arg ? `${arg} ` : ""}${v}`),
+  // 2999 → 2,999 ; 2999.5 → 2,999.50 ; nothing → ""
+  money: (v) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? "" : Number(v).toLocaleString("en-US", { minimumFractionDigits: Number.isInteger(Number(v)) ? 0 : 2, maximumFractionDigits: 2 })),
+  // a list as one line when short, else bullets; an object list shows its lead field (the objection, the pain) — for Slack lines like *Pain:* …
+  bullets: (v) => { const items = (Array.isArray(v) ? v : v === undefined || v === null || v === "" ? [] : [v]).map((x) => (x && typeof x === "object" ? scalar((x as Record<string, unknown>)[Object.keys(x as object).find((k) => /objection|pain|desire|name|label|title|text/i.test(k)) ?? Object.keys(x as object)[0]]) : scalar(x))).filter(Boolean); return items.length <= 1 || items.join(", ").length <= 80 ? items.join(", ") : `\n${items.map((i) => `• ${i}`).join("\n")}`; },
 };
 
 const isEmpty = (v: unknown) => v === null || v === undefined || v === "" || (Array.isArray(v) && !v.length) || (typeof v === "object" && !Array.isArray(v) && !Object.keys(v as object).length);
@@ -114,7 +124,7 @@ export function render(template: string, ctx: Record<string, unknown>, env: Rend
   return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
     const [pathRaw, ...pipes] = expr.split("|").map((s) => s.trim());
     let v = resolvePath(ctx, pathRaw);
-    if (v === undefined && !pipes.some((p) => p.startsWith("default") || p.startsWith("prefix"))) throw new UnknownPathError(`unknown path {{${pathRaw}}}`);   // default: and prefix: are the two pipes that mean "may be absent"
+    if (v === undefined && !pipes.some((p) => /^(default|prefix|line|link|bullets)\b/.test(p))) throw new UnknownPathError(`unknown path {{${pathRaw}}}`);   // these pipes mean "may be absent"
     for (const pipe of pipes) {
       // split on the FIRST colon only — "date:h:mma" has a colon inside its argument
       const i = pipe.indexOf(":"); const name = (i < 0 ? pipe : pipe.slice(0, i)).trim(); const arg = i < 0 ? undefined : pipe.slice(i + 1).trim();
