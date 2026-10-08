@@ -4,6 +4,7 @@
   "category": "calls",
   "stage": "call",
   "sort": 10,
+  "origin": "spec",
   "description": "A call recording arrived and was matched to a contact: the AI decides whether it is a sales call (anything else stops here), pulls the notes and scores the call against the rubric; when an appointment matched, the appointment is recorded as showed, stat-showed is added and the setter card moves to Showed and is marked won; the team gets the review in Slack first (so a CRM hiccup never hides that the call happened), then the Sales Call record is updated (created at booking by call-booked) and the notes go on the contact. Picklist values that the CRM would silently drop are filtered before they are written.",
   "definition": {
     "schema": 1,

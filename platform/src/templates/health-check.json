@@ -4,6 +4,7 @@
   "category": "engine",
   "stage": "engine",
   "sort": 10,
+  "origin": "spec",
   "description": "Every hour, a read-only sweep of every connection and every step's dependencies. Silent while everything works; a failed check is an alert that clears itself.",
   "definition": {
     "schema": 1,

@@ -4,6 +4,7 @@
   "category": "speed_to_lead",
   "stage": "lead",
   "sort": 20,
+  "origin": "default",
   "description": "New lead gets an email and a text right away, two hours for a reply, then one more email if they went quiet.",
   "definition": {
     "schema": 1,

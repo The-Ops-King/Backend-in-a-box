@@ -4,6 +4,7 @@
   "category": "no_show",
   "stage": "booking",
   "sort": 30,
+  "origin": "default",
   "description": "When a call is cancelled, send the rebook link by text and email.",
   "definition": {
     "schema": 1,

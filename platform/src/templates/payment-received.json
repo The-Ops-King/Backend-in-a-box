@@ -4,6 +4,7 @@
   "category": "payments",
   "stage": "payments",
   "sort": 10,
+  "origin": "default",
   "description": "Thank-you email and the client tag when a payment lands.",
   "definition": {
     "schema": 1,

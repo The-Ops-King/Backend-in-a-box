@@ -4,6 +4,7 @@
   "category": "team",
   "stage": "team",
   "sort": 10,
+  "origin": "spec",
   "description": "DMs each closer their end-of-day link at the end of the day, and again the next morning for anything still unfiled.",
   "definition": {
     "schema": 1,

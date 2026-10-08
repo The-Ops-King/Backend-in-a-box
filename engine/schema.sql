@@ -388,6 +388,7 @@ create table workflow_templates (
   category     text not null,              -- speed_to_lead, reminders, no_show, reactivation, payments, replies
   stage        text,                       -- where on the journey (src/engine/stages.ts: lead, booking, pre_call, call, post_call, closing, payments, reactivation, team, engine)
   sort         int not null default 0,     -- order within the stage
+  origin       text,                       -- 'spec': built from Tyler's own description, Zap or CRM workflow; 'default': a starting point the engine shipped, to review or replace
   version      int not null default 1,
   definition   jsonb not null,             -- §10
   manifest     jsonb not null,             -- §10, extracted on save
@@ -408,6 +409,7 @@ create table workflows (
   reentry_window    interval,                             -- for the per_window policy
   stage             text,                                 -- copied from the template at install; a custom workflow sets its own
   sort              int not null default 0,
+  origin            text,                                 -- copied from the template; a workflow built in the chat for one company is 'spec'
   diverged          boolean not null default false,       -- edited since copy
   diverged_at       timestamptz,
   created_at        timestamptz not null default now()

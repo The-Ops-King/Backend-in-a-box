@@ -4,6 +4,7 @@
   "category": "booking",
   "stage": "booking",
   "sort": 10,
+  "origin": "spec",
   "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off, meta booked call goes on, the owner gets a task to send a personal video, the Sales Call record is created (the recording updates it later; a reschedule moves it), and the team gets the Slack card with the intake answers.",
   "definition": {
     "schema": 1,

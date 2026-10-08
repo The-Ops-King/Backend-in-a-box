@@ -4,6 +4,7 @@
   "category": "lead_intake",
   "stage": "lead",
   "sort": 10,
+  "origin": "spec",
   "description": "A new contact with a phone number gets a card in the setter pipeline (\"Name -- New\", stage New Lead, stage-entered date today) and the tag stat-new. No phone, no card: nobody can call them.",
   "definition": {
     "schema": 1,

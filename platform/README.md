@@ -25,7 +25,7 @@ confirmation email went out through GHL into the contact's thread, the reminder 
 
 ## The workflows (templates, all install OFF)
 
-Every template carries a `stage` on the customer's journey (`src/engine/stages.ts`: lead, booking, pre_call, call, post_call, closing, payments, reactivation, team, engine) and a `sort` inside it; the company page lists workflows in that order, scheduled ones last. A custom workflow sets its own.
+Every template carries a `stage` on the customer's journey (`src/engine/stages.ts`: lead, booking, pre_call, call, post_call, closing, payments, reactivation, team, engine) and a `sort` inside it; the company page lists workflows in that order, scheduled ones last. A custom workflow sets its own. Every template also carries an `origin`: `spec` (built from Tyler's own description, Zap or CRM workflow) or `default` (a starting point the engine shipped, to review or replace); the company page shows it as a badge.
 
 | Template | Starts on | Does |
 |---|---|---|

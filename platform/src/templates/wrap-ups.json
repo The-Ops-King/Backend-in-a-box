@@ -4,6 +4,7 @@
   "category": "reports",
   "stage": "team",
   "sort": 30,
+  "origin": "spec",
   "description": "What happened today, last week, last month, from the engine's own ledger, posted to the reports channel on the company's schedule.",
   "definition": {
     "schema": 1,

@@ -30,8 +30,8 @@ export const recentRuns = (companyId?: string, limit = 25) => asOperator((c) => 
 
 export const company = (slug: string) => asOperator((c) => one<{ id: string; name: string; slug: string; status: string; timezone: string; send_window_start: string; send_window_end: string; mode: "shadow" | "live"; sms_enabled: boolean }>(c, "select * from companies where slug=$1", [slug]));
 
-export const companyWorkflows = (companyId: string) => asOperator((c) => many<{ id: string; name: string; enabled: boolean; reentry_policy: string; current_version: number; diverged: boolean; stage: string | null; sort: number; triggers: string[]; runs_total: number; runs_active: number }>(c, `
-  select w.id, w.name, w.enabled, w.reentry_policy, w.current_version, w.diverged, w.stage, w.sort,
+export const companyWorkflows = (companyId: string) => asOperator((c) => many<{ id: string; name: string; enabled: boolean; reentry_policy: string; current_version: number; diverged: boolean; stage: string | null; sort: number; origin: string | null; triggers: string[]; runs_total: number; runs_active: number }>(c, `
+  select w.id, w.name, w.enabled, w.reentry_policy, w.current_version, w.diverged, w.stage, w.sort, w.origin,
     array(select event_type from workflow_triggers t where t.workflow_id=w.id) as triggers,
     (select count(*) from runs where workflow_id=w.id) as runs_total,
     (select count(*) from runs where workflow_id=w.id and status in ('active','waiting')) as runs_active

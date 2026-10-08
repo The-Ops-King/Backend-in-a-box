@@ -4,6 +4,7 @@
   "category": "reminders",
   "stage": "pre_call",
   "sort": 10,
+  "origin": "spec",
   "description": "Everything the prospect hears between booking and the call: the booking email and text (reply with an emoji to lock in; no reply in 4 hours → tagged unconfirmed and the closers' channel told), then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
   "definition": {
     "schema": 1,

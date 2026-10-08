@@ -4,6 +4,7 @@
   "category": "follow_up",
   "stage": "post_call",
   "sort": 10,
+  "origin": "default",
   "description": "When a call ends with a follow-up outcome, text the next morning.",
   "definition": {
     "schema": 1,
