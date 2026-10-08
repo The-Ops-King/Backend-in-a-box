@@ -9,11 +9,11 @@ import type { ManifestEntry } from "./definition";
  */
 export type BindingKind = "secret" | "id" | "text" | "channel" | "number";
 export type SettingRow = { key: string; kind: BindingKind; required: boolean; usedBy: string[]; value: string | null; masked: string | null; set: boolean };
-export type SettingsGroup = "connections" | "pipelines" | "stages" | "contact_fields" | "opportunity_fields" | "associations" | "calendars" | "slack" | "prompts" | "booking" | "other";
+export type SettingsGroup = "connections" | "pipelines" | "stages" | "contact_fields" | "opportunity_fields" | "associations" | "calendars" | "slack" | "prompts" | "booking" | "alerts" | "other";
 
 export const groupOf = (key: string): SettingsGroup =>
   key.startsWith("secret.") ? "connections" : key.startsWith("crm.pipeline_") ? "pipelines" : key.startsWith("crm.stage_") ? "stages" : key.startsWith("crm.field_contact_") ? "contact_fields" : key.startsWith("crm.field_opportunity_") ? "opportunity_fields"
-  : key.startsWith("crm.assoc_") ? "associations" : key.startsWith("calendar.") ? "calendars" : key.startsWith("slack.channel.") ? "slack" : key.startsWith("prompt.") ? "prompts" : key.startsWith("calendly.") || key.startsWith("booking.") ? "booking" : "other";
+  : key.startsWith("crm.assoc_") ? "associations" : key.startsWith("calendar.") ? "calendars" : key.startsWith("slack.channel.") ? "slack" : key.startsWith("prompt.") ? "prompts" : key.startsWith("calendly.") || key.startsWith("booking.") ? "booking" : key.startsWith("alerts.") ? "alerts" : "other";
 
 export const mask = (kind: BindingKind, value: string) => (kind === "secret" ? (value.length > 6 ? `set · ends with ${value.slice(-4)}` : "set") : value);
 
@@ -24,7 +24,7 @@ export async function settingsRows(c: PoolClient, companyId: string): Promise<Se
   const add = (key: string, kind: BindingKind, required: boolean, by?: string) => { const cur = need.get(key) ?? { kind, required: false, usedBy: new Set<string>() }; cur.required = cur.required || required; if (by) cur.usedBy.add(by); need.set(key, cur); };
   for (const w of wfs) for (const b of w.manifest.bindings) add(b.key, b.kind, b.required, w.name);
   // engine-level keys the screen always offers
-  for (const [k, kind] of [["crm.location_id", "id"], ["secret.ghl_pit", "secret"], ["secret.calendly_token", "secret"], ["calendly.user", "id"], ["calendly.phone_question", "text"], ["calendly.setter_question", "text"], ["booking.setter_rule", "text"], ["crm.default_closer", "id"], ["secret.fathom_api_key", "secret"], ["secret.fathom_webhook", "secret"], ["secret.whop_webhook", "secret"], ["secret.whop_api_key", "secret"], ["whop.webhook_id", "id"], ["slack.name", "text"], ["slack.icon", "text"], ["secret.anthropic_key", "secret"], ["secret.zapier_inbound", "secret"]] as const) add(k, kind, k === "crm.location_id" || k === "secret.ghl_pit");
+  for (const [k, kind] of [["crm.location_id", "id"], ["secret.ghl_pit", "secret"], ["secret.calendly_token", "secret"], ["calendly.user", "id"], ["calendly.phone_question", "text"], ["calendly.setter_question", "text"], ["booking.setter_rule", "text"], ["crm.default_closer", "id"], ["secret.fathom_api_key", "secret"], ["secret.fathom_webhook", "secret"], ["secret.whop_webhook", "secret"], ["secret.whop_api_key", "secret"], ["whop.webhook_id", "id"], ["slack.name", "text"], ["slack.icon", "text"], ["alerts.slack_channel", "channel"], ["alerts.email", "text"], ["alerts.email_from", "text"], ["alerts.webhook", "text"], ["alerts.as_name", "text"], ["alerts.as_icon", "text"], ["secret.resend_key", "secret"], ["secret.anthropic_key", "secret"], ["secret.zapier_inbound", "secret"]] as const) add(k, kind, k === "crm.location_id" || k === "secret.ghl_pit");
   const bound = await many<{ key: string; kind: BindingKind; value: Buffer }>(c, "select key, kind, value from bindings where company_id=$1", [companyId]);
   const have = new Map(bound.map((b) => [b.key, b]));
   for (const b of bound) if (!need.has(b.key)) add(b.key, b.kind, false);   // bound but unused: still shown, so nothing is hidden

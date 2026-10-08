@@ -14,6 +14,8 @@ import { proposeConfig, applyProposal, storeProposal, loadProposal, clearProposa
 import { ghlCatalog } from "@/adapters/ghl/catalog";
 import { many } from "@/db/client";
 import { ensureSchedules, generateReport, periodFor, REPORT_KINDS, type ReportKind } from "@/engine/reports";
+import { CHECKS, ensureHealth, sweepCompany } from "@/engine/health";
+import { announceDue } from "@/engine/alerts";
 import { DateTime } from "luxon";
 
 const back = (slug: string, q: Record<string, string>, hash = "") => { revalidatePath(`/c/${slug}/settings`); revalidatePath(`/c/${slug}`); redirect(`/c/${slug}/settings?${new URLSearchParams(q).toString()}${hash}`); };
@@ -249,5 +251,27 @@ export async function runReportNowAction(f: FormData) {
   });
   revalidatePath(`/c/${slug}/reports`);
   redirect(`/c/${slug}/reports?note=${encodeURIComponent(r.posted ? `${kind} wrap-up posted to Slack` : `${kind} wrap-up generated (${r.why === "shadow" ? "shadow: not posted" : r.why ?? "not posted"})`)}#${r.id}`);
+}
+
+/** The hourly sweep's own settings (D33): on/off, how often, where it posts, who it posts as, which checks run. */
+export async function saveHealthAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId");
+  const every = Math.min(1440, Math.max(5, Number(str(f, "every_minutes")) || 60));
+  const checks = Object.fromEntries(CHECKS.map((c) => [c.id, f.get(`check:${c.id}`) === "on"]));
+  await asOperator(async (c) => {
+    await ensureHealth(c, companyId);
+    await c.query("update health_checks set enabled=$2, every_minutes=$3, channel=nullif($4,''), as_name=nullif($5,''), as_icon=nullif($6,''), checks=$7 where company_id=$1", [companyId, f.get("enabled") === "on", every, str(f, "channel"), str(f, "as_name"), str(f, "as_icon"), checks]);
+    await audit(c, companyId, "health.settings", { enabled: f.get("enabled") === "on", every, checks });
+  });
+  back(slug, { note: "Health check saved" }, "#health");
+}
+
+/** Sweep this company now and say what it found, the way the hourly run would. */
+export async function runHealthNowAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId");
+  const r = await asOperator(async (c) => { const s = await sweepCompany(c, companyId, liveAdapters); const a = await announceDue(c, liveAdapters); return { ...s, ...a }; });
+  const failing = r.findings.filter((x) => !x.ok).length;
+  revalidatePath(`/c/${slug}/health`);
+  redirect(`/c/${slug}/health?note=${encodeURIComponent(`Swept ${r.findings.length} checks: ${failing ? `${failing} failing` : "all fine"}${r.raised ? `, ${r.raised} new alert${r.raised > 1 ? "s" : ""} posted` : ""}${r.resolved ? `, ${r.resolved} resolved` : ""}`)}`);
 }
 

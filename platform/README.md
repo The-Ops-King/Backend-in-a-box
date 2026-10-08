@@ -287,6 +287,34 @@ produce; changes to copy, steps, channels, pipelines or icons go through the cha
 template or the company's copy and re-installs. (`src/engine/edits.ts` and `copy.ts` are the engine
 side of those edits and stay; the dashboard no longer exposes them.)
 
+## Alerts and the health sweep (D33)
+
+The engine says what broke the minute it breaks, and nothing while it works. Every tick, a run that failed
+becomes an alert with the workflow, the step in words, the contact and the error; a poll cursor that has
+failed twice in a row becomes one; a workflow copy the engine cannot parse becomes one. One open alert per
+(company, key): the first time it is posted to the company's destinations (`alerts.slack_channel`,
+`alerts.email` via Resend with `secret.resend_key` and `alerts.email_from`, `alerts.webhook` for a Zap), and
+remembered with its Slack ts. Still open an hour later → a line in that thread, never a new post. Cleared
+(the next run got past the step, the poll succeeded, the sweep found it fine) → "Resolved" in the thread and
+a ✅ reaction on the first post (the Slack app needs `reactions:write`; without it the thread still says
+resolved and says what scope is missing). The dashboard home and each company page show what is open;
+`/c/<slug>/health` shows open alerts, the last sweep check by check, and what cleared recently.
+
+The **health check** is its own automation, per company, with its own clock (default every 60 minutes),
+channel, name and icon, and list of checks, all on the settings page (`health_checks`). It is read-only
+against every vendor. Checks: the GHL token opens the location; every mapped GHL calendar returns free slots
+over the next 7 days (a closer's Google/Outlook sync dropping shows up as no slots: GHL has no flag for it);
+every bound pipeline, stage, contact field and opportunity field still exists; closers on calendars and open
+cards are still users; the Calendly token answers and every mapped event type is active with available
+times over 7 days (same idea: a host's calendar disconnecting empties availability); the Whop key reads
+payments and the engine's Whop webhook still exists and is enabled; the Fathom key lists meetings and the
+Fathom webhook is still registered (Fathom's listing endpoint is unverified: when there is none, the sweep
+falls back to delivery age); the Slack bot token is alive and the bot is in every channel the workflows post
+to; the Anthropic key answers; no enabled workflow is missing a binding. A failed check is an alert like any
+other and clears itself on the next clean sweep. `Sweep now` on the health page runs it on demand.
+Probes live in `src/adapters/*/health.ts` and are injectable (`HealthProbes`), so `src/engine/health.ts`
+is tested without the vendors (`alerts.test.ts`).
+
 ## Readiness (is it safe to go live?)
 
 The company page and every workflow page carry a readiness card built from facts

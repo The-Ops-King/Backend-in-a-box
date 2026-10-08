@@ -620,3 +620,39 @@ create table agreements (
 );
 create index on agreements (company_id, contact_id);
 
+-- D33. The engine tells the operator the minute something fails, and sweeps every connection on a schedule.
+-- One open row per (company, key); announced once, repeated hourly in the thread while open, "resolved" in the thread + ✅ when it clears.
+create table alerts (
+  id                 uuid primary key default gen_random_uuid(),
+  company_id         uuid references companies(id) on delete cascade,   -- null: the engine itself
+  key                text not null,                                     -- step:<workflow>:<node> | poll:<entity> | health:<check>[:<item>] | engine:<what>
+  level              text not null check (level in ('error','warning')),
+  source             text not null check (source in ('step','poll','health','engine')),
+  text               text not null,
+  detail             jsonb not null default '{}',
+  href               text,                                              -- dashboard path to the thing that failed
+  first_seen         timestamptz not null default now(),
+  last_seen          timestamptz not null default now(),
+  announced_at       timestamptz,                                       -- last time it was said (first post or hourly repeat)
+  announce_count     int not null default 0,
+  slack_channel      text,
+  slack_ts           text,                                              -- the first post; repeats and the resolution go in its thread
+  resolved_at        timestamptz,
+  resolved_announced boolean not null default false
+);
+create unique index alerts_open_one on alerts (coalesce(company_id, '00000000-0000-0000-0000-000000000000'::uuid), key) where resolved_at is null;
+create index on alerts (company_id, resolved_at, last_seen);
+
+-- The hourly sweep, per company: its own automation with its own clock, channel, face, and list of checks.
+create table health_checks (
+  company_id     uuid primary key references companies(id) on delete cascade,
+  enabled        boolean not null default true,
+  every_minutes  int not null default 60 check (every_minutes between 5 and 1440),
+  channel        text,                                   -- Slack channel id for sweep alerts; null → the alerts channel (alerts.slack_channel binding)
+  as_name        text,
+  as_icon        text,
+  checks         jsonb not null default '{}',            -- {"<check id>": false} turns one off; absent = on
+  last_run_at    timestamptz,
+  last_result    jsonb not null default '[]'             -- [{check, item, ok, level, text}] from the last sweep
+);
+

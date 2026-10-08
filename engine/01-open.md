@@ -326,3 +326,22 @@ removed; the workflow page is a read-only outline with examples on hover. Config
 GHL-style now means: the chat asks "which stage?", edits the company's copy, re-installs. The
 calendar-per-trigger question (#31) is still open as an engine question, not a UI one.
 
+## 32. Closer ask-back when a call has no recording (and "update this" when it does)
+
+Tyler, 2026-10-08: if Fathom recorded, the call post carries an "update this" link so the closer corrects
+anything; if it did not, DM the closer "Hey, did this person show up?" with two links, one "no, they didn't
+show" (records the no-show, and the GHL status when live) and one "yes, here's what happened" (the
+disposition form, prefilled from Jev's notes when there are any). Decisions asked, not yet answered: wait
+before asking (30 min after the scheduled end proposed), DM with channel fallback, the disposition form's
+questions (Tyler owes them), whether a no-show answer starts the no-show texts, re-nudge cadence. Builds on
+#24 (the no-show half of call-recorded).
+
+## 33. Health probes to verify against live vendors
+
+`GET /calendars/{id}/free-slots` (GHL, version 2021-04-15, epoch-ms startDate/endDate, timezone) and
+`GET /event_type_available_times` (Calendly, 7-day max window) are implemented from the public docs and
+exercised only through fakes so far; the first live sweep on Hair verifies the GHL one. Fathom `GET /webhooks`
+is a guess (returns null → the sweep falls back to delivery age). Whop `GET /webhooks/{id}` likewise.
+Tyler says Calendly exposes whether a host's calendar is connected; if that is an API field rather than the
+dashboard, the sweep should read it instead of inferring from availability.
+

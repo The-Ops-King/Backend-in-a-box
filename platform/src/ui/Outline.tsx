@@ -57,7 +57,8 @@ export function Outline({ def, company, bindings = {}, pk, steps = [], currentNo
     }
   };
 
-  return <ol className="outline">{order.map((id) => {
+  const shown = order.filter((id) => { const n = byId.get(id)!; return !(n.type === "exit" && row(n).label === "Complete."); });   // "done" is implied; a stop with a reason still shows
+  return <ol className="outline">{shown.map((id) => {
     const n = byId.get(id)!; const r = row(n); const st = lastStep.get(id); const here = !st && currentNode === id;
     const after = out(id).filter((e) => n.type !== "branch" && n.type !== "wait_for_reply" && n.type !== "exit" && (e.label || e.when || e.else));   // a labelled edge off a non-branch node is a fork worth naming
     return <li key={id} className={`ol-row ${r.hover ? "has-tip" : ""} ${st ? `st-${st.status}` : here ? "st-here" : ""} ${r.muted ? "ol-muted" : ""}`}>

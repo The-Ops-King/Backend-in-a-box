@@ -52,6 +52,16 @@ export async function whopCreateWebhook(apiKey: string, url: string): Promise<Wh
   if (!w.webhook_secret) throw new Error("whop: webhook created but no signing secret returned (the key may lack developer:manage_webhook)");
   return w;
 }
+/** The webhook the engine made, as Whop sees it now (D33 sweep). `found: false` on 404; `ok: false` when the key cannot read webhooks. */
+export async function whopGetWebhook(apiKey: string, id: string): Promise<{ ok: true; found: boolean; enabled?: boolean; url?: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${BASE}/webhooks/${encodeURIComponent(id)}`, { headers: headers(apiKey) });
+    if (res.status === 404) return { ok: true, found: false };
+    if (!res.ok) return { ok: false, error: `${res.status} ${(await res.text()).slice(0, 160)}` };
+    const w = (await res.json()) as { enabled?: boolean; url?: string };
+    return { ok: true, found: true, enabled: w.enabled, url: w.url };
+  } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 160) }; }
+}
 /** Cheap key check: one payment. */
 export async function whopPing(apiKey: string): Promise<boolean> {
   const res = await fetch(`${BASE}/payments?first=1`, { headers: headers(apiKey) });

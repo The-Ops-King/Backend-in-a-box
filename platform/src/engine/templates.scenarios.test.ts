@@ -47,7 +47,7 @@ const fake: Adapters = {
     deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null,
   },
   classifier: { choice: async (): Promise<Classification> => ({ value: "confirmed", confidence: 0.95, distribution: { confirmed: 0.95 }, unclear: false }) },
-  notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null },
+  notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null, react: async () => true, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
   // answers by which prompt is asked, the way the real model would: classify → is it a sales call, notes → the write-up, rubric → the score
   analyst: { analyze: async (_k, req) => { analyses.push(req.system.slice(0, 40)); const parsed = /setters and leads/.test(req.system) ? { call_type: setterCallType, confidence: 0.9, reason: "qualifying toward a booking" }
     : /setter phone calls/.test(req.system) ? { summary: "Thinning for a year, wants it handled; asked about price and took Thursday at two.", pains: "getting worse for about a year", goals: "feel like himself again", triage: "", fit_quality: 8, digest: "Thinning for a year, wants it handled; asked about price and took Thursday at two.\nPains: getting worse for about a year\nGoals: feel like himself again\nFit: 8/10 — named the problem, a timeline and asked about price" }

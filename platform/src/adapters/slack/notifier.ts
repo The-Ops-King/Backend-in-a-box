@@ -16,6 +16,21 @@ export const slackNotifier: Notifier = {
     if (!data.ok) throw new Error(`slack: ${data.error}`);
     return { ts: data.ts! };
   },
+  async react(token, channelId, ts, emoji) {
+    const res = await fetch("https://slack.com/api/reactions.add", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ channel: channelId, timestamp: ts, name: emoji.replace(/:/g, "") }) });
+    const data = (await res.json()) as { ok: boolean; error?: string };
+    return data.ok || data.error === "already_reacted";
+  },
+  async authTest(token) {
+    const res = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+    const data = (await res.json()) as { ok: boolean; team?: string; user?: string; error?: string };
+    return { ok: data.ok, team: data.team, user: data.user, error: data.error };
+  },
+  async channelInfo(token, channelId) {
+    const res = await fetch(`https://slack.com/api/conversations.info?channel=${encodeURIComponent(channelId)}`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = (await res.json()) as { ok: boolean; channel?: { name?: string; is_member?: boolean }; error?: string };
+    return { ok: data.ok, name: data.channel?.name, member: data.channel?.is_member, error: data.error };
+  },
   async lookupUserByEmail(token, email) {
     const res = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, { headers: { Authorization: `Bearer ${token}` } });
     const data = (await res.json()) as { ok: boolean; user?: { id: string }; error?: string };

@@ -19,6 +19,15 @@ export async function fathomDeleteWebhook(apiKey: string, id: string): Promise<v
   const res = await fetch(`${BASE}/webhooks/${encodeURIComponent(id)}`, { method: "DELETE", headers: headers(apiKey) });
   if (!res.ok && res.status !== 404) throw new Error(`fathom: delete webhook ${res.status}`);
 }
+/** The webhooks registered on this key (D33 sweep). `null` when the API has no listing (then the sweep falls back to delivery age). */
+export async function fathomListWebhooks(apiKey: string): Promise<{ id: string; url?: string; destination_url?: string }[] | null> {
+  const res = await fetch(`${BASE}/webhooks`, { headers: headers(apiKey) });
+  if (res.status === 404 || res.status === 405) return null;
+  if (!res.ok) throw new Error(`fathom: list webhooks ${res.status} ${(await res.text()).slice(0, 160)}`);
+  const data = (await res.json()) as { items?: unknown[]; webhooks?: unknown[] } | unknown[];
+  const list = Array.isArray(data) ? data : data.items ?? data.webhooks ?? [];
+  return list as { id: string; url?: string; destination_url?: string }[];
+}
 /** Cheap key check: one page of meetings. */
 export async function fathomPing(apiKey: string): Promise<boolean> {
   const res = await fetch(`${BASE}/meetings?include_transcript=false`, { headers: headers(apiKey) });

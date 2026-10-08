@@ -6,7 +6,8 @@ import { SaveButton } from "@/ui/SaveButton";
 import { asOperator } from "@/db/client";
 import { ReadinessCard } from "@/ui/Readiness";
 import { groupOf, type SettingRow } from "@/engine/settings";
-import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, saveSlackAction, saveCallTypesAction, describeConfigAction, applyProposalAction, discardProposalAction, saveReportScheduleAction, runReportNowAction } from "@/ui/settings-actions";
+import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, saveSlackAction, saveCallTypesAction, describeConfigAction, applyProposalAction, discardProposalAction, saveReportScheduleAction, runReportNowAction, saveHealthAction, runHealthNowAction } from "@/ui/settings-actions";
+import { CHECKS, ensureHealth } from "@/engine/health";
 import type { Operation } from "@/engine/describe-config";
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ const Hidden = ({ slug, id, section }: { slug: string; id: string; section: stri
 export default async function SettingsPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ note?: string; error?: string }> }) {
   const { slug } = await params; const sp = await searchParams; const d = await loadSettings(slug); if (!d) notFound();
   const schedules = await asOperator((c) => ensureSchedules(c, d.company.id));
+  const health = await asOperator((c) => ensureHealth(c, d.company.id));
   const { company: co, rows, byKey, catalog } = d;
   const row = (k: string) => byKey.get(k) ?? { key: k, kind: k.startsWith("secret.") ? "secret" : "id", required: false, usedBy: [], value: null, masked: null, set: false } as SettingRow;
   const group = (g: ReturnType<typeof groupOf>) => rows.filter((r) => groupOf(r.key) === g);
@@ -68,7 +70,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     {sp.note ? <div className="card ready" style={{ marginBottom: 10 }}><strong>{sp.note}</strong></div> : null}
     {sp.error ? <div className="card ready ready-no" style={{ marginBottom: 10 }}><strong>Not saved.</strong> {sp.error}</div> : null}
     <ReadinessCard r={d.readiness} />
-    <nav className="sub" style={{ margin: "10px 0 18px" }}>{["describe", "company", "connections", "booking", "calltypes", "calendars", "crm", "slack", "prompts", "inbound"].map((s) => <a key={s} href={`#${s}`} style={{ marginRight: 14 }}>{s[0].toUpperCase() + s.slice(1)}</a>)}</nav>
+    <nav className="sub" style={{ margin: "10px 0 18px" }}>{["describe", "company", "connections", "booking", "calltypes", "calendars", "crm", "slack", "alerts", "health", "prompts", "reports", "inbound"].map((s) => <a key={s} href={`#${s}`} style={{ marginRight: 14 }}>{s[0].toUpperCase() + s.slice(1)}</a>)}</nav>
 
     <h2 id="describe">Tell it how things work</h2>
     <form action={describeConfigAction} className="form card settings"><Hidden slug={slug} id={co.id} section="describe" />
@@ -187,12 +189,50 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     <h2 id="slack">Slack</h2>
     <form action={saveSlackAction} className="form card settings"><Hidden slug={slug} id={co.id} section="slack" />
       <p className="sub">{d.slack ? <>Connected to workspace <span className="mono">{d.slack.team_id}</span>.</> : "Not connected: every Slack post is recorded but never posted."} A bot token (xoxb-…) from a Slack app with chat:write; paste <code>disconnect</code> to remove it.</p>
-      <div style={{ display: "flex", gap: 8 }}><input name="botToken" type="password" placeholder="xoxb-…" style={{ minWidth: 320 }} /><SaveButton>{d.slack ? "Replace token" : "Connect Slack"}</SaveButton></div>
+      <div className="row-wrap"><input name="botToken" type="password" placeholder="xoxb-…" style={{ flex: "1 1 240px" }} /><SaveButton>{d.slack ? "Replace token" : "Connect Slack"}</SaveButton></div>
     </form>
     <form action={saveBindingsAction} className="form card settings"><Hidden slug={slug} id={co.id} section="slack" />
       <table className="kv-table"><tbody>{group("slack").map((r) => <Pick key={r.key} row={r} options={d.slackChannels?.map((ch) => ({ value: ch.id, label: `#${ch.name}` }))} placeholder="C0123ABCDEF (channel id)" />)}</tbody></table>
       {d.slack && !d.slackChannels ? <div className="muted" style={{ fontSize: 13 }}>The bot cannot list channels (needs channels:read and groups:read); paste channel ids.</div> : null}
       <SaveButton>Save channels</SaveButton>
+    </form>
+
+    <h2 id="alerts">Alerts</h2>
+    <p className="sub">When a step fails, the engine says so the minute it happens: the step, the contact, the reason. Once; then hourly in the same thread while it stays broken; then "resolved" with a ✅. Pick where that goes. <Link href={`/c/${slug}/health`}>See what is open</Link>.</p>
+    <form action={saveBindingsAction} className="form card settings"><Hidden slug={slug} id={co.id} section="alerts" />
+      <table className="kv-table"><tbody>
+        <tr><td><strong>Slack channel</strong><div className="mono muted" style={{ fontSize: 11.5 }}>alerts.slack_channel</div></td>
+          <td>{d.slackChannels ? <select name="b:alerts.slack_channel" defaultValue={row("alerts.slack_channel").value ?? ""}><option value="">— none —</option>{d.slackChannels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}</select> : <input name="b:alerts.slack_channel" type="text" defaultValue={row("alerts.slack_channel").value ?? ""} placeholder="C0123ABCDEF (channel id)" />}<input type="hidden" name="k:alerts.slack_channel" value="channel" /></td>
+          <td>{row("alerts.slack_channel").set ? <span className="badge b-live">set</span> : <span className="badge b-type">off</span>}</td></tr>
+        <tr><td><strong>Email</strong><div className="mono muted" style={{ fontSize: 11.5 }}>alerts.email · comma-separated</div><div className="muted" style={{ fontSize: 12.5 }}>Needs a Resend key (below) and a sender on a domain verified in Resend.</div></td>
+          <td><input name="b:alerts.email" type="text" defaultValue={row("alerts.email").value ?? ""} placeholder="you@company.com" /><input type="hidden" name="k:alerts.email" value="text" /></td>
+          <td>{row("alerts.email").set ? <span className="badge b-live">set</span> : <span className="badge b-type">off</span>}</td></tr>
+        <tr><td><strong>Email from</strong><div className="mono muted" style={{ fontSize: 11.5 }}>alerts.email_from</div></td>
+          <td><input name="b:alerts.email_from" type="text" defaultValue={row("alerts.email_from").value ?? ""} placeholder="Engine <alerts@yourdomain.com>" /><input type="hidden" name="k:alerts.email_from" value="text" /></td>
+          <td>{row("alerts.email_from").set ? <span className="badge b-live">set</span> : <span className="badge b-type">not set</span>}</td></tr>
+        <Secret row={row("secret.resend_key")} label="Resend API key" hint="Only for alert email to you. The server's RESEND_API_KEY is the fallback." />
+        <tr><td><strong>Webhook</strong><div className="mono muted" style={{ fontSize: 11.5 }}>alerts.webhook · a Zap catch hook, Make, anything that takes JSON</div></td>
+          <td><input name="b:alerts.webhook" type="text" defaultValue={row("alerts.webhook").value ?? ""} placeholder="https://hooks.zapier.com/hooks/catch/…" /><input type="hidden" name="k:alerts.webhook" value="text" /></td>
+          <td>{row("alerts.webhook").set ? <span className="badge b-live">set</span> : <span className="badge b-type">off</span>}</td></tr>
+        <tr><td><strong>Posts as</strong><div className="mono muted" style={{ fontSize: 11.5 }}>alerts.as_name · alerts.as_icon</div></td>
+          <td><div className="grid g2"><input name="b:alerts.as_name" type="text" defaultValue={row("alerts.as_name").value ?? ""} placeholder="Engine alerts" /><input type="hidden" name="k:alerts.as_name" value="text" /><input name="b:alerts.as_icon" type="text" defaultValue={row("alerts.as_icon").value ?? ""} placeholder=":rotating_light: (default) · image URL" /><input type="hidden" name="k:alerts.as_icon" value="text" /></div></td><td /></tr>
+      </tbody></table>
+      <SaveButton>Save alerts</SaveButton>
+    </form>
+
+    <h2 id="health">Health check</h2>
+    <p className="sub">Its own automation: a read-only sweep of every connection on a schedule. Silent while everything works; a failed check is an alert like any other (same thread, same ✅ when it clears). <Link href={`/c/${slug}/health`}>Last sweep, check by check</Link>.</p>
+    <form action={saveHealthAction} className="form card settings"><Hidden slug={slug} id={co.id} section="health" />
+      <div className="row-wrap"><label><input type="checkbox" name="enabled" defaultChecked={health.enabled} /> enabled</label>{health.last_run_at ? <span className="muted" style={{ fontSize: 12 }}>last sweep {health.last_run_at.toISOString()}</span> : null}</div>
+      <div className="grid g2" style={{ marginTop: 8 }}>
+        <label>Every (minutes)<input type="number" name="every_minutes" min={5} max={1440} defaultValue={health.every_minutes} /></label>
+        <label>Slack channel{d.slackChannels ? <select name="channel" defaultValue={health.channel ?? ""}><option value="">— the alerts channel —</option>{d.slackChannels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}</select> : <input type="text" name="channel" defaultValue={health.channel ?? ""} placeholder="C0123ABCDEF (channel id)" />}</label>
+        <label>Posts as (name)<input type="text" name="as_name" defaultValue={health.as_name ?? ""} placeholder="blank = the alerts name" /></label>
+        <label>Icon<input type="text" name="as_icon" defaultValue={health.as_icon ?? ""} placeholder=":stethoscope:" /></label>
+      </div>
+      <div className="muted" style={{ fontSize: 12.5, letterSpacing: ".04em", textTransform: "uppercase", margin: "12px 0 4px" }}>Checks</div>
+      <div className="checks">{CHECKS.map((ck) => <label key={ck.id}><input type="checkbox" name={`check:${ck.id}`} defaultChecked={health.checks[ck.id] !== false} /> <strong>{ck.label}</strong> <span className="muted">· {ck.about}</span></label>)}</div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}><SaveButton>Save health check</SaveButton><button className="btn" type="submit" formAction={runHealthNowAction}>Sweep now</button></div>
     </form>
 
     <h2 id="prompts">Prompts</h2>

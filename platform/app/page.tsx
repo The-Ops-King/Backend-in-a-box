@@ -1,20 +1,21 @@
 import Link from "next/link";
-import { listCompanies, globalStats, recentRuns, engineState, problems } from "@/ui/queries";
+import { listCompanies, globalStats, recentRuns, engineState, problems, openAlertCounts } from "@/ui/queries";
 import { RunsTable } from "@/ui/RunsTable";
 import { ago, badge, when } from "@/ui/format";
 export const dynamic = "force-dynamic";
 export default async function Home() {
-  let data: [Awaited<ReturnType<typeof listCompanies>>, Awaited<ReturnType<typeof globalStats>>, Awaited<ReturnType<typeof recentRuns>>, Awaited<ReturnType<typeof engineState>>, Awaited<ReturnType<typeof problems>>];
-  try { data = await Promise.all([listCompanies(), globalStats(), recentRuns(undefined, 15), engineState(), problems()]); }
+  let data: [Awaited<ReturnType<typeof listCompanies>>, Awaited<ReturnType<typeof globalStats>>, Awaited<ReturnType<typeof recentRuns>>, Awaited<ReturnType<typeof engineState>>, Awaited<ReturnType<typeof problems>>, Awaited<ReturnType<typeof openAlertCounts>>];
+  try { data = await Promise.all([listCompanies(), globalStats(), recentRuns(undefined, 15), engineState(), problems(), openAlertCounts()]); }
   catch (e) { return <Setup error={String((e as Error).message)} />; }
-  const [companies, stats, runs, state, probs] = data;
+  const [companies, stats, runs, state, probs, counts] = data;
+  const alertsOf = (id: string) => counts.find((x) => x.company_id === id);
   const tickAgeMin = state?.value.last_tick ? (Date.now() - new Date(state.value.last_tick).getTime()) / 60e3 : Infinity;
   return (<>
     <h1>Engine</h1>
     <p className="sub">Last scheduler tick {state?.value.last_tick ? ago(state.value.last_tick) : "never"}{state?.value.recovery ? " · in recovery mode" : ""}</p>
     {tickAgeMin > 5 || (probs?.value.problems.length ?? 0) > 0 ? <div className="card ready ready-no" style={{ marginBottom: 12 }}><strong>The engine needs attention</strong><ul className="ready-list">
       {tickAgeMin > 5 ? <li className="blocker"><span className="badge b-failed">stale</span> No tick for {Number.isFinite(tickAgeMin) ? `${Math.round(tickAgeMin)} minutes` : "ever"}: the scheduler is not firing.</li> : null}
-      {(probs?.value.problems ?? []).map((p) => <li key={p.key} className={p.level === "error" ? "blocker" : "warning"}><span className={`badge ${p.level === "error" ? "b-failed" : "b-shadow"}`}>{p.level}</span> {p.text}</li>)}
+      {(probs?.value.problems ?? []).map((p) => <li key={p.key} className={p.level === "error" ? "blocker" : "warning"}><span className={`badge ${p.level === "error" ? "b-failed" : "b-shadow"}`}>{p.level}</span> {p.text}{p.href ? <> · <Link href={p.href}>open</Link></> : null}</li>)}
     </ul></div> : null}
     <div className="grid g4">
       <div className="card stat"><div className="n">{stats?.companies ?? 0}</div><div className="l">active companies</div></div>
@@ -24,8 +25,8 @@ export default async function Home() {
     </div>
     <h2>Companies</h2>
     {companies.length === 0 ? <div className="empty">No companies yet. <code>pnpm install:company …</code></div> :
-    <div className="tbl"><table><thead><tr><th>Company</th><th>Status</th><th>Contacts</th><th>Workflows</th><th>Active runs</th><th>Last poll</th></tr></thead><tbody>
-      {companies.map((c) => <tr key={c.id}><td><Link href={`/c/${c.slug}`}><strong>{c.name}</strong></Link> <span className="mono" style={{ color: "var(--muted)" }}>{c.slug}</span></td><td><span className={badge(c.status)}>{c.status}</span> <span className={c.mode === "live" ? "badge b-live" : "badge b-shadow"}>{c.mode}</span></td><td>{c.contacts}</td><td>{c.workflows}</td><td>{c.active_runs}</td><td>{c.last_poll ? ago(c.last_poll) : "never"}</td></tr>)}
+    <div className="tbl"><table><thead><tr><th>Company</th><th>Status</th><th>Health</th><th>Contacts</th><th>Workflows</th><th>Active runs</th><th>Last poll</th></tr></thead><tbody>
+      {companies.map((c) => <tr key={c.id}><td><Link href={`/c/${c.slug}`}><strong>{c.name}</strong></Link> <span className="mono" style={{ color: "var(--muted)" }}>{c.slug}</span></td><td><span className={badge(c.status)}>{c.status}</span></td><td><Link href={`/c/${c.slug}/health`}>{alertsOf(c.id) ? <span className="badge b-failed">{(alertsOf(c.id)!.errors + alertsOf(c.id)!.warnings)} open</span> : <span className="badge b-live">clear</span>}</Link> <span className={c.mode === "live" ? "badge b-live" : "badge b-shadow"}>{c.mode}</span></td><td>{c.contacts}</td><td>{c.workflows}</td><td>{c.active_runs}</td><td>{c.last_poll ? ago(c.last_poll) : "never"}</td></tr>)}
     </tbody></table></div>}
     <h2>Recent runs</h2>
     <RunsTable runs={runs} />

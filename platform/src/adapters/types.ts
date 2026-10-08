@@ -98,6 +98,12 @@ export interface Notifier {
   post(token: string, channelId: string, text: string, as?: SlackPersona, threadTs?: string): Promise<{ ts: string }>;
   /** Slack user id for an email (users.lookupByEmail; needs users:read.email), null when unknown. A DM is a post to that id. */
   lookupUserByEmail(token: string, email: string): Promise<string | null>;
+  /** reactions.add on a message (needs reactions:write). Resolves false, never throws, when the scope is missing. */
+  react(token: string, channelId: string, ts: string, emoji: string): Promise<boolean>;
+  /** auth.test: is the token alive, and who is it. */
+  authTest(token: string): Promise<{ ok: boolean; team?: string; user?: string; error?: string }>;
+  /** conversations.info: does the channel exist and is the bot in it. */
+  channelInfo(token: string, channelId: string): Promise<{ ok: boolean; name?: string; member?: boolean; error?: string }>;
 }
 /** A long-form read of a document (a call transcript) against an instruction, answered as text or as JSON. */
 export type AnalysisRequest = { system: string; input: string; format: "json" | "text"; maxTokens?: number; model?: string };

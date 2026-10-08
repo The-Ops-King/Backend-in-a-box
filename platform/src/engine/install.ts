@@ -33,6 +33,8 @@ export type InstallInput = {
   /** Call recordings. `apiKey` registers Fathom's webhook at install (needs PUBLIC_URL); `webhookSecret` binds one made by hand. Either way the Zapier door is open too. */
   recording?: { source: "fathom"; apiKey?: string; webhookSecret?: string };
   anthropicKey?: string;                 // bound as secret.anthropic_key; the analyze node reads it (env ANTHROPIC_API_KEY is the fallback)
+  /** Where the engine says what broke (D33): a Slack channel id, email addresses (needs resendKey + emailFrom), a webhook (a Zap). */
+  alerts?: { slackChannel?: string; email?: string; emailFrom?: string; webhook?: string; resendKey?: string; asName?: string; asIcon?: string };
   prompts?: Record<string, string>;      // prompt.<name> overrides; defaults from src/prompts fill the rest
   contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
   templates?: string[];                  // slugs; default all
@@ -104,6 +106,13 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (input.recording?.webhookSecret) await bind("secret.fathom_webhook", "secret", input.recording.webhookSecret);
     if (input.recording?.apiKey) await bind("secret.fathom_api_key", "secret", input.recording.apiKey);
     if (input.anthropicKey) await bind("secret.anthropic_key", "secret", input.anthropicKey);
+    if (input.alerts?.slackChannel) await bind("alerts.slack_channel", "channel", input.alerts.slackChannel);
+    if (input.alerts?.email) await bind("alerts.email", "text", input.alerts.email);
+    if (input.alerts?.emailFrom) await bind("alerts.email_from", "text", input.alerts.emailFrom);
+    if (input.alerts?.webhook) await bind("alerts.webhook", "text", input.alerts.webhook);
+    if (input.alerts?.resendKey) await bind("secret.resend_key", "secret", input.alerts.resendKey);
+    if (input.alerts?.asName) await bind("alerts.as_name", "text", input.alerts.asName);
+    if (input.alerts?.asIcon) await bind("alerts.as_icon", "text", input.alerts.asIcon);
     // prompts: the company's own text wins; a default fills any prompt a template needs that nobody wrote yet
     const boundKeys = new Set((await many<{ key: string }>(c, "select key from bindings where company_id=$1", [companyId])).map((b) => b.key));
     for (const [k, v] of Object.entries(input.prompts ?? {})) await bind(`prompt.${k}`, "text", v);

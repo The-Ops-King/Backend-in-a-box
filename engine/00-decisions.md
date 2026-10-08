@@ -976,3 +976,20 @@ on hover as an example against a made-up contact; no chart, no editors, no circl
 change to copy, steps, channels, pipelines or icons is asked for in the chat and lands as a template
 edit or a company-copy edit plus a re-install, with the version history as the audit trail.
 
+## D33. The engine tells on itself: instant alerts, hourly sweep, silence otherwise (2026-10-08)
+
+Tyler: a closer's calendar disconnected on one offer and nobody knew for a day. So: every failed step is
+announced the minute it fails, with the reason, to wherever the company says (Slack channel, email, a Zap);
+once, then hourly in the same thread while it stays broken; "resolved" in the thread and a ✅ on the first
+post when it clears. No daily "all green": errors only. The hourly sweep is its own automation (clock,
+channel, face, checks all configurable) and read-only against every vendor. Where a vendor has no
+"connected" flag (GHL calendar sync, Calendly host calendars) the sweep reads the symptom: no bookable
+slots over the next 7 days. The dashboard is read-only and phone-first; the chat is the only editor.
+
+### D32, amended the same day
+
+The flow chart came back, as a hover/tap peek under the outline: the list reads well, the branches do not.
+"Complete." is implied and gone. Bindings, versions and the definition sit under "Advanced". Every workflow
+lists who went through it and how it ended; a run is a timeline with the clock ("10/08/26 @ 13:32 ·
+Agreement signed").
+

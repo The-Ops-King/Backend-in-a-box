@@ -1,7 +1,8 @@
 import { asOperator, many, one } from "@/db/client";
 import { parseDefinition, type Definition } from "@/engine/definition";
 import { companyReadiness } from "@/engine/readiness";
-import { currentProblems } from "@/engine/alerts";
+import { currentProblems, openAlerts, recentAlerts } from "@/engine/alerts";
+import { ensureHealth } from "@/engine/health";
 
 export const listCompanies = () => asOperator((c) => many<{ id: string; name: string; slug: string; status: string; mode: string; timezone: string; contacts: number; workflows: number; active_runs: number; last_poll: Date | null }>(c, `
   select co.id, co.name, co.slug, co.status, co.mode, co.timezone,
@@ -123,6 +124,13 @@ export const companyRecordings = (companyId: string, limit = 50) => asOperator((
 export const readiness = (companyId: string, slug: string) => asOperator((c) => companyReadiness(c, companyId, `/c/${slug}`));
 
 export const problems = () => asOperator((c) => currentProblems(c));
+/** Every contact that went through a workflow: when, how it ended, where it stopped. */
+export const workflowRuns = (workflowId: string, limit = 100) => asOperator((c) => many<{ id: string; contact: string; contact_id: string; status: string; current_node: string | null; exit_reason: string | null; started_at: Date; finished_at: Date | null; next_run_at: Date | null; steps: number }>(c, `
+  select r.id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.id as contact_id, r.status, r.current_node, r.exit_reason, r.started_at, r.finished_at, r.next_run_at, (select count(*)::int from run_steps s where s.run_id=r.id) as steps
+  from runs r join contacts ct on ct.id=r.contact_id where r.workflow_id=$1 order by r.started_at desc limit ${limit}`, [workflowId]));
+export const companyAlerts = (companyId: string) => asOperator(async (c) => ({ open: await openAlerts(c, companyId), recent: await recentAlerts(c, companyId) }));
+export const companyHealth = (companyId: string) => asOperator((c) => ensureHealth(c, companyId));
+export const openAlertCounts = () => asOperator((c) => many<{ company_id: string | null; errors: number; warnings: number }>(c, "select company_id, count(*) filter (where level='error')::int as errors, count(*) filter (where level='warning')::int as warnings from alerts where resolved_at is null group by company_id"));
 
 export const triggerCatalog = (companyId: string) => asOperator((c) => many<{ name: string; category: string; workflows: { id: string; name: string; enabled: boolean }[]; seen: number }>(c, `
   select et.name, et.category,

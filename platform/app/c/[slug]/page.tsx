@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { company, companyWorkflows, companyContacts, pollHealth, recentRuns, companyEvents, readiness } from "@/ui/queries";
+import { company, companyWorkflows, companyContacts, pollHealth, recentRuns, companyEvents, readiness, companyAlerts } from "@/ui/queries";
 import { ReadinessCard } from "@/ui/Readiness";
 import { RunsTable } from "@/ui/RunsTable";
 import { ago, badge } from "@/ui/format";
@@ -8,7 +8,7 @@ import { toggleMode } from "@/ui/actions";
 export const dynamic = "force-dynamic";
 export default async function CompanyPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params; const co = await company(slug); if (!co) notFound();
-  const [wfs, contacts, polls, runs, events, ready] = await Promise.all([companyWorkflows(co.id), companyContacts(co.id), pollHealth(co.id), recentRuns(co.id), companyEvents(co.id), readiness(co.id, slug)]);
+  const [wfs, contacts, polls, runs, events, ready, alerts] = await Promise.all([companyWorkflows(co.id), companyContacts(co.id), pollHealth(co.id), recentRuns(co.id), companyEvents(co.id), readiness(co.id, slug), companyAlerts(co.id)]);
   const readyOf = new Map(ready.workflows.map((w) => [w.id, w]));
   return (<>
     <p className="sub"><Link href="/">Companies</Link> / {co.name}</p>
@@ -18,6 +18,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ slug: 
       <div style={{ flex: 1, minWidth: 260 }}>{co.mode === "live" ? <><strong>Live.</strong> Enabled workflows send real messages and write tags, notes and appointment changes to GHL.</> : <><strong>Shadow.</strong> Enabled workflows run fully but write nothing to GHL. Every message, tag and note is recorded as what <em>would</em> have happened. Read-only CRM access is enough.</>}</div>
       <form action={toggleMode}><input type="hidden" name="slug" value={slug} /><button className={`btn ${co.mode === "live" ? "btn-off" : "btn-on"}`} type="submit">{co.mode === "live" ? "Switch to shadow" : "Go live"}</button></form>
     </div>
+    {alerts.open.length ? <div className="card ready ready-no" style={{ marginBottom: 10 }}><strong><Link href={`/c/${slug}/health`}>{alerts.open.length} open alert{alerts.open.length > 1 ? "s" : ""}</Link></strong><ul className="ready-list">{alerts.open.slice(0, 5).map((a) => <li key={a.id} className={a.level === "error" ? "blocker" : "warning"}><span className={`badge ${a.level === "error" ? "b-failed" : "b-shadow"}`}>{a.level}</span> {a.text}</li>)}</ul></div> : <p className="sub"><Link href={`/c/${slug}/health`}>Health: all clear</Link></p>}
     <ReadinessCard r={ready} />
     <h2>Workflows</h2>
     <div className="tbl"><table><thead><tr><th>Workflow</th><th>Triggers</th><th>Re-entry</th><th>Runs</th><th>Enabled</th><th>Ready</th></tr></thead><tbody>
