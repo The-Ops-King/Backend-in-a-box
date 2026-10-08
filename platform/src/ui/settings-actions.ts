@@ -9,6 +9,7 @@ import { liveAdapters } from "@/adapters";
 import { bookingFor } from "@/adapters/types";
 import { calendlyUserByEmail, calendlyWhoAmI } from "@/adapters/calendly/read";
 import { fathomCreateWebhook } from "@/adapters/fathom/client";
+import { whopCreateWebhook } from "@/adapters/whop/client";
 import { proposeConfig, applyProposal, storeProposal, loadProposal, clearProposal, termsFor, type ConfigFacts } from "@/engine/describe-config";
 import { ghlCatalog } from "@/adapters/ghl/catalog";
 import { many } from "@/db/client";
@@ -33,17 +34,32 @@ export async function saveCompanyAction(f: FormData) {
 /** Every field named b:<key> (with kind in k:<key>) is a binding. Empty leaves it as is; clear:<key> removes it. */
 export async function saveBindingsAction(f: FormData) {
   const slug = str(f, "slug"), companyId = str(f, "companyId"), section = str(f, "section");
-  let set = 0, cleared = 0;
+  let set = 0, cleared = 0; const notes: string[] = []; let error = "";
   await asOperator(async (c) => {
+    const touched = new Set<string>();
     for (const [name, raw] of f.entries()) {
       if (name.startsWith("clear:") && raw === "on") { await clearBinding(c, companyId, name.slice(6)); cleared++; continue; }
       if (!name.startsWith("b:")) continue;
       const key = name.slice(2), value = String(raw).trim(); if (!value) continue;
       const kind = (str(f, `k:${key}`) || (key.startsWith("secret.") ? "secret" : key.startsWith("prompt.") || key.startsWith("calendly.") || key.startsWith("booking.") ? "text" : key.startsWith("slack.channel.") ? "channel" : "id")) as BindingKind;
-      await setBinding(c, companyId, key, kind, value); set++;
+      await setBinding(c, companyId, key, kind, value); set++; touched.add(key);
+    }
+    // a provider key is enough: the engine registers its own webhook the moment it has one (no button, no secret to paste)
+    const base = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
+    if (touched.size && base) {
+      const { bindings } = await loadCompany(c, companyId);
+      if (touched.has("secret.fathom_api_key") && !bindings["secret.fathom_webhook"]) {
+        try { const hook = await fathomCreateWebhook(bindings["secret.fathom_api_key"], `${base}/api/webhooks/fathom/${companyId}`); await setBinding(c, companyId, "secret.fathom_webhook", "secret", hook.secret); await setBinding(c, companyId, "fathom.webhook_id", "id", hook.id); notes.push(`Fathom webhook registered (${hook.id})`); }
+        catch (e) { error = `Fathom key saved, but registering the webhook failed: ${String((e as Error).message).slice(0, 140)}`; }
+      }
+      if (touched.has("secret.whop_api_key") && !bindings["secret.whop_webhook"]) {
+        try { const hook = await whopCreateWebhook(bindings["secret.whop_api_key"], `${base}/api/webhooks/whop/${companyId}`); await setBinding(c, companyId, "secret.whop_webhook", "secret", hook.webhook_secret); await setBinding(c, companyId, "whop.webhook_id", "id", hook.id); notes.push(`Whop webhook created (${hook.id})`); }
+        catch (e) { error = `Whop key saved, but creating the webhook failed: ${String((e as Error).message).slice(0, 140)}`; }
+      }
     }
   });
-  back(slug, { note: `${section || "Settings"}: ${set} saved${cleared ? `, ${cleared} cleared` : ""}` }, section ? `#${section}` : "");
+  const note = `${section || "Settings"}: ${set} saved${cleared ? `, ${cleared} cleared` : ""}${notes.length ? ` · ${notes.join(" · ")}` : ""}`;
+  back(slug, error ? { error: `${note}. ${error}` } : { note }, section ? `#${section}` : "");
 }
 
 /** Prove the CRM connection and refresh the roster from it. */

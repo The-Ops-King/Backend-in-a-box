@@ -2,10 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadSettings } from "@/ui/settings-data";
 import { ensureSchedules } from "@/engine/reports";
+import { SaveButton } from "@/ui/SaveButton";
 import { asOperator } from "@/db/client";
 import { ReadinessCard } from "@/ui/Readiness";
 import { groupOf, type SettingRow } from "@/engine/settings";
-import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, registerFathomAction, saveSlackAction, saveCallTypesAction, describeConfigAction, applyProposalAction, discardProposalAction, saveReportScheduleAction, runReportNowAction } from "@/ui/settings-actions";
+import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, saveSlackAction, saveCallTypesAction, describeConfigAction, applyProposalAction, discardProposalAction, saveReportScheduleAction, runReportNowAction } from "@/ui/settings-actions";
 import type { Operation } from "@/engine/describe-config";
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ function Pick({ row, options, placeholder }: { row: SettingRow; options?: Opt[];
 function Secret({ row, label, hint }: { row: SettingRow; label: string; hint?: string }) {
   return <tr className={row.required && !row.set ? "missing" : ""}>
     <td><strong>{label}</strong><div className="mono muted" style={{ fontSize: 11.5 }}>{row.key}</div>{hint ? <div className="muted" style={{ fontSize: 12.5 }}>{hint}</div> : null}</td>
-    <td><input name={`b:${row.key}`} type="password" autoComplete="off" placeholder={row.set ? "paste to replace" : "paste"} /><input type="hidden" name={`k:${row.key}`} value="secret" />{row.set ? <label className="muted" style={{ fontSize: 12.5, marginLeft: 8 }}><input type="checkbox" name={`clear:${row.key}`} /> clear</label> : null}</td>
+    <td><div className="secret-row"><input name={`b:${row.key}`} type="password" autoComplete="off" placeholder={row.set ? "paste to replace" : "paste"} /><input type="hidden" name={`k:${row.key}`} value="secret" />{row.set ? <label className="muted" style={{ fontSize: 12.5 }}><input type="checkbox" name={`clear:${row.key}`} /> clear</label> : null}</div></td>
     <td>{row.set ? <span className="badge b-live">{row.masked}</span> : row.required ? <span className="badge b-failed">missing</span> : <span className="badge b-type">not set</span>}</td>
   </tr>;
 }
@@ -39,6 +40,8 @@ function opWords(op: Operation, d: { liveCalendars: { id: string; name: string }
     case "add_call_type": return `new call type "${op.name}" (${op.category.replace(/_/g, " ")})`;
   }
 }
+/** Every zone the runtime knows, America first: the ones a US sales team picks are at the top, the rest alphabetical. */
+const TIMEZONES = (() => { const all = (Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf("timeZone"); const us = all.filter((z) => z.startsWith("America/") || z === "Pacific/Honolulu"); return [...us, ...all.filter((z) => !us.includes(z))]; })();
 const Hidden = ({ slug, id, section }: { slug: string; id: string; section: string }) => <><input type="hidden" name="slug" value={slug} /><input type="hidden" name="companyId" value={id} /><input type="hidden" name="section" value={section} /></>;
 
 export default async function SettingsPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ note?: string; error?: string }> }) {
@@ -71,7 +74,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     <form action={describeConfigAction} className="form card settings"><Hidden slug={slug} id={co.id} section="describe" />
       <p className="sub">Write it the way you'd tell a new ops hire. The engine already sees every calendar with its questions and hosts, the roster, the pipelines. It proposes the settings it can set and asks about what it can't. Nothing is applied until you say so.</p>
       <textarea name="text" rows={5} defaultValue={d.proposal?.text ?? ""} placeholder={"The '- S' calendar is for setter bookings and the Setter question says who set it. The round-robin strategy call is self-booked. James takes the closing calls. The 30 minute meeting is internal, ignore it."} />
-      <button className="btn btn-on" type="submit">Read it</button>
+      <SaveButton>Read it</SaveButton>
     </form>
     {d.proposal ? <div className="card settings ready">
       <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}><strong>Proposal</strong><span className="muted">from what you wrote</span></div>
@@ -88,7 +91,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     <form action={saveCompanyAction} className="form card settings"><Hidden slug={slug} id={co.id} section="company" />
       <div className="grid g2">
         <label>Name<input name="name" type="text" defaultValue={co.name} required /></label>
-        <label>Time zone (IANA)<input name="timezone" type="text" defaultValue={co.timezone} required /></label>
+        <label>Time zone<select name="timezone" defaultValue={co.timezone} required>{TIMEZONES.includes(co.timezone) ? null : <option value={co.timezone}>{co.timezone}</option>}{TIMEZONES.map((z) => <option key={z} value={z}>{z.replace(/_/g, " ")}</option>)}</select></label>
         <label>Send window opens<input name="send_window_start" type="time" defaultValue={co.send_window_start.slice(0, 5)} /></label>
         <label>Send window closes<input name="send_window_end" type="time" defaultValue={co.send_window_end.slice(0, 5)} /></label>
         <label>Program price (contract value default)<input name="contract_value_default" type="number" step="0.01" defaultValue={co.contract_value_default ?? ""} /></label>
@@ -97,7 +100,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
           <label><input type="checkbox" name="quiet_allow_transactional" defaultChecked={co.quiet_allow_transactional} /> Let automated receipts ("you're booked") go out in dark hours. Human-sounding messages always wait.</label></div>
       </div>
       <div className="muted" style={{ fontSize: 13 }}>Mode is {co.mode}; switch it on the company page.</div>
-      <button className="btn btn-on" type="submit">Save company</button>
+      <SaveButton>Save company</SaveButton>
     </form>
 
     <h2 id="connections">Connections</h2>
@@ -109,14 +112,13 @@ export default async function SettingsPage({ params, searchParams }: { params: P
         <Secret row={row("secret.anthropic_key")} label="Anthropic API key" hint="For the AI steps (call reviews). Per company; the server key is the fallback." />
         <Secret row={row("secret.whop_api_key")} label="Whop API key" hint="Lets the engine create its own Whop webhook and backfill payment history. Needs payment:basic:read and developer:manage_webhook." />
         <Secret row={row("secret.whop_webhook")} label="Whop webhook signing secret" hint="Set when the engine creates the webhook from the API key, or paste one from a webhook you made in Whop." />
-        <Secret row={row("secret.fathom_api_key")} label="Fathom API key" hint="Lets the engine register its own webhook (button below)." />
-        <Secret row={row("secret.fathom_webhook")} label="Fathom webhook secret" hint="Set by the register button, or paste one from a webhook you made in Fathom." />
+        <Secret row={row("secret.fathom_api_key")} label="Fathom API key" hint="Saving it registers the engine's own Fathom webhook automatically." />
+        <Secret row={row("secret.fathom_webhook")} label="Fathom webhook secret" hint="Set automatically from the API key; paste one only if you made the webhook in Fathom yourself." />
       </tbody></table>
-      <button className="btn btn-on" type="submit">Save connections</button>
+      <SaveButton>Save connections</SaveButton>
     </form>
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "8px 0 18px" }}>
       <form action={testGhlAction}><Hidden slug={slug} id={co.id} section="connections" /><button className="btn" type="submit">Test GHL and refresh the roster</button></form>
-      <form action={registerFathomAction} style={{ display: "flex", gap: 8 }}><Hidden slug={slug} id={co.id} section="connections" /><input name="apiKey" type="password" placeholder="Fathom API key (or use the saved one)" style={{ minWidth: 280 }} /><button className="btn" type="submit">{d.inbound.fathomWebhookId ? `Re-register Fathom webhook (${d.inbound.fathomWebhookId})` : "Register Fathom webhook"}</button></form>
     </div>
     {catalog?.errors.length ? <div className="card ready ready-no"><strong>Some GHL lists did not load</strong><ul className="ready-list">{catalog.errors.map((e) => <li key={e} className="warning">{e}</li>)}</ul></div> : null}
 
@@ -130,7 +132,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
         <label>Default phone question<input name="phoneQuestion" type="text" defaultValue={row("calendly.phone_question").value ?? ""} placeholder="Phone Number" /></label>
         <label>Default setter question<input name="setterQuestion" type="text" defaultValue={row("calendly.setter_question").value ?? ""} placeholder="Who set this call?" /></label>
       </div>
-      <button className="btn btn-on" type="submit">Save booking source</button>
+      <SaveButton>Save booking source</SaveButton>
     </form>
     <form action={saveBindingsAction} className="form card settings"><Hidden slug={slug} id={co.id} section="booking" />
       <table className="kv-table"><tbody>
@@ -138,7 +140,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
           <td><select name="b:booking.setter_rule" defaultValue={row("booking.setter_rule").value ?? ""}><option value="">— keep —</option><option value="calendar">calendar: the calendar decides (separate setter calendar)</option><option value="question">question: a named setter means setter-booked</option><option value="either">either: setter calendar or a named setter</option></select><input type="hidden" name="k:booking.setter_rule" value="text" /></td><td>{row("booking.setter_rule").value ?? "calendar (default)"}</td></tr>
         <Pick row={row("crm.default_closer")} options={userOpts} />
       </tbody></table>
-      <button className="btn btn-on" type="submit">Save booking rules</button>
+      <SaveButton>Save booking rules</SaveButton>
     </form>
 
     <h2 id="calltypes">Call types</h2>
@@ -148,7 +150,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
         {d.terms.map((t) => <tr key={t.id}><td><input type="text" name={`term:${t.id}:name`} defaultValue={t.name} /></td><td><select name={`term:${t.id}:category`} defaultValue={t.category}><option value="first_call">first call (triage, discovery)</option><option value="qualifying">qualifying (demo, qualification)</option><option value="closing">closing (the sales call)</option><option value="follow_up">follow-up</option></select></td><td><label><input type="checkbox" name={`term:${t.id}:active`} defaultChecked={t.active} /> active</label>{t.in_use ? <div className="muted" style={{ fontSize: 12 }}>{t.in_use} calendar{t.in_use > 1 ? "s" : ""}</div> : null}</td></tr>)}
         <tr><td><input type="text" name="new_name" placeholder="add one: e.g. Triage" /></td><td><select name="new_category" defaultValue=""><option value="">— category —</option><option value="first_call">first call</option><option value="qualifying">qualifying</option><option value="closing">closing</option><option value="follow_up">follow-up</option></select></td><td></td></tr>
       </tbody></table>
-      <button className="btn btn-on" type="submit">Save call types</button>
+      <SaveButton>Save call types</SaveButton>
     </form>
 
     <h2 id="calendars">Calendars</h2>
@@ -169,7 +171,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
           <datalist id="use-as"><option value="setter" /><option value="phone" /><option value="email" /><option value="noticing_for" /><option value="hair_loss" /><option value="budget" /><option value="source" /></datalist>
           <div className="muted" style={{ fontSize: 12.5 }}>Type a name to use the answer: <code>setter</code> and <code>phone</code> are special; anything else is readable in messages as <code>appointment.answers.name</code>. Blank ignores it.</div></div>
           : <label>Questions (name = question text, one per line)<textarea name="questions" rows={2} defaultValue={questionsText(c.cur?.config.questions)} placeholder={"setter = Who set this call for you\nphone = Best number"} /></label>}
-        <button className="btn btn-on" type="submit">{c.cur ? "Save calendar" : "Map this calendar"}</button>
+        <SaveButton>{c.cur ? "Save calendar" : "Map this calendar"}</SaveButton>
       </form>))}
     {!d.calendars.length && !unmapped.length ? <div className="empty">No calendars yet. Connect the booking source above.</div> : null}
 
@@ -179,25 +181,25 @@ export default async function SettingsPage({ params, searchParams }: { params: P
         const opts = g === "pipelines" ? pipeOpts : g === "stages" ? stageOpts : g === "contact_fields" ? cfOpts : g === "opportunity_fields" ? ofOpts : g === "associations" ? assocOpts : g === "calendars" ? calOpts : undefined;
         return <div key={g}><h3>{g.replace(/_/g, " ")}</h3><table className="kv-table"><tbody>{rs.map((r) => <Pick key={r.key} row={r} options={opts && opts.length ? opts : undefined} />)}</tbody></table></div>; })}
       {!catalog ? <div className="muted">Connect GHL above and the pipelines, stages, fields and associations become drop-downs.</div> : null}
-      <button className="btn btn-on" type="submit">Save CRM ids</button>
+      <SaveButton>Save CRM ids</SaveButton>
     </form>
 
     <h2 id="slack">Slack</h2>
     <form action={saveSlackAction} className="form card settings"><Hidden slug={slug} id={co.id} section="slack" />
       <p className="sub">{d.slack ? <>Connected to workspace <span className="mono">{d.slack.team_id}</span>.</> : "Not connected: every Slack post is recorded but never posted."} A bot token (xoxb-…) from a Slack app with chat:write; paste <code>disconnect</code> to remove it.</p>
-      <div style={{ display: "flex", gap: 8 }}><input name="botToken" type="password" placeholder="xoxb-…" style={{ minWidth: 320 }} /><button className="btn btn-on" type="submit">{d.slack ? "Replace token" : "Connect Slack"}</button></div>
+      <div style={{ display: "flex", gap: 8 }}><input name="botToken" type="password" placeholder="xoxb-…" style={{ minWidth: 320 }} /><SaveButton>{d.slack ? "Replace token" : "Connect Slack"}</SaveButton></div>
     </form>
     <form action={saveBindingsAction} className="form card settings"><Hidden slug={slug} id={co.id} section="slack" />
       <table className="kv-table"><tbody>{group("slack").map((r) => <Pick key={r.key} row={r} options={d.slackChannels?.map((ch) => ({ value: ch.id, label: `#${ch.name}` }))} placeholder="C0123ABCDEF (channel id)" />)}</tbody></table>
       {d.slack && !d.slackChannels ? <div className="muted" style={{ fontSize: 13 }}>The bot cannot list channels (needs channels:read and groups:read); paste channel ids.</div> : null}
-      <button className="btn btn-on" type="submit">Save channels</button>
+      <SaveButton>Save channels</SaveButton>
     </form>
 
     <h2 id="prompts">Prompts</h2>
     <form action={saveBindingsAction} className="form card settings"><Hidden slug={slug} id={co.id} section="prompts" />
       <p className="sub">What the AI is told before it reads a transcript. Each ends with the JSON shape the workflow expects; keep that part.</p>
       {group("prompts").map((r) => <label key={r.key}><strong>{humanKey(r.key)}</strong> <span className="mono muted" style={{ fontSize: 11.5 }}>{r.key}{r.usedBy.length ? ` · ${r.usedBy.join(", ")}` : ""}</span><textarea name={`b:${r.key}`} rows={8} defaultValue={r.value ?? ""} /><input type="hidden" name={`k:${r.key}`} value="text" /></label>)}
-      {group("prompts").length ? <button className="btn btn-on" type="submit">Save prompts</button> : <div className="muted">No installed workflow uses a prompt.</div>}
+      {group("prompts").length ? <SaveButton>Save prompts</SaveButton> : <div className="muted">No installed workflow uses a prompt.</div>}
     </form>
 
     <h2 id="reports">Wrap-ups</h2>
@@ -211,14 +213,14 @@ export default async function SettingsPage({ params, searchParams }: { params: P
         <label>Slack channel{d.slackChannels ? <select name="channel" defaultValue={r.channel ?? ""}><option value="">— the reports channel binding —</option>{d.slackChannels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}</select> : <input type="text" name="channel" defaultValue={r.channel ?? ""} placeholder="C0123ABCDEF, or leave blank for slack.channel.reports" />}</label>
         <div><label><input type="checkbox" name="breakdown:setter" defaultChecked={r.breakdowns.includes("setter")} /> per setter</label> <label><input type="checkbox" name="breakdown:closer" defaultChecked={r.breakdowns.includes("closer")} /> per closer</label> <label><input type="checkbox" name="section:what_they_said" defaultChecked={r.sections.what_they_said !== false} /> what they said (booking-form answers)</label></div>
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button className="btn btn-on" type="submit">Save</button><button className="btn" type="submit" formAction={runReportNowAction}>Generate now</button></div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}><SaveButton>Save</SaveButton><button className="btn" type="submit" formAction={runReportNowAction}>Generate now</button></div>
     </form>)}
 
     <h2 id="inbound">Inbound doors</h2>
     <div className="card settings">
       <table className="kv-table"><tbody>
         <tr><td><strong>Whop webhook</strong></td><td className="mono">{d.inbound.whop}</td><td>needs the signing secret above</td></tr>
-        <tr><td><strong>Fathom webhook</strong></td><td className="mono">{d.inbound.fathom}</td><td>{d.inbound.fathomWebhookId ? `registered (${d.inbound.fathomWebhookId})` : "register above, or make one in Fathom and paste its secret"}</td></tr>
+        <tr><td><strong>Fathom webhook</strong></td><td className="mono">{d.inbound.fathom}</td><td>{d.inbound.fathomWebhookId ? `registered (${d.inbound.fathomWebhookId})` : "set automatically when the Fathom API key is saved; or make one in Fathom and paste its secret"}</td></tr>
         <tr><td><strong>Zapier → payment</strong></td><td className="mono">{d.inbound.zapierPayment}</td><td>header x-engine-secret</td></tr>
         <tr><td><strong>Zapier → recording</strong></td><td className="mono">{d.inbound.zapierRecording}</td><td>header x-engine-secret</td></tr>
         <tr><td><strong>Zapier secret</strong></td><td className="mono">{d.inbound.secret ?? "— generated on first install —"}</td><td>same for both Zapier doors</td></tr>

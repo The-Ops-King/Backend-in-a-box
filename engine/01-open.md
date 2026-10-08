@@ -308,3 +308,15 @@ that @mentions them (`<@U…>`); and a GHL task on the contact assigned to the o
 visible inside GHL. Slack app scopes this needs when Tyler creates it: `chat:write`, `im:write`,
 `users:read`, `users:read.email` (plus `channels:read`, `groups:read` for the channel picker).
 
+## 31. Settings move onto the steps (next block, after the end-to-end test)
+Tyler, 2026-10-08, on seeing the settings page: "just like in GHL, it should be configured each time."
+Agreed shape: the settings page keeps only company-wide things (company, timezone, send window, price,
+reached-seconds; one key per connection, with webhooks registered automatically on save; wrap-up
+schedule; inbound door addresses). Every other setting is asked on the step that uses it, each time,
+GHL-style — "you said the closer pipeline, which stage?" — pipelines, stages, fields, associations,
+Slack channels, prompts, the agreement template and sender, calendars ("trigger on X or Y or Z
+calendar", one trigger with several calendars or several triggers). No shared defaults pre-filled
+from another step. A read-only audit view of everything the company uses stays on the company page.
+Small fixes shipped first: timezone dropdown, saving state on every button, Fathom/Whop webhooks
+registered on key save (no button), secret rows that do not wrap.
+
