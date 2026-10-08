@@ -78,6 +78,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`insert into event_types values ('agreement.sent','agreement'), ('agreement.signed','agreement') on conflict do nothing`);   // D30
     await c.query(`alter table contacts add column if not exists assigned_ghl_user_id text`);
     await c.query(`alter table runs add column if not exists pending_events jsonb not null default '[]'`);
+    // runs.trigger_id is history: a template upgrade that drops a trigger node must not be blocked by the runs it once started
+    await c.query(`alter table runs drop constraint if exists runs_trigger_id_fkey`);
+    await c.query(`alter table runs add constraint runs_trigger_id_fkey foreign key (trigger_id) references workflow_triggers(id) on delete set null`);
     await ownsOrAbsent(c, "agreements", "signed_at");
     await c.query(`create table if not exists agreements (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, contact_id uuid references contacts(id), external_id text not null, name text, status text not null, sent_at timestamptz not null, signed_at timestamptz, sent_by text, raw jsonb not null default '{}', updated_at timestamptz not null default now(), unique (company_id, external_id))`);
     await c.query(`create index if not exists agreements_company_id_contact_id_idx on agreements (company_id, contact_id)`);

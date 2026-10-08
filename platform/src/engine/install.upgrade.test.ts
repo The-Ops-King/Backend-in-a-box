@@ -56,6 +56,17 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
     expect(started2).toHaveLength(1);
   });
 
+  it("upgrading a workflow that already has runs keeps their trigger row (no FK failure, same trigger id)", async () => {
+    const wf = (await asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='new-lead'", [companyId])))!;
+    const before = await asOperator((c) => one<{ id: string; n: string }>(c, "select t.id, count(r.id)::text as n from workflow_triggers t left join runs r on r.trigger_id=t.id where t.workflow_id=$1 group by t.id", [wf.id]));
+    expect(Number(before!.n)).toBeGreaterThan(0);   // the previous test started a run on this trigger
+    await asOperator((c) => c.query("update workflows set template_version=0 where id=$1", [wf.id]));   // pretend the template moved on again
+    const again = await installCompany(base, fake);
+    expect(again.installed.find((s) => s.startsWith("new-lead"))).toMatch(/upgraded/);
+    const after = await asOperator((c) => one<{ id: string }>(c, "select id from workflow_triggers where workflow_id=$1", [wf.id]));
+    expect(after!.id).toBe(before!.id);
+  });
+
   it("a re-install without a pit keeps the stored token; a new company without one is refused", async () => {
     const { slug: _s, pit: _p, ...rest } = base;
     const again = await installCompany({ ...rest, slug: "upg" }, fake);

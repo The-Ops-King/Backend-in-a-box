@@ -43,6 +43,15 @@ export type InstallInput = {
   quietHours?: { start?: string; end?: string; allowTransactional?: boolean };
 };
 
+/** Trigger rows follow the definition in place: a node that is still there keeps its row (runs point at it), a new node gets one, a gone node loses its (runs keep their history via on delete set null). */
+export async function syncTriggers(c: import("pg").PoolClient, companyId: string, workflowId: string, def: ReturnType<typeof parseDefinition>): Promise<void> {
+  const triggers = indexDefinition(def).triggers;
+  for (const trig of triggers)
+    await c.query(`insert into workflow_triggers (company_id, workflow_id, node_id, event_type, match) values ($1,$2,$3,$4,$5)
+      on conflict (workflow_id, node_id) do update set event_type=excluded.event_type, match=excluded.match`, [companyId, workflowId, trig.id, trig.event, trig.match ?? {}]);
+  await c.query("delete from workflow_triggers where workflow_id=$1 and not (node_id = any($2::text[]))", [workflowId, triggers.map((t) => t.id)]);
+}
+
 /** Key-order-independent JSON, so a template that merely round-tripped through jsonb is not "changed". */
 const canon = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) : x));
 
@@ -149,15 +158,14 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
         const next = existing.current_version + 1;
         await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [existing.id, next, t.definition, manifest, `upgraded to template v${tpl!.version}`]);
         await c.query("update workflows set current_version=$2, template_version=$3, name=$4, reentry_policy=$5, reentry_window=$6 where id=$1", [existing.id, next, tpl!.version, t.name, def.reentry, def.reentry_window ?? null]);
-        await c.query("delete from workflow_triggers where workflow_id=$1", [existing.id]);
-        for (const trig of indexDefinition(def).triggers) await c.query("insert into workflow_triggers (company_id, workflow_id, node_id, event_type, match) values ($1,$2,$3,$4,$5)", [companyId, existing.id, trig.id, trig.event, trig.match ?? {}]);
+        await syncTriggers(c, companyId, existing.id, def);
         await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.upgraded','workflow',$2,$3,$4)", [companyId, existing.id, { version: existing.current_version, template_version: existing.template_version }, { version: next, template_version: tpl!.version }]);
         installed.push(`${t.slug} → upgraded v${existing.current_version}→v${next} (template v${tpl!.version})${missingNote}`);
         continue;
       }
       const wf = await one<{ id: string }>(c, `insert into workflows (company_id, template_id, template_version, name, reentry_policy, reentry_window) values ($1,$2,$3,$4,$5,$6) returning id`, [companyId, tpl!.id, tpl!.version, t.name, def.reentry, def.reentry_window ?? null]);
       await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'installed from template')", [wf!.id, t.definition, manifest]);
-      for (const trig of indexDefinition(def).triggers) await c.query("insert into workflow_triggers (company_id, workflow_id, node_id, event_type, match) values ($1,$2,$3,$4,$5)", [companyId, wf!.id, trig.id, trig.event, trig.match ?? {}]);
+      await syncTriggers(c, companyId, wf!.id, def);
       if (input.enable && !missing.length) await c.query("update workflows set enabled=true where id=$1", [wf!.id]);
       installed.push(`${t.slug} → ${missing.length ? `OFF, missing: ${missing.join(", ")}` : input.enable ? "enabled" : "installed OFF"}`);
     }

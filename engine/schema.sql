@@ -450,7 +450,7 @@ create table runs (
   contact_id          uuid not null references contacts(id),
   opportunity_id      uuid references opportunities(id),
   appointment_id      uuid references appointments(id),
-  trigger_id          uuid references workflow_triggers(id),
+  trigger_id          uuid references workflow_triggers(id) on delete set null,   -- which trigger started it; history survives a trigger node being removed
   triggered_by_event  bigint references events(id),
   status              text not null default 'active'
                       check (status in ('active','waiting','paused','completed','exited','failed')),
