@@ -90,8 +90,10 @@ export type Classification = { value: string; confidence: number; distribution: 
 export interface Classifier {
   choice(state: string | undefined, input: string, options: string[], threshold: number): Promise<Classification>;
 }
+/** Who the post appears to come from (Slack `chat:write.customize`): a display name and an emoji (":calendar:") or an image URL. Blank = the app itself. */
+export type SlackPersona = { name?: string; icon?: string };
 export interface Notifier {
-  post(token: string, channelId: string, text: string): Promise<{ ts: string }>;
+  post(token: string, channelId: string, text: string, as?: SlackPersona): Promise<{ ts: string }>;
   /** Slack user id for an email (users.lookupByEmail; needs users:read.email), null when unknown. A DM is a post to that id. */
   lookupUserByEmail(token: string, email: string): Promise<string | null>;
 }

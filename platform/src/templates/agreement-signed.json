@@ -31,7 +31,7 @@
         "id": "s1",
         "type": "slack_post",
         "channel": "{{slack.channel.deals}}",
-        "template": "*Agreement signed:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{agreement.name | default:agreement}}\n*Signed:* {{agreement.signed_at | date_company}} · *Paid so far:* ${{contact.cash_collected}} · *Owner:* {{contact.owner.name | default:unassigned}}"
+        "template": "*Agreement signed:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Signed:* {{agreement.signed_at | date_company}} · *Owner:* {{contact.owner.name | default:unassigned}}"
       },
       {
         "id": "x1",

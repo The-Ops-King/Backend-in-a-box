@@ -98,7 +98,7 @@ export async function saveStepAction(formData: FormData) {
     // one picker carries "pipelineId|stageId" so the stage always matches its pipeline
     const combo = g("pipeline_stage"); const [pipeline, stage] = combo ? combo.split("|") : [undefined, undefined];
     edit = { type, pipeline, stage, name: g("name"), assign_to: g("assign_to"), status: g("status") as StepEdit extends { status?: infer S } ? S : never, if_missing: (g("if_missing") || undefined) as "create" | "skip" | undefined };
-  } else if (type === "slack_post") edit = { type, channel: g("channel") };
+  } else if (type === "slack_post" || type === "notify_owner") edit = { type, channel: g("channel"), as_name: g("as_name"), as_icon: g("as_icon") };
   else if (type === "set_tag" || type === "remove_tag") edit = { type, tags: (g("tags") ?? "").split(/[\n,]/) };
   else if (type === "update_contact") edit = { type, assign_to: g("assign_to") };
   else if (type === "create_task") edit = { type, assign_to: g("assign_to"), due: g("due") };

@@ -142,7 +142,7 @@
         "id": "n5",
         "type": "slack_post",
         "channel": "{{slack.channel.payments}}",
-        "template": "*Payment received:* {{event.amount}} {{event.currency | upper}} · {{event.kind}}\n*From:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Collected so far:* {{event.running_total}} of {{event.contract_value | default:?}} · outstanding {{event.outstanding | default:?}}\n*Closer:* {{cards.closer.owner.name | default:unassigned}} · *Setter:* {{contact.fields.setter | default:none}}"
+        "template": "*Payment received:* ${{event.amount}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Closer:* {{cards.closer.owner.name | default:unassigned}}\n{{contact.fields.setter | prefix:*Setter:* }}"
       },
       {
         "id": "x1",

@@ -46,8 +46,9 @@ export const Node = z.discriminatedUnion("type", [
   // Sends a Documents & Contracts template to the contact from `sender` (a CRM user id), and records it in the agreements ledger. Skipped in shadow like every CRM write.
   z.object({ ...base, type: z.literal("send_document"), template: z.string(), sender: z.string().optional(), name: z.string().optional() }),
   // Nudges the contact's owner (CRM assignee, else crm.default_closer): a Slack DM when the owner can be found in Slack, else the fallback channel with an @mention; plus a CRM task on the contact when `task` is set.
-  z.object({ ...base, type: z.literal("notify_owner"), template: z.string(), fallback_channel: z.string().optional(), task: z.object({ title: z.string(), due: z.string().default("+1d") }).optional() }),
-  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string() }),
+  z.object({ ...base, type: z.literal("notify_owner"), template: z.string(), fallback_channel: z.string().optional(), task: z.object({ title: z.string(), due: z.string().default("+1d") }).optional(), as: z.object({ name: z.string().optional(), icon: z.string().optional() }).optional() }),
+  // `as`: the display name and icon the post appears under (Zapier-style), blank = the app; editable on the step
+  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string(), as: z.object({ name: z.string().optional(), icon: z.string().optional() }).optional() }),
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string() }),
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),
   z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string() }),

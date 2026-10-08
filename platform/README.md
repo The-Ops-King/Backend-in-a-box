@@ -204,7 +204,10 @@ second. A trigger that arrives while a run still holds the key is remembered on 
 and replayed if that run stops at a gate, so two triggers in the same minute cannot lose one. **notify_owner** DMs the contact's owner in Slack (looked up by email, cached as
 `users.slack_user_id`; the app needs `im:write`, `users:read`, `users:read.email`), else posts to the
 fallback channel with an @mention, and optionally creates a CRM task on the contact. **CRM templates:**
-`send_sms` / `send_email` take `ghl_template` (an SMS snippet id or an email builder template id,
+Every Slack post can carry its own display name and icon (`as: { name, icon }` on `slack_post` and
+`notify_owner`, editable on the step; company defaults as bindings `slack.name` / `slack.icon`; needs the app scope
+`chat:write.customize`). Template filter `prefix:` renders a labelled line only when the value exists
+(`{{contact.fields.setter | prefix:*Setter:* }}`). `send_sms` / `send_email` take `ghl_template` (an SMS snippet id or an email builder template id,
 editable on the step), and the CRM's copy wins when it exists. Harness actions `agreement` (a sent,
 unsigned document) and `sign` (completed) stage the document side.
 

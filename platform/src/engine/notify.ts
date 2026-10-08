@@ -18,6 +18,6 @@ export async function notifyTeam(c: PoolClient, company: CompanyRow, bindings: R
     values ($1, null, null, 'slack', $2, $3, $4, $5, now(), case when $4 in ('sent','shadow') then now() end)`,
     [company.id, `notify:${channel}:${randomUUID()}`, text, status, status === "suppressed" ? (conn ? "unbound: slack channel" : "unbound: slack") : null]);
   if (status === "suppressed") return { posted: false, why: status };
-  await slackNotifier.post(decrypt(conn!.bot_token), channelId!, status === "shadow" ? `🧪 *shadow* — ${text}` : text);   // the team sees shadow posts, labelled (D31)
+  await slackNotifier.post(decrypt(conn!.bot_token), channelId!, status === "shadow" ? `🧪 *shadow* — ${text}` : text, { name: bindings["slack.name"], icon: bindings["slack.icon"] });   // the team sees shadow posts, labelled (D31)
   return { posted: true, why: status === "shadow" ? "shadow" : undefined };
 }

@@ -153,7 +153,7 @@ export async function generateReport(c: PoolClient, company: CompanyRow, binding
     [company.id, `report:${s.kind}:${period.start}:${randomUUID().slice(0, 8)}`, body, status, status === "suppressed" ? (conn ? "unbound: slack channel" : "unbound: slack") : null]);
   let posted = false, why: string | undefined = status === "sent" ? undefined : status;
   if (status !== "suppressed") {
-    try { const r = await slackNotifier.post(decrypt(conn!.bot_token), channelId!, status === "shadow" ? `🧪 *shadow* — ${body}` : body); await c.query("update sends set external_id=$2 where id=$1", [send!.id, r.ts]); posted = true; }
+    try { const r = await slackNotifier.post(decrypt(conn!.bot_token), channelId!, status === "shadow" ? `🧪 *shadow* — ${body}` : body, { name: bindings["slack.name"], icon: bindings["slack.icon"] }); await c.query("update sends set external_id=$2 where id=$1", [send!.id, r.ts]); posted = true; }
     catch (e) { why = String((e as Error).message); await c.query("update sends set status='failed', error=$2 where id=$1", [send!.id, why]); }
   }
   const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers, send_id) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id",

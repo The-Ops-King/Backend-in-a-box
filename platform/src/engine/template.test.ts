@@ -30,4 +30,10 @@ describe("render", () => {
   it("date filter honors tz", () => expect(render("{{appointment.starts_at | date:h:mma}}", ctx, { now, tz: "America/Phoenix" })).toBe("3:00PM"));
   it("unknown path throws (save-time validation relies on this)", () => expect(() => render("{{contact.nickname}}", ctx, { now, tz: "UTC" })).toThrow(UnknownPathError));
   it("default filter tolerates a missing path", () => expect(render("{{contact.nickname | default:friend}}", ctx, { now, tz: "UTC" })).toBe("friend"));
+  it("prefix: a labelled line only when there is a value", () => {
+    const env = { now, tz: "UTC" };
+    expect(render("{{contact.fields.setter | prefix:*Setter:* }}", { contact: { fields: { setter: "Luis" } } }, env)).toBe("*Setter:* Luis");
+    expect(render("{{contact.fields.setter | prefix:*Setter:* }}", { contact: { fields: { setter: "" } } }, env)).toBe("");
+    expect(render("{{contact.fields.setter | prefix:*Setter:* }}", { contact: { fields: {} } }, env)).toBe("");
+  });
 });

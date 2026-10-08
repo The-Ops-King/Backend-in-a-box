@@ -62,6 +62,8 @@ const filters: Record<string, Filter> = {
   // an analysis object as Slack / note text: keys become labels, lists become bullets, anything named like a quote is a blockquote
   lines: (v) => renderLines(v),
   truncate: (v, arg) => { const n = Number(arg ?? 300); const s = String(v ?? ""); return s.length > n ? `${s.slice(0, n - 1)}…` : s; },
+  // a labelled line only when there is a value: {{contact.fields.setter | prefix:*Setter:* }} → "*Setter:* Luis", or nothing at all
+  prefix: (v, arg) => (v === undefined || v === null || v === "" ? "" : `${arg ?? ""} ${v}`.trim()),
 };
 
 const isEmpty = (v: unknown) => v === null || v === undefined || v === "" || (Array.isArray(v) && !v.length) || (typeof v === "object" && !Array.isArray(v) && !Object.keys(v as object).length);
