@@ -282,8 +282,10 @@ words over the four categories. **Tell it how things work** (top of the page) tu
 the live facts into a proposal — calendars mapped, setter rule, default closer, roles, call types —
 with the questions it still has; apply or discard. Needs an Anthropic key (company or server).
 
-On each workflow page, **Step settings** sets pipelines, stages, owners, Slack channels and tags on the
-step itself from live lists, GHL-style; the choice is written onto the company's copy (D26).
+Nothing on a workflow page is editable (D32): the page shows what the workflow does and what it would
+produce; changes to copy, steps, channels, pipelines or icons go through the chat, which edits the
+template or the company's copy and re-installs. (`src/engine/edits.ts` and `copy.ts` are the engine
+side of those edits and stay; the dashboard no longer exposes them.)
 
 ## Readiness (is it safe to go live?)
 
@@ -365,8 +367,9 @@ answers are on the appointment as `{{appointment.answers.<name>}}`. Templates on
 
 ### The copy
 
-The workflow page shows every message the workflow can send, in full, with ⟨placeholders⟩ visible.
-Editing copy without touching the flow is the next build (text bindings per company).
+Hover any line of a workflow's outline to see the message it produces, rendered as an example
+against a made-up contact (`src/engine/example.ts`: Jane Doe, Allan P, Luis, $1,500, tomorrow 2pm).
+It is an example, not a preview: the point is to read the copy the way the team will, not the template.
 
 ## Dark hours
 
@@ -398,31 +401,22 @@ location with all nine workflows on: zero messages, zero tags reached GHL.
 So: install with a read-only token → let it run → read `/c/<slug>/sends` ("Would have sent") →
 fix copy or timing → **Go live** on the company page, then turn workflows on one at a time.
 
-## Reading a flow chart
+## Reading a workflow
 
-Every chart uses the same vocabulary, drawn by `src/engine/mermaid.ts` from the plain-English
-descriptions in `src/engine/describe.ts` (the step list uses the same words, so the two never
-disagree). Shape and fill say what a step *is*; the outline says what *happened* to it in a run.
-
-| Shape | Fill | Meaning |
-|---|---|---|
-| pill | green | starts when (the trigger) |
-| box | blue | a message goes out (text, email, Slack) |
-| box | amber | a change in the CRM (tag, note, pipeline card, appointment) |
-| diamond | grey | a decision (check, branch); a check's "if not" path is a dashed edge to its stop |
-| double bar | dark | a wait (for a time, or for a reply) |
-| box | violet | the AI reads something (a reply, a transcript) |
-| double circle | dark | the run stops, with its reason |
-
-Outline: green solid = ran, blue dashed = waiting here, red = failed, amber dotted = skipped or
-stale, white = the current step. A legend sits under every chart.
+A workflow is shown as a short numbered list (`src/ui/Outline.tsx`), read top to bottom the way it
+runs: `When: Agreement signed` · `Add tag: stat-agreement-signed` · `Add internal note: "Agreement
+signed…"` · `Post to Slack: #deals` · `Complete.` Names come from the company's own lists (pipeline and
+stage names, #channel names, team names), never ids. A branch reads as "Depending on: a → #4, b → #7".
+Hover a line to see what it produces as an example. On a run page the same list carries a colored
+edge per step: green ran, blue waiting here, red failed, amber skipped. The words come from
+`src/engine/describe.ts`, so the outline and the engine's own descriptions never disagree.
 
 ## The dashboard
 
 Read-only except one button. `/` engine health and companies · `/c/<slug>` workflows, poll
-health, runs, latest events, contacts · `/c/<slug>/w/<id>` a workflow as a flow chart and step
-list, bindings, versions, **Turn on / Turn off** · `/c/<slug>/r/<id>` a run on its chart with
-every step colored · `/c/<slug>/appointments` last 7 and next 14 days, flags calls needing a
+health, runs, latest events, contacts · `/c/<slug>/w/<id>` a workflow as an outline with
+examples on hover, bindings, versions, definition (audit), **Turn on / Turn off** · `/c/<slug>/r/<id>` a run
+on the same outline with every step colored · `/c/<slug>/appointments` last 7 and next 14 days, flags calls needing a
 disposition · `/c/<slug>/appointments/<id>` the **disposition form** (did they show, how it
 went, notes) · `/c/<slug>/contacts/<id>` the journey · `/c/<slug>/sends` every message sent, suppressed, failed, or (in shadow) would-have-sent · **Go live / Switch to shadow** on the company page.
 

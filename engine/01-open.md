@@ -320,3 +320,9 @@ from another step. A read-only audit view of everything the company uses stays o
 Small fixes shipped first: timezone dropdown, saving state on every button, Fathom/Whop webhooks
 registered on key save (no button), secret rows that do not wrap.
 
+Revised the same day (D32): no step settings in the dashboard at all. Tyler: "I'd rather have NOTHING
+editable there and ONLY have it through this chat." The per-step pickers and the copy editor were
+removed; the workflow page is a read-only outline with examples on hover. Configuring a step
+GHL-style now means: the chat asks "which stage?", edits the company's copy, re-installs. The
+calendar-per-trigger question (#31) is still open as an engine question, not a UI one.
+

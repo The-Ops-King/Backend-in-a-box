@@ -86,3 +86,23 @@ details.steps summary{cursor:pointer;color:var(--grey-mid);font-size:15px;margin
 .form input[type=text],.form input[type=password],.form input[type=number],.form input[type=time]{font:inherit;width:100%;max-width:420px;padding:8px 10px;border:1px solid var(--hair);border-radius:var(--radius-btn);background:var(--ink-deep);color:var(--bone)}
 .kv-table{width:100%;border-collapse:collapse}.kv-table td{padding:8px 10px;border-bottom:1px solid var(--hair);vertical-align:top}.kv-table td:first-child{min-width:150px}.kv-table td:last-child{white-space:nowrap;width:1%}.kv-table .badge{white-space:nowrap}.secret-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.secret-row input[type=password]{flex:1;min-width:160px}.kv-table tr.missing td:first-child{border-left:3px solid var(--red)}.kv-table select,.kv-table input[type=text],.kv-table input[type=password]{max-width:100%;width:100%}
 .calendar .grid{align-items:end}
+/* the outline: a workflow as a short list; hover a line for what it produces */
+.outline{list-style:none;margin:0;padding:0;background:var(--raised);border:1px solid var(--hair);border-radius:var(--radius-card);box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
+.ol-row{position:relative;display:grid;grid-template-columns:34px minmax(120px,max-content) 1fr auto;gap:0 14px;align-items:baseline;padding:11px 18px;border-top:1px solid var(--hair-soft)}
+.ol-row:first-child{border-top:0}
+.ol-n{font-family:var(--mono);font-size:12px;color:var(--grey-dim)}
+.ol-label{color:var(--grey-mid);font-size:15px}
+.ol-value{color:var(--bone);font-size:16px;line-height:1.5;min-width:0;overflow-wrap:anywhere}
+.ol-value .muted{color:var(--grey-dim);font-size:14px}
+.ol-muted .ol-value,.ol-muted .ol-label{color:var(--grey-dim);font-size:14px}
+.ol-tag{font-family:var(--mono);font-size:13.5px;background:var(--ink-deep);border:1px solid var(--hair);border-radius:4px;padding:1px 7px;margin-right:6px}
+.ol-forks{display:block;margin-top:3px}
+.ol-edge{display:block;font-size:14px;color:var(--grey-mid)}
+.ol-ref{color:var(--accent-text)}
+.ol-err{grid-column:2/-1;color:var(--bad);font-size:13.5px;margin-top:4px}
+.ol-row.st-ok,.ol-row.st-completed{border-left:3px solid var(--accent-text)}.ol-row.st-waiting,.ol-row.st-here{border-left:3px solid var(--blue)}.ol-row.st-failed{border-left:3px solid var(--red)}.ol-row.st-skipped,.ol-row.st-stale{border-left:3px solid var(--amber)}
+.ol-row.has-tip .ol-value{cursor:help;text-decoration:underline dotted var(--grey-dim);text-underline-offset:4px}
+.ol-tip{display:none;position:absolute;z-index:20;left:34px;right:18px;top:calc(100% - 4px);max-width:720px;background:var(--ink-deep);border:1px solid var(--hair);border-radius:var(--radius-card);padding:12px 14px;box-shadow:0 18px 40px rgba(0,0,0,.55);font-size:14.5px;color:var(--bone);white-space:pre-wrap;line-height:1.5}
+.ol-row.has-tip:hover .ol-tip{display:block}
+.ol-tip-h{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--grey-dim);margin:6px 0 4px}.ol-tip-h:first-child{margin-top:0}
+.ol-tip-b{color:var(--bone)}.ol-tip-f{margin-top:8px;font-size:12px;color:var(--grey-dim)}

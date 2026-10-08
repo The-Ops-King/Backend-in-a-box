@@ -967,3 +967,12 @@ against the team, else printed plain). The call post is the facts (name, recordi
 next steps) and the scorecard goes into its thread. Days to close counts first booking → first payment. The AI's
 congratulations line is optional decoration: no key, no line, the post still goes out.
 
+## D32. The dashboard shows; the chat changes (2026-10-08)
+
+Tyler, on seeing half-editable step settings: "I'd rather have NOTHING editable there and ONLY have it
+through this chat." So the dashboard is read-only (the one exception stays: Turn on / Turn off, and Go
+live). A workflow is a short outline a person reads top to bottom, with what each line produces shown
+on hover as an example against a made-up contact; no chart, no editors, no circle for "done". Every
+change to copy, steps, channels, pipelines or icons is asked for in the chat and lands as a template
+edit or a company-copy edit plus a re-install, with the version history as the audit trail.
+
