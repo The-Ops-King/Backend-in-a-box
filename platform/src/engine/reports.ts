@@ -147,13 +147,13 @@ export async function generateReport(c: PoolClient, company: CompanyRow, binding
   const body = renderReport({ kind: s.kind, period, tz: company.timezone, toDate: !!opts.toDate, totals, setters, closers, breakdowns: s.breakdowns, said });
   const channelId = s.channel || bindings["slack.channel.reports"] || bindings["slack.channel.bookings"];
   const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [company.id]);
-  const status = company.mode === "shadow" ? "shadow" : conn && channelId ? "sent" : "suppressed";
+  const status = !(conn && channelId) ? "suppressed" : company.mode === "shadow" ? "shadow" : "sent";
   const send = await one<{ id: string }>(c, `insert into sends (company_id, contact_id, run_id, channel, idempotency_key, rendered_body, status, suppressed_reason, scheduled_for, sent_at)
     values ($1, null, null, 'slack', $2, $3, $4, $5, now(), case when $4 in ('sent','shadow') then now() end) returning id`,
     [company.id, `report:${s.kind}:${period.start}:${randomUUID().slice(0, 8)}`, body, status, status === "suppressed" ? (conn ? "unbound: slack channel" : "unbound: slack") : null]);
   let posted = false, why: string | undefined = status === "sent" ? undefined : status;
-  if (status === "sent") {
-    try { const r = await slackNotifier.post(decrypt(conn!.bot_token), channelId!, body); await c.query("update sends set external_id=$2 where id=$1", [send!.id, r.ts]); posted = true; }
+  if (status !== "suppressed") {
+    try { const r = await slackNotifier.post(decrypt(conn!.bot_token), channelId!, status === "shadow" ? `🧪 *shadow* — ${body}` : body); await c.query("update sends set external_id=$2 where id=$1", [send!.id, r.ts]); posted = true; }
     catch (e) { why = String((e as Error).message); await c.query("update sends set status='failed', error=$2 where id=$1", [send!.id, why]); }
   }
   const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers, send_id) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id",

@@ -374,6 +374,9 @@ afterwards, what is parked for later, and the readiness list. Nothing external i
 
 ## Shadow mode (how a client gets migrated)
 
+Shadow posts to Slack ARE posted, with a "🧪 shadow —" prefix, when Slack is connected (D31): the team is not
+the CRM or the contact, and seeing the posts is the point of the run. The send is recorded as `shadow`.
+
 Every company is in **shadow** until someone presses **Go live**. In shadow the engine polls,
 dispatches, runs and branches exactly as live, renders every message, and writes nothing to GHL:
 sends are recorded as "would send" with the exact text, tags and notes are logged, appointment

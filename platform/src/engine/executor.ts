@@ -10,6 +10,8 @@ import type { CompanyRow, RunRow } from "./context";
 import { emitEvent } from "./dispatch";
 import { applyOutcome, outcomeTermFor } from "./disposition";
 
+/** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
+export const SHADOW_PREFIX = "🧪 *shadow* — ";
 const jsonArrayOr = (r: string): unknown => { try { const v = JSON.parse(r); return Array.isArray(v) ? v : r; } catch { return r; } };
 
 export type StepOutcome =
@@ -138,7 +140,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const conn = await one<{ bot_token: Buffer }>(d.c, "select bot_token from slack_connections where company_id=$1", [d.company.id]);
       const fallback = node.fallback_channel ? (/^\{\{/.test(node.fallback_channel) ? (resolvePath(d.ctx, node.fallback_channel.replace(/[{}\s]/g, "")) as string | undefined) : node.fallback_channel) : undefined;
       let slackUser = owner?.slack_user_id ?? null;
-      if (conn && owner && !slackUser && !shadow(d)) {
+      if (conn && owner && !slackUser) {
         const { decrypt } = await import("./crypto");
         slackUser = await d.adapters.notifier.lookupUserByEmail(decrypt(conn.bot_token), owner.email).catch(() => null);
         if (slackUser) await d.c.query("update users set slack_user_id=$2 where company_id=$1 and ghl_user_id=$3", [d.company.id, slackUser, owner.ghl_user_id]);
@@ -147,11 +149,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const body = slackUser ? text : `${owner?.name ? `*${owner.name}* ` : ""}${text}`;
       if (!conn || !target) { await recordSend(d, node, "slack", body, "suppressed", conn ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, why: conn ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", body, "queued"); if (!send) return { status: "skipped", next, result: out };
-      if (shadow(d)) { await d.c.query("update sends set status='shadow', sent_at=now() where id=$1", [send.id]); return { status: "ok", next, result: { ...out, shadow: true, dm: !!slackUser, would_post: body.slice(0, 120) } }; }
       const { decrypt } = await import("./crypto");
-      const r = await d.adapters.notifier.post(decrypt(conn.bot_token), target, body);
-      await d.c.query("update sends set status='sent', external_id=$2, sent_at=now() where id=$1", [send.id, r.ts]);
-      return { status: "ok", next, result: { ...out, dm: !!slackUser, ts: r.ts } };
+      const r = await d.adapters.notifier.post(decrypt(conn.bot_token), target, shadow(d) ? `${SHADOW_PREFIX}${body}` : body);
+      await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
+      return { status: "ok", next, result: { ...out, ...(shadow(d) ? { shadow: true } : {}), dm: !!slackUser, ts: r.ts } };
     }
 
     case "wait_for_reply": {
@@ -183,11 +184,11 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const text = render(node.template, d.ctx, env(d));
       if (!conn || !channelId) { await recordSend(d, node, "slack", text, "suppressed", conn ? "unbound: slack channel" : "unbound: slack"); return { status: "skipped", next, result: { why: conn ? "slack channel not bound" : "slack not connected", would_post: text.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next };
-      if (shadow(d)) { await d.c.query("update sends set status='shadow', sent_at=now() where id=$1", [send.id]); return { status: "ok", next, result: { shadow: true, would_post: text.slice(0, 120) } }; }
+      // Slack is the team, not the CRM or the contact: in shadow the post still goes out, marked, so the team sees what the engine would do (D31)
       const { decrypt } = await import("./crypto");
-      const r = await d.adapters.notifier.post(decrypt(conn.bot_token), channelId, text);
-      await d.c.query("update sends set status='sent', external_id=$2, sent_at=now() where id=$1", [send.id, r.ts]);
-      return { status: "ok", next, result: { ts: r.ts } };
+      const r = await d.adapters.notifier.post(decrypt(conn.bot_token), channelId, shadow(d) ? `${SHADOW_PREFIX}${text}` : text);
+      await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ts: r.ts } };
     }
 
     case "classify": {

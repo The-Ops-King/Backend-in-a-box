@@ -952,3 +952,9 @@ signed, deal closed, unsigned chase).
    replayed in order and the first that starts takes the key; if the run completes, they are dropped,
    because the once was spent. Payment and signature can now land in the same second.
 
+## D31. Shadow posts to the team are real posts, labelled
+Tyler, 2026-10-08, setting up the private test channel: the point of the shadow run is to see what the
+engine would do. Slack is the team, not the CRM or the contact, so in shadow every Slack post (steps,
+owner nudges, team alerts, wrap-ups) goes out with a "🧪 shadow —" prefix when Slack is connected,
+and the send is recorded as `shadow`. Nothing else in shadow leaves the engine.
+

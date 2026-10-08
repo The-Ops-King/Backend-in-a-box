@@ -85,11 +85,11 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
     await asOperator((c) => rollupDay(c, companyId, day, "UTC"));
     expect((await asOperator((c) => readMetrics(c, companyId, day, day))).totals.dials).toBe(3);
   });
-  it("generates the daily wrap-up (shadow: recorded, not posted), and the schedule fires once", async () => {
+  it("generates the daily wrap-up (no Slack here: recorded, suppressed), and the schedule fires once", async () => {
     const r = await asOperator(async (c) => { const { row, bindings } = await loadCompany(c, companyId); const s = (await ensureSchedules(c, companyId)).find((x) => x.kind === "daily")!; return generateReport(c, row, bindings, { ...s, breakdowns: ["setter", "closer"] }, { start: day, end: day }, { onDemand: true }); });
-    expect(r.posted).toBe(false); expect(r.why).toBe("shadow");
+    expect(r.posted).toBe(false); expect(r.why).toBe("suppressed");   // no Slack connection in this company; with one, a shadow wrap-up is posted with the shadow label (D31)
     expect(r.body).toContain("67% connection rate"); expect(r.body).toContain("Lu Setter"); expect(r.body).toContain("Sam Closer"); expect(r.body).toContain("$1,000"); expect(r.body).toContain("$3,000");
-    expect(await asOperator((c) => one(c, "select 1 from sends where company_id=$1 and channel='slack' and status='shadow' and rendered_body like '%What happened today%'", [companyId]))).toBeTruthy();
+    expect(await asOperator((c) => one(c, "select 1 from sends where company_id=$1 and channel='slack' and status='suppressed' and rendered_body like '%What happened today%'", [companyId]))).toBeTruthy();
     const at1905 = DateTime.fromISO(`${day}T19:05:00`, { zone: "UTC" });
     const first = await asOperator((c) => runDueReports(c, at1905, companyId));
     expect(first.generated.filter((g) => g.company === "rp").map((g) => g.kind)).toEqual(["daily"]);

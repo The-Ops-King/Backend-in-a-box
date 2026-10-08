@@ -26,7 +26,8 @@ export type InstallInput = {
   closerCall?: string;                   // external id bound as calendar.closer_call
   bookingCalendar?: string;              // external id bound as calendar.booking (first-call / self-book link used by lead and reactivation templates)
   crm?: Record<string, string>;          // extra crm.* bindings a template needs: pipeline and stage ids, custom field ids (key without the crm. prefix)
-  whop?: { webhookSecret?: string; apiKey?: string };   // Whop → /api/webhooks/whop/<companyId>; a ws_ signing secret, or an API key and the engine creates the webhook itself (and can backfill payments)
+  whop?: { webhookSecret?: string; apiKey?: string };
+  slack?: Record<string, string>;        // slack.channel.<name> → channel id (bookings, deals, alerts, …)   // Whop → /api/webhooks/whop/<companyId>; a ws_ signing secret, or an API key and the engine creates the webhook itself (and can backfill payments)
   /** Call recordings. `apiKey` registers Fathom's webhook at install (needs PUBLIC_URL); `webhookSecret` binds one made by hand. Either way the Zapier door is open too. */
   recording?: { source: "fathom"; apiKey?: string; webhookSecret?: string };
   anthropicKey?: string;                 // bound as secret.anthropic_key; the analyze node reads it (env ANTHROPIC_API_KEY is the fallback)
@@ -85,6 +86,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (input.setterRule) await bind("booking.setter_rule", "text", input.setterRule);
     if (input.whop?.webhookSecret) await bind("secret.whop_webhook", "secret", input.whop.webhookSecret);
     if (input.whop?.apiKey) await bind("secret.whop_api_key", "secret", input.whop.apiKey);
+    for (const [name, id] of Object.entries(input.slack ?? {})) await bind(`slack.channel.${name}`, "channel", id);
     if (input.recording?.webhookSecret) await bind("secret.fathom_webhook", "secret", input.recording.webhookSecret);
     if (input.recording?.apiKey) await bind("secret.fathom_api_key", "secret", input.recording.apiKey);
     if (input.anthropicKey) await bind("secret.anthropic_key", "secret", input.anthropicKey);
