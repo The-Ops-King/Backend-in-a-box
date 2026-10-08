@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { toMermaid } from "./mermaid";
+import { collapsePlumbing } from "./describe";
 import { parseDefinition } from "./definition";
 import { templates } from "@/templates";
 describe("toMermaid", () => {
@@ -7,8 +8,9 @@ describe("toMermaid", () => {
     for (const t of templates) {
       const def = parseDefinition(t.definition); const m = toMermaid(def);
       expect(m.startsWith("flowchart TD")).toBe(true);
-      for (const n of def.nodes) expect(m).toContain(`\n  ${n.id}`);
-      expect((m.match(/-->/g) ?? []).length).toBe(def.edges.length);
+      for (const n of def.nodes) if (n.type !== "set_var") expect(m).toContain(`\n  ${n.id}`);   // plumbing is collapsed out of the chart
+      for (const n of def.nodes) if (n.type === "set_var") expect(m).not.toContain(`\n  ${n.id}`);
+      expect((m.match(/-->/g) ?? []).length).toBe(collapsePlumbing(def).edges.length);   // edges through plumbing are rerouted, so the count is the collapsed one
     }
   });
   it("a check's else-exit is drawn as a dashed edge to the exit node", () => {

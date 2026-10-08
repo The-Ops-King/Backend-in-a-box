@@ -57,7 +57,8 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
   it("a failed step is announced the minute it fails, once, with the step and the reason; a second failure stays in the thread; passing later resolves it with a ✅", async () => {
     await fire(); await tick(fake, undefined, companyId);
     let a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep));
-    expect(a, JSON.stringify({ a, posts })).toMatchObject({ raised: 1, posted: 1, repeated: 0 });
+    // counts are engine-wide and other suites run alongside, so the assertions are on this company's posts and open alerts
+    expect(a.posted, JSON.stringify({ a, posts })).toBe(1); expect(a.repeated).toBe(0);
     expect(posts).toHaveLength(1);
     expect(posts[0].channel).toBe("CALERTS"); expect(posts[0].as).toMatchObject({ name: "Engine alerts", icon: ":rotating_light:" });
     expect(posts[0].text).toMatch(/🔴 \*Alert Co · Run failed\*\n"Tag it" failed at step g1 \(Add tag “stat-x”\) for Leo Ortiz: .*Invalid Private Integration token/);
@@ -65,15 +66,16 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     // minutes later it fails again for the same reason: nothing new is said
     await fire(); await tick(fake, undefined, companyId);
     a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep));
-    expect(a).toMatchObject({ raised: 0, posted: 0, repeated: 0 }); expect(posts).toHaveLength(1);
+    expect(a.posted).toBe(0); expect(a.repeated).toBe(0); expect(posts).toHaveLength(1);
+    expect(await asOperator((c) => openAlerts(c, companyId))).toHaveLength(1);
     // an hour on, still broken: one line in the thread
     await asOperator((c) => c.query("update alerts set announced_at = now() - interval '61 minutes', first_seen = first_seen - interval '61 minutes' where company_id=$1 and resolved_at is null", [companyId]));
     a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep));
-    expect(a).toMatchObject({ repeated: 1 }); expect(posts).toHaveLength(2); expect(posts[1].threadTs).toBe("ts1"); expect(posts[1].text).toMatch(/Still open after 1h/);
+    expect(a.repeated).toBe(1); expect(posts).toHaveLength(2); expect(posts[1].threadTs).toBe("ts1"); expect(posts[1].text).toMatch(/Still open after 1h/);
     // fixed: the next run gets past the step → resolved in the thread, ✅ on the first post
     tagFails = false; await fire(); await tick(fake, undefined, companyId);
     a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep));
-    expect(a).toMatchObject({ resolved: 1 });
+    expect(a.resolved).toBeGreaterThanOrEqual(1);
     expect(posts).toHaveLength(3); expect(posts[2].threadTs).toBe("ts1"); expect(posts[2].text).toMatch(/^✅ Resolved after 1h/);
     expect(reactions).toEqual([{ channel: "CALERTS", ts: "ts1", emoji: "white_check_mark" }]);
     expect(await asOperator((c) => openAlerts(c, companyId))).toHaveLength(0);
@@ -84,11 +86,14 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     const t = new Date();
     await asOperator((c) => c.query("insert into poll_cursors (company_id, entity, cursor, consecutive_failures) values ($1,'contacts','0',2)", [companyId]));
     let a = await asOperator((c) => tickAlerts(c, fake, { ...pollRep, errors: [{ company: "alrt", entity: "contacts", error: "GHL 500" }] }, { ...tickRep, recovery: true, staleExits: 3 }, t));
-    expect(a, JSON.stringify({ a, posts })).toMatchObject({ raised: 2, posted: 1 });   // the engine-wide notice has nowhere to go without an operator webhook; the company's poll alert is posted
+    expect(a.posted, JSON.stringify({ a, posts })).toBe(1);   // the engine-wide notice has nowhere to go without an operator webhook; the company's poll alert is posted
+    expect((await asOperator((c) => openAlerts(c, companyId))).map((x) => x.key)).toEqual(["poll:contacts"]);
+    expect((await asOperator((c) => openAlerts(c, null))).map((x) => x.key)).toEqual(["engine:recovery"]);
     expect(posts[0].text).toMatch(/Polling\*\nPolling contacts has failed 2 times in a row: GHL 500/);
     await asOperator((c) => c.query("update poll_cursors set consecutive_failures=0 where company_id=$1", [companyId]));
     a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep));   // real time: a cursor a minute ahead would hide the next test's steps
-    expect(a.resolved).toBe(2);
+    expect(a.resolved).toBeGreaterThanOrEqual(2);
+    expect(await asOperator((c) => openAlerts(c, companyId))).toHaveLength(0); expect(await asOperator((c) => openAlerts(c, null))).toHaveLength(0);
     expect(posts).toHaveLength(2); expect(posts[1].text).toMatch(/^✅ Resolved/);   // the poll alert closes in its thread; the recovery notice closes quietly
   });
 
@@ -141,12 +146,13 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(t.failed).toBe(0); expect(t.completed).toBe(1);   // the run completes: the post was skipped, not fatal
     expect((await asOperator((c) => one<{ result: { kind: string } }>(c, "select result from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_id='s1'", [wfId])))!.result.kind).toBe("blocked");
     const a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep));
-    expect(a).toMatchObject({ raised: 1, posted: 1 });
+    expect(a.posted).toBe(1);
     expect(posts.at(-1)!.text).toMatch(/🟡 \*Alert Co · Step could not run\*\n"Say hi" could not run step s1 \(Post to Slack \(channel nope\)\) for Leo Ortiz: slack channel not bound\. The run went on without it\./);
     await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.nope','channel',$2)", [companyId, Buffer.from("CNOPE")]));
     await fireRemove(); await tick(fake, undefined, companyId);
     const a2 = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep));
-    expect(a2.resolved).toBe(1); expect(posts.at(-1)!.text).toMatch(/^✅ Resolved/);
+    expect(a2.resolved).toBeGreaterThanOrEqual(1); expect(posts.at(-1)!.text).toMatch(/^✅ Resolved/);
+    expect((await asOperator((c) => openAlerts(c, companyId))).filter((x) => x.key.startsWith("blocked:"))).toHaveLength(0);
   });
 
   it("raise/resolve are idempotent per open key", async () => {

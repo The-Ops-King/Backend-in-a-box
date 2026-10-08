@@ -1,5 +1,5 @@
 import type { Definition, Node } from "@/engine/definition";
-import { branchTitle, describeNode, durationWords, edgeWords, exitWords, EVENT_LABELS, humanWords, pathWords, predicateWords, waitWords, walkOrder } from "@/engine/describe";
+import { branchTitle, collapsePlumbing, describeNode, durationWords, edgeWords, exitWords, EVENT_LABELS, humanWords, pathWords, predicateWords, waitWords, walkOrder } from "@/engine/describe";
 import { exampleContext, nodeExamples, type Example } from "@/engine/example";
 import { badge } from "./format";
 import type { Pickers } from "./settings-data";
@@ -11,7 +11,8 @@ type Row = { label: string; value: React.ReactNode; hover?: React.ReactNode; mut
  * The workflow as a short list a person reads top to bottom: "When: Agreement signed / Add tag: stat-… / Post to Slack: #deals / Complete."
  * Hover a line to see what it produces, rendered as an example (made-up contact, real copy). Read-only: changes come through the chat.
  */
-export function Outline({ def, company, bindings = {}, pk, steps = [], currentNode }: { def: Definition; company: { name: string; timezone: string }; bindings?: Record<string, string>; pk?: Pickers; steps?: Step[]; currentNode?: string | null }) {
+export function Outline({ def: full, company, bindings = {}, pk, steps = [], currentNode }: { def: Definition; company: { name: string; timezone: string }; bindings?: Record<string, string>; pk?: Pickers; steps?: Step[]; currentNode?: string | null }) {
+  const def = collapsePlumbing(full);   // "Remember …" steps are plumbing; branches point past them
   const byId = new Map(def.nodes.map((n) => [n.id, n]));
   const order = walkOrder(def); const index = new Map(order.map((id, i) => [id, i + 1]));
   const out = (id: string) => def.edges.filter((e) => e.from === id);
@@ -58,7 +59,7 @@ export function Outline({ def, company, bindings = {}, pk, steps = [], currentNo
   };
 
   // "done" is implied; a stop with a reason still shows. set_var is plumbing (assembling a line of copy), not a step a person needs to read: Advanced has the definition
-  const shown = order.filter((id) => { const n = byId.get(id)!; return !(n.type === "exit" && row(n).label === "Complete.") && n.type !== "set_var"; });
+  const shown = order.filter((id) => { const n = byId.get(id)!; return !(n.type === "exit" && row(n).label === "Complete."); });
   return <ol className="outline">{shown.map((id) => {
     const n = byId.get(id)!; const r = row(n); const st = lastStep.get(id); const here = !st && currentNode === id;
     const after = out(id).filter((e) => n.type !== "branch" && n.type !== "wait_for_reply" && n.type !== "exit" && (e.label || e.when || e.else));   // a labelled edge off a non-branch node is a fork worth naming

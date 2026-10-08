@@ -1,5 +1,5 @@
 import type { Definition, Edge, Node } from "./definition";
-import { branchTitle, describeNode, edgeWords, exitWords, kindOf, type NodeKind } from "./describe";
+import { branchTitle, describeNode, edgeWords, exitWords, kindOf, type NodeKind, collapsePlumbing } from "./describe";
 
 type Step = { node_id: string; status: string };
 const esc = (s: string) => s.replace(/"/g, "'").replace(/[<>]/g, "").replace(/\n/g, " ");
@@ -36,6 +36,7 @@ export const STATUS_STROKE: Record<string, string> = { ok: "#7cc094", waiting: "
 /** Mermaid flowchart for a definition; with steps, strokes show what happened and the current node is outlined. */
 export function toMermaid(def: Definition, steps: Step[] = [], currentNode?: string | null): string {
   const lines = ["flowchart TD"];
+  def = collapsePlumbing(def);   // no "Remember …" boxes: the chart shows what happens, not how copy is assembled
   for (const n of def.nodes) lines.push(`  ${n.id}${shape(n, label(def, n))}`);
   for (const e of def.edges) { const l = edgeLabel(e); lines.push(l ? `  ${e.from} -->|${l}| ${e.to}` : `  ${e.from} --> ${e.to}`); }
   // a check's "if not" path is an exit reason, not an edge; draw it dashed to the matching exit so nothing floats unexplained

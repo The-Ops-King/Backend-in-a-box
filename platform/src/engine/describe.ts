@@ -156,6 +156,19 @@ export function edgeWords(e: Edge): string {
   return "";
 }
 
+/**
+ * The definition without its plumbing: set_var nodes assemble a line of copy and mean nothing to a reader, so the chart and
+ * the outline route around them (an edge into one continues to whatever it leads to). The engine still runs them.
+ */
+export function collapsePlumbing(def: Definition): Definition {
+  const plumbing = new Set(def.nodes.filter((n) => n.type === "set_var").map((n) => n.id));
+  if (!plumbing.size) return def;
+  const next = (id: string): string => { let cur = id; const seen = new Set<string>(); while (plumbing.has(cur) && !seen.has(cur)) { seen.add(cur); const out = def.edges.find((e) => e.from === cur); if (!out) break; cur = out.to; } return cur; };
+  const edges: Edge[] = [];
+  for (const e of def.edges) { if (plumbing.has(e.from)) continue; const to = next(e.to); if (!edges.some((x) => x.from === e.from && x.to === to && x.label === e.label && JSON.stringify(x.when) === JSON.stringify(e.when) && x.else === e.else)) edges.push({ ...e, to }); }
+  return { ...def, nodes: def.nodes.filter((n) => !plumbing.has(n.id)), edges };
+}
+
 /** Walk order from the triggers, breadth-first, so a list reads top to bottom the way the flow runs. */
 export function walkOrder(def: Definition): string[] {
   const out = (id: string) => def.edges.filter((e) => e.from === id);
