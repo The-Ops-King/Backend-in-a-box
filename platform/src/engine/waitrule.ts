@@ -31,8 +31,17 @@ export function computeWaitUntil(rule: WaitRule, t: TimeCtx): { at: DateTime; us
     const minLead = parseDuration(rule.guard.min_lead);
     if (at > anchor.minus(minLead)) { at = applyOffset(anchor, rule.guard.fallback, tz); usedFallback = true; }
   }
+  at = clampToWindow(at, tz, rule.earliest, rule.latest);
   if (at < t.now) at = t.now;
   return { at, usedFallback };
+}
+
+/** The wait's own daily window: before `earliest` → that time the same day; after `latest` → that time the same day (the message still goes out the right day, at a human hour). */
+export function clampToWindow(at: DateTime, tz: string, earliest?: string, latest?: string): DateTime {
+  const local = at.setZone(tz);
+  if (earliest) { const [h, m] = earliest.split(":").map(Number); const e = local.set({ hour: h, minute: m, second: 0, millisecond: 0 }); if (local < e) return e; }
+  if (latest) { const [h, m] = latest.split(":").map(Number); const l = local.set({ hour: h, minute: m, second: 0, millisecond: 0 }); if (local > l) return l; }
+  return at;
 }
 
 /** D5d: send window. Returns the same instant if inside the window, else the next opening — always forward. */

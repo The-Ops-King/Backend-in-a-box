@@ -2,6 +2,8 @@
   "slug": "no-show-recovery",
   "name": "No-show recovery",
   "category": "no_show",
+  "stage": "post_call",
+  "sort": 20,
   "description": "Ten minutes after a no-show (from GHL's status or our disposition form): text and email with the rebook link, a day for a reply, then one more email.",
   "definition": {
     "schema": 1,

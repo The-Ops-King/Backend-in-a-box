@@ -183,3 +183,4 @@ details.adv[open] summary{border-radius:var(--radius-card) var(--radius-card) 0 
 .eodform input[type=text],.eodform textarea,.eodform select{font-size:13px;width:100%}.eodform td{vertical-align:top}.eodform .when{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:12px}.eodform .when label{white-space:nowrap}
 @media(max-width:640px){.eod-sub{grid-template-columns:1fr}.eod-top.five{grid-template-columns:1fr}}
 .eodform td:first-child{min-width:220px}.eodform td:nth-child(2){min-width:150px}
+.stage-row td{padding-top:14px;border-bottom:1px solid var(--hair)}.stage-name{font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--bone)}

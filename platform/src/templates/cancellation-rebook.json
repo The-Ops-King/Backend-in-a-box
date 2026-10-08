@@ -2,6 +2,8 @@
   "slug": "cancellation-rebook",
   "name": "Cancellation rebook",
   "category": "no_show",
+  "stage": "booking",
+  "sort": 30,
   "description": "When a call is cancelled, send the rebook link by text and email.",
   "definition": {
     "schema": 1,

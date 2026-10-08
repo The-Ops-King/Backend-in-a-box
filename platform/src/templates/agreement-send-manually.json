@@ -2,6 +2,8 @@
   "slug": "agreement-send-manually",
   "name": "Send agreement manually",
   "category": "agreements",
+  "stage": "closing",
+  "sort": 10,
   "description": "Someone adds the tag sys-send-agreement-manually in the CRM: unless the agreement is already signed, the purchase agreement is sent for signature from the bound sender, stat-agreement-sent is added, the trigger tag is removed so it can be used again, and a note records it.",
   "definition": {
     "schema": 1,

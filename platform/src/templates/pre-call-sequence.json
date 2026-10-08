@@ -1,0 +1,450 @@
+{
+  "slug": "pre-call-sequence",
+  "name": "Pre-call sequence",
+  "category": "reminders",
+  "stage": "pre_call",
+  "sort": 10,
+  "description": "Everything the prospect hears between booking and the call: the booking email and text (reply with an emoji to lock in; no reply in 4 hours → tagged unconfirmed and the closers' channel told), then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_appointment",
+    "premise": {
+      "check": "appointment_in_future"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "appointment.booked",
+        "match": {
+          "eq": [
+            "{{appointment.term.category}}",
+            "closing"
+          ]
+        }
+      },
+      {
+        "id": "e1",
+        "type": "send_email",
+        "subject": "You're booked: {{appointment.starts_at | date:ccc, LLL d 'at' h:mma}} — reply to lock it in",
+        "template": "<p>Hey {{contact.first_name}},</p><p>[PLACEHOLDER — day-one email. Your spot for {{appointment.starts_at | date:cccc, LLLL d 'at' h:mma}} with {{appointment.closer.first_name}} isn't locked yet: reply CONFIRM to lock it in.]</p>",
+        "validity": {
+          "anchor": "before_event",
+          "min_lead": "5m"
+        },
+        "on_stale": "skip"
+      },
+      {
+        "id": "s1",
+        "type": "send_sms",
+        "template": "[PLACEHOLDER — immediate text] Hey {{contact.first_name}}, your call with {{appointment.closer.first_name}} is booked for {{appointment.starts_at | date:ccc, LLL d 'at' h:mma}}. Reply with an emoji to lock in your spot.",
+        "validity": {
+          "anchor": "before_event",
+          "min_lead": "15m"
+        },
+        "on_stale": "skip"
+      },
+      {
+        "id": "w1",
+        "type": "wait_for_reply",
+        "timeout": "4h",
+        "channel": "sms"
+      },
+      {
+        "id": "c1",
+        "type": "classify",
+        "input": "{{reply.last_inbound.body}}",
+        "state": "{{reply.last_outbound.body | default:}}",
+        "domain": "reply_intent",
+        "threshold": 0.8,
+        "into": "reply.intent"
+      },
+      {
+        "id": "b1",
+        "type": "branch"
+      },
+      {
+        "id": "n_conf",
+        "type": "set_tag",
+        "tag": "confirmed"
+      },
+      {
+        "id": "n_unc",
+        "type": "set_tag",
+        "tag": "unconfirmed"
+      },
+      {
+        "id": "n_unc_slack",
+        "type": "slack_post",
+        "channel": "{{slack.channel.closers}}",
+        "as": {
+          "name": "Not confirmed yet",
+          "icon": [
+            ":hourglass_flowing_sand:",
+            ":grey_question:"
+          ]
+        },
+        "template": "{{contact.name}} hasn't confirmed their call {{appointment.starts_at | relative:auto}} ({{appointment.starts_at | date_company}}) with {{appointment.closer.mention | default:the closer}}. No reply to the booking text in 4 hours."
+      },
+      {
+        "id": "n_cx",
+        "type": "update_appointment",
+        "set": {
+          "status": "cancelled"
+        }
+      },
+      {
+        "id": "n_cx_slack",
+        "type": "slack_post",
+        "channel": "{{slack.channel.closers}}",
+        "template": "{{contact.first_name}} cancelled their call {{appointment.starts_at | relative:auto}}.",
+        "as": {
+          "name": "Call cancelled",
+          "icon": [
+            ":x:",
+            ":calendar:",
+            ":no_entry_sign:"
+          ]
+        }
+      },
+      {
+        "id": "n_rs",
+        "type": "send_sms",
+        "template": "No problem — grab a new time here: {{calendar.closer_call.url}}"
+      },
+      {
+        "id": "n_h1",
+        "type": "set_tag",
+        "tag": "needs-human-reply"
+      },
+      {
+        "id": "n_h2",
+        "type": "note",
+        "template": "[engine] Couldn't classify reply (top guesses: {{reply.top_guesses}}). Needs a human.\nOriginal: {{reply.last_inbound.body}}"
+      },
+      {
+        "id": "n_h3",
+        "type": "pause_runs",
+        "scope": "contact"
+      },
+      {
+        "id": "r72",
+        "type": "wait",
+        "rule": {
+          "anchor": "appointment.starts_at",
+          "offset": "-72h",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "21:00"
+        }
+      },
+      {
+        "id": "m72",
+        "type": "send_sms",
+        "template": "[PLACEHOLDER — 3 days out] Hey {{contact.first_name}}, your call with {{appointment.closer.first_name}} is {{appointment.starts_at | relative:auto}}.",
+        "validity": {
+          "anchor": "before_event",
+          "min_lead": "60h"
+        },
+        "on_stale": "skip"
+      },
+      {
+        "id": "r48",
+        "type": "wait",
+        "rule": {
+          "anchor": "appointment.starts_at",
+          "offset": "-48h",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "21:00"
+        }
+      },
+      {
+        "id": "m48",
+        "type": "send_sms",
+        "template": "[PLACEHOLDER — 2 days out] Hey {{contact.first_name}}, two days until your call with {{appointment.closer.first_name}}.",
+        "validity": {
+          "anchor": "before_event",
+          "min_lead": "36h"
+        },
+        "on_stale": "skip"
+      },
+      {
+        "id": "r24",
+        "type": "wait",
+        "rule": {
+          "anchor": "appointment.starts_at",
+          "offset": "-24h",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "21:00"
+        }
+      },
+      {
+        "id": "m24e",
+        "type": "send_email",
+        "subject": "Tomorrow: your call with {{appointment.closer.first_name}}",
+        "template": "<p>Hey {{contact.first_name}},</p><p>[PLACEHOLDER — 24-hour email. Your call is {{appointment.starts_at | date:cccc 'at' h:mma}}.]</p>",
+        "validity": {
+          "anchor": "before_event",
+          "min_lead": "18h"
+        },
+        "on_stale": "skip"
+      },
+      {
+        "id": "m24s",
+        "type": "send_sms",
+        "template": "[PLACEHOLDER — 24-hour text] Hey {{contact.first_name}}, your call with {{appointment.closer.first_name}} is {{appointment.starts_at | relative:auto}} ({{appointment.starts_at | date:cccc 'at' h:mma}}).",
+        "validity": {
+          "anchor": "before_event",
+          "min_lead": "18h"
+        },
+        "on_stale": "skip"
+      },
+      {
+        "id": "rm",
+        "type": "wait",
+        "rule": {
+          "anchor": "appointment.starts_at",
+          "offset": "day_of@08:00",
+          "tz": "contact"
+        }
+      },
+      {
+        "id": "bm",
+        "type": "branch"
+      },
+      {
+        "id": "mm",
+        "type": "send_sms",
+        "template": "[PLACEHOLDER — morning-of text] Morning {{contact.first_name}}, your call with {{appointment.closer.first_name}} is today at {{appointment.starts_at | date:h:mma}}.",
+        "validity": {
+          "anchor": "before_event",
+          "min_lead": "2h"
+        },
+        "on_stale": "skip"
+      },
+      {
+        "id": "r1",
+        "type": "wait",
+        "rule": {
+          "anchor": "appointment.starts_at",
+          "offset": "-1h",
+          "tz": "contact",
+          "earliest": "07:00"
+        }
+      },
+      {
+        "id": "m1",
+        "type": "send_sms",
+        "template": "[PLACEHOLDER — 1-hour text] Hey {{contact.first_name}}, your call with {{appointment.closer.first_name}} is in an hour ({{appointment.starts_at | date:h:mma}}).",
+        "validity": {
+          "anchor": "before_event",
+          "min_lead": "15m"
+        },
+        "on_stale": "skip"
+      },
+      {
+        "id": "r10",
+        "type": "wait",
+        "rule": {
+          "anchor": "appointment.starts_at",
+          "offset": "-10m",
+          "tz": "contact"
+        }
+      },
+      {
+        "id": "m10",
+        "type": "send_sms",
+        "template": "[PLACEHOLDER — 10-minute text] {{contact.first_name}}, {{appointment.closer.first_name}} will call you in 10 minutes."
+      },
+      {
+        "id": "x_done",
+        "type": "exit",
+        "reason": "done"
+      },
+      {
+        "id": "x_cancelled",
+        "type": "exit",
+        "reason": "cancelled"
+      },
+      {
+        "id": "x_reschedule",
+        "type": "exit",
+        "reason": "reschedule_sent"
+      },
+      {
+        "id": "x_handed",
+        "type": "exit",
+        "reason": "handed_to_human"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "e1"
+      },
+      {
+        "from": "e1",
+        "to": "s1"
+      },
+      {
+        "from": "s1",
+        "to": "w1"
+      },
+      {
+        "from": "w1",
+        "to": "c1",
+        "label": "replied"
+      },
+      {
+        "from": "w1",
+        "to": "n_unc",
+        "label": "timeout"
+      },
+      {
+        "from": "c1",
+        "to": "b1"
+      },
+      {
+        "from": "b1",
+        "to": "n_conf",
+        "when": {
+          "eq": [
+            "{{reply.intent}}",
+            "confirmed"
+          ]
+        }
+      },
+      {
+        "from": "b1",
+        "to": "n_cx",
+        "when": {
+          "eq": [
+            "{{reply.intent}}",
+            "cancelled"
+          ]
+        }
+      },
+      {
+        "from": "b1",
+        "to": "n_rs",
+        "when": {
+          "eq": [
+            "{{reply.intent}}",
+            "reschedule_request"
+          ]
+        }
+      },
+      {
+        "from": "b1",
+        "to": "n_h1",
+        "else": true
+      },
+      {
+        "from": "n_conf",
+        "to": "r72"
+      },
+      {
+        "from": "n_unc",
+        "to": "n_unc_slack"
+      },
+      {
+        "from": "n_unc_slack",
+        "to": "r72"
+      },
+      {
+        "from": "n_cx",
+        "to": "n_cx_slack"
+      },
+      {
+        "from": "n_cx_slack",
+        "to": "x_cancelled"
+      },
+      {
+        "from": "n_rs",
+        "to": "x_reschedule"
+      },
+      {
+        "from": "n_h1",
+        "to": "n_h2"
+      },
+      {
+        "from": "n_h2",
+        "to": "n_h3"
+      },
+      {
+        "from": "n_h3",
+        "to": "x_handed"
+      },
+      {
+        "from": "r72",
+        "to": "m72"
+      },
+      {
+        "from": "m72",
+        "to": "r48"
+      },
+      {
+        "from": "r48",
+        "to": "m48"
+      },
+      {
+        "from": "m48",
+        "to": "r24"
+      },
+      {
+        "from": "r24",
+        "to": "m24e"
+      },
+      {
+        "from": "m24e",
+        "to": "m24s"
+      },
+      {
+        "from": "m24s",
+        "to": "rm"
+      },
+      {
+        "from": "rm",
+        "to": "bm"
+      },
+      {
+        "from": "bm",
+        "to": "mm",
+        "when": {
+          "gte": [
+            "{{appointment.starts_at | date:HH}}",
+            "11"
+          ]
+        },
+        "label": "the call is at 11am or later"
+      },
+      {
+        "from": "bm",
+        "to": "r1",
+        "else": true
+      },
+      {
+        "from": "mm",
+        "to": "r1"
+      },
+      {
+        "from": "r1",
+        "to": "m1"
+      },
+      {
+        "from": "m1",
+        "to": "r10"
+      },
+      {
+        "from": "r10",
+        "to": "m10"
+      },
+      {
+        "from": "m10",
+        "to": "x_done"
+      }
+    ]
+  }
+}

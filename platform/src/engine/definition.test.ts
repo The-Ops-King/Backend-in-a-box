@@ -10,7 +10,7 @@ describe("definitions", () => {
       const def = parseDefinition(t.definition);
       const m = extractManifest(def);
       expect(m.bindings.find((b) => b.key === "crm.location_id")?.required).toBe(true);
-      if (t.slug === "appointment-reminder") {
+      if (t.slug === "pre-call-sequence") {
         expect(m.bindings.map((b) => b.key)).toEqual(["calendar.closer_call", "crm.location_id", "slack.channel.closers"]);
         expect(m.bindings.find((b) => b.key === "slack.channel.closers")?.required).toBe(false);
         expect(m.bindings.find((b) => b.key === "calendar.closer_call")?.resolves).toBe("calendars");

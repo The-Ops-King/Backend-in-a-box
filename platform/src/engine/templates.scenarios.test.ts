@@ -96,7 +96,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
     // (ticks below are scoped to this company: the test database is shared with the other suites)
     // the test database is shared with the other suites; park their leftover runs so this file's ticks only ever send for this company
-    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(24);
+    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(23);
   });
 
   it("speed-to-lead: email + SMS now; a reply → tag engaged; silence → second email", async () => {
@@ -208,19 +208,21 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
   });
 
-  it("an inbound text wakes a reply-wait but not a timed wait (a reminder parked for 8am stays parked)", async () => {
+  it("an inbound text wakes a reply-wait but not a timed wait (a sequence parked on the 24-hour reminder stays parked)", async () => {
     const id = await newContact("CWAKE", "wake@x.com");
     const snapA: AppointmentSnapshot = { id: "AWAKE", calendarId: "CAL", contactId: "CWAKE", assignedUserId: "U1", startTime: DateTime.now().plus({ days: 2 }).set({ hour: 14, minute: 0 }).toISO()!, endTime: DateTime.now().plus({ days: 2 }).set({ hour: 14, minute: 30 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {} };
     apptStore.set("AWAKE", snapA);
     await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snapA); });
     await tick(fake, undefined, companyId);
-    const rem = (await runsFor("appointment-reminder")).find((r) => r.contact_id === id)!;
-    expect(rem.status).toBe("waiting"); const parkedUntil = rem.next_run_at!.getTime(); expect(parkedUntil - Date.now()).toBeGreaterThan(3600e3);
-    const flags = await asOperator((c) => many<{ wake_on_reply: boolean; current_node: string }>(c, "select wake_on_reply, current_node from runs where contact_id=$1 and status='waiting' order by current_node", [id]));
-    expect(flags.find((f) => f.current_node === "n1")?.wake_on_reply).toBe(false);   // the reminder's timed wait
+    const seq = (await runsFor("pre-call-sequence")).find((r) => r.contact_id === id)!;
+    expect(seq.status).toBe("waiting"); expect(seq.current_node).toBe("w1");   // the booking text's reply wait: an inbound text wakes it
+    expect((await asOperator((c) => one<{ wake_on_reply: boolean }>(c, "select wake_on_reply from runs where id=$1", [seq.id])))!.wake_on_reply).toBe(true);
+    // park it on a timed reminder instead, the way it sits the day before the call
+    const parkedUntil = Date.now() + 86_400e3;
+    await asOperator((c) => c.query("update runs set current_node='r24', next_run_at=$2, wake_on_reply=false where id=$1", [seq.id, new Date(parkedUntil)]));
     // simulate what pollInbound does on an inbound message for this contact
     await asOperator((c) => c.query("update runs set next_run_at=now() where company_id=$1 and contact_id=$2 and status='waiting' and wake_on_reply", [companyId, id]));
-    const after = (await runsFor("appointment-reminder")).find((r) => r.contact_id === id)!;
+    const after = (await runsFor("pre-call-sequence")).find((r) => r.contact_id === id)!;
     expect(after.next_run_at!.getTime()).toBe(parkedUntil);   // untouched
   });
 
@@ -271,8 +273,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const r = (await runsFor("call-booked")).find((x) => x.contact_id === id)!;
     expect(r).toMatchObject({ status: "completed", exit_reason: "booked" });
     expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "create", pipelineId: "PIPE-CLOSER", stageId: "STAGE-SCHED", name: "Mia Ortiz -- Direct", assignedUserId: "U1" })]);   // no setter card existed → nothing to move, nothing created
-    expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-self-booked"]);
-    expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback"]);
+    expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-self-booked", "meta booked call"]);
+    expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead"]);
     expect(contactWrites.slice(nCw)).toEqual([expect.objectContaining({ id: "CCB1", assignedUserId: "U1", customFields: [{ id: "CF-APPT-DATE", field_value: start.setZone(TZ).toFormat("yyyy-MM-dd") }] })]);
     const steps = await asOperator((c) => many<{ node_id: string; status: string; result: Record<string, unknown> }>(c, "select node_id, status, result from run_steps where run_id=$1 order by started_at", [r.id]));
     expect(steps.find((x) => x.node_id === "s3")?.status).toBe("skipped");
@@ -304,7 +306,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       expect.objectContaining({ op: "update", stageId: "STAGE-SET", name: "Leo Park -- Set", customFields: [{ id: "CF-SETTER-OWNER", field_value: "Luis" }] }),
       expect.objectContaining({ op: "create", pipelineId: "PIPE-CLOSER", stageId: "STAGE-SCHED", name: "Leo Park -- Setter Booked", customFields: [{ id: "CF-SETTER-OWNER", field_value: "Luis" }] }),
     ]);
-    expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-set"]);
+    expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-set", "meta booked call"]);
     expect(contactWrites.slice(nCw).map((w) => w.customFields)).toEqual([[{ id: "CF-APPT-DATE", field_value: start.setZone(TZ).toFormat("yyyy-MM-dd") }], [{ id: "CF-SETTER", field_value: "Luis" }]]);
     const cards = await asOperator((c) => many<{ ghl_pipeline_id: string; name: string; opportunity_id: string }>(c, "select ghl_pipeline_id, name, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 order by ghl_pipeline_id", [companyId, id]));
     expect(cards.map((x) => x.name)).toEqual(["Leo Park -- Setter Booked", "Leo Park -- Set"]);

@@ -29,7 +29,7 @@ wins, in order. `label` is the words the chart and the outline show for that for
 ## 1. Triggers: what starts a run
 
 `{ "type": "trigger", "event": "<event>", "match": <predicate, optional> }`. Several workflows may listen to the same
-event; each runs on its own (call-booked, booking-confirmation and appointment-reminder all start on a booking).
+event; each runs on its own (call-booked, the pre-call sequence and the availability watch all start on a booking).
 A workflow may have several triggers (deal-closed starts on a payment or a signature, either order).
 
 Events the engine emits (`event_types`): `lead.created` `intake.recorded` `contact.merged` `opportunity.opened`
@@ -57,7 +57,7 @@ settings; the workflow page's trigger popover lists the calendars that match.
 
 | type | fields | what it does |
 |---|---|---|
-| `wait` | `rule: { anchor, offset, tz, guard? }` | anchor `now` or a datetime path (`appointment.starts_at`); offset `+15m` `+2h` `-1d` or `day_of@08:00` `day_before@19:00` `day_after@09:00`; tz `contact` (default) or `company`; `guard: { min_lead: "2h", fallback: "+15m" }` when the anchor is too close. The premise is re-checked when it wakes. |
+| `wait` | `rule: { anchor, offset, tz, guard?, earliest?, latest? }` | anchor `now` or a datetime path (`appointment.starts_at`); offset `+15m` `+2h` `-1d` or `day_of@08:00` `day_before@19:00` `day_after@09:00`; tz `contact` (default) or `company`; `guard: { min_lead: "2h", fallback: "+15m" }` when the anchor is too close. The premise is re-checked when it wakes. `earliest` / `latest` ("08:00", "21:00", that zone) move a computed time to a human hour the same day: four hours before a 7am call is 8am, not 3am. A reminder that lands too close to the call is the send step's business: `validity.min_lead` + `on_stale: skip`. |
 | `wait_for_reply` | `timeout`, `channel: sms|email|any` | woken the minute a reply arrives; follows the edge labelled `timeout` if none, else exits `no_reply`. `reply.last_inbound.body` is then readable. |
 | `send_sms` | `template`, `kind: human|transactional`, `ghl_template?`, `validity?: { min_lead }`, `on_stale: skip|substitute|pause`, `substitute_template?` | `human` always waits for the send window (dark hours); `transactional` (a receipt: "you're booked") may go out at any hour if the company allows. `ghl_template` = the CRM's own snippet id; its copy wins. `validity.min_lead` + `on_stale` decide what happens when the appointment is now too close for the message to make sense. |
 | `send_email` | `subject`, `template` (HTML allowed), same options as sms | same rules. |

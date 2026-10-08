@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { STAGES, stageIndex, stageLabel } from "@/engine/stages";
 import { company, companyWorkflows, companyContacts, pollHealth, recentRuns, companyEvents, readiness, companyAlerts } from "@/ui/queries";
 import { ReadinessCard } from "@/ui/Readiness";
 import { RunsTable } from "@/ui/RunsTable";
@@ -21,9 +22,10 @@ export default async function CompanyPage({ params }: { params: Promise<{ slug: 
     {alerts.open.length ? <div className="card ready ready-no" style={{ marginBottom: 10 }}><strong><Link href={`/c/${slug}/health`}>{alerts.open.length} open alert{alerts.open.length > 1 ? "s" : ""}</Link></strong><ul className="ready-list">{alerts.open.slice(0, 5).map((a) => <li key={a.id} className={a.level === "error" ? "blocker" : "warning"}><span className={`badge ${a.level === "error" ? "b-failed" : "b-shadow"}`}>{a.level}</span> {a.text}</li>)}</ul></div> : <p className="sub"><Link href={`/c/${slug}/health`}>Health: all clear</Link> · <Link href={`/c/${slug}/eod`}>End-of-day reports</Link></p>}
     <ReadinessCard r={ready} />
     <h2>Workflows</h2>
+    <p className="sub">In the order a lead meets them. Scheduled ones (the team's reports, the engine's own checks) at the end.</p>
     <div className="tbl"><table><thead><tr><th>Workflow</th><th>Triggers</th><th>Re-entry</th><th>Runs</th><th>Enabled</th><th>Ready</th></tr></thead><tbody>
-      {wfs.map((w) => { const rd = readyOf.get(w.id); return <tr key={w.id}><td><Link href={`/c/${slug}/w/${w.id}`}><strong>{w.name}</strong></Link> <span className="mono" style={{ color: "var(--muted)" }}>v{w.current_version}{w.diverged ? " · edited" : ""}</span></td><td className="mono">{w.triggers.join(", ")}</td><td className="mono">{w.reentry_policy}</td><td>{w.runs_active} active / {w.runs_total}</td><td><span className={badge(w.enabled ? "active" : "paused")}>{w.enabled ? "on" : "off"}</span></td>
-        <td>{!rd ? "—" : rd.ready ? <span className="badge b-live">ready</span> : <span className="badge b-failed" title={[...rd.missing.map((m) => `missing ${m}`), ...rd.gaps].join("\n")}>{rd.missing.length ? `missing ${rd.missing.length} binding${rd.missing.length > 1 ? "s" : ""}` : "not built yet"}</span>}</td></tr>; })}
+      {[...wfs].sort((a, b) => stageIndex(a.stage) - stageIndex(b.stage) || a.sort - b.sort || a.name.localeCompare(b.name)).flatMap((w, i, arr) => [...(i === 0 || arr[i - 1].stage !== w.stage ? [<tr key={`stage-${w.stage ?? "other"}`} className="stage-row"><td colSpan={6}><span className="stage-name">{stageLabel(w.stage)}</span><span className="muted"> · {STAGES.find((s) => s.id === w.stage)?.about ?? "custom"}</span></td></tr>] : []), (() => { const rd = readyOf.get(w.id); return <tr key={w.id}><td><Link href={`/c/${slug}/w/${w.id}`}><strong>{w.name}</strong></Link> <span className="mono" style={{ color: "var(--muted)" }}>v{w.current_version}{w.diverged ? " · edited" : ""}</span></td><td className="mono">{w.triggers.join(", ")}</td><td className="mono">{w.reentry_policy}</td><td>{w.runs_active} active / {w.runs_total}</td><td><span className={badge(w.enabled ? "active" : "paused")}>{w.enabled ? "on" : "off"}</span></td>
+        <td>{!rd ? "—" : rd.ready ? <span className="badge b-live">ready</span> : <span className="badge b-failed" title={[...rd.missing.map((m) => `missing ${m}`), ...rd.gaps].join("\n")}>{rd.missing.length ? `missing ${rd.missing.length} binding${rd.missing.length > 1 ? "s" : ""}` : "not built yet"}</span>}</td></tr>; })()])}
     </tbody></table></div>
     <h2>Polling</h2>
     <div className="tbl"><table><thead><tr><th>Entity</th><th>Last success</th><th>Failures</th></tr></thead><tbody>

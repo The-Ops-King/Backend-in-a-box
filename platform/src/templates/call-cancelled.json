@@ -2,6 +2,8 @@
   "slug": "call-cancelled",
   "name": "Call cancelled",
   "category": "booking",
+  "stage": "booking",
+  "sort": 20,
   "description": "A closing call is cancelled (not rescheduled: a reschedule moves the appointment and never fires this). Both pipeline cards move to their cancelled stage, the appointment date comes off the contact, the closer gets a rebook task due in a day, stat-cancelled replaces the booked tags, and the team gets a Slack note with who cancelled and why.",
   "definition": {
     "schema": 1,

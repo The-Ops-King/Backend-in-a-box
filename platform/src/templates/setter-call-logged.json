@@ -2,6 +2,8 @@
   "slug": "setter-call-logged",
   "name": "Setter call logged",
   "category": "calls",
+  "stage": "call",
+  "sort": 20,
   "description": "The dialer logged a connected phone call: calls shorter than the minimum stop here, so do calls with no recording (nothing to read). Fifteen minutes after the call the AI decides whether it was a setting call or a confirmation call (anything else — 'are you joining?', voicemails, wrong numbers — stops here), writes the digest with pains, goals, triage and a fit score, records whether a booking followed, writes the Discovery Call record and links it to the contact, leaves the digest as a note, and posts it to Slack. Every call, answered or not, is kept in the recordings ledger regardless.",
   "definition": {
     "schema": 1,

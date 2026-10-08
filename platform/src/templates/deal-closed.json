@@ -2,6 +2,8 @@
   "slug": "deal-closed",
   "name": "Deal closed",
   "category": "agreements",
+  "stage": "closing",
+  "sort": 40,
   "description": "Fires on the first payment or on the signed agreement, in either order, and runs once: when the contact has both paid and signed and is not yet tagged stat-customer, they become a customer — stat-customer, the closer card to Closed - Won (won), the setter card won, the Sales Call record closed won / showed with cash collected, the welcome email and text, and Slack. A payment without a signature (or the reverse) stops at the check and waits for the other half.",
   "definition": {
     "schema": 1,

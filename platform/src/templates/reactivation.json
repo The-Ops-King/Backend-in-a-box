@@ -2,6 +2,8 @@
   "slug": "reactivation",
   "name": "Reactivation",
   "category": "reactivation",
+  "stage": "reactivation",
+  "sort": 10,
   "description": "Tag a contact \"reactivate\": an email, three days, a text, four days, a last email. Once per 90 days.",
   "definition": {
     "schema": 1,

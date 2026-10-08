@@ -1030,3 +1030,18 @@ out to Airtable, Zapier, Make, Apps Script, anything with a URL; `{{secret.*}}` 
 The line that stays: triggers in and side effects out are editable steps; the ledger, the poll, the form fields, the
 inbound doors and the alert announcer are engine. Google Sheets "the Zapier way" needs one OAuth client for the
 platform (not per client, never a service account); until Tyler decides on it, Apps Script through the webhook step.
+
+## D36. Workflows sit on the journey; the prospect's pre-call is one sequence (2026-10-08)
+
+Tyler: "reorganize the workflows into a chronological order, and section them: pre-call, post-call, closed." Every
+template carries a `stage` (lead, booking, pre_call, call, post_call, closing, payments, reactivation, team, engine)
+and a sort inside it; the company page groups by stage in that order, scheduled ones last. And: "I want one pre-call
+reminder sequence, and the separate call sequence of a booked call that does different things. Copy changes and such,
+I don't want to mess with one thing." So `call-booked` stays the CRM side of a booking (owner, date field, cards, tags,
+the video task, the Slack card) and `pre-call-sequence` is everything the prospect hears, replacing booking-confirmation
+and appointment-reminder: booking email and text, the reply wait (no reply in four hours → tagged unconfirmed and the
+closers told), then 72h, 48h, 24h (text and email), the morning of for calls at 11am or later, 1h and 10m texts.
+The timing is a rule, not an AI: a wait rule's `earliest`/`latest` move a computed time to a human hour the same day
+(four hours before a 7am call is 8am), and each send's `validity.min_lead` skips it when the call is already closer
+than it (a 24-hour text for a call eight hours away never goes). Tyler did not want a "collapse window"; there is none:
+the plan page shows every planned time, and two reminders landing close together is visible, not hidden.

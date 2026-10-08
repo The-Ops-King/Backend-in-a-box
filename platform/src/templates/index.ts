@@ -1,5 +1,4 @@
-import confirmation from "./booking-confirmation.json";
-import reminder from "./appointment-reminder.json";
+import preCall from "./pre-call-sequence.json";
 import speedToLead from "./speed-to-lead.json";
 import noShow from "./no-show-recovery.json";
 import cancellation from "./cancellation-rebook.json";
@@ -22,4 +21,4 @@ import eodFiled from "./eod-filed.json";
 import healthCheck from "./health-check.json";
 import calendarAvailability from "./calendar-availability.json";
 import wrapUps from "./wrap-ups.json";
-export const templates = [confirmation, reminder, speedToLead, noShow, cancellation, postCall, paymentReceived, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, healthCheck, calendarAvailability, wrapUps] as const;
+export const templates = [preCall, speedToLead, noShow, cancellation, postCall, paymentReceived, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, healthCheck, calendarAvailability, wrapUps] as const;

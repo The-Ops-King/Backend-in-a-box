@@ -74,69 +74,63 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
     });
   });
 
-  it("a booked appointment starts both workflows; confirmation email sends once; reminder waits", async () => {
+  it("a booked appointment starts the pre-call sequence; the booking email and text go once; it waits for the reply", async () => {
     const snap: AppointmentSnapshot = { id: "GHLA1", calendarId: "CAL1", contactId: "GHLC1", assignedUserId: "GHLU1", startTime: APPT_START.toISO()!, endTime: APPT_START.plus({ minutes: 30 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {} };
     await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snap); });
-    // call-booked also starts here; this test is about confirmation + reminder, and that company has no pipeline bindings so call-booked fails at its first step
-    const runs = await asOperator((c) => many<{ id: string; status: string; appointment_id: string }>(c, "select r.id, r.status, r.appointment_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name in ('Booking confirmation','Appointment reminder with reply handling')", [companyId]));
-    expect(runs).toHaveLength(2); apptId = runs[0].appointment_id;
+    // call-booked also starts here; this test is about the pre-call sequence, and that company has no pipeline bindings so call-booked fails at its first step
+    const runs = await asOperator((c) => many<{ id: string; status: string; appointment_id: string }>(c, "select r.id, r.status, r.appointment_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Pre-call sequence'", [companyId]));
+    expect(runs).toHaveLength(1); apptId = runs[0].appointment_id;
     const opp = await asOperator((c) => one(c, "select id from opportunities where company_id=$1 and status='open'", [companyId]));
     expect(opp).toBeTruthy();  // lifecycle: first booking opened an opportunity
     const auto = await asOperator((c) => one<{ claimed_at: null }>(c, "select claimed_at from users where company_id=$1 and ghl_user_id='GHLU1'", [companyId]));
     expect(auto?.claimed_at).toBeNull();  // unclaimed user auto-created from roster
 
     const r1 = await tick(fake, undefined, companyId, fakeProbes);
-    // four: the confirmation, the reminder, call-booked (fails: no pipeline bindings) and the calendar availability watch the booking started
-    expect(r1.claimed).toBe(4); expect(r1.completed).toBe(2); expect(r1.waiting).toBe(1); expect(r1.failed).toBe(1);
-    expect(sent.filter((s) => s.kind === "email")).toHaveLength(1);
-    expect(sent[0].body).toMatch(/You're booked/);
+    // three: the pre-call sequence (waits for the reply), call-booked (fails: no pipeline bindings) and the calendar availability watch the booking started
+    expect(r1.claimed).toBe(3); expect(r1.completed).toBe(1); expect(r1.waiting).toBe(1); expect(r1.failed).toBe(1);
+    expect(sent.filter((s) => s.kind === "email")).toHaveLength(1); expect(sent.filter((s) => s.kind === "sms")).toHaveLength(1);
+    expect(sent.find((s) => s.kind === "email")!.body).toMatch(/isn't locked yet/);
+    expect(sent.find((s) => s.kind === "sms")!.body).toMatch(/Jamie.*Sam.*at 2:00pm.*emoji/i);
+    const waiting = await asOperator((c) => one<{ current_node: string; next_run_at: Date }>(c, "select current_node, next_run_at from runs where company_id=$1 and status='waiting'", [companyId]));
+    expect(waiting?.current_node).toBe("w1");                                        // stays ON the wait_for_reply node
+    expect(waiting!.next_run_at.getTime() - Date.now()).toBeGreaterThan(3.9 * 3600e3);  // deadline ≈ 4h out
 
-    const r2 = await tick(fake, undefined, companyId, fakeProbes);   // nothing due; the reminder is waiting on its rule
-    expect(r2.claimed).toBe(0); expect(sent).toHaveLength(1);
+    const r2 = await tick(fake, undefined, companyId, fakeProbes);   // nothing due; the sequence is waiting for the reply
+    expect(r2.claimed).toBe(0); expect(sent).toHaveLength(2);
   });
 
-  it("reply → classify → branch → tag; idempotency ledger has every send once", async () => {
-    // fast-forward the reminder's wait: pretend the rule fired and a reply arrived
-    await asOperator(async (c) => {
-      await c.query("update runs set next_run_at=now(), current_node='n2' where company_id=$1 and status='waiting'", [companyId]);
-      await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'M1','sms','inbound','yes see you then',now())", [companyId, contactId]);
-    });
-    const r = await tick(fake, undefined, companyId, fakeProbes);                       // n2 sends the reminder SMS; n3 wait_for_reply sees the reply already there? No: message was BEFORE the send → boundary excludes it → waits
-    expect(sent.filter((s) => s.kind === "sms")).toHaveLength(1);
-    expect(sent.at(-1)!.body).toMatch(/Jamie.*Sam.*at 2pm/);
-    const waiting = await asOperator((c) => one<{ current_node: string; next_run_at: Date }>(c, "select current_node, next_run_at from runs where company_id=$1 and status='waiting'", [companyId]));
-    expect(waiting?.current_node).toBe("n3");                                        // stays ON the wait_for_reply node
-    expect(waiting!.next_run_at.getTime() - Date.now()).toBeGreaterThan(3.9 * 3600e3);  // deadline ≈ 4h out
-    // a reply arrives AFTER our send → the poller wakes the run (simulated: next_run_at=now) → handled on the very next tick, not at hour four
+  it("reply → classify → branch → tag confirmed → on to the reminders; idempotency ledger has every send once", async () => {
+    // a reply arrives AFTER the booking text → the poller wakes the run (simulated: next_run_at=now) → handled on the very next tick, not at hour four
     await asOperator(async (c) => {
       await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'M2','sms','inbound','yes see you then',now())", [companyId, contactId]);
       await c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting'", [companyId]);
     });
-    const r3 = await tick(fake, undefined, companyId, fakeProbes);                      // n3 sees reply → n5 classify → n6 branch → n7 tag → x1
-    expect(r3.completed).toBe(1);
+    const r3 = await tick(fake, undefined, companyId, fakeProbes);                      // w1 sees reply → c1 classify → b1 branch → tag confirmed → the 3-day text is stale (call in 2 days) → parks on the next reminder
+    expect(r3.waiting).toBe(1);
     expect(tags).toContain("confirmed");
-    const run = await asOperator((c) => one<{ exit_reason: string }>(c, "select r.exit_reason from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name like 'Appointment reminder%'", [companyId]));
-    expect(run?.exit_reason).toBe("confirmed");
+    const run = await asOperator((c) => one<{ status: string; current_node: string }>(c, "select r.status, r.current_node from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Pre-call sequence'", [companyId]));
+    expect(run).toMatchObject({ status: "waiting" }); expect(["r48", "r24"]).toContain(run!.current_node);
+    expect(sent.filter((s) => /3 days out/.test(s.body))).toHaveLength(0);   // skipped: the call is closer than that
     const ledger = await asOperator((c) => many<{ idempotency_key: string; status: string }>(c, "select idempotency_key, status from sends where company_id=$1 order by scheduled_for", [companyId]));
     expect(new Set(ledger.map((l) => l.idempotency_key)).size).toBe(ledger.length);
     const cls = await asOperator((c) => one<{ data: { intent: string } }>(c, "select data from events where company_id=$1 and event_type='reply.classified'", [companyId]));
     expect(cls?.data.intent).toBe("confirmed");
   });
 
-  it("wait_for_reply timeout: no reply by the deadline → the timeout edge → exit no_reply", async () => {
+  it("wait_for_reply timeout: no reply by the deadline → the timeout edge → tagged unconfirmed, the closers told, the reminders go on", async () => {
     await asOperator(async (c) => {
       await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [companyId]);
       await c.query("delete from sends where company_id=$1", [companyId]); await c.query("delete from runs where company_id=$1", [companyId]);
       await c.query("delete from messages where company_id=$1", [companyId]);
-      const wf = await one<{ id: string }>(c, "select id from workflows where company_id=$1 and name like 'Appointment reminder%'", [companyId]);
-      // park a run on n3 with a deadline already in the past
-      await c.query("insert into runs (company_id, workflow_id, workflow_version, contact_id, appointment_id, status, current_node, next_run_at, context, reentry_key) values ($1,$2,1,$3,$4,'waiting','n3',now(),$5,'appointment:timeout')",
-        [companyId, wf!.id, contactId, apptId, { vars: { __wait_for_reply: { n3: { deadline: new Date(Date.now() - 60e3).toISOString() } } } }]);   // nested: setPath/resolvePath split on "."
+      const wf = await one<{ id: string }>(c, "select id from workflows where company_id=$1 and name='Pre-call sequence'", [companyId]);
+      // park a run on w1 with a deadline already in the past
+      await c.query("insert into runs (company_id, workflow_id, workflow_version, contact_id, appointment_id, status, current_node, next_run_at, context, reentry_key) values ($1,$2,1,$3,$4,'waiting','w1',now(),$5,'appointment:timeout')",
+        [companyId, wf!.id, contactId, apptId, { vars: { __wait_for_reply: { w1: { deadline: new Date(Date.now() - 60e3).toISOString() } } } }]);   // nested: setPath/resolvePath split on "."
     });
     const r = await tick(fake, undefined, companyId, fakeProbes);
-    expect(r.completed).toBe(1);
-    const run = await asOperator((c) => one<{ exit_reason: string }>(c, "select exit_reason from runs where company_id=$1 and reentry_key='appointment:timeout'", [companyId]));
-    expect(run?.exit_reason).toBe("no_reply");
+    expect(r.waiting).toBe(1); expect(tags).toContain("unconfirmed");
+    const steps = await asOperator((c) => many<{ node_id: string; status: string }>(c, "select s.node_id, s.status from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and r.reentry_key='appointment:timeout' order by s.started_at", [companyId]));
+    expect(steps.map((x) => x.node_id).slice(0, 3)).toEqual(["w1", "n_unc", "n_unc_slack"]);
   });
 
   it("disposition: showed + follow_up emits call.held and starts post-call follow-up; noshow starts no-show recovery once", async () => {
@@ -164,8 +158,8 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
       await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [companyId]);
       await c.query("delete from sends where company_id=$1", [companyId]);
       await c.query("delete from runs where company_id=$1", [companyId]);
-      const wf = await one<{ id: string }>(c, "select id from workflows where company_id=$1 and name like 'Appointment reminder%'", [companyId]);
-      await c.query("insert into runs (company_id, workflow_id, workflow_version, contact_id, appointment_id, status, current_node, next_run_at, context, reentry_key) values ($1,$2,1,$3,$4,'waiting','n2',now(),'{}','appointment:again')", [companyId, wf!.id, contactId, apptId]);
+      const wf = await one<{ id: string }>(c, "select id from workflows where company_id=$1 and name='Pre-call sequence'", [companyId]);
+      await c.query("insert into runs (company_id, workflow_id, workflow_version, contact_id, appointment_id, status, current_node, next_run_at, context, reentry_key) values ($1,$2,1,$3,$4,'waiting','r24',now(),'{}','appointment:again')", [companyId, wf!.id, contactId, apptId]);
     });
     const before = sent.length;
     const r = await tick(fake, undefined, companyId, fakeProbes);

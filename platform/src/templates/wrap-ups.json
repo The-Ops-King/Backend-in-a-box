@@ -2,26 +2,118 @@
   "slug": "wrap-ups",
   "name": "Wrap-ups",
   "category": "reports",
+  "stage": "team",
+  "sort": 30,
   "description": "What happened today, last week, last month, from the engine's own ledger, posted to the reports channel on the company's schedule.",
   "definition": {
     "schema": 1,
     "reentry": "always",
-    "premise": { "check": "none" },
+    "premise": {
+      "check": "none"
+    },
     "nodes": [
-      { "id": "t_daily", "type": "trigger", "event": "schedule", "schedule": { "at": "19:00", "for": "company" } },
-      { "id": "t_weekly", "type": "trigger", "event": "schedule", "schedule": { "at": "08:00", "days": [1], "for": "company" } },
-      { "id": "t_monthly", "type": "trigger", "event": "schedule", "schedule": { "at": "08:00", "day_of_month": 1, "for": "company" } },
-      { "id": "v_daily", "type": "set_var", "key": "kind", "value": "daily" },
-      { "id": "v_weekly", "type": "set_var", "key": "kind", "value": "weekly" },
-      { "id": "v_monthly", "type": "set_var", "key": "kind", "value": "monthly" },
-      { "id": "n_build", "type": "report", "kind": "{{vars.kind}}", "breakdowns": [], "sections": {}, "into": "report" },
-      { "id": "n_post", "type": "slack_post", "channel": "{{slack.channel.reports}}", "template": "{{vars.report.body}}" },
-      { "id": "x_done", "type": "exit", "reason": "done" }
+      {
+        "id": "t_daily",
+        "type": "trigger",
+        "event": "schedule",
+        "schedule": {
+          "at": "19:00",
+          "for": "company"
+        }
+      },
+      {
+        "id": "t_weekly",
+        "type": "trigger",
+        "event": "schedule",
+        "schedule": {
+          "at": "08:00",
+          "days": [
+            1
+          ],
+          "for": "company"
+        }
+      },
+      {
+        "id": "t_monthly",
+        "type": "trigger",
+        "event": "schedule",
+        "schedule": {
+          "at": "08:00",
+          "day_of_month": 1,
+          "for": "company"
+        }
+      },
+      {
+        "id": "v_daily",
+        "type": "set_var",
+        "key": "kind",
+        "value": "daily"
+      },
+      {
+        "id": "v_weekly",
+        "type": "set_var",
+        "key": "kind",
+        "value": "weekly"
+      },
+      {
+        "id": "v_monthly",
+        "type": "set_var",
+        "key": "kind",
+        "value": "monthly"
+      },
+      {
+        "id": "n_build",
+        "type": "report",
+        "kind": "{{vars.kind}}",
+        "breakdowns": [],
+        "sections": {},
+        "into": "report"
+      },
+      {
+        "id": "n_post",
+        "type": "slack_post",
+        "channel": "{{slack.channel.reports}}",
+        "template": "{{vars.report.body}}"
+      },
+      {
+        "id": "x_done",
+        "type": "exit",
+        "reason": "done"
+      }
     ],
     "edges": [
-      { "from": "t_daily", "to": "v_daily" }, { "from": "t_weekly", "to": "v_weekly" }, { "from": "t_monthly", "to": "v_monthly" },
-      { "from": "v_daily", "to": "n_build" }, { "from": "v_weekly", "to": "n_build" }, { "from": "v_monthly", "to": "n_build" },
-      { "from": "n_build", "to": "n_post" }, { "from": "n_post", "to": "x_done" }
+      {
+        "from": "t_daily",
+        "to": "v_daily"
+      },
+      {
+        "from": "t_weekly",
+        "to": "v_weekly"
+      },
+      {
+        "from": "t_monthly",
+        "to": "v_monthly"
+      },
+      {
+        "from": "v_daily",
+        "to": "n_build"
+      },
+      {
+        "from": "v_weekly",
+        "to": "n_build"
+      },
+      {
+        "from": "v_monthly",
+        "to": "n_build"
+      },
+      {
+        "from": "n_build",
+        "to": "n_post"
+      },
+      {
+        "from": "n_post",
+        "to": "x_done"
+      }
     ]
   }
 }

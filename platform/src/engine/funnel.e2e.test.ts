@@ -43,8 +43,6 @@ const run = async (slug: string) => (await runs()).filter((r) => r.slug === slug
 const journey = () => asOperator((c) => many<{ event_type: string }>(c, "select event_type from events where company_id=$1 and contact_id=$2 order by id", [companyId, contactId]));
 const snap = (id: string, startsAt: DateTime, status: string): AppointmentSnapshot => ({ id, calendarId: "CAL", contactId: "CF1", assignedUserId: "U1", startTime: startsAt.toISO()!, endTime: startsAt.plus({ minutes: 45 }).toISO()!, status, dateAdded: new Date().toISOString(), raw: {} });
 const apply = (s: AppointmentSnapshot) => asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); apptStore.set(s.id, s); await applyAppointment(c, row, adapterCompany, fake, s); });
-// day-of 8am in the contact's zone, as the reminder template computes it
-const morningOf = (d: DateTime) => d.setZone(TZ).set({ hour: 8, minute: 0, second: 0, millisecond: 0 });
 
 describe.skipIf(!HAS_DB)("funnel end to end", () => {
   beforeAll(async () => {
@@ -77,7 +75,7 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
     expect(sent.map((s) => s.kind)).toEqual(["email", "sms"]);
   });
 
-  it("booking → attaches to the lead's card, confirmation goes out, reminder parks for the morning of the call", async () => {
+  it("booking → attaches to the lead's card, the booking email and text go out, the pre-call sequence waits for the reply", async () => {
     const start = DateTime.now().plus({ days: 3 }).setZone(TZ).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
     await apply(snap("A1", start, "confirmed"));
     const appt = await asOperator((c) => one<{ id: string; opportunity_id: string }>(c, "select id, opportunity_id from appointments where company_id=$1 and external_id='A1'", [companyId]));
@@ -86,33 +84,31 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
     expect(card!.opportunity_id).toBe(pursuit!.id);
     expect(appt!.opportunity_id).toBe(pursuit!.id);   // the booking lands on the pursuit new-lead opened, no second opportunity
     const n = sent.length; await tick(fake, undefined, companyId, fakeProbes);
-    expect(await run("booking-confirmation")).toMatchObject({ status: "completed", appointment_id: appt!.id, opportunity_id: pursuit!.id });
-    expect(sent.slice(n).map((s) => s.kind)).toEqual(["email"]);
-    const rem = await run("appointment-reminder");
-    expect(rem).toMatchObject({ status: "waiting", current_node: "n1", appointment_id: appt!.id });
-    expect(rem.next_run_at!.getTime()).toBe(morningOf(start).toMillis());
+    expect(sent.slice(n).map((s) => s.kind)).toEqual(["email", "sms"]);
+    const rem = await run("pre-call-sequence");
+    expect(rem).toMatchObject({ status: "waiting", current_node: "w1", appointment_id: appt!.id, opportunity_id: pursuit!.id });
   });
 
-  it("reschedule → same appointment moves, the parked reminder moves with it, nothing else fires", async () => {
+  it("reschedule → same appointment moves, the sequence stays with it, nothing else fires", async () => {
     const moved = DateTime.now().plus({ days: 5 }).setZone(TZ).set({ hour: 11, minute: 0, second: 0, millisecond: 0 });
     const before = (await runs()).length, n = sent.length;
     await apply(snap("A1", moved, "confirmed"));
     expect(await asOperator((c) => many(c, "select 1 from appointments where company_id=$1 and contact_id=$2", [companyId, contactId]))).toHaveLength(1);
     await tick(fake, undefined, companyId, fakeProbes);
-    const rem = await run("appointment-reminder");
-    expect(rem.status).toBe("waiting"); expect(rem.current_node).toBe("n1");
-    expect(rem.next_run_at!.getTime()).toBe(morningOf(moved).toMillis());
+    const rem = await run("pre-call-sequence");
+    expect(rem.status).toBe("waiting"); expect(rem.current_node).toBe("w1");
+    expect((await asOperator((c) => one<{ starts_at: Date }>(c, "select starts_at from appointments where id=$1", [rem.appointment_id])))!.starts_at.getTime()).toBe(moved.toMillis());
     expect((await runs()).length).toBe(before + 1); expect(sent.length).toBe(n);   // the one new run is the availability watch re-reading the moved calendar
     expect((await journey()).filter((e) => e.event_type === "appointment.rescheduled")).toHaveLength(1);
   });
 
-  it("cancel → rebook sequence sends, the reminder exits as moot, the journey reads in order", async () => {
+  it("cancel → rebook sequence sends, the pre-call sequence exits as moot, the journey reads in order", async () => {
     const current = await asOperator((c) => one<{ starts_at: Date }>(c, "select starts_at from appointments where company_id=$1 and external_id='A1'", [companyId]));
     await apply(snap("A1", DateTime.fromJSDate(current!.starts_at), "cancelled"));
     const n = sent.length; await tick(fake, undefined, companyId, fakeProbes);
     expect(await run("cancellation-rebook")).toMatchObject({ status: "completed", exit_reason: "sent" });
     expect(sent.slice(n).map((s) => s.kind).sort()).toEqual(["email", "sms"]);
-    const rem = await run("appointment-reminder");
+    const rem = await run("pre-call-sequence");
     expect(rem.status).toBe("exited"); expect(rem.exit_reason).toMatch(/moot: appointment cancelled/);
     expect((await journey()).map((e) => e.event_type)).toEqual(expect.arrayContaining(["lead.created", "opportunity.opened", "tag.added", "appointment.booked", "appointment.rescheduled", "appointment.status_changed", "run.exited"]));
     const order = (await journey()).map((e) => e.event_type);

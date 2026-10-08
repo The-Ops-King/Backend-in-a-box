@@ -22,6 +22,9 @@ export const WaitRule = z.object({
   offset: z.string(),                       // "+4h" | "-1d" | "day_of@08:00" | "day_before@19:00" | "day_after@09:00"
   tz: z.enum(["contact", "company"]).default("contact"),
   guard: z.object({ min_lead: z.string(), fallback: z.string() }).optional(),
+  // a daily window in that zone: a computed time before `earliest` moves later to it (the same day); after `latest`, earlier to it. "Four hours before a 7am call" lands at 8am, not 3am.
+  earliest: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  latest: z.string().regex(/^\d{2}:\d{2}$/).optional(),
 });
 export type WaitRule = z.infer<typeof WaitRule>;
 

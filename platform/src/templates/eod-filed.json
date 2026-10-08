@@ -2,19 +2,62 @@
   "slug": "eod-filed",
   "name": "End-of-day report filed",
   "category": "team",
+  "stage": "team",
+  "sort": 20,
   "description": "When a closer files their day: the summary and what they corrected to the team's channel, a ✅ on their reminder. Add a webhook step to send the report anywhere else.",
   "definition": {
     "schema": 1,
     "reentry": "always",
-    "premise": { "check": "none" },
+    "premise": {
+      "check": "none"
+    },
     "nodes": [
-      { "id": "t1", "type": "trigger", "event": "eod.filed" },
-      { "id": "n_summary", "type": "slack_post", "channel": "{{slack.channel.eod}}", "as": { "name": "End of day", "icon": ":clipboard:" },
-        "template": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.corrections_block | default:Nothing corrected: the prefill matched. | line}}{{event.day_answers_lines | line}}" },
-      { "id": "n_ack", "type": "slack_post", "channel": "{{user.slack_user_id}}", "thread_of": "tag:eod-reminder:{{event.user_id}}:{{event.day}}", "react": "white_check_mark", "as": { "name": "End of day", "icon": ":clipboard:" },
-        "template": "✅ Got it. {{event.totals_line}}." },
-      { "id": "x_done", "type": "exit", "reason": "done" }
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "eod.filed"
+      },
+      {
+        "id": "n_summary",
+        "type": "slack_post",
+        "channel": "{{slack.channel.eod}}",
+        "as": {
+          "name": "End of day",
+          "icon": ":clipboard:"
+        },
+        "template": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.corrections_block | default:Nothing corrected: the prefill matched. | line}}{{event.day_answers_lines | line}}"
+      },
+      {
+        "id": "n_ack",
+        "type": "slack_post",
+        "channel": "{{user.slack_user_id}}",
+        "thread_of": "tag:eod-reminder:{{event.user_id}}:{{event.day}}",
+        "react": "white_check_mark",
+        "as": {
+          "name": "End of day",
+          "icon": ":clipboard:"
+        },
+        "template": "✅ Got it. {{event.totals_line}}."
+      },
+      {
+        "id": "x_done",
+        "type": "exit",
+        "reason": "done"
+      }
     ],
-    "edges": [ { "from": "t1", "to": "n_summary" }, { "from": "n_summary", "to": "n_ack" }, { "from": "n_ack", "to": "x_done" } ]
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n_summary"
+      },
+      {
+        "from": "n_summary",
+        "to": "n_ack"
+      },
+      {
+        "from": "n_ack",
+        "to": "x_done"
+      }
+    ]
   }
 }

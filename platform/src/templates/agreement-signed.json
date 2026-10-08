@@ -2,6 +2,8 @@
   "slug": "agreement-signed",
   "name": "Agreement signed",
   "category": "agreements",
+  "stage": "closing",
+  "sort": 20,
   "description": "The signer completed the purchase agreement (the engine watches the CRM's documents): stat-agreement-signed is added, a dated note goes on the contact, and the team sees it in Slack with what has been paid so far. Deal closed takes it from here when payment is also in.",
   "definition": {
     "schema": 1,

@@ -24,8 +24,8 @@ describe("plain-English descriptions", () => {
   it("a branch is titled by its edges", () => {
     const def = parseDefinition(templates.find((t) => t.slug === "call-booked")!.definition);
     expect(branchTitle(def, "n2")).toBe("Setter booked, or self booked?");
-    const rem = parseDefinition(templates.find((t) => t.slug === "appointment-reminder")!.definition);
-    expect(branchTitle(rem, rem.nodes.find((n) => n.type === "branch")!.id)).toBe("The reply is “confirmed”, or the reply is “cancelled”, or the reply is a reschedule request?");
+    const rem = parseDefinition(templates.find((t) => t.slug === "pre-call-sequence")!.definition);
+    expect(branchTitle(rem, "b1")).toBe("The reply is “confirmed”, or the reply is “cancelled”, or the reply is a reschedule request?");
   });
   it("predicates and edges", () => {
     expect(predicateWords({ eq: ["{{reply.intent}}", "reschedule_request"] })).toBe("the reply is a reschedule request");

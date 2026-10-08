@@ -2,6 +2,8 @@
   "slug": "agreement-chase",
   "name": "Unsigned agreement chase",
   "category": "agreements",
+  "stage": "closing",
+  "sort": 30,
   "description": "Starts on the first payment and runs once per contact: every 24 hours it checks whether the agreement has been signed; while it has not, the contact's owner gets a Slack DM (or an @mention in the alerts channel) and a CRM task, three times at most. A signature at any point ends it. After the third unanswered nudge the contact is tagged agreement-unsigned and the alerts channel is told once.",
   "definition": {
     "schema": 1,

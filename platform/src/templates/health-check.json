@@ -2,16 +2,45 @@
   "slug": "health-check",
   "name": "Health check",
   "category": "engine",
+  "stage": "engine",
+  "sort": 10,
   "description": "Every hour, a read-only sweep of every connection and every step's dependencies. Silent while everything works; a failed check is an alert that clears itself.",
   "definition": {
     "schema": 1,
     "reentry": "always",
-    "premise": { "check": "none" },
+    "premise": {
+      "check": "none"
+    },
     "nodes": [
-      { "id": "t1", "type": "trigger", "event": "schedule", "schedule": { "every": "60m", "for": "company" } },
-      { "id": "n1", "type": "health_check", "checks": {} },
-      { "id": "x_done", "type": "exit", "reason": "done" }
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "schedule",
+        "schedule": {
+          "every": "60m",
+          "for": "company"
+        }
+      },
+      {
+        "id": "n1",
+        "type": "health_check",
+        "checks": {}
+      },
+      {
+        "id": "x_done",
+        "type": "exit",
+        "reason": "done"
+      }
     ],
-    "edges": [ { "from": "t1", "to": "n1" }, { "from": "n1", "to": "x_done" } ]
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "x_done"
+      }
+    ]
   }
 }

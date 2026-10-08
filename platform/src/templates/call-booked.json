@@ -2,7 +2,9 @@
   "slug": "call-booked",
   "name": "Call booked",
   "category": "booking",
-  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags come off, and the team gets the Slack card with the intake answers.",
+  "stage": "booking",
+  "sort": 10,
+  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off, meta booked call goes on, the owner gets a task to send a personal video, and the team gets the Slack card with the intake answers.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -155,6 +157,24 @@
         ]
       },
       {
+        "id": "k1",
+        "type": "set_tag",
+        "tag": "meta booked call"
+      },
+      {
+        "id": "k2",
+        "type": "remove_tag",
+        "tag": "opt-in lead"
+      },
+      {
+        "id": "k3",
+        "type": "create_task",
+        "title": "Send {{contact.first_name}} a personalized video",
+        "body": "Booked for {{appointment.starts_at | date_company}}. A quick personal video before the call.",
+        "due": "+1d",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
+      },
+      {
         "id": "n4",
         "type": "slack_post",
         "channel": "{{slack.channel.bookings}}",
@@ -250,12 +270,24 @@
         "to": "n3"
       },
       {
-        "from": "n3",
-        "to": "n4"
-      },
-      {
         "from": "n4",
         "to": "x1"
+      },
+      {
+        "from": "n3",
+        "to": "k1"
+      },
+      {
+        "from": "k1",
+        "to": "k2"
+      },
+      {
+        "from": "k2",
+        "to": "k3"
+      },
+      {
+        "from": "k3",
+        "to": "n4"
       }
     ]
   }

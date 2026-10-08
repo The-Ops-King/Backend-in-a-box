@@ -386,6 +386,8 @@ create table workflow_templates (
   name         text not null,
   description  text,
   category     text not null,              -- speed_to_lead, reminders, no_show, reactivation, payments, replies
+  stage        text,                       -- where on the journey (src/engine/stages.ts: lead, booking, pre_call, call, post_call, closing, payments, reactivation, team, engine)
+  sort         int not null default 0,     -- order within the stage
   version      int not null default 1,
   definition   jsonb not null,             -- §10
   manifest     jsonb not null,             -- §10, extracted on save
@@ -404,6 +406,8 @@ create table workflows (
   reentry_policy    text not null
                     check (reentry_policy in ('once_per_contact','once_per_appointment','once_per_opportunity','once_per_contact_per_window','always')),
   reentry_window    interval,                             -- for the per_window policy
+  stage             text,                                 -- copied from the template at install; a custom workflow sets its own
+  sort              int not null default 0,
   diverged          boolean not null default false,       -- edited since copy
   diverged_at       timestamptz,
   created_at        timestamptz not null default now()

@@ -2,6 +2,8 @@
   "slug": "payment-failed",
   "name": "Payment failed",
   "category": "payments",
+  "stage": "payments",
+  "sort": 30,
   "description": "Text and email when a charge fails; two days later, tell the owner in Slack if it's connected.",
   "definition": {
     "schema": 1,

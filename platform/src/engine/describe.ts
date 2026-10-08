@@ -99,7 +99,9 @@ export function waitWords(rule: WaitRule): string {
     const when = m[1] === "day_of" ? `the day of ${anchor || "the call"}` : m[1] === "day_before" ? `the day before ${anchor || "the call"}` : anchor ? `the day after ${anchor}` : "the next day";
     return `Wait until ${clock(m[2], m[3])} ${when}`;
   }
-  return anchor ? `Wait until ${durationWords(rule.offset)} ${rule.offset.startsWith("-") ? "before" : "after"} ${anchor}` : `Wait ${durationWords(rule.offset)}`;
+  const hm = (t: string) => clock(t.slice(0, 2), t.slice(3, 5));
+  const win = rule.earliest || rule.latest ? ` (${[rule.earliest ? `not before ${hm(rule.earliest)}` : "", rule.latest ? `not after ${hm(rule.latest)}` : ""].filter(Boolean).join(", ")})` : "";
+  return (anchor ? `Wait until ${durationWords(rule.offset.replace(/^[-+]/, ""))} ${rule.offset.startsWith("-") ? "before" : "after"} ${anchor}` : `Wait ${durationWords(rule.offset.replace(/^[-+]/, ""))}`) + win;
 }
 const guardWords = (rule: WaitRule) => rule.guard ? ` (if that is less than ${durationWords(rule.guard.min_lead)} away, use ${waitWords({ ...rule, offset: rule.guard.fallback, guard: undefined }).replace(/^Wait until /, "")} instead)` : "";
 

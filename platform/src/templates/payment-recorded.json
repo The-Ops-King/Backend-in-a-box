@@ -2,6 +2,8 @@
   "slug": "payment-recorded",
   "name": "Payment recorded",
   "category": "payments",
+  "stage": "payments",
+  "sort": 20,
   "description": "A payment landed in the ledger: cash collected on the contact becomes the running total, revenue generated is stamped once with the program price, pay-plan-active or pay-paid-full is set, the payment is written to the CRM's Payment object and linked to the contact and the closer card. On the first payment, if the agreement is not signed yet, the purchase agreement is sent for signature, stat-agreement-sent is added and the closer card moves to Agreement Sent. A dated note records the payment, the Sales Call record's cash collected is updated when there is one, and the team gets the Slack line. Nothing goes to the customer from here.",
   "definition": {
     "schema": 1,

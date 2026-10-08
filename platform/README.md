@@ -25,10 +25,11 @@ confirmation email went out through GHL into the contact's thread, the reminder 
 
 ## The workflows (templates, all install OFF)
 
+Every template carries a `stage` on the customer's journey (`src/engine/stages.ts`: lead, booking, pre_call, call, post_call, closing, payments, reactivation, team, engine) and a `sort` inside it; the company page lists workflows in that order, scheduled ones last. A custom workflow sets its own.
+
 | Template | Starts on | Does |
 |---|---|---|
-| booking-confirmation | appointment booked | confirmation email |
-| appointment-reminder | appointment booked (closing calls) | morning-of SMS (evening-before fallback for early calls), waits for a reply, classifies it, branches: confirmed / cancelled / reschedule / needs a human |
+| pre-call-sequence | appointment booked (closing calls) | everything the prospect hears before the call (D36): the booking email and text (reply with an emoji to lock in; no reply in 4h → tagged `unconfirmed`, the closers' channel told; a cancel, a reschedule or an unclear reply handled as before), then texts 3 days, 2 days and 24 hours out (with an email), the morning of for calls at 11am or later, 1 hour and 10 minutes before. Each reminder lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always) and is skipped when the call is already closer than it (`validity.min_lead`). Copy is placeholders until Tyler pastes the real texts. |
 | speed-to-lead | lead created | email + SMS now, 2h for a reply, one more email if silent |
 | no-show-recovery | GHL marks no-show, or the disposition form does | 10 min, SMS + email with the rebook link, 24h for a reply, one more email |
 | cancellation-rebook | GHL marks cancelled | SMS + email with the rebook link |

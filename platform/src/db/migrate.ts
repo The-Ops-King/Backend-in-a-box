@@ -119,6 +119,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     for (const col of ["enabled", "every_minutes", "checks", "min_slots", "slots_days"]) await c.query(`alter table health_checks drop column if exists ${col}`);
     await c.query(`alter table companies drop column if exists eod_enabled`);
     await c.query(`alter table companies drop column if exists eod_at`);
+    // D36: workflows sit on the journey
+    for (const t of ["workflow_templates", "workflows"]) { await c.query(`alter table ${t} add column if not exists stage text`); await c.query(`alter table ${t} add column if not exists sort int not null default 0`); }
 
     await c.query(`create table if not exists eod_reports (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, user_id uuid not null references users(id) on delete cascade, day date not null, prefill jsonb, answers jsonb, changes jsonb not null default '[]', reminded_at timestamptz, dm_channel text, dm_ts text, submitted_at timestamptz, unique (company_id, user_id, day))`);
     await c.query(`alter table events drop constraint if exists events_source_check`);

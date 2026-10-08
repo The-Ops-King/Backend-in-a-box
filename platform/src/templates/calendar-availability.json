@@ -2,19 +2,73 @@
   "slug": "calendar-availability",
   "name": "Calendar availability",
   "category": "engine",
+  "stage": "engine",
+  "sort": 20,
   "description": "Watches bookable slots on every calendar: every hour, and the minute a booking lands or moves. Too few open slots in the coming days is an alert with the calendar link and the day-by-day in its thread.",
   "definition": {
     "schema": 1,
     "reentry": "always",
-    "premise": { "check": "none" },
+    "premise": {
+      "check": "none"
+    },
     "nodes": [
-      { "id": "t_hourly", "type": "trigger", "event": "schedule", "schedule": { "every": "60m", "for": "company" } },
-      { "id": "t_booked", "type": "trigger", "event": "appointment.booked" },
-      { "id": "t_moved", "type": "trigger", "event": "appointment.rescheduled" },
-      { "id": "t_status", "type": "trigger", "event": "appointment.status_changed" },
-      { "id": "n1", "type": "availability_check", "min_slots": 3, "days": 7 },
-      { "id": "x_done", "type": "exit", "reason": "done" }
+      {
+        "id": "t_hourly",
+        "type": "trigger",
+        "event": "schedule",
+        "schedule": {
+          "every": "60m",
+          "for": "company"
+        }
+      },
+      {
+        "id": "t_booked",
+        "type": "trigger",
+        "event": "appointment.booked"
+      },
+      {
+        "id": "t_moved",
+        "type": "trigger",
+        "event": "appointment.rescheduled"
+      },
+      {
+        "id": "t_status",
+        "type": "trigger",
+        "event": "appointment.status_changed"
+      },
+      {
+        "id": "n1",
+        "type": "availability_check",
+        "min_slots": 3,
+        "days": 7
+      },
+      {
+        "id": "x_done",
+        "type": "exit",
+        "reason": "done"
+      }
     ],
-    "edges": [ { "from": "t_hourly", "to": "n1" }, { "from": "t_booked", "to": "n1" }, { "from": "t_moved", "to": "n1" }, { "from": "t_status", "to": "n1" }, { "from": "n1", "to": "x_done" } ]
+    "edges": [
+      {
+        "from": "t_hourly",
+        "to": "n1"
+      },
+      {
+        "from": "t_booked",
+        "to": "n1"
+      },
+      {
+        "from": "t_moved",
+        "to": "n1"
+      },
+      {
+        "from": "t_status",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "x_done"
+      }
+    ]
   }
 }

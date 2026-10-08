@@ -2,6 +2,8 @@
   "slug": "call-recorded",
   "name": "Call recorded",
   "category": "calls",
+  "stage": "call",
+  "sort": 10,
   "description": "A call recording arrived and was matched to a contact: the AI decides whether it is a sales call (anything else stops here), pulls the notes and scores the call against the rubric; when an appointment matched, the appointment is recorded as showed, stat-showed is added and the setter card moves to Showed and is marked won; the Sales Call record is written and linked, the notes go on the contact, and the team gets the review in Slack.",
   "definition": {
     "schema": 1,

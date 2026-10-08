@@ -2,26 +2,70 @@
   "slug": "new-lead",
   "name": "New lead",
   "category": "lead_intake",
+  "stage": "lead",
+  "sort": 10,
   "description": "A new contact with a phone number gets a card in the setter pipeline (\"Name -- New\", stage New Lead, stage-entered date today) and the tag stat-new. No phone, no card: nobody can call them.",
   "definition": {
     "schema": 1,
     "reentry": "always",
-    "premise": { "check": "contact_exists" },
+    "premise": {
+      "check": "contact_exists"
+    },
     "nodes": [
-      { "id": "t1", "type": "trigger", "event": "lead.created" },
-      { "id": "n1", "type": "check", "when": { "exists": "contact.phone" }, "else_exit": "no_phone" },
-      { "id": "n2", "type": "pipeline_card",
-        "pipeline": "{{crm.pipeline_setter}}", "stage": "{{crm.stage_setter_new_lead}}",
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "lead.created"
+      },
+      {
+        "id": "n1",
+        "type": "check",
+        "when": {
+          "exists": "contact.phone"
+        },
+        "else_exit": "no_phone"
+      },
+      {
+        "id": "n2",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_new_lead}}",
         "name": "{{contact.name}} -- New",
-        "fields": [ { "id": "{{crm.field_opportunity_stage_entered}}", "value": "{{now | date:yyyy-MM-dd}}" } ] },
-      { "id": "n3", "type": "set_tag", "tag": "stat-new" },
-      { "id": "x1", "type": "exit", "reason": "done" }
+        "fields": [
+          {
+            "id": "{{crm.field_opportunity_stage_entered}}",
+            "value": "{{now | date:yyyy-MM-dd}}"
+          }
+        ]
+      },
+      {
+        "id": "n3",
+        "type": "set_tag",
+        "tag": "stat-new"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "done"
+      }
     ],
     "edges": [
-      { "from": "t1", "to": "n1" },
-      { "from": "n1", "to": "n2" },
-      { "from": "n2", "to": "n3" },
-      { "from": "n3", "to": "x1" }
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "n3"
+      },
+      {
+        "from": "n3",
+        "to": "x1"
+      }
     ]
   }
 }
