@@ -26,6 +26,7 @@ export async function saveCompanyAction(f: FormData) {
   const slug = str(f, "slug"), companyId = str(f, "companyId");
   const price = str(f, "contract_value_default");
   await asOperator(async (c) => {
+    await c.query(`update companies set eod_enabled=$2, eod_at=$3 where id=$1`, [companyId, f.get("eod_enabled") === "on", /^\d{2}:\d{2}$/.test(str(f, "eod_at")) ? str(f, "eod_at") : "18:00"]);
     await c.query(`update companies set name=$2, timezone=$3, sms_enabled=$4, send_window_start=$5, send_window_end=$6, quiet_allow_transactional=$7, contract_value_default=$8, reached_seconds=$9 where id=$1`,
       [companyId, str(f, "name"), str(f, "timezone"), f.get("sms_enabled") === "on", str(f, "send_window_start") || "08:00", str(f, "send_window_end") || "20:00", f.get("quiet_allow_transactional") === "on", price ? Number(price) : null, Math.max(1, Number(str(f, "reached_seconds")) || 60)]);
     await audit(c, companyId, "company.settings", { name: str(f, "name"), timezone: str(f, "timezone"), sms: f.get("sms_enabled") === "on", window: [str(f, "send_window_start"), str(f, "send_window_end")], transactional_in_dark: f.get("quiet_allow_transactional") === "on", price });

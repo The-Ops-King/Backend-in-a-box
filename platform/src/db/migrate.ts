@@ -103,6 +103,12 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`create table if not exists health_checks (company_id uuid primary key references companies(id) on delete cascade, enabled boolean not null default true, every_minutes int not null default 60 check (every_minutes between 5 and 1440), channel text, as_name text, as_icon text, checks jsonb not null default '{}', last_run_at timestamptz, last_result jsonb not null default '[]')`);
     await c.query(`alter table health_checks add column if not exists min_slots int not null default 3`);
     await c.query(`alter table health_checks add column if not exists slots_days int not null default 7`);
+    // D34: the closer's end-of-day report
+    await c.query(`alter table users add column if not exists report_token text unique`);
+    await c.query(`alter table companies add column if not exists eod_enabled boolean not null default true`);
+    await c.query(`alter table companies add column if not exists eod_at time not null default '18:00'`);
+    await ownsOrAbsent(c, "eod_reports", "prefill");
+    await c.query(`create table if not exists eod_reports (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, user_id uuid not null references users(id) on delete cascade, day date not null, prefill jsonb, answers jsonb, changes jsonb not null default '[]', reminded_at timestamptz, dm_channel text, dm_ts text, submitted_at timestamptz, unique (company_id, user_id, day))`);
     await c.query(`alter table events drop constraint if exists events_source_check`);
     await c.query(`alter table events add constraint events_source_check check (source in (${EVENT_SOURCES}))`);
     await c.query(`create table if not exists recordings (

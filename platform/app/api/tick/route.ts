@@ -7,6 +7,7 @@ import { asOperator } from "@/db/client";
 import { tickAlerts } from "@/engine/alerts";
 import { runDueReports } from "@/engine/reports";
 import { runDueHealth, checkCalendarsAfterBookings } from "@/engine/health";
+import { remindDue } from "@/engine/eod";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
@@ -19,7 +20,8 @@ export async function GET(req: Request) {
   const out = await withTickLock(async () => ({ poll: await pollAll(liveAdapters), runs: await tick(liveAdapters),
     reports: await asOperator((c) => runDueReports(c)).catch((e) => ({ generated: [], errors: [{ company: "*", error: String((e as Error).message) }] })),
     health: await asOperator((c) => runDueHealth(c, liveAdapters)).catch((e) => ({ swept: [], errors: [{ company: "*", error: String((e as Error).message) }] })),
-    calendars: await asOperator((c) => checkCalendarsAfterBookings(c, liveAdapters)).catch((e) => ({ checked: [], error: String((e as Error).message).slice(0, 200) })) }));
+    calendars: await asOperator((c) => checkCalendarsAfterBookings(c, liveAdapters)).catch((e) => ({ checked: [], error: String((e as Error).message).slice(0, 200) })),
+    eod: await asOperator((c) => remindDue(c, liveAdapters)).catch((e) => ({ reminded: [], error: String((e as Error).message).slice(0, 200) })) }));
   if (out.busy) return NextResponse.json({ ok: true, mode, busy: true, ms: Date.now() - started });   // another tick holds the lease; nothing to do
   // the engine reports its own problems to the operator (D33); a failure here must never fail the tick
   const alerts = await asOperator((c) => tickAlerts(c, liveAdapters, out.result.poll, out.result.runs)).catch((e) => ({ error: String((e as Error).message).slice(0, 200) }));

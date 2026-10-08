@@ -342,6 +342,25 @@ write shows "shadow", and a blocked step raises a warning alert the minute it ha
 run gets past that step. "Remember" steps (`set_var`, copy plumbing) are not shown in the outline or the
 timeline; the definition under Advanced has them.
 
+## The closer's end-of-day report (D34)
+
+One standing link per closer (`/eod/<token>`, no login), today by default, arrows to other days. It opens prefilled
+from the engine's own ledger: calls on their calendar that day; for each, attendance (from the appointment's status,
+else the recording), what happened (closed when a payment or a won opportunity landed that day, follow-up or lost
+from Jev's read of the transcript), pains, goals, objections, next step and date, notes, links to the CRM contact and
+the recording; at the top, calls, closes, cash collected (payments that day) and revenue (contract value won that
+day). A close shows revenue and cash; a follow-up shows the next date and steps. Every value is editable.
+
+Submitting files `eod_reports` (prefill, answers, what changed), records each call's outcome through the disposition
+path (`recordDisposition`: the appointment's outcome, `call.held`, the no-show sequence and CRM records follow), posts
+a summary to the company's alerts channel with the corrections ("Leo Ortiz: attendance blank → showed"), because a
+wrong prefill is a data gap to fix at the source, and puts a ✅ and a "Got it" reply on the reminder DM. Submitting
+again replaces the day.
+
+The reminder goes out at the company's end-of-day time (`companies.eod_at`, settings; `eod_enabled` turns it off),
+once per closer per day, only on days they had calls and have not filed: a Slack DM with their link. Filed reports and
+every closer's link: `/c/<slug>/eod`. Tested in `eod.test.ts`.
+
 ## Readiness (is it safe to go live?)
 
 The company page and every workflow page carry a readiness card built from facts

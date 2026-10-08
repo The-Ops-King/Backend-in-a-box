@@ -98,6 +98,8 @@ export default async function SettingsPage({ params, searchParams }: { params: P
         <label>Send window closes<input name="send_window_end" type="time" defaultValue={co.send_window_end.slice(0, 5)} /></label>
         <label>Program price (contract value default)<input name="contract_value_default" type="number" step="0.01" defaultValue={co.contract_value_default ?? ""} /></label>
         <label>A lead counts as reached when a connected call lasts at least (seconds)<input name="reached_seconds" type="number" min={1} defaultValue={co.reached_seconds ?? 60} /></label>
+        <label>Closers' end-of-day report DM goes out at ({co.timezone})<input name="eod_at" type="time" defaultValue={(co.eod_at ?? "18:00").slice(0, 5)} /></label>
+        <div><label><input type="checkbox" name="eod_enabled" defaultChecked={co.eod_enabled ?? true} /> End-of-day reports: DM each closer on days they had calls, with their prefilled report link. <Link href={`/c/${slug}/eod`}>Filed reports</Link></label></div>
         <div><label><input type="checkbox" name="sms_enabled" defaultChecked={co.sms_enabled} /> SMS enabled (off when the sub-account has no number)</label>
           <label><input type="checkbox" name="quiet_allow_transactional" defaultChecked={co.quiet_allow_transactional} /> Let automated receipts ("you're booked") go out in dark hours. Human-sounding messages always wait.</label></div>
       </div>

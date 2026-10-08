@@ -25,7 +25,7 @@ export async function listSlackChannels(token: string): Promise<{ id: string; na
 
 export type CalendarRow = { external_id: string; name: string; appointment_term: string; term_name: string; self_booked: boolean | null; config: { booking?: string; questions?: Record<string, string> }; active: boolean; booking_url: string | null; source: string };
 export type SettingsData = {
-  company: { id: string; name: string; slug: string; timezone: string; mode: string; sms_enabled: boolean; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; contract_value_default: string | null; reached_seconds: number };
+  company: { id: string; name: string; slug: string; timezone: string; mode: string; sms_enabled: boolean; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; contract_value_default: string | null; reached_seconds: number; eod_enabled: boolean; eod_at: string };
   rows: SettingRow[]; byKey: Map<string, SettingRow>;
   bookingSource: "ghl" | "calendly";
   calendars: CalendarRow[]; liveCalendars: CalendarSnapshot[]; liveCalendarsError: string | null;
@@ -41,7 +41,7 @@ export type SettingsData = {
 
 export async function loadSettings(slug: string): Promise<SettingsData | null> {
   return asOperator(async (c) => {
-    const co = await one<SettingsData["company"]>(c, "select id, name, slug, timezone, mode, sms_enabled, send_window_start, send_window_end, quiet_allow_transactional, contract_value_default, reached_seconds from companies where slug=$1", [slug]);
+    const co = await one<SettingsData["company"]>(c, "select id, name, slug, timezone, mode, sms_enabled, send_window_start, send_window_end, quiet_allow_transactional, contract_value_default, reached_seconds, eod_enabled, eod_at::text as eod_at from companies where slug=$1", [slug]);
     if (!co) return null;
     const { adapterCompany, bindings } = await loadCompany(c, co.id);
     const rows = await settingsRows(c, co.id);

@@ -17,6 +17,8 @@ create table companies (
   archived_at       timestamptz,
   purge_after_months int not null default 12,
   -- opportunity lifecycle rules (per-company settings, Tyler: "depends on workflow and settings")
+  eod_enabled       boolean not null default true,       -- D34: closers get an end-of-day DM on days they had calls
+  eod_at            time not null default '18:00',       -- company time
   reached_seconds   int not null default 60,            -- a connected dial at least this long counts as the lead being reached (speed to lead)
   contract_value_default numeric(12,2),                 -- the program price; a new opportunity's contract_value until a closer sets one
   opp_opens_on      text not null default 'first_booking'
@@ -38,6 +40,7 @@ create table users (
                 check (role in ('operator','owner','manager','closer','setter')),
   ghl_user_id   text,
   slack_user_id text,
+  report_token  text unique,        -- the closer's standing end-of-day link (D34)
   claimed_at    timestamptz,       -- null = auto-created from GHL roster, not yet logged in
   active        boolean not null default true,
   created_at    timestamptz not null default now(),
@@ -656,5 +659,21 @@ create table health_checks (
   slots_days     int not null default 7 check (slots_days between 1 and 7),
   last_run_at    timestamptz,
   last_result    jsonb not null default '[]'             -- [{check, item, ok, level, text}] from the last sweep
+);
+
+-- D34. The closer's end-of-day report: one per closer per day; the DM that asked for it, what the engine prefilled, what they answered, what they corrected.
+create table eod_reports (
+  id           uuid primary key default gen_random_uuid(),
+  company_id   uuid not null references companies(id) on delete cascade,
+  user_id      uuid not null references users(id) on delete cascade,
+  day          date not null,
+  prefill      jsonb,
+  answers      jsonb,
+  changes      jsonb not null default '[]',
+  reminded_at  timestamptz,
+  dm_channel   text,
+  dm_ts        text,
+  submitted_at timestamptz,
+  unique (company_id, user_id, day)
 );
 

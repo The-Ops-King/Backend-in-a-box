@@ -993,3 +993,12 @@ The flow chart came back, as a hover/tap peek under the outline: the list reads 
 lists who went through it and how it ended; a run is a timeline with the clock ("10/08/26 @ 13:32 ·
 Agreement signed").
 
+## D34. The closer's day is prefilled, not asked (2026-10-08)
+
+Tyler: "How many calls did you take? Prefill 6, editable if they really had 7. How much did you close? If it didn't
+show up, that's a red flag." So the end-of-day report is the engine's own picture of the closer's day with every
+value editable, and what the closer corrects is posted where the team looks: the correction is the signal, not the
+report. One standing link per closer, no login; a DM at the company's end-of-day time on days with calls; a ✅ on the
+DM when filed. Outcomes go through the same disposition path as the form, so nothing downstream has two doors.
+Setters later; the post-call variant is the same form cut to one call.
+
