@@ -1,3 +1,4 @@
+import { scheduleWords } from "@/engine/when";
 import type { Definition, Node } from "@/engine/definition";
 import { branchTitle, collapsePlumbing, describeNode, durationWords, edgeWords, exitWords, EVENT_LABELS, humanWords, pathWords, predicateWords, waitWords, walkOrder } from "@/engine/describe";
 import { exampleContext, nodeExamples, type Example } from "@/engine/example";
@@ -35,6 +36,7 @@ export function Outline({ def: full, company, bindings = {}, pk, steps = [], cur
       case "trigger": {
         // which of this company's calendars count: the match is evaluated against each calendar's own facts (call type, setter or self), the way the engine does at booking time
         const cals = n.event.startsWith("appointment.") && pk ? pk.calendars.filter((k) => k.active).filter((k) => { try { return !n.match || evaluate(n.match, { appointment: { term: { category: k.category, name: k.term_name }, self_booked: k.self_booked ?? false } }); } catch { return true; } }) : [];
+        if (n.schedule) return { label: "When", value: scheduleWords(n.schedule), hover: <div className="ol-tip"><div className="ol-tip-b">{n.schedule.for === "closer" ? "One run per closer (settings § Team says who is a closer), each about that person." : "One run, about the company."} {n.schedule.every ? "Counted from the clock, so a tick that is late still runs the period once." : "Company time zone; a day the engine was down is not made up."}</div></div> };
         return { label: "When", value: EVENT_LABELS[n.event] ?? humanWords(n.event), hover: <div className="ol-tip">
           <div className="ol-tip-b">{n.match ? `Only when ${predicateWords(n.match)}.` : `Every time the engine sees “${EVENT_LABELS[n.event] ?? humanWords(n.event)}” for a contact.`}</div>
           {n.event.startsWith("appointment.") && pk ? <><div className="ol-tip-h">Calendars that count</div><div className="ol-tip-b">{cals.length ? cals.map((k) => `${k.name} (${k.term_name}${k.self_booked === true ? ", self-booked" : k.self_booked === false ? ", setter-booked" : ""})`).join(" · ") : "none of this company's calendars match"}</div></> : null}
@@ -64,6 +66,10 @@ export function Outline({ def: full, company, bindings = {}, pk, steps = [], cur
       case "analyze": return { label: n.format === "text" ? "AI writes" : "AI reads", value: describeNode(n).title.replace(/^AI (reads|writes) /, ""), hover: <div className="ol-tip"><div className="ol-tip-b">{describeNode(n).detail}</div></div> };
       case "set_var": return { label: "Remember", value: `${humanWords(n.key)}${typeof n.value === "string" && /\{\{/.test(n.value) ? "" : ` = ${typeof n.value === "string" ? n.value : JSON.stringify(n.value)}`}`, hover: exampleBox(examples(n)), muted: true };
       case "start_workflow": return { label: "Hand off to", value: humanWords(n.workflow) };
+      case "webhook": return { label: "Call out", value: <span>{n.method} <span className="mono">{n.url.replace(/^https?:\/\//, "").split("?")[0]}</span></span>, hover: <div className="ol-tip"><div className="ol-tip-b">{describeNode(n).detail}</div>{examples(n).length ? exampleBox(examples(n)) : null}</div> };
+      case "health_check": return { label: "Health checks", value: describeNode(n).detail ?? "every check", hover: <div className="ol-tip"><div className="ol-tip-b">Read-only against every vendor. A check that fails is an alert; it clears itself when the next sweep finds it fine. Turn one off with {`checks: {"<id>": false}`}.</div></div> };
+      case "availability_check": return { label: "Bookable slots", value: `alert under ${n.min_slots} in the next ${n.days}d`, hover: <div className="ol-tip"><div className="ol-tip-b">{describeNode(n).detail}. The alert carries the calendar link and the day-by-day in its thread.</div></div> };
+      case "report": return { label: "Build wrap-up", value: describeNode(n).title.replace(/^Build the /, "").replace(/ wrap-up$/, ""), hover: <div className="ol-tip"><div className="ol-tip-b">{describeNode(n).detail}. The step after it posts {`{{vars.${n.into}.body}}`}.</div></div> };
       case "pause_runs": return { label: "Pause", value: `the ${n.scope === "contact" ? "contact's" : "appointment's"} other workflows` };
       case "exit": return { label: n.reason.startsWith("not_") || /^(no_|handed|escalated)/.test(n.reason) ? "Stop" : "Complete.", value: exitWords(n.reason).replace(/^(Done|Stop): /, "").replace(/^Done$/, "") };
     }

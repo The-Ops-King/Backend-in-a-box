@@ -13,6 +13,7 @@ import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { applyAppointment } from "@/engine/poll";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
+import { fakeProbes } from "@/engine/test-install";
 import type { Adapters, AppointmentSnapshot, BookingRead, Classification } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -68,7 +69,7 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
 
   it("lead created → setter card + tag, speed-to-lead starts", async () => {
     await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: {} }), { contact: { id: contactId } }));
-    await tick(fake, undefined, companyId);
+    await tick(fake, undefined, companyId, fakeProbes);
     expect(await run("new-lead")).toMatchObject({ status: "completed", exit_reason: "done" });
     expect(oppWrites).toEqual([expect.objectContaining({ op: "create", contactId: "CF1", pipelineId: "PIPE-SETTER", stageId: "STAGE-NEW", name: "Jordan Lee -- New" })]);
     expect(tags).toEqual(["stat-new"]);
@@ -84,7 +85,7 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
     const card = await asOperator((c) => one<{ id: string; name: string; opportunity_id: string }>(c, "select id, name, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id='PIPE-SETTER'", [companyId, contactId]));
     expect(card!.opportunity_id).toBe(pursuit!.id);
     expect(appt!.opportunity_id).toBe(pursuit!.id);   // the booking lands on the pursuit new-lead opened, no second opportunity
-    const n = sent.length; await tick(fake, undefined, companyId);
+    const n = sent.length; await tick(fake, undefined, companyId, fakeProbes);
     expect(await run("booking-confirmation")).toMatchObject({ status: "completed", appointment_id: appt!.id, opportunity_id: pursuit!.id });
     expect(sent.slice(n).map((s) => s.kind)).toEqual(["email"]);
     const rem = await run("appointment-reminder");
@@ -97,18 +98,18 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
     const before = (await runs()).length, n = sent.length;
     await apply(snap("A1", moved, "confirmed"));
     expect(await asOperator((c) => many(c, "select 1 from appointments where company_id=$1 and contact_id=$2", [companyId, contactId]))).toHaveLength(1);
-    await tick(fake, undefined, companyId);
+    await tick(fake, undefined, companyId, fakeProbes);
     const rem = await run("appointment-reminder");
     expect(rem.status).toBe("waiting"); expect(rem.current_node).toBe("n1");
     expect(rem.next_run_at!.getTime()).toBe(morningOf(moved).toMillis());
-    expect((await runs()).length).toBe(before); expect(sent.length).toBe(n);
+    expect((await runs()).length).toBe(before + 1); expect(sent.length).toBe(n);   // the one new run is the availability watch re-reading the moved calendar
     expect((await journey()).filter((e) => e.event_type === "appointment.rescheduled")).toHaveLength(1);
   });
 
   it("cancel → rebook sequence sends, the reminder exits as moot, the journey reads in order", async () => {
     const current = await asOperator((c) => one<{ starts_at: Date }>(c, "select starts_at from appointments where company_id=$1 and external_id='A1'", [companyId]));
     await apply(snap("A1", DateTime.fromJSDate(current!.starts_at), "cancelled"));
-    const n = sent.length; await tick(fake, undefined, companyId);
+    const n = sent.length; await tick(fake, undefined, companyId, fakeProbes);
     expect(await run("cancellation-rebook")).toMatchObject({ status: "completed", exit_reason: "sent" });
     expect(sent.slice(n).map((s) => s.kind).sort()).toEqual(["email", "sms"]);
     const rem = await run("appointment-reminder");

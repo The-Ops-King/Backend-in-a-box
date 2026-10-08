@@ -4,7 +4,10 @@ import { DateTime } from "luxon";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
-import { prefill, submitEod, remindDue, tokenFor, closerByToken, diffAnswers, todayFor, loadEodForm, saveEodForm } from "@/engine/eod";
+import { prefill, submitEod, tokenFor, closerByToken, diffAnswers, todayFor, loadEodForm, saveEodForm, eodFacts } from "@/engine/eod";
+import { dispatchSchedules } from "@/engine/clock";
+import { tick } from "@/engine/runner";
+import { installTemplateForTest } from "@/engine/test-install";
 import { totalsOf, DQ_REASONS } from "@/engine/eod-form";
 import { loadCompany } from "@/engine/context";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
@@ -30,11 +33,11 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='eod'");
-      if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]);
-        for (const t of ["eod_reports", "alerts", "sends", "runs", "events", "form_submissions", "forms", "recordings", "payments", "pipeline_cards", "appointments", "opportunities", "contact_identifiers", "contacts", "workflow_triggers", "workflows", "slack_connections", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
-      companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode, eod_at) values ('EOD Co','eod',$1,'live','17:00') returning id", [TZ]))!.id;
+      if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
+        for (const t of ["eod_reports", "slack_posts", "alerts", "sends", "runs", "events", "form_submissions", "forms", "recordings", "payments", "pipeline_cards", "appointments", "opportunities", "contact_identifiers", "contacts", "workflow_triggers", "workflows", "slack_connections", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode) values ('EOD Co','eod',$1,'live') returning id", [TZ]))!.id;
       await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories", [companyId]);
-      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'alerts.slack_channel','channel',$4)", [companyId, Buffer.from("LOC"), encrypt("p"), Buffer.from("CALERTS")]);
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'alerts.slack_channel','channel',$4),($1,'slack.channel.eod','channel',$4)", [companyId, Buffer.from("LOC"), encrypt("p"), Buffer.from("CALERTS")]);
       await c.query("insert into slack_connections (company_id, team_id, bot_token, channels) values ($1,'T1',$2,'{}')", [companyId, encrypt("xoxb-fake")]);
       allan = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id) values ($1,'allan@eod.test','Allan P','closer','GALLAN') returning id", [companyId]))!.id;
       bea = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id) values ($1,'bea@eod.test','Bea Staff','staff','GBEA') returning id", [companyId]))!.id;
@@ -85,20 +88,30 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(own.map((f) => f.key).slice(0, 10)).toEqual(def.map((f) => f.key));
   });
 
-  it("the reminder: at the company's end-of-day time, a closer with calls and no filed report gets one DM with the standing link, once", async () => {
+  it("the reminder is a workflow: at its evening time, each closer with calls and no filed report gets one DM with the standing link, once; staff never do", async () => {
+    await asOperator((c) => installTemplateForTest(c, companyId, "eod-reminder", { patch: (d) => { for (const n of d.nodes) if (n.type === "trigger" && n.schedule?.at === "18:00") n.schedule.at = "17:00"; } }));
+    // 4:59pm: the morning trigger (9am) is due for today and runs once; nothing earlier is unfiled, so it ends with nothing to file and no DM
     const before = DateTime.now().setZone(TZ).set({ hour: 16, minute: 59 }) as DateTime<true>;
-    expect((await asOperator((c) => remindDue(c, fake, before, companyId))).reminded).toEqual([]);
+    expect((await asOperator((c) => dispatchSchedules(c, before, companyId))).started).toEqual([{ company: "eod", workflow: "End-of-day reminder", node: "t_morning", period: before.toISODate(), user: "Allan P" }]);
+    const n0 = posts.length; expect(await tick(fake, before, companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 }); expect(posts.length).toBe(n0);   // a check that does not pass completes at its gate
+    expect((await asOperator((c) => dispatchSchedules(c, before, companyId))).started).toEqual([]);
     const at = DateTime.now().setZone(TZ).set({ hour: 17, minute: 1 }) as DateTime<true>;
-    const r = await asOperator((c) => remindDue(c, fake, at, companyId));
-    expect(r.reminded).toEqual([{ company: "eod", closer: "Allan P" }]);   // Bea has a call today too, but she is staff
+    const r = await asOperator((c) => dispatchSchedules(c, at, companyId));
+    expect(r.started).toEqual([{ company: "eod", workflow: "End-of-day reminder", node: "t_evening", period: at.toISODate(), user: "Allan P" }]);   // Bea has a call today too, but she is staff
+    const t = await tick(fake, at, companyId); expect(t).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
     const token = await asOperator((c) => tokenFor(c, allan));
     expect(posts.at(-1)).toMatchObject({ channel: "UALLAN", as: { name: "End of day" } });
-    expect(posts.at(-1)!.text).toContain(`https://engine.test/eod/${token}|open your report`);
-    expect((await asOperator((c) => remindDue(c, fake, at.plus({ minutes: 5 }), companyId))).reminded).toEqual([]);   // once
+    expect(posts.at(-1)!.text).toBe(`Hey Allan, your end-of-day is waiting:\n• <https://engine.test/eod/${token}|today>: 2 calls\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`);
+    expect((await asOperator((c) => dispatchSchedules(c, at.plus({ minutes: 5 }), companyId))).started).toEqual([]);   // once
+    expect(await asOperator((c) => one(c, "select 1 from slack_posts where company_id=$1 and tag=$2", [companyId, `eod-reminder:${allan}:${at.toISODate()}`]))).toBeTruthy();   // remembered, so the filed workflow can thread under it
     expect((await asOperator((c) => closerByToken(c, token)))?.name).toBe("Allan P");
+    // the morning trigger lists earlier unfiled days only: today is not due yet at 9am, and nothing earlier is unfiled
+    const facts = await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, allan, "https://engine.test", at));
+    expect(facts).toMatchObject({ today: { calls: 2, filed: false }, earlier_count: 0, earlier_lines: "" });
   });
 
-  it("filing: required answers checked, outcomes recorded through the disposition path, corrections posted to the alerts channel, a ✅ and a reply on the DM", async () => {
+  it("filing: required answers checked, outcomes recorded through the disposition path; the filed workflow posts the summary with the corrections and threads a ✅ under the reminder", async () => {
+    await asOperator((c) => installTemplateForTest(c, companyId, "eod-filed"));
     const token = await asOperator((c) => tokenFor(c, allan));
     const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, todayFor(TZ)));
     // Leo actually paid in full: a close, not a deposit
@@ -118,14 +131,18 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from events where company_id=$1 and event_type='call.held'", [companyId])))!.n).toBe("2");
     const note = (await asOperator((c) => one<{ notes: string }>(c, "select answers->>'notes' as notes from form_submissions where appointment_id=$1 order by submitted_at desc limit 1", [apptSarah])))!.notes;
     expect(note).toBe("About: Good call, price is the hang-up.\nPains: thinning at the crown\nGoals: keep what she has\nObjections: price\nwarm, wants her partner on the next one\nNext: decide with her partner by " + answers.calls.find((x) => x.contact === "Sarah Kim")!.next_date + "\nEnergy on the call: High");
-    // Slack: the ✅ and the reply on the reminder, and the corrections plus the day's answers to the alerts channel
-    expect(reactions).toEqual([{ channel: "UALLAN", ts: `ts${n}`, emoji: "white_check_mark" }]);
-    const reply = posts.slice(n).find((p) => p.threadTs === `ts${n}`)!; expect(reply.text).toBe("✅ Got it. 3 calls, 1 close, $2,000 cash, $4,000 revenue.");
+    // the event started the filed workflow: the summary with the corrections and the day's answers to the eod channel, a ✅ and a reply threaded under the reminder DM
+    const filedRun = await asOperator((c) => one<{ id: string; user_id: string }>(c, "select r.id, r.user_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day report filed'", [companyId]));
+    expect(filedRun?.user_id).toBe(allan);
+    expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
+    const reminderTs = `ts${n}`.replace(/ts\d+/, (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts where company_id=$1", [companyId])))!.ts);
+    expect(reactions).toEqual([{ channel: "UALLAN", ts: reminderTs, emoji: "white_check_mark" }]);
+    const reply = posts.slice(n).find((p) => p.threadTs === reminderTs)!; expect(reply.text).toBe("✅ Got it. 3 calls, 1 close, $2,000 cash, $4,000 revenue.");
     const summary = posts.slice(n).find((p) => p.channel === "CALERTS")!;
     expect(summary.text).toMatch(/📝 \*Allan P\* filed .*: 3 calls, 1 close, \$2,000 cash, \$4,000 revenue\.\n\*Corrected from what the engine had:\*\n• calls count 2 → 3\n• closes 0 → 1\n• deposits 1 → 0\n• cash 1,500 → 2,000\n• Leo Ortiz: outcome Deposit → Closed\n• Leo Ortiz: cash 1,500 → 2,000\n\*What did I do well\?\* Stayed on the objection$/);
     const filed = await asOperator((c) => one<{ submitted_at: Date | null; changes: unknown[] }>(c, "select submitted_at, changes from eod_reports where company_id=$1 and user_id=$2", [companyId, allan]));
     expect(filed?.submitted_at).toBeTruthy(); expect(filed?.changes).toHaveLength(6);
-    // filed: no more reminders for that day
-    expect((await asOperator((c) => remindDue(c, fake, DateTime.now().setZone(TZ).set({ hour: 18 }) as DateTime<true>, companyId))).reminded).toEqual([]);
+    // filed: the clock finds nothing more to send for that day
+    expect((await asOperator((c) => dispatchSchedules(c, DateTime.now().setZone(TZ).set({ hour: 18 }) as DateTime<true>, companyId))).started).toEqual([]);
   });
 });

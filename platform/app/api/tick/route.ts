@@ -5,23 +5,20 @@ import { tick } from "@/engine/runner";
 import { withTickLock } from "@/engine/lock";
 import { asOperator } from "@/db/client";
 import { tickAlerts } from "@/engine/alerts";
-import { runDueReports } from "@/engine/reports";
-import { runDueHealth, checkCalendarsAfterBookings } from "@/engine/health";
-import { remindDue } from "@/engine/eod";
+import { dispatchSchedules } from "@/engine/clock";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-/** Vercel cron hits this every minute with Authorization: Bearer $CRON_SECRET. One tick = poll everything, then run what's due. */
+/** Vercel cron hits this every minute with Authorization: Bearer $CRON_SECRET. One tick = poll everything, start what the clock says is due, then run what's due. */
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const started = Date.now();
   const mode = new URL(req.url).searchParams.get("mode") ?? "tick";   // "sweep" = Vercel daily cron; "tick" = the minute/5-minute scheduler
-  const out = await withTickLock(async () => ({ poll: await pollAll(liveAdapters), runs: await tick(liveAdapters),
-    reports: await asOperator((c) => runDueReports(c)).catch((e) => ({ generated: [], errors: [{ company: "*", error: String((e as Error).message) }] })),
-    health: await asOperator((c) => runDueHealth(c, liveAdapters)).catch((e) => ({ swept: [], errors: [{ company: "*", error: String((e as Error).message) }] })),
-    calendars: await asOperator((c) => checkCalendarsAfterBookings(c, liveAdapters)).catch((e) => ({ checked: [], error: String((e as Error).message).slice(0, 200) })),
-    eod: await asOperator((c) => remindDue(c, liveAdapters)).catch((e) => ({ reminded: [], error: String((e as Error).message).slice(0, 200) })) }));
+  const out = await withTickLock(async () => ({ poll: await pollAll(liveAdapters),
+    // D35: the clock is a trigger; every scheduled workflow (end-of-day reminders, the health sweep, wrap-ups) starts here and runs in the same tick
+    clock: await asOperator((c) => dispatchSchedules(c)).catch((e) => ({ started: [], errors: [{ company: "*", workflow: "*", error: String((e as Error).message).slice(0, 200) }] })),
+    runs: await tick(liveAdapters) }));
   if (out.busy) return NextResponse.json({ ok: true, mode, busy: true, ms: Date.now() - started });   // another tick holds the lease; nothing to do
   // the engine reports its own problems to the operator (D33); a failure here must never fail the tick
   const alerts = await asOperator((c) => tickAlerts(c, liveAdapters, out.result.poll, out.result.runs)).catch((e) => ({ error: String((e as Error).message).slice(0, 200) }));

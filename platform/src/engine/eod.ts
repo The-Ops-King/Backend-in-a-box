@@ -6,7 +6,7 @@ import type { Adapters } from "@/adapters/types";
 import { decrypt } from "./crypto";
 import { loadCompany, type CompanyRow } from "./context";
 import { outcomeTermFor, recordDisposition } from "./disposition";
-import { destinationsFor } from "./alerts";
+import { dispatchEvent, emitEvent } from "./dispatch";
 import { mergeEodFields, missingAnswers, totalsOf, outcomeLabel, MONEY, type CallEntry, type CallOutcome, type DayTotals, type EodField } from "./eod-form";
 
 /**
@@ -82,6 +82,24 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
   return { day, closer, company: { id: company.id, name: company.name, slug: company.slug, timezone: tz }, ...totalsOf(calls), calls };
 }
 
+/** The closer's end-of-day picture for a run about them (context root user.eod): today's calls and whether today is filed, and every earlier day in the last week with calls and no report. Lines are ready to post. */
+export async function eodFacts(c: PoolClient, company: CompanyRow, userId: string, base: string, now = DateTime.now()): Promise<{ day: string; url: string; today: { calls: number; filed: boolean; line: string }; earlier: { day: string; label: string; calls: number; url: string }[]; earlier_count: number; earlier_lines: string; all_lines: string }> {
+  const tz = company.timezone, local = now.setZone(tz), day = local.toFormat(DAY_FMT);
+  const token = await tokenFor(c, userId), url = `${base}/eod/${token}`;
+  const rows = await many<{ day: string; calls: number; filed: boolean }>(c, `
+    select d.day::text as day, count(a.id)::int as calls, exists (select 1 from eod_reports r where r.company_id=$1 and r.user_id=$2 and r.day=d.day and r.submitted_at is not null) as filed
+    from (select generate_series(($3::date - interval '7 days')::date, $3::date, interval '1 day')::date as day) d
+    left join appointments a on a.company_id=$1 and a.assigned_user_id=$2 and a.status not in ('cancelled','invalid') and (a.starts_at at time zone $4)::date = d.day
+    group by d.day order by d.day`, [company.id, userId, day, tz]);
+  const label = (d: string) => DateTime.fromFormat(d, DAY_FMT, { zone: tz }).toFormat("ccc LLL d");
+  const today = rows.find((r) => r.day === day) ?? { day, calls: 0, filed: false };
+  const earlier = rows.filter((r) => r.day < day && r.calls > 0 && !r.filed).map((r) => ({ day: r.day, label: label(r.day), calls: r.calls, url: `${url}?day=${r.day}` }));
+  const line = (d: { label: string; calls: number; url: string }, when: string) => `• <${d.url}|${when}>: ${d.calls} call${d.calls === 1 ? "" : "s"}`;
+  const todayLine = today.calls && !today.filed ? line({ label: "today", calls: today.calls, url }, "today") : "";
+  const earlierLines = earlier.map((d) => line(d, d.label)).join("\n");
+  return { day, url, today: { calls: today.calls, filed: today.filed, line: todayLine }, earlier, earlier_count: earlier.length, earlier_lines: earlierLines, all_lines: [todayLine, earlierLines].filter(Boolean).join("\n") };
+}
+
 export type Change = { field: string; from: unknown; to: unknown; contact?: string };
 /** What the closer corrected, as lines a person reads: "calls today 6 → 7", "Sarah: outcome Follow up → Closed". */
 export function diffAnswers(pre: EodPrefill, ans: EodAnswers): Change[] {
@@ -127,53 +145,23 @@ export async function submitEod(c: PoolClient, adapters: Adapters, args: { token
     const callOutcomeTermId = callCat ? (await callTerm(callCat)) ?? (callCat === "deposit" ? await callTerm("closed") : null) : null;
     try { await recordDisposition(c, { companyId: company.id, appointmentId: call.appointment_id, outcomeTermId, callOutcomeTermId, notes: dispositionNotes(call, fields), userId: closer.id }); recorded++; } catch { /* an appointment that vanished: the rest still files */ }
   }
-  const row = await one<{ id: string; dm_channel: string | null; dm_ts: string | null }>(c, `insert into eod_reports (company_id, user_id, day, prefill, answers, changes, submitted_at) values ($1,$2,$3,$4,$5,$6,now())
-    on conflict (company_id, user_id, day) do update set prefill=excluded.prefill, answers=excluded.answers, changes=excluded.changes, submitted_at=now() returning id, dm_channel, dm_ts`, [company.id, closer.id, args.day, JSON.stringify(pre), JSON.stringify(args.answers), JSON.stringify(changes)]);
-  // Slack: a ✅ on the reminder, and the corrections to the alerts channel
-  const dest = await destinationsFor(c, company.id);
-  const tally = totalsLine(args.answers);
-  if (dest.slackToken) {
-    if (row?.dm_channel && row.dm_ts) { await adapters.notifier.react(dest.slackToken, row.dm_channel, row.dm_ts, "white_check_mark").catch(() => false); await adapters.notifier.post(dest.slackToken, row.dm_channel, `✅ Got it. ${tally}.`, { name: "End of day", icon: ":clipboard:" }, row.dm_ts).catch(() => null); }
-    if (dest.channel) {
-      const lines = changes.map((ch) => `• ${ch.contact ? `${ch.contact}: ` : ""}${ch.field} ${fmt(ch.from)} → ${fmt(ch.to)}`);
-      const dayLines = fields.filter((f) => f.scope === "day" && args.answers.day_answers?.[f.key]).map((f) => `*${f.label}* ${args.answers.day_answers[f.key]}`);
-      const text = `📝 *${closer.name}* filed ${DateTime.fromFormat(args.day, DAY_FMT).toFormat("ccc LLL d")}: ${tally}.${lines.length ? `\n*Corrected from what the engine had:*\n${lines.join("\n")}` : "\nNothing corrected: the prefill matched."}${dayLines.length ? `\n${dayLines.join("\n")}` : ""}`;
-      await adapters.notifier.post(dest.slackToken, dest.channel, text, { name: "End of day", icon: ":clipboard:" }).catch(() => null);
-    }
-  }
+  const wasFiled = (await one<{ submitted_at: Date | null }>(c, "select submitted_at from eod_reports where company_id=$1 and user_id=$2 and day=$3", [company.id, closer.id, args.day]))?.submitted_at ?? null;
+  const row = await one<{ id: string }>(c, `insert into eod_reports (company_id, user_id, day, prefill, answers, changes, submitted_at) values ($1,$2,$3,$4,$5,$6,now())
+    on conflict (company_id, user_id, day) do update set prefill=excluded.prefill, answers=excluded.answers, changes=excluded.changes, submitted_at=now() returning id`, [company.id, closer.id, args.day, JSON.stringify(pre), JSON.stringify(args.answers), JSON.stringify(changes)]);
+  // the report is an event: the eod-filed workflow posts the summary, threads under the reminder, sends it wherever else the company wants it
+  const corrections = changes.map((ch) => `${ch.contact ? `${ch.contact}: ` : ""}${ch.field} ${fmt(ch.from)} → ${fmt(ch.to)}`);
+  const dayAnswers = fields.filter((f) => f.scope === "day" && args.answers.day_answers?.[f.key]).map((f) => ({ key: f.key, label: f.label, answer: args.answers.day_answers[f.key] }));
+  const ev = await emitEvent(c, { company_id: company.id, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "eod.filed", source: "user",
+    data: { user_id: closer.id, report_id: row?.id, day: args.day, day_label: DateTime.fromFormat(args.day, DAY_FMT).toFormat("ccc LLL d"), totals_line: totalsLine(args.answers), calls_count: args.answers.calls_count, closes: args.answers.closes, deposits: args.answers.deposits, cash: args.answers.cash, revenue: args.answers.revenue,
+      calls: args.answers.calls.map((x) => ({ contact: x.contact, contact_id: x.contact_id, appointment_id: x.appointment_id, outcome: x.outcome, outcome_label: outcomeLabel(x.outcome), revenue: x.revenue, cash: x.cash, next_date: x.next_date, next_steps: x.next_steps, dq_reason: x.dq_reason, dq_note: x.dq_note, about: x.about, notes: x.notes, ...x.extra })),
+      corrections, corrections_lines: corrections.map((x) => `• ${x}`).join("\n"), corrections_block: corrections.length ? `*Corrected from what the engine had:*\n${corrections.map((x) => `• ${x}`).join("\n")}` : "", corrections_count: corrections.length, corrected: corrections.length > 0, day_answers: dayAnswers, day_answers_lines: dayAnswers.map((d) => `*${d.label}* ${d.answer}`).join("\n"), refiled: !!wasFiled } });
+  await dispatchEvent(c, ev, { user: { id: closer.id } });
   return { ok: true, changes, recorded };
 }
 const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") : String(v ?? "blank"));
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 /** "3 calls, 1 close, 1 deposit, $1,500 cash, $4,000 revenue" (deposits only when there are any). */
 export const totalsLine = (t: DayTotals) => [plural(t.calls_count, "call"), plural(t.closes, "close"), t.deposits ? plural(t.deposits, "deposit") : "", `$${t.cash.toLocaleString("en-US")} cash`, `$${t.revenue.toLocaleString("en-US")} revenue`].filter(Boolean).join(", ");
-
-/** At the company's end-of-day time: every closer with calls that day and no filed report gets one DM with their link. Once per day. */
-export async function remindDue(c: PoolClient, adapters: Adapters, now = DateTime.now(), onlyCompanyId?: string): Promise<{ reminded: { company: string; closer: string }[] }> {
-  const out = { reminded: [] as { company: string; closer: string }[] };
-  const base = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
-  const companies = await many<{ id: string; slug: string; timezone: string; eod_at: string; eod_enabled: boolean }>(c, "select id, slug, timezone, eod_at::text as eod_at, eod_enabled from companies where status in ('active','hosted') and eod_enabled and ($1::uuid is null or id=$1)", [onlyCompanyId ?? null]);
-  for (const co of companies) {
-    const local = now.setZone(co.timezone); const day = local.toFormat(DAY_FMT);
-    const [hh, mm] = co.eod_at.split(":").map(Number); if (local.hour < hh || (local.hour === hh && local.minute < mm)) continue;
-    const from = local.startOf("day").toJSDate(), to = local.endOf("day").toJSDate();
-    const closers = await many<{ id: string; name: string; email: string }>(c, `select distinct u.id, u.name, u.email from users u join appointments a on a.assigned_user_id=u.id
-      where u.company_id=$1 and u.active and u.role='closer' and a.starts_at between $2 and $3 and a.status not in ('cancelled','invalid')
-      and not exists (select 1 from eod_reports r where r.user_id=u.id and r.day=$4 and (r.submitted_at is not null or r.reminded_at is not null))`, [co.id, from, to, day]);
-    if (!closers.length) continue;
-    const dest = await destinationsFor(c, co.id); if (!dest.slackToken) continue;
-    for (const u of closers) {
-      const token = await tokenFor(c, u.id);
-      let slackId = (await one<{ slack_user_id: string | null }>(c, "select slack_user_id from users where id=$1", [u.id]))?.slack_user_id ?? null;
-      if (!slackId) { slackId = await adapters.notifier.lookupUserByEmail(dest.slackToken, u.email).catch(() => null); if (slackId) await c.query("update users set slack_user_id=$2 where id=$1", [u.id, slackId]); }
-      let dm: { channel: string; ts: string } | null = null;
-      if (slackId) { const r = await adapters.notifier.post(dest.slackToken, slackId, `Hey ${u.name.split(" ")[0]}, don't forget your end-of-day: <${base}/eod/${token}|open your report>. It's prefilled from your calendar and today's calls; fix anything that's off and hit submit.`, { name: "End of day", icon: ":clipboard:" }).catch(() => null); if (r) dm = { channel: slackId, ts: r.ts }; }
-      await c.query("insert into eod_reports (company_id, user_id, day, reminded_at, dm_channel, dm_ts) values ($1,$2,$3,now(),$4,$5) on conflict (company_id, user_id, day) do update set reminded_at=now(), dm_channel=excluded.dm_channel, dm_ts=excluded.dm_ts", [co.id, u.id, day, dm?.channel ?? null, dm?.ts ?? null]);
-      out.reminded.push({ company: co.slug, closer: u.name });
-    }
-  }
-  return out;
-}
 
 export const reportFor = (c: PoolClient, companyId: string, userId: string, day: string) => one<{ id: string; submitted_at: Date | null; answers: EodAnswers | null; changes: Change[]; reminded_at: Date | null }>(c, "select id, submitted_at, answers, changes, reminded_at from eod_reports where company_id=$1 and user_id=$2 and day=$3", [companyId, userId, day]);
 export const companyReports = (c: PoolClient, companyId: string, limit = 60) => many<{ id: string; day: string; closer: string; submitted_at: Date | null; reminded_at: Date | null; answers: EodAnswers | null; changes: Change[] }>(c, "select r.id, r.day::text as day, u.name as closer, r.submitted_at, r.reminded_at, r.answers, r.changes from eod_reports r join users u on u.id=r.user_id where r.company_id=$1 order by r.day desc, u.name limit $2", [companyId, limit]);

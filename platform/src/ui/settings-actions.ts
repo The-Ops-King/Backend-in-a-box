@@ -13,8 +13,8 @@ import { whopCreateWebhook } from "@/adapters/whop/client";
 import { proposeConfig, applyProposal, storeProposal, loadProposal, clearProposal, termsFor, type ConfigFacts } from "@/engine/describe-config";
 import { ghlCatalog } from "@/adapters/ghl/catalog";
 import { many } from "@/db/client";
-import { ensureSchedules, generateReport, periodFor, REPORT_KINDS, type ReportKind } from "@/engine/reports";
-import { CHECKS, ensureHealth, sweepCompany } from "@/engine/health";
+import { fireNow, workflowWithStep } from "@/engine/clock";
+import { tick } from "@/engine/runner";
 import { announceDue } from "@/engine/alerts";
 import { DateTime } from "luxon";
 import { saveEodForm } from "@/engine/eod";
@@ -28,7 +28,6 @@ export async function saveCompanyAction(f: FormData) {
   const slug = str(f, "slug"), companyId = str(f, "companyId");
   const price = str(f, "contract_value_default");
   await asOperator(async (c) => {
-    await c.query(`update companies set eod_enabled=$2, eod_at=$3 where id=$1`, [companyId, f.get("eod_enabled") === "on", /^\d{2}:\d{2}$/.test(str(f, "eod_at")) ? str(f, "eod_at") : "18:00"]);
     await c.query(`update companies set name=$2, timezone=$3, sms_enabled=$4, send_window_start=$5, send_window_end=$6, quiet_allow_transactional=$7, contract_value_default=$8, reached_seconds=$9 where id=$1`,
       [companyId, str(f, "name"), str(f, "timezone"), f.get("sms_enabled") === "on", str(f, "send_window_start") || "08:00", str(f, "send_window_end") || "20:00", f.get("quiet_allow_transactional") === "on", price ? Number(price) : null, Math.max(1, Number(str(f, "reached_seconds")) || 60)]);
     await audit(c, companyId, "company.settings", { name: str(f, "name"), timezone: str(f, "timezone"), sms: f.get("sms_enabled") === "on", window: [str(f, "send_window_start"), str(f, "send_window_end")], transactional_in_dark: f.get("quiet_allow_transactional") === "on", price });
@@ -228,55 +227,14 @@ export async function discardProposalAction(f: FormData) {
   back(slug, { note: "Proposal discarded" }, "#describe");
 }
 
-/** One form per wrap-up kind: on/off, local time, day, channel, breakdowns, sections. */
-export async function saveReportScheduleAction(f: FormData) {
-  const slug = str(f, "slug"), companyId = str(f, "companyId"), kind = str(f, "kind") as ReportKind;
-  if (!REPORT_KINDS.includes(kind)) return;
-  const breakdowns = ["setter", "closer"].filter((b) => f.get(`breakdown:${b}`) === "on");
-  const at = /^\d{2}:\d{2}$/.test(str(f, "at_time")) ? str(f, "at_time") : "19:00";
-  await asOperator(async (c) => {
-    await ensureSchedules(c, companyId);
-    await c.query(`update wrapup_schedules set enabled=$3, at_time=$4, weekday=$5, day_of_month=$6, channel=nullif($7,''), breakdowns=$8, sections=$9 where company_id=$1 and kind=$2`,
-      [companyId, kind, f.get("enabled") === "on", at, Math.min(7, Math.max(1, Number(str(f, "weekday")) || 1)), Math.min(28, Math.max(1, Number(str(f, "day_of_month")) || 1)), str(f, "channel"), breakdowns, { what_they_said: f.get("section:what_they_said") === "on" }]);
-    await audit(c, companyId, "report.schedule", { kind, enabled: f.get("enabled") === "on", at, breakdowns });
-  });
-  back(slug, { note: `${kind} wrap-up saved` }, "#reports");
-}
-
-/** Generates the period in progress right now (today so far, this week so far, this month so far) and posts it like a scheduled one would. */
-export async function runReportNowAction(f: FormData) {
-  const slug = str(f, "slug"), companyId = str(f, "companyId"), kind = str(f, "kind") as ReportKind;
-  if (!REPORT_KINDS.includes(kind)) return;
-  const r = await asOperator(async (c) => {
-    const { row, bindings } = await loadCompany(c, companyId);
-    const s = (await ensureSchedules(c, companyId)).find((x) => x.kind === kind)!;
-    return generateReport(c, row, bindings, s, periodFor(kind, DateTime.now().setZone(row.timezone), true), { onDemand: true, toDate: true });
-  });
-  revalidatePath(`/c/${slug}/reports`);
-  redirect(`/c/${slug}/reports?note=${encodeURIComponent(r.posted ? `${kind} wrap-up posted to Slack` : `${kind} wrap-up generated (${r.why === "shadow" ? "shadow: not posted" : r.why ?? "not posted"})`)}#${r.id}`);
-}
-
-/** The hourly sweep's own settings (D33): on/off, how often, where it posts, who it posts as, which checks run. */
-export async function saveHealthAction(f: FormData) {
-  const slug = str(f, "slug"), companyId = str(f, "companyId");
-  const every = Math.min(1440, Math.max(5, Number(str(f, "every_minutes")) || 60));
-  const checks = Object.fromEntries(CHECKS.map((c) => [c.id, f.get(`check:${c.id}`) === "on"]));
-  await asOperator(async (c) => {
-    await ensureHealth(c, companyId);
-    const minSlots = Math.max(0, Number(str(f, "min_slots")) || 0), slotsDays = Math.min(7, Math.max(1, Number(str(f, "slots_days")) || 7));
-    await c.query("update health_checks set enabled=$2, every_minutes=$3, channel=nullif($4,''), as_name=nullif($5,''), as_icon=nullif($6,''), checks=$7, min_slots=$8, slots_days=$9 where company_id=$1", [companyId, f.get("enabled") === "on", every, str(f, "channel"), str(f, "as_name"), str(f, "as_icon"), checks, minSlots, slotsDays]);
-    await audit(c, companyId, "health.settings", { enabled: f.get("enabled") === "on", every, checks });
-  });
-  back(slug, { note: "Health check saved" }, "#health");
-}
-
-/** Sweep this company now and say what it found, the way the hourly run would. */
-export async function runHealthNowAction(f: FormData) {
-  const slug = str(f, "slug"), companyId = str(f, "companyId");
-  const r = await asOperator(async (c) => { const s = await sweepCompany(c, companyId, liveAdapters); const a = await announceDue(c, liveAdapters); return { ...s, ...a }; });
-  const failing = r.findings.filter((x) => !x.ok).length;
-  revalidatePath(`/c/${slug}/health`);
-  redirect(`/c/${slug}/health?note=${encodeURIComponent(`Swept ${r.findings.length} checks: ${failing ? `${failing} failing` : "all fine"}${r.raised ? `, ${r.raised} new alert${r.raised > 1 ? "s" : ""} posted` : ""}${r.resolved ? `, ${r.resolved} resolved` : ""}`)}`);
+/** Start a scheduled workflow now (the Sweep now button, "send the wrap-up now"): its schedule trigger fires outside its period and the run executes right away. */
+export async function fireWorkflowAction(f: FormData) {
+  const slug = str(f, "slug"), companyId = str(f, "companyId"), workflowId = str(f, "workflowId"), node = str(f, "node") || undefined, to = str(f, "to") || `/c/${slug}/w/${workflowId}`;
+  const r = await asOperator((c) => fireNow(c, companyId, workflowId, node));
+  let note = r.why ? `Not started: ${r.why}` : `Started ${r.started.length} run${r.started.length === 1 ? "" : "s"}`;
+  if (r.started.length) { const t = await tick(liveAdapters, undefined, companyId); await asOperator((c) => announceDue(c, liveAdapters)); note += `: ${t.completed} completed, ${t.failed} failed, ${t.waiting} waiting`; }
+  revalidatePath(to); revalidatePath(`/c/${slug}/health`);
+  redirect(`${to}${to.includes("?") ? "&" : "?"}note=${encodeURIComponent(note)}`);
 }
 
 /** "Click to fix" (D33): make the webhook again, bind the new secret and id, and say so on the health page. */
@@ -291,8 +249,8 @@ export async function reregisterWebhookAction(f: FormData) {
       else if (provider === "fathom") { if (!bindings["secret.fathom_api_key"]) throw new Error("no Fathom API key"); const hook = await fathomCreateWebhook(bindings["secret.fathom_api_key"], `${base}/api/webhooks/fathom/${companyId}`); await setBinding(c, companyId, "secret.fathom_webhook", "secret", hook.secret); await setBinding(c, companyId, "fathom.webhook_id", "id", hook.id); note = `Fathom webhook re-registered (${hook.id}).`; }
       else throw new Error(`unknown provider ${provider}`);
       await audit(c, companyId, "webhook.reregistered", { provider, note });
-      const s = await sweepCompany(c, companyId, liveAdapters); await announceDue(c, liveAdapters);
-      note += ` Swept again: ${s.findings.filter((x) => !x.ok).length} failing.`;
+      const wf = await workflowWithStep(c, companyId, "health_check");
+      if (wf?.enabled) { const r = await fireNow(c, companyId, wf.id); note += r.started.length ? " Sweeping again now." : ""; }
     } catch (e) { note = `Could not re-register the ${provider} webhook: ${String((e as Error).message).slice(0, 160)}`; }
   });
   revalidatePath(`/c/${slug}/health`);

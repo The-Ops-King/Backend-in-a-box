@@ -1,33 +1,18 @@
 import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
-import { randomUUID } from "node:crypto";
 import { many, one } from "@/db/client";
-import { loadCompany, type CompanyRow } from "./context";
-import { decrypt } from "./crypto";
-import { slackNotifier } from "@/adapters/slack/notifier";
+import type { CompanyRow } from "./context";
 import { readMetrics, rollupRange, type Breakdown, type Totals } from "./metrics";
 
 /**
  * Wrap-ups (D29): "what happened today / this week / this month", computed from the daily rollups and posted to Slack
  * on the company's own schedule. Every number names its denominator; a rate with no denominator is "—", not 0%.
- * Nothing here is a constant: time, weekday, channel, breakdowns and sections are rows in wrapup_schedules.
+ * Nothing here is a constant: the time, the day, the channel, the breakdowns and sections are the wrap-ups workflow's
+ * steps (a schedule trigger, a report step, a slack_post), edited like any other workflow (D35).
  */
 export type ReportKind = "daily" | "weekly" | "monthly";
 export const REPORT_KINDS: ReportKind[] = ["daily", "weekly", "monthly"];
-export type Schedule = { id: string; company_id: string; kind: ReportKind; enabled: boolean; at_time: string; weekday: number; day_of_month: number; channel: string | null; breakdowns: string[]; sections: Record<string, boolean>; last_period_start: string | null };
 export type Period = { start: string; end: string };   // inclusive ISO dates in the company's zone
-
-const DEFAULTS: Record<ReportKind, Partial<Schedule>> = { daily: { at_time: "19:00" }, weekly: { at_time: "08:00", weekday: 1 }, monthly: { at_time: "08:00", day_of_month: 1 } };
-
-/** The three schedules exist for every company; a missing one is created with the defaults, enabled. */
-export async function ensureSchedules(c: PoolClient, companyId: string): Promise<Schedule[]> {
-  for (const kind of REPORT_KINDS) {
-    const d = DEFAULTS[kind];
-    await c.query("insert into wrapup_schedules (company_id, kind, at_time, weekday, day_of_month) values ($1,$2,$3,$4,$5) on conflict (company_id, kind) do nothing", [companyId, kind, d.at_time, d.weekday ?? 1, d.day_of_month ?? 1]);
-  }
-  const rows = await many<Schedule & { last_period_start: Date | string | null }>(c, "select * from wrapup_schedules where company_id=$1 order by array_position(array['daily','weekly','monthly'], kind)", [companyId]);
-  return rows.map((r) => ({ ...r, at_time: String(r.at_time).slice(0, 5), last_period_start: r.last_period_start ? DateTime.fromJSDate(new Date(r.last_period_start)).toISODate() : null }));
-}
 
 /** The period a scheduled run covers when it fires at `now` (company zone): today; last Monday–Sunday; last month. `toDate` = the period in progress, for on-demand. */
 export function periodFor(kind: ReportKind, now: DateTime<boolean>, toDate = false): Period {
@@ -35,17 +20,6 @@ export function periodFor(kind: ReportKind, now: DateTime<boolean>, toDate = fal
   if (kind === "weekly") { const w = toDate ? now.startOf("week") : now.startOf("week").minus({ weeks: 1 }); return { start: w.toISODate()!, end: (toDate ? now : w.plus({ days: 6 })).toISODate()! }; }
   const m = toDate ? now.startOf("month") : now.startOf("month").minus({ months: 1 });
   return { start: m.toISODate()!, end: (toDate ? now : m.endOf("month")).toISODate()! };
-}
-
-/** Due when it is past the time on the right day and this period has not been sent yet. A missed day (outage) sends on the next tick, never twice. */
-export function isDue(s: Schedule, now: DateTime<boolean>): Period | null {
-  if (!s.enabled) return null;
-  const [h, m] = s.at_time.split(":").map(Number);
-  if (now.hour * 60 + now.minute < h * 60 + m) return null;
-  if (s.kind === "weekly" && now.weekday !== s.weekday) return null;
-  if (s.kind === "monthly" && now.day !== s.day_of_month) return null;
-  const period = periodFor(s.kind, now);
-  return s.last_period_start === period.start ? null : period;
 }
 
 // ---- rendering ---------------------------------------------------------------------------------------------------------
@@ -137,47 +111,18 @@ export function renderReport(args: { kind: ReportKind; period: Period; tz: strin
 }
 
 // ---- generate + post -----------------------------------------------------------------------------------------------------
-export type Generated = { id: string; body: string; posted: boolean; why?: string; period: Period };
+export type Built = { id: string; body: string; numbers: { totals: Totals; setters: Breakdown[]; closers: Breakdown[] }; period: Period };
 
-/** Recomputes the period's days, renders, records the Slack send (posted only live + connected), and stores the report. */
-export async function generateReport(c: PoolClient, company: CompanyRow, bindings: Record<string, string>, s: Schedule, period: Period, opts: { onDemand?: boolean; toDate?: boolean } = {}): Promise<Generated> {
+/** The report step: recompute the period's days, render, keep it in the wrapups ledger. Posting is the slack_post after it. */
+export async function buildReport(c: PoolClient, company: CompanyRow, kind: ReportKind, period: Period, opts: { breakdowns?: string[]; sections?: Record<string, boolean>; onDemand?: boolean; toDate?: boolean } = {}): Promise<Built> {
   await rollupRange(c, company.id, period.start, period.end, company.timezone);
   const { totals, setters, closers } = await readMetrics(c, company.id, period.start, period.end);
-  const said = s.sections.what_they_said === false ? [] : await whatTheySaid(c, company.id, period, company.timezone);
-  const body = renderReport({ kind: s.kind, period, tz: company.timezone, toDate: !!opts.toDate, totals, setters, closers, breakdowns: s.breakdowns, said });
-  const channelId = s.channel || bindings["slack.channel.reports"] || bindings["slack.channel.bookings"];
-  const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [company.id]);
-  const status = !(conn && channelId) ? "suppressed" : company.mode === "shadow" ? "shadow" : "sent";
-  const send = await one<{ id: string }>(c, `insert into sends (company_id, contact_id, run_id, channel, idempotency_key, rendered_body, status, suppressed_reason, scheduled_for, sent_at)
-    values ($1, null, null, 'slack', $2, $3, $4, $5, now(), case when $4 in ('sent','shadow') then now() end) returning id`,
-    [company.id, `report:${s.kind}:${period.start}:${randomUUID().slice(0, 8)}`, body, status, status === "suppressed" ? (conn ? "unbound: slack channel" : "unbound: slack") : null]);
-  let posted = false, why: string | undefined = status === "sent" ? undefined : status;
-  if (status !== "suppressed") {
-    try { const r = await slackNotifier.post(decrypt(conn!.bot_token), channelId!, status === "shadow" ? `🧪 *shadow* — ${body}` : body, { name: bindings["slack.name"], icon: bindings["slack.icon"] }); await c.query("update sends set external_id=$2 where id=$1", [send!.id, r.ts]); posted = true; }
-    catch (e) { why = String((e as Error).message); await c.query("update sends set status='failed', error=$2 where id=$1", [send!.id, why]); }
-  }
-  const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers, send_id) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id",
-    [company.id, s.kind, period.start, period.end, !!opts.onDemand, body, { totals, setters, closers }, send?.id ?? null]);
-  if (!opts.onDemand) await c.query("update wrapup_schedules set last_period_start=$2 where id=$1", [s.id, period.start]);
-  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'report.generated','report',$2,$3)", [company.id, rep!.id, { kind: s.kind, period, posted, why, on_demand: !!opts.onDemand }]);
-  return { id: rep!.id, body, posted, why, period };
-}
-
-/** Called every tick: each active company's due schedules fire once for their period. One company's failure never stops the next. */
-export async function runDueReports(c: PoolClient, now: DateTime<boolean> = DateTime.now(), onlyCompanyId?: string): Promise<{ generated: { company: string; kind: ReportKind; period: Period; posted: boolean }[]; errors: { company: string; error: string }[] }> {
-  const out = { generated: [] as { company: string; kind: ReportKind; period: Period; posted: boolean }[], errors: [] as { company: string; error: string }[] };
-  for (const co of await many<{ id: string; slug: string }>(c, "select id, slug from companies where status in ('active','hosted') and ($1::uuid is null or id=$1)", [onlyCompanyId ?? null])) {
-    try {
-      const { row, bindings } = await loadCompany(c, co.id);
-      const local = now.setZone(row.timezone);
-      for (const s of await ensureSchedules(c, co.id)) {
-        const period = isDue(s, local); if (!period) continue;
-        const g = await generateReport(c, row, bindings, s, period);
-        out.generated.push({ company: co.slug, kind: s.kind, period, posted: g.posted });
-      }
-    } catch (e) { out.errors.push({ company: co.slug, error: String((e as Error).message) }); }
-  }
-  return out;
+  const said = opts.sections?.what_they_said === false ? [] : await whatTheySaid(c, company.id, period, company.timezone);
+  const body = renderReport({ kind, period, tz: company.timezone, toDate: !!opts.toDate, totals, setters, closers, breakdowns: opts.breakdowns ?? [], said });
+  const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers) values ($1,$2,$3,$4,$5,$6,$7) returning id",
+    [company.id, kind, period.start, period.end, !!opts.onDemand, body, { totals, setters, closers }]);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'report.generated','report',$2,$3)", [company.id, rep!.id, { kind, period, on_demand: !!opts.onDemand }]);
+  return { id: rep!.id, body, numbers: { totals, setters, closers }, period };
 }
 
 export const companyReports = (c: PoolClient, companyId: string, limit = 30) => many<{ id: string; kind: ReportKind; period_start: string; period_end: string; generated_at: Date; on_demand: boolean; body: string; send_status: string | null }>(c,

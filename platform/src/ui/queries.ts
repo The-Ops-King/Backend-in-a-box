@@ -22,10 +22,10 @@ export const globalStats = () => asOperator((c) => one<{ companies: number; runs
 
 export const engineState = () => asOperator((c) => one<{ value: { last_tick?: string; recovery?: boolean } }>(c, "select value from engine_state where key='scheduler'"));
 
-export const recentRuns = (companyId?: string, limit = 25) => asOperator((c) => many<{ id: string; company_slug: string; workflow: string; workflow_id: string; contact: string; contact_id: string; status: string; current_node: string | null; exit_reason: string | null; next_run_at: Date | null; started_at: Date }>(c, `
-  select r.id, co.slug as company_slug, w.name as workflow, w.id as workflow_id, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact, ct.id as contact_id,
+export const recentRuns = (companyId?: string, limit = 25) => asOperator((c) => many<{ id: string; company_slug: string; workflow: string; workflow_id: string; contact: string; contact_id: string | null; user_id: string | null; status: string; current_node: string | null; exit_reason: string | null; next_run_at: Date | null; started_at: Date }>(c, `
+  select r.id, co.slug as company_slug, w.name as workflow, w.id as workflow_id, coalesce(nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),''), u.name, 'the company') as contact, ct.id as contact_id, r.user_id,
          r.status, r.current_node, r.exit_reason, r.next_run_at, r.started_at
-  from runs r join workflows w on w.id=r.workflow_id join contacts ct on ct.id=r.contact_id join companies co on co.id=r.company_id
+  from runs r join workflows w on w.id=r.workflow_id left join contacts ct on ct.id=r.contact_id left join users u on u.id=r.user_id join companies co on co.id=r.company_id
   ${companyId ? "where r.company_id=$1" : ""} order by r.started_at desc limit ${limit}`, companyId ? [companyId] : []));
 
 export const company = (slug: string) => asOperator((c) => one<{ id: string; name: string; slug: string; status: string; timezone: string; send_window_start: string; send_window_end: string; mode: "shadow" | "live"; sms_enabled: boolean }>(c, "select * from companies where slug=$1", [slug]));
@@ -58,8 +58,8 @@ export const workflow = (id: string) => asOperator(async (c) => {
 });
 
 export const run = (id: string) => asOperator(async (c) => {
-  const r = await one<{ id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string; appointment_id: string | null; status: string; current_node: string | null; exit_reason: string | null; next_run_at: Date | null; started_at: Date; finished_at: Date | null; context: Record<string, unknown>; reentry_key: string; workflow: string; contact: string }>(c,
-    "select r.*, w.name as workflow, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact from runs r join workflows w on w.id=r.workflow_id join contacts ct on ct.id=r.contact_id where r.id=$1", [id]);
+  const r = await one<{ id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string | null; user_id: string | null; appointment_id: string | null; status: string; current_node: string | null; exit_reason: string | null; next_run_at: Date | null; started_at: Date; finished_at: Date | null; context: Record<string, unknown>; reentry_key: string; workflow: string; contact: string }>(c,
+    "select r.*, w.name as workflow, coalesce(nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),''), u.name, 'the company') as contact from runs r join workflows w on w.id=r.workflow_id left join contacts ct on ct.id=r.contact_id left join users u on u.id=r.user_id where r.id=$1", [id]);
   if (!r) return null;
   const def = parseDefinition((await one<{ definition: Definition }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [r.workflow_id, r.workflow_version]))!.definition);
   const steps = await many<{ node_id: string; node_type: string; status: string; started_at: Date; finished_at: Date | null; result: Record<string, unknown>; error: string | null }>(c, "select node_id, node_type, status, started_at, finished_at, result, error from run_steps where run_id=$1 order by started_at", [id]);
@@ -125,9 +125,9 @@ export const readiness = (companyId: string, slug: string) => asOperator((c) => 
 
 export const problems = () => asOperator((c) => currentProblems(c));
 /** Every contact that went through a workflow: when, how it ended, where it stopped. */
-export const workflowRuns = (workflowId: string, limit = 100) => asOperator((c) => many<{ id: string; contact: string; contact_id: string; status: string; current_node: string | null; exit_reason: string | null; started_at: Date; finished_at: Date | null; next_run_at: Date | null; steps: number }>(c, `
-  select r.id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.id as contact_id, r.status, r.current_node, r.exit_reason, r.started_at, r.finished_at, r.next_run_at, (select count(*)::int from run_steps s where s.run_id=r.id) as steps
-  from runs r join contacts ct on ct.id=r.contact_id where r.workflow_id=$1 order by r.started_at desc limit ${limit}`, [workflowId]));
+export const workflowRuns = (workflowId: string, limit = 100) => asOperator((c) => many<{ id: string; contact: string; contact_id: string | null; user_id: string | null; status: string; current_node: string | null; exit_reason: string | null; started_at: Date; finished_at: Date | null; next_run_at: Date | null; steps: number }>(c, `
+  select r.id, coalesce(nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),''), u.name, 'the company') as contact, ct.id as contact_id, r.user_id, r.status, r.current_node, r.exit_reason, r.started_at, r.finished_at, r.next_run_at, (select count(*)::int from run_steps s where s.run_id=r.id) as steps
+  from runs r left join contacts ct on ct.id=r.contact_id left join users u on u.id=r.user_id where r.workflow_id=$1 order by r.started_at desc limit ${limit}`, [workflowId]));
 export const companyAlerts = (companyId: string) => asOperator(async (c) => ({ open: await openAlerts(c, companyId), recent: await recentAlerts(c, companyId) }));
 export const companyHealth = (companyId: string) => asOperator((c) => ensureHealth(c, companyId));
 export const openAlertCounts = () => asOperator((c) => many<{ company_id: string | null; errors: number; warnings: number }>(c, "select company_id, count(*) filter (where level='error')::int as errors, count(*) filter (where level='warning')::int as warnings from alerts where resolved_at is null group by company_id"));

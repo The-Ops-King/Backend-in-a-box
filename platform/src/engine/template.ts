@@ -137,7 +137,7 @@ export function render(template: string, ctx: Record<string, unknown>, env: Rend
 }
 
 /** Save-time check: every {{path}} must be a known root. Bindings are checked against the manifest separately. */
-export const KNOWN_ROOTS = ["contact", "appointment", "opportunity", "company", "calendar", "slack", "reply", "event", "vars", "crm", "secret", "now", "cards", "record", "recording", "prompt", "agreement", "records"];
+export const KNOWN_ROOTS = ["contact", "appointment", "opportunity", "company", "calendar", "slack", "reply", "event", "vars", "crm", "secret", "now", "cards", "record", "recording", "prompt", "agreement", "records", "user"];
 export function referencedPaths(template: string): string[] {
   return [...template.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)/g)].map((m) => m[1]);
 }

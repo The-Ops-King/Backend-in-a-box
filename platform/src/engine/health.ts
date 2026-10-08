@@ -29,7 +29,9 @@ export function availabilityBreakdown(times: string[], from: DateTime, days: num
   for (const t of times) { const d = DateTime.fromISO(t).setZone(tz); const k = d.toISODate()!; if (byDay.has(k)) byDay.get(k)!.push(d.toFormat("h:mma").toLowerCase()); }
   return [...byDay.entries()].map(([k, list]) => `${DateTime.fromISO(k, { zone: tz }).toFormat("ccc LLL d")} · ${list.length ? `${list.length} (${list.slice(0, 8).join(", ")}${list.length > 8 ? ", …" : ""})` : "none"}`).join("\n");
 }
-export type HealthRow = { company_id: string; enabled: boolean; every_minutes: number; channel: string | null; as_name: string | null; as_icon: string | null; checks: Record<string, boolean>; min_slots: number; slots_days: number; last_run_at: Date | null; last_result: Finding[] };
+export type HealthRow = { company_id: string; channel: string | null; as_name: string | null; as_icon: string | null; last_run_at: Date | null; last_result: Finding[] };
+/** What a sweep is told by the step that runs it: which checks, the availability threshold, the channel its alerts announce in. */
+export type HealthConfig = { checks: Record<string, boolean>; min_slots: number; slots_days: number; channel?: string | null };
 
 export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "ghl_token", label: "GoHighLevel token", about: "the private integration token still opens the location" },
@@ -78,7 +80,7 @@ const DAYS_AHEAD = 7;
 type SlotRead = { name: string; id: string; slots: number; href?: string; times: string[] };
 
 /** Runs every enabled check for one company. Read-only against every vendor. */
-export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, row: HealthRow, now = DateTime.now()): Promise<Finding[]> {
+export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, row: HealthConfig, now = DateTime.now()): Promise<Finding[]> {
   const { adapterCompany: ac, bindings } = await loadCompany(c, company.id);
   const on = (id: string) => row.checks[id] !== false;
   const out: Finding[] = [];
@@ -238,6 +240,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
           case "anthropic": if (!(bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY)) miss(`step ${r.node} needs an Anthropic key and none is set.`); else verified++; break;
           case "slack": if (!conn) miss(`step ${r.node} posts to Slack, which is not connected; those posts are skipped.`, "warning"); else verified++; break;
           case "url": verified++; break;   // checked once per unique link under "urls"
+          case "webhook": break;           // not probed (VERIFIES says why)
         }
       }
       if (out.length === before) ok("steps", `"${wf.name}": ${verified} dependencies verified.`, wf.id);
@@ -276,7 +279,7 @@ export function calendarLink(cal: { external_id: string; source: string; booking
  * calendar dropped or availability is off), and is it below the company's low-availability threshold. Run by the hourly
  * sweep for all calendars and again the minute a booking lands on one (D33, continued).
  */
-export async function readCalendars(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, row: HealthRow, now = DateTime.now(), only?: string[]): Promise<Finding[]> {
+export async function readCalendars(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, row: HealthConfig, now = DateTime.now(), only?: string[]): Promise<Finding[]> {
   const { adapterCompany: ac, bindings } = await loadCompany(c, company.id);
   const on = (id: string) => row.checks[id] !== false;
   const out: Finding[] = [];
@@ -324,49 +327,27 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
   return out;
 }
 
-/** The calendar checks the minute a booking (or cancellation, or reschedule) lands: availability moved, so look now instead of waiting for the hour. */
-export async function checkCalendarsAfterBookings(c: PoolClient, adapters: Adapters, probes: HealthProbes = liveProbes, now = DateTime.now()): Promise<{ checked: { company: string; calendar: string; raised: number; resolved: number }[] }> {
-  const cursor = (await one<{ value: { since?: string } }>(c, "select value from engine_state where key='health_booking_cursor'"))?.value.since;
-  const since = cursor ? new Date(cursor) : new Date(now.toMillis() - 10 * 60e3);
-  const moved = await many<{ company_id: string; slug: string; external_id: string; name: string }>(c, `
-    select distinct co.id as company_id, co.slug, cal.external_id, cal.name from events e join appointments a on a.id=e.appointment_id join calendars cal on cal.id=a.calendar_id join companies co on co.id=e.company_id
-    where e.event_type in ('appointment.booked','appointment.rescheduled','appointment.status_changed') and e.occurred_at > $1 and e.occurred_at <= $2 and cal.active`, [since, now.toJSDate()]);
-  await c.query("insert into engine_state (key, value, updated_at) values ('health_booking_cursor', $1, now()) on conflict (key) do update set value=$1, updated_at=now()", [{ since: now.toISO() }]);
-  const out = { checked: [] as { company: string; calendar: string; raised: number; resolved: number }[] };
-  for (const m of moved) {
-    const row = await ensureHealth(c, m.company_id); if (!row.enabled) continue;
-    const { row: company } = await loadCompany(c, m.company_id);
-    const findings = await readCalendars(c, company, adapters, probes, row, now, [m.external_id]);
-    // the stored sweep result shows what was just seen for this calendar
-    const kept = (row.last_result as Finding[]).filter((f) => f.item !== m.external_id || !["ghl_calendars", "calendly_calendars", "availability"].includes(f.check));
-    await c.query("update health_checks set last_result=$2 where company_id=$1", [m.company_id, JSON.stringify([...kept, ...findings])]);
-    const present: AlertInput[] = findings.filter((f) => !f.ok).map((f) => ({ companyId: m.company_id, key: `health:${f.check}:${f.item}`, level: f.level, source: "health", text: f.text, detail: { ...(f.detail ?? {}), link: f.href, link_label: f.hrefLabel, ...(f.thread ? { thread: f.thread } : {}) }, href: `/c/${m.slug}/health` }));
-    let raised = 0, resolved = 0;
-    for (const check of ["ghl_calendars", "calendly_calendars", "availability"]) { const r = await reconcile(c, m.company_id, "health", present.filter((p) => p.key.startsWith(`health:${check}:`)), now.toJSDate(), `health:${check}:${m.external_id}`); raised += r.raised; resolved += r.resolved; }
-    out.checked.push({ company: m.slug, calendar: m.name, raised, resolved });
-  }
-  return out;
-}
-
-/** Sweep one company now: run the checks, remember the result, turn failures into alerts and clear the ones that passed. */
-export async function sweepCompany(c: PoolClient, companyId: string, adapters: Adapters, probes: HealthProbes = liveProbes, now = DateTime.now()): Promise<{ findings: Finding[]; raised: number; resolved: number }> {
-  const row = await ensureHealth(c, companyId);
-  const { row: company } = await loadCompany(c, companyId);
-  const findings = await sweep(c, company, adapters, probes, row, now);
-  await c.query("update health_checks set last_run_at=$2, last_result=$3 where company_id=$1", [companyId, now.toJSDate(), JSON.stringify(findings)]);
-  const present: AlertInput[] = findings.filter((f) => !f.ok).map((f) => ({ companyId, key: `health:${f.check}${f.item ? `:${f.item}` : ""}`, level: f.level, source: "health", text: f.text, detail: { ...(f.detail ?? {}), ...(f.fix ? { fix: f.fix } : {}), ...(f.href ? { link: f.href, link_label: f.hrefLabel } : {}), ...(f.thread ? { thread: f.thread } : {}) }, href: `/c/${company.slug}/health` }));
-  const r = await reconcile(c, companyId, "health", present, now.toJSDate());
+/** The health_check step: run the checks (availability is its own step), remember the result, turn failures into alerts and clear the ones that passed. */
+export async function runHealthStep(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, cfg: HealthConfig & { as_name?: string | null; as_icon?: string | null }, now = DateTime.now()): Promise<{ findings: Finding[]; raised: number; resolved: number }> {
+  await ensureHealth(c, company.id);
+  const findings = (await sweep(c, company, adapters, probes, { ...cfg, checks: { ...cfg.checks, availability: false } }, now)).filter((f) => f.check !== "availability");
+  const prev = (await one<{ last_result: Finding[] }>(c, "select last_result from health_checks where company_id=$1", [company.id]))?.last_result ?? [];
+  await c.query("update health_checks set last_run_at=$2, last_result=$3, channel=$4, as_name=$5, as_icon=$6 where company_id=$1", [company.id, now.toJSDate(), JSON.stringify([...findings, ...prev.filter((f) => f.check === "availability")]), cfg.channel ?? null, cfg.as_name ?? null, cfg.as_icon ?? null]);
+  const present = findings.filter((f) => !f.ok).map((f) => toAlert(company, f));
+  const r = await reconcile(c, company.id, "health", present, now.toJSDate(), undefined, "health:availability");
   return { findings, ...r };
 }
 
-/** Every company whose sweep is due. Called by the tick. */
-export async function runDueHealth(c: PoolClient, adapters: Adapters, probes: HealthProbes = liveProbes, now = DateTime.now(), onlyCompanyId?: string): Promise<{ swept: { company: string; raised: number; resolved: number; failing: number }[]; errors: { company: string; error: string }[] }> {
-  const out = { swept: [] as { company: string; raised: number; resolved: number; failing: number }[], errors: [] as { company: string; error: string }[] };
-  const due = await many<{ id: string; slug: string }>(c, `select co.id, co.slug from companies co left join health_checks h on h.company_id=co.id
-    where co.status in ('active','hosted') and coalesce(h.enabled, true) and (h.last_run_at is null or h.last_run_at < $1 - make_interval(mins => coalesce(h.every_minutes, 60))) and ($2::uuid is null or co.id=$2)`, [now.toJSDate(), onlyCompanyId ?? null]);
-  for (const co of due) {
-    try { const r = await sweepCompany(c, co.id, adapters, probes, now); out.swept.push({ company: co.slug, raised: r.raised, resolved: r.resolved, failing: r.findings.filter((f) => !f.ok).length }); }
-    catch (e) { out.errors.push({ company: co.slug, error: String((e as Error).message).slice(0, 200) }); await c.query("update health_checks set last_run_at=$2 where company_id=$1", [co.id, now.toJSDate()]).catch(() => null); }
-  }
-  return out;
+/** The availability_check step: bookable slots on every active calendar, or on one (the run's booking). Low ones are alerts with the day-by-day in the thread. */
+export async function runAvailabilityStep(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, cfg: { min_slots: number; days: number }, now = DateTime.now(), only?: string[]): Promise<{ findings: Finding[]; raised: number; resolved: number }> {
+  await ensureHealth(c, company.id);
+  const findings = (await readCalendars(c, company, adapters, probes, { checks: { ghl_calendars: true, calendly_calendars: true, availability: true }, min_slots: cfg.min_slots, slots_days: cfg.days }, now, only)).filter((f) => f.check === "availability");
+  const prev = (await one<{ last_result: Finding[] }>(c, "select last_result from health_checks where company_id=$1", [company.id]))?.last_result ?? [];
+  const kept = prev.filter((f) => f.check !== "availability" || (only && f.item && !only.includes(f.item)));
+  await c.query("update health_checks set last_result=$2 where company_id=$1", [company.id, JSON.stringify([...kept, ...findings])]);
+  const present = findings.filter((f) => !f.ok).map((f) => toAlert(company, f));
+  let raised = 0, resolved = 0;
+  for (const prefix of only?.length ? only.map((id) => `health:availability:${id}`) : ["health:availability"]) { const r = await reconcile(c, company.id, "health", present.filter((p) => p.key.startsWith(prefix)), now.toJSDate(), prefix); raised += r.raised; resolved += r.resolved; }
+  return { findings, raised, resolved };
 }
+const toAlert = (company: CompanyRow, f: Finding): AlertInput => ({ companyId: company.id, key: `health:${f.check}${f.item ? `:${f.item}` : ""}`, level: f.level, source: "health", text: f.text, detail: { ...(f.detail ?? {}), ...(f.fix ? { fix: f.fix } : {}), ...(f.href ? { link: f.href, link_label: f.hrefLabel } : {}), ...(f.thread ? { thread: f.thread } : {}) }, href: `/c/${company.slug}/health` });

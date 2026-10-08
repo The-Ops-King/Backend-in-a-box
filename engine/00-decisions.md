@@ -1012,3 +1012,21 @@ Not everyone on the CRM roster takes calls: the roster arrives as staff, closers
 install input), and only closers get the link and the DM. The closer's page stands alone, no nav, no way into the
 dashboard; auth comes later and the link is the door until then.
 
+
+## D35. Everything on a clock is a workflow (2026-10-08)
+
+Tyler: "The end of day should be a workflow. I think everything really should be a workflow. I don't think it should be
+wired by hand. If I want to edit the health check on one of my companies, I can do that, and nothing is hard-coded."
+So the clock is a trigger (`event: "schedule"`, `every` or `at`, one run about the company or one per closer), runs
+may be about the company or a person (`runs.contact_id` nullable, `runs.user_id`, a `user` root in the context), and
+the four things that ran on timers inside the engine are templates: `eod-reminder` (evening and morning schedule
+triggers per closer, a check, a DM remembered by tag), `eod-filed` (the `eod.filed` event, the summary, a ✅ threaded
+under the reminder), `health-check` (hourly, a `health_check` step with the check list on it), `calendar-availability`
+(hourly plus every booking event, an `availability_check` step with the thresholds on it), `wrap-ups` (three schedule
+triggers into one `report` step and a post). The settings page lost its Health, Wrap-ups and end-of-day sections: the
+workflow is the one place, edited through the chat like every other, shown in the outline with its popovers.
+`wrapup_schedules`, the health config columns and `companies.eod_at` are gone with them. A `webhook` step is the door
+out to Airtable, Zapier, Make, Apps Script, anything with a URL; `{{secret.*}}` resolves there and nowhere else.
+The line that stays: triggers in and side effects out are editable steps; the ledger, the poll, the form fields, the
+inbound doors and the alert announcer are engine. Google Sheets "the Zapier way" needs one OAuth client for the
+platform (not per client, never a service account); until Tyler decides on it, Apps Script through the webhook step.

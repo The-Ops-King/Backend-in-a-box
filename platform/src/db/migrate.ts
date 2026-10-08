@@ -90,28 +90,36 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // the first D29 deploy created two tables under the old names before failing on the foreign "reports"; drop them only if they are ours
     for (const [t, col] of [["metrics_daily", "dimension"], ["report_schedules", "last_period_start"]] as const)
       if ((await c.query("select 1 from information_schema.columns where table_schema='public' and table_name=$1 and column_name=$2", [t, col])).rowCount) await c.query(`drop table ${t}`);
-    for (const [t, col] of [["rollups_daily", "dimension"], ["wrapup_schedules", "last_period_start"], ["wrapups", "period_start"]] as const) await ownsOrAbsent(c, t, col);
+    for (const [t, col] of [["rollups_daily", "dimension"], ["wrapups", "period_start"]] as const) await ownsOrAbsent(c, t, col);
     await c.query(`create table if not exists rollups_daily (company_id uuid not null references companies(id) on delete cascade, day date not null, dimension text not null, dimension_id text not null default '', metric text not null, value numeric not null default 0, computed_at timestamptz not null default now(), primary key (company_id, day, dimension, dimension_id, metric))`);
-    await c.query(`create table if not exists wrapup_schedules (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, kind text not null, enabled boolean not null default true, at_time time not null default '19:00', weekday int not null default 1, day_of_month int not null default 1, channel text, breakdowns text[] not null default '{}', sections jsonb not null default '{}', last_period_start date, unique (company_id, kind))`);
     await c.query(`create table if not exists wrapups (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, kind text not null, period_start date not null, period_end date not null, generated_at timestamptz not null default now(), on_demand boolean not null default false, body text not null, numbers jsonb not null default '{}', send_id uuid references sends(id) on delete set null)`);
     await c.query(`create index if not exists wrapups_company_id_generated_at_idx on wrapups (company_id, generated_at)`);
     // D33: alerts + the hourly sweep
-    for (const [t, col] of [["alerts", "resolved_announced"], ["health_checks", "every_minutes"]] as const) await ownsOrAbsent(c, t, col);
+    for (const [t, col] of [["alerts", "resolved_announced"], ["health_checks", "last_result"]] as const) await ownsOrAbsent(c, t, col);
     await c.query(`create table if not exists alerts (id uuid primary key default gen_random_uuid(), company_id uuid references companies(id) on delete cascade, key text not null, level text not null check (level in ('error','warning')), source text not null check (source in ('step','poll','health','engine')), text text not null, detail jsonb not null default '{}', href text, first_seen timestamptz not null default now(), last_seen timestamptz not null default now(), announced_at timestamptz, announce_count int not null default 0, slack_channel text, slack_ts text, resolved_at timestamptz, resolved_announced boolean not null default false)`);
     await c.query(`create unique index if not exists alerts_open_one on alerts (coalesce(company_id, '00000000-0000-0000-0000-000000000000'::uuid), key) where resolved_at is null`);
     await c.query(`create index if not exists alerts_company_id_resolved_at_last_seen_idx on alerts (company_id, resolved_at, last_seen)`);
     await c.query(`create table if not exists health_checks (company_id uuid primary key references companies(id) on delete cascade, enabled boolean not null default true, every_minutes int not null default 60 check (every_minutes between 5 and 1440), channel text, as_name text, as_icon text, checks jsonb not null default '{}', last_run_at timestamptz, last_result jsonb not null default '[]')`);
-    await c.query(`alter table health_checks add column if not exists min_slots int not null default 3`);
-    await c.query(`alter table health_checks add column if not exists slots_days int not null default 7`);
     // D34: the closer's end-of-day report
     await c.query(`alter table users add column if not exists report_token text unique`);
-    await c.query(`alter table companies add column if not exists eod_enabled boolean not null default true`);
-    await c.query(`alter table companies add column if not exists eod_at time not null default '18:00'`);
     await c.query(`alter table users drop constraint if exists users_role_check`);
     await c.query(`alter table users add constraint users_role_check check (role in ('operator','owner','manager','closer','setter','staff'))`);
     await c.query(`insert into core_categories (domain, value, label, sort) values ('call_outcome','deposit','Deposit',4) on conflict (domain, value) do nothing`);
     await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select co.id, 'call_outcome', 'Deposit', 'deposit', true, 4 from companies co where exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome' and t.category='closed') and not exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome' and t.category='deposit') on conflict (company_id, domain, name) do nothing`);
     await ownsOrAbsent(c, "eod_reports", "prefill");
+    // D35: everything on a clock is a workflow. Runs may be about the company or a person; schedule and eod.filed start them.
+    await c.query(`alter table runs alter column contact_id drop not null`);
+    await c.query(`alter table runs add column if not exists user_id uuid references users(id)`);
+    await c.query(`insert into event_types values ('schedule','clock'), ('eod.filed','report') on conflict do nothing`);
+    await c.query(`alter table sends drop constraint if exists sends_channel_check`);
+    await c.query(`alter table sends add constraint sends_channel_check check (channel in ('sms','email','slack','webhook'))`);
+    await ownsOrAbsent(c, "slack_posts", "tag");
+    await c.query(`create table if not exists slack_posts (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, tag text not null, channel text not null, ts text not null, run_id uuid references runs(id) on delete set null, posted_at timestamptz not null default now(), unique (company_id, tag))`);
+    await c.query(`drop table if exists wrapup_schedules`);
+    for (const col of ["enabled", "every_minutes", "checks", "min_slots", "slots_days"]) await c.query(`alter table health_checks drop column if exists ${col}`);
+    await c.query(`alter table companies drop column if exists eod_enabled`);
+    await c.query(`alter table companies drop column if exists eod_at`);
+
     await c.query(`create table if not exists eod_reports (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, user_id uuid not null references users(id) on delete cascade, day date not null, prefill jsonb, answers jsonb, changes jsonb not null default '[]', reminded_at timestamptz, dm_channel text, dm_ts text, submitted_at timestamptz, unique (company_id, user_id, day))`);
     await c.query(`alter table events drop constraint if exists events_source_check`);
     await c.query(`alter table events add constraint events_source_check check (source in (${EVENT_SOURCES}))`);

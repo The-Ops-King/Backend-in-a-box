@@ -38,12 +38,12 @@ export async function resolve(c: PoolClient, companyId: string | null, key: stri
 }
 
 /** For a live source: everything in `present` is open, every other open alert of that source and company (within `keyPrefix`) is resolved. */
-export async function reconcile(c: PoolClient, companyId: string | null, source: Source, present: AlertInput[], now = new Date(), keyPrefix?: string): Promise<{ raised: number; resolved: number }> {
+export async function reconcile(c: PoolClient, companyId: string | null, source: Source, present: AlertInput[], now = new Date(), keyPrefix?: string, except?: string): Promise<{ raised: number; resolved: number }> {
   let raised = 0, resolved = 0;
   for (const a of present) if ((await raise(c, a, now)).isNew) raised++;
   const keys = new Set(present.map((a) => a.key));
   const open = await many<{ key: string }>(c, "select key from alerts where coalesce(company_id,$1::uuid)=coalesce($2::uuid,$1::uuid) and source=$3 and resolved_at is null", [NIL, companyId, source]);
-  for (const o of open) if (!keys.has(o.key) && (!keyPrefix || o.key.startsWith(keyPrefix))) { if (await resolve(c, companyId, o.key, now)) resolved++; }
+  for (const o of open) if (!keys.has(o.key) && (!keyPrefix || o.key.startsWith(keyPrefix)) && !(except && o.key.startsWith(except))) { if (await resolve(c, companyId, o.key, now)) resolved++; }
   return { raised, resolved };
 }
 

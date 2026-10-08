@@ -8,7 +8,9 @@ import { parseDefinition, extractManifest, indexDefinition } from "@/engine/defi
 import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
 import { tickAlerts, openAlerts, raise, resolve, announceDue } from "@/engine/alerts";
-import { sweepCompany, checkCalendarsAfterBookings, type HealthProbes, CHECKS } from "@/engine/health";
+import { type HealthProbes, CHECKS, type Finding } from "@/engine/health";
+import { fireNow } from "@/engine/clock";
+import { installTemplateForTest } from "@/engine/test-install";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -107,8 +109,19 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
       calendlyWhoAmI: async () => { throw new Error("not used"); }, calendlyAvailableTimes: async () => ({ ok: true, slots: 1, times: [] }),
       whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }), urlOk: async () => ({ ok: true, status: 200 }),
     };
-    await asOperator((c) => c.query("insert into health_checks (company_id, channel, as_name, as_icon, min_slots) values ($1,'CHEALTH','Health check',':stethoscope:',10) on conflict (company_id) do update set channel='CHEALTH', as_name='Health check', as_icon=':stethoscope:', min_slots=10", [companyId]));
-    const r = await asOperator((c) => sweepCompany(c, companyId, fake, probes));
+    // the sweep and the availability watch are workflows: this company's copies post as "Health check" in CHEALTH and alert under 10 slots
+    const healthWf = await asOperator((c) => installTemplateForTest(c, companyId, "health-check", { patch: (d) => { const n = d.nodes.find((x) => x.type === "health_check"); if (n && n.type === "health_check") { n.channel = "CHEALTH"; n.as = { name: "Health check", icon: ":stethoscope:" }; } } }));
+    const availWf = await asOperator((c) => installTemplateForTest(c, companyId, "calendar-availability", { patch: (d) => { const n = d.nodes.find((x) => x.type === "availability_check"); if (n && n.type === "availability_check") n.min_slots = 10; } }));
+    // one "sweep" = both workflows fired now and run; what they found is on the health row, raised/resolved on their steps
+    const sweep = async () => {
+      const at = DateTime.now();
+      await asOperator(async (c) => { await fireNow(c, companyId, healthWf, undefined, at); await fireNow(c, companyId, availWf, undefined, at); });
+      await tick(fake, at, companyId, probes);
+      const steps = await asOperator((c) => many<{ result: { raised: number; resolved: number } }>(c, "select s.result from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and s.node_type in ('health_check','availability_check') and s.started_at >= $2", [companyId, at.minus({ seconds: 1 }).toJSDate()]));
+      const findings = (await asOperator((c) => one<{ last_result: Finding[] }>(c, "select last_result from health_checks where company_id=$1", [companyId])))!.last_result;
+      return { findings, raised: steps.reduce((n, x) => n + (x.result.raised ?? 0), 0), resolved: steps.reduce((n, x) => n + (x.result.resolved ?? 0), 0), steps: steps.length };
+    };
+    const r = await sweep(); expect(r.steps).toBe(2);
     const failing = r.findings.filter((f) => !f.ok);
     expect(failing.map((f) => `${f.check}${f.item ? `:${f.item}` : ""}`).sort()).toEqual(["ghl_calendars:CAL2", "ghl_pipelines:crm.stage_closer_won", "slack:CNOTIN"]);
     expect(failing.find((f) => f.item === "CAL2")!.text).toMatch(/"Closer B" has no bookable slot in the next 7 days/);
@@ -122,7 +135,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     // next hour: the calendar is bookable again and the stage was rebound; Slack membership still wrong
     slotsB = 9; await asOperator((c) => c.query("update bindings set value=$2 where company_id=$1 and key='crm.stage_closer_won'", [companyId, Buffer.from("STAGE_OK")]));
     await asOperator((c) => c.query("update alerts set announced_at = now() - interval '61 minutes' where company_id=$1 and resolved_at is null", [companyId]));
-    const r2 = await asOperator((c) => sweepCompany(c, companyId, fake, probes));
+    const r2 = await sweep();
     expect(r2.resolved).toBe(2); expect(r2.findings.filter((f) => !f.ok).map((f) => `${f.check}:${f.item}`).sort()).toEqual(["availability:CAL2", "slack:CNOTIN"]);   // 9 slots is bookable, but under the company's threshold of 10
     expect(r2.findings.find((f) => f.check === "availability")!.text).toMatch(/"Closer B" has only 9 bookable slots in the next 7 days \(alert below 10\)/);
     const ann2 = await asOperator((c) => announceDue(c, fake));
@@ -136,20 +149,22 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     const breakdown = posts.find((p) => p.threadTs === `ts${posts.indexOf(lowPost) + 1}` && /next 7 days/.test(p.text))!;
     expect(breakdown.text).toMatch(/^\*Closer B · next 7 days\*\n/); expect(breakdown.text.split("\n")).toHaveLength(8);   // a title and seven days
     expect(breakdown.text).toMatch(/· (1|2) \(/);
-    // a booking lands on Closer B: the calendar is re-read that minute, not at the next hour; availability moved above the threshold → resolved now
+    // a booking lands on Closer B: the availability workflow's booking trigger reads that calendar now, not at the next hour; availability moved above the threshold → resolved now
     slotsB = 20;
+    const bookedAt = DateTime.now();
     await asOperator(async (c) => {
       const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
       const appt = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term) select $1,$2,id,'A-B1',now() + interval '2 days',now() + interval '2 days 45 minutes',now(),'confirmed',$3 from calendars where company_id=$1 and external_id='CAL2' returning id", [companyId, contactId, term]))!.id;
-      await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: appt, event_type: "appointment.booked", source: "test", data: {} });
+      const ev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: appt, event_type: "appointment.booked", source: "test", data: {} });
+      expect((await dispatchEvent(c, ev, { contact: { id: contactId }, appointment: { id: appt, term: { category: "closing" } } })).length).toBeGreaterThanOrEqual(1);
     });
-    const b = await asOperator((c) => checkCalendarsAfterBookings(c, fake, probes));
-    expect(b.checked.filter((x) => x.company === "alrt")).toEqual([{ company: "alrt", calendar: "Closer B", raised: 0, resolved: 1 }]);   // other suites' bookings are theirs
+    await tick(fake, bookedAt, companyId, probes);
+    const bookedStep = await asOperator((c) => one<{ result: { only?: string; raised: number; resolved: number } }>(c, "select s.result from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and r.appointment_id is not null and s.node_type='availability_check' order by s.started_at desc limit 1", [companyId]));
+    expect(bookedStep?.result).toMatchObject({ only: "CAL2", raised: 0, resolved: 1 });
     expect((await asOperator((c) => openAlerts(c, companyId))).filter((x) => x.key.startsWith("health:availability"))).toHaveLength(0);
     const stored = (await asOperator((c) => one<{ last_result: { check: string; item?: string; ok: boolean; href?: string }[] }>(c, "select last_result from health_checks where company_id=$1", [companyId])))!.last_result;
     expect(stored.find((f) => f.check === "availability" && f.item === "CAL2")).toMatchObject({ ok: true, href: "https://api.leadconnectorhq.com/widget/booking/CAL2" });
     // nothing moved since on this company: nothing re-read for it
-    expect((await asOperator((c) => checkCalendarsAfterBookings(c, fake, probes))).checked.filter((x) => x.company === "alrt")).toEqual([]);
   });
 
   it("a step that could not run (Slack channel not bound) is a warning the minute it happens, labelled so, and clears when a later run posts", async () => {

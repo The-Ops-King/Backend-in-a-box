@@ -160,16 +160,15 @@ connected, talk seconds, set from a call, setting / confirmation calls read by t
 deals won, revenue. Per setter: dials, connects, talk, sets, bookings they set. Per closer:
 bookings, calendar outcomes, deals, revenue.
 
-**Wrap-ups** are rendered from the rollups and posted to Slack on the company's own clock:
-`wrapup_schedules` has a daily (default 19:00), weekly (Monday 08:00, covering last Mon–Sun) and
-monthly (1st at 08:00, covering last month) row per company — time, day, channel (a Slack id, else
-`slack.channel.reports`, else `slack.channel.bookings`), breakdowns (per setter / per closer) and
-sections (what they said = booking-form answers tallied per question) all live there, edited in
-settings › Wrap-ups. Each fires once per period (`last_period_start`), on the first tick after the
-time; a missed day sends late, never twice. Every generated wrap-up is a `wrapups` row shown on
-`/c/<slug>/reports` exactly as sent (shadow: recorded, not posted). **Generate now** in settings and
-`POST /api/admin/reports { company, kind, period_start?, period_end? }` make one on demand for the
-period in progress (today so far / this week so far / this month so far).
+**Wrap-ups** are a workflow (`wrap-ups` template, D35): three schedule triggers (daily 19:00, weekly Monday
+08:00 covering last Mon–Sun, monthly the 1st at 08:00 covering last month), a `report` step that renders the
+period from the rollups into `vars.report` and keeps it as a `wrapups` row, and a `slack_post` to
+`{{slack.channel.reports}}`. Time, day, channel, breakdowns (per setter / per closer) and sections (what they
+said = booking-form answers tallied per question) are the steps' settings, edited like any other workflow.
+Each trigger fires once per period (the clock's reentry key); a missed day sends late, never twice. Every
+wrap-up is shown on `/c/<slug>/reports` exactly as sent (shadow: posted with the shadow label).
+`POST /api/admin/reports { company, kind }` starts the workflow now for that kind (the trigger node `t_<kind>`)
+with the period in progress (today so far / this week so far / this month so far).
 
 ### History (backfill)
 
@@ -300,18 +299,20 @@ a ✅ reaction on the first post (the Slack app needs `reactions:write`; without
 resolved and says what scope is missing). The dashboard home and each company page show what is open;
 `/c/<slug>/health` shows open alerts, the last sweep check by check, and what cleared recently.
 
-The **health check** is its own automation, per company, with its own clock (default every 60 minutes),
-channel, name and icon, and list of checks, all on the settings page (`health_checks`). It is read-only
-against every vendor. Checks: the GHL token opens the location; every mapped GHL calendar returns free slots
-over the next 7 days (a closer's Google/Outlook sync dropping shows up as no slots: GHL has no flag for it);
-every bound pipeline, stage, contact field and opportunity field still exists; closers on calendars and open
-cards are still users; the Calendly token answers and every mapped event type is active with available
-times over 7 days (same idea: a host's calendar disconnecting empties availability); the Whop key reads
-payments and the engine's Whop webhook still exists and is enabled; the Fathom key lists meetings and the
-Fathom webhook is still registered (Fathom's listing endpoint is unverified: when there is none, the sweep
+The **health check** is a workflow (`health-check` template, D35): a schedule trigger (every 60 minutes) and a
+`health_check` step whose settings are the list of checks (`checks: {"<id>": false}` turns one off), the
+channel its alerts announce in and the face they post as. Edit the company's copy to change any of it. It is
+read-only against every vendor. Checks: the GHL token opens the location; every mapped GHL calendar returns
+free slots over the next 7 days (a closer's Google/Outlook sync dropping shows up as no slots: GHL has no flag
+for it); every bound pipeline, stage, contact field and opportunity field still exists; closers on calendars
+and open cards are still users; the Calendly token answers and every mapped event type is active with
+available times over 7 days (same idea: a host's calendar disconnecting empties availability); the Whop key
+reads payments and the engine's Whop webhook still exists and is enabled; the Fathom key lists meetings and
+the Fathom webhook is still registered (Fathom's listing endpoint is unverified: when there is none, the sweep
 falls back to delivery age); the Slack bot token is alive and the bot is in every channel the workflows post
 to; the Anthropic key answers; no enabled workflow is missing a binding. A failed check is an alert like any
-other and clears itself on the next clean sweep. `Sweep now` on the health page runs it on demand.
+other and clears itself on the next clean sweep. `Sweep now` on the health page starts the workflow now
+(`fireNow`), as does `POST /api/admin/health { company }`.
 Probes live in `src/adapters/*/health.ts` and are injectable (`HealthProbes`), so `src/engine/health.ts`
 is tested without the vendors (`alerts.test.ts`).
 
@@ -327,13 +328,13 @@ or a shipped template needs a kind nobody decided how to verify, so a new step c
 A finding that the engine can repair carries a fix (`Re-register the Whop webhook`): a button on the health
 page and a link in the Slack alert.
 
-**Low availability** is its own check with its own thresholds on the settings page (`min_slots`, `slots_days`):
-a calendar that is alive but has fewer bookable slots than the threshold over the window is a warning, so a
-full (or quietly closed) calendar is known before leads find it. The calendar checks also run **the minute a
-booking, reschedule or cancellation lands** on a calendar (`checkCalendarsAfterBookings`, every tick, keyed on
-the appointment events since the last look), so the hour is the backstop, not the latency. Every calendar
-finding and alert carries a link to the calendar's public scheduling page (`calendarLink`) to see the
-availability as a lead would.
+**Low availability** is its own workflow (`calendar-availability` template): a schedule trigger every hour
+plus triggers on `appointment.booked`, `appointment.rescheduled` and `appointment.status_changed`, and one
+`availability_check` step with the thresholds (`min_slots`, `days`). A calendar that is alive but has fewer
+bookable slots than the threshold over the window is a warning, so a full (or quietly closed) calendar is
+known before leads find it. In a run started by a booking only that booking's calendar is read, the minute
+it lands, so the hour is the backstop, not the latency. Every calendar finding and alert carries a link to
+the calendar's public scheduling page (`calendarLink`) and the day-by-day in its thread.
 
 **A skipped step says why.** Every skip carries a kind: `noop` (nothing to do, by design: no card to move,
 SMS off for the company, already sent) or `blocked` (something is missing: Slack not connected, a channel not
@@ -374,9 +375,17 @@ because a wrong prefill is a data gap to fix at the source, and puts a ✅ and a
 Submitting again replaces the day.
 
 Who is a closer is a role on the roster (settings § Team; install input `closers`: emails or CRM user ids). The CRM
-roster comes in as `staff`; only `closer` rows get a link and the DM. The reminder goes out at the company's
-end-of-day time (`companies.eod_at`, settings; `eod_enabled` turns it off), once per closer per day, only on days
-they had calls and have not filed: a Slack DM with their link. Filed reports and every closer's link: `/c/<slug>/eod`.
+roster comes in as `staff`; only `closer` rows get a link and the DM.
+
+The reminder and what happens after filing are workflows (D35). `eod-reminder`: two schedule triggers, one run per
+closer each: at 18:00 company time (today's link plus any earlier unfiled day in the last week, one line each) and at
+09:00 (earlier unfiled days only), a `check` that there is something to file, a `slack_post` DM to the closer
+(`{{user.slack_user_id}}`, looked up by email) remembered under the tag `eod-reminder:<user>:<day>`. Change the
+times, the copy or the face on the company's copy. `eod-filed`: filing emits `eod.filed` with the whole report
+(totals, every call with its answers, corrections, the day questions) and a run about that closer starts: the
+summary to `{{slack.channel.eod}}` with the corrections and the day's answers, then "✅ Got it" threaded under the
+reminder DM with a ✅ reaction (`thread_of: "tag:…"`, `react`). A `webhook` step after it sends the report to
+Airtable, a Zap, Apps Script, anything with a URL. Filed reports and every closer's link: `/c/<slug>/eod`.
 Tested in `eod.test.ts`.
 
 ## Readiness (is it safe to go live?)
@@ -424,6 +433,18 @@ user bound as `crm.default_closer` (a GHL user id), else the first closer on the
 from, which of the company's workflows use it, and how often it has been seen. The list is the
 `event_types` table: teaching the engine a new fact (a new door, a new node) adds an event there and
 every company sees it.
+
+**The clock is a trigger (D35).** A trigger node with `event: "schedule"` carries `schedule: { every: "60m" |
+at: "18:00", days?: [1..7], day_of_month?, for: "company" | "closer" }`. Every tick, before the runs advance,
+`dispatchSchedules` (`src/engine/clock.ts`) starts a run for each due schedule, once per period per subject
+(`every` buckets the clock; `at` is the date once the time has passed, company time zone), through the same
+`startRun` and reentry key as any event. `for: "closer"` is one run per user with role `closer`, about that
+person: the context carries `user` (name, first name, email, Slack id and `mention`, `report_url`, and
+`user.eod`: today's calls and whether today is filed, earlier unfiled days with links, ready-made lines).
+A run about the company or a person has no contact; the dashboard shows the person's name or "the company".
+`fireNow` starts a schedule trigger outside its period (Sweep now, `POST /api/admin/health`, `/reports`).
+Nothing on a timer lives outside a workflow: the end-of-day reminders, the health sweep, the availability
+watch and the wrap-ups are templates like any other, installed and edited like any other.
 
 ## Seeing what will happen (and when)
 

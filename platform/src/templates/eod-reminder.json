@@ -1,0 +1,27 @@
+{
+  "slug": "eod-reminder",
+  "name": "End-of-day reminder",
+  "category": "team",
+  "description": "DMs each closer their end-of-day link at the end of the day, and again the next morning for anything still unfiled.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": { "check": "none" },
+    "nodes": [
+      { "id": "t_evening", "type": "trigger", "event": "schedule", "schedule": { "at": "18:00", "for": "closer" } },
+      { "id": "t_morning", "type": "trigger", "event": "schedule", "schedule": { "at": "09:00", "for": "closer" } },
+      { "id": "v_evening", "type": "set_var", "key": "lines", "value": "{{user.eod.all_lines}}" },
+      { "id": "v_morning", "type": "set_var", "key": "lines", "value": "{{user.eod.earlier_lines}}" },
+      { "id": "c_due", "type": "check", "when": { "neq": ["{{vars.lines}}", ""] }, "else_exit": "nothing_to_file" },
+      { "id": "n_dm", "type": "slack_post", "channel": "{{user.slack_user_id}}", "as": { "name": "End of day", "icon": ":clipboard:" }, "tag": "eod-reminder:{{user.id}}:{{user.eod.day}}",
+        "template": "Hey {{user.first_name}}, your end-of-day is waiting:\n{{vars.lines}}\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit." },
+      { "id": "x_done", "type": "exit", "reason": "done" },
+      { "id": "x_nothing", "type": "exit", "reason": "nothing_to_file" }
+    ],
+    "edges": [
+      { "from": "t_evening", "to": "v_evening" }, { "from": "t_morning", "to": "v_morning" },
+      { "from": "v_evening", "to": "c_due" }, { "from": "v_morning", "to": "c_due" },
+      { "from": "c_due", "to": "n_dm" }, { "from": "n_dm", "to": "x_done" }
+    ]
+  }
+}

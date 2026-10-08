@@ -12,12 +12,12 @@ import { plannedRuns } from "@/ui/plan";
 export const dynamic = "force-dynamic";
 export default async function RunPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
   const { slug, id } = await params; const co = await company(slug); const r = await run(id); if (!co || !r || r.company_id !== co.id) notFound();
-  const plan = ["active", "waiting"].includes(r.status) ? (await plannedRuns({ contactId: r.contact_id })).find((p) => p.run_id === r.id)?.plan ?? [] : [];
+  const plan = ["active", "waiting"].includes(r.status) ? (await plannedRuns(r.contact_id ? { contactId: r.contact_id } : { workflowId: r.workflow_id })).find((p) => p.run_id === r.id)?.plan ?? [] : [];
   const pk = await loadPickers(co.id);
   return (<>
     <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / <Link href={`/c/${slug}/w/${r.workflow_id}`}>{r.workflow}</Link> / run</p>
     <h1>{r.contact.trim() || "contact"} <span className="muted">· {r.workflow}</span></h1>
-    <p className="sub"><span className={badge(r.status)}>{r.status}</span>{r.exit_reason ? ` · ${r.exit_reason}` : ""} · started {stamp(r.started_at, co.timezone)} ({ago(r.started_at)}){r.appt ? ` · appointment ${stamp(r.appt.starts_at, co.timezone)} (${r.appt.term}, ${r.appt.status})` : ""} · <Link href={`/c/${slug}/contacts/${r.contact_id}`}>open contact</Link></p>
+    <p className="sub"><span className={badge(r.status)}>{r.status}</span>{r.exit_reason ? ` · ${r.exit_reason}` : ""} · started {stamp(r.started_at, co.timezone)} ({ago(r.started_at)}){r.appt ? ` · appointment ${stamp(r.appt.starts_at, co.timezone)} (${r.appt.term}, ${r.appt.status})` : ""} {r.contact_id ? <> · <Link href={`/c/${slug}/contacts/${r.contact_id}`}>open contact</Link></> : null}</p>
     <h2>What happened</h2>
     <Timeline def={r.definition} steps={r.steps} sends={r.sends} tz={co.timezone} startedAt={r.started_at} status={r.status} exitReason={r.exit_reason} nextRunAt={r.next_run_at} currentNode={r.current_node} />
     {["active", "waiting"].includes(r.status) ? <><h2>What happens next</h2><div className="card"><PlanList plan={plan} tz={co.timezone} /></div></> : null}

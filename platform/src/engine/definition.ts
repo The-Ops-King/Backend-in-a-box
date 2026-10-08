@@ -36,8 +36,13 @@ export const OnStale = z.enum(["skip", "substitute", "escalate"]);
 /** Who a Slack post appears from: a name and an emoji / image URL, or a list of icons one is picked from per post. */
 const Persona = z.object({ name: z.string().optional(), icon: z.union([z.string(), z.array(z.string())]).optional() });
 const base = { id: z.string().min(1) };
+export const Schedule = z.object({ every: z.string().regex(/^\d+(m|h|d)$/).optional(), at: z.string().regex(/^\d{2}:\d{2}$/).optional(), days: z.array(z.number().int().min(1).max(7)).optional(), day_of_month: z.number().int().min(1).max(28).optional(), for: z.enum(["company", "closer"]).default("company") })
+  .refine((s) => !!s.every !== !!s.at, { message: "a schedule is either every <interval> or at <time>, not both, not neither" });
+export type Schedule = z.infer<typeof Schedule>;
 export const Node = z.discriminatedUnion("type", [
-  z.object({ ...base, type: z.literal("trigger"), event: z.string(), match: Predicate.optional() }),
+  // event: what starts it. "schedule" starts it from the clock instead: `every` ("60m", "2h", "1d") or `at` ("18:00" company time, with `days`
+  // 1..7 Mon..Sun and/or `day_of_month`); `for` says what each run is about: the company (one run) or each closer (one run per closer).
+  z.object({ ...base, type: z.literal("trigger"), event: z.string(), match: Predicate.optional(), schedule: Schedule.optional() }),
   z.object({ ...base, type: z.literal("wait"), rule: WaitRule }),
   // Waits for an inbound reply (woken the minute one arrives) or until `timeout`; follows the edge labeled "timeout" if none, else exits `no_reply`.
   z.object({ ...base, type: z.literal("wait_for_reply"), timeout: z.string(), channel: z.enum(["sms", "email", "any"]).default("any") }),
@@ -51,7 +56,18 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("notify_owner"), template: z.string(), fallback_channel: z.string().optional(), task: z.object({ title: z.string(), due: z.string().default("+1d") }).optional(), as: Persona.optional() }),
   // `as`: the display name and icon the post appears under (Zapier-style), blank = the app; editable on the step
   // thread_of: the id of an earlier slack_post in this run; this one goes into that message's thread (the scorecard under the call post)
-  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string(), as: Persona.optional(), thread_of: z.string().optional() }),
+  // tag: remember this post under a name (rendered, e.g. "eod-reminder:{{user.id}}:{{user.eod.day}}") so a later run can thread under it: thread_of "tag:<that name>"
+  // react: an emoji put on the parent post (thread_of) once this reply is up, e.g. white_check_mark
+  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string(), as: Persona.optional(), thread_of: z.string().optional(), tag: z.string().optional(), react: z.string().optional() }),
+  // An HTTP call out: Airtable, a Zap or Make scenario, Apps Script, anything with a URL. Headers and body are templates; {{secret.<key>}} resolves
+  // in headers and body only here and is never written to the ledger. The response (JSON when it is) lands in vars.<into>.
+  z.object({ ...base, type: z.literal("webhook"), url: z.string(), method: z.enum(["POST", "PUT", "PATCH", "GET", "DELETE"]).default("POST"), headers: z.record(z.string()).default({}), body: z.unknown().optional(), into: z.string().optional(), on_error: z.enum(["fail", "skip"]).default("fail") }),
+  // The hourly sweep as a step: which checks run, where its alerts go. Findings become alerts through the same announcer as everything else.
+  z.object({ ...base, type: z.literal("health_check"), checks: z.record(z.boolean()).default({}), channel: z.string().optional(), as: Persona.optional() }),
+  // Bookable slots on the calendars: fewer than min_slots in the next days is a low-availability alert. In a run about a booking, only that booking's calendar is read.
+  z.object({ ...base, type: z.literal("availability_check"), min_slots: z.number().int().min(0).default(3), days: z.number().int().min(1).max(7).default(7) }),
+  // A wrap-up (daily / weekly / monthly numbers) rendered into vars.<into> = { body, period, numbers } and kept in the wrapups ledger; a slack_post after it sends it.
+  z.object({ ...base, type: z.literal("report"), kind: z.string(), breakdowns: z.array(z.string()).default([]), sections: z.record(z.boolean()).default({}), into: z.string().default("report") }),
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string() }),
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),
   z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string() }),

@@ -54,7 +54,11 @@ export function exampleContext(company: { name: string; timezone: string }, bind
     agreement: { id: "doc123", name: "Coaching Agreement", status: "completed", sent_at: n.minus({ days: 1 }).toISO(), signed_at: n.toISO(), signer: "Jane Doe" },
     records: { sales_call: { key: "appt123", id: "rec123" }, payment: { key: "pay_123", id: "rec456" } },
     reply: { intent: "confirmed", confidence: 0.92, top_guesses: "confirmed 92%, reschedule request 5%", last_inbound: { body: "Yes, see you then!", at: n.toISO() }, last_outbound: { body: "Hi Jane, you're booked with Allan tomorrow at 2pm.", at: n.minus({ minutes: 10 }).toISO() } },
+    user: { id: "user123", name: "Allan Parker", first_name: "Allan", email: "allan@example.com", role: "closer", slack_user_id: "U0123", mention: "<@U0123>", report_url: "https://engine.example/eod/er_abc",
+      eod: { day: n.toISODate(), url: "https://engine.example/eod/er_abc", today: { calls: 3, filed: false, line: "• <https://engine.example/eod/er_abc|today>: 3 calls" }, earlier: [{ day: n.minus({ days: 1 }).toISODate(), label: n.minus({ days: 1 }).toFormat("ccc LLL d"), calls: 2, url: "https://engine.example/eod/er_abc?day=" + n.minus({ days: 1 }).toISODate() }], earlier_count: 1,
+        earlier_lines: `• <https://engine.example/eod/er_abc?day=${n.minus({ days: 1 }).toISODate()}|${n.minus({ days: 1 }).toFormat("ccc LLL d")}>: 2 calls`, all_lines: `• <https://engine.example/eod/er_abc|today>: 3 calls\n• <https://engine.example/eod/er_abc?day=${n.minus({ days: 1 }).toISODate()}|${n.minus({ days: 1 }).toFormat("ccc LLL d")}>: 2 calls` } },
     vars: {
+      lines: "• <https://engine.example/eod/er_abc|today>: 3 calls", kind: "daily", report: { body: "Daily wrap-up · Thu Oct 8\n\nBooked                                   4\nShowed                                  3   75% of 4\nClosed                                  1   33% of 3\nCash collected                     $4,000", period: { start: n.toISODate(), end: n.toISODate() } },
       setter_line: "*Setter:* Luis", booking_kind: "setter", appt_line: `*Appointment:* ${call.toFormat("ccc LLL d · h:mm a ZZZZ")} · marked showed`, call_key: "appt123", min_seconds: 60, booked_flag: "yes", outcome_line: "Connected · 6 min · booked a call", revenue: 4000,
       classify: { call_type: "setting", is_sales_call: true, confidence: 0.9 },
       notes: { summary: "Jane has thinning at the crown and wants to act now. Price was the only hesitation; she will decide with her partner this week.", prospect_situation: "a year of thinning at the crown", pain: ["thinning at the crown", "hats every day"], desire: ["keep what she has", "feel confident at work"], objections: [{ objection: "price", quote: "that's more than I expected", handled: true }], disposition: "follow_up", primary_objection: "price", next_step: "decide with her partner", next_step_date: n.plus({ days: 4 }).toISODate(), digest: "Setting call: qualified, booked a closing call for tomorrow 2pm.", fit_quality: 8 },
@@ -89,6 +93,8 @@ export function nodeExamples(n: Node, ctx: Record<string, unknown>, tz: string):
     case "pipeline_card": return ex("Card name", n.name);
     case "set_var": return typeof n.value === "string" ? ex(n.key, n.value) : [];
     case "analyze": return ex("What the AI is given", n.input);
+    case "webhook": return [...ex("URL", n.url), ...(typeof n.body === "string" ? ex("Body", n.body) : n.body !== undefined ? [{ label: "Body", example: exampleOf(JSON.stringify(n.body, null, 2), ctx, tz) }] : [])];
+    case "report": return ex("Which", n.kind);
     default: return [];
   }
 }

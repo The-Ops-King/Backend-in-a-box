@@ -14,21 +14,22 @@ export async function emitEvent(c: PoolClient, e: Omit<EventRow, "id" | "occurre
 }
 
 /** Creates a run unless the reentry policy says this contact/appointment already has one. Returns null when suppressed. */
-export async function startRun(c: PoolClient, args: { companyId: string; workflowId: string; triggerId?: string | null; triggerNodeId: string; event: EventRow; contactId: string; appointmentId?: string | null; opportunityId?: string | null }): Promise<string | null> {
+export async function startRun(c: PoolClient, args: { companyId: string; workflowId: string; triggerId?: string | null; triggerNodeId: string; event: EventRow; contactId: string | null; userId?: string | null; appointmentId?: string | null; opportunityId?: string | null; schedule?: string }): Promise<string | null> {
   const wf = await one<{ current_version: number; enabled: boolean }>(c, "select current_version, enabled from workflows where id=$1", [args.workflowId]);
   if (!wf?.enabled) return null;
   const ver = await one<{ definition: unknown }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [args.workflowId, wf.current_version]);
   const def = parseDefinition(ver!.definition);
-  const key = reentryKey(def, { contactId: args.contactId, appointmentId: args.appointmentId, opportunityId: args.opportunityId, eventId: args.event.id, now: new Date() });
-  if (def.reentry === "once_per_contact_per_window") {   // sliding window, not epoch buckets: any run for this contact inside the window blocks a new one
+  const key = reentryKey(def, { contactId: args.contactId, userId: args.userId, appointmentId: args.appointmentId, opportunityId: args.opportunityId, eventId: args.event.id, now: new Date(), schedule: args.schedule });
+  if (def.reentry === "once_per_contact_per_window" && args.contactId && !args.schedule) {   // sliding window, not epoch buckets: any run for this contact inside the window blocks a new one
     const recent = await one(c, `select 1 from runs where workflow_id=$1 and contact_id=$2 and started_at > now() - $3::interval limit 1`, [args.workflowId, args.contactId, windowInterval(def.reentry_window ?? "90d")]);
     if (recent) return null;
   }
-  const row = await one<{ id: string }>(c, `insert into runs (company_id, workflow_id, workflow_version, contact_id, opportunity_id, appointment_id, trigger_id, triggered_by_event, status, current_node, next_run_at, context, reentry_key)
-    values ($1,$2,$3,$4,$5,$6,$7,$8,'active',$9,now(),$10,$11)
+  const row = await one<{ id: string }>(c, `insert into runs (company_id, workflow_id, workflow_version, contact_id, user_id, opportunity_id, appointment_id, trigger_id, triggered_by_event, status, current_node, next_run_at, context, reentry_key)
+    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'active',$10,now(),$11,$12)
     on conflict (workflow_id, reentry_key) do nothing returning id`,
-    [args.companyId, args.workflowId, wf.current_version, args.contactId, args.opportunityId ?? null, args.appointmentId ?? null, args.triggerId ?? null, args.event.id, args.triggerNodeId, { event: args.event.data, vars: {} }, key]);
+    [args.companyId, args.workflowId, wf.current_version, args.contactId, args.userId ?? null, args.opportunityId ?? null, args.appointmentId ?? null, args.triggerId ?? null, args.event.id, args.triggerNodeId, { event: args.event.data, vars: {} }, key]);
   if (!row) {
+    if (args.schedule) return null;   // this period already ran: nothing to remember
     // the key is held by a run still in flight: remember this trigger on it. If that run stops at a gate it replays us (D30: payment and signature in the same minute).
     await c.query(`update runs set pending_events = pending_events || $3::jsonb where workflow_id=$1 and reentry_key=$2 and status in ('active','waiting')`,
       [args.workflowId, key, JSON.stringify([{ event_id: args.event.id, trigger_id: args.triggerId ?? null, trigger_node_id: args.triggerNodeId, contact_id: args.contactId, appointment_id: args.appointmentId ?? null, opportunity_id: args.opportunityId ?? null }])]);
@@ -53,8 +54,10 @@ export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record
     const node = nodes.get(t.node_id);
     if (!node || node.type !== "trigger") continue;
     if (node.match && !evaluate(node.match, { ...matchCtx, event: { ...e.data, _source: e.source, _type: e.event_type } })) continue;
-    if (!e.contact_id) continue;
-    const id = await startRun(c, { companyId: e.company_id, workflowId: t.workflow_id, triggerId: t.id, triggerNodeId: t.node_id, event: e, contactId: e.contact_id, appointmentId: e.appointment_id, opportunityId: e.opportunity_id });
+    // an event about a person rather than a contact (eod.filed) names them in its data; one with neither has nothing to be about
+    const userId = typeof e.data.user_id === "string" ? e.data.user_id : null;
+    if (!e.contact_id && !userId) continue;
+    const id = await startRun(c, { companyId: e.company_id, workflowId: t.workflow_id, triggerId: t.id, triggerNodeId: t.node_id, event: e, contactId: e.contact_id, userId, appointmentId: e.appointment_id, opportunityId: e.opportunity_id });
     if (id) started.push(id);
   }
   return started;

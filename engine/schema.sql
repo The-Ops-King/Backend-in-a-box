@@ -17,8 +17,6 @@ create table companies (
   archived_at       timestamptz,
   purge_after_months int not null default 12,
   -- opportunity lifecycle rules (per-company settings, Tyler: "depends on workflow and settings")
-  eod_enabled       boolean not null default true,       -- D34: closers get an end-of-day DM on days they had calls
-  eod_at            time not null default '18:00',       -- company time
   reached_seconds   int not null default 60,            -- a connected dial at least this long counts as the lead being reached (speed to lead)
   contract_value_default numeric(12,2),                 -- the program price; a new opportunity's contract_value until a closer sets one
   opp_opens_on      text not null default 'first_booking'
@@ -155,7 +153,8 @@ create table calendars (
 create table opportunities (
   id                  uuid primary key default gen_random_uuid(),
   company_id          uuid not null references companies(id),
-  contact_id          uuid not null references contacts(id),
+  contact_id          uuid references contacts(id),                   -- null for a run about the company or a person (schedule triggers, eod.filed)
+  user_id             uuid references users(id),                      -- the person a run is about (a closer's end-of-day), when there is one
   ghl_opportunity_id  text,
   status              text not null default 'open' check (status in ('open','won','lost')),
   opened_at           timestamptz not null default now(),
@@ -177,7 +176,8 @@ create table pipeline_cards (
   id                  uuid primary key default gen_random_uuid(),
   company_id          uuid not null references companies(id),
   opportunity_id      uuid not null references opportunities(id),
-  contact_id          uuid not null references contacts(id),
+  contact_id          uuid references contacts(id),                   -- null for a run about the company or a person (schedule triggers, eod.filed)
+  user_id             uuid references users(id),                      -- the person a run is about (a closer's end-of-day), when there is one
   ghl_opportunity_id  text,                              -- null in shadow (never written to the CRM)
   ghl_pipeline_id     text not null,
   ghl_stage_id        text not null,
@@ -324,6 +324,7 @@ insert into event_types values
   ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'),
   ('agreement.sent','agreement'), ('agreement.signed','agreement'),
   ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'),
+  ('schedule','clock'), ('eod.filed','report'),
   ('run.started','engine'), ('run.exited','engine'), ('send.suppressed','engine');
 
 create table events (
@@ -450,7 +451,8 @@ create table runs (
   company_id          uuid not null references companies(id),
   workflow_id         uuid not null references workflows(id),
   workflow_version    int not null,                        -- pinned at start; edits never move a live run
-  contact_id          uuid not null references contacts(id),
+  contact_id          uuid references contacts(id),                   -- null for a run about the company or a person (schedule triggers, eod.filed)
+  user_id             uuid references users(id),                      -- the person a run is about (a closer's end-of-day), when there is one
   opportunity_id      uuid references opportunities(id),
   appointment_id      uuid references appointments(id),
   trigger_id          uuid references workflow_triggers(id) on delete set null,   -- which trigger started it; history survives a trigger node being removed
@@ -494,7 +496,7 @@ create table sends (
   run_id             uuid references runs(id),
   run_step_id        uuid references run_steps(id),
   contact_id         uuid references contacts(id),           -- null for a message to the team (alerts)
-  channel            text not null check (channel in ('sms','email','slack')),
+  channel            text not null check (channel in ('sms','email','slack','webhook')),
   idempotency_key    text not null unique,                 -- run_id:node_id:attempt-group, or notify:<channel>:<uuid>
   rendered_body      text not null,                        -- what actually went out, after send-time render
   scheduled_for      timestamptz,
@@ -574,21 +576,6 @@ create table rollups_daily (
 );
 
 -- When each company wants its wrap-ups. Times are the company's local clock. Nothing here is a constant in code.
-create table wrapup_schedules (
-  id                uuid primary key default gen_random_uuid(),
-  company_id        uuid not null references companies(id) on delete cascade,
-  kind              text not null check (kind in ('daily','weekly','monthly')),
-  enabled           boolean not null default true,
-  at_time           time not null default '19:00',
-  weekday           int not null default 1 check (weekday between 1 and 7),          -- weekly: 1 = Monday
-  day_of_month      int not null default 1 check (day_of_month between 1 and 28),    -- monthly
-  channel           text,                                   -- Slack channel id; null → slack.channel.reports binding
-  breakdowns        text[] not null default '{}',           -- 'setter', 'closer'
-  sections          jsonb not null default '{}',            -- {what_they_said: true}
-  last_period_start date,                                   -- the period the last scheduled run covered; fires once per period
-  unique (company_id, kind)
-);
-
 -- Every wrap-up that was generated, scheduled or on demand, so it can be read without Slack. (Named wrapups, not reports: the
 -- production Postgres is shared with other apps and already had a "reports" table; see ownsOrAbsent in migrate.ts.)
 create table wrapups (
@@ -649,19 +636,26 @@ create index on alerts (company_id, resolved_at, last_seen);
 -- The hourly sweep, per company: its own automation with its own clock, channel, face, and list of checks.
 create table health_checks (
   company_id     uuid primary key references companies(id) on delete cascade,
-  enabled        boolean not null default true,
-  every_minutes  int not null default 60 check (every_minutes between 5 and 1440),
-  channel        text,                                   -- Slack channel id for sweep alerts; null → the alerts channel (alerts.slack_channel binding)
+  channel        text,                                   -- Slack channel id for sweep alerts, copied from the health_check step each run; null → the alerts channel
   as_name        text,
   as_icon        text,
-  checks         jsonb not null default '{}',            -- {"<check id>": false} turns one off; absent = on
-  min_slots      int not null default 3,                 -- low availability: fewer bookable slots than this over slots_days is an alert
-  slots_days     int not null default 7 check (slots_days between 1 and 7),
   last_run_at    timestamptz,
   last_result    jsonb not null default '[]'             -- [{check, item, ok, level, text}] from the last sweep
 );
 
 -- D34. The closer's end-of-day report: one per closer per day; the DM that asked for it, what the engine prefilled, what they answered, what they corrected.
+-- A Slack post a step asked to remember (slack_post.tag), so a later run can reply in its thread or react to it (eod-filed ticks the reminder DM).
+create table slack_posts (
+  id         uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
+  tag        text not null,
+  channel    text not null,
+  ts         text not null,
+  run_id     uuid references runs(id) on delete set null,
+  posted_at  timestamptz not null default now(),
+  unique (company_id, tag)
+);
+
 create table eod_reports (
   id           uuid primary key default gen_random_uuid(),
   company_id   uuid not null references companies(id) on delete cascade,

@@ -37,7 +37,16 @@ Events the engine emits (`event_types`): `lead.created` `intake.recorded` `conta
 `appointment.outcome` `call.held` `message.sent` `message.received` `reply.classified` `payment.received`
 `payment.failed` `payment.paid_in_full` `payment.refunded` `payment.unlinked` `payment.linked` `recording.received`
 `recording.unlinked` `recording.linked` `call.analyzed` `call.logged` `agreement.sent` `agreement.signed` `tag.added`
-`tag.removed` `stage.changed` `run.started` `run.exited` `send.suppressed`.
+`tag.removed` `stage.changed` `run.started` `run.exited` `send.suppressed` `eod.filed` (a closer filed their day: the whole
+report in `event`, the run is about that closer: `user.*`).
+
+**The clock** is an event too: `{ "type": "trigger", "event": "schedule", "schedule": { "every": "60m" } }` or
+`{ "at": "18:00", "days": [1,2,3,4,5], "for": "closer" }` (`every` m/h/d; `at` HH:MM company time with optional `days`
+1..7 Mon..Sun or `day_of_month` 1..28; `for: company` = one run about the company, `for: closer` = one run per user with
+role closer, about that person, with `user.*` in the context). Fires once per period per subject, whatever the reentry
+policy says; a tick that is late still runs the period once; a day the engine was down is not made up. Several schedule
+triggers on one workflow are fine (eod-reminder has an evening and a morning one; wrap-ups has three), each leading
+through its own `set_var` into the shared steps.
 
 Which calendars count is a `match` on the appointment's facts, never a calendar id: `appointment.term.category`
 (`first_call` | `qualifying` | `closing` | `follow_up`), `appointment.term.name` (the company's own word for it),
@@ -52,7 +61,7 @@ settings; the workflow page's trigger popover lists the calendars that match.
 | `wait_for_reply` | `timeout`, `channel: sms|email|any` | woken the minute a reply arrives; follows the edge labelled `timeout` if none, else exits `no_reply`. `reply.last_inbound.body` is then readable. |
 | `send_sms` | `template`, `kind: human|transactional`, `ghl_template?`, `validity?: { min_lead }`, `on_stale: skip|substitute|pause`, `substitute_template?` | `human` always waits for the send window (dark hours); `transactional` (a receipt: "you're booked") may go out at any hour if the company allows. `ghl_template` = the CRM's own snippet id; its copy wins. `validity.min_lead` + `on_stale` decide what happens when the appointment is now too close for the message to make sense. |
 | `send_email` | `subject`, `template` (HTML allowed), same options as sms | same rules. |
-| `slack_post` | `channel` (`{{slack.channel.<name>}}`), `template`, `as: { name, icon | [icons] }`, `thread_of?` | posts even in shadow (labelled 🧪 shadow). `as` is the face: a name and an emoji or image URL, or a list of emoji one is picked from. `thread_of: "<node id>"` replies under that earlier post. |
+| `slack_post` | `channel` (`{{slack.channel.<name>}}`, or `{{user.slack_user_id}}` for a DM), `template`, `as: { name, icon | [icons] }`, `thread_of?`, `tag?`, `react?` | posts even in shadow (labelled 🧪 shadow). `as` is the face: a name and an emoji or image URL, or a list of emoji one is picked from. `thread_of: "<node id>"` replies under that earlier post; `thread_of: "tag:<name>"` replies under a post another run remembered with `tag` (rendered, e.g. `eod-reminder:{{user.id}}:{{user.eod.day}}`), in that post's channel; `react` puts an emoji on the parent. |
 | `notify_owner` | `template`, `fallback_channel?`, `task?: { title, due }`, `as?` | DM to the contact's owner (looked up in Slack by email), else the fallback channel with an @mention; optional CRM task. |
 | `classify` | `input`, `state?`, `domain`, `threshold`, `into` | the AI picks one option of a domain (`reply_intent`, `appointment_outcome`, `call_outcome`, `lost_reason`, `payment_plan`, `appointment_type`); below the threshold → `unclear`. Result under `vars.<into>` and `reply.intent`. |
 | `analyze` | `prompt` (`{{prompt.<name>}}`), `input` (default the transcript), `into`, `format: json|text`, `max_tokens?`, `optional?` | long-form read: notes, scorecard, a one-line cheer. `optional: true` = skipped quietly when the AI cannot run. Prompts are company bindings with defaults in `src/prompts`. |
@@ -67,6 +76,10 @@ settings; the workflow page's trigger popover lists the calendars that match.
 | `note` | `template` | an internal note on the contact. |
 | `update_appointment` / `update_opportunity` | `set` | status or fields. |
 | `send_document` | `template`, `sender?`, `name?` | Documents & Contracts (needs the write scope). |
+| `webhook` | `url`, `method` (POST), `headers`, `body` (string or JSON, every string a template), `into?`, `on_error: fail|skip` | an HTTP call out: Airtable, a Zap or Make scenario, Apps Script, anything with a URL. `{{secret.<key>}}` resolves in url, headers and body here and nowhere else, never written to the ledger. The reply (JSON when it is) lands in `vars.<into>`. Shadow: recorded as "would call". A non-2xx fails the run (an alert) unless `on_error: skip`. |
+| `health_check` | `checks: { "<id>": false }`, `channel?`, `as?` | the hourly sweep as a step (D35): every check on, minus the ones turned off; failures are alerts that clear themselves. Belongs after a `schedule` trigger. |
+| `availability_check` | `min_slots` (3), `days` (7) | bookable slots on every active calendar; in a run about a booking, that booking's calendar. Fewer than `min_slots` is a warning with the calendar link and the day-by-day in the thread. |
+| `report` | `kind` (`daily|weekly|monthly`, may be `{{vars.kind}}`), `breakdowns`, `sections`, `into` (`report`) | renders the wrap-up for the period that just ended (the period so far when started by hand) into `vars.<into> = { body, period, numbers }` and keeps it in `wrapups`; a `slack_post` of `{{vars.report.body}}` sends it. |
 | `set_var` | `key`, `value` | remember something for later steps (`vars.<key>`); plumbing, hidden from the outline. |
 | `start_workflow` | `workflow` (slug), `with?` | hand off. |
 | `pause_runs` | `scope: contact|appointment` | a human took over: pause the contact's other runs. |

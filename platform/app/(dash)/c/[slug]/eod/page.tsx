@@ -20,7 +20,7 @@ export default async function EodListPage({ params }: { params: Promise<{ slug: 
   return (<>
     <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / End of day</p>
     <h1>End-of-day reports</h1>
-    <p className="sub">Each closer gets a DM at the company's end-of-day time on days they had calls, with their link. The link is standing: the same one every day, today by default, and it opens on their day only. <Link href={`/c/${slug}/settings#company`}>Time and on/off</Link> · <Link href={`/c/${slug}/settings#team`}>who is a closer</Link> · <Link href={`/c/${slug}/settings#eodform`}>the questions</Link>.</p>
+    <p className="sub">Each closer gets a DM from the end-of-day reminder workflow on days they had calls, with their link. The link is standing: the same one every day, today by default, and it opens on their day only. What is filed starts the end-of-day filed workflow. <Link href={`/c/${slug}/settings#clock`}>The scheduled workflows</Link> · <Link href={`/c/${slug}/settings#team`}>who is a closer</Link> · <Link href={`/c/${slug}/settings#eodform`}>the questions</Link>.</p>
     <h2>Filed · {reports.filter((r) => r.submitted_at).length}</h2>
     {reports.length === 0 ? <div className="empty">Nothing yet.</div> : <ol className="tl">{reports.map((r) => <li key={r.id} className={`tl-row ${r.submitted_at ? "st-ok" : "st-waiting"}`}>
       <span className="tl-t">{DateTime.fromISO(r.day).toFormat("ccc LLL d")}</span>

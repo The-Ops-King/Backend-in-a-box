@@ -3,13 +3,13 @@ import { parseDefinition } from "@/engine/definition";
 import { buildContext, loadCompany, type RunRow } from "@/engine/context";
 import { projectRun, type Projected } from "@/engine/project";
 
-export type PlannedRun = { run_id: string; workflow_id: string; workflow: string; contact_id: string; contact: string; status: string; current_node: string | null; next_run_at: Date | null; started_at: Date; plan: Projected[] };
+export type PlannedRun = { run_id: string; workflow_id: string; workflow: string; contact_id: string | null; contact: string; status: string; current_node: string | null; next_run_at: Date | null; started_at: Date; plan: Projected[] };
 
 /** Every live run (active/waiting) for a contact or a workflow, with what it will do next. */
 export async function plannedRuns(where: { contactId?: string; workflowId?: string }): Promise<PlannedRun[]> {
   return asOperator(async (c) => {
-    const rows = await many<RunRow & { workflow: string; contact: string }>(c, `select r.*, w.name as workflow, coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'') as contact
-      from runs r join workflows w on w.id=r.workflow_id join contacts ct on ct.id=r.contact_id
+    const rows = await many<RunRow & { workflow: string; contact: string }>(c, `select r.*, w.name as workflow, coalesce(nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),''), u.name, 'the company') as contact
+      from runs r join workflows w on w.id=r.workflow_id left join contacts ct on ct.id=r.contact_id left join users u on u.id=r.user_id
       where r.status in ('active','waiting') and ${where.contactId ? "r.contact_id=$1" : "r.workflow_id=$1"} order by r.next_run_at nulls first, r.started_at`, [where.contactId ?? where.workflowId]);
     if (!rows.length) return [];
     const { row: company, bindings } = await loadCompany(c, rows[0].company_id);

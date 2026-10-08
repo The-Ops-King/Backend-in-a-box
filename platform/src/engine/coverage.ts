@@ -7,7 +7,7 @@ import { Node, type Definition } from "./definition";
  *
  * Kinds the sweep knows how to verify live, and kinds it can only report as "not verifiable" (VERIFIES).
  */
-export type RefKind =
+export type RefKind = "webhook"
   | "binding"            // a {{crm.*}} / {{calendar.*}} / {{slack.channel.*}} / {{prompt.*}} / {{secret.*}} the step reads
   | "ghl_template"       // an SMS snippet / email builder template id in the CRM
   | "custom_object"      // a custom object key the step writes records to
@@ -24,6 +24,7 @@ export const VERIFIES: Record<RefKind, "live" | "unverifiable"> = {
   binding: "live", custom_object: "live", workflow: "live", classify_domain: "live", event: "live", anthropic: "live", slack: "live", url: "live",
   ghl_template: "unverifiable",   // GHL has no cheap "does template X exist" read for snippets/builder templates
   documents: "unverifiable",      // listing templates needs the documents scope the shadow token does not carry
+  webhook: "unverifiable",        // a POST endpoint is not probed: a GET or HEAD at it would be a false alarm (and sometimes a real call)
 };
 
 const refsIn = (v: unknown, node: string, what: string, out: Ref[]) => {
@@ -39,7 +40,9 @@ const refsIn = (v: unknown, node: string, what: string, out: Ref[]) => {
 
 /** What each node type needs from outside, beyond the bindings its templates mention. Every type in the Node union must be here. */
 export const NODE_NEEDS: { [T in Node["type"]]: (n: Extract<Node, { type: T }>) => Ref[] } = {
-  trigger: (n) => [{ kind: "event", value: n.event, node: n.id, what: "the event it starts on" }],
+  trigger: (n) => (n.schedule ? [] : [{ kind: "event", value: n.event, node: n.id, what: "the event it starts on" }]),
+  webhook: (n) => [{ kind: "webhook", value: n.url, node: n.id, what: "the endpoint it calls" }],
+  health_check: () => [], availability_check: () => [], report: () => [],
   wait: () => [], wait_for_reply: () => [], branch: () => [], check: () => [], exit: () => [], set_var: () => [], pause_runs: () => [],
   send_sms: (n) => (n.ghl_template ? [{ kind: "ghl_template", value: n.ghl_template, node: n.id, what: "the CRM text template" }] : []),
   send_email: (n) => (n.ghl_template ? [{ kind: "ghl_template", value: n.ghl_template, node: n.id, what: "the CRM email template" }] : []),

@@ -47,7 +47,7 @@ export default async function WorkflowPage({ params }: { params: Promise<{ slug:
     <h2>In this workflow right now · {live.length}</h2>
     <NextUp runs={live} slug={slug} tz={co.timezone} showContact />
     <h2>Who went through it · {runs.length}{runs.length === 100 ? " most recent" : ""}</h2>
-    {runs.length === 0 ? <div className="empty">Nobody yet.</div> : <div className="tbl"><table><thead><tr><th>Contact</th><th>Started</th><th>How it ended</th><th>Steps</th></tr></thead><tbody>
+    {runs.length === 0 ? <div className="empty">Nobody yet.</div> : <div className="tbl"><table><thead><tr><th>About</th><th>Started</th><th>How it ended</th><th>Steps</th></tr></thead><tbody>
       {runs.map((r) => <tr key={r.id}><td><Link href={`/c/${slug}/r/${r.id}`}><strong>{r.contact || "—"}</strong></Link></td><td><span title={ago(r.started_at)}>{stamp(r.started_at, co.timezone)}</span></td><td><span className={badge(r.status)}>{r.status}</span> <span className="muted">{ended(r)}{r.finished_at ? ` · ${stamp(r.finished_at, co.timezone)}` : r.next_run_at ? ` · next ${stamp(r.next_run_at, co.timezone)}` : ""}</span></td><td>{r.steps}</td></tr>)}
     </tbody></table></div>}
     <details className="adv"><summary>Advanced · bindings, versions, definition</summary>

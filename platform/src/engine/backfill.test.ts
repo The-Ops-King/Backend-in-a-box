@@ -38,7 +38,7 @@ describe.skipIf(!HAS_DB)("history backfill", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='bf'");
-      if (co) { for (const t of ["poll_cursors", "wrapup_schedules", "rollups_daily", "payments", "events", "recordings", "appointments", "opportunities", "calendars", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { for (const t of ["poll_cursors", "rollups_daily", "payments", "events", "recordings", "appointments", "opportunities", "calendars", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('BF','bf','UTC') returning id"))!.id;
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'crm.field_contact_f1','id',$4),($1,'crm.field_opportunity_contract_value','id',$5)", [companyId, Buffer.from("L"), encrypt("p"), Buffer.from("F1"), Buffer.from("CV")]);
       const term = (await one<{ id: string }>(c, "insert into company_terms (company_id, domain, name, category) values ($1,'appointment_type','Closing','closing') returning id", [companyId]))!.id;

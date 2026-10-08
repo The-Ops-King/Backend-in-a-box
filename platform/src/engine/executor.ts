@@ -9,6 +9,8 @@ import { computeWaitUntil, deferIntoWindow } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
 import { emitEvent } from "./dispatch";
 import { applyOutcome, outcomeTermFor } from "./disposition";
+import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } from "./health";
+import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports";
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
@@ -17,14 +19,15 @@ const persona = (d: ExecDeps, as?: { name?: string; icon?: string | string[] }) 
 type Person = { name: string; email?: string | null; ghl_user_id?: string | null; slack_user_id?: string | null; mention?: string };
 /** The people a post may @mention (contact.closer, contact.setter, contact.owner): look each up in Slack by email once and remember it, so `{{contact.closer.mention}}` is a real mention, not a name. */
 async function resolveMentions(d: ExecDeps, botToken: string): Promise<void> {
-  const contact = d.ctx.contact as Record<string, unknown> | undefined; if (!contact) return;
-  for (const key of ["closer", "setter", "owner"]) {
-    const p = contact[key] as Person | undefined;
-    if (!p || p.slack_user_id || !p.email) continue;
+  const contact = d.ctx.contact as Record<string, unknown> | undefined;
+  const people: (Person & { id?: string })[] = [...(contact ? ["closer", "setter", "owner"].map((k) => contact[k] as Person | undefined) : []), d.ctx.user as (Person & { id?: string }) | undefined].filter((p): p is Person & { id?: string } => !!p);
+  for (const p of people) {
+    if (p.slack_user_id || !p.email) continue;
     const id = await d.adapters.notifier.lookupUserByEmail(botToken, p.email).catch(() => null);
     if (!id) continue;
     p.slack_user_id = id; p.mention = `<@${id}>`;
-    if (p.ghl_user_id) await d.c.query("update users set slack_user_id=$2 where company_id=$1 and ghl_user_id=$3", [d.company.id, id, p.ghl_user_id]);
+    if (p.id) await d.c.query("update users set slack_user_id=$2 where id=$1", [p.id, id]);
+    else if (p.ghl_user_id) await d.c.query("update users set slack_user_id=$2 where company_id=$1 and ghl_user_id=$3", [d.company.id, id, p.ghl_user_id]);
   }
 }
 const jsonArrayOr = (r: string): unknown => { try { const v = JSON.parse(r); return Array.isArray(v) ? v : r; } catch { return r; } };
@@ -37,7 +40,7 @@ export type StepOutcome =
   | { status: "paused"; reason: string; result?: Record<string, unknown> }
   | { status: "failed"; error: string };
 
-export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime };
+export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes };
 
 const contactTz = (d: ExecDeps) => ((d.ctx.contact as { timezone?: string } | undefined)?.timezone) ?? d.company.timezone;
 /** Shadow mode: the run proceeds exactly as it would live, but nothing is written to the CRM; sends are recorded as "would have sent". */
@@ -56,7 +59,7 @@ function validityOk(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "send_
   return !limit || d.now <= limit ? { ok: true } : { ok: false, why: `past after_event limit ${limit.toISO()}` };
 }
 
-async function recordSend(d: ExecDeps, node: Node, channel: "sms" | "email" | "slack", body: string, status: "queued" | "suppressed", reason?: string): Promise<{ id: string } | null> {
+async function recordSend(d: ExecDeps, node: Node, channel: "sms" | "email" | "slack" | "webhook", body: string, status: "queued" | "suppressed", reason?: string): Promise<{ id: string } | null> {
   const key = `${d.run.id}:${node.id}`;
   const row = await one<{ id: string }>(d.c, `insert into sends (company_id, run_id, contact_id, channel, idempotency_key, rendered_body, status, suppressed_reason, scheduled_for)
     values ($1,$2,$3,$4,$5,$6,$7,$8,now()) on conflict (idempotency_key) do nothing returning id`,
@@ -139,7 +142,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (!contact?.ghl_contact_id) return { status: "failed", error: "send_document: contact has no CRM id yet" };
       const sent = await d.adapters.write.sendDocumentTemplate(d.adapterCompany, { templateId, contactId: contact.ghl_contact_id, userId: sender });
       const { recordSentByEngine } = await import("./agreements");
-      if (sent.id) await recordSentByEngine(d.c, d.company.id, d.run.contact_id, sent.id, name);
+      if (sent.id && d.run.contact_id) await recordSentByEngine(d.c, d.company.id, d.run.contact_id, sent.id, name);
       return { status: "ok", next, result: { document: sent.id, template: templateId, sender } };
     }
     case "notify_owner": {
@@ -189,21 +192,29 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "slack_post": {
       const conn = await one<{ bot_token: Buffer; channels: Record<string, string> }>(d.c, "select bot_token, channels from slack_connections where company_id=$1", [d.company.id]);
       // the channel binding is optional (manifest marks slack.* not required), so resolve without throwing: unbound → skip the node, keep the run going
+      const { decrypt } = await import("./crypto");
+      if (conn) await resolveMentions(d, decrypt(conn.bot_token));   // also fills user.slack_user_id, which a DM step uses as its channel
       const ref = /^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/.exec(node.channel);
       const channelId = ref ? (resolvePath(d.ctx, ref[1]) as string | undefined) : node.channel;
-      const { decrypt } = await import("./crypto");
-      if (conn) await resolveMentions(d, decrypt(conn.bot_token));
       // render first even when it cannot post: the dashboard shows what WOULD have gone to Slack, which is the whole point of shadow
       const text = render(node.template, d.ctx, env(d));
       if (!conn || !channelId) { await recordSend(d, node, "slack", text, "suppressed", conn ? "unbound: slack channel" : "unbound: slack"); return { status: "skipped", next, result: { kind: "blocked", why: conn ? "slack channel not bound" : "slack not connected", would_post: text.slice(0, 160) } }; }
-      // a thread reply needs the parent's ts from earlier in this run; without one (parent skipped) it posts to the channel and says so
-      const parentTs = node.thread_of ? (resolvePath(d.ctx, `vars.__slack.${node.thread_of}`) as string | undefined) : undefined;
+      // a thread reply needs the parent's ts: an earlier post in this run, or a post another run remembered under a tag ("tag:eod-reminder:<user>:<day>").
+      // Without one (parent skipped, nothing under that tag) it posts to the channel and says so.
+      let parentTs: string | undefined, parentChannel: string | undefined, tagged: string | undefined;
+      if (node.thread_of?.startsWith("tag:")) { tagged = render(node.thread_of.slice(4), d.ctx, env(d)); const p = await one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, tagged]); parentTs = p?.ts; parentChannel = p?.channel; }
+      else if (node.thread_of) parentTs = resolvePath(d.ctx, `vars.__slack.${node.thread_of}`) as string | undefined;
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already posted (idempotency)" } };
       // Slack is the team, not the CRM or the contact: in shadow the post still goes out, marked, so the team sees what the engine would do (D31)
-      const r = await d.adapters.notifier.post(decrypt(conn.bot_token), channelId, shadow(d) && !parentTs ? `${SHADOW_PREFIX}${text}` : text, persona(d, node.as), parentTs);
+      const token = decrypt(conn.bot_token), postTo = parentTs && parentChannel ? parentChannel : channelId;
+      const r = await d.adapters.notifier.post(token, postTo, shadow(d) && !parentTs ? `${SHADOW_PREFIX}${text}` : text, persona(d, node.as), parentTs);
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
       setPath(d.ctx, `vars.__slack.${node.id}`, r.ts);
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null } : {}) } };
+      let reacted = false;
+      if (node.react && parentTs) reacted = await d.adapters.notifier.react(token, postTo, parentTs, node.react).catch(() => false);
+      let tag: string | undefined;
+      if (node.tag) { tag = render(node.tag, d.ctx, env(d)); await d.c.query("insert into slack_posts (company_id, tag, channel, ts, run_id) values ($1,$2,$3,$4,$5) on conflict (company_id, tag) do update set channel=excluded.channel, ts=excluded.ts, run_id=excluded.run_id, posted_at=now()", [d.company.id, tag, postTo, r.ts, d.run.id]); }
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null, ...(tagged ? { tag: tagged } : {}) } : {}), ...(tag ? { remembered_as: tag } : {}), ...(node.react ? { reacted } : {}) } };
     }
 
     case "classify": {
@@ -384,6 +395,55 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (d.ctx.appointment) (d.ctx.appointment as Record<string, unknown>).outcome = r.outcome;
       return { status: "ok", next, result: { outcome: r.outcome, events: r.events, runs_started: r.runs } };
     }
+    case "webhook": {
+      // {{secret.<key>}} resolves here and nowhere else; the ledger keeps the rendered body, never the headers
+      const secret = Object.fromEntries(Object.entries(d.bindings).filter(([k]) => k.startsWith("secret.")).map(([k, v]) => [k.slice(7), v]));
+      const sctx = { ...d.ctx, secret };
+      const url = render(node.url, sctx, env(d));
+      const headers: Record<string, string> = Object.fromEntries(Object.entries(node.headers).map(([k, v]) => [k, render(v, sctx, env(d))]));
+      const bodyText = node.body === undefined ? undefined : typeof node.body === "string" ? render(node.body, sctx, env(d)) : JSON.stringify(deepRender(node.body, sctx, env(d)));
+      if (bodyText !== undefined && typeof node.body !== "string" && !Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) headers["Content-Type"] = "application/json";
+      const safeUrl = url.replace(/([?&](?:key|token|api_key|apikey|secret)=)[^&]+/gi, "$1…");
+      if (shadow(d)) { await recordSend(d, node, "webhook", bodyText ?? "", "suppressed", "shadow"); return { status: "ok", next, result: { shadow: true, would_call: `${node.method} ${safeUrl}`, would_send: bodyText?.slice(0, 300) } }; }
+      const send = await recordSend(d, node, "webhook", bodyText ?? "", "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already called (idempotency)" } };
+      try {
+        const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 20_000);
+        const res = await fetch(url, { method: node.method, headers, body: node.method === "GET" ? undefined : bodyText, signal: ctl.signal }).finally(() => clearTimeout(timer));
+        const text = await res.text().catch(() => "");
+        let parsed: unknown = text; try { parsed = JSON.parse(text); } catch { /* not JSON: keep the text */ }
+        await d.c.query("update sends set status=$2, external_id=$3, sent_at=now(), error=$4 where id=$1", [send.id, res.ok ? "sent" : "failed", String(res.status), res.ok ? null : text.slice(0, 500)]);
+        if (node.into) setPath(d.ctx, `vars.${node.into}`, parsed);
+        if (!res.ok) { if (node.on_error === "skip") return { status: "skipped", next, result: { kind: "blocked", why: `${res.status} from ${safeUrl}`, response: text.slice(0, 300) } }; return { status: "failed", error: `${node.method} ${safeUrl} → ${res.status}: ${text.slice(0, 300)}` }; }
+        return { status: "ok", next, result: { called: `${node.method} ${safeUrl}`, status: res.status, response: text.slice(0, 300) } };
+      } catch (e) {
+        const why = String((e as Error).name === "AbortError" ? "timed out after 20s" : (e as Error).message);
+        await d.c.query("update sends set status='failed', error=$2 where id=$1", [send.id, why]);
+        if (node.on_error === "skip") return { status: "skipped", next, result: { kind: "blocked", why: `${safeUrl}: ${why}` } };
+        return { status: "failed", error: `${node.method} ${safeUrl}: ${why}` };
+      }
+    }
+    case "health_check": {
+      const channel = node.channel ? (/^\{\{/.test(node.channel) ? (resolvePath(d.ctx, node.channel.replace(/^\{\{\s*|\s*\}\}$/g, "")) as string | undefined) : node.channel) : undefined;
+      const as = persona(d, node.as);
+      const r = await runHealthStep(d.c, d.company, d.adapters, d.probes ?? liveProbes, { checks: node.checks, min_slots: 0, slots_days: 7, channel: channel ?? null, as_name: node.as?.name ? as.name : null, as_icon: node.as?.icon ? (Array.isArray(as.icon) ? as.icon[0] : as.icon) : null }, d.now as DateTime<true>);
+      const failing = r.findings.filter((f) => !f.ok);
+      return { status: "ok", next, result: { checks: r.findings.length, failing: failing.length, raised: r.raised, resolved: r.resolved, ...(failing.length ? { problems: failing.map((f) => f.text).slice(0, 10) } : {}) } };
+    }
+    case "availability_check": {
+      const cal = d.run.appointment_id ? await one<{ external_id: string }>(d.c, "select cal.external_id from appointments a join calendars cal on cal.id=a.calendar_id where a.id=$1", [d.run.appointment_id]) : null;
+      const r = await runAvailabilityStep(d.c, d.company, d.adapters, d.probes ?? liveProbes, { min_slots: node.min_slots, days: node.days }, d.now as DateTime<true>, cal ? [cal.external_id] : undefined);
+      const low = r.findings.filter((f) => !f.ok);
+      return { status: "ok", next, result: { calendars: r.findings.length, low: low.length, raised: r.raised, resolved: r.resolved, ...(cal ? { only: cal.external_id } : {}), ...(low.length ? { problems: low.map((f) => f.text) } : {}) } };
+    }
+    case "report": {
+      const kind = render(node.kind, d.ctx, env(d)) as ReportKind;
+      if (!REPORT_KINDS.includes(kind)) return { status: "failed", error: `report kind must be one of ${REPORT_KINDS.join(", ")}, got "${kind}"` };
+      const manual = (d.ctx.event as { manual?: boolean } | undefined)?.manual === true;
+      const period = periodFor(kind, d.now.setZone(d.company.timezone), manual);
+      const b = await buildReport(d.c, d.company, kind, period, { breakdowns: node.breakdowns, sections: node.sections, onDemand: manual, toDate: manual });
+      setPath(d.ctx, `vars.${node.into}`, { body: b.body, period: b.period, numbers: b.numbers, id: b.id });
+      return { status: "ok", next, result: { kind, period: b.period, report_id: b.id, ...(manual ? { to_date: true } : {}) } };
+    }
     case "set_var": { const v = typeof node.value === "string" ? render(node.value, d.ctx, env(d)) : node.value; setPath(d.ctx, `vars.${node.key}`, v); return { status: "ok", next }; }
     case "pause_runs": {
       await d.c.query("update runs set status='paused', exit_reason='paused: human took over' where company_id=$1 and contact_id=$2 and id<>$3 and status in ('active','waiting')", [d.company.id, d.run.contact_id, d.run.id]);
@@ -402,7 +462,14 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
   }
 }
 
-export function setPath(obj: Record<string, unknown>, path: string, value: unknown) {
+export /** Every string inside a JSON body is a template; the shape stays. */
+function deepRender(v: unknown, ctx: Record<string, unknown>, e: ReturnType<typeof env>): unknown {
+  if (typeof v === "string") { const whole = /^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/.exec(v); if (whole) { const got = resolvePath(ctx, whole[1]); return got === undefined ? render(v, ctx, e) : got; } return render(v, ctx, e); }
+  if (Array.isArray(v)) return v.map((x) => deepRender(x, ctx, e));
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, deepRender(x, ctx, e)]));
+  return v;
+}
+function setPath(obj: Record<string, unknown>, path: string, value: unknown) {
   const parts = path.split("."); let cur = obj;
   for (const p of parts.slice(0, -1)) { if (typeof cur[p] !== "object" || cur[p] === null) cur[p] = {}; cur = cur[p] as Record<string, unknown>; }
   cur[parts[parts.length - 1]] = value;

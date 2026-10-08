@@ -27,7 +27,7 @@ describe.skipIf(!HAS_DB)("agreements mirrored from the CRM's documents", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='ag'");
-      if (co) { for (const t of ["poll_cursors", "wrapup_schedules", "rollups_daily", "sends", "events", "agreements", "contact_identifiers", "contacts", "bindings"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { for (const t of ["poll_cursors", "rollups_daily", "sends", "events", "agreements", "contact_identifiers", "contacts", "bindings"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('AG','ag','UTC') returning id"))!.id;
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3)", [companyId, Buffer.from("L"), encrypt("p")]);
     });

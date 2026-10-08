@@ -7,7 +7,11 @@ import { encrypt } from "@/engine/crypto";
 import { loadCompany } from "@/engine/context";
 import { recordPhoneCall, settlePhoneCall } from "@/engine/recordings";
 import { rollupDay, readMetrics } from "@/engine/metrics";
-import { ensureSchedules, generateReport, isDue, periodFor, renderReport, runDueReports, type Schedule } from "@/engine/reports";
+import { buildReport, periodFor, renderReport } from "@/engine/reports";
+import { dispatchSchedules, periodOf, scheduleWords } from "@/engine/clock";
+import { tick } from "@/engine/runner";
+import { installTemplateForTest } from "@/engine/test-install";
+import type { Adapters, BookingRead } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -21,15 +25,18 @@ describe("report periods and due-ness (pure)", () => {
     expect(periodFor("monthly", tue)).toEqual({ start: "2026-09-01", end: "2026-09-30" });
     expect(periodFor("monthly", tue, true)).toEqual({ start: "2026-10-01", end: "2026-10-06" });
   });
-  it("fires after the time on the right day, once per period, never when disabled", () => {
-    const base: Schedule = { id: "s", company_id: "c", kind: "daily", enabled: true, at_time: "19:00", weekday: 1, day_of_month: 1, channel: null, breakdowns: [], sections: {}, last_period_start: null };
-    expect(isDue(base, tue)).toEqual({ start: "2026-10-06", end: "2026-10-06" });
-    expect(isDue(base, tue.set({ hour: 18, minute: 59 }))).toBeNull();
-    expect(isDue({ ...base, last_period_start: "2026-10-06" }, tue)).toBeNull();
-    expect(isDue({ ...base, enabled: false }, tue)).toBeNull();
-    expect(isDue({ ...base, kind: "weekly", weekday: 2, at_time: "08:00" }, tue)).toEqual({ start: "2026-09-28", end: "2026-10-04" });
-    expect(isDue({ ...base, kind: "weekly", weekday: 1, at_time: "08:00" }, tue)).toBeNull();
-    expect(isDue({ ...base, kind: "monthly", day_of_month: 6, at_time: "08:00" }, tue)).toEqual({ start: "2026-09-01", end: "2026-09-30" });
+  it("a schedule trigger is due after its time on its day, once per date; every-N buckets the clock", () => {
+    expect(periodOf({ at: "19:00", for: "company" }, tue)).toBe("2026-10-06");
+    expect(periodOf({ at: "19:00", for: "company" }, tue.set({ hour: 18, minute: 59 }))).toBeNull();
+    expect(periodOf({ at: "08:00", days: [2], for: "company" }, tue)).toBe("2026-10-06");
+    expect(periodOf({ at: "08:00", days: [1], for: "company" }, tue)).toBeNull();
+    expect(periodOf({ at: "08:00", day_of_month: 6, for: "company" }, tue)).toBe("2026-10-06");
+    expect(periodOf({ at: "08:00", day_of_month: 1, for: "company" }, tue)).toBeNull();
+    expect(periodOf({ every: "60m", for: "company" }, tue)).toBe(periodOf({ every: "60m", for: "company" }, tue.plus({ minutes: 20 })));
+    expect(periodOf({ every: "60m", for: "company" }, tue)).not.toBe(periodOf({ every: "60m", for: "company" }, tue.plus({ hours: 1 })));
+    expect(scheduleWords({ at: "19:00", for: "company" })).toBe("at 7:00 PM every day");
+    expect(scheduleWords({ at: "08:00", days: [1], for: "company" })).toBe("at 8:00 AM on Mon");
+    expect(scheduleWords({ every: "60m", for: "closer" })).toBe("every hour, one run per closer");
   });
   it("renders rates with their denominators and '—' for zero-of-zero", () => {
     const text = renderReport({ kind: "daily", period: { start: "2026-10-06", end: "2026-10-06" }, tz: "UTC", toDate: false, breakdowns: ["setter"], said: [],
@@ -49,7 +56,7 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='rp'");
-      if (co) { for (const t of ["wrapups", "wrapup_schedules", "rollups_daily", "poll_cursors", "sends", "events", "recordings", "payments", "appointments", "opportunities", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]); for (const t of ["wrapups", "rollups_daily", "poll_cursors", "sends", "runs", "workflow_triggers", "workflows", "events", "recordings", "payments", "appointments", "opportunities", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('RP','rp','UTC') returning id"))!.id;
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3)", [companyId, Buffer.from("L"), encrypt("p")]);
       setter = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id) values ($1,'lu@x.com','Lu Setter','setter','GS') returning id", [companyId]))!.id;
@@ -85,18 +92,33 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
     await asOperator((c) => rollupDay(c, companyId, day, "UTC"));
     expect((await asOperator((c) => readMetrics(c, companyId, day, day))).totals.dials).toBe(3);
   });
-  it("generates the daily wrap-up (no Slack here: recorded, suppressed), and the schedule fires once", async () => {
-    const r = await asOperator(async (c) => { const { row, bindings } = await loadCompany(c, companyId); const s = (await ensureSchedules(c, companyId)).find((x) => x.kind === "daily")!; return generateReport(c, row, bindings, { ...s, breakdowns: ["setter", "closer"] }, { start: day, end: day }, { onDemand: true }); });
-    expect(r.posted).toBe(false); expect(r.why).toBe("suppressed");   // no Slack connection in this company; with one, a shadow wrap-up is posted with the shadow label (D31)
+  it("builds the daily wrap-up; the wrap-ups workflow fires it at 7pm once per day and the post is recorded (suppressed: no Slack here)", async () => {
+    const r = await asOperator(async (c) => buildReport(c, (await loadCompany(c, companyId)).row, "daily", { start: day, end: day }, { breakdowns: ["setter", "closer"] }));
     expect(r.body).toContain("67% connection rate"); expect(r.body).toContain("Lu Setter"); expect(r.body).toContain("Sam Closer"); expect(r.body).toContain("$1,000"); expect(r.body).toContain("$3,000");
-    expect(await asOperator((c) => one(c, "select 1 from sends where company_id=$1 and channel='slack' and status='suppressed' and rendered_body like '%What happened today%'", [companyId]))).toBeTruthy();
-    const at1905 = DateTime.fromISO(`${day}T19:05:00`, { zone: "UTC" });
-    const first = await asOperator((c) => runDueReports(c, at1905, companyId));
-    expect(first.generated.filter((g) => g.company === "rp").map((g) => g.kind)).toEqual(["daily"]);
-    const again = await asOperator((c) => runDueReports(c, at1905.plus({ minutes: 1 }), companyId));
-    expect(again.generated.filter((g) => g.company === "rp")).toEqual([]);
-    expect(await asOperator((c) => many(c, "select 1 from wrapups where company_id=$1", [companyId]))).toHaveLength(2);
+    const fake: Adapters = {
+      read: { contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [] },
+      booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }; return { ghl: b, calendly: b }; })(),
+      write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "d" }) },
+      sender: { sendSms: async () => ({ externalId: "s", accepted: true }), sendEmail: async () => ({ externalId: "e", accepted: true }), deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },
+      classifier: { choice: async () => ({ value: "confirmed", confidence: 1, distribution: {}, unclear: false }) },
+      notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null, react: async () => true, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
+      analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
+    };
+    await asOperator((c) => installTemplateForTest(c, companyId, "wrap-ups"));
+    const at1905 = DateTime.fromISO(`${day}T19:05:00`, { zone: "UTC" }) as DateTime<true>;
     // before 7pm nothing fires
-    expect((await asOperator((c) => runDueReports(c, DateTime.fromISO(`${day}T18:00:00`, { zone: "UTC" }).plus({ days: 1 }), companyId))).generated.filter((g) => g.company === "rp")).toEqual([]);
+    expect((await asOperator((c) => dispatchSchedules(c, at1905.set({ hour: 18 }) as DateTime<true>, companyId))).started).toEqual([]);
+    const first = await asOperator((c) => dispatchSchedules(c, at1905, companyId));
+    expect(first.started).toEqual([{ company: "rp", workflow: "Wrap-ups", node: "t_daily", period: day }]);
+    const again = await asOperator((c) => dispatchSchedules(c, at1905.plus({ minutes: 1 }) as DateTime<true>, companyId));
+    expect(again.started).toEqual([]);
+    const t = await tick(fake, at1905, companyId);
+    expect(t).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
+    expect(await asOperator((c) => many(c, "select 1 from wrapups where company_id=$1 and kind='daily'", [companyId]))).toHaveLength(2);
+    const step = await asOperator((c) => one<{ result: { kind: string; period: { start: string } } }>(c, "select s.result from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and s.node_type='report'", [companyId]));
+    expect(step?.result).toMatchObject({ kind: "daily", period: { start: day } });
+    // no Slack connection in this company: the post is recorded and suppressed, with the text it would have carried (D31)
+    expect(await asOperator((c) => one(c, "select 1 from sends where company_id=$1 and channel='slack' and status='suppressed' and rendered_body like '%What happened today%'", [companyId]))).toBeTruthy();
   });
+
 });

@@ -5,6 +5,7 @@ import { bookingFor } from "@/adapters/types";
 import { parseDefinition, indexDefinition, type Definition } from "./definition";
 import { buildContext, loadCompany, type RunRow } from "./context";
 import { executeNode, type ExecDeps } from "./executor";
+import type { HealthProbes } from "./health";
 import { deferIntoWindow } from "./waitrule";
 import { emitEvent, startRun, type EventRow } from "./dispatch";
 
@@ -39,7 +40,7 @@ async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ct
 }
 
 /** `onlyCompanyId` limits the claim to one company (tests share a database; an operator may want one company run now). */
-export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompanyId?: string): Promise<TickReport> {
+export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompanyId?: string, probes?: HealthProbes): Promise<TickReport> {
   const report: TickReport = { claimed: 0, completed: 0, waiting: 0, exited: 0, failed: 0, paused: 0, recovery: false, staleExits: 0, sends: 0 };
   const claimedBy = `tick-${now.toMillis()}`;
 
@@ -78,7 +79,7 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
         }
 
         const ctx = await buildContext(c, run, company, bindings);
-        const deps: ExecDeps = { c, adapters, company, adapterCompany, bindings, run, ctx, edgesFrom, now };
+        const deps: ExecDeps = { c, adapters, company, adapterCompany, bindings, run, ctx, edgesFrom, now, probes };
         let nodeId: string | null = run.current_node ?? def.nodes.find((n) => n.type === "trigger")!.id;
 
         for (let i = 0; i < MAX_STEPS && nodeId; i++) {

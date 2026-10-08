@@ -4,8 +4,9 @@ import { decrypt } from "./crypto";
 import type { BookingConfig, Company } from "@/adapters/types";
 import { transcriptText, type RecordingRow } from "./recordings";
 import { latestAgreement, facts as agreementFacts, type AgreementRow } from "./agreements";
+import { eodFacts } from "./eod";
 
-export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date };
+export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string | null; user_id?: string | null; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date };
 export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; status: string; sms_enabled: boolean; mode: "shadow" | "live"; contract_value_default: string | null };
 
 export async function loadCompany(c: PoolClient, companyId: string): Promise<{ row: CompanyRow; adapterCompany: Company; bindings: Record<string, string> }> {
@@ -106,6 +107,15 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       source: typeof fields.lead_source === "string" && fields.lead_source ? fields.lead_source : undefined };
     ctx.agreement = agr ? agreementFacts(agr) : {};
     ctx.records = Object.fromEntries(recs.map((r) => [r.object_key.replace(/^custom_objects\./, ""), { key: r.record_key, id: r.ghl_record_id ?? "" }]));
+  }
+  // a run about a person on the team (a closer's end-of-day, a report filed): who they are, their standing link, and their end-of-day facts
+  if (run.user_id) {
+    const u = await one<{ id: string; name: string; email: string; role: string; ghl_user_id: string | null; slack_user_id: string | null; report_token: string | null }>(c, "select id, name, email, role, ghl_user_id, slack_user_id, report_token from users where id=$1 and company_id=$2", [run.user_id, company.id]);
+    if (u) {
+      const base = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
+      ctx.user = { id: u.id, name: u.name, first_name: u.name.split(" ")[0], email: u.email, role: u.role, ghl_user_id: u.ghl_user_id, slack_user_id: u.slack_user_id, mention: u.slack_user_id ? `<@${u.slack_user_id}>` : u.name,
+        report_url: u.report_token ? `${base}/eod/${u.report_token}` : undefined, eod: await eodFacts(c, company, u.id, base) };
+    }
   }
   for (const [k, v] of Object.entries(bindings)) {
     if (k.startsWith("secret.")) continue;

@@ -1,3 +1,4 @@
+import { scheduleWords } from "./when";
 import type { Definition, Edge, Node, Predicate, WaitRule } from "./definition";
 
 /**
@@ -17,6 +18,8 @@ export function kindOf(n: Node): NodeKind {
     case "wait": case "wait_for_reply": return "wait";
     case "classify": case "analyze": return "ai";
     case "set_var": case "start_workflow": case "pause_runs": return "control";
+    case "webhook": return "message";
+    case "health_check": case "availability_check": case "report": return "control";
     case "exit": return "exit";
   }
 }
@@ -24,7 +27,7 @@ export function kindOf(n: Node): NodeKind {
 export const KIND_LABEL: Record<NodeKind, string> = { trigger: "Starts when", message: "Message out", crm: "CRM change", decision: "Decision", wait: "Wait", ai: "AI reads", control: "Flow control", exit: "Stops" };
 
 export const EVENT_LABELS: Record<string, string> = {
-  "lead.created": "New lead created", "contact.created": "New contact created",
+  "lead.created": "New lead created", "contact.created": "New contact created", "schedule": "On a schedule", "eod.filed": "End-of-day report filed",
   "appointment.booked": "Appointment booked", "appointment.rescheduled": "Appointment rescheduled", "appointment.status_changed": "Appointment status changed", "appointment.outcome": "Call outcome recorded",
   "call.held": "Call held", "message.received": "Reply received", "tag.added": "Tag added", "tag.removed": "Tag removed",
   "payment.received": "Payment received", "payment.failed": "Payment failed", "payment.paid_in_full": "Paid in full",
@@ -44,12 +47,14 @@ const PATHS: Record<string, string> = {
   "contact.paid": "they have paid", "contact.agreement_signed": "they have signed the agreement", "contact.agreement_sent": "an agreement was sent", "contact.owner.name": "the contact's owner", "contact.owner.ghl_user_id": "the contact's owner", "contact.payments_count": "number of payments", "contact.cash_collected": "cash collected", "event.prior_total": "what they had paid before this", "agreement.signed_at": "when they signed", "agreement.name": "the agreement", "records.sales_call.key": "their Sales Call record", "crm.agreement_template": "the agreement template", "crm.agreement_sender": "who the agreement is from",
   "vars.min_seconds": "minimum call length (seconds)", "vars.classify.call_type": "the call type", "vars.notes.digest": "the AI digest", "vars.notes.fit_quality": "fit score", "vars.booked_flag": "led-to-booking flag", "vars.outcome_line": "outcome line",
   "contact.closer.name": "the closer", "contact.closer.mention": "the closer (@mentioned)", "contact.closer.first_name": "the closer's first name", "contact.setter.name": "the setter", "contact.setter.mention": "the setter (@mentioned)", "contact.first_booked_at": "their first booking", "contact.days_to_close": "days from first booking to first payment", "contact.revenue": "the deal value", "contact.source": "lead source", "vars.cheer": "the AI's congratulations", "vars.notes.disposition": "the call's outcome", "vars.notes.pain": "their pains", "vars.notes.desire": "their goals", "vars.notes.objections": "their objections", "vars.notes.next_step": "the next step", "vars.rubric.overall_score": "the call score",
+  "user.name": "the closer", "user.first_name": "the closer's first name", "user.mention": "the closer (@mention)", "user.slack_user_id": "the closer's Slack DM", "user.report_url": "their end-of-day link", "user.eod.all_lines": "their unfiled days, one line each with a link", "user.eod.earlier_lines": "earlier unfiled days with links", "user.eod.today.line": "today's link and call count", "user.eod.today.calls": "calls on their calendar today", "user.eod.today.filed": "today is filed", "user.eod.earlier_count": "earlier days still unfiled", "vars.lines": "the lines to send", "vars.report.body": "the wrap-up text", "vars.kind": "which wrap-up",
+  "event.totals_line": "the day in one line", "event.corrections": "what was corrected", "event.corrected": "anything corrected", "event.corrections_count": "corrections", "event.day_label": "the day", "event.day_answers_lines": "their answers to the day questions", "event.calls": "each call", "event.user_id": "who filed", "event.refiled": "filed again",
   "appointment.id": "an appointment", "appointment.external_id": "appointment id", "appointment.outcome": "appointment outcome", "event.appointment_matched": "a matching appointment",
 };
 const VALUES: Record<string, string> = { noshow: "no-show", reschedule_request: "a reschedule request", follow_up: "follow up", first_call: "first call", closing: "closing call", setting: "a setting call", confirmation: "a confirmation call", phone: "a phone call", meeting: "a meeting" };
 
 export const humanWords = (s: string) => s.replace(/^crm\./, "").replace(/[_.-]+/g, " ").replace(/\s+/g, " ").trim();
-const value = (v: unknown) => typeof v === "string" ? (/^\{\{/.test(v) ? `the ${pathWords(v)}` : VALUES[v] ?? `“${humanWords(v)}”`) : JSON.stringify(v);   // a {{path}} on the right is a thing, not a literal
+const value = (v: unknown) => typeof v === "string" ? (v === "" ? "blank" : /^\{\{/.test(v) ? `the ${pathWords(v)}` : VALUES[v] ?? `“${humanWords(v)}”`) : JSON.stringify(v);   // a {{path}} on the right is a thing, not a literal
 /** `{{a.b}}` or a bare path → the words a person uses for it. */
 export function pathWords(p: unknown): string {
   if (typeof p !== "string") return String(p);
@@ -105,7 +110,11 @@ export type NodeText = { title: string; detail?: string; quote?: string };
 /** One line a person understands, plus optional detail and a quoted message. */
 export function describeNode(n: Node): NodeText {
   switch (n.type) {
-    case "trigger": return { title: `${EVENT_LABELS[n.event] ?? humanWords(n.event)}${n.match ? ` — ${predicateWords(n.match)}` : ""}` };
+    case "trigger": return n.schedule ? { title: `On a schedule: ${scheduleWords(n.schedule)}` } : { title: `${EVENT_LABELS[n.event] ?? humanWords(n.event)}${n.match ? ` — ${predicateWords(n.match)}` : ""}` };
+    case "webhook": return { title: `Call ${n.method} ${n.url.replace(/^https?:\/\//, "").split("?")[0]}`, detail: `${n.body !== undefined ? "Sends a JSON body" : "No body"}${n.into ? `; the reply lands in ${n.into}` : ""}${n.on_error === "skip" ? "; a failure is noted and the run goes on" : "; a failure fails the run (and alerts)"}` };
+    case "health_check": { const off = Object.entries(n.checks).filter(([, v]) => v === false).map(([k]) => k); return { title: "Run the health checks", detail: `${off.length ? `Every check except ${off.join(", ")}` : "Every check"}; failures become alerts${n.channel ? ` in ${pathWords(n.channel)}` : ""}` }; }
+    case "availability_check": return { title: `Check bookable slots: fewer than ${n.min_slots} in the next ${n.days} day${n.days === 1 ? "" : "s"} is an alert`, detail: "Every active calendar; in a run about a booking, that booking's calendar" };
+    case "report": return { title: `Build the ${/^\{\{/.test(n.kind) ? pathWords(n.kind.replace(/^\{\{\s*|\s*\}\}$/g, "")) : n.kind} wrap-up`, detail: `${n.breakdowns.length ? `Broken down by ${n.breakdowns.join(", ")}; ` : ""}into ${n.into}: body, period, numbers` };
     case "check": return { title: `Check if ${predicateWords(n.when)}`, detail: `If not → ${exitWords(n.else_exit).toLowerCase()}` };
     case "branch": return { title: "Which way?" };
     case "wait": return { title: waitWords(n.rule), detail: `${n.rule.tz === "contact" ? "Contact's" : "Company's"} time zone${guardWords(n.rule)}` };

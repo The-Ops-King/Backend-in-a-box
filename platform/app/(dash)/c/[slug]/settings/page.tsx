@@ -1,14 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadSettings } from "@/ui/settings-data";
-import { ensureSchedules } from "@/engine/reports";
 import { SaveButton } from "@/ui/SaveButton";
-import { asOperator } from "@/db/client";
 import { ReadinessCard } from "@/ui/Readiness";
 import { groupOf, type SettingRow } from "@/engine/settings";
-import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, saveSlackAction, saveCallTypesAction, describeConfigAction, applyProposalAction, discardProposalAction, saveReportScheduleAction, runReportNowAction, saveHealthAction, runHealthNowAction, saveTeamAction, saveEodFormAction } from "@/ui/settings-actions";
+import { saveCompanyAction, saveBindingsAction, testGhlAction, setBookingSourceAction, saveCalendarAction, saveSlackAction, saveCallTypesAction, describeConfigAction, applyProposalAction, discardProposalAction, saveTeamAction, saveEodFormAction } from "@/ui/settings-actions";
 import { OUTCOMES, outcomeLabel } from "@/engine/eod-form";
-import { CHECKS, ensureHealth } from "@/engine/health";
 import type { Operation } from "@/engine/describe-config";
 export const dynamic = "force-dynamic";
 
@@ -53,8 +50,6 @@ const Hidden = ({ slug, id, section }: { slug: string; id: string; section: stri
 
 export default async function SettingsPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ note?: string; error?: string }> }) {
   const { slug } = await params; const sp = await searchParams; const d = await loadSettings(slug); if (!d) notFound();
-  const schedules = await asOperator((c) => ensureSchedules(c, d.company.id));
-  const health = await asOperator((c) => ensureHealth(c, d.company.id));
   const { company: co, rows, byKey, catalog } = d;
   const row = (k: string) => byKey.get(k) ?? { key: k, kind: k.startsWith("secret.") ? "secret" : "id", required: false, usedBy: [], value: null, masked: null, set: false } as SettingRow;
   const group = (g: ReturnType<typeof groupOf>) => rows.filter((r) => groupOf(r.key) === g);
@@ -76,7 +71,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     {sp.note ? <div className="card ready" style={{ marginBottom: 10 }}><strong>{sp.note}</strong></div> : null}
     {sp.error ? <div className="card ready ready-no" style={{ marginBottom: 10 }}><strong>Not saved.</strong> {sp.error}</div> : null}
     <ReadinessCard r={d.readiness} />
-    <nav className="sub" style={{ margin: "10px 0 18px" }}>{["describe", "company", "connections", "booking", "calltypes", "calendars", "crm", "slack", "alerts", "health", "prompts", "reports", "inbound"].map((s) => <a key={s} href={`#${s}`} style={{ marginRight: 14 }}>{s[0].toUpperCase() + s.slice(1)}</a>)}</nav>
+    <nav className="sub" style={{ margin: "10px 0 18px" }}>{["describe", "company", "team", "eodform", "connections", "booking", "calltypes", "calendars", "crm", "slack", "alerts", "prompts", "clock", "inbound"].map((s) => <a key={s} href={`#${s}`} style={{ marginRight: 14 }}>{s[0].toUpperCase() + s.slice(1)}</a>)}</nav>
 
     <h2 id="describe">Tell it how things work</h2>
     <form action={describeConfigAction} className="form card settings"><Hidden slug={slug} id={co.id} section="describe" />
@@ -104,8 +99,6 @@ export default async function SettingsPage({ params, searchParams }: { params: P
         <label>Send window closes<input name="send_window_end" type="time" defaultValue={co.send_window_end.slice(0, 5)} /></label>
         <label>Program price (contract value default)<input name="contract_value_default" type="number" step="0.01" defaultValue={co.contract_value_default ?? ""} /></label>
         <label>A lead counts as reached when a connected call lasts at least (seconds)<input name="reached_seconds" type="number" min={1} defaultValue={co.reached_seconds ?? 60} /></label>
-        <label>Closers' end-of-day report DM goes out at ({co.timezone})<input name="eod_at" type="time" defaultValue={(co.eod_at ?? "18:00").slice(0, 5)} /></label>
-        <div><label><input type="checkbox" name="eod_enabled" defaultChecked={co.eod_enabled ?? true} /> End-of-day reports: DM each closer on days they had calls, with their prefilled report link. <Link href={`/c/${slug}/eod`}>Filed reports</Link></label></div>
         <div><label><input type="checkbox" name="sms_enabled" defaultChecked={co.sms_enabled} /> SMS enabled (off when the sub-account has no number)</label>
           <label><input type="checkbox" name="quiet_allow_transactional" defaultChecked={co.quiet_allow_transactional} /> Let automated receipts ("you're booked") go out in dark hours. Human-sounding messages always wait.</label></div>
       </div>
@@ -261,23 +254,6 @@ export default async function SettingsPage({ params, searchParams }: { params: P
       <SaveButton>Save alerts</SaveButton>
     </form>
 
-    <h2 id="health">Health check</h2>
-    <p className="sub">Its own automation: a read-only sweep of every connection on a schedule. Silent while everything works; a failed check is an alert like any other (same thread, same ✅ when it clears). <Link href={`/c/${slug}/health`}>Last sweep, check by check</Link>.</p>
-    <form action={saveHealthAction} className="form card settings"><Hidden slug={slug} id={co.id} section="health" />
-      <div className="row-wrap"><label><input type="checkbox" name="enabled" defaultChecked={health.enabled} /> enabled</label>{health.last_run_at ? <span className="muted" style={{ fontSize: 12 }}>last sweep {health.last_run_at.toISOString()}</span> : null}</div>
-      <div className="grid g2" style={{ marginTop: 8 }}>
-        <label>Every (minutes)<input type="number" name="every_minutes" min={5} max={1440} defaultValue={health.every_minutes} /></label>
-        <label>Slack channel{d.slackChannels ? <select name="channel" defaultValue={health.channel ?? ""}><option value="">— the alerts channel —</option>{d.slackChannels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}</select> : <input type="text" name="channel" defaultValue={health.channel ?? ""} placeholder="C0123ABCDEF (channel id)" />}</label>
-        <label>Posts as (name)<input type="text" name="as_name" defaultValue={health.as_name ?? ""} placeholder="blank = the alerts name" /></label>
-        <label>Icon<input type="text" name="as_icon" defaultValue={health.as_icon ?? ""} placeholder=":stethoscope:" /></label>
-        <label>Low availability: alert when a calendar has fewer than<input type="number" name="min_slots" min={0} defaultValue={health.min_slots} /></label>
-        <label>bookable slots in the next (days, up to 7)<input type="number" name="slots_days" min={1} max={7} defaultValue={health.slots_days} /></label>
-      </div>
-      <div className="muted" style={{ fontSize: 12.5, letterSpacing: ".04em", textTransform: "uppercase", margin: "12px 0 4px" }}>Checks</div>
-      <div className="checks">{CHECKS.map((ck) => <label key={ck.id}><input type="checkbox" name={`check:${ck.id}`} defaultChecked={health.checks[ck.id] !== false} /> <strong>{ck.label}</strong> <span className="muted">· {ck.about}</span></label>)}</div>
-      <div style={{ display: "flex", gap: 8, marginTop: 10 }}><SaveButton>Save health check</SaveButton><button className="btn" type="submit" formAction={runHealthNowAction}>Sweep now</button></div>
-    </form>
-
     <h2 id="prompts">Prompts</h2>
     <form action={saveBindingsAction} className="form card settings"><Hidden slug={slug} id={co.id} section="prompts" />
       <p className="sub">What the AI is told before it reads a transcript. Each ends with the JSON shape the workflow expects; keep that part.</p>
@@ -285,19 +261,9 @@ export default async function SettingsPage({ params, searchParams }: { params: P
       {group("prompts").length ? <SaveButton>Save prompts</SaveButton> : <div className="muted">No installed workflow uses a prompt.</div>}
     </form>
 
-    <h2 id="reports">Wrap-ups</h2>
-    <p className="sub">What happened today, last week, last month — computed from the engine's own ledger (D29) and posted to Slack on this company's clock. Nothing here is fixed in code: time, day, channel, breakdowns. <Link href={`/c/${slug}/reports`}>Read past wrap-ups</Link>.</p>
-    {schedules.map((r) => <form key={r.kind} action={saveReportScheduleAction} className="form card settings"><Hidden slug={slug} id={co.id} section="reports" /><input type="hidden" name="kind" value={r.kind} />
-      <div style={{ display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}><strong style={{ textTransform: "capitalize" }}>{r.kind}</strong><label><input type="checkbox" name="enabled" defaultChecked={r.enabled} /> enabled</label>{r.last_period_start ? <span className="muted" style={{ fontSize: 12 }}>last sent for {r.last_period_start}</span> : <span className="muted" style={{ fontSize: 12 }}>never sent</span>}</div>
-      <div className="grid g2" style={{ marginTop: 8 }}>
-        <label>Send at ({co.timezone})<input type="time" name="at_time" defaultValue={r.at_time} /></label>
-        {r.kind === "weekly" ? <label>On<select name="weekday" defaultValue={r.weekday}>{["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((dn, i) => <option key={dn} value={i + 1}>{dn}</option>)}</select></label> : null}
-        {r.kind === "monthly" ? <label>On day<input type="number" name="day_of_month" min={1} max={28} defaultValue={r.day_of_month} /></label> : null}
-        <label>Slack channel{d.slackChannels ? <select name="channel" defaultValue={r.channel ?? ""}><option value="">— the reports channel binding —</option>{d.slackChannels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}</select> : <input type="text" name="channel" defaultValue={r.channel ?? ""} placeholder="C0123ABCDEF, or leave blank for slack.channel.reports" />}</label>
-        <div><label><input type="checkbox" name="breakdown:setter" defaultChecked={r.breakdowns.includes("setter")} /> per setter</label> <label><input type="checkbox" name="breakdown:closer" defaultChecked={r.breakdowns.includes("closer")} /> per closer</label> <label><input type="checkbox" name="section:what_they_said" defaultChecked={r.sections.what_they_said !== false} /> what they said (booking-form answers)</label></div>
-      </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}><SaveButton>Save</SaveButton><button className="btn" type="submit" formAction={runReportNowAction}>Generate now</button></div>
-    </form>)}
+    <h2 id="clock">On a schedule</h2>
+    <p className="sub">The health sweep, the calendar availability watch, the closers' end-of-day reminders and the wrap-ups are workflows with a schedule trigger. Their time, channel, checks and copy are edited there like any other step; turn them on and off on their pages.</p>
+    <div className="card settings">{d.scheduled.length ? <ul className="plain">{d.scheduled.map((w) => <li key={w.id}><Link href={`/c/${slug}/w/${w.id}`}><strong>{w.name}</strong></Link> <span className="muted">· {w.when}</span> {w.enabled ? <span className="badge b-live">on</span> : <span className="badge b-type">off</span>}</li>)}</ul> : <span className="muted">No scheduled workflows installed.</span>}</div>
 
     <h2 id="inbound">Inbound doors</h2>
     <div className="card settings">
