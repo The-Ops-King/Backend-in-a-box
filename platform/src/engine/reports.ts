@@ -23,11 +23,9 @@ export function periodFor(kind: ReportKind, now: DateTime<boolean>, toDate = fal
 }
 
 // ---- rendering ---------------------------------------------------------------------------------------------------------
-const W = 34;
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 const pct = (n: number, of: number) => (of > 0 ? `${Math.round((n / of) * 100)}%` : "—");
 const mins = (sec: number) => `${Math.round(sec / 60)} min`;
-const row = (label: string, value: string | number, note?: string) => `${label.padEnd(W)}${String(value).padStart(6)}${note ? `   ${note}` : ""}`;
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 function heading(kind: ReportKind, period: Period, tz: string, toDate: boolean): string {
@@ -59,54 +57,52 @@ export function renderReport(args: { kind: ReportKind; period: Period; tz: strin
   const v = (k: string) => t[k] ?? 0;
   const anything = ["leads_new", "dials", "booked", "scheduled", "payments", "deals_won"].some((k) => v(k) > 0) || args.said.length > 0;
   const head = `*${heading(kind, period, tz, toDate)}*`;
-  if (!anything) return `${head}\n\nNothing yet. No leads, no calls, no bookings, no money.`;
-  const L: string[] = [head, "```"];
-  L.push("NEW LEADS  — people who first appeared");
-  L.push(row("New leads", v("leads_new")));
-  L.push(row("  booked a call the same day", v("leads_booked_same_day"), `${pct(v("leads_booked_same_day"), v("leads_new"))} of them`));
-  L.push(row("  called", v("leads_called"), `${pct(v("leads_called"), v("leads_new"))} of them` + (v("leads_called") ? ` · avg ${mins(v("stl_sum") / v("leads_called"))} from arrival to first dial` : "")));
-  L.push(row("  reached", v("leads_reached"), `${pct(v("leads_reached"), v("leads_called"))} of those called`));
-  L.push("");
-  L.push("BOOKINGS MADE  — the act of booking happened in the period");
-  L.push(row("Calls booked", v("booked"), "any lead, new or old"));
-  L.push(row("  setter-booked", v("booked_set"), pct(v("booked_set"), v("booked"))));
-  L.push(row("  self-booked", v("booked_self"), pct(v("booked_self"), v("booked"))));
-  L.push("");
-  L.push("SETTER CALLS  — every dial the team made or took");
-  L.push(row("Dials", v("dials")));
-  L.push(row("  connected", v("connects"), `${pct(v("connects"), v("dials"))} connection rate` + (v("talk_sec") ? ` · ${mins(v("talk_sec"))} talking` : "")));
-  L.push(row("  led to a booking", v("calls_set"), `${pct(v("calls_set"), v("connects"))} of connects`));
-  if (v("calls_setting") || v("calls_confirmation")) L.push(row("  read by the AI", v("calls_setting") + v("calls_confirmation"), `${v("calls_setting")} setting · ${v("calls_confirmation")} confirmation`));
+  if (!anything) return `${head}\nNothing yet. No leads, no calls, no bookings, no money.`;
+  // Slack on a phone: a bold title per section, the headline number on its own line, the rest as bullets with the rate after a dot. No code block: it does not wrap.
+  const L: string[] = [head];
+  const section = (title: string, about: string) => { L.push("", `*${title}*  _${about}_`); };
+  const main = (label: string, value: string | number, note?: string) => L.push(`*${label}: ${value}*${note ? `  ·  ${note}` : ""}`);
+  const sub = (label: string, value: string | number, note?: string) => L.push(`    • ${label}: ${value}${note ? `  ·  ${note}` : ""}`);
+  section("New leads", "people who first appeared");
+  main("New leads", v("leads_new"));
+  sub("booked a call the same day", v("leads_booked_same_day"), `${pct(v("leads_booked_same_day"), v("leads_new"))} of them`);
+  sub("called", v("leads_called"), `${pct(v("leads_called"), v("leads_new"))} of them` + (v("leads_called") ? ` · avg ${mins(v("stl_sum") / v("leads_called"))} from arrival to first dial` : ""));
+  sub("reached", v("leads_reached"), `${pct(v("leads_reached"), v("leads_called"))} of those called`);
+  section("Bookings made", "the booking happened in the period");
+  main("Calls booked", v("booked"), "any lead, new or old");
+  sub("setter-booked", v("booked_set"), pct(v("booked_set"), v("booked")));
+  sub("self-booked", v("booked_self"), pct(v("booked_self"), v("booked")));
+  section("Setter calls", "every dial the team made or took");
+  main("Dials", v("dials"));
+  sub("connected", v("connects"), `${pct(v("connects"), v("dials"))} connection rate` + (v("talk_sec") ? ` · ${mins(v("talk_sec"))} talking` : ""));
+  sub("led to a booking", v("calls_set"), `${pct(v("calls_set"), v("connects"))} of connects`);
+  if (v("calls_setting") || v("calls_confirmation")) sub("read by the AI", v("calls_setting") + v("calls_confirmation"), `${v("calls_setting")} setting · ${v("calls_confirmation")} confirmation`);
   if (args.breakdowns.includes("setter")) for (const s of args.setters.filter((x) => (x.values.dials ?? 0) > 0)) {
-    const d = s.values; L.push(row(`  ${s.name}`, d.dials ?? 0, `${d.connects ?? 0} connected (${pct(d.connects ?? 0, d.dials ?? 0)}) · ${mins(d.talk_sec ?? 0)} · ${d.calls_set ?? 0} set`));
+    const d = s.values; sub(s.name, `${d.dials ?? 0} dials`, `${d.connects ?? 0} connected (${pct(d.connects ?? 0, d.dials ?? 0)}) · ${mins(d.talk_sec ?? 0)} · ${d.calls_set ?? 0} set`);
   }
-  L.push("");
-  L.push("CALLS ON THE CALENDAR  — booked earlier, due in the period");
-  L.push(row("Scheduled", v("scheduled")));
-  L.push(row("  showed", v("showed"), `${pct(v("showed"), v("scheduled"))} show rate`));
-  L.push(row("  no-show", v("noshow"), pct(v("noshow"), v("scheduled"))));
-  L.push(row("  cancelled", v("cancelled"), pct(v("cancelled"), v("scheduled"))));
+  section("Calls on the calendar", "booked earlier, due in the period");
+  main("Scheduled", v("scheduled"));
+  sub("showed", v("showed"), `${pct(v("showed"), v("scheduled"))} show rate`);
+  sub("no-show", v("noshow"), pct(v("noshow"), v("scheduled")));
+  sub("cancelled", v("cancelled"), pct(v("cancelled"), v("scheduled")));
   const unmarked = v("scheduled") - v("showed") - v("noshow") - v("cancelled");
-  if (unmarked > 0) L.push(row("  not yet marked", unmarked, "outcome missing"));
+  if (unmarked > 0) sub("not yet marked", unmarked, "outcome missing");
   if (args.breakdowns.includes("closer")) for (const cl of args.closers.filter((x) => (x.values.scheduled ?? 0) + (x.values.deals_won ?? 0) > 0)) {
-    const d = cl.values; L.push(row(`  ${cl.name}`, d.scheduled ?? 0, `${d.showed ?? 0} showed (${pct(d.showed ?? 0, d.scheduled ?? 0)}) · ${d.deals_won ?? 0} won · ${money(d.revenue ?? 0)}`));
+    const d = cl.values; sub(cl.name, `${d.scheduled ?? 0} scheduled`, `${d.showed ?? 0} showed (${pct(d.showed ?? 0, d.scheduled ?? 0)}) · ${d.deals_won ?? 0} won · ${money(d.revenue ?? 0)}`);
   }
-  L.push("");
   if (args.said.length) {
-    L.push("WHAT THEY SAID  — booking-form answers from the period's bookings");
+    section("What they said", "booking-form answers from the period's bookings");
     for (const q of args.said.slice(0, 10)) {
-      L.push(`${q.label}  (${q.answered} answered)`);
-      for (const [a, n] of q.top) L.push(`  ${String(n).padStart(3)}  ${pct(n, q.answered).padStart(4)}  ${a.length > 62 ? `${a.slice(0, 59)}…` : a}`);
-      if (q.rest) L.push(`  ${String(q.rest).padStart(3)}        spread across ${plural(q.restKinds, "other answer")}`);
-      L.push("");
+      L.push(`*${q.label}*  (${q.answered} answered)`);
+      for (const [a, n] of q.top) L.push(`    • ${a.length > 62 ? `${a.slice(0, 59)}…` : a}: ${n}  ·  ${pct(n, q.answered)}`);
+      if (q.rest) L.push(`    • ${q.rest} spread across ${plural(q.restKinds, "other answer")}`);
     }
   }
-  L.push("MONEY");
-  L.push(row("Cash collected", money(v("cash")), plural(v("payments"), "payment")));
-  if (v("refunds")) L.push(row("  refunded", money(v("refunded")), plural(v("refunds"), "refund")));
-  L.push(row("Revenue contracted", money(v("revenue")), `${plural(v("deals_won"), "deal")} won`));
-  if (v("revenue") > v("cash") && v("deals_won")) L.push(row("  outstanding", money(v("revenue") - v("cash")), "contracted, not yet collected"));
-  L.push("```");
+  section("Money", "collected and contracted");
+  main("Cash collected", money(v("cash")), plural(v("payments"), "payment"));
+  if (v("refunds")) sub("refunded", money(v("refunded")), plural(v("refunds"), "refund"));
+  main("Revenue contracted", money(v("revenue")), `${plural(v("deals_won"), "deal")} won`);
+  if (v("revenue") > v("cash") && v("deals_won")) sub("outstanding", money(v("revenue") - v("cash")), "contracted, not yet collected");
   return L.join("\n");
 }
 

@@ -20,6 +20,7 @@ export function kindOf(n: Node): NodeKind {
     case "set_var": case "start_workflow": case "pause_runs": return "control";
     case "webhook": return "message";
     case "health_check": case "availability_check": case "report": return "control";
+    case "assume_no_show": return "crm";
     case "exit": return "exit";
   }
 }
@@ -116,6 +117,7 @@ export function describeNode(n: Node): NodeText {
     case "webhook": return { title: `Call ${n.method} ${n.url.replace(/^https?:\/\//, "").split("?")[0]}`, detail: `${n.body !== undefined ? "Sends a JSON body" : "No body"}${n.into ? `; the reply lands in ${n.into}` : ""}${n.on_error === "skip" ? "; a failure is noted and the run goes on" : "; a failure fails the run (and alerts)"}` };
     case "health_check": { const off = Object.entries(n.checks).filter(([, v]) => v === false).map(([k]) => k); return { title: "Run the health checks", detail: `${off.length ? `Every check except ${off.join(", ")}` : "Every check"}; failures become alerts${n.channel ? ` in ${pathWords(n.channel)}` : ""}` }; }
     case "availability_check": return { title: `Check bookable slots: fewer than ${n.min_slots} in the next ${n.days} day${n.days === 1 ? "" : "s"} is an alert`, detail: "Every active calendar; in a run about a booking, that booking's calendar" };
+    case "assume_no_show": return { title: `Calls that ended with no recording are no-shows`, detail: `${durationWords(n.grace)} after the scheduled end; ${n.types.map(humanWords).join(", ")} calls; a closer's own answer on the end-of-day form overrides it` };
     case "report": return { title: `Build the ${/^\{\{/.test(n.kind) ? pathWords(n.kind.replace(/^\{\{\s*|\s*\}\}$/g, "")) : n.kind} wrap-up`, detail: `${n.breakdowns.length ? `Broken down by ${n.breakdowns.join(", ")}; ` : ""}into ${n.into}: body, period, numbers` };
     case "check": return { title: `Check if ${predicateWords(n.when)}`, detail: `If not → ${exitWords(n.else_exit).toLowerCase()}` };
     case "branch": return { title: "Which way?" };

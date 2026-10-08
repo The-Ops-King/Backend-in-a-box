@@ -435,6 +435,22 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const low = r.findings.filter((f) => !f.ok);
       return { status: "ok", next, result: { calendars: r.findings.length, low: low.length, raised: r.raised, resolved: r.resolved, ...(cal ? { only: cal.external_id } : {}), ...(low.length ? { problems: low.map((f) => f.text) } : {}) } };
     }
+    case "assume_no_show": {
+      // every appointment of those types that ended before now - grace, today in the company's zone, with no outcome and no recording linked
+      const local = d.now.setZone(d.company.timezone), from = local.startOf("day").toJSDate(), cutoff = d.now.minus(parseDuration(node.grace)).toJSDate();
+      const due = await many<{ id: string; contact: string; starts_at: Date }>(d.c, `
+        select a.id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, a.starts_at from appointments a join contacts ct on ct.id=a.contact_id join company_terms t on t.id=a.appointment_term
+        where a.company_id=$1 and a.starts_at >= $2 and a.ends_at <= $3 and a.status not in ('cancelled','invalid') and a.outcome_term is null and t.category = any($4)
+          and not exists (select 1 from recordings r where r.appointment_id=a.id) order by a.starts_at`, [d.company.id, from, cutoff, node.types]);
+      const noshow = await outcomeTermFor(d.c, d.company.id, "noshow");
+      if (!noshow) return { status: "skipped", next, result: { kind: "blocked", why: "no no-show outcome term for this company" } };
+      const marked: string[] = [];
+      for (const a of due) {
+        if (shadow(d)) { marked.push(a.contact); continue; }
+        try { await applyOutcome(d.c, { companyId: d.company.id, appointmentId: a.id, outcomeTermId: noshow, source: "engine", runId: d.run.id, by: "no recording by end of day" }); marked.push(a.contact); } catch { /* an appointment that vanished */ }
+      }
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true, would_mark: marked } : { marked }), checked: due.length, ...(marked.length === 0 ? { kind: "noop" } : {}) } };
+    }
     case "report": {
       const kind = render(node.kind, d.ctx, env(d)) as ReportKind;
       if (!REPORT_KINDS.includes(kind)) return { status: "failed", error: `report kind must be one of ${REPORT_KINDS.join(", ")}, got "${kind}"` };

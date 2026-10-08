@@ -96,7 +96,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
     // (ticks below are scoped to this company: the test database is shared with the other suites)
     // the test database is shared with the other suites; park their leftover runs so this file's ticks only ever send for this company
-    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(23);
+    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(24);
   });
 
   it("speed-to-lead: email + SMS now; a reply → tag engaged; silence → second email", async () => {

@@ -1,0 +1,50 @@
+{
+  "slug": "no-recording-no-show",
+  "name": "No recording, no show",
+  "category": "no_show",
+  "stage": "post_call",
+  "sort": 5,
+  "origin": "spec",
+  "description": "At the end of the day, every call that ended with no recording and no outcome is marked a no-show (the no-show recovery starts from there). For companies where every held call is recorded; turn it off for one that isn't. A closer's own answer on the end-of-day form overrides it.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "none"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "schedule",
+        "schedule": {
+          "at": "18:00",
+          "for": "company"
+        }
+      },
+      {
+        "id": "n1",
+        "type": "assume_no_show",
+        "grace": "30m",
+        "types": [
+          "closing"
+        ]
+      },
+      {
+        "id": "x_done",
+        "type": "exit",
+        "reason": "done"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "x_done"
+      }
+    ]
+  }
+}

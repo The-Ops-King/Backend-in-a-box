@@ -43,7 +43,7 @@ describe("report periods and due-ness (pure)", () => {
       totals: { leads_new: 4, leads_booked_same_day: 1, leads_called: 2, leads_reached: 1, dials: 10, connects: 4, talk_sec: 600, calls_set: 2, booked: 3, booked_set: 2, booked_self: 1, scheduled: 0, showed: 0, noshow: 0, cancelled: 0, payments: 1, cash: 1000, deals_won: 1, revenue: 3000, stl_n: 2, stl_sum: 1200 },
       setters: [{ id: "u1", name: "Lu Setter", values: { dials: 10, connects: 4, talk_sec: 600, calls_set: 2 } }], closers: [] });
     expect(text).toContain("40% connection rate"); expect(text).toContain("50% of connects"); expect(text).toContain("25% of them");
-    expect(text).toMatch(/showed\s+0\s+— show rate/); expect(text).toContain("Lu Setter"); expect(text).toContain("avg 10 min from arrival to first dial"); expect(text).toMatch(/reached\s+1\s+50% of those called/); expect(text).toContain("outstanding");
+    expect(text).toMatch(/showed: 0  ·  — show rate/); expect(text).toContain("Lu Setter"); expect(text).toContain("avg 10 min from arrival to first dial"); expect(text).toMatch(/reached: 1  ·  50% of those called/); expect(text).toContain("outstanding");
     expect(renderReport({ kind: "weekly", period: { start: "2026-09-28", end: "2026-10-04" }, tz: "UTC", toDate: false, breakdowns: [], said: [], totals: {}, setters: [], closers: [] })).toContain("Nothing yet");
   });
 });

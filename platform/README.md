@@ -29,6 +29,7 @@ Every template carries a `stage` on the customer's journey (`src/engine/stages.t
 
 | Template | Starts on | Does |
 |---|---|---|
+| no-recording-no-show | schedule, 18:00 company time | every closing call that ended today with no recording and no outcome is marked no-show (`assume_no_show` step: grace after the scheduled end, call types), which starts no-show recovery. Hair's truth: a held call is a Fathom recording. Turn it off for a company whose calls are not recorded. A closer's own answer on the end-of-day form overrides it; the morning reminder keeps asking for unfiled days until they are filed. |
 | pre-call-sequence | appointment booked (closing calls) | everything the prospect hears before the call (D36): the booking email and text (reply with an emoji to lock in; no reply in 4h → tagged `unconfirmed`, the closers' channel told; a cancel, a reschedule or an unclear reply handled as before), then texts 3 days, 2 days and 24 hours out (with an email), the morning of for calls at 11am or later, 1 hour and 10 minutes before. Each reminder lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always) and is skipped when the call is already closer than it (`validity.min_lead`). Copy is placeholders until Tyler pastes the real texts. |
 | speed-to-lead | lead created | email + SMS now, 2h for a reply, one more email if silent |
 | no-show-recovery | GHL marks no-show, or the disposition form does | 10 min, SMS + email with the rebook link, 24h for a reply, one more email |

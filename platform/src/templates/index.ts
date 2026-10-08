@@ -21,4 +21,5 @@ import eodFiled from "./eod-filed.json";
 import healthCheck from "./health-check.json";
 import calendarAvailability from "./calendar-availability.json";
 import wrapUps from "./wrap-ups.json";
-export const templates = [preCall, speedToLead, noShow, cancellation, postCall, paymentReceived, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, healthCheck, calendarAvailability, wrapUps] as const;
+import noRecordingNoShow from "./no-recording-no-show.json";
+export const templates = [preCall, speedToLead, noShow, cancellation, postCall, paymentReceived, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, healthCheck, calendarAvailability, wrapUps, noRecordingNoShow] as const;

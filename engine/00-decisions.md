@@ -1045,3 +1045,11 @@ The timing is a rule, not an AI: a wait rule's `earliest`/`latest` move a comput
 (four hours before a 7am call is 8am), and each send's `validity.min_lead` skips it when the call is already closer
 than it (a 24-hour text for a call eight hours away never goes). Tyler did not want a "collapse window"; there is none:
 the plan page shows every planned time, and two reminders landing close together is visible, not hidden.
+
+Addendum, no-show half (2026-10-08). Tyler: "at the end of the day if they don't have a Fathom call we assume they didn't
+show (configurable in case they don't use Fathom); calls we don't know what happened, we continue to request an update
+until they've been filled." So `no-recording-no-show`: a schedule at 18:00, an `assume_no_show` step (grace after the
+scheduled end, which call types), marking every call that ended with no recording and no outcome as a no-show through
+the same disposition path the form uses; the company turns the workflow off when its calls are not recorded. No
+per-call ask-back DM: the end-of-day form is the ask, the morning reminder repeats it for unfiled days, and a closer's
+answer on the form overrides the assumption. The wrap-up is Slack text, not a code block: phones wrap it.

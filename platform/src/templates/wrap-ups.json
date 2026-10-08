@@ -74,7 +74,15 @@
         "id": "n_post",
         "type": "slack_post",
         "channel": "{{slack.channel.reports}}",
-        "template": "{{vars.report.body}}"
+        "template": "{{vars.report.body}}",
+        "as": {
+          "name": "Wrap-up",
+          "icon": [
+            ":bar_chart:",
+            ":chart_with_upwards_trend:",
+            ":clipboard:"
+          ]
+        }
       },
       {
         "id": "x_done",
