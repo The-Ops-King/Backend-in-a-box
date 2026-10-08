@@ -8,7 +8,7 @@ import { parseDefinition, extractManifest, indexDefinition } from "@/engine/defi
 import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
 import { tickAlerts, openAlerts, raise, resolve, announceDue } from "@/engine/alerts";
-import { sweepCompany, type HealthProbes, CHECKS } from "@/engine/health";
+import { sweepCompany, checkCalendarsAfterBookings, type HealthProbes, CHECKS } from "@/engine/health";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -36,7 +36,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='alrt'");
       if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
-        for (const t of ["alerts", "health_checks", "sends", "runs", "events", "contact_identifiers", "contacts", "workflow_triggers", "workflows", "slack_connections", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+        for (const t of ["alerts", "health_checks", "sends", "runs", "events", "appointments", "contact_identifiers", "contacts", "workflow_triggers", "workflows", "slack_connections", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       await c.query("delete from alerts where company_id is null");
       await c.query("insert into engine_state (key, value, updated_at) values ('alerts_cursor', $1, now()) on conflict (key) do update set value=$1", [{ since: new Date().toISOString() }]);   // other suites' failed runs are not this test's
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode) values ('Alert Co','alrt','America/New_York','live') returning id"))!.id;
@@ -129,6 +129,23 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(ann2, JSON.stringify({ ann2, posts })).toMatchObject({ resolved: 2, repeated: 1, posted: 1 });   // the low-availability warning is new
     expect(reactions).toHaveLength(2);
     expect((await asOperator((c) => one<{ last_result: unknown[] }>(c, "select last_result from health_checks where company_id=$1", [companyId])))!.last_result.length).toBeGreaterThan(5);
+    // the low-availability alert carries a link to the calendar
+    const lowPost = posts.find((p) => /has only 9 bookable slots/.test(p.text))!;
+    expect(lowPost.text).toMatch(/<https:\/\/api\.leadconnectorhq\.com\/widget\/booking\/CAL2\|Open the calendar>/);
+    // a booking lands on Closer B: the calendar is re-read that minute, not at the next hour; availability moved above the threshold → resolved now
+    slotsB = 20;
+    await asOperator(async (c) => {
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const appt = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term) select $1,$2,id,'A-B1',now() + interval '2 days',now() + interval '2 days 45 minutes',now(),'confirmed',$3 from calendars where company_id=$1 and external_id='CAL2' returning id", [companyId, contactId, term]))!.id;
+      await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: appt, event_type: "appointment.booked", source: "test", data: {} });
+    });
+    const b = await asOperator((c) => checkCalendarsAfterBookings(c, fake, probes));
+    expect(b.checked.filter((x) => x.company === "alrt")).toEqual([{ company: "alrt", calendar: "Closer B", raised: 0, resolved: 1 }]);   // other suites' bookings are theirs
+    expect((await asOperator((c) => openAlerts(c, companyId))).filter((x) => x.key.startsWith("health:availability"))).toHaveLength(0);
+    const stored = (await asOperator((c) => one<{ last_result: { check: string; item?: string; ok: boolean; href?: string }[] }>(c, "select last_result from health_checks where company_id=$1", [companyId])))!.last_result;
+    expect(stored.find((f) => f.check === "availability" && f.item === "CAL2")).toMatchObject({ ok: true, href: "https://api.leadconnectorhq.com/widget/booking/CAL2" });
+    // nothing moved since on this company: nothing re-read for it
+    expect((await asOperator((c) => checkCalendarsAfterBookings(c, fake, probes))).checked.filter((x) => x.company === "alrt")).toEqual([]);
   });
 
   it("a step that could not run (Slack channel not bound) is a warning the minute it happens, labelled so, and clears when a later run posts", async () => {

@@ -329,7 +329,11 @@ page and a link in the Slack alert.
 
 **Low availability** is its own check with its own thresholds on the settings page (`min_slots`, `slots_days`):
 a calendar that is alive but has fewer bookable slots than the threshold over the window is a warning, so a
-full (or quietly closed) calendar is known before leads find it.
+full (or quietly closed) calendar is known before leads find it. The calendar checks also run **the minute a
+booking, reschedule or cancellation lands** on a calendar (`checkCalendarsAfterBookings`, every tick, keyed on
+the appointment events since the last look), so the hour is the backstop, not the latency. Every calendar
+finding and alert carries a link to the calendar's public scheduling page (`calendarLink`) to see the
+availability as a lead would.
 
 **A skipped step says why.** Every skip carries a kind: `noop` (nothing to do, by design: no card to move,
 SMS off for the company, already sent) or `blocked` (something is missing: Slack not connected, a channel not
