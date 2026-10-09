@@ -1305,3 +1305,17 @@ the closer." The old chase (text + email, two days, then the owner) is gone. The
 `slack.channel.payments` with the amount, the contact link and the closer @mentioned, who follows up personally.
 The client hears nothing from the engine about a declined card. It lands in the payments channel because that is
 where everything goes today; when the team splits channels, the binding moves and the template does not.
+
+## D50. Tags are the CRM's tags (2026-10-09)
+
+Tyler: "read first, corroborate what we've got. invent nothing." The Setup page now reads the CRM's tag list and shows
+every tag beside the workflows that add or remove it and how many contacts carry it. Reading Hair's list: `confirmed`
+became `stat-confirmed` (the CRM's spelling; Call cancelled already removed that one); `stat-unconfirmed` and
+`stat-agreement-unsigned` were created in the CRM and the templates use them; a no-show tags `stat-no-show`, the tag the
+CRM already had on 24 contacts, and not `seq-no-show` (there is no no-show sequence yet); `engaged` (Speed to lead) and
+`rebooking` (No-show recovery) were ours alone and are gone. Call outcome tags (`stat-follow-up`, `stat-lost`,
+`stat-disqualified`, `stat-closed-won`) come from the closer's end-of-day answer, never from Jev's read alone: the
+transcript only pre-fills the form. They land with the end-of-day outcome work (items 12–13). `opt-in lead` stays as
+written for now (Tyler: "nothing else"); the CRM spells it `optin lead`, so that remove step matches nothing today.
+Two legacy workflows on Hair, "Appointment reminder with reply handling" and "Booking confirmation", were removed
+through the new admin DELETE; they were off and superseded by the pre-call sequence.
