@@ -65,7 +65,7 @@ export function arrange(chart: Chart): Row[] {
       }
     }
     if (o.length > 1) {
-      line.push(item(cur)); flush();
+      flush();
       const ways = o.map((e) => ({ label: e.label || "otherwise", to: e.to }));
       const { groups, join } = groupsOf(ways);
       const last = line; void last;

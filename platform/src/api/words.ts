@@ -91,7 +91,6 @@ function noteOf(s: StepRow, tz: string): string | undefined {
   if (r.timed_out) bits.push("No reply in time");
   if (typeof r.value === "string" && r.value) bits.push(r.value);
   if (typeof r.quiet_hours_until === "string") bits.push(`Held for the send window until ${stamp(r.quiet_hours_until, tz)}`);
-  if (r.shadow) bits.push("shadow: recorded, not sent");
   return bits.join(" · ") || undefined;
 }
 const stamp = (iso: string, tz: string) => DateTime.fromISO(iso).setZone(tz).toFormat("ccc LLL d · h:mm a");
