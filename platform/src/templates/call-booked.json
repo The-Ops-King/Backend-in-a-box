@@ -216,7 +216,8 @@
             ":spiral_calendar_pad:"
           ]
         },
-        "title": "Post booking card in Slack"
+        "title": "Post booking card in Slack",
+        "tag": "appointment:{{appointment.id}}"
       },
       {
         "id": "x1",

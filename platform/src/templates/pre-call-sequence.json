@@ -5,7 +5,7 @@
   "stage": "pre_call",
   "sort": 10,
   "origin": "spec",
-  "description": "Everything the prospect hears between booking and the call: the booking email and text (reply with an emoji to lock in; no reply in 4 hours → tagged unconfirmed and the closers told; a reply nobody can read → the closers see it and the reminders go on), then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
+  "description": "Everything the prospect hears between booking and the call: the booking email and text (reply with an emoji to lock in; every reply and a 4-hour silence become a reaction and a thread reply on the booking post in Slack, never a new message and the closers told; a reply nobody can read → the closers see it and the reminders go on), then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
   "definition": {
     "schema": 1,
     "reentry": "once_per_appointment",
@@ -71,6 +71,19 @@
         "tag": "confirmed"
       },
       {
+        "id": "n_conf_slack",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "react": "white_check_mark",
+        "as": {
+          "name": "Confirmed",
+          "icon": ":white_check_mark:"
+        },
+        "template": "✅ {{contact.first_name}} confirmed their call {{appointment.starts_at | relative:auto}}.\n> {{reply.last_inbound.body}}",
+        "title": "React ✅, quote their reply"
+      },
+      {
         "id": "n_unc",
         "type": "set_tag",
         "tag": "unconfirmed"
@@ -78,16 +91,15 @@
       {
         "id": "n_unc_slack",
         "type": "slack_post",
-        "channel": "{{slack.channel.closers}}",
+        "channel": "{{slack.channel.bookings}}",
         "as": {
           "name": "Not confirmed yet",
-          "icon": [
-            ":hourglass_flowing_sand:",
-            ":grey_question:"
-          ]
+          "icon": ":hourglass_flowing_sand:"
         },
-        "template": "{{contact.name}} hasn't confirmed their call {{appointment.starts_at | relative:auto}} ({{appointment.starts_at | date_company}}) with {{appointment.closer.mention | default:the closer}}. No reply to the booking text in 4 hours.",
-        "title": "Post no-reply alert in Slack"
+        "template": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going.",
+        "title": "React ⏳ in the booking thread",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "react": "hourglass_flowing_sand"
       },
       {
         "id": "n_cx",
@@ -99,17 +111,15 @@
       {
         "id": "n_cx_slack",
         "type": "slack_post",
-        "channel": "{{slack.channel.closers}}",
-        "template": "{{contact.first_name}} cancelled their call {{appointment.starts_at | relative:auto}}.",
+        "channel": "{{slack.channel.bookings}}",
+        "template": "❌ {{contact.first_name}} cancelled by reply.\n> {{reply.last_inbound.body}}",
         "as": {
           "name": "Call cancelled",
-          "icon": [
-            ":x:",
-            ":calendar:",
-            ":no_entry_sign:"
-          ]
+          "icon": ":x:"
         },
-        "title": "Post cancellation in Slack"
+        "title": "React ❌, quote their reply",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "react": "x"
       },
       {
         "id": "n_rs",
@@ -118,18 +128,30 @@
         "title": "Text the rebooking link"
       },
       {
+        "id": "n_rs_slack",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "react": "repeat",
+        "as": {
+          "name": "Reschedule",
+          "icon": ":repeat:"
+        },
+        "template": "🔁 {{contact.first_name}} asked to reschedule; the rebooking link went out.\n> {{reply.last_inbound.body}}",
+        "title": "React 🔁, quote their reply"
+      },
+      {
         "id": "n_unclear",
         "type": "slack_post",
-        "channel": "{{slack.channel.closers}}",
+        "channel": "{{slack.channel.bookings}}",
         "as": {
           "name": "Reply to read",
-          "icon": [
-            ":speech_balloon:",
-            ":grey_question:"
-          ]
+          "icon": ":grey_question:"
         },
-        "template": "{{contact.name}} replied to the booking text and I couldn't tell what they meant. Their call is {{appointment.starts_at | relative:auto}} with {{appointment.closer.mention | default:the closer}}; the reminders keep going.\n> {{reply.last_inbound.body}}",
-        "title": "Post unclear reply in Slack"
+        "template": "❔ {{contact.first_name}} replied and I couldn't tell what they meant. The reminders keep going.\n> {{reply.last_inbound.body}}",
+        "title": "React ❔, quote their reply",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "react": "grey_question"
       },
       {
         "id": "r72",
@@ -337,6 +359,10 @@
       },
       {
         "from": "n_conf",
+        "to": "n_conf_slack"
+      },
+      {
+        "from": "n_conf_slack",
         "to": "r72"
       },
       {
@@ -357,6 +383,10 @@
       },
       {
         "from": "n_rs",
+        "to": "n_rs_slack"
+      },
+      {
+        "from": "n_rs_slack",
         "to": "x_reschedule"
       },
       {

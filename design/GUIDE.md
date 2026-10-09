@@ -165,7 +165,8 @@ them. No form, no switch, no secret ever shown.
 **Slack previews (D43).** Wherever the dashboard shows a Slack post (a step's "the words", a chart node's
 popover) it is drawn as Slack draws it: the bot's emoji face, its name in bold, the APP tag, the time, and
 the text in Slack's own markup rendered (bold, italic, links, quotes, bullets, emoji). A thread reply is
-indented with a thread line. Nothing else on the page uses Slack's colours.
+indented with a thread line and names the reaction it leaves on the parent (D44: updates to an event are
+reactions and threads on its post, never a new message). Nothing else on the page uses Slack's colours.
 
 **Health and wrap-ups.** Lists of rows under section labels, same pieces, "Sweep now" as the one outlined button. Health also folds "What can start a workflow"; a wrap-up folds open to the text as Slack got it.
 

@@ -93,7 +93,9 @@
             ":no_entry_sign:"
           ]
         },
-        "title": "Post cancellation in Slack"
+        "title": "React ❌, reply in the booking thread",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "react": "x"
       },
       {
         "id": "x1",

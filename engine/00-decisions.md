@@ -1190,3 +1190,22 @@ emoji or image), the bot name, the APP tag, the time, and mrkdwn rendered (bold,
 links, mentions, quotes, bullets, emoji shortcodes). A thread reply is indented with a thread line; a shadow
 send carries the 🧪 shadow mark. The chart popover and the step rows use it for every Slack step; texts and
 emails keep the plain quote.
+
+## D44. One Slack message per event; updates are reactions and thread replies on it (2026-10-09)
+
+Tyler: "I don't think I want it to post to slack. The better option is having it respond with an emoji to that
+same post saying that they are booked... put the specific message they sent in the thread below. Keep
+communication as condensed and localized as possible. Any new event gets its own message and any updates to
+that event get emojis and threads."
+
+- The booking post (Call booked) is remembered under `appointment:<id>` (`tag`). Everything that happens to that
+  appointment lands on it: a reply to the booking text is a reaction plus a thread reply quoting what they
+  wrote (✅ confirmed, ❌ cancelled, 🔁 reschedule request, ❔ unclear), four hours of silence is ⏳ in the
+  thread, a real cancellation (Call cancelled) is ❌ with the cancel post as the thread reply. None of these
+  are new messages in the channel any more.
+- When the booking post is not there (the booking predates the engine, the channel was unbound) the reply
+  posts to the channel and says so, as `thread_of` always has.
+- The dashboard shows a thread reply indented under a thread line and names the reaction it leaves.
+- Still their own message: the booking card, a recording's review, a payment, a signed agreement, the day's
+  summary. Open: whether a reschedule, a no-show and a recorded call should also react on the booking post
+  (asked in the session).

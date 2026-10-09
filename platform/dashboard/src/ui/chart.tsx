@@ -178,9 +178,36 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
     if (pathOnly) { const taken = groups.filter((g) => g.first && stateOf(g.first) && stateOf(g.first) !== "next"); if (taken.length) groups = taken; }
     const gap = 14; const minG = 130;
     const fit = Math.max(1, Math.min(groups.length, Math.floor((W - 16 + gap) / (minG + gap))));
-    const rowsN = Math.ceil(groups.length / fit); const perRow = Math.ceil(groups.length / rowsN);   // 5 groups on a laptop: 3 + 2, not 4 + 1
-    const colW = Math.min(190, (W - 16 - (perRow - 1) * gap) / perRow);
     const bottoms: { x: number; y: number; go: boolean }[] = [];
+    if (fit < groups.length) {
+      // more branches than fit side by side: one column, each branch a full-width card hung off a spine in the left gutter.
+      // Rows of columns would send the join lines through the cards below them.
+      const colW = Math.min(360, W - 16 - 28); const gx = x + 14; const x0 = gx - colW / 2 - 14; const innerW = colW - 16;
+      const capLines = (g: Group) => wrap(g.label.toUpperCase(), Math.max(8, Math.floor((colW - 12) / 6.4))).slice(0, 2);
+      const headH = (g: Group) => 22 + (capLines(g).length - 1) * 13;
+      const heightOf = (g: Group) => headH(g) + 12 + (g.items.length ? g.items.reduce((a, it) => a + sizeOf(it, innerW).h, 0) + (g.items.length - 1) * GAP : 20) + 10;
+      link(x, forkBottom, x0, y); let sy = y; let goesOn = false;
+      for (const g of groups) {
+        const on = g.first ? stateOf(g.first) : null; const lit = on && on !== "next"; const h = heightOf(g);
+        out.push(`<rect x="${gx - colW / 2}" y="${sy}" width="${colW}" height="${h}" rx="12" fill="${T("panel")}" stroke="${lit ? T("acc") : T("line")}" stroke-width="1.5"/>`);
+        capLines(g).forEach((l, i) => out.push(`<text class="cap" x="${gx}" y="${sy + 16 + i * 13}" text-anchor="middle" fill="${lit ? T("acc") : T("fg-3")}">${esc(l)}</text>`));
+        out.push(`<path d="M${x0} ${sy + 18} H${gx - colW / 2}" fill="none" stroke="${lit ? T("acc") : T("edge")}" stroke-width="1.6"/>`);
+        let yy = sy + headH(g) + 8;
+        if (!g.items.length) out.push(`<text class="lbl" x="${gx}" y="${yy + 14}" text-anchor="middle">carries on</text>`);
+        let last: number | null = null;
+        for (const it of g.items) { if (last !== null) link(gx, last, gx, yy); last = put(it, gx, yy, innerW); yy = last + GAP; }
+        if (g.go) goesOn = true;
+        sy += h + GAP;
+      }
+      const spineEnd = goesOn ? sy - GAP + 8 : sy - GAP - 24;
+      out.push(`<path d="M${x0} ${y} V${spineEnd}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`);
+      y = sy + 4;
+      if (goesOn) link(x0, spineEnd, x, y);
+      prevBottom = null;
+      continue;
+    }
+    const rowsN = Math.ceil(groups.length / fit); const perRow = Math.ceil(groups.length / rowsN);
+    const colW = Math.min(190, (W - 16 - (perRow - 1) * gap) / perRow);
     let from = forkBottom;
     for (let r = 0; r < groups.length; r += perRow) {
       const slice = groups.slice(r, r + perRow); const total = slice.length * colW + (slice.length - 1) * gap; let gx = x - total / 2 + colW / 2;
@@ -274,7 +301,7 @@ export function NodeWords({ chart, id, state, extra }: { chart: Chart; id: strin
     {n.detail ? <p className="m">{n.detail}</p> : null}
     {n.kind === "fork" ? <p className="m">{chart.edges.filter((e) => e.from === id).map((e) => e.label || "otherwise").join(" · ")}</p> : null}
     {n.cond ? <div className="c"><Cond /><span>{n.cond}</span></div> : null}
-    {n.quote ? (n.channel === "slack" ? <SlackMsg face={n.face} text={n.quote} time="9:41 AM" thread={/thread/i.test(n.title)} /> : <div className="q">{n.quote}</div>) : null}
+    {n.quote ? (n.channel === "slack" ? <SlackMsg face={n.face} text={n.quote} time="9:41 AM" thread={n.thread} reaction={n.react} /> : <div className="q">{n.quote}</div>) : null}
     {state ? <div className={`st ${state}`}>{state === "ok" ? <Check /> : state === "ghost" ? <Ghost /> : state === "here" ? <Clock /> : state === "warn" ? <Warn /> : <Skip />}{w}</div> : null}
     {extra}
   </>;

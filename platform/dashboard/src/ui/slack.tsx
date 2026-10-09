@@ -54,12 +54,13 @@ export function Mrkdwn({ text }: { text: string }) {
 }
 
 /** The message, framed as Slack frames it. `time` is the clock Slack would show; `thread` draws it as a reply in a thread. */
-export function SlackMsg({ face, text, time, thread, shadow }: { face?: SlackFace; text: string; time?: string; thread?: boolean; shadow?: boolean }) {
+export function SlackMsg({ face, text, time, thread, shadow, reaction }: { face?: SlackFace; text: string; time?: string; thread?: boolean; shadow?: boolean; reaction?: string }) {
   const icon = face?.icon ?? null; const e = icon && !/^https?:/.test(icon) ? emoji(icon) : null;
   const name = face?.name || "Engine";
-  return <div className={`slk ${thread ? "thread" : ""}`}>
+  const rx = reaction ? emoji(reaction) ?? `:${reaction}:` : null;
+  return <>{rx ? <div className="slk-rx"><span className="em">{rx}</span> reaction on the booking post</div> : null}<div className={`slk ${thread ? "thread" : ""}`}>
     <span className="av" aria-hidden>{icon && /^https?:/.test(icon) ? <img src={icon} alt="" /> : e ?? name.slice(0, 1).toUpperCase()}</span>
     <span className="hd"><b>{name}</b><span className="app">APP</span>{time ? <span className="tm">{time}</span> : null}</span>
     <div className="bd">{shadow ? <span className="shadowtag">🧪 shadow</span> : null}<Mrkdwn text={text} /></div>
-  </div>;
+  </div></>;
 }
