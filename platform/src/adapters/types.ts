@@ -104,6 +104,8 @@ export interface Notifier {
   lookupUserByEmail(token: string, email: string): Promise<string | null>;
   /** reactions.add on a message (needs reactions:write). Resolves false, never throws, when the scope is missing. */
   react(token: string, channelId: string, ts: string, emoji: string): Promise<boolean>;
+  /** reactions.remove: takes back one of the bot's own reactions. Resolves false, never throws. */
+  unreact(token: string, channelId: string, ts: string, emoji: string): Promise<boolean>;
   /** auth.test: is the token alive, and who is it. */
   authTest(token: string): Promise<{ ok: boolean; team?: string; user?: string; error?: string }>;
   /** conversations.info: does the channel exist and is the bot in it. */

@@ -13,12 +13,12 @@ import type { Projected } from "@/engine/project";
 export type ChartKind = "trig" | "send" | "wait" | "reply" | "fork" | "check" | "tag" | "slack" | "crm" | "ai" | "end" | "other";
 /** Who a Slack post appears as (D43: a Slack preview looks like Slack): the bot name and its emoji or image. */
 export type SlackFace = { name: string; icon: string | null };
-export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; detail?: string; quote?: string; cond?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string; hidden?: boolean; stop?: string; logo?: string };
+export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; detail?: string; quote?: string; cond?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string | string[]; offer?: string[]; hidden?: boolean; stop?: string; logo?: string };
 export type ChartEdge = { from: string; to: string; label: string; else?: boolean };
 export type Chart = { nodes: ChartNode[]; edges: ChartEdge[] };
 
 export type StepState = "ok" | "ghost" | "skip" | "warn" | "here" | "next" | "stop";
-export type PathItem = { node_id: string; title: string; meta?: string; kind: ChartKind; state: StepState; at: string | null; note?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string; words?: string | null; send_state?: string };
+export type PathItem = { node_id: string; title: string; meta?: string; kind: ChartKind; state: StepState; at: string | null; note?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string | string[]; offer?: string[]; words?: string | null; send_state?: string };
 
 export function kindOf(n: Node): ChartKind {
   switch (n.type) {
@@ -42,7 +42,7 @@ const faceOf = (n: Node, bindings: Record<string, string> = {}): SlackFace | und
   const as = n.as; const icons = as?.icon ? (Array.isArray(as.icon) ? as.icon : [as.icon]) : [];
   return { name: (as?.name ?? bindings["slack.name"] ?? "Engine").replace(/\{\{[^}]*\}\}/g, "").trim() || "Engine", icon: icons[0]?.trim() || null };
 };
-const threadOf = (n: Node): { thread?: boolean; react?: string } => n.type === "slack_post" ? { thread: !!n.thread_of || undefined, react: n.react } : {};
+const threadOf = (n: Node): { thread?: boolean; react?: string | string[]; offer?: string[] } => n.type === "slack_post" ? { thread: !!n.thread_of || undefined, react: n.react, offer: n.offer } : {};
 const channelOf = (n: Node): ChartNode["channel"] => n.type === "send_sms" ? "sms" : n.type === "send_email" ? "email" : n.type === "slack_post" || n.type === "notify_owner" ? "slack" : undefined;
 
 /** Short title for a node on the chart or in a step row: "Text", "Email: You're booked", "Wait until 3 days before the call". */

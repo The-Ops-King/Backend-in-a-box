@@ -279,6 +279,15 @@ produce; changes to copy, steps, channels, pipelines or icons go through the cha
 template or the company's copy and re-installs. (`src/engine/edits.ts` and `copy.ts` are the engine
 side of those edits and stay; the dashboard no longer exposes them.)
 
+## Slack as an input (D45)
+
+Reactions are decisions. A post may offer ✅ ❌ (or any emoji) for a person to tap; the tap reaches the engine
+through `/api/webhooks/slack/<companyId>` as a `slack.reaction` event (the tag the post was remembered under, who
+tapped, the run's contact and appointment), and a workflow starts from it like from any other fact. Slack app
+setup, once per app: scopes `reactions:write` and `reactions:read`; Event Subscriptions on, request URL
+`<PUBLIC_URL>/api/webhooks/slack/<companyId>` (the URL check is answered), bot event `reaction_added`; the signing
+secret from Basic Information goes to the install API as `slackSigningSecret`, the bot token as `slackToken`.
+
 ## Alerts and the health sweep (D33)
 
 The engine says what broke the minute it breaks, and nothing while it works. Every tick, a run that failed

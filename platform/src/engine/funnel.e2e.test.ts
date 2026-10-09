@@ -33,7 +33,7 @@ const fake: Adapters = {
     createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; }, updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); }, sendDocumentTemplate: async () => ({ id: "doc-x" }) },
   sender: { sendSms: async (_c, _to, body) => { sent.push({ kind: "sms", body }); return { externalId: `s${sent.length}`, accepted: true }; }, sendEmail: async (_c, _to, subject, html) => { sent.push({ kind: "email", body: `${subject}|${html}` }); return { externalId: `e${sent.length}`, accepted: true }; }, deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },
   classifier: { choice: async (): Promise<Classification> => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
-  notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null, react: async () => true, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
+  notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null, react: async () => true, unreact: async () => true, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 let companyId: string, contactId: string;

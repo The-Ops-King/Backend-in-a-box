@@ -145,13 +145,17 @@
         "type": "slack_post",
         "channel": "{{slack.channel.bookings}}",
         "as": {
-          "name": "Reply to read",
+          "name": "Unclear reply, please confirm",
           "icon": ":grey_question:"
         },
-        "template": "❔ {{contact.first_name}} replied and I couldn't tell what they meant. The reminders keep going.\n> {{reply.last_inbound.body}}",
-        "title": "React ❔, quote their reply",
+        "template": "❔ *Unclear reply, please confirm.* {{contact.first_name}} replied to the booking text and I couldn't tell what they meant. The reminders keep going until someone decides.\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.last_inbound.body}}\nTap ✅ to mark the call confirmed or ❌ to cancel it.",
+        "title": "Ask the team: ✅ or ❌",
         "thread_of": "tag:appointment:{{appointment.id}}",
-        "react": "grey_question"
+        "tag": "decision:{{appointment.id}}",
+        "offer": [
+          "white_check_mark",
+          "x"
+        ]
       },
       {
         "id": "r72",

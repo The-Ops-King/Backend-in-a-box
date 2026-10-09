@@ -21,6 +21,11 @@ export const slackNotifier: Notifier = {
     const data = (await res.json()) as { ok: boolean; error?: string };
     return data.ok || data.error === "already_reacted";
   },
+  async unreact(token, channelId, ts, emoji) {
+    const res = await fetch("https://slack.com/api/reactions.remove", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ channel: channelId, timestamp: ts, name: emoji.replace(/^:|:$/g, "") }) });
+    const data = (await res.json()) as { ok: boolean; error?: string };
+    return data.ok || data.error === "no_reaction";
+  },
   async authTest(token) {
     const res = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
     const data = (await res.json()) as { ok: boolean; team?: string; user?: string; error?: string };

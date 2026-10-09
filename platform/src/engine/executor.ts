@@ -216,10 +216,18 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
       setPath(d.ctx, `vars.__slack.${node.id}`, r.ts);
       let reacted = false;
-      if (node.react && parentTs) reacted = await d.adapters.notifier.react(token, postTo, parentTs, node.react).catch(() => false);
+      for (const emoji of node.react ? (Array.isArray(node.react) ? node.react : [node.react]) : []) if (parentTs) reacted = (await d.adapters.notifier.react(token, postTo, parentTs, emoji).catch(() => false)) || reacted;
+      // D45: the choices a person can tap, as reactions on this post; the door turns their tap into a slack.reaction event
+      const offered: string[] = [];
+      for (const emoji of node.offer ?? []) if (await d.adapters.notifier.react(token, postTo, r.ts, emoji).catch(() => false)) offered.push(emoji);
+      let unreacted = 0;
+      if (node.unreact) {
+        const target = node.unreact.of.startsWith("tag:") ? await one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, render(node.unreact.of.slice(4), d.ctx, env(d))]) : (() => { const ts = resolvePath(d.ctx, `vars.__slack.${node.unreact!.of}`) as string | undefined; return ts ? { channel: postTo, ts } : null; })();
+        if (target) for (const emoji of node.unreact.emojis) if (await d.adapters.notifier.unreact(token, target.channel, target.ts, emoji).catch(() => false)) unreacted++;
+      }
       let tag: string | undefined;
       if (node.tag) { tag = render(node.tag, d.ctx, env(d)); await d.c.query("insert into slack_posts (company_id, tag, channel, ts, run_id) values ($1,$2,$3,$4,$5) on conflict (company_id, tag) do update set channel=excluded.channel, ts=excluded.ts, run_id=excluded.run_id, posted_at=now()", [d.company.id, tag, postTo, r.ts, d.run.id]); }
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null, ...(tagged ? { tag: tagged } : {}) } : {}), ...(tag ? { remembered_as: tag } : {}), ...(node.react ? { reacted } : {}) } };
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null, ...(tagged ? { tag: tagged } : {}) } : {}), ...(tag ? { remembered_as: tag } : {}), ...(node.react ? { reacted } : {}), ...(node.offer ? { offered } : {}), ...(node.unreact ? { unreacted } : {}) } };
     }
 
     case "classify": {

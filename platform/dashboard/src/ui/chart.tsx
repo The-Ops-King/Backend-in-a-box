@@ -301,7 +301,7 @@ export function NodeWords({ chart, id, state, extra }: { chart: Chart; id: strin
     {n.detail ? <p className="m">{n.detail}</p> : null}
     {n.kind === "fork" ? <p className="m">{chart.edges.filter((e) => e.from === id).map((e) => e.label || "otherwise").join(" · ")}</p> : null}
     {n.cond ? <div className="c"><Cond /><span>{n.cond}</span></div> : null}
-    {n.quote ? (n.channel === "slack" ? <SlackMsg face={n.face} text={n.quote} time="9:41 AM" thread={n.thread} reaction={n.react} /> : <div className="q">{n.quote}</div>) : null}
+    {n.quote ? (n.channel === "slack" ? <SlackMsg face={n.face} text={n.quote} time="9:41 AM" thread={n.thread} reaction={n.react} offers={n.offer} /> : <div className="q">{n.quote}</div>) : null}
     {state ? <div className={`st ${state}`}>{state === "ok" ? <Check /> : state === "ghost" ? <Ghost /> : state === "here" ? <Clock /> : state === "warn" ? <Warn /> : <Skip />}{w}</div> : null}
     {extra}
   </>;

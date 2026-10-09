@@ -1219,3 +1219,30 @@ that event get emojis and threads."
   sometimes-step; it replaces a fork whose branches would carry one step each.
 - Hair's Slack app was reinstalled with reactions:write the same day; the token is stored by the install API
   (`slackToken`), never in the repo.
+
+## D45. A tap in Slack is a fact; a person is in a workflow once at a time (2026-10-09)
+
+Tyler, on the "? Reply to read" post: "Unclear response, please confirm. It should have the message that was sent
+out, the reply, then reply with ✅ for confirmed or ❌ for unconfirmed. It would respond with both of those emojis so
+you can just click on it. Once they click, the app removes its own x and check emojis." And on Calvin being in
+pre-call twice: "Each person should only be allowed in any given workflow once at a time. If they rebook then the
+second call is the correct one. They should be taken out of the workflow."
+
+- A post may `offer` reactions (added to itself for a person to tap) and `unreact` (take the bot's own reactions
+  off a post once a person has decided). `react` may be several.
+- A new door, `/api/webhooks/slack/<companyId>`, takes Slack's Events API (signature verified with the company's
+  signing secret, `secret.slack_signing`; URL check answered; deliveries deduplicated; the bot's own reactions
+  ignored). A reaction on a post the engine remembered under a tag becomes a `slack.reaction` event carrying the
+  tag's kind and ref, who reacted (by name when they are on the roster), and the run's contact and appointment.
+- Pre-call's unclear reply now asks: what we sent, what they wrote, tap ✅ or ❌; remembered as
+  `decision:<appointment>`. The `booking-decision` template starts from the tap: ✅ tags confirmed and reacts ✅
+  on the booking post; ❌ cancels the appointment (Call cancelled does the rest) and reacts ❌; both note who
+  decided in the thread and take the bot's ✅ ❌ off the question, so only the person's tap remains.
+- When a run starts for a person, any older run of that workflow parked for them exits as "superseded: a newer
+  run for this person" (a run mid-step inside its lease is left to finish). Reentry policies still decide whether
+  the new run starts at all.
+- "Call recorded" is "Sales call recorded"; the triggers read "Fathom recording received" and "Dialer call logged",
+  so the chart says where each comes from.
+- Slack app setup for this: scope `reactions:read` (plus `reactions:write`), Event Subscriptions on with the
+  request URL above, bot event `reaction_added`, the signing secret from Basic Information given to the install
+  API as `slackSigningSecret`.

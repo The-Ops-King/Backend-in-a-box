@@ -113,6 +113,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table runs alter column contact_id drop not null`);
     await c.query(`alter table runs add column if not exists user_id uuid references users(id)`);
     await c.query(`insert into event_types values ('schedule','clock'), ('eod.filed','report') on conflict do nothing`);
+    // D45: a team member's reaction on a post the engine remembered is an event a workflow can start from
+    await c.query(`alter table slack_connections add column if not exists bot_user_id text`);
+    await c.query(`insert into event_types values ('slack.reaction','slack') on conflict do nothing`);
     await c.query(`alter table sends drop constraint if exists sends_channel_check`);
     await c.query(`alter table sends add constraint sends_channel_check check (channel in ('sms','email','slack','webhook'))`);
     await ownsOrAbsent(c, "slack_posts", "tag");
