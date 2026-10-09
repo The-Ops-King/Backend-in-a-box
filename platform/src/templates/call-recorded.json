@@ -20,20 +20,50 @@
       },
       {
         "id": "a1",
-        "type": "analyze",
-        "prompt": "{{prompt.call_classify}}",
-        "into": "classify"
+        "type": "classify",
+        "input": "{{recording.transcript_text}}",
+        "domain": "recording_kind",
+        "question": "What kind of recording is this?",
+        "criteria": {
+          "sales_call": "A conversation between someone on the team and a prospect or customer about buying, starting, continuing or paying for the program.",
+          "internal": "Team members talking to each other: a standup, training, role-play, a vendor call.",
+          "other": "Anything else: a voicemail, a wrong number, a personal call, an unrelated meeting."
+        },
+        "threshold": 0.8,
+        "ambiguity_max": 0.8,
+        "into": "vars.classify.kind",
+        "title": "Jev: is it a sales call?"
       },
       {
         "id": "c1",
         "type": "check",
         "when": {
           "eq": [
-            "{{vars.classify.is_sales_call}}",
-            true
+            "{{vars.classify.kind}}",
+            "sales_call"
           ]
         },
         "else_exit": "not_a_sales_call"
+      },
+      {
+        "id": "a3",
+        "type": "classify",
+        "input": "{{recording.transcript_text}}",
+        "domain": "sales_call_disposition",
+        "question": "How did this sales call end?",
+        "criteria": {
+          "closed_won": "They agreed to buy and payment was arranged or taken on the call.",
+          "close_pending": "They agreed in principle; payment or paperwork is still to come.",
+          "follow_up": "No decision yet; a next conversation or a think-it-over was agreed.",
+          "lost": "They said no.",
+          "dq": "Not a fit: the team disqualified them.",
+          "financing_denied": "They wanted to buy but could not pay or finance.",
+          "unclear": "The transcript does not show how it ended."
+        },
+        "threshold": 0.7,
+        "ambiguity_max": 0.85,
+        "into": "vars.outcome.disposition",
+        "title": "Jev: how did the call end?"
       },
       {
         "id": "a2",
@@ -123,7 +153,7 @@
           "transcript_ref": "{{recording.url | default:}}",
           "closer": "{{recording.closer.name | default:}}",
           "duration_min": "{{recording.duration_min | default:}}",
-          "disposition": "{{vars.notes.disposition | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}",
+          "disposition": "{{vars.outcome.disposition | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}",
           "objection_primary": "{{vars.notes.primary_objection | oneof:price,partner,timing,fear,medical,burned_before,competitor,think_about_it | default:}}",
           "next_step": "{{vars.notes.next_step | default:}}",
           "next_step_date": "{{vars.notes.next_step_date | default:}}",
@@ -153,7 +183,7 @@
         "id": "s1",
         "type": "slack_post",
         "channel": "{{slack.channel.calls}}",
-        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{recording.share_url | link:Fathom | line:*Recording:*}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{recording.duration_min | default:?}} min\n\n*Outcome:* {{vars.notes.disposition | default:unclear}}\n*Pain:* {{vars.notes.pain | bullets | default:—}}\n*Goal:* {{vars.notes.desire | bullets | default:—}}\n*Objections:* {{vars.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
+        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{recording.share_url | link:Fathom | line:*Recording:*}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{recording.duration_min | default:?}} min\n\n*Outcome:* {{vars.outcome.disposition | words | default:unclear}}\n*Pain:* {{vars.notes.pain | bullets | default:—}}\n*Goal:* {{vars.notes.desire | bullets | default:—}}\n*Objections:* {{vars.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
         "as": {
           "name": "Sales call recorded",
           "icon": [
@@ -199,7 +229,7 @@
       },
       {
         "from": "c1",
-        "to": "a2"
+        "to": "a3"
       },
       {
         "from": "a2",
@@ -266,6 +296,10 @@
       {
         "from": "o4",
         "to": "k1"
+      },
+      {
+        "from": "a3",
+        "to": "a2"
       }
     ]
   }

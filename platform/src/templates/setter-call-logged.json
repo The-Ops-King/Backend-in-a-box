@@ -5,7 +5,7 @@
   "stage": "call",
   "sort": 20,
   "origin": "spec",
-  "description": "The dialer logged a connected phone call: calls shorter than the minimum stop here, so do calls with no recording (nothing to read). Fifteen minutes after the call ends (so a booking the setter makes right after hanging up counts) the AI decides whether it was a setting call or a confirmation call (anything else — 'are you joining?', voicemails, wrong numbers — stops here), writes the digest with pains, goals, triage and a fit score, records whether a booking followed, writes the Discovery Call record and links it to the contact, leaves the digest as a note, and posts it to Slack. Every call, answered or not, is kept in the recordings ledger regardless.",
+  "description": "The dialer logged a connected phone call: calls shorter than the minimum stop here, so do calls with no recording (nothing to read). Fifteen minutes after the call ends (so a booking the setter makes right after hanging up counts) Jev decides whether it was a setting call or a confirmation call (anything else — 'are you joining?', voicemails, wrong numbers — stops here), writes the digest with pains, goals, triage and a fit score, records whether a booking followed, writes the Discovery Call record and links it to the contact, leaves the digest as a note, and posts it to Slack. Every call, answered or not, is kept in the recordings ledger regardless.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -74,9 +74,19 @@
       },
       {
         "id": "a1",
-        "type": "analyze",
-        "prompt": "{{prompt.setter_call_classify}}",
-        "into": "classify"
+        "type": "classify",
+        "input": "{{recording.transcript_text}}",
+        "domain": "setter_call_type",
+        "question": "What kind of phone call between a setter and a lead was this?",
+        "criteria": {
+          "setting": "The setter finds out about the lead's situation, qualifies them, and works toward booking (or books) a call with a closer.",
+          "confirmation": "The setter confirms an appointment that is already booked: time, link, what to expect, perhaps a brief re-qualification.",
+          "other": "Anything else: 'are you joining the call', 'where are you', a voicemail greeting, a wrong number, spam, a call that never got past hello, an internal or personal call, or a transcript too thin to tell."
+        },
+        "threshold": 0.8,
+        "ambiguity_max": 0.8,
+        "into": "vars.classify.call_type",
+        "title": "Jev: setting call or confirmation?"
       },
       {
         "id": "c3",

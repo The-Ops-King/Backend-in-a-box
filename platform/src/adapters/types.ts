@@ -92,7 +92,7 @@ export interface Sender {
 }
 export type Classification = { value: string; confidence: number; distribution: Record<string, number>; unclear: boolean; ambiguity?: number };
 /** What a classify step hands the classifier besides the question: the company's key, what each option means, and how much doubt is too much (D47). */
-export type ChoiceOptions = { apiKey?: string; criteria?: Record<string, string>; ambiguityMax?: number; model?: string };
+export type ChoiceOptions = { apiKey?: string; criteria?: Record<string, string>; ambiguityMax?: number; model?: string; question?: string };
 export interface Classifier {
   choice(state: string | undefined, input: string, options: string[], threshold: number, opts?: ChoiceOptions): Promise<Classification>;
 }

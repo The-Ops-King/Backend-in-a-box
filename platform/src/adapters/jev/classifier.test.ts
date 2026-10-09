@@ -8,10 +8,10 @@ describe("Jev classifier (D47)", () => {
   afterEach(() => vi.unstubAllGlobals());
   it("sends the verified systemone shape: the choice with criteria and the ambiguity question", async () => {
     const calls: unknown[] = []; vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => { calls.push(JSON.parse(String(init.body))); return reply("confirmed", 0.99, 0.2); }));
-    const r = await jevClassifier.choice("we texted: reply with an emoji", "💯", OPTS, 0.8, { apiKey: "k", criteria: { confirmed: "a yes" } });
+    const r = await jevClassifier.choice("we texted: reply with an emoji", "💯", OPTS, 0.8, { apiKey: "k", criteria: { confirmed: "a yes" }, question: "What does the reply mean?" });
     expect(r).toMatchObject({ value: "confirmed", unclear: false, ambiguity: 0.2 });
-    const body = calls[0] as { model: string; state: string; questions: Record<string, { type: string; criteria?: Record<string, string> }> };
-    expect(body.model).toBe("jev-latest"); expect(body.state).toBe("we texted: reply with an emoji");
+    const body = calls[0] as { model: string; state: string; questions: Record<string, { type: string; instructions?: string; criteria?: Record<string, string> }> };
+    expect(body.model).toBe("jev-latest"); expect(body.state).toBe("Context:\nwe texted: reply with an emoji\n\nText:\n💯"); expect(body.questions.answer.instructions).toBe("What does the reply mean?");
     expect(body.questions.answer.type).toBe("choice"); expect(body.questions.answer.criteria).toMatchObject({ confirmed: "a yes", reschedule_request: "reschedule request" });
     expect(body.questions.ambiguous.type).toBe("noul");
   });

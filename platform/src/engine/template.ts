@@ -56,6 +56,7 @@ const filters: Record<string, Filter> = {
   // same as date, in the company's zone: lists the team reads (Slack, pipeline cards) stay in one zone
   date_company: (v, arg, env) => (absent(v) ? undefined : toDT(v, env.companyTz ?? env.tz).toFormat(arg ?? "ccc LLL d · h:mm a ZZZZ")),
   tz: (v, arg) => (absent(v) ? undefined : toDT(v, arg ?? "UTC").toISO()),
+  words: (v) => String(v ?? "").replace(/[_-]+/g, " "),   // closed_won → closed won
   upper: (v) => String(v ?? "").toUpperCase(),
   lower: (v) => String(v ?? "").toLowerCase(),
   first_name: (v) => String(v ?? "").trim().split(/\s+/)[0] ?? "",

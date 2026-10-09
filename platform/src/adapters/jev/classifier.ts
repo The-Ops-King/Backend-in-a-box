@@ -28,8 +28,8 @@ export const jevClassifier: Classifier = {
     const zeros = Object.fromEntries(options.map((o) => [o, 0]));
     if (!key) return unclear(zeros);
     const criteria = Object.fromEntries(options.map((o) => [o, opts?.criteria?.[o] ?? o.replace(/_/g, " ")]));
-    const body = { model: opts?.model ?? "jev-latest", state: state ?? "", questions: {
-      answer: { type: "choice", instructions: input, criteria },
+    const body = { model: opts?.model ?? "jev-latest", state: [state ? `Context:\n${state}` : "", `Text:\n${input}`].filter(Boolean).join("\n\n"), questions: {
+      answer: { type: "choice", instructions: opts?.question ?? "What does the text mean?", criteria },
       ambiguous: { type: "noul", instructions: AMBIGUOUS },
     } };
     const r = await jevAsk(key, body);

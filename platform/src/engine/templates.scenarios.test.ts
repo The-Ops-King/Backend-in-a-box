@@ -47,7 +47,9 @@ const fake: Adapters = {
     sendEmail: async (_c, to, subject, html) => { sent.push({ kind: "email", to, body: `${subject}|${html}` }); return { externalId: `e${sent.length}`, accepted: true }; },
     deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null,
   },
-  classifier: { choice: async (): Promise<Classification> => ({ value: "confirmed", confidence: 0.95, distribution: { confirmed: 0.95 }, unclear: false }) },
+  classifier: { choice: async (_s, _input, options): Promise<Classification> => {   // Jev, faked by vocabulary (D48)
+    const value = options.includes("setting") ? setterCallType : options.includes("sales_call") ? (salesCall ? "sales_call" : "other") : options.includes("closed_won") ? "closed_won" : "confirmed";
+    return { value, confidence: 0.95, distribution: { [value]: 0.95 }, unclear: false }; } },
   notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null, react: async () => true, unreact: async () => true, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
   // answers by which prompt is asked, the way the real model would: classify → is it a sales call, notes → the write-up, rubric → the score
   analyst: { analyze: async (_k, req) => { analyses.push(req.system.slice(0, 40)); const parsed = /setters and leads/.test(req.system) ? { call_type: setterCallType, confidence: 0.9, reason: "qualifying toward a booking" }
@@ -416,7 +418,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await tick(fake, undefined, companyId);
     const run = (await runsFor("call-recorded")).find((x) => x.contact_id === id)!;
     expect(run).toMatchObject({ status: "completed", exit_reason: "recorded" });
-    expect(analyses.slice(nAn)).toHaveLength(2);   // classify, then notes + scorecard in one read
+    expect(analyses.slice(nAn)).toHaveLength(1);   // notes + scorecard in one read; the kind of call and how it ended are Jev's (D48)
     expect(tags.slice(nTags)).toEqual(["stat-showed"]);
     expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", stageId: "STAGE-SHOWED", status: "won" })]);   // the setter card; the closer card is untouched
     const setterCard = await asOperator((c) => one<{ status: string; ghl_stage_id: string }>(c, "select status, ghl_stage_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id='PIPE-SETTER'", [companyId, id]));
@@ -428,9 +430,9 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const a = await asOperator((c) => one<{ outcome: string | null }>(c, "select t.category as outcome from appointments a left join company_terms t on t.id=a.outcome_term where a.id=$1", [appt.id]));
     expect(a?.outcome).toBe("showed");
     const evs = await asOperator((c) => many<{ event_type: string }>(c, "select event_type from events where company_id=$1 and contact_id=$2 and event_type in ('appointment.outcome','call.held','call.analyzed') order by id", [companyId, id]));
-    expect(evs.map((e) => e.event_type)).toEqual(["call.analyzed", "call.analyzed", "appointment.outcome", "call.held"]);
+    expect(evs.map((e) => e.event_type)).toEqual(["call.analyzed", "appointment.outcome", "call.held"]);
     const stored = await asOperator((c) => one<{ analysis: Record<string, unknown> }>(c, "select analysis from recordings where id=$1", [r.recording.id]));
-    expect(Object.keys(stored!.analysis).sort()).toEqual(["classify", "notes", "rubric"]);
+    expect(Object.keys(stored!.analysis).sort()).toEqual(["classify", "notes", "outcome", "rubric"]);   // Jev's kind and outcome, Anthropic's notes and scorecard
     const slack = await asOperator((c) => one<{ rendered_body: string; suppressed_reason: string | null }>(c, "select rendered_body, suppressed_reason from sends where run_id=$1 and channel='slack'", [run.id]));
     expect(slack?.suppressed_reason).toMatch(/slack/);   // channel unbound in this test company; the text is still what matters
     // a replay of the same recording records nothing new
@@ -543,7 +545,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await tick(fake, undefined, companyId); await tick(fake, undefined, companyId);
     const run = await lastRun();
     expect(run).toMatchObject({ status: "completed", exit_reason: "posted" });
-    expect(analyses.slice(nAn)).toHaveLength(2);
+    expect(analyses.slice(nAn)).toHaveLength(1);   // the digest; the kind of call is Jev's (D48)
     const rw = recordWrites.slice(nRec); expect(rw).toHaveLength(1);
     expect(rw[0]).toMatchObject({ op: "create", external_id: "call-1", contact_id: "CCB2", direction: "outbound", duration_sec: 184, setter: "Sam Closer", outcome: "connected", recording_url: "https://ghl.test/call-1/recording" });
     expect(rw[0].led_to_booking).toEqual(["yes"]);   // Leo's appointment was booked (by this test run) after the call started → the checkbox is written as the CRM wants it

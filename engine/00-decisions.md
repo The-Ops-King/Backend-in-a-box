@@ -1286,3 +1286,14 @@ can see that's a response. But if they respond 👎 that's ambiguous and should 
   (`reply.inbound_since_send`); the Slack question quotes all of it.
 - The key is a company binding (`secret.jev_key`, install `jevKey`) with `JEV_API_KEY` as the server fallback; the
   health sweep checks it answers and warns when there is none.
+
+## D48. Jev makes the three call decisions; Anthropic writes the prose (2026-10-09)
+
+Tyler: "We should use Jev to see (a) if it's a setting call, (b) if it's a sales call, (c) what is the outcome of the
+sales call." Those were Anthropic reads returning JSON; they are now `classify` steps over three vocabularies seeded
+in core_categories: `setter_call_type` (setting, confirmation, other), `recording_kind` (sales call, internal,
+other) and `sales_call_disposition` (closed won, close pending, follow-up, lost, disqualified, financing denied,
+unclear). A classify step carries the `question` Jev is asked and what each answer means; the transcript is the
+text, verified live at 18k characters. The Sales Call record's disposition and the Slack outcome line come from
+Jev; Anthropic keeps the notes, digest and scorecard. Below the threshold, or a transcript a careful person would
+read two ways, the answer is unclear and the record's disposition is left blank rather than guessed.

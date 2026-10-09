@@ -75,7 +75,7 @@ export const Node = z.discriminatedUnion("type", [
   // A wrap-up (daily / weekly / monthly numbers) rendered into vars.<into> = { body, period, numbers } and kept in the wrapups ledger; a slack_post after it sends it.
   z.object({ ...base, type: z.literal("report"), kind: z.string(), breakdowns: z.array(z.string()).default([]), sections: z.record(z.boolean()).default({}), into: z.string().default("report") }),
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string(),
-    criteria: z.record(z.string()).optional(), ambiguity_max: z.number().min(0).max(1).default(0.8) }),   // criteria: what each option means, in words; ambiguity_max: a reply a careful person would doubt this much goes to a human (D47)
+    question: z.string().optional(), criteria: z.record(z.string()).optional(), ambiguity_max: z.number().min(0).max(1).default(0.8) }),   // question: what Jev is asked about `input`; `state` is context (what we sent)   // criteria: what each option means, in words; ambiguity_max: a reply a careful person would doubt this much goes to a human (D47)
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),
   z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string(), retry: z.object({ every: z.string(), for: z.string() }).optional() }),   // retry: park and look again every `every` for up to `for` before taking else_exit
   z.object({ ...base, type: z.literal("set_tag"), tag: z.union([z.string(), z.array(z.string()).min(1)]) }),

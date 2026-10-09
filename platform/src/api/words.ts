@@ -79,7 +79,7 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "check": return { title: `Check ${predicateWords(n.when, constsOf(def))}`, meta: n.retry ? `waits up to ${durationWords(n.retry.for)}` : undefined };
     case "slack_post": return { title: n.thread_of ? "Slack reply in the thread" : "Slack notification" };
     case "notify_owner": return { title: "Slack DM to the owner" };
-    case "classify": return { title: "AI reads the reply" };
+    case "classify": return { title: n.domain === "reply_intent" ? "Jev reads the reply" : `Jev: ${(n.question ?? humanWords(n.domain)).replace(/\?$/, "").replace(/^./, (c) => c.toLowerCase())}?` };
     case "analyze": { const w: Record<string, string> = { classify: "is it a sales call?", notes: "call notes", rubric: "scorecard", objections: "objections" }; const keys = Array.isArray(n.into) ? n.into : [n.into]; return { title: `AI: ${keys.map((k) => w[k] ?? humanWords(k)).join(" and ")}` }; }
     case "update_contact": return { title: "Update the contact" };
     case "pipeline_card": return { title: n.stage ? (n.if_missing === "skip" ? "Move the card" : "Move the card") : n.status ? `Mark the card ${n.status}` : "Update the card", meta: n.stage ? stageChip(n.stage, n.pipeline) : pipelineChip(n.pipeline) };

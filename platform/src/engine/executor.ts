@@ -238,9 +238,11 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "classify": {
       const input = render(node.input, d.ctx, env(d)); const state = node.state ? render(node.state, d.ctx, env(d)) : undefined;
       const options = (await many<{ value: string }>(d.c, "select value from core_categories where domain=$1 order by sort", [node.domain])).map((r) => r.value);
-      const r = await d.adapters.classifier.choice(state, input, options, node.threshold, { apiKey: d.bindings["secret.jev_key"] || process.env.JEV_API_KEY, criteria: node.criteria, ambiguityMax: node.ambiguity_max });
+      const r = await d.adapters.classifier.choice(state, input, options, node.threshold, { apiKey: d.bindings["secret.jev_key"] || process.env.JEV_API_KEY, criteria: node.criteria, ambiguityMax: node.ambiguity_max, question: node.question });
       const top = Object.entries(r.distribution).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, p]) => `${k} ${(p * 100).toFixed(0)}%`).join(", ");
       setPath(d.ctx, node.into, r.value); setPath(d.ctx, "reply.confidence", r.confidence); setPath(d.ctx, "reply.top_guesses", top || "none");
+      const recId = (d.ctx.recording as { id?: string } | undefined)?.id; const intoKey = node.into.replace(/^vars\./, "").split(".");
+      if (recId && node.input.includes("recording.")) { const nested = intoKey.reduceRight<unknown>((acc, k) => ({ [k]: acc }), { value: r.value, confidence: r.confidence, ambiguity: r.ambiguity ?? null }); await d.c.query("update recordings set analysis = analysis || $2::jsonb where id=$1", [recId, JSON.stringify(nested)]); }
       await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, input } });
       return { status: "ok", next, result: { value: r.value, confidence: r.confidence, ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(r.unclear ? { why: r.confidence < node.threshold ? "not confident enough" : "a careful person would doubt it" } : {}) } };
     }

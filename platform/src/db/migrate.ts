@@ -118,6 +118,12 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D46: a call with no recording by end of day is presumed a no-show for the closer's form; the closer's answer is the fact
     await c.query(`alter table appointments add column if not exists presumed_outcome text`);
     await c.query(`insert into event_types values ('slack.reaction','slack') on conflict do nothing`);
+    // D48: the three call decisions Jev makes (what kind of recording, what kind of setter call, how the sales call ended)
+    await c.query(`insert into core_categories (domain, value, label, sort) values
+      ('recording_kind','sales_call','Sales call',1), ('recording_kind','internal','Internal',2), ('recording_kind','other','Other',3),
+      ('setter_call_type','setting','Setting call',1), ('setter_call_type','confirmation','Confirmation call',2), ('setter_call_type','other','Other',3),
+      ('sales_call_disposition','closed_won','Closed won',1), ('sales_call_disposition','close_pending','Close pending',2), ('sales_call_disposition','follow_up','Follow-up',3), ('sales_call_disposition','lost','Lost',4), ('sales_call_disposition','dq','Disqualified',5), ('sales_call_disposition','financing_denied','Financing denied',6), ('sales_call_disposition','unclear','Unclear',7)
+      on conflict (domain, value) do nothing`);
     await c.query(`alter table sends drop constraint if exists sends_channel_check`);
     await c.query(`alter table sends add constraint sends_channel_check check (channel in ('sms','email','slack','webhook'))`);
     await ownsOrAbsent(c, "slack_posts", "tag");
