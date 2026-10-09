@@ -5,7 +5,7 @@
   "stage": "pre_call",
   "sort": 10,
   "origin": "spec",
-  "description": "Everything the prospect hears between booking and the call: the booking email and text (reply with an emoji to lock in; no reply in 4 hours → tagged unconfirmed and the closers' channel told), then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
+  "description": "Everything the prospect hears between booking and the call: the booking email and text (reply with an emoji to lock in; no reply in 4 hours → tagged unconfirmed and the closers told; a reply nobody can read → the closers see it and the reminders go on), then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
   "definition": {
     "schema": 1,
     "reentry": "once_per_appointment",
@@ -114,19 +114,17 @@
         "template": "No problem — grab a new time here: {{calendar.closer_call.url}}"
       },
       {
-        "id": "n_h1",
-        "type": "set_tag",
-        "tag": "needs-human-reply"
-      },
-      {
-        "id": "n_h2",
-        "type": "note",
-        "template": "[engine] Couldn't classify reply (top guesses: {{reply.top_guesses}}). Needs a human.\nOriginal: {{reply.last_inbound.body}}"
-      },
-      {
-        "id": "n_h3",
-        "type": "pause_runs",
-        "scope": "contact"
+        "id": "n_unclear",
+        "type": "slack_post",
+        "channel": "{{slack.channel.closers}}",
+        "as": {
+          "name": "Reply to read",
+          "icon": [
+            ":speech_balloon:",
+            ":grey_question:"
+          ]
+        },
+        "template": "{{contact.name}} replied to the booking text and I couldn't tell what they meant. Their call is {{appointment.starts_at | relative:auto}} with {{appointment.closer.mention | default:the closer}}; the reminders keep going.\n> {{reply.last_inbound.body}}"
       },
       {
         "id": "r72",
@@ -273,11 +271,6 @@
         "id": "x_reschedule",
         "type": "exit",
         "reason": "reschedule_sent"
-      },
-      {
-        "id": "x_handed",
-        "type": "exit",
-        "reason": "handed_to_human"
       }
     ],
     "edges": [
@@ -338,11 +331,6 @@
         }
       },
       {
-        "from": "b1",
-        "to": "n_h1",
-        "else": true
-      },
-      {
         "from": "n_conf",
         "to": "r72"
       },
@@ -365,18 +353,6 @@
       {
         "from": "n_rs",
         "to": "x_reschedule"
-      },
-      {
-        "from": "n_h1",
-        "to": "n_h2"
-      },
-      {
-        "from": "n_h2",
-        "to": "n_h3"
-      },
-      {
-        "from": "n_h3",
-        "to": "x_handed"
       },
       {
         "from": "r72",
@@ -445,6 +421,15 @@
       {
         "from": "m10",
         "to": "x_done"
+      },
+      {
+        "from": "b1",
+        "to": "n_unclear",
+        "else": true
+      },
+      {
+        "from": "n_unclear",
+        "to": "r72"
       }
     ]
   }
