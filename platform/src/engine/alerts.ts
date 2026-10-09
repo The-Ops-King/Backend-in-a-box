@@ -60,10 +60,10 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
     const present: AlertInput[] = [];
     for (const s of stuck.filter((x) => x.company_id === co.id)) {
       const err = poll.errors.find((e) => e.company === co.slug && e.entity === s.entity)?.error ?? "";
-      present.push({ companyId: co.id, key: `poll:${s.entity}`, level: "error", source: "poll", text: `Polling ${s.entity.replace(/^appointments:/, "calendar ")} has failed ${s.n} times in a row${err ? `: ${err.slice(0, 160)}` : ""}${s.last_success_at ? ` (last good read ${s.last_success_at.toISOString()})` : ""}`, href: `/c/${co.slug}` });
+      present.push({ companyId: co.id, key: `poll:${s.entity}`, level: "error", source: "poll", text: `Polling ${s.entity.replace(/^appointments:/, "calendar ")} has failed ${s.n} times in a row${err ? `: ${err.slice(0, 160)}` : ""}${s.last_success_at ? ` (last good read ${s.last_success_at.toISOString()})` : ""}`, href: `/app/c/${co.slug}` });
     }
     const broken = await many<{ target_id: string; name: string | null; n: number }>(c, "select a.target_id, w.name, count(*)::int as n from audit_log a left join workflows w on w.id::text=a.target_id where a.company_id=$1 and a.action='workflow.unparseable' and a.at > now() - interval '10 minutes' group by a.target_id, w.name", [co.id]);
-    for (const b of broken) present.push({ companyId: co.id, key: `workflow:unparseable:${b.target_id}`, level: "error", source: "poll", text: `"${b.name ?? b.target_id}" no longer parses on this engine and is being skipped (${b.n} time${b.n > 1 ? "s" : ""} in 10 min). Re-install upgrades it.`, href: `/c/${co.slug}/w/${b.target_id}` });
+    for (const b of broken) present.push({ companyId: co.id, key: `workflow:unparseable:${b.target_id}`, level: "error", source: "poll", text: `"${b.name ?? b.target_id}" no longer parses on this engine and is being skipped (${b.n} time${b.n > 1 ? "s" : ""} in 10 min). Re-install upgrades it.`, href: `/app/c/${co.slug}/w/${b.target_id}` });
     add(await reconcile(c, co.id, "poll", present, now));
   }
   // 2. the engine itself
@@ -78,7 +78,7 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
      where r.status='failed' and r.finished_at > $1 and r.finished_at <= $2 order by r.finished_at`, [since, now]);
   for (const f of failed) {
     const step = f.current_node ? await stepWords(c, f.workflow_id, f.current_node) : "the start";
-    const r = await raise(c, { companyId: f.company_id, key: `step:${f.workflow_id}:${f.current_node ?? "start"}`, level: "error", source: "step", text: `"${f.workflow}" failed at ${step}${f.contact ? ` for ${f.contact}` : ""}: ${(f.exit_reason ?? "unknown error").slice(0, 300)}`, detail: { run_id: f.id, node: f.current_node, error: f.exit_reason }, href: `/c/${f.slug}/r/${f.id}` }, now);
+    const r = await raise(c, { companyId: f.company_id, key: `step:${f.workflow_id}:${f.current_node ?? "start"}`, level: "error", source: "step", text: `"${f.workflow}" failed at ${step}${f.contact ? ` for ${f.contact}` : ""}: ${(f.exit_reason ?? "unknown error").slice(0, 300)}`, detail: { run_id: f.id, node: f.current_node, error: f.exit_reason }, href: `/app/c/${f.slug}/r/${f.id}` }, now);
     if (r.isNew) raised++;
   }
   // a step that could not do its job (Slack not connected, no AI key) is not a failure of the run, but you want to know the minute it happens
@@ -88,7 +88,7 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
      where s.status='skipped' and s.result->>'kind'='blocked' and s.finished_at > $1 and s.finished_at <= $2 order by s.finished_at`, [since, now]);
   for (const b of blocked) {
     const step = await stepWords(c, b.workflow_id, b.node_id);
-    const r = await raise(c, { companyId: b.company_id, key: `blocked:${b.workflow_id}:${b.node_id}`, level: "warning", source: "step", text: `"${b.workflow}" could not run ${step}${b.contact ? ` for ${b.contact}` : ""}: ${(b.why ?? "blocked").slice(0, 200)}. The run went on without it.`, detail: { run_id: b.run_id, node: b.node_id, why: b.why }, href: `/c/${b.slug}/r/${b.run_id}` }, now);
+    const r = await raise(c, { companyId: b.company_id, key: `blocked:${b.workflow_id}:${b.node_id}`, level: "warning", source: "step", text: `"${b.workflow}" could not run ${step}${b.contact ? ` for ${b.contact}` : ""}: ${(b.why ?? "blocked").slice(0, 200)}. The run went on without it.`, detail: { run_id: b.run_id, node: b.node_id, why: b.why }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now);
     if (r.isNew) raised++;
   }
   await c.query("insert into engine_state (key, value, updated_at) values ('alerts_cursor', $1, now()) on conflict (key) do update set value=$1, updated_at=now()", [{ since: now.toISOString() }]);

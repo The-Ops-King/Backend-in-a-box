@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { company, appointment, terms } from "@/ui/queries";
 import { badge, when } from "@/ui/format";
@@ -8,8 +7,8 @@ export default async function AppointmentPage({ params }: { params: Promise<{ sl
   const { slug, id } = await params; const co = await company(slug); const a = await appointment(id); if (!co || !a || a.company_id !== co.id) notFound();
   const [outcomes, callOutcomes] = await Promise.all([terms(co.id, "appointment_outcome"), terms(co.id, "call_outcome")]);
   return (<>
-    <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / <Link href={`/c/${slug}/appointments`}>Appointments</Link> / {a.contact.trim()}</p>
-    <h1>{a.term} · <Link href={`/c/${slug}/contacts/${a.contact_id}`}>{a.contact.trim() || "contact"}</Link></h1>
+    <p className="sub"><a href="/app">Companies</a> / <a href={`/app/c/${slug}`}>{co.name}</a> / <a href={`/c/${slug}/appointments`}>Appointments</a> / {a.contact.trim()}</p>
+    <h1>{a.term} · <a href={`/app/c/${slug}/contacts/${a.contact_id}`}>{a.contact.trim() || "contact"}</a></h1>
     <p className="sub">{when(a.starts_at, co.timezone)} · with {a.closer ?? "unassigned"} · <span className={badge(a.status === "confirmed" ? "active" : "waiting")}>{a.status}</span></p>
     <div className="grid g2" style={{ alignItems: "start" }}>
       <div className="card">

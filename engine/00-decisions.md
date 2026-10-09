@@ -1097,6 +1097,13 @@ The direction was settled section by section from mocks (`design/mocks/`), dark 
   to them). Identifiers and the test harness fold at the bottom. No history, no message log.
 - Still to mock: settings. The health and wrap-up pages are lists and follow the row rules in `design/GUIDE.md`.
 
+Built (2026-10-09): `platform/dashboard/` (Vite, React, React Router, TanStack Query, plain CSS on the Slate tokens, our
+own SVG chart), served by Next at `/app` from `public/app`; the closer's page moved there too (`/eod/<token>`). The JSON
+API under `/api/v1` (`src/api/`) composes the words from the engine's `describe.ts` into the chart and the path; the
+client lays the chart out. One operator password guards the dashboard (`DASHBOARD_PASSWORD`, `SESSION_SECRET`). The
+Next pages that have no design yet (settings, appointments, payments, recordings, wrap-ups, sends, triggers) stay,
+reachable from the company page's "Other pages" fold, until each is rebuilt.
+
 ## D38. The hub stores what the engine needs, not the conversation (2026-10-09)
 
 Tyler, on seeing the contact mock with every text and email: "we're not trying to store all the history, right? I

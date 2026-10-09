@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { company, companyPayments, contactsByEmailOrName } from "@/ui/queries";
 import { linkPaymentAction } from "@/ui/actions";
@@ -13,7 +12,7 @@ export default async function PaymentsPage({ params, searchParams }: { params: P
   const unlinked = rows.filter((p) => p.link_status === "unlinked");
   const matches = sp.q && sp.for ? await contactsByEmailOrName(co.id, sp.q) : [];
   return (<>
-    <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / Payments</p>
+    <p className="sub"><a href="/app">Companies</a> / <a href={`/app/c/${slug}`}>{co.name}</a> / Payments</p>
     <h1>Payments</h1>
     <p className="sub">Every payment the processor reported, linked to a person or waiting to be. Webhook address for Whop: <span className="mono">/api/webhooks/whop/{co.id}</span></p>
 
@@ -46,7 +45,7 @@ export default async function PaymentsPage({ params, searchParams }: { params: P
     <div className="tbl"><table><thead><tr><th>When</th><th>Contact</th><th>Amount</th><th>Kind</th><th>Status</th><th>Running total</th><th>Linked by</th><th>Provider id</th></tr></thead><tbody>
       {rows.map((p) => (<tr key={p.id}>
         <td>{when(p.paid_at, co.timezone)}</td>
-        <td>{p.contact_id ? <Link href={`/c/${slug}/contacts/${p.contact_id}`}>{p.contact ?? "contact"}</Link> : <span className="bad">unlinked</span>}</td>
+        <td>{p.contact_id ? <a href={`/app/c/${slug}/contacts/${p.contact_id}`}>{p.contact ?? "contact"}</a> : <span className="bad">unlinked</span>}</td>
         <td>{money(p.amount, p.currency)}</td><td>{p.kind ? <span className="badge b-type">{p.kind}</span> : "—"}</td><td><span className={badge(p.status === "succeeded" ? "sent" : p.status)}>{p.status}</span></td>
         <td>{p.running_total == null ? "—" : <>{money(p.running_total, p.currency)}{p.contract_value ? <span className="muted"> / {money(p.contract_value, p.currency)}</span> : null}</>}</td>
         <td className="muted">{p.linked_by ?? "—"}</td><td className="mono muted">{p.whop_payment_id}</td>

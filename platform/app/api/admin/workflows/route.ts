@@ -18,7 +18,7 @@ export async function GET(req: Request) {
   return asOperator(async (c) => {
     const co = await one<{ id: string; mode: string }>(c, "select id, mode from companies where slug=$1", [slug]);
     if (!co) return NextResponse.json({ error: "no such company" }, { status: 404 });
-    const r = await companyReadiness(c, co.id, `/c/${slug}`);
+    const r = await companyReadiness(c, co.id, `/app/c/${slug}`);
     return NextResponse.json({ ok: true, company: slug, mode: co.mode, ready: r.ready, issues: r.issues, workflows: r.workflows });
   });
 }
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     if (wfs.length !== 1) return NextResponse.json({ error: wfs.length ? "ambiguous workflow name" : "no such workflow for this company" }, { status: 404 });
     const w = wfs[0];
     if (body.enabled) {
-      const r = await companyReadiness(c, co.id, `/c/${body.company}`); const mine = r.workflows.find((x) => x.id === w.id)!;
+      const r = await companyReadiness(c, co.id, `/app/c/${body.company}`); const mine = r.workflows.find((x) => x.id === w.id)!;
       if (mine.missing.length) return NextResponse.json({ error: `cannot turn on: missing ${mine.missing.join(", ")}`, missing: mine.missing }, { status: 409 });
     }
     if (w.enabled !== body.enabled) {

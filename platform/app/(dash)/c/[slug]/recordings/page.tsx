@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { company, companyRecordings, contactsByEmailOrName } from "@/ui/queries";
 import { linkRecordingAction } from "@/ui/actions";
@@ -12,7 +11,7 @@ export default async function RecordingsPage({ params, searchParams }: { params:
   const matches = sp.q && sp.for ? await contactsByEmailOrName(co.id, sp.q) : [];
   const people = (r: typeof rows[number]) => r.invitees.map((i) => i.name ?? i.email).filter(Boolean).join(", ") || "nobody listed";
   return (<>
-    <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / Recordings</p>
+    <p className="sub"><a href="/app">Companies</a> / <a href={`/app/c/${slug}`}>{co.name}</a> / Recordings</p>
     <h1>Recordings</h1>
     <p className="sub">Every call recording the recorder reported, matched to a person or waiting to be. Two doors land here: Fathom’s own webhook at <span className="mono">/api/webhooks/fathom/{co.id}</span>, or a Zap posting to <span className="mono">/api/webhooks/zapier/{co.id}/recording</span>.</p>
 
@@ -47,8 +46,8 @@ export default async function RecordingsPage({ params, searchParams }: { params:
       {rows.map((r) => (<tr key={r.id}>
         <td>{when(r.started_at, co.timezone)}</td>
         <td>{r.title ?? "untitled"}<div className="muted" style={{ fontSize: 12 }}>{people(r)}</div></td>
-        <td>{r.contact_id ? <Link href={`/c/${slug}/contacts/${r.contact_id}`}>{r.contact ?? "contact"}</Link> : <span className="bad">unmatched</span>}</td>
-        <td>{r.appointment_id ? <Link href={`/c/${slug}/appointments/${r.appointment_id}`}>{when(r.appointment_at, co.timezone)}</Link> : <span className="muted">none</span>}</td>
+        <td>{r.contact_id ? <a href={`/app/c/${slug}/contacts/${r.contact_id}`}>{r.contact ?? "contact"}</a> : <span className="bad">unmatched</span>}</td>
+        <td>{r.appointment_id ? <a href={`/c/${slug}/appointments/${r.appointment_id}`}>{when(r.appointment_at, co.timezone)}</a> : <span className="muted">none</span>}</td>
         <td>{r.duration_min ?? "?"} min{r.has_transcript ? "" : <span className="muted"> · no transcript</span>}</td>
         <td className="muted">{r.linked_by ?? "—"}</td>
         <td>{Object.keys(r.analysis).length ? Object.keys(r.analysis).map((k) => <span key={k} className="badge b-type" style={{ marginRight: 4 }}>{k}</span>) : <span className="muted">—</span>}</td>

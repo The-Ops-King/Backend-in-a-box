@@ -629,3 +629,15 @@ command center · template drift tooling · attribute reclassification. All desi
   hitting `/api/health` from a browser needs a bypass token or a custom domain.
 - The reminder template's closer name is `split_part(users.name, ' ', 1)` — a user literally
   named "Closer One" renders as "Closer".
+
+## The dashboard (React, under `dashboard/`)
+
+The operator's pages are a Vite React app (`platform/dashboard/`), built into `public/app` and served by Next at `/app`
+(and the closer's end-of-day link at `/eod/<token>`). It reads the JSON API under `/api/v1` and follows
+`design/GUIDE.md`. One operator password (`DASHBOARD_PASSWORD`) and a signed cookie (`SESSION_SECRET`) guard the
+dashboard, its API and the Next pages not yet rebuilt (settings, the utility lists); the cron tick, the admin
+endpoints, the webhooks and the closer's link keep their own keys.
+
+- `pnpm dashboard:build` builds it (the Vercel build runs it before `next build`); `pnpm dashboard:dev` runs Vite on
+  5177 proxying `/api` to the Next dev server on 3077.
+- `pnpm typecheck` checks both the Next side and the dashboard.

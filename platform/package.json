@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "tsx scripts/migrate.ts && next build",
+    "build": "tsx scripts/migrate.ts && pnpm dashboard:build && next build",
+    "dashboard:build": "vite build --config dashboard/vite.config.ts",
+    "dashboard:dev": "vite --config dashboard/vite.config.ts",
     "start": "next start",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p dashboard/tsconfig.json",
     "test": "vitest run",
     "db:migrate": "tsx scripts/migrate.ts",
     "schema:sync": "node -e \"const fs=require('fs');fs.writeFileSync('src/db/schema.sql.ts','// GENERATED from ../engine/schema.sql by pnpm schema:sync. Do not edit; edit engine/schema.sql and re-sync.\\nexport const SCHEMA: string = '+JSON.stringify(fs.readFileSync('../engine/schema.sql','utf8'))+';\\n')\"",
@@ -17,8 +19,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
-    "mermaid": "11.4.1",
     "luxon": "^3.5.0",
+    "mermaid": "11.4.1",
     "next": "^15.1.0",
     "pg": "^8.13.1",
     "react": "^19.0.0",
@@ -26,13 +28,17 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@tanstack/react-query": "^5.104.1",
     "@types/luxon": "^3.4.2",
     "@types/node": "^22.10.0",
     "@types/pg": "^8.11.10",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "react-router-dom": "^7.18.4",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
+    "vite": "^5.4.21",
     "vitest": "^2.1.8"
   }
 }

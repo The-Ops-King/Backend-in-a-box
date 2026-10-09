@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { company, triggerCatalog } from "@/ui/queries";
 import { EVENT_LABELS } from "@/engine/describe";
@@ -16,14 +15,14 @@ export default async function TriggersPage({ params }: { params: Promise<{ slug:
   const rows = await triggerCatalog(co.id);
   const byCat = new Map<string, typeof rows>(); for (const r of rows) byCat.set(r.category, [...(byCat.get(r.category) ?? []), r]);
   return (<>
-    <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / Triggers</p>
+    <p className="sub"><a href="/app">Companies</a> / <a href={`/app/c/${slug}`}>{co.name}</a> / Triggers</p>
     <h1>What a workflow can start from</h1>
     <p className="sub">Every fact the engine records is an event. A workflow's first step picks one, optionally with a condition ("only closing calls"). The same list is shared by every company; a new kind of fact (a new door, a new node) adds to it for everyone. Events marked <span className="badge b-type">engine</span> are bookkeeping and are not meant to start workflows.</p>
     {[...byCat.entries()].map(([cat, evs]) => <section key={cat}>
       <h2>{cat.replace(/_/g, " ")} <span className="muted" style={{ fontSize: 14, fontWeight: 400 }}>· comes from {SOURCES[cat] ?? "the engine"}</span></h2>
       <div className="tbl"><table><thead><tr><th>Event</th><th>In plain words</th><th>Used by</th><th>Seen here (30 days)</th></tr></thead><tbody>
         {evs.map((e) => <tr key={e.name}><td className="mono">{e.name}{START_FROM.has(e.name) ? null : <> <span className="badge b-type">engine</span></>}</td><td>{EVENT_LABELS[e.name] ?? e.name}</td>
-          <td>{e.workflows.length ? e.workflows.map((w) => <div key={w.id}><Link href={`/c/${slug}/w/${w.id}`}>{w.name}</Link>{w.enabled ? "" : <span className="muted"> (off)</span>}</div>) : <span className="muted">—</span>}</td><td>{e.seen}</td></tr>)}
+          <td>{e.workflows.length ? e.workflows.map((w) => <div key={w.id}><a href={`/app/c/${slug}/w/${w.id}`}>{w.name}</a>{w.enabled ? "" : <span className="muted"> (off)</span>}</div>) : <span className="muted">—</span>}</td><td>{e.seen}</td></tr>)}
       </tbody></table></div>
     </section>)}
   </>);

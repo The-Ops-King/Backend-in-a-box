@@ -25,6 +25,6 @@ export async function POST(req: Request) {
     const r = await simulate({ c, company, contactId: ct.id, force: body.force, daysOut: body.daysOut }, body.action as SimAction);
     if (!r.ok) return NextResponse.json({ error: r.why }, { status: 409 });
     await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,$2,'contact',$3,$4)", [co.id, `simulate.${r.action}`, ct.id, { ...r.detail, runs_started: r.runsStarted, via: "api" }]);
-    return NextResponse.json({ ok: true, contact: ct.id, action: r.action, detail: r.detail, runs_started: r.runsStarted, dashboard: `/c/${slug}/contacts/${ct.id}` });
+    return NextResponse.json({ ok: true, contact: ct.id, action: r.action, detail: r.detail, runs_started: r.runsStarted, dashboard: `/app/c/${slug}/contacts/${ct.id}` });
   });
 }

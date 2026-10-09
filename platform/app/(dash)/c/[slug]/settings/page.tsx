@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadSettings } from "@/ui/settings-data";
 import { SaveButton } from "@/ui/SaveButton";
@@ -65,7 +64,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
   const questionsText = (q?: Record<string, string>) => Object.entries(q ?? {}).map(([k, v]) => `${k} = ${v}`).join("\n");
   const ghlRow = row("secret.ghl_pit"), locRow = row("crm.location_id");
   return (<>
-    <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / Settings</p>
+    <p className="sub"><a href="/app">Companies</a> / <a href={`/app/c/${slug}`}>{co.name}</a> / Settings</p>
     <h1>Settings</h1>
     <p className="sub">Everything this company's workflows need, in one place. Lists come live from the CRM and the booking source where a key exists; anything else is pasted. Secrets are stored encrypted and never shown again.</p>
     {sp.note ? <div className="card ready" style={{ marginBottom: 10 }}><strong>{sp.note}</strong></div> : null}
@@ -117,7 +116,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     </form>
 
     <h2 id="eodform">End-of-day form</h2>
-    <p className="sub">What each closer is asked per call, after they pick what happened. The engine keeps the built-in keys (it reads contract value, cash, next date, DQ reason); the labels, what is required, the option lists and any question you add are yours. A question with no outcome ticked shows after any outcome. <Link href={`/c/${slug}/eod`}>Filed reports and links</Link>.</p>
+    <p className="sub">What each closer is asked per call, after they pick what happened. The engine keeps the built-in keys (it reads contract value, cash, next date, DQ reason); the labels, what is required, the option lists and any question you add are yours. A question with no outcome ticked shows after any outcome. <a href={`/app/c/${slug}/eod`}>Filed reports and links</a>.</p>
     <form action={saveEodFormAction} className="form card settings eodform"><Hidden slug={slug} id={co.id} section="eodform" />
       <input type="hidden" name="fields" value={d.eodForm.map((x) => x.key).join(",")} />
       <div className="tbl"><table><thead><tr><th>Question</th><th>Shown</th><th>Type</th><th>Required</th><th>Options / help</th></tr></thead><tbody>
@@ -232,7 +231,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     </form>
 
     <h2 id="alerts">Alerts</h2>
-    <p className="sub">When a step fails, the engine says so the minute it happens: the step, the contact, the reason. Once; then hourly in the same thread while it stays broken; then "resolved" with a ✅. Pick where that goes. <Link href={`/c/${slug}/health`}>See what is open</Link>.</p>
+    <p className="sub">When a step fails, the engine says so the minute it happens: the step, the contact, the reason. Once; then hourly in the same thread while it stays broken; then "resolved" with a ✅. Pick where that goes. <a href={`/app/c/${slug}/health`}>See what is open</a>.</p>
     <form action={saveBindingsAction} className="form card settings"><Hidden slug={slug} id={co.id} section="alerts" />
       <table className="kv-table"><tbody>
         <tr><td><strong>Slack channel</strong><div className="mono muted" style={{ fontSize: 11.5 }}>alerts.slack_channel</div></td>
@@ -263,7 +262,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
 
     <h2 id="clock">On a schedule</h2>
     <p className="sub">The health sweep, the calendar availability watch, the closers' end-of-day reminders and the wrap-ups are workflows with a schedule trigger. Their time, channel, checks and copy are edited there like any other step; turn them on and off on their pages.</p>
-    <div className="card settings">{d.scheduled.length ? <ul className="plain">{d.scheduled.map((w) => <li key={w.id}><Link href={`/c/${slug}/w/${w.id}`}><strong>{w.name}</strong></Link> <span className="muted">· {w.when}</span> {w.enabled ? <span className="badge b-live">on</span> : <span className="badge b-type">off</span>}</li>)}</ul> : <span className="muted">No scheduled workflows installed.</span>}</div>
+    <div className="card settings">{d.scheduled.length ? <ul className="plain">{d.scheduled.map((w) => <li key={w.id}><a href={`/app/c/${slug}/w/${w.id}`}><strong>{w.name}</strong></a> <span className="muted">· {w.when}</span> {w.enabled ? <span className="badge b-live">on</span> : <span className="badge b-type">off</span>}</li>)}</ul> : <span className="muted">No scheduled workflows installed.</span>}</div>
 
     <h2 id="inbound">Inbound doors</h2>
     <div className="card settings">

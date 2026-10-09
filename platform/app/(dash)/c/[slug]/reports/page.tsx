@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asOperator } from "@/db/client";
 import { company } from "@/ui/queries";
@@ -12,9 +11,9 @@ export default async function ReportsPage({ params, searchParams }: { params: Pr
   const rows = await asOperator((c) => companyReports(c, co.id));
   const status = (s: string | null) => s === "sent" ? <span className="badge b-live">posted</span> : s === "shadow" ? <span className="badge b-shadow">shadow · not posted</span> : <span className="badge b-type">{s ?? "not posted"}</span>;
   return (<>
-    <p className="sub"><Link href="/">Companies</Link> / <Link href={`/c/${slug}`}>{co.name}</Link> / Wrap-ups</p>
+    <p className="sub"><a href="/app">Companies</a> / <a href={`/app/c/${slug}`}>{co.name}</a> / Wrap-ups</p>
     <h1>Wrap-ups</h1>
-    <p className="sub">Daily, weekly and monthly, computed from the engine's ledger and posted to Slack on the schedule set in <Link href={`/c/${slug}/settings#reports`}>settings</Link>. Each one is kept here as sent.</p>
+    <p className="sub">Daily, weekly and monthly, computed from the engine's ledger and posted to Slack on the schedule set in <a href={`/c/${slug}/settings#reports`}>settings</a>. Each one is kept here as sent.</p>
     {sp.note ? <div className="card" style={{ marginBottom: 12 }}>{sp.note}</div> : null}
     {rows.length === 0 ? <div className="empty">No wrap-ups yet. The first scheduled one runs at the time set in settings, or press “Generate now” there.</div> : rows.map((r) => (
       <div key={r.id} id={r.id} className="card" style={{ marginBottom: 12 }}>
