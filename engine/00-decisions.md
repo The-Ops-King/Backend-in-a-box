@@ -1079,4 +1079,10 @@ The direction was settled section by section from mocks (`design/mocks/`), dark 
   "your spec" or "default", "shadow") with when it last ran; one line of what it does; then four tiles on one line at
   every width: people, in flight, finished, failed, the number big and the word under it. "Ran" as a badge meant
   nothing to Tyler and is gone.
-- Still to mock, in this order: the company page's workflow list, the run and contact pages, settings.
+- The company page: the company's name with the one Go live button at the right, a "shadow" tag with what it means
+  ("sends are written down, not delivered"), filters (all, on, off, needs a look), then every workflow in journey
+  order down a rail: a line on the left with a dot per stage, lit when something in that stage is on, the stage as
+  the section label. Rows are flat (no panels): the name, "your spec" or "default", when it last ran, then people /
+  in flight / failed and the switch at the right edge. On a phone the counts fold into a short note under the name.
+  Scheduled workflows (Team, Engine) come last; retired copies at the very end under Other.
+- Still to mock, in this order: the run and contact pages, settings.

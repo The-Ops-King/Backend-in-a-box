@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Company Workflow List</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap">
+<style>
+/* A company's page: every workflow it has, on the journey. Five structures, one at a time. Slate tokens, dark only. Nothing scrolls sideways. */
+:root{--bg:#111214;--panel:#191a1d;--panel-2:#222327;--panel-3:#2b2c31;--fg:#f0f0f2;--fg-2:#a3a4ab;--fg-3:#6e6f76;--line:#2e2f36;--edge:#3a3b43;--acc:#f0b429;--acc-ink:#2a1e04;--ok:#5bd087;--ok-bg:#1a3b27;--warn:#ff8a5b;--warn-bg:#3f2316;--cond:#8fb7ff;--cond-bg:#1c2a44;--wait:#a78bfa;--wait-bg:#2a2340;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:"Outfit",system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;padding-block:0 60px;padding-inline:16px}
+*{box-sizing:border-box}
+button{font:inherit}
+a{color:inherit}
+.wrap{max-width:760px;margin:0 auto}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding-block:18px 8px}
+.bar h1{font-size:15px;font-weight:600;margin:0 12px 0 0}
+.bar .grp{display:flex;flex-wrap:wrap;gap:8px}
+.bar button{font-size:13px;font-weight:600;background:var(--panel);color:var(--fg-2);border:1px solid var(--line);border-radius:999px;padding:7px 13px;cursor:pointer}
+.bar button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.bar button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.note{color:var(--fg-2);font-size:13px;line-height:1.5;margin:0 0 14px}
+.tnum{font-variant-numeric:tabular-nums}
+.caption{margin-top:14px;color:var(--fg-2);font-size:13px;line-height:1.5}
+.page{background:var(--panel);border-radius:14px;padding:18px 16px 16px;position:relative}
+/* company header, the same bones as the workflow header */
+.chead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+.chead h2{margin:0;font-size:26px;font-weight:700;letter-spacing:-.01em;line-height:1.15;min-width:0;overflow-wrap:anywhere}
+.chead .go{background:none;border:1px solid var(--edge);color:var(--fg);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.chead .go:hover{background:var(--panel-2)}
+.tagrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;color:var(--fg-3);font-size:12.5px}
+.tag{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--panel-2);color:var(--fg-2);white-space:nowrap}
+.tag.spec{background:var(--cond-bg);color:var(--cond)}
+.tag.shadow{background:var(--wait-bg);color:var(--wait)}
+.tag.def{background:var(--panel-3);color:var(--fg-2)}
+.sw{display:inline-flex;align-items:center;gap:9px;background:none;border:0;padding:0;color:var(--fg);cursor:pointer;border-radius:999px;flex:none}
+.sw .k{position:relative;width:36px;height:20px;border-radius:999px;background:var(--panel-3);transition:background .15s;flex:none}
+.sw .k::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--fg);transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.sw[aria-checked="true"] .k{background:var(--ok)}
+.sw[aria-checked="true"] .k::after{transform:translateX(16px);background:#0f2419}
+.sw:hover .k{filter:brightness(1.12)}
+.sw:focus-visible{outline:2px solid var(--acc);outline-offset:4px}
+.cnt{display:flex;gap:12px;font-size:12.5px;color:var(--fg-3);white-space:nowrap}
+.cnt b{color:var(--fg-2);font-weight:600}
+.cnt .h b{color:var(--wait)}.cnt .f b{color:var(--warn)}
+.cnt .z{opacity:.45}
+.nm{font-weight:600;font-size:14.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.off .nm{color:var(--fg-2)}
+.last{color:var(--fg-3);font-size:12px;white-space:nowrap}
+.stg{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.ic{display:inline-grid;place-items:center;width:18px;height:18px;flex:none;color:var(--fg-3)}
+.ic svg{width:16px;height:16px}
+.sec[hidden]{display:none}
+/* 1 · Sections */
+.l1 .grp{margin-top:18px}
+.l1 .grp:first-child{margin-top:0}
+.l1 .stg{display:block;margin-bottom:6px}
+.l1 .row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line);text-decoration:none}
+.l1 .row:hover{background:var(--panel-2);margin-inline:-8px;padding-inline:8px;border-radius:8px}
+.l1 .mid{min-width:0;display:grid;gap:2px}
+.l1 .sub{display:flex;gap:4px 10px;align-items:center;min-width:0;flex-wrap:wrap}
+.l1 .cnt{justify-self:end}
+@media (max-width:520px){.l1 .cnt{display:none}.l1 .sub .mini{display:inline}}
+.mini{display:none;color:var(--fg-3);font-size:12px;white-space:nowrap}
+.mini b{color:var(--wait);font-weight:600}.mini i{font-style:normal;color:var(--warn);font-weight:600}
+/* 2 · Rail */
+.l2{position:relative;padding-left:22px}
+.l2::before{content:"";position:absolute;left:6px;top:8px;bottom:8px;width:2px;background:var(--line);border-radius:2px}
+.l2 .grp{position:relative;margin-top:16px}
+.l2 .grp:first-child{margin-top:0}
+.l2 .grp::before{content:"";position:absolute;left:-20px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--panel-3);border:2px solid var(--fg-3)}
+.l2 .grp.live::before{border-color:var(--ok);background:var(--ok-bg)}
+.l2 .stg{display:block;margin-bottom:6px}
+.l2 .row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:9px 12px;background:var(--panel-2);border-radius:10px;margin-top:6px;text-decoration:none}
+.l2 .row:hover{background:var(--panel-3)}
+.l2 .row .cnt{gap:10px}
+@media (max-width:520px){.l2 .row .cnt{display:none}}
+/* 3 · Cards */
+.l3 .grp{margin-top:18px}
+.l3 .grp:first-child{margin-top:0}
+.l3 .stg{display:block;margin-bottom:8px}
+.l3 .grid{display:grid;gap:8px}
+@media (min-width:560px){.l3 .grid{grid-template-columns:1fr 1fr}}
+.l3 .card{background:var(--panel-2);border-radius:12px;padding:12px 14px;display:grid;gap:8px;text-decoration:none;min-width:0}
+.l3 .card:hover{background:var(--panel-3)}
+.l3 .card .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.l3 .card .bot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+/* 4 · Flat */
+.l4 .filt{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.fb,.l4 .filt button{font-size:12.5px;font-weight:600;background:none;color:var(--fg-2);border:1px solid var(--line);border-radius:999px;padding:5px 11px;cursor:pointer}
+.fb[aria-pressed="true"],.l4 .filt button[aria-pressed="true"]{background:var(--panel-3);color:var(--fg);border-color:var(--edge)}
+.l4 .row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line);text-decoration:none}
+.l4 .row:first-of-type{border-top:0}
+.l4 .mid{min-width:0;display:grid;gap:2px}
+.l4 .mid .stg{font-size:11px}
+.l4 .cnt{justify-self:end}
+@media (max-width:520px){.l4 .cnt{display:none}.l4 .mini{display:inline}}
+/* 6 · Flat, switch right */
+.l6 .row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:14px;align-items:center;padding:10px 0;border-top:1px solid var(--line);text-decoration:none}
+.l6 .row:first-of-type{border-top:0}
+.l6 .row:hover{background:var(--panel-2);margin-inline:-8px;padding-inline:8px;border-radius:8px}
+.l6 .mid{min-width:0;display:grid;gap:2px}
+.l6 .mid .stg{font-size:11px}
+@media (max-width:520px){.l6 .cnt{display:none}.l6 .mini{display:inline}}
+/* 7 · Rail, flat rows, switch right */
+.l7{position:relative;padding-left:22px}
+.l7::before{content:"";position:absolute;left:6px;top:8px;bottom:8px;width:2px;background:var(--line);border-radius:2px}
+.l7 .grp{position:relative;margin-top:16px}
+.l7 .grp:first-child{margin-top:0}
+.l7 .grp::before{content:"";position:absolute;left:-20px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--panel-3);border:2px solid var(--fg-3)}
+.l7 .grp.live::before{border-color:var(--ok);background:var(--ok-bg)}
+.l7 .stg{display:block;margin-bottom:2px}
+.l7 .row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:14px;align-items:center;padding:9px 0;border-top:1px solid var(--line);text-decoration:none}
+.l7 .row:first-of-type{border-top:0}
+.l7 .row:hover{background:var(--panel-2);margin-inline:-8px;padding-inline:8px;border-radius:8px}
+.l7 .mid{min-width:0;display:grid;gap:2px}
+@media (max-width:520px){.l7 .cnt{display:none}.l7 .mini{display:inline}.l7{padding-left:18px}}
+/* 5 · Stage picker */
+.l5 .stages{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.l5 .stages button{font-size:12.5px;font-weight:600;background:var(--panel-2);color:var(--fg-2);border:0;border-radius:999px;padding:6px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.l5 .stages button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.l5 .stages button small{font-weight:600;opacity:.7}
+.l5 .row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line);text-decoration:none}
+.l5 .row:first-of-type{border-top:0}
+.l5 .mid{min-width:0;display:grid;gap:3px}
+.l5 .desc{color:var(--fg-2);font-size:13px;line-height:1.4;white-space:normal}
+.l5 .cnt{justify-self:end}
+@media (max-width:520px){.l5 .cnt{display:none}.l5 .mini{display:inline}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar"><h1>Company page, five structures</h1><div class="grp" id="pick"></div></div>
+  <p class="note">A company's page: every workflow it has, in journey order. Same Slate colors, same sixteen workflows (Hair's), five structures. Each row is the switch, the name, where it came from, and three counts (people, in flight, failed); on a phone the counts fold into a short note under the name. Tap a row to open the workflow; tap a switch to flip it.</p>
+  <div class="page">
+    <div class="chead"><h2>Save Your Hair</h2><button class="go">Go live</button></div>
+    <div class="tagrow"><span class="tag shadow">shadow</span><span>sends are written down, not delivered</span><span>·</span><span>America/New_York</span></div>
+    <div id="body"></div>
+  </div>
+  <p class="caption" id="cap"></p>
+</div>
+<script>
+  var STAGES=[["lead","Lead"],["booking","Booking"],["pre_call","Pre-call"],["call","Call"],["post_call","Post-call"],["closing","Closing"],["payments","Payments"],["reactivation","Reactivation"],["team","Team"],["engine","Engine"],["other","Other"]];
+  var W=[
+    {s:"lead",n:"Speed to lead",o:"def",on:true,p:41,h:2,f:0,l:"12 min ago",d:"A new lead gets a text inside five minutes and the closers a card."},
+    {s:"booking",n:"Call booked",o:"spec",on:true,p:23,h:0,f:0,l:"today 2:14 PM",d:"Owner, date, the pipeline card, tags, the video task, a Slack card."},
+    {s:"pre_call",n:"Pre-call sequence",o:"spec",on:true,p:8,h:3,f:1,l:"today 2:14 PM",d:"Booking email and text, a reply wait, then reminders down to ten minutes before."},
+    {s:"call",n:"Call recorded",o:"spec",on:true,p:19,h:0,f:0,l:"today 11:40 AM",d:"The recording lands: outcome, objections, the Slack summary, the sales call record."},
+    {s:"call",n:"No recording, no show",o:"spec",on:true,p:6,h:0,f:0,l:"yesterday 6:00 PM",d:"At the end of the day, a call with no recording and no outcome is a no-show."},
+    {s:"post_call",n:"Post-call follow-up",o:"def",on:false,p:0,h:0,f:0,l:"",d:"After the call: the recap, the next step, the nudges."},
+    {s:"post_call",n:"Cancellation rebook",o:"def",on:false,p:0,h:0,f:0,l:"",d:"A cancelled call gets a rebook text and a card."},
+    {s:"post_call",n:"No-show recovery",o:"def",on:false,p:0,h:0,f:0,l:"",d:"A no-show gets the rebook sequence."},
+    {s:"payments",n:"Payment received",o:"def",on:false,p:0,h:0,f:0,l:"",d:"A payment lands: the record, the thank-you, the Slack cheer."},
+    {s:"payments",n:"Payment failed",o:"def",on:false,p:0,h:0,f:0,l:"",d:"A failed payment: the retry text and the card."},
+    {s:"reactivation",n:"Reactivation",o:"def",on:false,p:0,h:0,f:0,l:"",d:"Old leads get a fresh touch on a schedule."},
+    {s:"team",n:"End-of-day reminder",o:"spec",on:true,p:2,h:0,f:0,l:"today 9:00 AM",d:"6 PM and 9 AM the next day: each closer gets a DM with the calls still unfiled."},
+    {s:"team",n:"EOD filed",o:"spec",on:true,p:2,h:0,f:0,l:"yesterday 7:12 PM",d:"A closer files the day: the summary to the channel, a check on their reminder."},
+    {s:"engine",n:"Health check",o:"spec",on:true,p:0,h:0,f:0,l:"today 2:00 PM",d:"Every hour: calendars, Slack, the CRM, the bindings."},
+    {s:"engine",n:"Calendar availability",o:"spec",on:true,p:0,h:0,f:0,l:"today 2:00 PM",d:"Every morning and on every booking: enough open slots in the next 7 days."},
+    {s:"engine",n:"Wrap-ups",o:"spec",on:true,p:0,h:0,f:0,l:"today 6:00 AM",d:"Daily, weekly and monthly: the numbers to Slack."},
+    {s:"other",n:"Booking confirmation",o:"def",on:false,p:14,h:0,f:0,l:"Oct 6",d:"Replaced by the pre-call sequence."},
+    {s:"other",n:"Appointment reminder",o:"def",on:false,p:14,h:0,f:0,l:"Oct 6",d:"Replaced by the pre-call sequence."}
+  ];
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  function sw(w,i){return '<button class="sw" role="switch" aria-checked="'+w.on+'" data-i="'+i+'" aria-label="'+esc(w.n)+' on or off"><span class="k"></span></button>';}
+  function tag(w){return w.o==='spec'?'<span class="tag spec">your spec</span>':'<span class="tag def">default</span>';}
+  function cnt(w){return '<span class="cnt tnum"><span class="'+(w.p?'':'z')+'"><b>'+w.p+'</b> people</span><span class="h '+(w.h?'':'z')+'"><b>'+w.h+'</b> in flight</span><span class="f '+(w.f?'':'z')+'"><b>'+w.f+'</b> failed</span></span>';}
+  function mini(w){var a=[];if(w.h)a.push('<b>'+w.h+'</b> in flight');if(w.f)a.push('<i>'+w.f+'</i> failed');if(!a.length&&w.p)a.push(w.p+' people');return a.length?'<span class="mini tnum">'+a.join(' · ')+'</span>':'';}
+  function last(w){return w.l?'<span class="last">'+(w.on?'':'off · ')+esc(w.l)+'</span>':(w.on?'<span class="last">never ran</span>':'<span class="last">off</span>');}
+  function groups(fn){return STAGES.map(function(s){var ws=W.map(function(w,i){return [w,i];}).filter(function(x){return x[0].s===s[0];});return ws.length?fn(s,ws):'';}).join('');}
+  var L={
+    1:["Sections","One section per stage in journey order, a small label on top, rows under it: the switch, the name with where it came from and when it last ran, the three counts on the right. Scheduled workflows (Team, Engine) come last; retired copies at the very end under Other.",function(){return '<div class="l1">'+groups(function(s,ws){return '<div class="grp"><span class="stg">'+s[1]+'</span>'+ws.map(function(x){var w=x[0],i=x[1];return '<a class="row'+(w.on?'':' off')+'" href="#">'+sw(w,i)+'<span class="mid"><span class="nm">'+esc(w.n)+'</span><span class="sub">'+tag(w)+last(w)+mini(w)+'</span></span>'+cnt(w)+'</a>';}).join('')+'</div>';})+'</div>';}],
+    2:["Rail","The journey as a line down the left: a dot per stage, lit when something in it is on, the stage's workflows hanging off it as small panels. Reads as the funnel the prospect moves through.",function(){return '<div class="l2">'+groups(function(s,ws){var live=ws.some(function(x){return x[0].on;});return '<div class="grp'+(live?' live':'')+'"><span class="stg">'+s[1]+'</span>'+ws.map(function(x){var w=x[0],i=x[1];return '<a class="row'+(w.on?'':' off')+'" href="#"><span class="mid" style="min-width:0;display:grid;gap:2px"><span class="nm">'+esc(w.n)+'</span><span class="sub" style="display:flex;gap:4px 10px;align-items:center;flex-wrap:wrap">'+tag(w)+last(w)+mini(w)+'</span></span>'+cnt(w)+sw(w,i)+'</a>';}).join('')+'</div>';})+'</div>';}],
+    3:["Cards","A card per workflow, two across on a laptop, one on a phone, grouped by stage. Name and switch on top, where it came from and the counts on the bottom. More air per workflow; a longer page.",function(){return '<div class="l3">'+groups(function(s,ws){return '<div class="grp"><span class="stg">'+s[1]+'</span><div class="grid">'+ws.map(function(x){var w=x[0],i=x[1];return '<a class="card'+(w.on?'':' off')+'" href="#"><span class="top"><span class="nm">'+esc(w.n)+'</span>'+sw(w,i)+'</span><span class="bot">'+tag(w)+'<span class="cnt tnum" style="display:flex"><span class="'+(w.p?'':'z')+'"><b>'+w.p+'</b> people</span><span class="h '+(w.h?'':'z')+'"><b>'+w.h+'</b> in flight</span><span class="f '+(w.f?'':'z')+'"><b>'+w.f+'</b> failed</span></span></span></a>';}).join('')+'</div></div>';})+'</div>';}],
+    4:["Flat","No sections: one flat list in journey order, the stage as a small word above each name, and three filters on top: all, on, needs a look (something failed or never ran). Shortest page; the stage is read, not scanned.",function(){return '<div class="l4"><div class="filt"><button aria-pressed="true">All · '+W.length+'</button><button>On · '+W.filter(function(w){return w.on;}).length+'</button><button>Off · '+W.filter(function(w){return !w.on;}).length+'</button><button>Needs a look · '+W.filter(function(w){return w.f;}).length+'</button></div>'+W.map(function(w,i){var st=STAGES.filter(function(s){return s[0]===w.s;})[0][1];return '<a class="row'+(w.on?'':' off')+'" href="#">'+sw(w,i)+'<span class="mid"><span class="stg">'+st+'</span><span class="nm">'+esc(w.n)+'</span><span class="sub" style="display:flex;gap:4px 10px;align-items:center;flex-wrap:wrap">'+tag(w)+last(w)+mini(w)+'</span></span>'+cnt(w)+'</a>';}).join('')+'</div>';}],
+    6:["Flat, switch right","Option 4's low profile with the switch on the right like 2 and 3: one flat list in journey order, the stage as a small word above each name, the counts then the switch on the right, the filters on top. On a phone the counts fold under the name and the switch stays at the right edge.",function(){return '<div class="l6"><div class="filt" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><button class="fb" aria-pressed="true">All · '+W.length+'</button><button class="fb">On · '+W.filter(function(w){return w.on;}).length+'</button><button class="fb">Off · '+W.filter(function(w){return !w.on;}).length+'</button><button class="fb">Needs a look · '+W.filter(function(w){return w.f;}).length+'</button></div>'+W.map(function(w,i){var st=STAGES.filter(function(s){return s[0]===w.s;})[0][1];return '<a class="row'+(w.on?'':' off')+'" href="#"><span class="mid"><span class="stg">'+st+'</span><span class="nm">'+esc(w.n)+'</span><span class="sub" style="display:flex;gap:4px 10px;align-items:center;flex-wrap:wrap">'+tag(w)+last(w)+mini(w)+'</span></span>'+cnt(w)+sw(w,i)+'</a>';}).join('')+'</div>';}],
+    7:["Rail, flat rows","The rail's sections (a line down the left, a dot per stage, lit when something in it is on) with option 6's rows: no panels, the counts then the switch at the right edge, the filters on top. The stage is the section, so the rows carry only the name.",function(){return '<div class="filt" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="fb" aria-pressed="true">All · '+W.length+'</button><button class="fb">On · '+W.filter(function(w){return w.on;}).length+'</button><button class="fb">Off · '+W.filter(function(w){return !w.on;}).length+'</button><button class="fb">Needs a look · '+W.filter(function(w){return w.f;}).length+'</button></div><div class="l7">'+groups(function(s,ws){var live=ws.some(function(x){return x[0].on;});return '<div class="grp'+(live?' live':'')+'"><span class="stg">'+s[1]+'</span>'+ws.map(function(x){var w=x[0],i=x[1];return '<a class="row'+(w.on?'':' off')+'" href="#"><span class="mid"><span class="nm">'+esc(w.n)+'</span><span class="sub" style="display:flex;gap:4px 10px;align-items:center;flex-wrap:wrap">'+tag(w)+last(w)+mini(w)+'</span></span>'+cnt(w)+sw(w,i)+'</a>';}).join('')+'</div>';})+'</div>';}],
+    5:["Stage picker","The stages as chips on top with a count in each; pick one and the list shows only that stage, with a line of what each workflow does. Chips wrap on a phone, never scroll sideways. Opens on Pre-call.",function(){var cur=L5cur;return '<div class="l5"><div class="stages">'+STAGES.map(function(s){var n=W.filter(function(w){return w.s===s[0];}).length;return n?'<button data-s="'+s[0]+'" aria-pressed="'+(s[0]===cur)+'">'+s[1]+' <small>'+n+'</small></button>':'';}).join('')+'</div>'+W.map(function(w,i){return w.s===cur?'<a class="row'+(w.on?'':' off')+'" href="#">'+sw(w,i)+'<span class="mid"><span class="nm">'+esc(w.n)+'</span><span class="desc">'+esc(w.d)+'</span><span class="sub" style="display:flex;gap:4px 10px;align-items:center;flex-wrap:wrap">'+tag(w)+last(w)+mini(w)+'</span></span>'+cnt(w)+'</a>':'';}).join('')+'</div>';}]
+  };
+  var L5cur='pre_call';
+  var cur='7';
+  var pick=document.getElementById('pick');
+  Object.keys(L).forEach(function(k){var b=document.createElement('button');b.textContent=k+' · '+L[k][0];b.setAttribute('aria-pressed',k===cur);b.addEventListener('click',function(){cur=k;draw();});pick.appendChild(b);});
+  function draw(){document.getElementById('body').innerHTML=L[cur][2]();document.getElementById('cap').textContent=L[cur][1];pick.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-pressed',b.textContent.charAt(0)===cur);});}
+  document.getElementById('body').addEventListener('click',function(e){
+    var s=e.target.closest('.sw');if(s){e.preventDefault();var w=W[+s.dataset.i];w.on=!w.on;draw();return;}
+    var st=e.target.closest('button[data-s]');if(st){L5cur=st.dataset.s;draw();return;}
+    if(e.target.closest('a.row,a.card'))e.preventDefault();
+  });
+  draw();
+</script>
+</body>
+</html>
