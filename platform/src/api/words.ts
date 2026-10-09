@@ -37,6 +37,19 @@ export function kindOf(n: Node): ChartKind {
   }
 }
 
+/** The classify step whose answer a gate reads, when there is one: the predicate names the path the step wrote into. */
+function jevBehind(def: Definition, n: Extract<Node, { type: "check" }>): { question: string; threshold: number } | null {
+  const refs = [...JSON.stringify(n.when).matchAll(/\{\{\s*([a-zA-Z0-9_.]+)/g)].map((m) => m[1]);
+  for (const c of def.nodes) if (c.type === "classify" && refs.includes(c.into)) return { question: c.question ?? "what does this mean", threshold: c.threshold };
+  return null;
+}
+/** A classify whose only reader is the gate right after it is drawn as that gate (with the Jev mark); one step, not two. */
+function foldsIntoGate(def: Definition, n: Extract<Node, { type: "classify" }>): boolean {
+  const next = def.edges.filter((e) => e.from === n.id).map((e) => def.nodes.find((x) => x.id === e.to));
+  if (next.length !== 1 || next[0]?.type !== "check") return false;
+  const readers = def.nodes.filter((x) => x.id !== n.id && JSON.stringify(x).includes(`{{${n.into}`));
+  return readers.length === 1 && readers[0].id === next[0].id;
+}
 const faceOf = (n: Node, bindings: Record<string, string> = {}): SlackFace | undefined => {
   if (n.type !== "slack_post" && n.type !== "notify_owner") return undefined;
   const as = n.as; const icons = as?.icon ? (Array.isArray(as.icon) ? as.icon : [as.icon]) : [];
@@ -104,7 +117,8 @@ export function logoOf(n: Node, bookingSource: "ghl" | "calendly" = "ghl"): stri
     case "send_sms": return "sms";
     case "send_email": return "email";
     case "slack_post": case "notify_owner": return "slack";
-    case "classify": case "analyze": return "ai";
+    case "classify": return "jev";
+    case "analyze": return "ai";
     case "wait": return "clock";
     case "wait_for_reply": return "reply";
     case "branch": return "fork";
@@ -124,11 +138,14 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
   const ctx = exampleContext(company, bindings);
   const nodes: ChartNode[] = def.nodes.map((n) => {
     const d = describeNode(n); const s = shortTitle(full, n);
+    // a gate that decides on what Jev said: the Jev mark, and the words say so (what was asked, how sure it had to be)
+    const jevRef = n.type === "check" ? jevBehind(full, n) : null;
+    if (jevRef) d.detail = `Jev answered “${jevRef.question}” and had to be at least ${Math.round(jevRef.threshold * 100)}% sure; a reading a careful person would doubt counts as unclear. ${d.detail ?? ""}`.trim();
     let quote: string | undefined;
     try { const ex = nodeExamples(n, ctx, company.timezone)[0]?.example.text; quote = n.type === "slack_post" || n.type === "notify_owner" ? ex?.trim() : n.type === "send_sms" || n.type === "send_email" || n.type === "note" ? strip(ex) : undefined; } catch { quote = d.quote; }
     const cond = n.only_if ? `Only if ${predicateWords(n.only_if)}${n.type === "slack_post" && n.thread_only ? "; and only when the post it reacts to is in Slack" : ""}` : n.type === "slack_post" && n.thread_only ? "Only when the post it reacts to is in Slack; nothing is posted otherwise" : n.type === "pipeline_card" && n.if_missing === "skip" ? "Only if a card is already on that board; this step never creates one" : n.type === "pipeline_card" && !n.stage ? "Only when a card is already on that board: there is no stage to make one in" : n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : undefined;
     // the AI reading a reply is plumbing between the wait and the fork; the chart routes around it, the popover of the fork says so
-    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), hidden: n.type === "classify" || undefined, stop: n.type === "check" ? exitWords(n.else_exit).replace(/^(Stop|Done): /, "") : undefined, logo: logoOf(n, bookingSource) };
+    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), hidden: (n.type === "classify" && (n.domain === "reply_intent" || foldsIntoGate(full, n))) || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource), stop: n.type === "check" ? exitWords(n.else_exit).replace(/^(Stop|Done): /, "") : undefined };
   });
   const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e), else: e.else || undefined }));
   return { nodes, edges };
