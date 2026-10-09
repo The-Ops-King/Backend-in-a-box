@@ -155,7 +155,7 @@
         "channel": "{{slack.channel.calls}}",
         "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{recording.share_url | link:Fathom | line:*Recording:*}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{recording.duration_min | default:?}} min\n\n*Outcome:* {{vars.notes.disposition | default:unclear}}\n*Pain:* {{vars.notes.pain | bullets | default:—}}\n*Goal:* {{vars.notes.desire | bullets | default:—}}\n*Objections:* {{vars.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
         "as": {
-          "name": "Call recorded",
+          "name": "Sales call recorded",
           "icon": [
             ":studio_microphone:",
             ":headphones:",
