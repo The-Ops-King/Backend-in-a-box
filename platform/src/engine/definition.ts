@@ -38,7 +38,7 @@ export const OnStale = z.enum(["skip", "substitute", "escalate"]);
 // ---- nodes (the instruction set, 02-data-model §10) ----------------------------
 /** Who a Slack post appears from: a name and an emoji / image URL, or a list of icons one is picked from per post. */
 const Persona = z.object({ name: z.string().optional(), icon: z.union([z.string(), z.array(z.string())]).optional() });
-const base = { id: z.string().min(1), title: z.string().optional() };   // title: the words the dashboard shows for this step, when the generic ones are not good enough
+const base = { id: z.string().min(1), title: z.string().optional(), only_if: Predicate.optional() };   // only_if: the step runs when this holds, else it is skipped (a sometimes-step on the chart)   // title: the words the dashboard shows for this step, when the generic ones are not good enough
 export const Schedule = z.object({ every: z.string().regex(/^\d+(m|h|d)$/).optional(), at: z.string().regex(/^\d{2}:\d{2}$/).optional(), days: z.array(z.number().int().min(1).max(7)).optional(), day_of_month: z.number().int().min(1).max(28).optional(), for: z.enum(["company", "closer"]).default("company") })
   .refine((s) => !!s.every !== !!s.at, { message: "a schedule is either every <interval> or at <time>, not both, not neither" });
 export type Schedule = z.infer<typeof Schedule>;
@@ -61,7 +61,7 @@ export const Node = z.discriminatedUnion("type", [
   // thread_of: the id of an earlier slack_post in this run; this one goes into that message's thread (the scorecard under the call post)
   // tag: remember this post under a name (rendered, e.g. "eod-reminder:{{user.id}}:{{user.eod.day}}") so a later run can thread under it: thread_of "tag:<that name>"
   // react: an emoji put on the parent post (thread_of) once this reply is up, e.g. white_check_mark
-  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string(), as: Persona.optional(), thread_of: z.string().optional(), tag: z.string().optional(), react: z.string().optional() }),
+  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string(), as: Persona.optional(), thread_of: z.string().optional(), thread_only: z.boolean().default(false), tag: z.string().optional(), react: z.string().optional() }),   // thread_only: a reaction or note on an existing post; nothing when that post is not there
   // An HTTP call out: Airtable, a Zap or Make scenario, Apps Script, anything with a URL. Headers and body are templates; {{secret.<key>}} resolves
   // in headers and body only here and is never written to the ledger. The response (JSON when it is) lands in vars.<into>.
   z.object({ ...base, type: z.literal("webhook"), url: z.string(), method: z.enum(["POST", "PUT", "PATCH", "GET", "DELETE"]).default("POST"), headers: z.record(z.string()).default({}), body: z.unknown().optional(), into: z.string().optional(), on_error: z.enum(["fail", "skip"]).default("fail") }),

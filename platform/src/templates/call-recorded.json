@@ -69,6 +69,20 @@
         "status": "won"
       },
       {
+        "id": "o4",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "react": "white_check_mark",
+        "as": {
+          "name": "Showed",
+          "icon": ":white_check_mark:"
+        },
+        "template": "✅ Showed · {{recording.duration_min | default:?}} min with {{recording.closer.name | default:the closer}}. The review is in the calls channel.",
+        "title": "React ✅ on the booking post"
+      },
+      {
         "id": "k1",
         "type": "set_var",
         "key": "call_key",
@@ -149,7 +163,8 @@
             ":speech_balloon:"
           ]
         },
-        "title": "Post call review in Slack"
+        "title": "Post call review in Slack",
+        "tag": "recording:{{recording.id}}"
       },
       {
         "id": "s2",
@@ -214,7 +229,7 @@
       },
       {
         "from": "o3",
-        "to": "k1"
+        "to": "o4"
       },
       {
         "from": "k1",
@@ -247,6 +262,10 @@
       {
         "from": "n1",
         "to": "x1"
+      },
+      {
+        "from": "o4",
+        "to": "k1"
       }
     ]
   }

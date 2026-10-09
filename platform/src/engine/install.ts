@@ -36,6 +36,7 @@ export type InstallInput = {
   /** Where the engine says what broke (D33): a Slack channel id, email addresses (needs resendKey + emailFrom), a webhook (a Zap). */
   alerts?: { slackChannel?: string; email?: string; emailFrom?: string; webhook?: string; resendKey?: string; asName?: string; asIcon?: string };
   prompts?: Record<string, string>;      // prompt.<name> overrides; defaults from src/prompts fill the rest
+  slackToken?: string;                   // the Slack app's bot token (xoxb-…); verified with Slack, stored encrypted; "disconnect" removes it
   contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
   /** Who takes calls: emails (or CRM user ids) from the roster. Only closers get the end-of-day link and DM (D34); everyone else on the roster is staff. Omitted: roles stay as they are. */
   closers?: string[];
@@ -80,6 +81,14 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (input.booking.userEmail && !user) throw new Error(`no Calendly organization member has the email ${input.booking.userEmail}`);
     booking = { source: "calendly", token: input.booking.token, organization: me.organization, user, phoneQuestion: input.booking.phoneQuestion, setterQuestion: input.booking.setterQuestion };
   }
+  // the Slack token is checked with Slack outside the transaction, like the booking source
+  let slackTeam: { team_id: string } | null = null;
+  if (input.slackToken && input.slackToken !== "disconnect") {
+    const r = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: { Authorization: `Bearer ${input.slackToken}` } });
+    const d = (await r.json()) as { ok: boolean; team_id?: string; error?: string };
+    if (!d.ok || !d.team_id) throw new Error(`Slack refused the token: ${d.error ?? "no team"}`);
+    slackTeam = { team_id: d.team_id };
+  }
   return asOperator(async (c) => {
     const storedPit = input.pit ? null : await one<{ value: Buffer }>(c, "select b.value from bindings b join companies co on co.id=b.company_id where co.slug=$1 and b.key='secret.ghl_pit'", [input.slug]);
     const pit = input.pit ?? (storedPit ? decrypt(storedPit.value) : null);
@@ -105,6 +114,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (input.whop?.webhookSecret) await bind("secret.whop_webhook", "secret", input.whop.webhookSecret);
     if (input.whop?.apiKey) await bind("secret.whop_api_key", "secret", input.whop.apiKey);
     for (const [name, id] of Object.entries(input.slack ?? {})) await bind(`slack.channel.${name}`, "channel", id);
+    if (input.slackToken === "disconnect") await c.query("delete from slack_connections where company_id=$1", [companyId]);
+    else if (slackTeam) await c.query("insert into slack_connections (company_id, team_id, bot_token) values ($1,$2,$3) on conflict (company_id) do update set team_id=excluded.team_id, bot_token=excluded.bot_token, connected_at=now()", [companyId, slackTeam.team_id, encrypt(input.slackToken!)]);
     if (input.recording?.webhookSecret) await bind("secret.fathom_webhook", "secret", input.recording.webhookSecret);
     if (input.recording?.apiKey) await bind("secret.fathom_api_key", "secret", input.recording.apiKey);
     if (input.anthropicKey) await bind("secret.anthropic_key", "secret", input.anthropicKey);

@@ -129,8 +129,10 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
     });
     const r = await tick(fake, undefined, companyId, fakeProbes);
     expect(r.waiting).toBe(1); expect(tags).toContain("unconfirmed");
-    const steps = await asOperator((c) => many<{ node_id: string; status: string }>(c, "select s.node_id, s.status from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and r.reentry_key='appointment:timeout' order by s.started_at", [companyId]));
-    expect(steps.map((x) => x.node_id).slice(0, 3)).toEqual(["w1", "n_unc", "n_unc_slack"]);
+    const steps = await asOperator((c) => many<{ node_id: string; status: string }>(c, "select s.node_id, s.status from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and r.reentry_key='appointment:timeout' order by s.id", [companyId]))   // insertion order: a wait that is already due is stamped with its due time, which can predate the rows before it;
+    // the timeout edge, not the reply edge: order is not asserted (a wait that is already due is stamped with its due time, so rows do not sort by when they ran)
+    const ids = steps.map((x) => x.node_id);
+    expect(ids).toEqual(expect.arrayContaining(["w1", "n_unc", "n_unc_slack"])); expect(ids).not.toContain("c1"); expect(ids).not.toContain("n_conf");
   });
 
   it("disposition: showed + follow_up emits call.held and starts post-call follow-up; noshow starts no-show recovery once", async () => {
@@ -142,7 +144,7 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
       const pc = await one<{ status: string }>(c, "select r.status from runs r join workflows w on w.id=r.workflow_id where w.name='Post-call follow-up' and r.appointment_id=$1", [apptId]);
       expect(pc?.status).toBe("active");
       const r2 = await recordDisposition(c, { companyId, appointmentId: apptId, outcomeTermId: noshow!.id });
-      expect(r2.runs).toBe(1);
+      expect(r2.runs).toBe(2);   // no-show recovery (the prospect) and no-show noted (👻 on the booking post, D44)
       const r3 = await recordDisposition(c, { companyId, appointmentId: apptId, outcomeTermId: noshow!.id });   // same appointment again → reentry blocks a second run
       expect(r3.runs).toBe(0);
       const ns = await many(c, "select 1 from runs r join workflows w on w.id=r.workflow_id where w.name='No-show recovery' and r.appointment_id=$1", [apptId]);

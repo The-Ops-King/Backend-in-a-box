@@ -1207,5 +1207,15 @@ that event get emojis and threads."
   posts to the channel and says so, as `thread_of` always has.
 - The dashboard shows a thread reply indented under a thread line and names the reaction it leaves.
 - Still their own message: the booking card, a recording's review, a payment, a signed agreement, the day's
-  summary. Open: whether a reschedule, a no-show and a recorded call should also react on the booking post
-  (asked in the session).
+  summary.
+- Tyler, same day: "reschedule, yes. No-show, the ghost is good. Show: when the recording lands; the call review
+  is its own thread. Payment: its own alert, plus a cash emoji on the lead and the booked call." So: a reschedule
+  is 🔁 with the new time in the booking thread and no new card (Call booked branches on `event._type`);
+  a no-show, however noticed, is 👻 on the booking post (the `no-show-noted` template, once per appointment);
+  a show is ✅ on the booking post when the recording lands, and the review stays its own message, remembered
+  as `recording:<id>`; a payment stays its own message and adds 💵 on the person's latest booking post and call
+  review. `thread_only: true` on a post means "nothing when the post it reacts to is not there", so decoration
+  never becomes a stray channel message. `only_if` on any node runs it only when a fact holds, shown as a
+  sometimes-step; it replaces a fork whose branches would carry one step each.
+- Hair's Slack app was reinstalled with reactions:write the same day; the token is stored by the install API
+  (`slackToken`), never in the repo.

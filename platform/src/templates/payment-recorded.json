@@ -158,6 +158,34 @@
         "title": "Post payment in Slack"
       },
       {
+        "id": "p_book",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{contact.latest_appointment_id}}",
+        "thread_only": true,
+        "react": "dollar",
+        "as": {
+          "name": "Payment",
+          "icon": ":dollar:"
+        },
+        "template": "💵 Paid {{event.amount | money}}{{event.kind | prefix: ·}}. Details in the payments channel.",
+        "title": "React 💵 on the booking post"
+      },
+      {
+        "id": "p_rev",
+        "type": "slack_post",
+        "channel": "{{slack.channel.calls}}",
+        "thread_of": "tag:recording:{{contact.latest_recording_id}}",
+        "thread_only": true,
+        "react": "dollar",
+        "as": {
+          "name": "Payment",
+          "icon": ":dollar:"
+        },
+        "template": "💵 Paid {{event.amount | money}}{{event.kind | prefix: ·}}.",
+        "title": "React 💵 on the call review"
+      },
+      {
         "id": "x1",
         "type": "exit",
         "reason": "recorded"
@@ -223,7 +251,7 @@
       },
       {
         "from": "n5",
-        "to": "x1"
+        "to": "p_book"
       },
       {
         "from": "n4",
@@ -289,6 +317,14 @@
       {
         "from": "r2",
         "to": "n5"
+      },
+      {
+        "from": "p_book",
+        "to": "p_rev"
+      },
+      {
+        "from": "p_rev",
+        "to": "x1"
       }
     ]
   }

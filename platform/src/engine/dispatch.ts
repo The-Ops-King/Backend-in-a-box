@@ -27,7 +27,7 @@ export async function startRun(c: PoolClient, args: { companyId: string; workflo
   const row = await one<{ id: string }>(c, `insert into runs (company_id, workflow_id, workflow_version, contact_id, user_id, opportunity_id, appointment_id, trigger_id, triggered_by_event, status, current_node, next_run_at, context, reentry_key)
     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'active',$10,now(),$11,$12)
     on conflict (workflow_id, reentry_key) do nothing returning id`,
-    [args.companyId, args.workflowId, wf.current_version, args.contactId, args.userId ?? null, args.opportunityId ?? null, args.appointmentId ?? null, args.triggerId ?? null, args.event.id, args.triggerNodeId, { event: args.event.data, vars: {} }, key]);
+    [args.companyId, args.workflowId, wf.current_version, args.contactId, args.userId ?? null, args.opportunityId ?? null, args.appointmentId ?? null, args.triggerId ?? null, args.event.id, args.triggerNodeId, { event: { ...args.event.data, _type: args.event.event_type, _source: args.event.source }, vars: {} }, key]);
   if (!row) {
     if (args.schedule) return null;   // this period already ran: nothing to remember
     // the key is held by a run still in flight: remember this trigger on it. If that run stops at a gate it replays us (D30: payment and signature in the same minute).

@@ -112,6 +112,8 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
 export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome> {
   d.ctx.now = d.now.toISO();   // {{now | date:...}} in templates; refreshed every node so a persisted context never carries a stale clock
   const next = single(d, node.id);
+  // only_if: a step that runs some of the time; the chart shows it with the blue mark and this condition
+  if (node.only_if && node.type !== "trigger" && !evaluate(node.only_if, d.ctx)) return { status: "skipped", next, result: { kind: "noop", why: `only if ${predicateWords(node.only_if)}; it is not` } };
   switch (node.type) {
     case "trigger": return { status: "ok", next };
     case "exit": return { status: "exit", reason: node.reason };
@@ -206,6 +208,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       let parentTs: string | undefined, parentChannel: string | undefined, tagged: string | undefined;
       if (node.thread_of?.startsWith("tag:")) { tagged = render(node.thread_of.slice(4), d.ctx, env(d)); const p = await one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, tagged]); parentTs = p?.ts; parentChannel = p?.channel; }
       else if (node.thread_of) parentTs = resolvePath(d.ctx, `vars.__slack.${node.thread_of}`) as string | undefined;
+      if (node.thread_only && !parentTs) { await recordSend(d, node, "slack", text, "suppressed", "no post to reply to"); return { status: "skipped", next, result: { kind: "noop", why: "nothing to react to: the post this replies to is not in Slack (booked before the engine, or its channel was unbound)" } }; }
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already posted (idempotency)" } };
       // Slack is the team, not the CRM or the contact: in shadow the post still goes out, marked, so the team sees what the engine would do (D31)
       const token = decrypt(conn.bot_token), postTo = parentTs && parentChannel ? parentChannel : channelId;

@@ -1,0 +1,70 @@
+{
+  "slug": "no-show-noted",
+  "name": "No-show noted",
+  "category": "no_show",
+  "stage": "post_call",
+  "sort": 4,
+  "origin": "spec",
+  "description": "A no-show, however it was noticed (the CRM marked it, the closer's end-of-day form said so, or the engine assumed it at the end of the day with no recording), lands on the booking post in Slack as a 👻 reaction and a line in its thread. No new message: the team reads the booking's story in one place (D44).",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_appointment",
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "appointment.status_changed",
+        "match": {
+          "eq": [
+            "{{event.status.to}}",
+            "noshow"
+          ]
+        }
+      },
+      {
+        "id": "t2",
+        "type": "trigger",
+        "event": "appointment.outcome",
+        "match": {
+          "eq": [
+            "{{event.outcome}}",
+            "noshow"
+          ]
+        }
+      },
+      {
+        "id": "n1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "react": "ghost",
+        "as": {
+          "name": "No-show",
+          "icon": ":ghost:"
+        },
+        "template": "👻 No-show for the call {{appointment.starts_at | date_company}} with {{appointment.closer.name | default:the closer}}.",
+        "title": "React 👻 on the booking post"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "noted"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "t2",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "x1"
+      }
+    ]
+  }
+}
