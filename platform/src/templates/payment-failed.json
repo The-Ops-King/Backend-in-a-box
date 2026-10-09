@@ -22,7 +22,7 @@
         "id": "n1",
         "type": "slack_post",
         "channel": "{{slack.channel.payments}}",
-        "template": "*Payment failed:* ${{event.amount | money}}{{event.kind | words | prefix: ·}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.mention | default:unassigned}}, please follow up with them.{{contact.setter.name | line:*Setter:*}}",
+        "template": "*Payment failed:* ${{event.amount | money}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.mention | default:unassigned}}, please follow up with them.{{contact.setter.name | line:*Setter:*}}",
         "as": {
           "name": "Payment failed",
           "icon": [
