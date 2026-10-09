@@ -508,13 +508,14 @@ afterwards, what is parked for later, and the readiness list. Nothing external i
 Shadow posts to Slack ARE posted, with a "🧪 shadow —" prefix, when Slack is connected (D31): the team is not
 the CRM or the contact, and seeing the posts is the point of the run. The send is recorded as `shadow`.
 
-Every company climbs a ladder (D52): **shadow** → **test** → **rehearsal** → **live**, the control at the
-top of its page. Shadow is below. **Test** writes to the CRM and sends, but only for the team's own test
-contacts: tagged `sys-test` in the CRM, or an email on a test domain (`test.domains`, set at install as
-`testDomains`); a run about anyone else never starts, and a send to anyone else is suppressed even if a run
-reached it. **Rehearsal** keeps only the domain rule, so a contact that came in through the real funnel
-with nothing special on it is the test. Posts to Slack before live carry a 🧪 *mode* prefix. Workflows
-still go on one at a time with their own switches.
+Every company climbs a ladder (D52): **shadow** → **test** → **live**, the control at the top of its page.
+Shadow is below: everyone runs, nothing is written or sent, the record says what would have happened (which
+card, which stage, which tag). **Test** is the dress rehearsal: only the team's own test contacts, tagged
+`sys-test` in the CRM or with an email on a test domain (`test.domains`, set at install as `testDomains`),
+and for them everything is real: CRM writes, emails, texts (when SMS is on). A run about anyone else never
+starts, and a send to anyone else is suppressed even if a run reached it. Posts to Slack before live carry a
+🧪 *mode* prefix. Live is then taken in sections with the workflows' own switches: the simple ones first,
+then the ones that only note things, then one system at a time.
 
 Every company is in **shadow** until someone presses **Go live**. In shadow the engine polls,
 dispatches, runs and branches exactly as live, renders every message, and writes nothing to GHL:

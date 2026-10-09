@@ -24,10 +24,11 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
       await c.query(`update runs r set born_in=co.mode from companies co where co.id=r.company_id`);
     }
     // D52: the mode ladder; the check constraints follow the list in one place
+    await c.query(`update companies set mode='test' where mode='rehearsal'`); await c.query(`update runs set born_in='test' where born_in='rehearsal'`);   // the rung existed for an hour (D52 addendum)
     await c.query(`alter table companies drop constraint if exists companies_mode_check`);
-    await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','test','rehearsal','live'))`);
+    await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','test','live'))`);
     await c.query(`alter table runs drop constraint if exists runs_born_in_check`);
-    await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('shadow','test','rehearsal','live'))`);
+    await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('shadow','test','live'))`);
     await c.query(`alter table companies add column if not exists reply_retention_days int not null default 7`);
     await c.query(`alter table companies add column if not exists sends_retention_days int not null default 30`);
     await c.query(`alter table sends drop constraint if exists sends_status_check`);

@@ -54,7 +54,7 @@ export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record
     where t.company_id=$1 and t.event_type=$2 and t.enabled and w.enabled`, [e.company_id, e.event_type]);
   const started: string[] = [];
   if (!triggers.length) return started;
-  // D52: in test or rehearsal a run about a contact starts only for a contact that passes the mode
+  // D52: in test a run about a contact starts only for a contact that passes the mode
   if (e.contact_id) { const m = await modeOf(c, e.company_id); const pass = await contactPasses(c, e.company_id, e.contact_id, m.mode, m.bindings); if (!pass.ok) return started; }
   for (const t of triggers) {
     const ver = await one<{ definition: unknown }>(c, "select v.definition from workflow_versions v join workflows w on w.id=v.workflow_id and w.current_version=v.version where w.id=$1", [t.workflow_id]);

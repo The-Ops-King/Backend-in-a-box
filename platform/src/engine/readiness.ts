@@ -35,8 +35,8 @@ export async function companyReadiness(c: PoolClient, companyId: string, slugPre
   });
   const issues: Issue[] = [];
   if (co.mode !== "live") issues.push({ level: "warning", text: `Company is in ${co.mode}: ${MODE_WORDS[co.mode].about}.` });
-  if ((co.mode === "test" || co.mode === "rehearsal") && !testDomains(bindingsOf(await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key=$2", [companyId, TEST_DOMAINS_KEY]))).length)
-    issues.push({ level: co.mode === "rehearsal" ? "blocker" : "warning", text: co.mode === "rehearsal" ? "Rehearsal needs a test email domain (test.domains); without one no contact passes." : "No test email domain (test.domains): in test only contacts tagged sys-test pass.", href: `${slugPrefix}/setup` });
+  if (co.mode === "test" && !testDomains(bindingsOf(await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key=$2", [companyId, TEST_DOMAINS_KEY]))).length)
+    issues.push({ level: "warning", text: "No test email domain (test.domains): in test only contacts tagged sys-test pass.", href: `${slugPrefix}/setup` });
   if (!slack) issues.push({ level: "blocker", text: "Slack is not connected: every Slack post (team alerts, booking cards, call reviews, unlinked payments) is recorded but never posted.", href: `${slugPrefix}/setup#slack` });
   if (!co.sms_enabled) issues.push({ level: "warning", text: "SMS is off for this company: text steps are skipped and the run continues." });
   for (const w of workflows) {

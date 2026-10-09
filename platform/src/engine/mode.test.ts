@@ -1,4 +1,4 @@
-/** The mode ladder (D52): in test only sys-test or test-domain contacts start runs and receive sends; in rehearsal only test-domain contacts; a run in flight stops when its contact no longer passes. */
+/** The mode ladder (D52): in test only sys-test or test-domain contacts start runs and receive sends; a run in flight stops when its contact no longer passes. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -56,18 +56,15 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     expect(after.some((x) => /not a test contact/.test(x.exit_reason ?? "") || /not a test contact/.test(x.suppressed_reason ?? ""))).toBe(true);
   });
 
-  it("rehearsal: the tag no longer counts, the domain still does; a run in flight about a contact that stopped passing exits before writing", async () => {
-    await setMode("rehearsal");
+  it("test: a run in flight about a contact that stops passing exits at its next step, before any write", async () => {
     const tagged = await contact("L4", "other@gmail.com", ["sys-test"]);
-    const domain = await contact("L5", "again@jtylerray.com", []);
-    expect(await lead(tagged)).toHaveLength(0); expect((await lead(domain)).length).toBeGreaterThan(0);
-    expect(await asOperator((c) => contactPasses(c, companyId, tagged, "rehearsal", { "test.domains": "jtylerray.com" }))).toMatchObject({ ok: false });
-    // a run that started in test for a tagged-only contact, not yet ticked when the company moves up to rehearsal: it exits at its next step, before any write
-    await setMode("test"); expect((await lead(tagged)).length).toBeGreaterThan(0); await setMode("rehearsal");
+    expect((await lead(tagged)).length).toBeGreaterThan(0);   // started in test, not yet ticked
+    await asOperator((c) => c.query("update contacts set tags='{}' where id=$1", [tagged]));   // the tag comes off before the first step
     await tick(fake, undefined, companyId);
     const exited = await asOperator((c) => many<{ exit_reason: string; born_in: string }>(c, "select exit_reason, born_in from runs where company_id=$1 and contact_id=$2", [companyId, tagged]));
-    expect(exited.map((r) => r.exit_reason).join(" ")).toMatch(/not a test contact: rehearsal mode/); expect(exited[0].born_in).toBe("test");
+    expect(exited.map((r) => r.exit_reason).join(" ")).toMatch(/not a test contact: test mode/); expect(exited[0].born_in).toBe("test");
     expect(await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and r.contact_id=$2 and s.node_type<>'trigger'", [companyId, tagged]))).toMatchObject({ n: "0" });
+    expect(await asOperator((c) => contactPasses(c, companyId, tagged, "test", { "test.domains": "jtylerray.com" }))).toMatchObject({ ok: false });
   });
 
   it("live and shadow: everyone passes", async () => {

@@ -1352,3 +1352,15 @@ removes every synthetic appointment the test harness staged (`source='test'`, Ca
 the events, recordings and form submissions that pointed at it. Real CRM facts stay: contacts, their tags and real
 appointments are the CRM's, not ours to delete. A live-born run that pointed at a synthetic booking keeps its history
 and loses the pointer.
+
+### D52 addendum. Three rungs, not four (2026-10-09)
+
+Tyler: "test and dress rehearsal are the same… ghost, everyone with nothing moving, but we check what WOULD have
+happened (including making sure it has the right pipeline stages and such). Then combine dress-rehearsal / test:
+sys-test and @jtylerray.com, actually move and test and message ONLY that one. Then live in pre-determined sections."
+The rehearsal rung is gone (it lived an hour; the migration folds it into test). Shadow is the ghost: every run's
+steps record the card, stage, tag and message that would have happened. Test is the dress rehearsal with real
+effects for test contacts alone. Live arrives by workflow switch in three sections: the simple ones that one test
+proves (payments, agreements), then the ones that only note things (call outcome, end of day, wrap-ups, health,
+calendar watch), then one system at a time (booking, cancellation, recordings, setter calls, the chase; pre-call
+last of all), so a break is one switch away from being undone.
