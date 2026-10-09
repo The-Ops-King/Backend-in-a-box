@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { api, usePage, useAction, type WorkflowPage, type RunListRow } from "~/api";
 import { Crumb, Empty, Ic, NameLine, Sec, Sheet, Skeleton, Strip, Switch, Tag, Tiles, toast } from "~/ui/pieces";
 import { FlowChart, Legend, NodeWords } from "~/ui/chart";
+import { Steps } from "~/ui/steps";
 import { ago, shortDate } from "~/fmt";
 
 export function Workflow() {
@@ -42,7 +43,7 @@ function RunSheet({ r, tz, slug }: { r: RunListRow; tz: string; slug: string }) 
   return <>
     <h4>{r.who}</h4>
     <p className="m">{r.at} · started {shortDate(r.started_at, tz)}{q.data?.run.appointment ? ` · call ${shortDate(q.data.run.appointment.starts_at, tz)}` : ""}</p>
-    {q.data ? <div className="steps">{[...q.data.feed, ...q.data.next].map((s, i) => <div key={i} className={`s ${s.state}`}><Ic state={s.state} /><span className="t">{s.title}{s.meta ? ` · ${s.meta}` : ""}{s.state !== "skip" && s.note ? <small>{s.note}</small> : null}</span></div>)}</div> : <Skeleton />}
+    {q.data ? <Steps items={[...q.data.feed, ...q.data.next]} tz={tz} /> : <Skeleton />}
     <div className="foot"><Link className="btn" to={`/app/c/${slug}/r/${r.id}`}>Open this run</Link>{r.contact_id ? <Link className="btn" to={`/app/c/${slug}/contacts/${r.contact_id}`}>Open the contact</Link> : null}</div>
   </>;
 }

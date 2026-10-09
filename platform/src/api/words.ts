@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import type { Definition, Node, Edge } from "@/engine/definition";
-import { branchTitle, collapsePlumbing, describeNode, durationWords, edgeWords, exitWords, predicateWords, waitWords, templateWords, walkOrder } from "@/engine/describe";
+import { branchTitle, collapsePlumbing, describeNode, durationWords, edgeWords, exitWords, humanWords, pathWords, predicateWords, waitWords, templateWords, walkOrder } from "@/engine/describe";
 import { exampleContext, nodeExamples } from "@/engine/example";
 import { scheduleWords } from "@/engine/when";
 import type { Projected } from "@/engine/project";
@@ -15,7 +15,7 @@ export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: str
 export type ChartEdge = { from: string; to: string; label: string; else?: boolean };
 export type Chart = { nodes: ChartNode[]; edges: ChartEdge[] };
 
-export type StepState = "ok" | "skip" | "warn" | "here" | "next" | "stop";
+export type StepState = "ok" | "ghost" | "skip" | "warn" | "here" | "next" | "stop";
 export type PathItem = { node_id: string; title: string; meta?: string; kind: ChartKind; state: StepState; at: string | null; note?: string; channel?: "sms" | "email" | "slack"; words?: string | null; send_state?: string };
 
 export function kindOf(n: Node): ChartKind {
@@ -50,6 +50,14 @@ export function shortTitle(def: Definition, n: Node): { title: string; meta?: st
     case "slack_post": return { title: n.thread_of ? "Reply in the thread" : "Tell the team" };
     case "notify_owner": return { title: "Nudge the owner" };
     case "classify": return { title: "AI reads the reply" };
+    case "analyze": return { title: `AI: ${({ classify: "is it a sales call?", notes: "call notes", rubric: "scores the call", objections: "objections" } as Record<string, string>)[n.into] ?? humanWords(n.into)}` };
+    case "update_contact": return { title: "Update the contact" };
+    case "pipeline_card": return { title: n.stage ? (n.if_missing === "skip" ? "Move the card" : "Create or move the card") : "Update the card", meta: n.stage ? pathWords(n.stage) : undefined };
+    case "crm_record": return { title: `Write the ${humanWords(n.object.replace(/^custom_objects\./, ""))} record` };
+    case "create_task": return { title: n.assign_to ? `Task for ${pathWords(n.assign_to)}` : "Task for the team" };
+    case "note": return { title: "Leave a note" };
+    case "record_outcome": return { title: `Record the call as ${n.outcome.replace(/_/g, " ")}` };
+    case "update_appointment": return { title: `Mark the call ${Object.values(n.set).map((v) => String(v).replace(/_/g, " ")).join(", ")}` };
     case "exit": return { title: exitWords(n.reason) };
     default: { const d = describeNode(n); return { title: d.title }; }
   }
@@ -118,14 +126,19 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
     const last = i === steps.length - 1;
     let state: StepState = s.status === "ok" ? "ok" : s.status === "skipped" || s.status === "stale" ? "skip" : s.status === "failed" ? "warn" : s.status === "waiting" ? (live && run.current_node === s.node_id && !steps.slice(i + 1).some((x) => x.node_id === s.node_id) ? "here" : "ok") : s.status === "paused" ? "stop" : "ok";
     if (s.node_type === "wait" && state === "ok" && last && live && run.current_node === s.node_id) state = "here";
+    if (state === "ok" && s.result?.shadow) state = "ghost";
     void last;
     // a wait row that already fired reads as done; a wait row the run still sits on reads as "here" with when it moves
     const send = sendFor(s.node_id);
     const item: PathItem = { node_id: s.node_id, title: t.title, meta: t.meta, kind: n ? kindOf(n) : "other", state, at: (state === "here" ? run.next_run_at?.toISOString() : null) ?? s.started_at.toISOString(), note: noteOf(s, tz) };
     if (n) item.channel = channelOf(n);
+    if (state === "ghost") item.note = [item.note, "Done in shadow: nothing was written to the CRM or sent to anyone; this is what it would have done."].filter(Boolean).join(" · ");
     if (send && send.rendered_body) { item.words = send.channel === "slack" ? send.rendered_body : strip(send.rendered_body) ?? null; item.send_state = send.status; if (send.status === "failed" && send.error) item.note = send.error; }
     if (s.node_type === "exit" && state === "ok") item.title = exitWords(run.exit_reason ?? "done");
-    out.push(item); seen.add(s.node_id);
+    // the runner writes a second row for the same node when it parks and resumes (dark hours, a wait): one row, the later state
+    if (out.length && out[out.length - 1].node_id === s.node_id) out[out.length - 1] = { ...out[out.length - 1], ...item, at: out[out.length - 1].at ?? item.at };
+    else out.push(item);
+    seen.add(s.node_id);
   });
   if (live) {
     // parked before any step row for the node (a wait the runner has not reached, or a reply-wait): say where

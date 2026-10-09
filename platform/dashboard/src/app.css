@@ -84,13 +84,13 @@ a.row:hover,button.row:hover{background:var(--panel-2);margin-inline:-8px;paddin
 @media (max-width:560px){.row .cnt{display:none}.row .mini{display:inline}}
 .ic{display:inline-grid;place-items:center;width:22px;height:22px;flex:none;color:var(--fg-3)}
 .ic svg{width:18px;height:18px}
-.ic.ok{color:var(--ok)}.ic.here{color:var(--wait)}.ic.warn{color:var(--warn)}.ic.skip{color:var(--cond)}.ic.stop{color:var(--fg-3)}
+.ic.ok{color:var(--ok)}.ic.ghost{color:var(--fg-2)}.ic.here{color:var(--wait)}.ic.warn{color:var(--warn)}.ic.skip{color:var(--cond)}.ic.stop{color:var(--fg-3)}
 
 /* the strip */
 .prog{display:flex;align-items:center;gap:10px;margin-top:5px;min-width:0}
 .bars{display:flex;gap:3px;flex:1;min-width:0}
 .bars i{display:block;height:6px;border-radius:3px;flex:1;background:var(--panel-3)}
-.bars i.ok{background:var(--ok)}.bars i.here{background:var(--wait)}.bars i.skip{background:var(--cond)}.bars i.warn{background:var(--warn)}.bars i.stop{background:var(--fg-3)}
+.bars i.ok,.bars i.ghost{background:var(--ok)}.bars i.here{background:var(--wait)}.bars i.skip{background:var(--cond)}.bars i.warn{background:var(--warn)}.bars i.stop{background:var(--fg-3)}
 .prog small{color:var(--fg-3);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%}
 
 /* the rail (company page) */
@@ -128,12 +128,14 @@ a.row:hover,button.row:hover{background:var(--panel-2);margin-inline:-8px;paddin
 .steps .s .b{display:block;margin-top:6px;background:var(--panel-2);border-radius:10px;padding:8px 11px;font-size:13.5px;line-height:1.45;white-space:pre-wrap;max-width:560px;font-weight:400;overflow-wrap:anywhere}
 .steps .s .b.email{border-left:3px solid var(--fg-3)}.steps .s .b.slack{border-left:3px solid var(--cond)}
 .steps .s.skip .t{color:var(--fg-3)}.steps .s.skip .t small{color:var(--cond)}
+.steps .s.ghost .t small.why{color:var(--fg-2)}
 .steps .s.warn .t small{color:var(--warn)}
 .steps .s.next .t{color:var(--fg-3);font-weight:500}
 .steps .s.here .t .d{color:var(--wait)}
 .steps .s.has{cursor:pointer}
 .steps .s.has:hover{background:var(--panel-2);margin-inline:-8px;padding-inline:8px;border-radius:8px}
 
+.tagc{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;font-weight:500;background:var(--panel-3);color:var(--fg);padding:1px 7px;border-radius:6px;white-space:nowrap}
 /* folds */
 details.fold{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 details.fold summary{cursor:pointer;color:var(--fg-3);font-size:13px;font-weight:600;list-style:none;display:flex;align-items:center;gap:6px}
@@ -166,7 +168,7 @@ pre.raw{font-size:12px;color:var(--fg-2);background:var(--panel-2);border-radius
 .pop .q{background:var(--panel-3);border-left:3px solid var(--acc);padding:8px 10px;border-radius:0 8px 8px 0;margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}
 .pop .st{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-weight:600}
 .pop .st svg{width:16px;height:16px}
-.pop .st.ok{color:var(--ok)}.pop .st.here{color:var(--wait)}.pop .st.warn{color:var(--warn)}.pop .st.skip{color:var(--cond)}.pop .st.next{color:var(--fg-3)}
+.pop .st.ok{color:var(--ok)}.pop .st.ghost{color:var(--fg-2)}.pop .st.here{color:var(--wait)}.pop .st.warn{color:var(--warn)}.pop .st.skip{color:var(--cond)}.pop .st.next{color:var(--fg-3)}
 .pop .x,.sheet .x{position:absolute;top:8px;right:10px;background:none;border:0;color:var(--fg-3);font-size:18px;cursor:pointer;line-height:1}
 .sheet{position:fixed;z-index:9;left:0;right:0;bottom:0;background:var(--panel-2);border-radius:16px 16px 0 0;padding:16px 18px calc(18px + env(safe-area-inset-bottom,0px));box-shadow:0 -14px 34px rgba(0,0,0,.5);max-height:82vh;overflow:auto;font-size:13.5px;line-height:1.45}
 @media (min-width:700px){.sheet{left:auto;right:auto;bottom:auto;border-radius:12px;width:400px;border:1px solid var(--edge);box-shadow:0 14px 34px rgba(0,0,0,.5)}}

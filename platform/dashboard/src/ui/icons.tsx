@@ -9,5 +9,6 @@ export const Stop = () => <svg viewBox="0 0 20 20" {...P}><rect x="5" y="5" widt
 export const Back = () => <svg viewBox="0 0 20 20" {...P}><path d="M12 4l-6 6 6 6" /></svg>;
 export const Chev = () => <svg viewBox="0 0 20 20" {...P} strokeWidth={2.2}><path d="M8 5l5 5-5 5" /></svg>;
 export const Out = () => <svg viewBox="0 0 20 20" {...P}><path d="M11 3h6v6M17 3l-8 8M15 11v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" /></svg>;
+export const Ghost = () => <svg viewBox="0 0 20 20" {...P}><path d="M4 17V9a6 6 0 0 1 12 0v8l-2-1.5L12 17l-2-1.5L8 17l-2-1.5z" /><path d="M8 9.5h.01M12 9.5h.01" strokeWidth={2.4} /></svg>;
 export const Dot = () => <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.5" fill="currentColor" /></svg>;
-export const stateIcon = (s: string) => s === "ok" ? <Check /> : s === "here" ? <Clock /> : s === "warn" ? <Warn /> : s === "skip" ? <Skip /> : s === "stop" ? <Stop /> : null;
+export const stateIcon = (s: string) => s === "ok" ? <Check /> : s === "ghost" ? <Ghost /> : s === "here" ? <Clock /> : s === "warn" ? <Warn /> : s === "skip" ? <Skip /> : s === "stop" ? <Stop /> : null;
