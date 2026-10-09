@@ -16,30 +16,47 @@ type Row = { kind: "nodes"; items: Item[] } | { kind: "fork"; fork: Item; groups
 
 const T = (k: string) => `var(--${k})`;
 const TEXT_W = 7.6, PAD = 28, LINE = 16, VPAD = 9, H = 34, GAP = 18;
+/** Width of a title in px at the node font (13px, 600): per-glyph so "Appointment matched?" is not measured like "little if". */
+function tw(s: string, per = TEXT_W): number {
+  let w = 0;
+  for (const ch of s) w += /[ilj.,:;'|!]/.test(ch) ? 0.42 : /[ftrI ()\-]/.test(ch) ? 0.55 : /[mwMW]/.test(ch) ? 1.25 : /[A-Z]/.test(ch) ? 0.9 : /[0-9]/.test(ch) ? 0.78 : /[→‹›“”]/.test(ch) ? 0.9 : 0.74;
+  return w * per / 0.72;   // the 600-weight face runs a touch wider than the per-glyph table
+}
 const labelOf = (it: Item) => it.n.title + (it.n.meta && it.n.kind !== "send" ? ` · ${it.n.meta}` : "") + (it.waits ? ` · ${it.waits}` : "");
 /** Words onto lines no wider than `max` characters; two lines wanted, three at most, nothing cut. */
 function wrap(text: string, max: number): string[] {
   const words = text.split(/\s+/); const lines: string[] = []; let cur = "";
-  for (const w of words) { const next = cur ? `${cur} ${w}` : w; if (next.length <= max || !cur) cur = next; else { lines.push(cur); cur = w; } }
+  const maxPx = max * TEXT_W;
+  for (const w of words) { const next = cur ? `${cur} ${w}` : w; if (tw(next) <= maxPx || !cur) cur = next; else { lines.push(cur); cur = w; } }
   if (cur) lines.push(cur);
+  const cut = (l: string) => { if (tw(l) <= maxPx) return l; let k = l.length; while (k > 3 && tw(`${l.slice(0, k)}…`) > maxPx) k--; return `${l.slice(0, k)}…`; };
   // four lines at most; past that the last line is cut with an ellipsis rather than spilling out of the box
-  if (lines.length > 4) { const keep = lines.slice(0, 4); keep[3] = `${keep[3].slice(0, Math.max(3, max - 1))}…`; return keep; }
-  return lines.map((l) => (l.length > max ? `${l.slice(0, Math.max(3, max - 1))}…` : l));
+  if (lines.length > 4) { const keep = lines.slice(0, 4); keep[3] = cut(keep[3]); return keep; }
+  return lines.map(cut);
 }
 /** The lines a node shows and the box they need, within the width allowed. */
-type Size = { lines: string[]; w: number; h: number; chips?: string[] };
+type Size = { lines: string[]; w: number; h: number; chips?: { text: string; stage: boolean }[] };
 function sizeOf(it: Item, maxW: number): Size {
-  const extra = (it.waits ? 18 : 0) + (it.cond ? 18 : 0) + (kindIconOf(it) ? 18 : 0);
-  // a tag step: the verb on the first line, every tag as a chip under it
-  if (it.n.kind === "tag") { const m = /^(Add|Remove) tags? (.*)$/.exec(it.n.title); if (m) { const chips = (m[2].match(/“[^”]*”/g) ?? []).map((t) => t.slice(1, -1)); const verb = `${m[1]} ${chips.length > 1 ? "tags" : "tag"}`; const w = Math.min(maxW, Math.max(96, Math.round(Math.max(verb.length * TEXT_W + extra, ...chips.map((c) => c.length * 6.4 + 22)) + PAD))); return { lines: [verb], chips, w, h: VPAD * 2 + LINE + chips.length * 20 }; } }
-  const label = labelOf(it); const maxChars = Math.max(8, Math.floor((maxW - PAD - extra) / TEXT_W));
-  let lines = label.length <= maxChars ? [label] : wrap(label, Math.max(maxChars, Math.ceil(label.length / 2) + 2) <= maxChars ? Math.max(8, Math.ceil(label.length / 2) + 2) : maxChars);
-  if (lines.some((l) => l.length > maxChars)) lines = wrap(label, maxChars);
-  const longest = Math.max(...lines.map((l) => l.length));
-  const w = Math.min(maxW, Math.max(it.n.kind === "end" ? 64 : 96, Math.round(longest * TEXT_W + PAD + extra)));
+  const extra = (it.waits ? 22 : 0) + (it.cond ? 18 : 0) + (kindIconOf(it) ? 22 : 0);
+  // “tags” and ‹stages› in the words become chips under the title
+  const raw = labelOf(it); const found = raw.match(/“[^”]*”|‹[^›]*›/g);
+  if (found) {
+    const chips = found.flatMap((c) => { const text = c.slice(1, -1), stage = c.startsWith("‹"); if (stage && tw(text, 6.4) + 22 + PAD > maxW && text.includes(" → ")) { const [a, b] = text.split(" → "); return [{ text: `${a} →`, stage }, { text: b, stage }]; } return [{ text, stage }]; });
+    const verb = raw.replace(/“[^”]*”|‹[^›]*›/g, "").replace(/\s*·\s*$/, "").replace(/,\s*/g, " ").replace(/\s+/g, " ").trim().replace(/ tag$/, chips.length > 1 ? " tags" : " tag");
+    const maxChars = Math.max(8, Math.floor((maxW - PAD - extra) / TEXT_W));
+    const lines = tw(verb) <= maxChars * TEXT_W ? [verb] : wrap(verb, maxChars);
+    const w = Math.min(maxW, Math.max(96, Math.round(Math.max(...lines.map((l) => tw(l) + extra), ...chips.map((c) => tw(c.text, 6.4) + 22)) + PAD)));
+    return { lines, chips, w, h: VPAD * 2 + lines.length * LINE + chips.length * 20 };
+  }
+  const label = raw; const maxChars = Math.max(8, Math.floor((maxW - PAD - extra) / TEXT_W));
+  // two balanced lines when it does not fit on one; more only when it must
+  let lines = tw(label) <= maxChars * TEXT_W ? [label] : wrap(label, Math.max(maxChars, Math.ceil(label.length / 2) + 2) <= maxChars ? Math.max(8, Math.ceil(label.length / 2) + 2) : maxChars);
+  if (lines.some((l) => tw(l) > maxChars * TEXT_W)) lines = wrap(label, maxChars);
+  const longest = Math.max(...lines.map((l) => tw(l)));
+  const w = Math.min(maxW, Math.max(it.n.kind === "end" ? 64 : 96, Math.round(longest + PAD + extra)));
   return { lines, w, h: VPAD * 2 + lines.length * LINE };
 }
-const trunc = (s: string, w: number) => { const max = Math.floor((w - PAD) / TEXT_W); return s.length > max ? `${s.slice(0, Math.max(3, max - 1))}…` : s; };
+const trunc = (s: string, w: number) => { const maxPx = w - PAD; if (tw(s) <= maxPx) return s; let k = s.length; while (k > 3 && tw(`${s.slice(0, k)}…`) > maxPx) k--; return `${s.slice(0, k)}…`; };
 
 /** Read the chart into rows: straight runs of nodes, and forks with their groups. */
 export function arrange(chart: Chart): Row[] {
@@ -201,15 +218,15 @@ function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
   const dim = st === "skip" || st === "next"; const op = dim ? (st === "skip" ? 0.5 : 0.45) : 1;
   let g = `<g class="nd" tabindex="0" data-id="${it.id}" style="opacity:${op}"><rect class="b" x="${x - w / 2}" y="${top}" width="${w}" height="${h}" rx="${k === "end" ? Math.min(17, h / 2) : 9}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
   // the title centred on up to three lines; a clock before the first line when it waits, the blue mark at the right when it is conditional
-  const ki = kindIconOf(it); const leftW = (it.waits ? 18 : 0) + (ki ? 18 : 0);
+  const ki = kindIconOf(it); const leftW = (it.waits ? 22 : 0) + (ki ? 22 : 0);
   const shift = (leftW - (it.cond ? 18 : 0)) / 2;
   const y0 = top + VPAD + 11.5;
   sz.lines.forEach((l, i) => { g += `<text x="${x + shift}" y="${y0 + i * LINE}" text-anchor="middle" fill="${ink}">${esc(l)}</text>`; });
-  let lx = x + shift - (sz.lines[0].length * TEXT_W) / 2 - leftW - 2;
+  let lx = x + shift - Math.max(...sz.lines.map((l) => tw(l))) / 2 - leftW;
   const iconInk = k === "trig" ? T("acc-ink") : T("fg-2");
-  if (ki) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${iconInk}">${LOGO[ki] ?? LOGO.engine}</g>`; lx += 18; }
+  if (ki) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${iconInk}">${LOGO[ki] ?? LOGO.engine}</g>`; lx += 22; }
   if (it.waits) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${T("fg-2")}">${svgIcon("clock")}</g>`; }
-  if (sz.chips) { let cy = y0 + LINE - 4; for (const c of sz.chips) { const cw = c.length * 6.4 + 14; g += `<rect x="${x - cw / 2}" y="${cy - 1}" width="${cw}" height="17" rx="6" fill="${T("panel-3")}"/><text x="${x}" y="${cy + 11.5}" text-anchor="middle" fill="${T("fg")}" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:500">${esc(c)}</text>`; cy += 20; } }
+  if (sz.chips) { let cy = y0 + sz.lines.length * LINE - 4; for (const c of sz.chips) { const cw = tw(c.text, 6.4) + 14; g += `<rect x="${x - cw / 2}" y="${cy - 1}" width="${cw}" height="17" rx="6" fill="${c.stage ? T("cond-bg") : T("panel-3")}"/><text x="${x}" y="${cy + 11.5}" text-anchor="middle" fill="${c.stage ? T("cond") : T("fg")}" style="${c.stage ? "font-size:11px;font-weight:600" : "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:500"}">${esc(c.text)}</text>`; cy += 20; } }
   if (it.cond) g += `<g transform="translate(${x + w / 2 - 24},${top + h / 2 - 8}) scale(.8)" style="color:${T("cond")}">${svgIcon("cond")}</g>`;
   if (st && st !== "next") { const col = st === "ok" ? T("ok") : st === "ghost" ? T("fg-2") : st === "here" ? T("wait") : st === "skip" ? T("cond") : st === "warn" ? T("warn") : T("fg-3"); const bg = st === "ok" ? T("ok-bg") : st === "here" ? T("wait-bg") : st === "skip" ? T("cond-bg") : st === "warn" ? T("warn-bg") : T("panel-3");
     g += `<g transform="translate(${x + w / 2 - 10},${top - 10})"><circle cx="10" cy="10" r="10" fill="${bg}"/><g style="color:${col}" transform="translate(3,3) scale(.7)">${svgIcon(st === "ok" ? "check" : st === "ghost" ? "ghost" : st === "here" ? "clock" : st === "skip" ? "skip" : st === "warn" ? "warn" : "stop")}</g></g>`; }

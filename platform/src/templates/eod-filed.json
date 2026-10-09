@@ -26,7 +26,8 @@
           "name": "End of day",
           "icon": ":clipboard:"
         },
-        "template": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.corrections_block | default:Nothing corrected: the prefill matched. | line}}{{event.day_answers_lines | line}}"
+        "template": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.corrections_block | default:Nothing corrected: the prefill matched. | line}}{{event.day_answers_lines | line}}",
+        "title": "Post the day's summary in Slack"
       },
       {
         "id": "n_ack",
@@ -38,7 +39,8 @@
           "name": "End of day",
           "icon": ":clipboard:"
         },
-        "template": "✅ Got it. {{event.totals_line}}."
+        "template": "✅ Got it. {{event.totals_line}}.",
+        "title": "React ✅ on the reminder"
       },
       {
         "id": "x_done",

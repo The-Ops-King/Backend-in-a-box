@@ -155,7 +155,8 @@
             ":dollar:",
             ":heavy_dollar_sign:"
           ]
-        }
+        },
+        "title": "Post payment in Slack"
       },
       {
         "id": "x1",

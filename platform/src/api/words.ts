@@ -38,9 +38,30 @@ export function kindOf(n: Node): ChartKind {
 const channelOf = (n: Node): ChartNode["channel"] => n.type === "send_sms" ? "sms" : n.type === "send_email" ? "email" : n.type === "slack_post" || n.type === "notify_owner" ? "slack" : undefined;
 
 /** Short title for a node on the chart or in a step row: "Text", "Email: You're booked", "Wait until 3 days before the call". */
+/** A task title the way the team reads it: the contact's name placeholder becomes "them", any other binding its plain words. */
+const taskWords = (t: string) => t.replace(/\{\{\s*contact\.(?:first_)?name(?:\s*\|[^}]*)?\s*\}\}/g, "them").replace(/\{\{\s*([a-zA-Z0-9_.]+)(?:\s*\|[^}]*)?\s*\}\}/g, (_, p) => pathWords(p)).replace(/\s+/g, " ").trim();
+const stageChip = (stage: string | undefined, pipeline: string) => { if (!stage) return undefined; const m = /^\{\{\s*crm\.stage_(setter|closer)_([a-z0-9_]+)/.exec(stage); if (m) return `‹${m[1][0].toUpperCase()}${m[1].slice(1)} → ${m[2].replace(/_/g, " ")}›`; const b = /^\{\{\s*crm\.pipeline_([a-z0-9_]+)/.exec(pipeline); return `‹${b ? `${b[1][0].toUpperCase()}${b[1].slice(1)} → ` : ""}${pathWords(stage).replace(/^stage /, "")}›`; };
+const cap = (t: string) => t.replace(/^./, (c) => c.toUpperCase());
+/** A trigger with a match reads as the event it really waits for: "Appointment cancelled", "Tag “reactivate” added". */
+function triggerTitle(n: Node & { type: "trigger" }): string {
+  const m = n.match as Record<string, unknown> | undefined;
+  const eq = (path: string): string | undefined => { const find = (p: Record<string, unknown> | undefined): string | undefined => { if (!p) return undefined; if (Array.isArray(p.eq) && p.eq[0] === `{{${path}}}`) return String(p.eq[1]); if (Array.isArray(p.and)) for (const q of p.and as Record<string, unknown>[]) { const r = find(q); if (r) return r; } return undefined; }; return find(m); };
+  const status = eq("event.status.to"), outcome = eq("event.outcome"), tag = eq("event.tag");
+  if (n.event === "appointment.status_changed" && status) return `Appointment ${status.replace(/noshow/, "no-show")}`;
+  if (n.event === "appointment.outcome" && outcome) return `Call marked ${outcome.replace(/noshow/, "no-show").replace(/_/g, " ")}`;
+  if (n.event === "call.held" && outcome) return `Call held: ${outcome.replace(/_/g, " ")}`;
+  if (n.event === "tag.added" && tag) return `Tag “${tag}” added`;
+  if (n.event === "payment.received" && eq("event.prior_total") === "0") return "First payment received";
+  return describeNode(n).title.replace(/ — .*$/, "");
+}
 export function shortTitle(def: Definition, n: Node): { title: string; meta?: string } {
+  // a task's `title` is the task itself (the words GHL shows), not a dashboard override
+  if (n.title && n.type !== "create_task") { const g = generic(def, n); return { title: n.title, meta: n.type === "wait" || n.type === "check" || n.type === "pipeline_card" ? g.meta : undefined }; }
+  return generic(def, n);
+}
+function generic(def: Definition, n: Node): { title: string; meta?: string } {
   switch (n.type) {
-    case "trigger": return n.schedule ? { title: "On a schedule", meta: scheduleWords(n.schedule) } : { title: describeNode(n).title.replace(/ — .*$/, "") };
+    case "trigger": { if (n.schedule) { const w = scheduleWords(n.schedule); const i = w.indexOf(", "); return { title: cap(i > 0 ? w.slice(0, i) : w), meta: i > 0 ? w.slice(i + 2) : undefined }; } return { title: triggerTitle(n) }; }
     case "send_sms": return { title: "Text" };
     case "send_email": return { title: "Email", meta: templateWords(n.subject) };
     case "wait": { const w = waitWords(n.rule).replace(/^Wait (until )?/, "").replace(/\s*\(.*\)$/, "").replace(/^(\d+) hours?/, (_, h) => (+h >= 48 && +h % 24 === 0 ? `${+h / 24} days` : `${h} hour${+h === 1 ? "" : "s"}`)); return { title: w.replace(/^./, (c) => c.toUpperCase()) }; }
@@ -52,13 +73,17 @@ export function shortTitle(def: Definition, n: Node): { title: string; meta?: st
     case "classify": return { title: "AI reads the reply" };
     case "analyze": return { title: `AI: ${({ classify: "is it a sales call?", notes: "call notes", rubric: "scores the call", objections: "objections" } as Record<string, string>)[n.into] ?? humanWords(n.into)}` };
     case "update_contact": return { title: "Update the contact" };
-    case "pipeline_card": return { title: n.stage ? (n.if_missing === "skip" ? "Move the card" : "Create or move the card") : "Update the card", meta: n.stage ? pathWords(n.stage) : undefined };
+    case "pipeline_card": return { title: n.stage ? (n.if_missing === "skip" ? "Move the card" : "Create or move the card") : "Update the card", meta: stageChip(n.stage, n.pipeline) };
     case "crm_record": return { title: `Write the ${humanWords(n.object.replace(/^custom_objects\./, ""))} record` };
-    case "create_task": return { title: n.assign_to ? `Task for ${pathWords(n.assign_to)}` : "Task for the team" };
+    case "create_task": { const t = taskWords(n.title); return { title: `Task: ${t[0].toLowerCase()}${t.slice(1)}` }; }
     case "note": return { title: "Leave a note" };
     case "record_outcome": return { title: `Record the call as ${n.outcome.replace(/_/g, " ")}` };
     case "update_appointment": return { title: `Mark the call ${Object.values(n.set).map((v) => String(v).replace(/_/g, " ")).join(", ")}` };
-    case "exit": return { title: exitWords(n.reason) };
+    case "exit": return { title: "Done" };
+    case "report": return { title: "Build the wrap-up" };
+    case "availability_check": return { title: "Check bookable slots", meta: `alert under ${n.min_slots} in ${n.days} day${n.days === 1 ? "" : "s"}` };
+    case "assume_no_show": return { title: "Mark unrecorded calls no-show" };
+    case "health_check": return { title: "Run the health checks" };
     default: { const d = describeNode(n); return { title: d.title }; }
   }
 }
@@ -92,9 +117,9 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
     const d = describeNode(n); const s = shortTitle(def, n);
     let quote: string | undefined;
     try { quote = n.type === "send_sms" || n.type === "send_email" || n.type === "slack_post" || n.type === "notify_owner" || n.type === "note" ? strip(nodeExamples(n, ctx, company.timezone)[0]?.example.text) : undefined; } catch { quote = d.quote; }
-    const cond = n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : n.type === "check" ? `${n.retry ? `Waits up to ${durationWords(n.retry.for)} for it, looking every ${durationWords(n.retry.every)}. ` : ""}If not: ${exitWords(n.else_exit).toLowerCase()}` : undefined;
+    const cond = n.type === "pipeline_card" && n.if_missing === "skip" ? "Only if a card is already on that board; this step never creates one" : n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : n.type === "check" ? `${n.retry ? `Waits up to ${durationWords(n.retry.for)} for it, looking every ${durationWords(n.retry.every)}. ` : ""}If not: ${exitWords(n.else_exit).toLowerCase()}` : undefined;
     // the AI reading a reply is plumbing between the wait and the fork; the chart routes around it, the popover of the fork says so
-    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: d.detail, quote, cond, channel: channelOf(n), hidden: n.type === "classify" || undefined, stop: n.type === "check" ? exitWords(n.else_exit).replace(/^(Stop|Done): /, "") : undefined, logo: logoOf(n, bookingSource) };
+    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, channel: channelOf(n), hidden: n.type === "classify" || undefined, stop: n.type === "check" ? exitWords(n.else_exit).replace(/^(Stop|Done): /, "") : undefined, logo: logoOf(n, bookingSource) };
   });
   const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e), else: e.else || undefined }));
   return { nodes, edges };
@@ -155,7 +180,7 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
     if (n) item.channel = channelOf(n);
     if (state === "ghost") item.note = [item.note, "Done in shadow: nothing was written to the CRM or sent to anyone; this is what it would have done."].filter(Boolean).join(" · ");
     if (send && send.rendered_body) { item.words = send.channel === "slack" ? send.rendered_body : strip(send.rendered_body) ?? null; item.send_state = send.status; if (send.status === "failed" && send.error) item.note = send.error; }
-    if (s.node_type === "exit" && state === "ok") item.title = exitWords(run.exit_reason ?? "done");
+    if (s.node_type === "exit" && state === "ok") { const w = exitWords(run.exit_reason ?? "done"); item.title = "Done"; item.note = w.startsWith("Stop: ") ? w.replace(/^Stop: /, "") : undefined; }
     // the runner writes a second row for the same node when it parks and resumes (dark hours, a wait): one row, the later state
     if (out.length && out[out.length - 1].node_id === s.node_id) out[out.length - 1] = { ...out[out.length - 1], ...item, at: out[out.length - 1].at ?? item.at };
     else out.push(item);
@@ -178,14 +203,14 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
     const cur = run.current_node; const n = cur ? byId.get(cur) : undefined;
     out.push({ node_id: cur ?? "?", title: n ? shortTitle(def, n).title : "Failed", kind: n ? kindOf(n) : "other", state: "warn", at: null, note: run.exit_reason ?? undefined });
   } else if (run.status === "exited" && !out.some((x) => x.kind === "end")) {
-    out.push({ node_id: "exit", title: `Done: ${(run.exit_reason ?? "").replace(/^moot: /, "").replace(/_/g, " ")}`, kind: "end", state: "ok", at: run.started_at.toISOString() });
+    out.push({ node_id: "exit", title: "Done", note: (run.exit_reason ?? "").replace(/^moot: /, "").replace(/_/g, " ") || undefined, kind: "end", state: "ok", at: run.started_at.toISOString() });
   }
   return out;
 }
 
 /** One run's state for a list row: the icon, the word under the strip, the date. */
 export function runState(run: RunLike, path: PathItem[], tz: string): { state: "ok" | "here" | "warn" | "stop"; at: string; done: boolean } {
-  if (run.status === "completed") { const words = exitWords(run.exit_reason ?? "done"); return { state: "ok", at: words === "Done" ? "done" : `done · ${words.replace(/^(Done|Stop): /, "").toLowerCase()}`, done: true }; }
+  if (run.status === "completed") { const words = exitWords(run.exit_reason ?? "done"); return { state: "ok", at: words.startsWith("Stop: ") ? `done · ${words.replace(/^Stop: /, "").toLowerCase()}` : "done", done: true }; }
   if (run.status === "failed") { const w = path.find((x) => x.state === "warn"); return { state: "warn", at: `failed: ${w ? w.title : run.exit_reason ?? "a step"}`, done: true }; }
   if (run.status === "exited") return { state: "ok", at: `done · ${(run.exit_reason ?? "").replace(/^moot: /, "").replace(/_/g, " ")}`, done: true };
   if (run.status === "paused") return { state: "stop", at: "paused", done: true };

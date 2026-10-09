@@ -38,7 +38,7 @@ export const OnStale = z.enum(["skip", "substitute", "escalate"]);
 // ---- nodes (the instruction set, 02-data-model §10) ----------------------------
 /** Who a Slack post appears from: a name and an emoji / image URL, or a list of icons one is picked from per post. */
 const Persona = z.object({ name: z.string().optional(), icon: z.union([z.string(), z.array(z.string())]).optional() });
-const base = { id: z.string().min(1) };
+const base = { id: z.string().min(1), title: z.string().optional() };   // title: the words the dashboard shows for this step, when the generic ones are not good enough
 export const Schedule = z.object({ every: z.string().regex(/^\d+(m|h|d)$/).optional(), at: z.string().regex(/^\d{2}:\d{2}$/).optional(), days: z.array(z.number().int().min(1).max(7)).optional(), day_of_month: z.number().int().min(1).max(28).optional(), for: z.enum(["company", "closer"]).default("company") })
   .refine((s) => !!s.every !== !!s.at, { message: "a schedule is either every <interval> or at <time>, not both, not neither" });
 export type Schedule = z.infer<typeof Schedule>;

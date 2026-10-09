@@ -29,7 +29,8 @@
         "id": "n2",
         "type": "send_sms",
         "template": "Hey {{contact.first_name}}, it's {{company.name}}. Got your info, thanks. Want to grab a time to talk? {{calendar.booking.url}}",
-        "on_stale": "skip"
+        "on_stale": "skip",
+        "title": "First-touch text"
       },
       {
         "id": "n3",

@@ -82,7 +82,8 @@
             ":chart_with_upwards_trend:",
             ":clipboard:"
           ]
-        }
+        },
+        "title": "Post the wrap-up in Slack"
       },
       {
         "id": "x_done",

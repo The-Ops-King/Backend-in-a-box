@@ -45,7 +45,8 @@
         "id": "n3",
         "type": "send_sms",
         "template": "Hey {{contact.first_name}}, {{company.name}} here. Still interested? Happy to pick things back up whenever. {{calendar.booking.url}}",
-        "on_stale": "skip"
+        "on_stale": "skip",
+        "title": "Check-in text"
       },
       {
         "id": "n4",

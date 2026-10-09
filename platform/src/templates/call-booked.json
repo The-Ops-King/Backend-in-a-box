@@ -217,7 +217,8 @@
             ":date:",
             ":spiral_calendar_pad:"
           ]
-        }
+        },
+        "title": "Post booking card in Slack"
       },
       {
         "id": "x1",

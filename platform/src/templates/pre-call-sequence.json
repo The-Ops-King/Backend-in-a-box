@@ -43,7 +43,8 @@
           "anchor": "before_event",
           "min_lead": "15m"
         },
-        "on_stale": "skip"
+        "on_stale": "skip",
+        "title": "Booking text"
       },
       {
         "id": "w1",
@@ -85,7 +86,8 @@
             ":grey_question:"
           ]
         },
-        "template": "{{contact.name}} hasn't confirmed their call {{appointment.starts_at | relative:auto}} ({{appointment.starts_at | date_company}}) with {{appointment.closer.mention | default:the closer}}. No reply to the booking text in 4 hours."
+        "template": "{{contact.name}} hasn't confirmed their call {{appointment.starts_at | relative:auto}} ({{appointment.starts_at | date_company}}) with {{appointment.closer.mention | default:the closer}}. No reply to the booking text in 4 hours.",
+        "title": "Post no-reply alert in Slack"
       },
       {
         "id": "n_cx",
@@ -106,12 +108,14 @@
             ":calendar:",
             ":no_entry_sign:"
           ]
-        }
+        },
+        "title": "Post cancellation in Slack"
       },
       {
         "id": "n_rs",
         "type": "send_sms",
-        "template": "No problem — grab a new time here: {{calendar.closer_call.url}}"
+        "template": "No problem — grab a new time here: {{calendar.closer_call.url}}",
+        "title": "Text the rebooking link"
       },
       {
         "id": "n_unclear",
@@ -124,7 +128,8 @@
             ":grey_question:"
           ]
         },
-        "template": "{{contact.name}} replied to the booking text and I couldn't tell what they meant. Their call is {{appointment.starts_at | relative:auto}} with {{appointment.closer.mention | default:the closer}}; the reminders keep going.\n> {{reply.last_inbound.body}}"
+        "template": "{{contact.name}} replied to the booking text and I couldn't tell what they meant. Their call is {{appointment.starts_at | relative:auto}} with {{appointment.closer.mention | default:the closer}}; the reminders keep going.\n> {{reply.last_inbound.body}}",
+        "title": "Post unclear reply in Slack"
       },
       {
         "id": "r72",

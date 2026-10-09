@@ -37,7 +37,8 @@
         "id": "n2",
         "type": "send_sms",
         "template": "Hey {{contact.first_name}}, good talking yesterday. If any questions came up overnight, send them over, happy to answer.",
-        "on_stale": "skip"
+        "on_stale": "skip",
+        "title": "Follow-up text"
       },
       {
         "id": "x1",

@@ -22,7 +22,8 @@
         "id": "n1",
         "type": "send_sms",
         "template": "Hey {{contact.first_name}}, heads up, your payment didn't go through. Can you update your card when you get a sec? Reply here if you need a hand.",
-        "on_stale": "skip"
+        "on_stale": "skip",
+        "title": "Text about the failed payment"
       },
       {
         "id": "n2",
@@ -52,7 +53,8 @@
             ":credit_card:",
             ":rotating_light:"
           ]
-        }
+        },
+        "title": "Post failed payment in Slack"
       },
       {
         "id": "x1",

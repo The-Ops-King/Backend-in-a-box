@@ -1127,3 +1127,24 @@ takes an optional `retry: { every, for }`: when the condition is false the run p
 `every` until `for` has passed, then takes `else_exit` as before. New lead waits a day for a phone number (a Calendly
 booking or a CRM edit usually brings it), looking every ten minutes. On the chart a check reads as an if: "If phone
 number exists · waits up to 24 hours", with its else hanging off the side as a dim stop ("else: no phone number").
+
+## D40. One vocabulary on the chart: titles, gates, chips, Done (2026-10-09)
+
+Tyler, from the phone: "I'd like it to be either or. Filter or if / then. Right now it's half and half." "Tell the
+team" and "reply in the thread" "don't really tell what happened. I'd rather it be descriptive and still short."
+"The done:recorded should just be 'Done'." "It doesn't show that these steps are conditional. Yet in the history it
+shows they were skipped." "If the card doesn't exist we should have one."
+
+- A node may carry `title`: the words the dashboard shows for it, over the generic words. Slack and text steps in the
+  templates now say what they post ("Post call review in Slack", "Post scorecard in the thread", "Text the rebooking
+  link"). A task's `title` is the task itself, shown as "Task: send them a personalized video".
+- Two shapes, never a third. A gate is an "If …" decision with its else hanging to the side as a dim stop pill. A step
+  that only sometimes runs keeps its normal shape with the blue mark; tap it for the condition. A card move with
+  `if_missing: skip` is such a step ("only if a card is already on that board").
+- Every exit reads "Done". A stop (an `exit` with a "Stop: …" reason) keeps its reason as the note under the row and in
+  the run's state line ("done · not a sales call").
+- Tags are chips in the mono face; stage moves are blue chips "Setter → showed". Both on the chart, in the step list
+  and in the words sheet. A stage chip too wide for a narrow column splits at the arrow into two.
+- Every step carries the logo of what it touches, at the left. Node text is measured per glyph so a title never spills.
+- Call cancelled creates its cards when they are missing (a cancelled call always has its cards); the other
+  `if_missing: skip` moves stay as they are until Tyler decides (see the audit in the session).

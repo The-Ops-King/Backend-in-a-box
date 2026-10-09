@@ -28,7 +28,8 @@
         "id": "n1",
         "type": "send_sms",
         "template": "Hey {{contact.first_name}}, saw the call got cancelled. If you want to pick a new time, here you go: {{calendar.closer_call.url}}",
-        "on_stale": "skip"
+        "on_stale": "skip",
+        "title": "Text the rebooking link"
       },
       {
         "id": "n2",

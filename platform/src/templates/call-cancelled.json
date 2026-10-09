@@ -39,16 +39,14 @@
         "type": "pipeline_card",
         "pipeline": "{{crm.pipeline_setter}}",
         "stage": "{{crm.stage_setter_cancelled}}",
-        "name": "{{contact.name}} -- Cancelled",
-        "if_missing": "skip"
+        "name": "{{contact.name}} -- Cancelled"
       },
       {
         "id": "n2",
         "type": "pipeline_card",
         "pipeline": "{{crm.pipeline_closer}}",
         "stage": "{{crm.stage_closer_cancelled}}",
-        "name": "{{contact.name}} -- Cancelled",
-        "if_missing": "skip"
+        "name": "{{contact.name}} -- Cancelled"
       },
       {
         "id": "n3",
@@ -94,7 +92,8 @@
             ":calendar:",
             ":no_entry_sign:"
           ]
-        }
+        },
+        "title": "Post cancellation in Slack"
       },
       {
         "id": "x1",

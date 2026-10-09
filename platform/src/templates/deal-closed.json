@@ -100,7 +100,8 @@
         "id": "e2",
         "type": "send_sms",
         "kind": "transactional",
-        "template": "Congrats on taking action to save your hair.\n\nYour next steps have been emailed to you, please make sure to check your email for the subject line \"Welcome -- Let's get you ready for your first coaching call\" from Allan P.\n\nPlease follow the instructions in that email, and let us know if you have any issues"
+        "template": "Congrats on taking action to save your hair.\n\nYour next steps have been emailed to you, please make sure to check your email for the subject line \"Welcome -- Let's get you ready for your first coaching call\" from Allan P.\n\nPlease follow the instructions in that email, and let us know if you have any issues",
+        "title": "Welcome text"
       },
       {
         "id": "a1",
@@ -131,7 +132,8 @@
             ":rocket:",
             ":champagne:"
           ]
-        }
+        },
+        "title": "Post the win in Slack"
       },
       {
         "id": "x1",

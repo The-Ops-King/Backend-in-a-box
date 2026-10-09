@@ -151,7 +151,8 @@
             ":movie_camera:",
             ":speech_balloon:"
           ]
-        }
+        },
+        "title": "Post call review in Slack"
       },
       {
         "id": "s2",
@@ -166,7 +167,8 @@
             ":mag:"
           ]
         },
-        "template": "*Scorecard:* {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}"
+        "template": "*Scorecard:* {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}",
+        "title": "Post scorecard in the thread"
       },
       {
         "id": "x1",

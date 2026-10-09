@@ -331,7 +331,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const id = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CCB1'", [companyId])))!.id;
     const r = (await runsFor("call-cancelled")).find((x) => x.contact_id === id)!;
     expect(r).toMatchObject({ status: "completed", exit_reason: "cancelled_recorded" });
-    expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", stageId: "STAGE-C-CANCEL", name: "Mia Ortiz -- Cancelled" })]);   // setter card absent → skipped, never created
+    expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "create", stageId: "STAGE-S-CANCEL" }), expect.objectContaining({ op: "update", stageId: "STAGE-C-CANCEL", name: "Mia Ortiz -- Cancelled" })]);   // no setter card yet → one is made in Cancelled (Tyler: a cancelled call should always have its cards)
     expect(contactWrites.slice(nCw)).toEqual([expect.objectContaining({ id: "CCB1", customFields: [{ id: "CF-APPT-DATE", field_value: "" }] })]);
     expect(tasks.slice(nTasks)).toEqual([expect.objectContaining({ contactId: "CCB1", title: "Rebook Mia Ortiz — cancelled", body: "Cancelled by Mia Ortiz. Reason: work trip.", assignedUserId: "U1" })]);
     const due = (tasks.at(-1)!.dueAt as Date).getTime() - Date.now(); expect(due).toBeGreaterThan(23 * 3600e3); expect(due).toBeLessThan(25 * 3600e3);

@@ -168,7 +168,8 @@
             ":speech_balloon:",
             ":headphones:"
           ]
-        }
+        },
+        "title": "Post setter call in Slack"
       },
       {
         "id": "x1",

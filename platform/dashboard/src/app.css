@@ -136,6 +136,7 @@ a.row:hover,button.row:hover{background:var(--panel-2);margin-inline:-8px;paddin
 .steps .s.has:hover{background:var(--panel-2);margin-inline:-8px;padding-inline:8px;border-radius:8px}
 
 .tagc{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;font-weight:500;background:var(--panel-3);color:var(--fg);padding:1px 7px;border-radius:6px;white-space:nowrap}
+.stagec{font-size:12px;font-weight:600;background:var(--cond-bg);color:var(--cond);padding:1px 8px;border-radius:6px;white-space:nowrap}
 /* folds */
 details.fold{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 details.fold summary{cursor:pointer;color:var(--fg-3);font-size:13px;font-weight:600;list-style:none;display:flex;align-items:center;gap:6px}

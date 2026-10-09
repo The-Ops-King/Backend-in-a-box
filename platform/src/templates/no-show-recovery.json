@@ -52,7 +52,8 @@
           "anchor": "after_event",
           "max_lag": "3d"
         },
-        "on_stale": "skip"
+        "on_stale": "skip",
+        "title": "Text the rebooking link"
       },
       {
         "id": "n3",

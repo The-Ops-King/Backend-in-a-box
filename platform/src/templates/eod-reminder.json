@@ -63,7 +63,8 @@
           "icon": ":clipboard:"
         },
         "tag": "eod-reminder:{{user.id}}:{{user.eod.day}}",
-        "template": "Hey {{user.first_name}}, your end-of-day is waiting:\n{{vars.lines}}\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit."
+        "template": "Hey {{user.first_name}}, your end-of-day is waiting:\n{{vars.lines}}\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.",
+        "title": "DM the closer their link"
       },
       {
         "id": "x_done",

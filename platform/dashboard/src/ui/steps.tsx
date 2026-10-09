@@ -10,8 +10,8 @@ import { when } from "~/fmt";
  */
 /** A step's title with every “tag” drawn as a chip. */
 export function Title({ text }: { text: string }) {
-  const parts = text.split(/(“[^”]*”)/g);
-  return <>{parts.map((p, i) => p.startsWith("“") ? <code key={i} className="tagc">{p.slice(1, -1)}</code> : p)}</>;
+  const parts = text.split(/(“[^”]*”|‹[^›]*›)/g);
+  return <>{parts.map((p, i) => p.startsWith("“") ? <code key={i} className="tagc">{p.slice(1, -1)}</code> : p.startsWith("‹") ? <span key={i} className="stagec">{p.slice(1, -1)}</span> : p)}</>;
 }
 export function Steps({ items, tz, who }: { items: PathItem[]; tz: string; who?: string }) {
   const [open, setOpen] = useState<Record<number, boolean>>({});
