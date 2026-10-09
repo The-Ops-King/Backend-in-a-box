@@ -5,7 +5,7 @@
   "stage": "lead",
   "sort": 10,
   "origin": "spec",
-  "description": "A new contact with a phone number gets a card in the setter pipeline (\"Name -- New\", stage New Lead, stage-entered date today) and the tag stat-new. No phone, no card: nobody can call them.",
+  "description": "A new contact with a phone number gets a card in the setter pipeline (\"Name -- New\", stage New Lead, stage-entered date today) and the tag stat-new. No phone yet: the run waits up to a day for one (the booking or the CRM usually brings it), then gives up.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -24,7 +24,11 @@
         "when": {
           "exists": "contact.phone"
         },
-        "else_exit": "no_phone"
+        "else_exit": "no_phone",
+        "retry": {
+          "every": "10m",
+          "for": "24h"
+        }
       },
       {
         "id": "n2",

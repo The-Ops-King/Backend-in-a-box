@@ -119,7 +119,7 @@ export function describeNode(n: Node): NodeText {
     case "availability_check": return { title: `Check bookable slots: fewer than ${n.min_slots} in the next ${n.days} day${n.days === 1 ? "" : "s"} is an alert`, detail: "Every active calendar; in a run about a booking, that booking's calendar" };
     case "assume_no_show": return { title: `Calls that ended with no recording are no-shows`, detail: `${durationWords(n.grace)} after the scheduled end; ${n.types.map(humanWords).join(", ")} calls; a closer's own answer on the end-of-day form overrides it` };
     case "report": return { title: `Build the ${/^\{\{/.test(n.kind) ? pathWords(n.kind.replace(/^\{\{\s*|\s*\}\}$/g, "")) : n.kind} wrap-up`, detail: `${n.breakdowns.length ? `Broken down by ${n.breakdowns.join(", ")}; ` : ""}into ${n.into}: body, period, numbers` };
-    case "check": return { title: `Check if ${predicateWords(n.when)}`, detail: `If not → ${exitWords(n.else_exit).toLowerCase()}` };
+    case "check": return { title: `Check if ${predicateWords(n.when)}`, detail: `${n.retry ? `Waits up to ${durationWords(n.retry.for)} for it, looking every ${durationWords(n.retry.every)}. ` : ""}If not → ${exitWords(n.else_exit).toLowerCase()}` };
     case "branch": return { title: "Which way?" };
     case "wait": return { title: waitWords(n.rule), detail: `${n.rule.tz === "contact" ? "Contact's" : "Company's"} time zone${guardWords(n.rule)}` };
     case "wait_for_reply": return { title: `Wait for ${n.channel === "any" ? "a" : n.channel === "sms" ? "a text" : "an email"} reply`, detail: `Up to ${durationWords(n.timeout)}; continues the minute one arrives` };

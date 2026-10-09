@@ -15,7 +15,7 @@ type Group = { label: string; items: Item[]; go: boolean; first: string | null }
 type Row = { kind: "nodes"; items: Item[] } | { kind: "fork"; fork: Item; groups: Group[] };
 
 const T = (k: string) => `var(--${k})`;
-const TEXT_W = 7, PAD = 28, LINE = 16, VPAD = 9, H = 34, GAP = 18;
+const TEXT_W = 7.6, PAD = 28, LINE = 16, VPAD = 9, H = 34, GAP = 18;
 const labelOf = (it: Item) => it.n.title + (it.n.meta && it.n.kind !== "send" ? ` · ${it.n.meta}` : "") + (it.waits ? ` · ${it.waits}` : "");
 /** Words onto lines no wider than `max` characters; two lines wanted, three at most, nothing cut. */
 function wrap(text: string, max: number): string[] {
@@ -26,8 +26,11 @@ function wrap(text: string, max: number): string[] {
   return lines;
 }
 /** The lines a node shows and the box they need, within the width allowed. */
-function sizeOf(it: Item, maxW: number): { lines: string[]; w: number; h: number } {
-  const extra = (it.waits ? 18 : 0) + (it.cond ? 18 : 0);
+type Size = { lines: string[]; w: number; h: number; chips?: string[] };
+function sizeOf(it: Item, maxW: number): Size {
+  const extra = (it.waits ? 18 : 0) + (it.cond ? 18 : 0) + (kindIconOf(it) ? 18 : 0);
+  // a tag step: the verb on the first line, every tag as a chip under it
+  if (it.n.kind === "tag") { const m = /^(Add|Remove) tags? (.*)$/.exec(it.n.title); if (m) { const chips = (m[2].match(/“[^”]*”/g) ?? []).map((t) => t.slice(1, -1)); const verb = `${m[1]} ${chips.length > 1 ? "tags" : "tag"}`; const w = Math.min(maxW, Math.max(96, Math.round(Math.max(verb.length * TEXT_W + extra, ...chips.map((c) => c.length * 6.4 + 22)) + PAD))); return { lines: [verb], chips, w, h: VPAD * 2 + LINE + chips.length * 20 }; } }
   const label = labelOf(it); const maxChars = Math.max(8, Math.floor((maxW - PAD - extra) / TEXT_W));
   let lines = label.length <= maxChars ? [label] : wrap(label, Math.max(maxChars, Math.ceil(label.length / 2) + 2) <= maxChars ? Math.max(8, Math.ceil(label.length / 2) + 2) : maxChars);
   if (lines.some((l) => l.length > maxChars)) lines = wrap(label, maxChars);
@@ -133,7 +136,20 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
       const trigs = row.items.filter((it) => it.n.kind === "trig"); const rest = row.items.filter((it) => it.n.kind !== "trig");
       if (trigs.length > 1) { const w = Math.min(maxNodeW, (W - 24 - (trigs.length - 1) * 12) / trigs.length); const total = trigs.length * w + (trigs.length - 1) * 12; let tx = x - total / 2 + w / 2; let bottom = y; for (const it of trigs) { bottom = Math.max(bottom, put(it, tx, y, w)); tx += w + 12; } tx = x - total / 2 + w / 2; for (let i = 0; i < trigs.length; i++) { link(tx, bottom, x, bottom + GAP); tx += w + 12; } prevBottom = null; y = bottom + GAP; }
       else if (trigs.length === 1) { if (prevBottom !== null) link(x, prevBottom, x, y); prevBottom = put(trigs[0], x, y, maxNodeW); y = prevBottom + GAP; }
-      for (const it of rest) { if (prevBottom !== null) link(x, prevBottom, x, y); prevBottom = put(it, x, y, maxNodeW); y = prevBottom + GAP; }
+      for (const it of rest) {
+        if (prevBottom !== null) link(x, prevBottom, x, y);
+        prevBottom = put(it, x, y, maxNodeW); y = prevBottom + GAP;
+        if (it.n.kind === "check" && it.n.stop) {
+          // the "else" of an if: a short branch to the right that ends; the spine (the "yes") carries on straight down
+          const label = `else: ${it.n.stop}`; const pillW = Math.min(Math.max(90, label.length * 6.4 + 22), W / 2 - 24); const lines = wrap(label, Math.floor((pillW - 22) / 6.4)).slice(0, 2);
+          const ph = 8 + lines.length * 14; const px = Math.min(W - pillW / 2 - 8, x + W / 4 + pillW / 2 - 10); const py = y - GAP / 2 + ph / 2 + 2;
+          const sz = sizeOf(it, maxNodeW); link(x + sz.w / 2 - 8, prevBottom - 4, px, py - ph / 2);
+          out.push(`<g style="opacity:.75"><rect x="${px - pillW / 2}" y="${py - ph / 2}" width="${pillW}" height="${ph}" rx="${ph / 2}" fill="none" stroke="${T("fg-3")}" stroke-width="1.5"/>`);
+          lines.forEach((l, i) => out.push(`<text class="lbl" x="${px}" y="${py - ph / 2 + 14 + i * 14}" text-anchor="middle" fill="${T("fg-2")}">${esc(l)}</text>`));
+          out.push("</g>");
+          y += ph + 6;
+        }
+      }
       continue;
     }
     // the fork node, then its groups in rows that fit the width
@@ -177,22 +193,43 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
   return `<svg viewBox="0 0 ${W} ${Hh}" width="${W}" height="${Hh}" role="img" aria-label="Flow chart">${out.join("")}</svg>`;
 }
 
-function node(it: Item, x: number, y: number, sz: { lines: string[]; w: number; h: number }, st: St | null): string {
+function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
   const k = it.n.kind; const w = sz.w, h = sz.h; const top = y - h / 2;
-  const fill = k === "trig" ? T("acc") : k === "end" ? "none" : k === "fork" ? T("panel-3") : T("panel-2");
+  const fill = k === "trig" ? T("acc") : k === "end" ? "none" : k === "fork" || k === "check" ? T("panel-3") : T("panel-2");
   const stroke = k === "trig" ? T("acc") : k === "end" ? T("fg-3") : T("edge"); const ink = k === "trig" ? T("acc-ink") : k === "end" ? T("fg-2") : T("fg");
   const dim = st === "skip" || st === "next"; const op = dim ? (st === "skip" ? 0.5 : 0.45) : 1;
   let g = `<g class="nd" tabindex="0" data-id="${it.id}" style="opacity:${op}"><rect class="b" x="${x - w / 2}" y="${top}" width="${w}" height="${h}" rx="${k === "end" ? Math.min(17, h / 2) : 9}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
   // the title centred on up to three lines; a clock before the first line when it waits, the blue mark at the right when it is conditional
-  const shift = ((it.waits ? 18 : 0) - (it.cond ? 18 : 0)) / 2;
+  const ki = kindIconOf(it); const leftW = (it.waits ? 18 : 0) + (ki ? 18 : 0);
+  const shift = (leftW - (it.cond ? 18 : 0)) / 2;
   const y0 = top + VPAD + 11.5;
   sz.lines.forEach((l, i) => { g += `<text x="${x + shift}" y="${y0 + i * LINE}" text-anchor="middle" fill="${ink}">${esc(l)}</text>`; });
-  if (it.waits) { const first = sz.lines[0].length * TEXT_W; g += `<g transform="translate(${x + shift - first / 2 - 20},${y0 - 12}) scale(.8)" style="color:${T("fg-2")}">${svgIcon("clock")}</g>`; }
+  let lx = x + shift - (sz.lines[0].length * TEXT_W) / 2 - leftW - 2;
+  const iconInk = k === "trig" ? T("acc-ink") : T("fg-2");
+  if (ki) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${iconInk}">${KIND_ICON[ki] ?? KIND_ICON.other}</g>`; lx += 18; }
+  if (it.waits) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${T("fg-2")}">${svgIcon("clock")}</g>`; }
+  if (sz.chips) { let cy = y0 + LINE - 4; for (const c of sz.chips) { const cw = c.length * 6.4 + 14; g += `<rect x="${x - cw / 2}" y="${cy - 1}" width="${cw}" height="17" rx="6" fill="${T("panel-3")}"/><text x="${x}" y="${cy + 11.5}" text-anchor="middle" fill="${T("fg")}" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:500">${esc(c)}</text>`; cy += 20; } }
   if (it.cond) g += `<g transform="translate(${x + w / 2 - 24},${top + h / 2 - 8}) scale(.8)" style="color:${T("cond")}">${svgIcon("cond")}</g>`;
   if (st && st !== "next") { const col = st === "ok" ? T("ok") : st === "ghost" ? T("fg-2") : st === "here" ? T("wait") : st === "skip" ? T("cond") : st === "warn" ? T("warn") : T("fg-3"); const bg = st === "ok" ? T("ok-bg") : st === "here" ? T("wait-bg") : st === "skip" ? T("cond-bg") : st === "warn" ? T("warn-bg") : T("panel-3");
     g += `<g transform="translate(${x + w / 2 - 10},${top - 10})"><circle cx="10" cy="10" r="10" fill="${bg}"/><g style="color:${col}" transform="translate(3,3) scale(.7)">${svgIcon(st === "ok" ? "check" : st === "ghost" ? "ghost" : st === "here" ? "clock" : st === "skip" ? "skip" : st === "warn" ? "warn" : "stop")}</g></g>`; }
   return g + "</g>";
 }
+/** What kind of step it is, at a glance: one small mark per kind, left of the title. */
+const KIND_ICON: Record<string, string> = {
+  trig: '<path d="M11 2L4 11h5l-1 7 7-9h-5z" fill="currentColor"/>',
+  send_sms: '<path d="M3 5h14v9H8l-4 3v-3H3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  send_email: '<rect x="2.5" y="4.5" width="15" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 6l7 5 7-5" fill="none" stroke="currentColor" stroke-width="2"/>',
+  slack: '<path d="M7 3v14M13 3v14M3 7h14M3 13h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  tag: '<path d="M3 3h7l7 7-7 7-7-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="7" cy="7" r="1.3" fill="currentColor"/>',
+  crm: '<rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 8h14M8 8v8" stroke="currentColor" stroke-width="2"/>',
+  ai: '<path d="M10 2l1.8 5.2L17 9l-5.2 1.8L10 16l-1.8-5.2L3 9l5.2-1.8z" fill="currentColor"/>',
+  check: '<path d="M3 4h14l-5 6v6l-4-2v-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  fork: '<path d="M10 3v5M10 8l-5 5v4M10 8l5 5v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  reply: '<path d="M8 5L3 9.5 8 14M3 9.5h8a6 6 0 0 1 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  end: '<rect x="5" y="5" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>',
+  other: '<circle cx="10" cy="10" r="3" fill="currentColor"/>',
+};
+const kindIconOf = (it: Item) => it.n.kind === "send" ? (it.n.channel === "email" ? "send_email" : it.n.channel === "slack" ? "slack" : "send_sms") : it.n.kind === "wait" ? "" : it.n.kind;
 const svgIcon = (k: string) => ({
   check: '<path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
   clock: '<circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 6v4.5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',

@@ -11,7 +11,7 @@ import type { Projected } from "@/engine/project";
  * run did, step by step, with the state of each step). The client lays the chart out; it never reads a definition itself.
  */
 export type ChartKind = "trig" | "send" | "wait" | "reply" | "fork" | "check" | "tag" | "slack" | "crm" | "ai" | "end" | "other";
-export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; detail?: string; quote?: string; cond?: string; channel?: "sms" | "email" | "slack"; hidden?: boolean };
+export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; detail?: string; quote?: string; cond?: string; channel?: "sms" | "email" | "slack"; hidden?: boolean; stop?: string };
 export type ChartEdge = { from: string; to: string; label: string; else?: boolean };
 export type Chart = { nodes: ChartNode[]; edges: ChartEdge[] };
 
@@ -46,7 +46,7 @@ export function shortTitle(def: Definition, n: Node): { title: string; meta?: st
     case "wait": { const w = waitWords(n.rule).replace(/^Wait (until )?/, "").replace(/\s*\(.*\)$/, "").replace(/^(\d+) hours?/, (_, h) => (+h >= 48 && +h % 24 === 0 ? `${+h / 24} days` : `${h} hour${+h === 1 ? "" : "s"}`)); return { title: w.replace(/^./, (c) => c.toUpperCase()) }; }
     case "wait_for_reply": return { title: "Wait for a reply", meta: `up to ${durationWords(n.timeout)}` };
     case "branch": { const outs = def.edges.filter((e) => e.from === n.id); const whens = outs.filter((e) => e.when); const reply = whens.length && whens.every((e) => JSON.stringify(e.when).includes("reply.")); return { title: reply ? "What did they say?" : whens.length === 1 ? `${edgeWords(whens[0]).replace(/^./, (c) => c.toUpperCase())}?` : branchTitle(def, n.id) }; }
-    case "check": return { title: `Only if ${predicateWords(n.when)}` };
+    case "check": return { title: `If ${predicateWords(n.when)}`, meta: n.retry ? `waits up to ${durationWords(n.retry.for)}` : undefined };
     case "slack_post": return { title: n.thread_of ? "Reply in the thread" : "Tell the team" };
     case "notify_owner": return { title: "Nudge the owner" };
     case "classify": return { title: "AI reads the reply" };
@@ -71,9 +71,9 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
     const d = describeNode(n); const s = shortTitle(def, n);
     let quote: string | undefined;
     try { quote = n.type === "send_sms" || n.type === "send_email" || n.type === "slack_post" || n.type === "notify_owner" || n.type === "note" ? strip(nodeExamples(n, ctx, company.timezone)[0]?.example.text) : undefined; } catch { quote = d.quote; }
-    const cond = n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : n.type === "check" ? `If not: ${exitWords(n.else_exit).toLowerCase()}` : undefined;
+    const cond = n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : n.type === "check" ? `${n.retry ? `Waits up to ${durationWords(n.retry.for)} for it, looking every ${durationWords(n.retry.every)}. ` : ""}If not: ${exitWords(n.else_exit).toLowerCase()}` : undefined;
     // the AI reading a reply is plumbing between the wait and the fork; the chart routes around it, the popover of the fork says so
-    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: d.detail, quote, cond, channel: channelOf(n), hidden: n.type === "classify" || undefined };
+    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: d.detail, quote, cond, channel: channelOf(n), hidden: n.type === "classify" || undefined, stop: n.type === "check" ? exitWords(n.else_exit).replace(/^(Stop|Done): /, "") : undefined };
   });
   const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e), else: e.else || undefined }));
   return { nodes, edges };

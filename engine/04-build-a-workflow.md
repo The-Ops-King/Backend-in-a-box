@@ -66,7 +66,7 @@ settings; the workflow page's trigger popover lists the calendars that match.
 | `classify` | `input`, `state?`, `domain`, `threshold`, `into` | the AI picks one option of a domain (`reply_intent`, `appointment_outcome`, `call_outcome`, `lost_reason`, `payment_plan`, `appointment_type`); below the threshold → `unclear`. Result under `vars.<into>` and `reply.intent`. |
 | `analyze` | `prompt` (`{{prompt.<name>}}`), `input` (default the transcript), `into`, `format: json|text`, `max_tokens?`, `optional?` | long-form read: notes, scorecard, a one-line cheer. `optional: true` = skipped quietly when the AI cannot run. Prompts are company bindings with defaults in `src/prompts`. |
 | `branch` | — | the question; its outgoing edges are the answers. |
-| `check` | `when`, `else_exit` | a gate: if false, exit with that reason. A run that stops at a gate before doing anything releases its once-per key (D30). |
+| `check` | `when`, `else_exit`, `retry?: { every, for }` | a gate: if false, exit with that reason; with `retry`, park on the step and look again every `every` for up to `for` first (a lead without a phone waits a day for one). A run that stops at a gate before doing anything releases its once-per key (D30). |
 | `set_tag` / `remove_tag` | `tag` or `[tags]` | CRM tags. |
 | `update_contact` | `set: { first_name, last_name, phone, timezone, assign_to }`, `fields: [{ id, value }]`, `clear: [ids]` | empty rendered values are left alone. |
 | `pipeline_card` | `pipeline`, `stage?`, `name?`, `assign_to?`, `status?: open|won|lost|abandoned`, `if_missing: create|skip`, `fields` | one open card per contact per pipeline; re-firing moves it. `if_missing: skip` = only if the card exists. |

@@ -1119,3 +1119,11 @@ needs the reply's text for a few hours so the AI can read it. So:
   facts triggers fire on. Runs and steps are the product and are kept.
 - Nothing in the dashboard shows a message log; the run page shows a send's words only inside that run.
 
+## D39. A check can wait for its condition (2026-10-09)
+
+Tyler, on Dai Davenport's new-lead run stopping at "only if phone number exists": "Can we adjust that to wait for 24
+hours or something? Wait until phone number exists for up to 24 hours. If it doesn't exist by then, exit." A `check`
+takes an optional `retry: { every, for }`: when the condition is false the run parks on the step and looks again every
+`every` until `for` has passed, then takes `else_exit` as before. New lead waits a day for a phone number (a Calendly
+booking or a CRM edit usually brings it), looking every ten minutes. On the chart a check reads as an if: "If phone
+number exists · waits up to 24 hours", with its else hanging off the side as a dim stop ("else: no phone number").

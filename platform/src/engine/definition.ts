@@ -75,7 +75,7 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("report"), kind: z.string(), breakdowns: z.array(z.string()).default([]), sections: z.record(z.boolean()).default({}), into: z.string().default("report") }),
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string() }),
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),
-  z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string() }),
+  z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string(), retry: z.object({ every: z.string(), for: z.string() }).optional() }),   // retry: park and look again every `every` for up to `for` before taking else_exit
   z.object({ ...base, type: z.literal("set_tag"), tag: z.union([z.string(), z.array(z.string()).min(1)]) }),
   z.object({ ...base, type: z.literal("remove_tag"), tag: z.union([z.string(), z.array(z.string()).min(1)]) }),
   // Writes to the CRM contact: a few native fields plus custom fields by id. A field whose rendered value is empty is left alone, never blanked.

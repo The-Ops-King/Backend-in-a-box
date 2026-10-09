@@ -243,8 +243,13 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     for (const id of [withNum, noNum]) await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: {} }), { contact: { id } }));
     const nTags = tags.length, nOpps = oppWrites.length;
     await tick(fake, undefined, companyId);
-    const runs = await runsFor("new-lead");
+    let runs = await runsFor("new-lead");
     expect(runs.find((r) => r.contact_id === withNum)).toMatchObject({ status: "completed", exit_reason: "done" });
+    expect(runs.find((r) => r.contact_id === noNum)).toMatchObject({ status: "waiting", current_node: "n1" });   // D39: it waits for a phone number
+    // a day passes with no phone: the deadline it wrote is behind us and the clock says it is due
+    await asOperator((c) => c.query("update runs set next_run_at=now(), context=jsonb_set(context, '{vars,__check,n1,deadline}', to_jsonb((now()-interval '1 minute')::text)) where company_id=$1 and contact_id=$2 and status='waiting'", [companyId, noNum]));
+    await tick(fake, undefined, companyId);
+    runs = await runsFor("new-lead");
     expect(runs.find((r) => r.contact_id === noNum)).toMatchObject({ status: "completed", exit_reason: "no_phone" });
     const created = oppWrites.slice(nOpps);
     expect(created).toHaveLength(1);

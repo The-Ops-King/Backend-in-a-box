@@ -5,6 +5,7 @@ import type { Adapters, Company } from "@/adapters/types";
 import type { Edge, Node } from "./definition";
 import { evaluate } from "./predicate";
 import { render, resolvePath, parseDuration, StaleTemplateError, UnknownPathError } from "./template";
+import { predicateWords, durationWords } from "./describe";
 import { computeWaitUntil, deferIntoWindow } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
 import { emitEvent } from "./dispatch";
@@ -233,7 +234,17 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const els = edges.find((e) => e.else); if (els) return { status: "ok", next: els.to, result: { edge: els.to, else: true } };
       return { status: "failed", error: `branch ${node.id}: no edge matched and no else` };
     }
-    case "check": return evaluate(node.when, d.ctx) ? { status: "ok", next } : { status: "exit", reason: node.else_exit, gate: true };
+    case "check": {
+      if (evaluate(node.when, d.ctx)) return { status: "ok", next };
+      // a check that waits for its condition (D39): park on this node and look again, up to the deadline; then the gate closes as before
+      if (node.retry) {
+        const key = `__check.${node.id}.deadline`;
+        let deadline = resolvePath(d.ctx, `vars.${key}`) as string | undefined;
+        if (!deadline) { deadline = d.now.plus(parseDuration(node.retry.for)).toISO()!; setPath(d.ctx, `vars.${key}`, deadline); }
+        if (d.now < DateTime.fromISO(deadline)) return { status: "waiting", until: d.now.plus(parseDuration(node.retry.every)), stay: true, result: { deadline, why: `not yet: ${predicateWords(node.when)}; looking again every ${durationWords(node.retry.every)} until ${deadline}` } };
+      }
+      return { status: "exit", reason: node.else_exit, gate: true };
+    }
 
     case "set_tag": case "remove_tag": {
       const ghlId = (d.ctx.contact as { ghl_contact_id?: string | null }).ghl_contact_id;
