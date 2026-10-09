@@ -147,15 +147,18 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect((await asOperator((c) => dispatchSchedules(c, DateTime.now().setZone(TZ).set({ hour: 18 }) as DateTime<true>, companyId))).started).toEqual([]);
   });
 
-  it("no recording, no show: at the end of the day a call that ended with no recording and no outcome is marked no-show; recorded or already answered calls are left alone", async () => {
+  it("no recording, presumed no-show (D46): at the end of the day a call that ended with no recording and no outcome is presumed a no-show for the closer's form, never marked; recorded or already answered calls are left alone", async () => {
     const wf = await asOperator((c) => installTemplateForTest(c, companyId, "no-recording-no-show"));
     const at = DateTime.now().setZone(TZ).set({ hour: 23, minute: 0 }) as DateTime<true>;
     await asOperator((c) => fireNow(c, companyId, wf, undefined, at));
     expect(await tick(fake, at, companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
-    const step = await asOperator((c) => one<{ result: { marked: string[]; checked: number } }>(c, "select s.result from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_type='assume_no_show'", [wf]));
-    expect(step?.result).toMatchObject({ checked: 1, marked: ["Sarah Kim"] });   // Bea's 4pm call with Sarah: no recording, no answer; Allan's two were filed (showed)
-    const beaCall = await asOperator((c) => one<{ oc: string | null }>(c, "select ot.category as oc from appointments a left join company_terms ot on ot.id=a.outcome_term where a.company_id=$1 and a.assigned_user_id=$2", [companyId, bea]));
-    expect(beaCall?.oc).toBe("noshow");
-    expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from events where company_id=$1 and event_type='appointment.outcome' and data->>'by'='no recording by end of day'", [companyId])))!.n).toBe("1");
+    const step = await asOperator((c) => one<{ result: { presumed: string[]; checked: number } }>(c, "select s.result from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_type='assume_no_show'", [wf]));
+    expect(step?.result).toMatchObject({ checked: 1, presumed: ["Sarah Kim"] });   // Bea's 4pm call with Sarah: no recording, no answer; Allan's two were filed (showed)
+    const beaCall = await asOperator((c) => one<{ oc: string | null; presumed: string | null }>(c, "select ot.category as oc, a.presumed_outcome as presumed from appointments a left join company_terms ot on ot.id=a.outcome_term where a.company_id=$1 and a.assigned_user_id=$2", [companyId, bea]));
+    expect(beaCall).toEqual({ oc: null, presumed: "noshow" });   // nothing marked: the closer decides
+    expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from events where company_id=$1 and event_type='appointment.outcome' and data->>'by'='no recording by end of day'", [companyId])))!.n).toBe("0");
+    const day = at.toFormat("yyyy-MM-dd");
+    const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: bea, name: "Bea", email: "bea@x.com" }, day));
+    expect(pre.calls.find((x) => x.contact === "Sarah Kim")?.outcome).toBe("no_show");   // the form opens with the presumption, for the closer to confirm or correct
   });
 });

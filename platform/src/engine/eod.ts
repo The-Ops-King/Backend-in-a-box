@@ -52,8 +52,8 @@ const str = (v: unknown): string => (typeof v === "string" ? v : Array.isArray(v
 export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: string; name: string; email: string }, day: string): Promise<EodPrefill> {
   const tz = company.timezone;
   const from = DateTime.fromFormat(day, DAY_FMT, { zone: tz }).startOf("day"), to = from.endOf("day");
-  const appts = await many<{ id: string; contact_id: string; contact: string; ghl_contact_id: string | null; starts_at: Date; status: string; outcome_cat: string | null; call_outcome_cat: string | null; notes: string | null }>(c, `
-    select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.ghl_contact_id, a.starts_at, a.status,
+  const appts = await many<{ id: string; contact_id: string; contact: string; ghl_contact_id: string | null; starts_at: Date; status: string; outcome_cat: string | null; call_outcome_cat: string | null; notes: string | null; presumed_outcome: string | null }>(c, `
+    select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.ghl_contact_id, a.starts_at, a.status, a.presumed_outcome,
            ot.category as outcome_cat, cot.category as call_outcome_cat,
            (select fs.answers->>'notes' from form_submissions fs where fs.appointment_id=a.id order by fs.submitted_at desc limit 1) as notes
     from appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
@@ -72,6 +72,7 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     const outcome: CallOutcome = a.outcome_cat === "noshow" || a.status === "noshow" ? "no_show" : a.outcome_cat === "rescheduled" ? "rescheduled"
       : a.call_outcome_cat === "closed" ? "closed" : a.call_outcome_cat === "deposit" ? "deposit" : a.call_outcome_cat === "follow_up" ? "follow_up" : a.call_outcome_cat === "lost" ? "lost" : a.call_outcome_cat === "unqualified" ? "dq"
       : paid > 0 ? (contract > 0 && paid < contract ? "deposit" : "closed") : won ? "closed"
+      : a.presumed_outcome === "noshow" ? "no_show"   // D46: no recording by end of day → presumed, for the closer to confirm or correct; money and a filed outcome outrank it
       : disp === "closed_won" ? "closed" : disp === "follow_up" || disp === "close_pending" ? "follow_up" : disp === "lost" ? "lost" : disp === "dq" ? "dq" : "";
     const money = MONEY.includes(outcome);
     const aboutParts = [str(notes.summary), str(notes.pain) && `Pains: ${str(notes.pain)}`, str(notes.desire) && `Goals: ${str(notes.desire)}`, str(notes.objections) && `Objections: ${str(notes.objections)}`].filter(Boolean);

@@ -1246,3 +1246,14 @@ second call is the correct one. They should be taken out of the workflow."
 - Slack app setup for this: scope `reactions:read` (plus `reactions:write`), Event Subscriptions on with the
   request URL above, bot event `reaction_added`, the signing secret from Basic Information given to the install
   API as `slackSigningSecret`.
+
+## D46. No recording by end of day is a presumption, not a mark (2026-10-09)
+
+Tyler: "The no-recording no-show: I don't think we should mark them as no-show anymore. We should assume they're a
+no-show for the EOD, but not actually marked as no-show until confirmed by the closer." `assume_no_show` now sets
+`appointments.presumed_outcome = 'noshow'` and nothing else; the closer's end-of-day form opens with no-show
+prefilled for that call; their answer, through the disposition path, is the fact that fires `appointment.outcome`
+and from it the no-show texts, the 👻 and the CRM. The template is "No recording, presumed no-show".
+
+Also, D40 corrected on the chart: an if-node carried a funnel glyph next to its else pill, which read as both
+conventions at once. The glyph is a decision diamond; the else pill stays. Either filter or if/then means if/then.

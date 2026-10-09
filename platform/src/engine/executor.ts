@@ -472,14 +472,11 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
         select a.id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, a.starts_at from appointments a join contacts ct on ct.id=a.contact_id join company_terms t on t.id=a.appointment_term
         where a.company_id=$1 and a.starts_at >= $2 and a.ends_at <= $3 and a.status not in ('cancelled','invalid') and a.outcome_term is null and t.category = any($4)
           and not exists (select 1 from recordings r where r.appointment_id=a.id) order by a.starts_at`, [d.company.id, from, cutoff, node.types]);
-      const noshow = await outcomeTermFor(d.c, d.company.id, "noshow");
-      if (!noshow) return { status: "skipped", next, result: { kind: "blocked", why: "no no-show outcome term for this company" } };
-      const marked: string[] = [];
-      for (const a of due) {
-        if (shadow(d)) { marked.push(a.contact); continue; }
-        try { await applyOutcome(d.c, { companyId: d.company.id, appointmentId: a.id, outcomeTermId: noshow, source: "engine", runId: d.run.id, by: "no recording by end of day" }); marked.push(a.contact); } catch { /* an appointment that vanished */ }
-      }
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true, would_mark: marked } : { marked }), checked: due.length, ...(marked.length === 0 ? { kind: "noop" } : {}) } };
+      // D46: presumed, not marked. The closer's end-of-day form opens with "no-show" prefilled for these; their answer is the
+      // fact that fires appointment.outcome (and from it the no-show texts, the 👻, the CRM). The engine's guess never does.
+      const presumed: string[] = [];
+      for (const a of due) { await d.c.query("update appointments set presumed_outcome='noshow' where id=$1 and presumed_outcome is null", [a.id]); presumed.push(a.contact); }
+      return { status: "ok", next, result: { presumed, checked: due.length, ...(presumed.length === 0 ? { kind: "noop" } : {}) } };
     }
     case "report": {
       const kind = render(node.kind, d.ctx, env(d)) as ReportKind;

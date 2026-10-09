@@ -91,7 +91,7 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "exit": return { title: "Done" };
     case "report": return { title: "Build the wrap-up" };
     case "availability_check": return { title: "Check bookable slots", meta: `alert under ${n.min_slots} in ${n.days} day${n.days === 1 ? "" : "s"}` };
-    case "assume_no_show": return { title: "Mark unrecorded calls no-show" };
+    case "assume_no_show": return { title: "Presume unrecorded calls no-shows", meta: "for the end-of-day form" };
     case "health_check": return { title: "Run the health checks" };
     default: { const d = describeNode(n); return { title: d.title }; }
   }
