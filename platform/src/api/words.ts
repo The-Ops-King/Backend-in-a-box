@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import type { Definition, Node, Edge } from "@/engine/definition";
-import { branchTitle, collapsePlumbing, describeNode, durationWords, edgeWords, exitWords, humanWords, pathWords, predicateWords, waitWords, templateWords, walkOrder } from "@/engine/describe";
+import { branchTitle, collapsePlumbing, constsOf, describeNode, durationWords, edgeWords, exitWords, humanWords, pathWords, predicateWords, waitWords, templateWords, walkOrder } from "@/engine/describe";
 import { exampleContext, nodeExamples } from "@/engine/example";
 import { scheduleWords } from "@/engine/when";
 import type { Projected } from "@/engine/project";
@@ -76,7 +76,7 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "wait": { const w = waitWords(n.rule).replace(/^Wait (until )?/, "").replace(/\s*\(.*\)$/, "").replace(/^(\d+) hours?/, (_, h) => (+h >= 48 && +h % 24 === 0 ? `${+h / 24} days` : `${h} hour${+h === 1 ? "" : "s"}`)); return { title: w.replace(/^./, (c) => c.toUpperCase()) }; }
     case "wait_for_reply": return { title: "Wait for a reply", meta: `up to ${durationWords(n.timeout)}` };
     case "branch": { const outs = def.edges.filter((e) => e.from === n.id); const whens = outs.filter((e) => e.when); const reply = whens.length && whens.every((e) => JSON.stringify(e.when).includes("reply.")); return { title: reply ? "What did they say?" : whens.length === 1 ? `${edgeWords(whens[0]).replace(/^./, (c) => c.toUpperCase())}?` : branchTitle(def, n.id) }; }
-    case "check": return { title: `If ${predicateWords(n.when)}`, meta: n.retry ? `waits up to ${durationWords(n.retry.for)}` : undefined };
+    case "check": return { title: `Check ${predicateWords(n.when, constsOf(def))}`, meta: n.retry ? `waits up to ${durationWords(n.retry.for)}` : undefined };
     case "slack_post": return { title: n.thread_of ? "Slack reply in the thread" : "Slack notification" };
     case "notify_owner": return { title: "Slack DM to the owner" };
     case "classify": return { title: "AI reads the reply" };
@@ -123,10 +123,10 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
   const def = collapsePlumbing(full);
   const ctx = exampleContext(company, bindings);
   const nodes: ChartNode[] = def.nodes.map((n) => {
-    const d = describeNode(n); const s = shortTitle(def, n);
+    const d = describeNode(n); const s = shortTitle(full, n);
     let quote: string | undefined;
     try { const ex = nodeExamples(n, ctx, company.timezone)[0]?.example.text; quote = n.type === "slack_post" || n.type === "notify_owner" ? ex?.trim() : n.type === "send_sms" || n.type === "send_email" || n.type === "note" ? strip(ex) : undefined; } catch { quote = d.quote; }
-    const cond = n.only_if ? `Only if ${predicateWords(n.only_if)}${n.type === "slack_post" && n.thread_only ? "; and only when the post it reacts to is in Slack" : ""}` : n.type === "slack_post" && n.thread_only ? "Only when the post it reacts to is in Slack; nothing is posted otherwise" : n.type === "pipeline_card" && n.if_missing === "skip" ? "Only if a card is already on that board; this step never creates one" : n.type === "pipeline_card" && !n.stage ? "Only when a card is already on that board: there is no stage to make one in" : n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : n.type === "check" ? `${n.retry ? `Waits up to ${durationWords(n.retry.for)} for it, looking every ${durationWords(n.retry.every)}. ` : ""}If not: ${exitWords(n.else_exit).toLowerCase()}` : undefined;
+    const cond = n.only_if ? `Only if ${predicateWords(n.only_if)}${n.type === "slack_post" && n.thread_only ? "; and only when the post it reacts to is in Slack" : ""}` : n.type === "slack_post" && n.thread_only ? "Only when the post it reacts to is in Slack; nothing is posted otherwise" : n.type === "pipeline_card" && n.if_missing === "skip" ? "Only if a card is already on that board; this step never creates one" : n.type === "pipeline_card" && !n.stage ? "Only when a card is already on that board: there is no stage to make one in" : n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : undefined;
     // the AI reading a reply is plumbing between the wait and the fork; the chart routes around it, the popover of the fork says so
     return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), hidden: n.type === "classify" || undefined, stop: n.type === "check" ? exitWords(n.else_exit).replace(/^(Stop|Done): /, "") : undefined, logo: logoOf(n, bookingSource) };
   });

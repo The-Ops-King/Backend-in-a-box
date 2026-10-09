@@ -75,18 +75,37 @@ export function pathWords(p: unknown): string {
 /** Message templates keep their text; bindings inside become their plain name so the chart does not show `{{calendar.closer_call.url}}`. */
 export const templateWords = (t: string) => t.replace(/<[^>]+>/g, " ").replace(/\{\{\s*([a-zA-Z0-9_.]+)(?:\s*\|[^}]*)?\s*\}\}/g, (_, p) => `[${pathWords(p)}]`).replace(/\s+/g, " ").trim();
 
-export function predicateWords(p: Predicate): string {
-  if ("exists" in p) return `${pathWords(p.exists)} exists`;
-  if ("eq" in p) return p.eq[1] === true ? pathWords(p.eq[0]) : p.eq[1] === false ? `not ${pathWords(p.eq[0])}` : `${pathWords(p.eq[0])} is ${value(p.eq[1])}`;
-  if ("neq" in p) return p.neq[1] === true ? `not ${pathWords(p.neq[0])}` : p.neq[1] === false ? pathWords(p.neq[0]) : `${pathWords(p.neq[0])} is not ${value(p.neq[1])}`;
-  if ("gt" in p) return `${pathWords(p.gt[0])} > ${value(p.gt[1])}`; if ("gte" in p) return `${pathWords(p.gte[0])} ≥ ${value(p.gte[1])}`;
-  if ("lt" in p) return `${pathWords(p.lt[0])} < ${value(p.lt[1])}`; if ("lte" in p) return `${pathWords(p.lte[0])} ≤ ${value(p.lte[1])}`;
-  if ("in" in p) { const vs = p.in[1].map(value); return `${pathWords(p.in[0])} is ${vs.length > 1 ? `${vs.slice(0, -1).join(", ")} or ${vs.at(-1)}` : vs[0]}`; }
-  if ("has" in p) return `${pathWords(p.has[0])} include ${value(p.has[1])}`;
-  if ("and" in p) return p.and.map(predicateWords).join(" and "); if ("or" in p) return p.or.map(predicateWords).join(" or ");
-  if ("not" in p) return "has" in p.not ? `${pathWords(p.not.has[0])} do not include ${value(p.not.has[1])}` : `not (${predicateWords(p.not)})`;
+/** A predicate as a person would say it. `consts` are the workflow's own set_var literals, so "≥ the minimum call length" reads "longer than 60 seconds". */
+export function predicateWords(p: Predicate, consts: Record<string, unknown> = {}): string {
+  const w = (q: Predicate) => predicateWords(q, consts);
+  const lit = (v: unknown): unknown => { const m = typeof v === "string" ? /^\{\{\s*(vars\.[a-zA-Z0-9_.]+)\s*\}\}$/.exec(v) : null; return m && m[1] in consts ? consts[m[1]] : v; };
+  // a measured thing compared to a number: "the call is longer than 60 seconds"
+  const measure = (path: unknown, cmp: "gt" | "gte" | "lt" | "lte", raw: unknown): string | null => {
+    const v = lit(raw); if (typeof v !== "number" || typeof path !== "string") return null;
+    const m = /^\{\{\s*([a-zA-Z0-9_.]+)/.exec(path); const key = m ? m[1] : path;
+    const unit = /duration_sec$|_sec$|_seconds$/.test(key) ? "second" : /duration_min$|_min$|_minutes$/.test(key) ? "minute" : /_days?$/.test(key) ? "day" : /_hours?$/.test(key) ? "hour" : null;
+    if (!unit) return null;
+    const subject = /^recording\./.test(key) ? "the call" : pathWords(key).replace(/ \((seconds|minutes|days|hours)\)$/, "");
+    const n = `${v} ${unit}${v === 1 ? "" : "s"}`;
+    return cmp === "gt" || cmp === "gte" ? `${subject} is longer than ${n}` : `${subject} is shorter than ${n}`;   // Tyler's words; the edge second is not worth a clause
+  };
+  // "they have signed" → "they have not signed"; "there is a transcript" → "there is no transcript"; "the AI called it …" → "the AI did not call it …"
+  const negate = (t: string) => /^there is an? /.test(t) ? t.replace(/^there is an? /, "there is no ") : /^(they|we|you) have /.test(t) ? t.replace(/^(\w+) have /, "$1 have not ") : /^(.+?) (is|are|was|were) /.test(t) ? t.replace(/^(.+?) (is|are|was|were) /, "$1 $2 not ") : /^the AI called /.test(t) ? t.replace(/^the AI called /, "the AI did not call ") : `not ${t}`;
+  if ("exists" in p) return `there is a ${pathWords(p.exists).replace(/^(a|an|the) /, "")}`;
+  if ("eq" in p) return p.eq[1] === true ? pathWords(p.eq[0]) : p.eq[1] === false ? negate(pathWords(p.eq[0])) : `${pathWords(p.eq[0])} is ${value(lit(p.eq[1]))}`;
+  if ("neq" in p) return p.neq[1] === true ? negate(pathWords(p.neq[0])) : p.neq[1] === false ? pathWords(p.neq[0]) : `${pathWords(p.neq[0])} is not ${value(lit(p.neq[1]))}`;
+  if ("gt" in p) return measure(p.gt[0], "gt", p.gt[1]) ?? `${pathWords(p.gt[0])} is more than ${value(lit(p.gt[1]))}`;
+  if ("gte" in p) return measure(p.gte[0], "gte", p.gte[1]) ?? `${pathWords(p.gte[0])} is at least ${value(lit(p.gte[1]))}`;
+  if ("lt" in p) return measure(p.lt[0], "lt", p.lt[1]) ?? `${pathWords(p.lt[0])} is less than ${value(lit(p.lt[1]))}`;
+  if ("lte" in p) return measure(p.lte[0], "lte", p.lte[1]) ?? `${pathWords(p.lte[0])} is at most ${value(lit(p.lte[1]))}`;
+  if ("in" in p) { const vs = p.in[1].map((x) => value(lit(x))); return `${pathWords(p.in[0])} is ${vs.length > 1 ? `${vs.slice(0, -1).join(", ")} or ${vs.at(-1)}` : vs[0]}`; }
+  if ("has" in p) return `${pathWords(p.has[0])} include ${value(lit(p.has[1]))}`;
+  if ("and" in p) return p.and.map(w).join(" and "); if ("or" in p) return p.or.map(w).join(" or ");
+  if ("not" in p) return "has" in p.not ? `${pathWords(p.not.has[0])} do not include ${value(lit(p.not.has[1]))}` : `not (${w(p.not)})`;
   return JSON.stringify(p);
 }
+/** The literals a workflow's unconditional set_var steps hold, keyed vars.<key>: the numbers its gates compare against. */
+export const constsOf = (def: { nodes: Node[] }): Record<string, unknown> => Object.fromEntries(def.nodes.filter((n): n is Extract<Node, { type: "set_var" }> => n.type === "set_var" && !n.when).map((n) => [`vars.${n.key}`, n.value]));
 
 const clock = (hh: string, mm: string) => { const h = +hh; return `${h % 12 || 12}:${mm} ${h < 12 ? "AM" : "PM"}`; };
 export function durationWords(d: string): string {
@@ -119,7 +138,7 @@ export function describeNode(n: Node): NodeText {
     case "availability_check": return { title: `Check bookable slots: fewer than ${n.min_slots} in the next ${n.days} day${n.days === 1 ? "" : "s"} is an alert`, detail: "Every active calendar; in a run about a booking, that booking's calendar" };
     case "assume_no_show": return { title: `Calls that ended with no recording are presumed no-shows on the end-of-day form`, detail: `${durationWords(n.grace)} after the scheduled end; ${n.types.map(humanWords).join(", ")} calls; a closer's own answer on the end-of-day form overrides it` };
     case "report": return { title: `Build the ${/^\{\{/.test(n.kind) ? pathWords(n.kind.replace(/^\{\{\s*|\s*\}\}$/g, "")) : n.kind} wrap-up`, detail: `${n.breakdowns.length ? `Broken down by ${n.breakdowns.join(", ")}; ` : ""}into ${n.into}: body, period, numbers` };
-    case "check": return { title: `Check if ${predicateWords(n.when)}`, detail: `${n.retry ? `Waits up to ${durationWords(n.retry.for)} for it, looking every ${durationWords(n.retry.every)}. ` : ""}If not → ${exitWords(n.else_exit).toLowerCase()}` };
+    case "check": return { title: `Check ${predicateWords(n.when)}`, detail: `${n.retry ? `Waits up to ${durationWords(n.retry.for)} for it, looking every ${durationWords(n.retry.every)}. ` : ""}Otherwise the run ${exitWords(n.else_exit).replace(/^Stop: /, "stops: ").replace(/^Done: /, "ends: ").replace(/^Done$/, "ends")}` };
     case "branch": return { title: "Which way?" };
     case "wait": return { title: waitWords(n.rule), detail: `${n.rule.tz === "contact" ? "Contact's" : "Company's"} time zone${guardWords(n.rule)}` };
     case "wait_for_reply": return { title: `Wait for ${n.channel === "any" ? "a" : n.channel === "sms" ? "a text" : "an email"} reply`, detail: `Up to ${durationWords(n.timeout)}; continues the minute one arrives` };

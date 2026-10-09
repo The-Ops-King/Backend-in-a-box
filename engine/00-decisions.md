@@ -1257,3 +1257,11 @@ and from it the no-show texts, the 👻 and the CRM. The template is "No recordi
 
 Also, D40 corrected on the chart: an if-node carried a funnel glyph next to its else pill, which read as both
 conventions at once. The glyph is a decision diamond; the else pill stays. Either filter or if/then means if/then.
+
+## D40 addendum: gates read "Check <fact>", carry the split glyph, and their constants (2026-10-09)
+
+Tyler: "If there is a possible out, the top left should be that little split icon. The wording is too complex; it
+should be in simple English: 'Check the call is longer than 60 seconds'." A gate is drawn with the same split glyph
+as a fork (there is a way out), titled "Check <fact>" with the workflow's own constants filled in (`vars.min_seconds`
+reads as 60 seconds), negations in English ("they have not signed", "there is no transcript"), the else as the pill
+and "Otherwise the run stops: too short" on tap. No blue line on a gate: it is not a sometimes-step.

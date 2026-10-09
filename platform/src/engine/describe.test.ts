@@ -7,7 +7,7 @@ describe("plain-English descriptions", () => {
   it("triggers and checks read like a person wrote them", () => {
     expect(describeNode({ id: "t", type: "trigger", event: "lead.created" }).title).toBe("New lead created");
     expect(describeNode({ id: "t", type: "trigger", event: "appointment.status_changed", match: { eq: ["{{event.status.to}}", "cancelled"] } }).title).toBe("Appointment status changed — new status is “cancelled”");
-    expect(describeNode({ id: "c", type: "check", when: { exists: "contact.phone" }, else_exit: "no_phone" })).toEqual({ title: "Check if phone number exists", detail: "If not → stop: no phone number" });
+    expect(describeNode({ id: "c", type: "check", when: { exists: "contact.phone" }, else_exit: "no_phone" })).toEqual({ title: "Check there is a phone number", detail: "Otherwise the run stops: no phone number" });
   });
   it("waits speak in clock time and durations", () => {
     expect(waitWords({ anchor: "appointment.starts_at", offset: "day_of@08:00", tz: "contact" })).toBe("Wait until 8:00 AM the day of the call");
