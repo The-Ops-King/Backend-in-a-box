@@ -5,7 +5,7 @@
   "stage": "call",
   "sort": 20,
   "origin": "spec",
-  "description": "The dialer logged a connected phone call: calls shorter than the minimum stop here, so do calls with no recording (nothing to read). Fifteen minutes after the call the AI decides whether it was a setting call or a confirmation call (anything else — 'are you joining?', voicemails, wrong numbers — stops here), writes the digest with pains, goals, triage and a fit score, records whether a booking followed, writes the Discovery Call record and links it to the contact, leaves the digest as a note, and posts it to Slack. Every call, answered or not, is kept in the recordings ledger regardless.",
+  "description": "The dialer logged a connected phone call: calls shorter than the minimum stop here, so do calls with no recording (nothing to read). Fifteen minutes after the call ends (so a booking the setter makes right after hanging up counts) the AI decides whether it was a setting call or a confirmation call (anything else — 'are you joining?', voicemails, wrong numbers — stops here), writes the digest with pains, goals, triage and a fit score, records whether a booking followed, writes the Discovery Call record and links it to the contact, leaves the digest as a note, and posts it to Slack. Every call, answered or not, is kept in the recordings ledger regardless.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -66,10 +66,11 @@
         "id": "w1",
         "type": "wait",
         "rule": {
-          "anchor": "recording.started_at",
+          "anchor": "recording.ended_at",
           "offset": "+15m",
           "tz": "company"
-        }
+        },
+        "title": "15 minutes after the call ends"
       },
       {
         "id": "a1",

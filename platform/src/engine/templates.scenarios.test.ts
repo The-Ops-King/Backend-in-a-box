@@ -561,8 +561,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     setterCallType = "other"; const nRec4 = recordWrites.length;
     await logCall("call-4", 95, 20, true); await tick(fake, undefined, companyId); await tick(fake, undefined, companyId); setterCallType = "setting";
     expect(await lastRun()).toMatchObject({ status: "completed", exit_reason: "not_a_setting_call" }); expect(recordWrites.length).toBe(nRec4);
-    // 5. a call that just ended waits for its 15 minutes (so the booking the setter makes right after shows up)
-    await logCall("call-5", 200, 2, true); await tick(fake, undefined, companyId);
+    // 5. a call that just ended waits 15 minutes from its END (so the booking the setter makes right after shows up): a 40-minute call that started 42 minutes ago ended 2 minutes ago → ~13 minutes to go
+    await logCall("call-5", 2400, 42, true); await tick(fake, undefined, companyId);
     const waiting = await lastRun(); expect(waiting.status).toBe("waiting");
     expect(Math.abs(DateTime.fromJSDate(waiting.next_run_at!).diffNow("minutes").minutes - 13)).toBeLessThan(1.5);
     // 6. a no-answer never starts the workflow at all (trigger wants a connected call)

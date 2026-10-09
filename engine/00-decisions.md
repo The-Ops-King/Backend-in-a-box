@@ -867,7 +867,9 @@ Tyler, 2026-10-07, porting Hair's "hourly setter call scrape" Zap. Decisions:
    Hair calls had one); the ledger says so per call and the operator can turn recording on in GHL.
 4. **The transcript lags the call**, so a connected call waits (re-read every tick, 30 minutes at
    most) and `call.logged` fires once, at settle. The workflow then waits 15 minutes from the call's
-   start so the booking the setter makes right after hanging up is visible as `led_to_booking`.
+   END so the booking the setter makes right after hanging up is visible as `led_to_booking`.
+   (2026-10-09: it was anchored on the call's start, which gave a long call no grace at all; Tyler:
+   "It should be when a call is complete... sometimes setting calls take a long time." Now `recording.ended_at`.)
 5. **Classification is the engine's `analyze` step on Claude**, same as `call-recorded`: setting /
    confirmation / other. "Are you joining?", voicemails, wrong numbers are `other` and stop. Both
    setting and confirmation calls get the same digest; the prompt is told to keep a thin
