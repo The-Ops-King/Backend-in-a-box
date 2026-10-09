@@ -22,8 +22,9 @@ function wrap(text: string, max: number): string[] {
   const words = text.split(/\s+/); const lines: string[] = []; let cur = "";
   for (const w of words) { const next = cur ? `${cur} ${w}` : w; if (next.length <= max || !cur) cur = next; else { lines.push(cur); cur = w; } }
   if (cur) lines.push(cur);
-  if (lines.length > 3) { const keep = lines.slice(0, 3); keep[2] = `${keep[2]} ${lines.slice(3).join(" ")}`; return keep; }
-  return lines;
+  // four lines at most; past that the last line is cut with an ellipsis rather than spilling out of the box
+  if (lines.length > 4) { const keep = lines.slice(0, 4); keep[3] = `${keep[3].slice(0, Math.max(3, max - 1))}…`; return keep; }
+  return lines.map((l) => (l.length > max ? `${l.slice(0, Math.max(3, max - 1))}…` : l));
 }
 /** The lines a node shows and the box they need, within the width allowed. */
 type Size = { lines: string[]; w: number; h: number; chips?: string[] };
@@ -206,7 +207,7 @@ function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
   sz.lines.forEach((l, i) => { g += `<text x="${x + shift}" y="${y0 + i * LINE}" text-anchor="middle" fill="${ink}">${esc(l)}</text>`; });
   let lx = x + shift - (sz.lines[0].length * TEXT_W) / 2 - leftW - 2;
   const iconInk = k === "trig" ? T("acc-ink") : T("fg-2");
-  if (ki) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${iconInk}">${KIND_ICON[ki] ?? KIND_ICON.other}</g>`; lx += 18; }
+  if (ki) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${iconInk}">${LOGO[ki] ?? LOGO.engine}</g>`; lx += 18; }
   if (it.waits) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${T("fg-2")}">${svgIcon("clock")}</g>`; }
   if (sz.chips) { let cy = y0 + LINE - 4; for (const c of sz.chips) { const cw = c.length * 6.4 + 14; g += `<rect x="${x - cw / 2}" y="${cy - 1}" width="${cw}" height="17" rx="6" fill="${T("panel-3")}"/><text x="${x}" y="${cy + 11.5}" text-anchor="middle" fill="${T("fg")}" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:500">${esc(c)}</text>`; cy += 20; } }
   if (it.cond) g += `<g transform="translate(${x + w / 2 - 24},${top + h / 2 - 8}) scale(.8)" style="color:${T("cond")}">${svgIcon("cond")}</g>`;
@@ -214,22 +215,27 @@ function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
     g += `<g transform="translate(${x + w / 2 - 10},${top - 10})"><circle cx="10" cy="10" r="10" fill="${bg}"/><g style="color:${col}" transform="translate(3,3) scale(.7)">${svgIcon(st === "ok" ? "check" : st === "ghost" ? "ghost" : st === "here" ? "clock" : st === "skip" ? "skip" : st === "warn" ? "warn" : "stop")}</g></g>`; }
   return g + "</g>";
 }
-/** What kind of step it is, at a glance: one small mark per kind, left of the title. */
-const KIND_ICON: Record<string, string> = {
-  trig: '<path d="M11 2L4 11h5l-1 7 7-9h-5z" fill="currentColor"/>',
-  send_sms: '<path d="M3 5h14v9H8l-4 3v-3H3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
-  send_email: '<rect x="2.5" y="4.5" width="15" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 6l7 5 7-5" fill="none" stroke="currentColor" stroke-width="2"/>',
-  slack: '<path d="M7 3v14M13 3v14M3 7h14M3 13h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-  tag: '<path d="M3 3h7l7 7-7 7-7-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="7" cy="7" r="1.3" fill="currentColor"/>',
-  crm: '<rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 8h14M8 8v8" stroke="currentColor" stroke-width="2"/>',
-  ai: '<path d="M10 2l1.8 5.2L17 9l-5.2 1.8L10 16l-1.8-5.2L3 9l5.2-1.8z" fill="currentColor"/>',
-  check: '<path d="M3 4h14l-5 6v6l-4-2v-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
-  fork: '<path d="M10 3v5M10 8l-5 5v4M10 8l5 5v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+/** The logo of the thing a step touches, at the left of its node, the way Zapier shows an app on every step. Drawn here, 20×20, in the brand's colour. */
+const LOGO: Record<string, string> = {
+  slack: '<rect x="2" y="7.5" width="7" height="2.6" rx="1.3" fill="#E01E5A"/><rect x="7.5" y="2" width="2.6" height="7" rx="1.3" fill="#36C5F0"/><rect x="11" y="9.9" width="7" height="2.6" rx="1.3" fill="#2EB67D"/><rect x="9.9" y="11" width="2.6" height="7" rx="1.3" fill="#ECB22E"/><circle cx="3.3" cy="12.2" r="1.3" fill="#E01E5A"/><circle cx="7.8" cy="3.3" r="1.3" fill="#36C5F0"/><circle cx="16.7" cy="7.8" r="1.3" fill="#2EB67D"/><circle cx="12.2" cy="16.7" r="1.3" fill="#ECB22E"/>',
+  ghl: '<rect x="1.5" y="1.5" width="17" height="17" rx="4" fill="#1F6BFF"/><path d="M6 13.5l4-7 4 7M7.6 11h4.8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  calendly: '<circle cx="10" cy="10" r="8.5" fill="#006BFF"/><path d="M13.3 7.6a3.9 3.9 0 1 0 0 4.8" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
+  fathom: '<rect x="1.5" y="1.5" width="17" height="17" rx="4" fill="#7C3AED"/><path d="M7 14V6h6M7 10h4.5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  whop: '<rect x="1.5" y="1.5" width="17" height="17" rx="4" fill="#FF6243"/><path d="M4.5 6.5l2.2 7 2.3-5.5 2.3 5.5 2.2-7" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  sms: '<path d="M3 4.5h14a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H8l-4 3.5V14H3a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1z" fill="#34C759"/><path d="M6.5 9.3h7" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>',
+  email: '<rect x="1.5" y="4" width="17" height="12" rx="2.5" fill="#5B8DEF"/><path d="M3.5 6.5l6.5 5 6.5-5" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/>',
+  ai: '<path d="M10 2l1.9 5.3L17 9.2l-5.1 1.9L10 16.4l-1.9-5.3L3 9.2l5.1-1.9z" fill="#F0B429"/><path d="M15.5 13l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" fill="#F0B429"/>',
+  clock: '<circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 5.5v4.8l3.2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
   reply: '<path d="M8 5L3 9.5 8 14M3 9.5h8a6 6 0 0 1 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  fork: '<path d="M10 3v5M10 8l-5 5v4M10 8l5 5v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  if: '<path d="M3 4h14l-5 6v6l-4-2v-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
   end: '<rect x="5" y="5" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>',
-  other: '<circle cx="10" cy="10" r="3" fill="currentColor"/>',
+  webhook: '<circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2 10h16M10 2c3 3 3 13 0 16M10 2c-3 3-3 13 0 16" fill="none" stroke="currentColor" stroke-width="1.6"/>',
+  doc: '<path d="M5 2h7l4 4v12H5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 10h5M8 13h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  form: '<rect x="4" y="2.5" width="12" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 7h6M7 10.5h6M7 14h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  engine: '<circle cx="10" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 2v3M10 15v3M2 10h3M15 10h3M4.3 4.3l2.2 2.2M13.5 13.5l2.2 2.2M4.3 15.7l2.2-2.2M13.5 6.5l2.2-2.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
 };
-const kindIconOf = (it: Item) => it.n.kind === "send" ? (it.n.channel === "email" ? "send_email" : it.n.channel === "slack" ? "slack" : "send_sms") : it.n.kind === "wait" ? "" : it.n.kind;
+const kindIconOf = (it: Item) => it.waits ? (it.n.logo && it.n.logo !== "clock" ? it.n.logo : "") : (it.n.logo ?? "");
 const svgIcon = (k: string) => ({
   check: '<path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
   clock: '<circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 6v4.5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',

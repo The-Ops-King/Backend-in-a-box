@@ -11,7 +11,7 @@ import type { Projected } from "@/engine/project";
  * run did, step by step, with the state of each step). The client lays the chart out; it never reads a definition itself.
  */
 export type ChartKind = "trig" | "send" | "wait" | "reply" | "fork" | "check" | "tag" | "slack" | "crm" | "ai" | "end" | "other";
-export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; detail?: string; quote?: string; cond?: string; channel?: "sms" | "email" | "slack"; hidden?: boolean; stop?: string };
+export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; detail?: string; quote?: string; cond?: string; channel?: "sms" | "email" | "slack"; hidden?: boolean; stop?: string; logo?: string };
 export type ChartEdge = { from: string; to: string; label: string; else?: boolean };
 export type Chart = { nodes: ChartNode[]; edges: ChartEdge[] };
 
@@ -47,8 +47,8 @@ export function shortTitle(def: Definition, n: Node): { title: string; meta?: st
     case "wait_for_reply": return { title: "Wait for a reply", meta: `up to ${durationWords(n.timeout)}` };
     case "branch": { const outs = def.edges.filter((e) => e.from === n.id); const whens = outs.filter((e) => e.when); const reply = whens.length && whens.every((e) => JSON.stringify(e.when).includes("reply.")); return { title: reply ? "What did they say?" : whens.length === 1 ? `${edgeWords(whens[0]).replace(/^./, (c) => c.toUpperCase())}?` : branchTitle(def, n.id) }; }
     case "check": return { title: `If ${predicateWords(n.when)}`, meta: n.retry ? `waits up to ${durationWords(n.retry.for)}` : undefined };
-    case "slack_post": return { title: n.thread_of ? "Reply in the thread" : "Tell the team" };
-    case "notify_owner": return { title: "Nudge the owner" };
+    case "slack_post": return { title: n.thread_of ? "Slack reply in the thread" : "Slack notification" };
+    case "notify_owner": return { title: "Slack DM to the owner" };
     case "classify": return { title: "AI reads the reply" };
     case "analyze": return { title: `AI: ${({ classify: "is it a sales call?", notes: "call notes", rubric: "scores the call", objections: "objections" } as Record<string, string>)[n.into] ?? humanWords(n.into)}` };
     case "update_contact": return { title: "Update the contact" };
@@ -63,8 +63,29 @@ export function shortTitle(def: Definition, n: Node): { title: string; meta?: st
   }
 }
 
+/** Which thing a step touches, for the logo on its node: the CRM, Slack, the booking tool, the recorder, the payment processor, the AI, the clock. */
+export function logoOf(n: Node, bookingSource: "ghl" | "calendly" = "ghl"): string {
+  switch (n.type) {
+    case "trigger": { if (n.schedule) return "clock"; const e = n.event; if (e.startsWith("appointment.") || e === "call.held") return bookingSource; if (e.startsWith("recording.") || e.startsWith("call.")) return "fathom"; if (e.startsWith("payment.") || e.startsWith("opportunity.")) return "whop"; if (e === "eod.filed" || e === "form.submitted") return "form"; if (e.startsWith("agreement.")) return "doc"; return "ghl"; }
+    case "send_sms": return "sms";
+    case "send_email": return "email";
+    case "slack_post": case "notify_owner": return "slack";
+    case "classify": case "analyze": return "ai";
+    case "wait": return "clock";
+    case "wait_for_reply": return "reply";
+    case "branch": return "fork";
+    case "check": return "if";
+    case "exit": return "end";
+    case "webhook": return "webhook";
+    case "send_document": return "doc";
+    case "health_check": case "availability_check": case "report": case "assume_no_show": return "engine";
+    case "update_appointment": return bookingSource;
+    default: return "ghl";
+  }
+}
+
 /** The chart for a workflow: every node with its words, every edge with its label. Plumbing (set_var) is routed around. */
-export function chartOf(full: Definition, company: { name: string; timezone: string }, bindings: Record<string, string> = {}): Chart {
+export function chartOf(full: Definition, company: { name: string; timezone: string }, bindings: Record<string, string> = {}, bookingSource: "ghl" | "calendly" = "ghl"): Chart {
   const def = collapsePlumbing(full);
   const ctx = exampleContext(company, bindings);
   const nodes: ChartNode[] = def.nodes.map((n) => {
@@ -73,7 +94,7 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
     try { quote = n.type === "send_sms" || n.type === "send_email" || n.type === "slack_post" || n.type === "notify_owner" || n.type === "note" ? strip(nodeExamples(n, ctx, company.timezone)[0]?.example.text) : undefined; } catch { quote = d.quote; }
     const cond = n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : n.type === "check" ? `${n.retry ? `Waits up to ${durationWords(n.retry.for)} for it, looking every ${durationWords(n.retry.every)}. ` : ""}If not: ${exitWords(n.else_exit).toLowerCase()}` : undefined;
     // the AI reading a reply is plumbing between the wait and the fork; the chart routes around it, the popover of the fork says so
-    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: d.detail, quote, cond, channel: channelOf(n), hidden: n.type === "classify" || undefined, stop: n.type === "check" ? exitWords(n.else_exit).replace(/^(Stop|Done): /, "") : undefined };
+    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: d.detail, quote, cond, channel: channelOf(n), hidden: n.type === "classify" || undefined, stop: n.type === "check" ? exitWords(n.else_exit).replace(/^(Stop|Done): /, "") : undefined, logo: logoOf(n, bookingSource) };
   });
   const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e), else: e.else || undefined }));
   return { nodes, edges };

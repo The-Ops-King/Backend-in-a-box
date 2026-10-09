@@ -109,9 +109,9 @@ export async function workflowPage(c: PoolClient, co: CompanyHead, id: string) {
   const stats = await one<{ people: number; in_flight: number; finished: number; failed: number; last_ran: Date | null }>(c, "select count(*)::int as people, count(*) filter (where status in ('active','waiting'))::int as in_flight, count(*) filter (where status in ('completed','exited'))::int as finished, count(*) filter (where status='failed')::int as failed, max(started_at) as last_ran from runs where workflow_id=$1", [id]);
   let def: Definition | null = null, parse_error: string | null = null;
   try { def = parseDefinition(w.definition); } catch (e) { parse_error = String((e as Error).message).slice(0, 300); }
-  const { bindings } = await loadCompany(c, co.id);
+  const { bindings, adapterCompany } = await loadCompany(c, co.id);
   const safe = Object.fromEntries(Object.entries(bindings).filter(([k]) => !k.startsWith("secret.")));
-  const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe) : null;
+  const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source) : null;
   const ready = await companyReadiness(c, co.id, `/app/c/${co.slug}`); const mine = ready.workflows.find((x) => x.id === id);
   const runs = await many<RunFull>(c, `${runSelect} where r.workflow_id=$1 order by (r.status in ('active','waiting')) desc, r.started_at desc limit 100`, [id]);
   const rows = await runRows(c, co, runs);
@@ -134,9 +134,9 @@ export async function runPage(c: PoolClient, id: string) {
   const path = def ? pathOf(def, r, steps, sends, plan, co.timezone) : [];
   const st = runState(r, path, co.timezone);
   const appt = r.appointment_id ? await one<{ starts_at: Date; status: string; term: string; closer: string | null }>(c, "select a.starts_at, a.status, t.name as term, u.name as closer from appointments a join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id where a.id=$1", [r.appointment_id]) : null;
-  const { bindings } = await loadCompany(c, co.id);
+  const { bindings, adapterCompany } = await loadCompany(c, co.id);
   const safe = Object.fromEntries(Object.entries(bindings).filter(([k]) => !k.startsWith("secret.")));
-  const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe) : null;
+  const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source) : null;
   const states: Record<string, PathItem["state"]> = {}; for (const p of path) if (!(p.node_id in states) || p.state !== "next") states[p.node_id] = p.state;
   return { company: co, workflow: { id: r.workflow_id, name: r.workflow },
     run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: co.mode === "shadow" },
