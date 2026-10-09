@@ -21,5 +21,19 @@ describe("shipped templates", () => {
       expect(m.bindings.find((b) => b.key === "crm.location_id")?.required).toBe(true);
       for (const b of m.bindings) if (b.key.startsWith("slack.")) expect(b.required).toBe(false);
     });
+    it(`${t.slug}: tag steps never sit next to each other (one tags step does the adding and removing)`, () => {
+      const def = parseDefinition(t.definition);
+      const isTag = (id: string) => ["tags", "set_tag", "remove_tag"].includes(def.nodes.find((n) => n.id === id)?.type ?? "");
+      for (const e of def.edges) expect(isTag(e.from) && isTag(e.to), `${t.slug}: ${e.from} → ${e.to} are two tag steps in a row`).toBe(false);
+    });
   }
+  it("the shipped flows that add and remove tags do it in one step, adds before removes", () => {
+    const node = (slug: string, id: string) => parseDefinition(templates.find((t) => t.slug === slug)!.definition).nodes.find((n) => n.id === id);
+    expect(node("call-booked", "s5")).toMatchObject({ type: "tags", add: ["stat-booked", "stat-self-booked", "meta booked call"], remove: ["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead"] });
+    expect(node("call-booked", "b6")).toMatchObject({ type: "tags", add: ["stat-booked", "stat-set", "meta booked call"], remove: ["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead"] });
+    expect(node("call-cancelled", "n5")).toMatchObject({ type: "tags", add: ["stat-cancelled"], remove: ["stat-booked", "stat-self-booked", "stat-set", "stat-confirmed"] });
+    expect(node("payment-recorded", "f1")).toMatchObject({ type: "tags", add: ["pay-paid-full"], remove: ["pay-plan-active"] });
+    expect(node("booking-decision", "y1")).toMatchObject({ type: "tags", add: ["stat-confirmed"], remove: ["stat-unconfirmed"] });
+    expect(node("agreement-send-manually", "g1")).toMatchObject({ type: "tags", add: ["stat-agreement-sent"], remove: ["sys-send-agreement-manually"] });
+  });
 });

@@ -82,10 +82,17 @@
       },
       {
         "id": "s5",
-        "type": "set_tag",
-        "tag": [
+        "type": "tags",
+        "add": [
           "stat-booked",
-          "stat-self-booked"
+          "stat-self-booked",
+          "meta booked call"
+        ],
+        "remove": [
+          "seq-no-show",
+          "seq-nurture",
+          "seq-winback",
+          "opt-in lead"
         ]
       },
       {
@@ -140,30 +147,18 @@
       },
       {
         "id": "b6",
-        "type": "set_tag",
-        "tag": [
+        "type": "tags",
+        "add": [
           "stat-booked",
-          "stat-set"
-        ]
-      },
-      {
-        "id": "n3",
-        "type": "remove_tag",
-        "tag": [
+          "stat-set",
+          "meta booked call"
+        ],
+        "remove": [
           "seq-no-show",
           "seq-nurture",
-          "seq-winback"
+          "seq-winback",
+          "opt-in lead"
         ]
-      },
-      {
-        "id": "k1",
-        "type": "set_tag",
-        "tag": "meta booked call"
-      },
-      {
-        "id": "k2",
-        "type": "remove_tag",
-        "tag": "opt-in lead"
       },
       {
         "id": "k3",
@@ -303,10 +298,6 @@
         "to": "s5"
       },
       {
-        "from": "s5",
-        "to": "n3"
-      },
-      {
         "from": "b1",
         "to": "b2"
       },
@@ -327,24 +318,8 @@
         "to": "b6"
       },
       {
-        "from": "b6",
-        "to": "n3"
-      },
-      {
         "from": "n4",
         "to": "n4r"
-      },
-      {
-        "from": "n3",
-        "to": "k1"
-      },
-      {
-        "from": "k1",
-        "to": "k2"
-      },
-      {
-        "from": "k2",
-        "to": "k3"
       },
       {
         "from": "k3",
@@ -357,6 +332,14 @@
       {
         "from": "n4r",
         "to": "x1"
+      },
+      {
+        "from": "s5",
+        "to": "k3"
+      },
+      {
+        "from": "b6",
+        "to": "k3"
       }
     ]
   }

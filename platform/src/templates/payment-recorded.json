@@ -48,15 +48,11 @@
       },
       {
         "id": "f1",
-        "type": "set_tag",
-        "tag": [
+        "type": "tags",
+        "add": [
           "pay-paid-full"
-        ]
-      },
-      {
-        "id": "f2",
-        "type": "remove_tag",
-        "tag": [
+        ],
+        "remove": [
           "pay-plan-active"
         ]
       },
@@ -238,14 +234,6 @@
         "label": "still owes"
       },
       {
-        "from": "f1",
-        "to": "f2"
-      },
-      {
-        "from": "f2",
-        "to": "n4"
-      },
-      {
         "from": "p1",
         "to": "n4"
       },
@@ -325,6 +313,10 @@
       {
         "from": "p_rev",
         "to": "x1"
+      },
+      {
+        "from": "f1",
+        "to": "n4"
       }
     ]
   }

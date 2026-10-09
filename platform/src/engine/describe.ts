@@ -13,7 +13,7 @@ export function kindOf(n: Node): NodeKind {
   switch (n.type) {
     case "trigger": return "trigger";
     case "send_sms": case "send_email": case "slack_post": case "send_document": case "notify_owner": return "message";
-    case "set_tag": case "remove_tag": case "note": case "update_appointment": case "update_opportunity": case "pipeline_card": case "update_contact": case "create_task": case "crm_record": case "record_outcome": return "crm";
+    case "tags": case "set_tag": case "remove_tag": case "note": case "update_appointment": case "update_opportunity": case "pipeline_card": case "update_contact": case "create_task": case "crm_record": case "record_outcome": return "crm";
     case "check": case "branch": return "decision";
     case "wait": case "wait_for_reply": return "wait";
     case "classify": case "analyze": return "ai";
@@ -55,6 +55,7 @@ const PATHS: Record<string, string> = {
 const VALUES: Record<string, string> = { sales_call: "a sales call", closed_won: "closed won", close_pending: "close pending", financing_denied: "financing denied", dq: "disqualified", "appointment.rescheduled": "a reschedule", "appointment.booked": "a new booking", noshow: "no-show", reschedule_request: "a reschedule request", follow_up: "follow up", first_call: "first call", closing: "closing call", setting: "a setting call", confirmation: "a confirmation call", phone: "a phone call", meeting: "a meeting" };
 
 export const humanWords = (s: string) => s.replace(/^crm\./, "").replace(/[_.-]+/g, " ").replace(/\s+/g, " ").trim();
+const listOf = (v?: string | string[]): string[] => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
 const value = (v: unknown) => typeof v === "string" ? (v === "" ? "blank" : /^\{\{/.test(v) ? `the ${pathWords(v)}` : VALUES[v] ?? `“${humanWords(v)}”`) : JSON.stringify(v);   // a {{path}} on the right is a thing, not a literal
 /** `{{a.b}}` or a bare path → the words a person uses for it. */
 export function pathWords(p: unknown): string {
@@ -151,6 +152,8 @@ export function describeNode(n: Node): NodeText {
     case "classify": return { title: n.question ? `Jev: ${n.question.replace(/\?$/, "").replace(/^./, (c) => c.toLowerCase())}?` : "Jev reads the reply", detail: `Decides between ${Object.keys(n.criteria ?? {}).map((k) => humanWords(k)).join(", ") || `the ${humanWords(n.domain)} options`}; below ${Math.round(n.threshold * 100)}% sure, or a reply a careful person would doubt, goes to a person` };
     case "analyze": return { title: `AI ${n.format === "text" ? "writes" : "reads"} ${/^\{\{[^}]*\}\}$/.test(n.input.trim()) ? pathWords(n.input) : "from " + templateWords(n.input).split("\n")[0].replace(/:.*$/, "").toLowerCase() + " and more"} with ${pathWords(n.prompt)}`, detail: `Answer saved as ${Array.isArray(n.into) ? n.into.map(humanWords).join(" and ") : humanWords(n.into)}${n.format === "json" ? " (structured)" : ""}${n.optional ? "; skipped quietly when the AI cannot run" : ""}` };
     case "record_outcome": return { title: `Record the appointment as ${value(n.outcome)}`, detail: n.call_outcome ? `Call outcome ${value(n.call_outcome)}` : "On our record of the appointment; a show also fires “call held”" };
+    // each quoted “+tag” / “−tag” becomes a chip under the word Tags on the chart
+    case "tags": return { title: `Tags ${[...listOf(n.add).map((x) => `“+${x}”`), ...listOf(n.remove).map((x) => `“−${x}”`)].join(" ")}` };
     case "set_tag": { const t = Array.isArray(n.tag) ? n.tag : [n.tag]; return { title: `Add tag${t.length > 1 ? "s" : ""} ${t.map((x) => `“${x}”`).join(", ")}` }; }
     case "remove_tag": { const t = Array.isArray(n.tag) ? n.tag : [n.tag]; return { title: `Remove tag${t.length > 1 ? "s" : ""} ${t.map((x) => `“${x}”`).join(", ")}` }; }
     case "update_contact": {

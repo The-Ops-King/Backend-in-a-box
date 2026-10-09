@@ -25,6 +25,16 @@ describe("definitions", () => {
     expect(() => parseDefinition({ ...base, nodes: [...base.nodes, { id: "t", type: "exit", reason: "dup" }] })).toThrow(/duplicate/);
     expect(() => parseDefinition({ ...base, nodes: [...base.nodes, { id: "lonely", type: "set_tag", tag: "x" }] })).toThrow(/no outgoing edge/);
   });
+  it("tags: one step adds and removes; a tag or a list on either side; neither side is refused; set_tag / remove_tag still parse for installed copies", () => {
+    const with_ = (node: Record<string, unknown>) => ({ schema: 1, reentry: "always", nodes: [{ id: "t", type: "trigger", event: "x" }, { id: "g", ...node }, { id: "e", type: "exit", reason: "r" }], edges: [{ from: "t", to: "g" }, { from: "g", to: "e" }] });
+    expect(parseDefinition(with_({ type: "tags", add: ["stat-booked", "stat-set"], remove: "seq-nurture" })).nodes[1]).toMatchObject({ type: "tags", add: ["stat-booked", "stat-set"], remove: "seq-nurture" });
+    expect(() => parseDefinition(with_({ type: "tags", add: "stat-new" }))).not.toThrow();
+    expect(() => parseDefinition(with_({ type: "tags", remove: ["opt-in lead"] }))).not.toThrow();
+    expect(() => parseDefinition(with_({ type: "tags" }))).toThrow(/adds nothing and removes nothing/);
+    expect(() => parseDefinition(with_({ type: "tags", add: [] }))).toThrow();
+    expect(() => parseDefinition(with_({ type: "set_tag", tag: ["a", "b"] }))).not.toThrow();
+    expect(() => parseDefinition(with_({ type: "remove_tag", tag: "a" }))).not.toThrow();
+  });
 });
 
 describe("predicates", () => {

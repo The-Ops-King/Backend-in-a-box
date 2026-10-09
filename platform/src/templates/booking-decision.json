@@ -40,13 +40,13 @@
       },
       {
         "id": "y1",
-        "type": "set_tag",
-        "tag": "stat-confirmed"
-      },
-      {
-        "id": "y2",
-        "type": "remove_tag",
-        "tag": "stat-unconfirmed"
+        "type": "tags",
+        "add": [
+          "stat-confirmed"
+        ],
+        "remove": [
+          "stat-unconfirmed"
+        ]
       },
       {
         "id": "y3",
@@ -126,14 +126,6 @@
         "label": "❌ cancel"
       },
       {
-        "from": "y1",
-        "to": "y2"
-      },
-      {
-        "from": "y2",
-        "to": "y3"
-      },
-      {
         "from": "y3",
         "to": "x1"
       },
@@ -144,6 +136,10 @@
       {
         "from": "n2",
         "to": "x1"
+      },
+      {
+        "from": "y1",
+        "to": "y3"
       }
     ]
   }

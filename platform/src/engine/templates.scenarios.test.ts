@@ -289,6 +289,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(contactWrites.slice(nCw)).toEqual([expect.objectContaining({ id: "CCB1", assignedUserId: "U1", customFields: [{ id: "CF-APPT-DATE", field_value: start.setZone(TZ).toFormat("yyyy-MM-dd") }] })]);
     const steps = await asOperator((c) => many<{ node_id: string; status: string; result: Record<string, unknown> }>(c, "select node_id, status, result from run_steps where run_id=$1 order by started_at", [r.id]));
     expect(steps.find((x) => x.node_id === "s3")?.status).toBe("ok");
+    expect(steps.filter((x) => ["s5", "b6", "n3", "k1", "k2"].includes(x.node_id)).map((x) => x.node_id)).toEqual(["s5"]);   // every tag change in one step
     expect(steps.find((x) => x.node_id === "n4")?.status).toBe("skipped");   // Slack not connected in this company
     const slack = await asOperator((c) => one<{ suppressed_reason: string }>(c, "select suppressed_reason from sends where run_id=$1 and channel='slack'", [r.id]));
     expect(slack?.suppressed_reason).toMatch(/unbound: slack/);

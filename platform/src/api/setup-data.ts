@@ -65,11 +65,13 @@ export async function loadSettings(slug: string): Promise<SettingsData | null> {
         const def = parseDefinition(w.definition); const trigs = def.nodes.filter((n) => n.type === "trigger" && n.schedule);
         if (trigs.length) scheduled.push({ id: w.id, name: w.name, enabled: w.enabled, when: trigs.map((t) => (t.type === "trigger" && t.schedule ? scheduleWords(t.schedule) : "")).join("; ") });
         for (const n of def.nodes) {
-          if (n.type !== "set_tag" && n.type !== "remove_tag") continue;
-          for (const tag of Array.isArray(n.tag) ? n.tag : [n.tag]) {
+          const l = (v?: string | string[]) => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
+          const touched = n.type === "tags" ? { adds: l(n.add), removes: l(n.remove) } : n.type === "set_tag" ? { adds: l(n.tag), removes: [] } : n.type === "remove_tag" ? { adds: [], removes: l(n.tag) } : null;
+          if (!touched) continue;
+          for (const dir of ["adds", "removes"] as const) for (const tag of touched[dir]) {
             if (tag.includes("{{")) continue;
             const u = tagUse.get(tag) ?? { adds: [], removes: [] }; tagUse.set(tag, u);
-            const list = n.type === "set_tag" ? u.adds : u.removes; if (!list.includes(w.name)) list.push(w.name);
+            if (!u[dir].includes(w.name)) u[dir].push(w.name);
           }
         }
       } catch { /* unparseable: the health check says so */ }

@@ -28,7 +28,7 @@ export function kindOf(n: Node): ChartKind {
     case "wait_for_reply": return "reply";
     case "branch": return "fork";
     case "check": return "check";
-    case "set_tag": case "remove_tag": return "tag";
+    case "tags": case "set_tag": case "remove_tag": return "tag";
     case "slack_post": return "slack";
     case "classify": case "analyze": return "ai";
     case "exit": return "end";

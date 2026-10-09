@@ -38,6 +38,7 @@ export const OnStale = z.enum(["skip", "substitute", "escalate"]);
 // ---- nodes (the instruction set, 02-data-model §10) ----------------------------
 /** Who a Slack post appears from: a name and an emoji / image URL, or a list of icons one is picked from per post. */
 const Persona = z.object({ name: z.string().optional(), icon: z.union([z.string(), z.array(z.string())]).optional() });
+const TagList = z.union([z.string(), z.array(z.string()).min(1)]);
 const base = { id: z.string().min(1), title: z.string().optional(), only_if: Predicate.optional() };   // only_if: the step runs when this holds, else it is skipped (a sometimes-step on the chart)   // title: the words the dashboard shows for this step, when the generic ones are not good enough
 export const Schedule = z.object({ every: z.string().regex(/^\d+(m|h|d)$/).optional(), at: z.string().regex(/^\d{2}:\d{2}$/).optional(), days: z.array(z.number().int().min(1).max(7)).optional(), day_of_month: z.number().int().min(1).max(28).optional(), for: z.enum(["company", "closer"]).default("company") })
   .refine((s) => !!s.every !== !!s.at, { message: "a schedule is either every <interval> or at <time>, not both, not neither" });
@@ -78,8 +79,10 @@ export const Node = z.discriminatedUnion("type", [
     question: z.string().optional(), criteria: z.record(z.string()).optional(), ambiguity_max: z.number().min(0).max(1).default(0.8) }),   // question: what Jev is asked about `input`; `state` is context (what we sent)   // criteria: what each option means, in words; ambiguity_max: a reply a careful person would doubt this much goes to a human (D47)
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),
   z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string(), retry: z.object({ every: z.string(), for: z.string() }).optional() }),   // retry: park and look again every `every` for up to `for` before taking else_exit
-  z.object({ ...base, type: z.literal("set_tag"), tag: z.union([z.string(), z.array(z.string()).min(1)]) }),
-  z.object({ ...base, type: z.literal("remove_tag"), tag: z.union([z.string(), z.array(z.string()).min(1)]) }),
+  // The contact's tags in one step: `add` goes on, then `remove` comes off. set_tag / remove_tag are the older one-direction forms; installed copies still carry them.
+  z.object({ ...base, type: z.literal("tags"), add: TagList.optional(), remove: TagList.optional() }),
+  z.object({ ...base, type: z.literal("set_tag"), tag: TagList }),
+  z.object({ ...base, type: z.literal("remove_tag"), tag: TagList }),
   // Writes to the CRM contact: a few native fields plus custom fields by id. A field whose rendered value is empty is left alone, never blanked.
   z.object({ ...base, type: z.literal("update_contact"), set: z.object({ first_name: z.string().optional(), last_name: z.string().optional(), phone: z.string().optional(), timezone: z.string().optional(), assign_to: z.string().optional() }).default({}), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]), clear: z.array(z.string()).default([]) }),
   // A to-do on the CRM contact for a human (rebook this person, call them back). `due` is a duration from now.
@@ -130,6 +133,7 @@ export const Definition = z.object({
   if (!d.nodes.some((n) => n.type === "exit")) ctx.addIssue({ code: "custom", message: "a workflow needs at least one exit" });
   const hasOut = new Set(d.edges.map((e) => e.from));
   for (const n of d.nodes) if (n.type !== "exit" && !hasOut.has(n.id)) ctx.addIssue({ code: "custom", message: `node ${n.id} (${n.type}) has no outgoing edge` });
+  for (const n of d.nodes) if (n.type === "tags" && !n.add && !n.remove) ctx.addIssue({ code: "custom", message: `node ${n.id} (tags) adds nothing and removes nothing` });
 });
 export type Definition = z.infer<typeof Definition>;
 

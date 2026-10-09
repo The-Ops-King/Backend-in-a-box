@@ -65,15 +65,11 @@
       },
       {
         "id": "n5",
-        "type": "set_tag",
-        "tag": [
+        "type": "tags",
+        "add": [
           "stat-cancelled"
-        ]
-      },
-      {
-        "id": "n6",
-        "type": "remove_tag",
-        "tag": [
+        ],
+        "remove": [
           "stat-booked",
           "stat-self-booked",
           "stat-set",
@@ -125,16 +121,12 @@
         "to": "n5"
       },
       {
-        "from": "n5",
-        "to": "n6"
-      },
-      {
-        "from": "n6",
-        "to": "n7"
-      },
-      {
         "from": "n7",
         "to": "x1"
+      },
+      {
+        "from": "n5",
+        "to": "n7"
       }
     ]
   }

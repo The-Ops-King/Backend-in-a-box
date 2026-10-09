@@ -114,6 +114,24 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   return r.accepted ? { status: "ok", next, result: { external_id: r.externalId, substituted } } : { status: "failed", error: r.error ?? "send rejected" };
 }
 
+/** The contact's tags: `add` goes on, then `remove` comes off, in the CRM and on our replica; one tag.added / tag.removed event per direction. */
+async function applyTags(d: ExecDeps, type: Node["type"], next: string | null, want: { add?: string | string[]; remove?: string | string[] }): Promise<StepOutcome> {
+  const ghlId = (d.ctx.contact as { ghl_contact_id?: string | null }).ghl_contact_id;
+  const rendered = (v?: string | string[]) => (v === undefined ? [] : Array.isArray(v) ? v : [v]).map((t) => render(t, d.ctx, env(d))).filter(Boolean);
+  const dirs = ([["add", "tag.added", "would_tag"], ["remove", "tag.removed", "would_untag"]] as const).filter(([k]) => want[k] !== undefined).map(([k, event, would]) => ({ add: k === "add", raw: want[k]!, tags: rendered(want[k]), event, would }));
+  if (shadow(d)) {   // shadow: log it, touch neither GHL nor our replica of GHL's tags (the next poll would just "revert" it and emit a phantom tag.removed)
+    for (const x of dirs) for (const tag of x.tags) await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: x.event, source: "engine", data: { tag, shadow: true } });
+    return { status: "ok", next, result: { shadow: true, ...Object.fromEntries(dirs.map((x) => [x.would, x.tags])) } };
+  }
+  if (!ghlId) return { status: "failed", error: `${type}: contact has no CRM id yet` };
+  for (const x of dirs) {
+    for (const tag of x.tags) { if (x.add) await d.adapters.write.addTag(d.adapterCompany, ghlId, tag); else await d.adapters.write.removeTag(d.adapterCompany, ghlId, tag); }
+    for (const tag of x.tags) await d.c.query(x.add ? "update contacts set tags = array(select distinct unnest(tags || $2::text[])) where id=$1" : "update contacts set tags = array_remove(tags, $2) where id=$1", [d.run.contact_id, x.add ? [tag] : tag]);
+    await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: x.event, source: "engine", data: { tag: x.raw } });
+  }
+  return { status: "ok", next };
+}
+
 export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome> {
   d.ctx.now = d.now.toISO();   // {{now | date:...}} in templates; refreshed every node so a persisted context never carries a stale clock
   const next = single(d, node.id);
@@ -270,20 +288,9 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       return { status: "exit", reason: node.else_exit, gate: true };
     }
 
-    case "set_tag": case "remove_tag": {
-      const ghlId = (d.ctx.contact as { ghl_contact_id?: string | null }).ghl_contact_id;
-      const add = node.type === "set_tag";
-      const tags = (Array.isArray(node.tag) ? node.tag : [node.tag]).map((t) => render(t, d.ctx, env(d))).filter(Boolean);
-      if (shadow(d)) {   // shadow: log it, touch neither GHL nor our replica of GHL's tags (the next poll would just "revert" it and emit a phantom tag.removed)
-        for (const tag of tags) await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: add ? "tag.added" : "tag.removed", source: "engine", data: { tag, shadow: true } });
-        return { status: "ok", next, result: { shadow: true, [add ? "would_tag" : "would_untag"]: tags } };
-      }
-      if (!ghlId) return { status: "failed", error: `${node.type}: contact has no CRM id yet` };
-      for (const tag of tags) { if (add) await d.adapters.write.addTag(d.adapterCompany, ghlId, tag); else await d.adapters.write.removeTag(d.adapterCompany, ghlId, tag); }
-      for (const tag of tags) await d.c.query(add ? "update contacts set tags = array(select distinct unnest(tags || $2::text[])) where id=$1" : "update contacts set tags = array_remove(tags, $2) where id=$1", [d.run.contact_id, add ? [tag] : tag]);
-      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: add ? "tag.added" : "tag.removed", source: "engine", data: { tag: node.tag } });
-      return { status: "ok", next };
-    }
+    case "tags": return applyTags(d, node.type, next, { add: node.add, remove: node.remove });
+    case "set_tag": return applyTags(d, node.type, next, { add: node.tag });
+    case "remove_tag": return applyTags(d, node.type, next, { remove: node.tag });
     case "note": {
       const ghlId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
       const noteText = render(node.template, d.ctx, env(d));

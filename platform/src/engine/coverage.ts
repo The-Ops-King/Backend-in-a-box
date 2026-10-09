@@ -49,7 +49,7 @@ export const NODE_NEEDS: { [T in Node["type"]]: (n: Extract<Node, { type: T }>) 
   slack_post: (n) => [{ kind: "slack", value: "connection", node: n.id, what: "Slack" }],
   notify_owner: (n) => [{ kind: "slack", value: "connection", node: n.id, what: "Slack (DM)" }],
   send_document: (n) => [{ kind: "documents", value: n.template, node: n.id, what: "the agreement template" }],
-  set_tag: () => [], remove_tag: () => [], note: () => [], update_appointment: () => [], update_opportunity: () => [], update_contact: () => [], create_task: () => [], record_outcome: () => [], pipeline_card: () => [],
+  tags: () => [], set_tag: () => [], remove_tag: () => [], note: () => [], update_appointment: () => [], update_opportunity: () => [], update_contact: () => [], create_task: () => [], record_outcome: () => [], pipeline_card: () => [],
   crm_record: (n) => [{ kind: "custom_object", value: n.object, node: n.id, what: "the custom object" }],
   classify: (n) => [{ kind: "classify_domain", value: n.domain, node: n.id, what: "the options the AI picks from" }],
   analyze: (n) => [{ kind: "anthropic", value: "key", node: n.id, what: "the AI key" }],

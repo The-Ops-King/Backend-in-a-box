@@ -44,15 +44,11 @@
       },
       {
         "id": "g1",
-        "type": "set_tag",
-        "tag": [
+        "type": "tags",
+        "add": [
           "stat-agreement-sent"
-        ]
-      },
-      {
-        "id": "g2",
-        "type": "remove_tag",
-        "tag": [
+        ],
+        "remove": [
           "sys-send-agreement-manually"
         ]
       },
@@ -81,16 +77,12 @@
         "to": "g1"
       },
       {
-        "from": "g1",
-        "to": "g2"
-      },
-      {
-        "from": "g2",
-        "to": "m1"
-      },
-      {
         "from": "m1",
         "to": "x1"
+      },
+      {
+        "from": "g1",
+        "to": "m1"
       }
     ]
   }

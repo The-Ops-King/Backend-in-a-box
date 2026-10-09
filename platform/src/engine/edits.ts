@@ -12,6 +12,7 @@ export type StepEdit =
   | { type: "pipeline_card"; pipeline?: string; stage?: string; name?: string; assign_to?: string; status?: "" | "open" | "won" | "lost" | "abandoned"; if_missing?: "create" | "skip" }
   | { type: "slack_post" | "notify_owner"; channel?: string; as_name?: string; as_icon?: string }   // channel (slack_post only); who the post appears from; as_icon may list several, comma-separated, one picked per post
   | { type: "set_tag" | "remove_tag"; tags?: string[] }
+  | { type: "tags"; add?: string[]; remove?: string[] }
   | { type: "update_contact"; assign_to?: string }
   | { type: "create_task"; assign_to?: string; due?: string }
   | { type: "set_var"; value?: string }          // a knob the workflow reads (minimum call length, a threshold); numbers stay numbers
@@ -43,6 +44,7 @@ export async function saveStepEdit(c: PoolClient, args: { workflowId: string; no
     if (e.as_name !== undefined || e.as_icon !== undefined) { const cur = (node.as as { name?: string; icon?: string } | undefined) ?? {}; const icons = e.as_icon === undefined ? undefined : e.as_icon.split(",").map((s) => s.trim()).filter(Boolean); const as: { name?: string; icon?: string | string[] } = { ...cur, ...(e.as_name !== undefined ? { name: e.as_name } : {}), ...(icons !== undefined ? { icon: icons.length > 1 ? icons : icons[0] } : {}) }; for (const k of ["name", "icon"] as const) if (!as[k]) delete as[k]; if (JSON.stringify(as) !== JSON.stringify(node.as ?? {})) { if (Object.keys(as).length) node.as = as; else delete node.as; changed.push("as"); } }
   }
   else if (e.type === "set_tag" || e.type === "remove_tag") { if (e.tags) { const tags = e.tags.map((t) => t.trim()).filter(Boolean); if (!tags.length) return { ok: false, why: "at least one tag" }; set("tag", tags); } }
+  else if (e.type === "tags") { const clean = (v?: string[]) => v?.map((t) => t.trim()).filter(Boolean); const add = clean(e.add), remove = clean(e.remove); const some = (v: unknown) => v !== undefined && (!Array.isArray(v) || v.length > 0); if (!some(add ?? node.add) && !some(remove ?? node.remove)) return { ok: false, why: "at least one tag" }; set("add", add); set("remove", remove); }
   else if (e.type === "update_contact") { if (e.assign_to !== undefined) { const setObj = { ...((node.set as Record<string, unknown>) ?? {}) }; if (e.assign_to) setObj.assign_to = e.assign_to; else delete setObj.assign_to; if (JSON.stringify(setObj) !== JSON.stringify(node.set)) { node.set = setObj; changed.push("assign_to"); } } }
   else if (e.type === "create_task") { if (e.assign_to !== undefined) set("assign_to", e.assign_to); if (e.due) set("due", e.due); }
   else if (e.type === "send_sms" || e.type === "send_email") { if (e.ghl_template !== undefined) set("ghl_template", e.ghl_template); }

@@ -21,6 +21,12 @@ describe("plain-English descriptions", () => {
     expect(describeNode({ id: "n", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", name: "{{contact.name}} -- New", if_missing: "create", fields: [{ id: "{{crm.field_opportunity_stage_entered}}", value: "{{now | date:yyyy-MM-dd}}" }] }))
       .toEqual({ title: "Create or move pipeline card “[full name] -- New”", detail: "In the pipeline setter, stage stage setter new lead; set field opportunity stage entered = [today]" });
   });
+  it("a tags step reads as one line of signed chips; the old one-direction steps keep their words", () => {
+    expect(describeNode({ id: "g", type: "tags", add: ["stat-booked", "stat-set"], remove: ["seq-no-show", "seq-nurture"] }).title).toBe("Tags “+stat-booked” “+stat-set” “−seq-no-show” “−seq-nurture”");
+    expect(describeNode({ id: "g", type: "tags", remove: "stat-unconfirmed" }).title).toBe("Tags “−stat-unconfirmed”");
+    expect(kindOf({ id: "g", type: "tags", add: "x" })).toBe("crm");
+    expect(describeNode({ id: "g", type: "set_tag", tag: ["a", "b"] }).title).toBe("Add tags “a”, “b”");
+  });
   it("a branch is titled by its edges", () => {
     const def = parseDefinition(templates.find((t) => t.slug === "call-booked")!.definition);
     expect(branchTitle(def, "n2")).toBe("Setter booked, or self booked?");
