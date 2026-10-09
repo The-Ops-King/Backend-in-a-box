@@ -30,7 +30,7 @@ Every template carries a `stage` on the customer's journey (`src/engine/stages.t
 | Template | Starts on | Does |
 |---|---|---|
 | no-recording-no-show | schedule, 18:00 company time | every closing call that ended today with no recording and no outcome is marked no-show (`assume_no_show` step: grace after the scheduled end, call types), which starts no-show recovery. Hair's truth: a held call is a Fathom recording. Turn it off for a company whose calls are not recorded. A closer's own answer on the end-of-day form overrides it; the morning reminder keeps asking for unfiled days until they are filed. |
-| pre-call-sequence | appointment booked (closing calls) | everything the prospect hears before the call (D36): the booking email and text (reply with an emoji to lock in; no reply in 4h → tagged `unconfirmed`, the closers' channel told; a cancel, a reschedule or an unclear reply handled as before), then texts 3 days, 2 days and 24 hours out (with an email), the morning of for calls at 11am or later, 1 hour and 10 minutes before. Each reminder lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always) and is skipped when the call is already closer than it (`validity.min_lead`). Copy is placeholders until Tyler pastes the real texts. |
+| pre-call-sequence | appointment booked (closing calls) | everything the prospect hears before the call (D36): the booking email and text (reply with an emoji to lock in; no reply in 4h → tagged `stat-unconfirmed`, the closers' channel told; a cancel, a reschedule or an unclear reply handled as before), then texts 3 days, 2 days and 24 hours out (with an email), the morning of for calls at 11am or later, 1 hour and 10 minutes before. Each reminder lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always) and is skipped when the call is already closer than it (`validity.min_lead`). Copy is placeholders until Tyler pastes the real texts. |
 | speed-to-lead | lead created | email + SMS now, 2h for a reply, one more email if silent |
 | no-show-recovery | GHL marks no-show, or the disposition form does | 10 min, SMS + email with the rebook link, 24h for a reply, one more email |
 | cancellation-rebook | GHL marks cancelled | SMS + email with the rebook link |
@@ -46,7 +46,7 @@ Every template carries a `stage` on the customer's journey (`src/engine/stages.t
 | agreement-send-manually | tag `sys-send-agreement-manually` added | unless already signed: `send_document` (the Documents & Contracts template `crm.agreement_template`, from `crm.agreement_sender`), tag `stat-agreement-sent`, trigger tag removed, note |
 | agreement-signed | the signer completed the agreement (`agreement.signed`, from the documents poll) | tag `stat-agreement-signed`, dated note, Slack (`slack.channel.deals`) |
 | deal-closed | first payment OR agreement signed, either order, once per contact | gate: paid AND signed AND not tagged `stat-customer` (else stop, and the stop does not use up the "once"); then `stat-customer`, closer card → Closed - Won (won), setter card won, Sales Call record `closed_won` / `showed` with cash collected, welcome email + text (CRM templates by id when set on the step, else the copy on the step), Slack. Needs `crm.stage_closer_closed_won`; `slack.channel.deals` optional |
-| agreement-chase | first payment | 24h → unsigned? → nudge the owner (Slack DM, else `slack.channel.alerts` with an @mention; CRM task on the contact) → 24h → … three nudges at most; a signature ends it; after the third: tag `agreement-unsigned`, one alerts post |
+| agreement-chase | first payment | 24h → unsigned? → nudge the owner (Slack DM, else `slack.channel.alerts` with an @mention; CRM task on the contact) → 24h → … three nudges at most; a signature ends it; after the third: tag `stat-agreement-unsigned`, one alerts post |
 | payment-recorded (extended) | payment linked | as before, plus on the first payment with no signature: send the agreement, `stat-agreement-sent`, closer card → Agreement Sent (`crm.stage_closer_agreement_sent`); dated note; Sales Call record cash collected updated when there is one |
 | new-lead | lead created | with a phone: setter-pipeline card "Name -- New" (stage New Lead, stage-entered date today) + tag `stat-new`; without a phone: exit `no_phone`. Needs `crm.pipeline_setter`, `crm.stage_setter_new_lead`, `crm.field_opportunity_stage_entered` (install `crm: {...}`) |
 
@@ -402,9 +402,10 @@ blocker; the same gap on a workflow that is OFF is a note. Nothing here is typed
 
 `GET /api/admin/workflows?company=<slug>` lists a company's workflows with their readiness;
 `POST /api/admin/workflows` with `{ "company": "<slug>", "workflow": "<template slug or name>", "enabled": true|false }`
-flips one. Both take `Authorization: Bearer $CRON_SECRET`. Turning on a workflow that is missing a
-required binding is refused (409) — the same thing the readiness card calls blocking. Every flip is
-in `audit_log`.
+flips one; `DELETE /api/admin/workflows` with `{ "company", "workflow" }` removes one the company no
+longer wants (off first; its runs and their sends go with it, the events it emitted stay). All take
+`Authorization: Bearer $CRON_SECRET`. Turning on a workflow that is missing a required binding is
+refused (409) — the same thing the readiness card calls blocking. Every flip and delete is in `audit_log`.
 
 ## Test harness: a real contact, behind the scenes (D23)
 

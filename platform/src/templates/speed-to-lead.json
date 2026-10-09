@@ -39,11 +39,6 @@
         "channel": "any"
       },
       {
-        "id": "n4",
-        "type": "set_tag",
-        "tag": "engaged"
-      },
-      {
         "id": "n5",
         "type": "send_email",
         "subject": "Still want to talk?",
@@ -76,21 +71,17 @@
       },
       {
         "from": "n3",
-        "to": "n4",
-        "label": "replied"
-      },
-      {
-        "from": "n3",
         "to": "n5",
         "label": "timeout"
       },
       {
-        "from": "n4",
-        "to": "x1"
-      },
-      {
         "from": "n5",
         "to": "x2"
+      },
+      {
+        "from": "n3",
+        "to": "x1",
+        "label": "replied"
       }
     ]
   }

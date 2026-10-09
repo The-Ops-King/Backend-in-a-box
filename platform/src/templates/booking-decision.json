@@ -41,12 +41,12 @@
       {
         "id": "y1",
         "type": "set_tag",
-        "tag": "confirmed"
+        "tag": "stat-confirmed"
       },
       {
         "id": "y2",
         "type": "remove_tag",
-        "tag": "unconfirmed"
+        "tag": "stat-unconfirmed"
       },
       {
         "id": "y3",

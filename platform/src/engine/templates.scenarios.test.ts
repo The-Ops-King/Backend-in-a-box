@@ -115,7 +115,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await expireReplyWait(runB.id, "n3");
     const n2 = since(); await tick(fake, DateTime.now().plus({ minutes: 2 }), companyId);   // past the 90 s settle window for the rest of a reply (D47)
     rs = await runsFor("speed-to-lead");
-    expect(rs.find((r) => r.contact_id === a)?.exit_reason).toBe("replied"); expect(tags).toContain("engaged");
+    expect(rs.find((r) => r.contact_id === a)?.exit_reason).toBe("replied");
     expect(rs.find((r) => r.contact_id === b)?.exit_reason).toBe("no_reply"); expect(sent.slice(n2).map((s) => s.body)).toEqual([expect.stringMatching(/^Still want to talk/)]);
   });
 

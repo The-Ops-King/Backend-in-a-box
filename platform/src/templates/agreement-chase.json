@@ -5,7 +5,7 @@
   "stage": "closing",
   "sort": 30,
   "origin": "spec",
-  "description": "Starts on the first payment and runs once per contact: every 24 hours it checks whether the agreement has been signed; while it has not, the contact's owner gets a Slack DM (or an @mention in the alerts channel) and a CRM task, three times at most. A signature at any point ends it. After the third unanswered nudge the contact is tagged agreement-unsigned and the alerts channel is told once.",
+  "description": "Starts on the first payment and runs once per contact: every 24 hours it checks whether the agreement has been signed; while it has not, the contact's owner gets a Slack DM (or an @mention in the alerts channel) and a CRM task, three times at most. A signature at any point ends it. After the third unanswered nudge the contact is tagged stat-agreement-unsigned and the alerts channel is told once.",
   "definition": {
     "schema": 1,
     "reentry": "once_per_contact",
@@ -163,14 +163,14 @@
         "id": "g1",
         "type": "set_tag",
         "tag": [
-          "agreement-unsigned"
+          "stat-agreement-unsigned"
         ]
       },
       {
         "id": "s1",
         "type": "slack_post",
         "channel": "{{slack.channel.alerts}}",
-        "template": "*Agreement unsigned after 3 nudges:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · paid ${{contact.cash_collected}} · owner {{contact.owner.name | default:unassigned}}. Tagged agreement-unsigned.",
+        "template": "*Agreement unsigned after 3 nudges:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · paid ${{contact.cash_collected}} · owner {{contact.owner.name | default:unassigned}}. Tagged stat-agreement-unsigned.",
         "as": {
           "name": "Agreement unsigned",
           "icon": [

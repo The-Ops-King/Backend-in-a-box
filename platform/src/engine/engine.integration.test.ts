@@ -107,14 +107,14 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
       await c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting'", [companyId]);
     });
     const r3a = await tick(fake, undefined, companyId, fakeProbes);                     // w1 sees the reply and waits 90 s for the rest of what they are typing (D47)
-    expect(r3a.waiting).toBe(1); expect(tags).not.toContain("confirmed");
+    expect(r3a.waiting).toBe(1); expect(tags).not.toContain("stat-confirmed");
     await asOperator(async (c) => {
       await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'M3','sms','inbound','🙏',now())", [companyId, contactId]);   // a second piece, after the first
       await c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting'", [companyId]);
     });
     const r3 = await tick(fake, DateTime.now().plus({ minutes: 2 }), companyId, fakeProbes);   // settled: c1 classify on both → b1 branch → tag confirmed → the 3-day text is stale (call in 2 days) → parks on the next reminder
     expect(r3.waiting).toBe(1);
-    expect(tags).toContain("confirmed");
+    expect(tags).toContain("stat-confirmed");
     const run = await asOperator((c) => one<{ status: string; current_node: string }>(c, "select r.status, r.current_node from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Pre-call sequence'", [companyId]));
     expect(run).toMatchObject({ status: "waiting" }); expect(["r48", "r24"]).toContain(run!.current_node);
     expect(sent.filter((s) => /3 days out/.test(s.body))).toHaveLength(0);   // skipped: the call is closer than that
@@ -136,7 +136,7 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
         [companyId, wf!.id, contactId, apptId, { vars: { __wait_for_reply: { w1: { deadline: new Date(Date.now() - 60e3).toISOString() } } } }]);   // nested: setPath/resolvePath split on "."
     });
     const r = await tick(fake, undefined, companyId, fakeProbes);
-    expect(r.waiting).toBe(1); expect(tags).toContain("unconfirmed");
+    expect(r.waiting).toBe(1); expect(tags).toContain("stat-unconfirmed");
     const steps = await asOperator((c) => many<{ node_id: string; status: string }>(c, "select s.node_id, s.status from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and r.reentry_key='appointment:timeout' order by s.id", [companyId]))   // insertion order: a wait that is already due is stamped with its due time, which can predate the rows before it;
     // the timeout edge, not the reply edge: order is not asserted (a wait that is already due is stamped with its due time, so rows do not sort by when they ran)
     const ids = steps.map((x) => x.node_id);

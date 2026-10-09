@@ -76,7 +76,7 @@
       {
         "id": "n_conf",
         "type": "set_tag",
-        "tag": "confirmed"
+        "tag": "stat-confirmed"
       },
       {
         "id": "n_conf_slack",
@@ -94,7 +94,7 @@
       {
         "id": "n_unc",
         "type": "set_tag",
-        "tag": "unconfirmed"
+        "tag": "stat-unconfirmed"
       },
       {
         "id": "n_unc_slack",

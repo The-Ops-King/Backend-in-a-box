@@ -73,11 +73,6 @@
         "channel": "any"
       },
       {
-        "id": "n5",
-        "type": "set_tag",
-        "tag": "rebooking"
-      },
-      {
         "id": "n6",
         "type": "send_email",
         "subject": "Want to reschedule?",
@@ -122,21 +117,17 @@
       },
       {
         "from": "n4",
-        "to": "n5",
-        "label": "replied"
-      },
-      {
-        "from": "n4",
         "to": "n6",
         "label": "timeout"
       },
       {
-        "from": "n5",
-        "to": "x1"
-      },
-      {
         "from": "n6",
         "to": "x2"
+      },
+      {
+        "from": "n4",
+        "to": "x1",
+        "label": "replied"
       }
     ]
   }

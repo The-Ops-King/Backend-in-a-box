@@ -5,7 +5,7 @@
   "stage": "post_call",
   "sort": 4,
   "origin": "spec",
-  "description": "A no-show, however it was noticed (the CRM marked it, the closer's end-of-day form said so, or the engine assumed it at the end of the day with no recording), lands on the booking post in Slack as a 👻 reaction and a line in its thread. No new message: the team reads the booking's story in one place (D44).",
+  "description": "A no-show, however it was noticed (the CRM marked it, the closer's end-of-day form said so, or the engine assumed it at the end of the day with no recording), lands on the booking post in Slack as a 👻 reaction and a line in its thread. No new message: the team reads the booking's story in one place (D44) The contact is tagged stat-no-show.",
   "definition": {
     "schema": 1,
     "reentry": "once_per_appointment",
@@ -47,6 +47,11 @@
         "title": "React 👻 on the booking post"
       },
       {
+        "id": "g1",
+        "type": "set_tag",
+        "tag": "stat-no-show"
+      },
+      {
         "id": "x1",
         "type": "exit",
         "reason": "noted"
@@ -63,6 +68,10 @@
       },
       {
         "from": "n1",
+        "to": "g1"
+      },
+      {
+        "from": "g1",
         "to": "x1"
       }
     ]
