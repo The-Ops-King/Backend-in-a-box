@@ -44,6 +44,11 @@ export async function setupPage(co: CompanyHead) {
     booking: c.config.booking ?? (c.self_booked === true ? "self" : c.self_booked === false ? "setter" : "company"),
     role: one("calendar.closer_call")?.value === c.external_id ? "the closer call" : one("calendar.booking")?.value === c.external_id ? "the booking link we send" : null,
     questions: Object.entries(c.config.questions ?? {}).map(([use, text]) => ({ use, text })) }; });
+  // the tag ledger: what the CRM has, what the workflows add and remove, what the contacts carry — spelled the CRM's way
+  const crmTags = cat && !cat.errors.some((e) => e.startsWith("tags:")) ? cat.tags : null;
+  const tagNames = new Set<string>([...(crmTags ?? []), ...d.tagUse.keys(), ...d.tagCounts.keys()]);
+  const tags = [...tagNames].sort((a, b) => a.localeCompare(b)).map((tag) => { const u = d.tagUse.get(tag); return {
+    tag, in_crm: crmTags ? crmTags.includes(tag) : null, on_contacts: d.tagCounts.get(tag) ?? 0, added_by: u?.adds ?? [], removed_by: u?.removes ?? [] }; });
   const unmapped = d.liveCalendars.filter((l) => !d.calendars.some((c) => c.external_id === l.id)).map((l) => ({ id: l.id, name: l.name, hosts: (l.hosts ?? []).map((h) => h.name || h.email) }));
   return {
     company: co,
@@ -57,6 +62,7 @@ export async function setupPage(co: CompanyHead) {
     call_types: d.terms.map((t) => ({ name: t.name, category: t.category, active: t.active, in_use: t.in_use })),
     calendars, unmapped_calendars: unmapped, calendars_error: d.liveCalendarsError,
     crm: crmGroups,
+    tags: { crm_readable: crmTags !== null, rows: tags },
     slack: { connected: !!d.slack, team_id: d.slack?.team_id ?? null, channels: by("slack") },
     alerts: ["alerts.slack_channel", "alerts.email", "alerts.email_from", "alerts.webhook", "alerts.as_name", "alerts.as_icon"].map((k) => one(k)).filter((r): r is SetupRow => !!r),
     prompts: by("prompts").map((r) => ({ key: r.key, label: humanKey(r.key), used_by: r.used_by, text: r.value ?? "" })),

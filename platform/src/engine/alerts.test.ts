@@ -105,7 +105,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     const probes: HealthProbes = {
       ghlLocationOk: async () => ({ ok: true, name: "Alert Co" }),
       ghlFreeSlots: async (_p, cal, from) => { const n = cal === "CAL2" ? slotsB : 12; const times = Array.from({ length: n }, (_, i) => new Date(from.getTime() + (i % 7) * 864e5 + (9 + Math.floor(i / 7)) * 36e5).toISOString()); return { ok: true, slots: n, times }; },
-      ghlCatalog: async () => ({ users: [], pipelines: [{ id: "PIPE1", name: "Closer", stages: [{ id: "STAGE_OK", name: "Won" }] }], contactFields: [{ id: "FLD1", name: "Setter" }], opportunityFields: [], associations: [], objects: [], errors: [] }),
+      ghlCatalog: async () => ({ users: [], pipelines: [{ id: "PIPE1", name: "Closer", stages: [{ id: "STAGE_OK", name: "Won" }] }], contactFields: [{ id: "FLD1", name: "Setter" }], opportunityFields: [], associations: [], objects: [], tags: [], errors: [] }),
       calendlyWhoAmI: async () => { throw new Error("not used"); }, calendlyAvailableTimes: async () => ({ ok: true, slots: 1, times: [] }),
       whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }), urlOk: async () => ({ ok: true, status: 200 }),
     };

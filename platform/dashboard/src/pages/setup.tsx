@@ -41,6 +41,10 @@ export function Setup() {
     <Sec>CRM ids the workflows use</Sec>
     {d.crm.length ? d.crm.map((g) => <Fold key={g.group} title={<>{g.group} · {g.rows.filter((r) => r.set).length}/{g.rows.length}</>} open={g.rows.some((r) => !r.set && r.required)}><KV rows={g.rows} /></Fold>) : <Empty>No installed workflow needs a CRM id.</Empty>}
 
+    <Sec>Tags</Sec>
+    <p className="note">{d.tags.crm_readable ? "The CRM's tag list, what the workflows add and remove, and how many contacts carry each." : "The CRM's tag list could not be read (the token may lack tags access); workflow tags and contact counts only."}</p>
+    {d.tags.rows.length ? <div className="rows">{d.tags.rows.map((t) => <div key={t.tag} className={`row ${t.in_crm === false ? "off" : ""}`}><Ic state={t.in_crm === false ? "warn" : t.added_by.length || t.removed_by.length ? "ok" : "skip"} /><span className="mid"><span className="nm">{t.tag}</span><span className="sub">{t.added_by.length ? <span>added by {t.added_by.join(", ")}</span> : null}{t.removed_by.length ? <span>{t.added_by.length ? "· " : ""}removed by {t.removed_by.join(", ")}</span> : null}{!t.added_by.length && !t.removed_by.length ? <span>no workflow touches it</span> : null}{t.in_crm === false ? <span>· not in the CRM's tag list</span> : null}</span></span><span className="d">{t.on_contacts ? `${t.on_contacts} contact${t.on_contacts === 1 ? "" : "s"}` : "no contacts"}</span></div>)}</div> : <Empty>No tags anywhere yet.</Empty>}
+
     <Sec>Slack</Sec>
     <p className="note">{d.slack.connected ? `Connected to workspace ${d.slack.team_id}.` : "Not connected: every Slack post is recorded but never posted."}</p>
     <KV rows={d.slack.channels} />

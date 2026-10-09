@@ -30,6 +30,10 @@ export type CalendarRow = { external_id: string; name: string; appointment_term:
 export type SettingsData = {
   company: { id: string; name: string; slug: string; timezone: string; mode: string; sms_enabled: boolean; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; contract_value_default: string | null; reached_seconds: number };
   scheduled: { id: string; name: string; enabled: boolean; when: string }[];
+  /** every literal tag an installed workflow adds or removes, by workflow name; a templated tag ({{…}}) is per-run and not listed */
+  tagUse: Map<string, { adds: string[]; removes: string[] }>;
+  /** how many of our contacts (the CRM replica) carry each tag */
+  tagCounts: Map<string, number>;
   rows: SettingRow[]; byKey: Map<string, SettingRow>;
   bookingSource: "ghl" | "calendly";
   calendars: CalendarRow[]; liveCalendars: CalendarSnapshot[]; liveCalendarsError: string | null;
@@ -55,9 +59,22 @@ export async function loadSettings(slug: string): Promise<SettingsData | null> {
     const users = await many<{ id: string; name: string; email: string; ghl_user_id: string | null; role: string; calls: number }>(c, "select u.id, u.name, u.email, u.ghl_user_id, u.role, (select count(*) from appointments a where a.assigned_user_id=u.id and a.status not in ('cancelled','invalid'))::int as calls from users u where u.company_id=$1 and u.active order by (u.role='closer') desc, u.name", [co.id]);
     const eodForm = await loadEodForm(c, co.id);
     const scheduled: SettingsData["scheduled"] = [];
+    const tagUse: SettingsData["tagUse"] = new Map();
     for (const w of await many<{ id: string; name: string; enabled: boolean; definition: unknown }>(c, "select w.id, w.name, w.enabled, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 order by w.name", [co.id])) {
-      try { const def = parseDefinition(w.definition); const trigs = def.nodes.filter((n) => n.type === "trigger" && n.schedule); if (trigs.length) scheduled.push({ id: w.id, name: w.name, enabled: w.enabled, when: trigs.map((t) => (t.type === "trigger" && t.schedule ? scheduleWords(t.schedule) : "")).join("; ") }); } catch { /* unparseable: the health check says so */ }
+      try {
+        const def = parseDefinition(w.definition); const trigs = def.nodes.filter((n) => n.type === "trigger" && n.schedule);
+        if (trigs.length) scheduled.push({ id: w.id, name: w.name, enabled: w.enabled, when: trigs.map((t) => (t.type === "trigger" && t.schedule ? scheduleWords(t.schedule) : "")).join("; ") });
+        for (const n of def.nodes) {
+          if (n.type !== "set_tag" && n.type !== "remove_tag") continue;
+          for (const tag of Array.isArray(n.tag) ? n.tag : [n.tag]) {
+            if (tag.includes("{{")) continue;
+            const u = tagUse.get(tag) ?? { adds: [], removes: [] }; tagUse.set(tag, u);
+            const list = n.type === "set_tag" ? u.adds : u.removes; if (!list.includes(w.name)) list.push(w.name);
+          }
+        }
+      } catch { /* unparseable: the health check says so */ }
     }
+    const tagCounts = new Map((await many<{ tag: string; n: number }>(c, "select t as tag, count(*)::int as n from contacts, unnest(tags) t where company_id=$1 group by t", [co.id])).map((r) => [r.tag, r.n]));
     const slack = (await one<{ team_id: string; connected_at: Date }>(c, "select team_id, connected_at from slack_connections where company_id=$1", [co.id])) ?? null;
     let slackChannels: { id: string; name: string }[] | null = null;
     if (slack) { const tok = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [co.id]); slackChannels = await listSlackChannels(decrypt(tok!.bot_token)); }
@@ -69,7 +86,7 @@ export async function loadSettings(slug: string): Promise<SettingsData | null> {
     if (canListCalendars) { try { liveCalendars = await bookingFor(liveAdapters, adapterCompany).listCalendars(adapterCompany); } catch (e) { liveCalendarsError = String((e as Error).message).slice(0, 200); } }
     if (connected) catalog = await ghlCatalog(adapterCompany.pit, adapterCompany.locationId);
     const base = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
-    return { company: co, rows, byKey: new Map(rows.map((r) => [r.key, r])), bookingSource: adapterCompany.booking.source, calendars, liveCalendars, liveCalendarsError, terms, users, eodForm, scheduled, catalog, slack, slackChannels, readiness, proposal,
+    return { company: co, rows, byKey: new Map(rows.map((r) => [r.key, r])), bookingSource: adapterCompany.booking.source, calendars, liveCalendars, liveCalendarsError, terms, users, eodForm, scheduled, tagUse, tagCounts, catalog, slack, slackChannels, readiness, proposal,
       inbound: { secret: bindings["secret.zapier_inbound"] ?? null, whop: `${base}/api/webhooks/whop/${co.id}`, fathom: `${base}/api/webhooks/fathom/${co.id}`, zapierPayment: `${base}/api/webhooks/zapier/${co.id}/payment`, zapierRecording: `${base}/api/webhooks/zapier/${co.id}/recording`, fathomWebhookId: bindings["fathom.webhook_id"] ?? null } };
   });
 }
