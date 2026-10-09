@@ -11,13 +11,13 @@ export function Company() {
   const q = usePage<CompanyPage>(key, `/api/v1/companies/${slug}`);
   const [filter, setFilter] = useState<Filter>("all");
   const flip = useAction<{ id: string; enabled: boolean }>((v) => api(`/api/v1/workflows/${v.id}/enabled`, { method: "POST", json: { enabled: v.enabled } }), [key]);
-  const mode = useAction<{ mode: "live" | "shadow" }>((v) => api(`/api/v1/companies/${slug}/mode`, { method: "POST", json: v }), [key, ["companies"]]);
+  const mode = useAction<{ mode: "live" | "shadow" }, { cleared?: { runs: number } }>((v) => api(`/api/v1/companies/${slug}/mode`, { method: "POST", json: v }), [key, ["companies"]]);
   if (!q.data) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton lines={8} />;
   const { company: co, stages, workflows, alerts_open } = q.data;
   const looks = (w: WorkflowRow) => w.failed > 0 || !w.ready;
   const shown = workflows.filter((w) => filter === "all" ? true : filter === "on" ? w.enabled : filter === "off" ? !w.enabled : looks(w));
   const groups = [...stages.map((s) => ({ id: s.id, label: s.label, items: shown.filter((w) => w.stage === s.id) })), { id: "other", label: "Other", items: shown.filter((w) => !stages.some((s) => s.id === w.stage)) }].filter((g) => g.items.length);
-  const goLive = async () => { const next = co.mode === "live" ? "shadow" : "live"; if (next === "live" && !confirm("Go live? Enabled workflows will send real messages and write to the CRM.")) return; try { await mode.mutateAsync({ mode: next }); toast(next === "live" ? "Live. Enabled workflows now reach people." : "Back in shadow."); } catch (e) { toast((e as Error).message, true); } };
+  const goLive = async () => { const next = co.mode === "live" ? "shadow" : "live"; if (next === "live" && !confirm("Go live? Enabled workflows will send real messages and write to the CRM. Every run born in shadow is cleared: it was rehearsal.")) return; try { const r = await mode.mutateAsync({ mode: next }); toast(next === "live" ? `Live. Enabled workflows now reach people.${r?.cleared?.runs ? ` ${r.cleared.runs} shadow run${r.cleared.runs === 1 ? "" : "s"} cleared.` : ""}` : "Back in shadow."); } catch (e) { toast((e as Error).message, true); } };
   return <>
     <Crumb items={[{ to: "/app", label: "Companies" }]} />
     <NameLine name={co.name} control={<button type="button" className="btn" onClick={goLive} disabled={mode.isPending}>{co.mode === "live" ? "Back to shadow" : "Go live"}</button>} />

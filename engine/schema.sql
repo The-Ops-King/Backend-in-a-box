@@ -476,6 +476,7 @@ create table runs (
   pending_events      jsonb not null default '[]',          -- triggers that arrived while this run held the once-per key; replayed if the run stops at a gate (D30)
   claimed_at          timestamptz,                         -- scheduler lease
   claimed_by          text,
+  born_in             text not null default 'live' check (born_in in ('shadow','live')),   -- the company's mode when the run started; shadow-born runs are cleared at Go live (D51)
   started_at          timestamptz not null default now(),
   finished_at         timestamptz,
   unique (workflow_id, reentry_key)

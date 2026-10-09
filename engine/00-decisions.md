@@ -1319,3 +1319,14 @@ transcript only pre-fills the form. They land with the end-of-day outcome work (
 written for now (Tyler: "nothing else"); the CRM spells it `optin lead`, so that remove step matches nothing today.
 Two legacy workflows on Hair, "Appointment reminder with reply handling" and "Booking confirmation", were removed
 through the new admin DELETE; they were off and superseded by the pre-call sequence.
+
+## D51. Go live clears the rehearsal (2026-10-09)
+
+Tyler, on what happens to runs that started in shadow when the switch flips: "remove those tests to clean up the data."
+Every run is stamped `born_in` with the company's mode at the time. Go live is refused while readiness has a blocker
+(the dashboard shows which), then deletes every shadow-born run with its steps, its would-sends and the events it
+wrote, and only then sets the mode. A run started after that is live-born and ordinary. Back to shadow is the flag
+alone. The full-scope CRM token is not probed at Go live (Tyler: the token is full scope; the end-to-end test will
+prove it); a write the CRM refuses still raises an alert. Message bodies nobody has written are `[placeholder — title]`
+and nothing more; readiness warns how many an enabled workflow still carries, and does not block, since the team is
+testing with them. Rehearsal (item 7) and Go live are separate switches, so neither flips the other by accident.

@@ -28,7 +28,7 @@
         "id": "e1",
         "type": "send_email",
         "subject": "You're booked: {{appointment.starts_at | date:ccc, LLL d 'at' h:mma}} — reply to lock it in",
-        "template": "<p>Hey {{contact.first_name}},</p><p>[PLACEHOLDER — day-one email. Your spot for {{appointment.starts_at | date:cccc, LLLL d 'at' h:mma}} with {{appointment.closer.first_name}} isn't locked yet: reply CONFIRM to lock it in.]</p>",
+        "template": "[placeholder — day-one email]",
         "validity": {
           "anchor": "before_event",
           "min_lead": "5m"
@@ -38,7 +38,7 @@
       {
         "id": "s1",
         "type": "send_sms",
-        "template": "[PLACEHOLDER — immediate text] Hey {{contact.first_name}}, your call with {{appointment.closer.first_name}} is booked for {{appointment.starts_at | date:ccc, LLL d 'at' h:mma}}. Reply with an emoji to lock in your spot.",
+        "template": "[placeholder — immediate text]",
         "validity": {
           "anchor": "before_event",
           "min_lead": "15m"
@@ -179,7 +179,7 @@
       {
         "id": "m72",
         "type": "send_sms",
-        "template": "[PLACEHOLDER — 3 days out] Hey {{contact.first_name}}, your call with {{appointment.closer.first_name}} is {{appointment.starts_at | relative:auto}}.",
+        "template": "[placeholder — 3 days out]",
         "validity": {
           "anchor": "before_event",
           "min_lead": "60h"
@@ -200,7 +200,7 @@
       {
         "id": "m48",
         "type": "send_sms",
-        "template": "[PLACEHOLDER — 2 days out] Hey {{contact.first_name}}, two days until your call with {{appointment.closer.first_name}}.",
+        "template": "[placeholder — 2 days out]",
         "validity": {
           "anchor": "before_event",
           "min_lead": "36h"
@@ -222,7 +222,7 @@
         "id": "m24e",
         "type": "send_email",
         "subject": "Tomorrow: your call with {{appointment.closer.first_name}}",
-        "template": "<p>Hey {{contact.first_name}},</p><p>[PLACEHOLDER — 24-hour email. Your call is {{appointment.starts_at | date:cccc 'at' h:mma}}.]</p>",
+        "template": "[placeholder — 24-hour email]",
         "validity": {
           "anchor": "before_event",
           "min_lead": "18h"
@@ -232,7 +232,7 @@
       {
         "id": "m24s",
         "type": "send_sms",
-        "template": "[PLACEHOLDER — 24-hour text] Hey {{contact.first_name}}, your call with {{appointment.closer.first_name}} is {{appointment.starts_at | relative:auto}} ({{appointment.starts_at | date:cccc 'at' h:mma}}).",
+        "template": "[placeholder — 24-hour text]",
         "validity": {
           "anchor": "before_event",
           "min_lead": "18h"
@@ -255,7 +255,7 @@
       {
         "id": "mm",
         "type": "send_sms",
-        "template": "[PLACEHOLDER — morning-of text] Morning {{contact.first_name}}, your call with {{appointment.closer.first_name}} is today at {{appointment.starts_at | date:h:mma}}.",
+        "template": "[placeholder — morning-of text]",
         "validity": {
           "anchor": "before_event",
           "min_lead": "2h"
@@ -275,7 +275,7 @@
       {
         "id": "m1",
         "type": "send_sms",
-        "template": "[PLACEHOLDER — 1-hour text] Hey {{contact.first_name}}, your call with {{appointment.closer.first_name}} is in an hour ({{appointment.starts_at | date:h:mma}}).",
+        "template": "[placeholder — 1-hour text]",
         "validity": {
           "anchor": "before_event",
           "min_lead": "15m"
@@ -294,7 +294,7 @@
       {
         "id": "m10",
         "type": "send_sms",
-        "template": "[PLACEHOLDER — 10-minute text] {{contact.first_name}}, {{appointment.closer.first_name}} will call you in 10 minutes."
+        "template": "[placeholder — 10-minute text]"
       },
       {
         "id": "x_done",

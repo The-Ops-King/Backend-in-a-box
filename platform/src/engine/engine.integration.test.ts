@@ -90,8 +90,8 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
     // three: the pre-call sequence (waits for the reply), call-booked (fails: no pipeline bindings) and the calendar availability watch the booking started
     expect(r1.claimed).toBe(3); expect(r1.completed).toBe(1); expect(r1.waiting).toBe(1); expect(r1.failed).toBe(1);
     expect(sent.filter((s) => s.kind === "email")).toHaveLength(1); expect(sent.filter((s) => s.kind === "sms")).toHaveLength(1);
-    expect(sent.find((s) => s.kind === "email")!.body).toMatch(/isn't locked yet/);
-    expect(sent.find((s) => s.kind === "sms")!.body).toMatch(/Jamie.*Sam.*at 2:00pm.*emoji/i);
+    expect(sent.find((s) => s.kind === "email")!.body).toMatch(/\[placeholder — day-one email\]/);   // the copy is a marker until Tyler pastes the real texts (D51)
+    expect(sent.find((s) => s.kind === "sms")!.body).toMatch(/\[placeholder — immediate text\]/);
     const waiting = await asOperator((c) => one<{ current_node: string; next_run_at: Date }>(c, "select current_node, next_run_at from runs where company_id=$1 and status='waiting'", [companyId]));
     expect(waiting?.current_node).toBe("w1");                                        // stays ON the wait_for_reply node
     expect(waiting!.next_run_at.getTime() - Date.now()).toBeGreaterThan(3.9 * 3600e3);  // deadline ≈ 4h out

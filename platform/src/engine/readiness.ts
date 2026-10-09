@@ -8,7 +8,9 @@ import { parseDefinition } from "./definition";
  * Shown on the company page and on each workflow page so nobody flips a switch on something half-wired.
  */
 export type Issue = { level: "blocker" | "warning"; text: string; href?: string };
-export type WorkflowReadiness = { id: string; name: string; slug: string | null; enabled: boolean; missing: string[]; optionalUnbound: string[]; gaps: string[]; parseError?: string; ready: boolean };
+export type WorkflowReadiness = { id: string; name: string; slug: string | null; enabled: boolean; missing: string[]; optionalUnbound: string[]; gaps: string[]; placeholders: number; parseError?: string; ready: boolean };
+/** A message body nobody has written yet; the marker the templates ship with, not a reading of the words. */
+export const isPlaceholderCopy = (body: string | undefined) => /\[placeholder\b/i.test(body ?? "");
 export type Readiness = { ready: boolean; issues: Issue[]; workflows: WorkflowReadiness[] };
 
 /** What a template cannot do yet, by slug. Remove the entry when the piece ships; the UI stops warning on its own. */
@@ -25,9 +27,9 @@ export async function companyReadiness(c: PoolClient, companyId: string, slugPre
     const missing = w.manifest.bindings.filter((b) => b.required && !bound.has(b.key)).map((b) => b.key);
     const optionalUnbound = w.manifest.bindings.filter((b) => !b.required && !bound.has(b.key)).map((b) => b.key);
     const gaps = w.slug ? KNOWN_GAPS[w.slug] ?? [] : [];
-    let parseError: string | undefined;
-    try { parseDefinition(w.definition); } catch (e) { parseError = String((e as Error).message).split("\n").find((l) => /message/.test(l))?.replace(/.*"message":\s*"?/, "").replace(/"?,?\s*$/, "") ?? "does not parse"; }
-    return { id: w.id, name: w.name, slug: w.slug, enabled: w.enabled, missing, optionalUnbound, gaps, parseError, ready: !missing.length && !gaps.length && !parseError };
+    let parseError: string | undefined, placeholders = 0;
+    try { const def = parseDefinition(w.definition); placeholders = def.nodes.filter((n) => (n.type === "send_sms" || n.type === "send_email") && isPlaceholderCopy(n.template)).length; } catch (e) { parseError = String((e as Error).message).split("\n").find((l) => /message/.test(l))?.replace(/.*"message":\s*"?/, "").replace(/"?,?\s*$/, "") ?? "does not parse"; }
+    return { id: w.id, name: w.name, slug: w.slug, enabled: w.enabled, missing, optionalUnbound, gaps, placeholders, parseError, ready: !missing.length && !gaps.length && !parseError };
   });
   const issues: Issue[] = [];
   if (co.mode === "shadow") issues.push({ level: "warning", text: "Company is in shadow: nothing reaches the CRM or the contact until someone presses Go live." });
@@ -37,6 +39,7 @@ export async function companyReadiness(c: PoolClient, companyId: string, slugPre
     if (w.parseError) issues.push({ level: "blocker", text: `${w.name}: its stored definition no longer runs on this engine (${w.parseError.slice(0, 120)}). Re-run install to upgrade it to the current template.`, href: `${slugPrefix}/w/${w.id}` });
     if (w.missing.length) issues.push({ level: w.enabled ? "blocker" : "warning", text: `${w.name}${w.enabled ? " is ON but" : ""} is missing ${w.missing.join(", ")}.`, href: `${slugPrefix}/w/${w.id}` });
     for (const g of w.gaps) issues.push({ level: "warning", text: `${w.name}: ${g}`, href: `${slugPrefix}/w/${w.id}` });
+    if (w.enabled && w.placeholders) issues.push({ level: "warning", text: `${w.name}: ${w.placeholders} message${w.placeholders === 1 ? " is" : "s are"} still placeholder copy.`, href: `${slugPrefix}/w/${w.id}` });
     if (w.enabled && w.optionalUnbound.some((k) => k.startsWith("slack.channel."))) issues.push({ level: "warning", text: `${w.name}: no Slack channel bound (${w.optionalUnbound.filter((k) => k.startsWith("slack.channel.")).join(", ")}); its posts are skipped.`, href: `${slugPrefix}/w/${w.id}` });
   }
   return { ready: !issues.some((i) => i.level === "blocker"), issues, workflows };

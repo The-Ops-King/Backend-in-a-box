@@ -24,8 +24,8 @@ export async function startRun(c: PoolClient, args: { companyId: string; workflo
     const recent = await one(c, `select 1 from runs where workflow_id=$1 and contact_id=$2 and started_at > now() - $3::interval limit 1`, [args.workflowId, args.contactId, windowInterval(def.reentry_window ?? "90d")]);
     if (recent) return null;
   }
-  const row = await one<{ id: string }>(c, `insert into runs (company_id, workflow_id, workflow_version, contact_id, user_id, opportunity_id, appointment_id, trigger_id, triggered_by_event, status, current_node, next_run_at, context, reentry_key)
-    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'active',$10,now(),$11,$12)
+  const row = await one<{ id: string }>(c, `insert into runs (company_id, workflow_id, workflow_version, contact_id, user_id, opportunity_id, appointment_id, trigger_id, triggered_by_event, status, current_node, next_run_at, context, reentry_key, born_in)
+    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'active',$10,now(),$11,$12,(select mode from companies where id=$1))
     on conflict (workflow_id, reentry_key) do nothing returning id`,
     [args.companyId, args.workflowId, wf.current_version, args.contactId, args.userId ?? null, args.opportunityId ?? null, args.appointmentId ?? null, args.triggerId ?? null, args.event.id, args.triggerNodeId, { event: { ...args.event.data, _type: args.event.event_type, _source: args.event.source }, vars: {} }, key]);
   if (!row) {

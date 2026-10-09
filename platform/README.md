@@ -516,6 +516,9 @@ location with all nine workflows on: zero messages, zero tags reached GHL.
 
 So: install with a read-only token → let it run → read `/c/<slug>/sends` ("Would have sent") →
 fix copy or timing → **Go live** on the company page, then turn workflows on one at a time.
+Go live is refused while readiness has a blocker (the response lists them), and it clears every
+run born in shadow with its steps, would-sends and events: shadow was rehearsal, none of it is
+history (D51). Each run carries `born_in`; back to shadow is only the flag.
 
 ## Reading a workflow
 
