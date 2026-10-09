@@ -144,8 +144,9 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
     // parked before any step row for the node (a wait the runner has not reached, or a reply-wait): say where
     const cur = run.current_node;
     if (cur && !out.some((x) => x.state === "here")) {
-      const n = byId.get(cur);
-      if (n) { const t = shortTitle(def, n); out.push({ node_id: cur, title: t.title, meta: t.meta, kind: kindOf(n), state: "here", at: run.next_run_at?.toISOString() ?? null, channel: channelOf(n) }); }
+      const n = byId.get(cur); const already = out.find((x) => x.node_id === cur && x.state === "ok" && x.kind === "trig");
+      if (already) { already.state = "here"; already.at = run.next_run_at?.toISOString() ?? already.at; }   // about to start: the trigger row is where it stands
+      else if (n) { const t = shortTitle(def, n); out.push({ node_id: cur, title: t.title, meta: t.meta, kind: kindOf(n), state: "here", at: run.next_run_at?.toISOString() ?? null, channel: channelOf(n) }); }
     }
     for (const p of plan) {
       if (out.some((x) => x.node_id === p.node_id && (x.state === "here" || x.state === "next"))) continue;
