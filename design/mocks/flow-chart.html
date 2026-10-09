@@ -1,0 +1,198 @@
+<title>Flow Chart Layouts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a chooser for five layouts of the same flow, a run picker to overlay a run's state, one chart at a time. Slate tokens from round two, dark only. */
+:root{--bg:#111214;--panel:#191a1d;--panel-2:#222327;--panel-3:#2b2c31;--fg:#f0f0f2;--fg-2:#a3a4ab;--fg-3:#6e6f76;--line:#2e2f36;--edge:#3a3b43;--acc:#f0b429;--acc-ink:#2a1e04;--acc-soft:#f0b42926;--ok:#5bd087;--ok-bg:#1a3b27;--warn:#ff8a5b;--warn-bg:#3f2316;--bad:#ff6b6b;--cond:#8fb7ff;--cond-bg:#1c2a44;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:"Outfit",system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;padding-block:0 60px;padding-inline:16px}
+*{box-sizing:border-box}
+button{font:inherit}
+.wrap{max-width:980px;margin:0 auto}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding-block:18px 8px}
+.bar h1{font-size:15px;font-weight:600;margin:0 12px 0 0}
+.bar .grp{display:flex;flex-wrap:wrap;gap:8px}
+.bar button{font-size:13px;font-weight:600;background:var(--panel);color:var(--fg-2);border:1px solid var(--line);border-radius:999px;padding:7px 13px;cursor:pointer}
+.bar button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.bar button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.bar.runs button[aria-pressed="true"]{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+.note{color:var(--fg-2);font-size:13px;line-height:1.5;margin:0 0 14px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--fg-2);margin:0 0 14px;align-items:center}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend svg{width:16px;height:16px}
+.card{background:var(--panel);border-radius:14px;padding:18px 16px;position:relative}
+.card h3{margin:0 0 4px;font-size:14.5px;font-weight:700}
+.card p.sub{margin:0 0 14px;color:var(--fg-3);font-size:13px}
+.chart{overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch}
+.chart svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.chart text{font-family:inherit;font-weight:600;font-size:12.5px;pointer-events:none}
+.chart .nd{cursor:pointer}
+.chart .nd:hover rect.b,.chart .nd:focus rect.b{stroke:var(--fg-2)}
+.chart .nd:focus{outline:none}
+.chart .cap{font-size:11px;font-weight:600;fill:var(--fg-3)}
+.chart .lbl{font-size:11px;font-weight:600;fill:var(--fg-2)}
+.pop{position:fixed;z-index:9;width:min(340px,calc(100vw - 32px));background:var(--panel-2);border:1px solid var(--edge);border-radius:12px;padding:14px 16px;box-shadow:0 14px 34px rgba(0,0,0,.5);font-size:13.5px;line-height:1.45}
+.pop[hidden]{display:none}
+.pop h4{margin:0 0 4px;font-size:14px;font-weight:700;padding-right:20px}
+.pop .m{color:var(--fg-2);margin:0 0 6px}
+.pop .q{background:var(--panel-3);border-left:3px solid var(--acc);padding:8px 10px;border-radius:0 8px 8px 0;margin-top:8px;white-space:pre-wrap}
+.pop .c{display:flex;gap:8px;align-items:flex-start;margin-top:8px;color:var(--cond)}
+.pop .c svg{width:16px;height:16px;flex:none;margin-top:2px}
+.pop .st{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-weight:600}
+.pop .st svg{width:16px;height:16px}
+.pop .st.ok{color:var(--ok)}.pop .st.here{color:var(--acc)}.pop .st.warn{color:var(--warn)}.pop .st.skip{color:var(--fg-3)}.pop .st.todo{color:var(--fg-3)}
+.pop .x{position:absolute;top:8px;right:10px;background:none;border:0;color:var(--fg-3);font-size:18px;cursor:pointer;line-height:1}
+.caption{margin-top:12px;color:var(--fg-2);font-size:13px;line-height:1.5}
+.sec[hidden]{display:none}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <div class="bar" role="tablist" aria-label="Layouts"><h1>Flow chart, five layouts</h1><div class="grp">
+    <button role="tab" aria-pressed="true" data-l="1">1 · Columns</button>
+    <button role="tab" aria-pressed="false" data-l="2">2 · Side exits</button>
+    <button role="tab" aria-pressed="false" data-l="3">3 · Decision box</button>
+    <button role="tab" aria-pressed="false" data-l="4">4 · Groups</button>
+    <button role="tab" aria-pressed="false" data-l="5">5 · Heads only</button>
+  </div></div>
+  <div class="bar runs" aria-label="Show a run"><div class="grp" id="runbar"></div></div>
+  <p class="note">Same workflow, five ways to draw the fork. Everything else is identical: the spine is centered, every reminder is its own node, a node that only runs under a condition carries the blue mark, and a wait is a clock. Hover a node on a mouse, tap it on a phone. Pick a run above to see its state on the chart: check for done, clock for waiting here, dim for skipped by a condition, orange for a step that failed.</p>
+  <div class="legend">
+    <span><svg viewBox="0 0 20 20" fill="none" stroke="var(--ok)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg>done</span>
+    <span><svg viewBox="0 0 20 20" fill="none" stroke="var(--acc)" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="7.5"/><path d="M10 6v4.5l3 2"/></svg>waiting here</span>
+    <span><svg viewBox="0 0 20 20" fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3l8 14H2z"/><path d="M10 9v3.5M10 14.5v.5"/></svg>failed</span>
+    <span><svg viewBox="0 0 20 20" fill="none" stroke="var(--cond)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v12M6 8c0 3 8 1 8 5M14 13l-2-2M14 13l2-2"/></svg>only sometimes (a condition)</span>
+  </div>
+  <div class="card">
+    <h3 id="ttl">Columns</h3><p class="sub" id="sub"></p>
+    <div class="chart" id="chart"></div>
+    <div class="caption" id="cap"></div>
+  </div>
+</div>
+<div class="pop" id="pop" hidden role="dialog"><button class="x" aria-label="Close">×</button><div id="popc"></div></div>
+
+<script>
+(function(){
+  var ICON={
+    check:'<path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+    clock:'<circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 6v4.5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    warn:'<path d="M10 3l8 14H2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 9v3.5M10 14.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    cond:'<path d="M6 4v12M6 8c0 3 8 1 8 5M14 13l-2-2M14 13l2-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+    skip:'<circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 10h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+  };
+  // The graph. kind: trig send wait fork tag slack crm end. cond: shown with the blue mark, explained in the popover. wait: the node waits first.
+  var N={
+    t1:{t:"Appointment booked",k:"trig",d:"Starts when a closing call is booked on a closer's calendar.",kv:"Runs once per appointment. A reschedule moves every wait with it."},
+    e1:{t:"Booking email",k:"send",d:"Sent right away.",q:"You're booked: Fri, Oct 9 at 2:00pm — reply to lock it in\n\nHey Jane, your spot for Friday, October 9 at 2:00pm with Allan isn't locked yet: reply CONFIRM to lock it in."},
+    s1:{t:"Booking text",k:"send",d:"Sent right away, inside the send window.",q:"Hey Jane, your call with Allan is booked for Fri, Oct 9 at 2:00pm. Reply with an emoji to lock in your spot."},
+    w1:{t:"Wait for a reply",m:"up to 4 hours",k:"wait",d:"Moves the moment they reply. After 4 hours with nothing, carries on as No reply."},
+    b1:{t:"What did they say?",k:"fork",d:"The AI reads the reply and picks one of four. No reply is the fifth way out."},
+    c1:{t:"Tag confirmed",k:"tag",d:"The contact gets the tag confirmed in the CRM."},
+    u1:{t:"Tag unconfirmed",k:"tag",d:"The contact gets the tag unconfirmed."},
+    u2:{t:"Tell the closers",k:"slack",d:"Posted to the closers' channel.",q:"Jane Doe hasn't confirmed their call tomorrow at 2:00pm with @allan. No reply to the booking text in 4 hours."},
+    x1:{t:"Mark cancelled",k:"crm",d:"The appointment is marked cancelled."},
+    x2:{t:"Tell the closers",k:"slack",d:"Posted to the closers' channel.",q:"Jane cancelled their call tomorrow at 2:00pm."},
+    x3:{t:"Stop",k:"end",d:"The sequence ends here."},
+    r1:{t:"Text a new time",k:"send",d:"The booking link, so they pick a new slot.",q:"No problem — grab a new time here: {{calendar.closer_call.url}}"},
+    r2:{t:"Stop",k:"end",d:"The sequence ends here. A new booking starts a new one."},
+    h1:{t:"Tag needs a human",k:"tag",d:"The reply could not be read with confidence."},
+    h2:{t:"Note on the contact",k:"crm",d:"The reply and the AI's best guesses, on the contact for whoever picks it up."},
+    h3:{t:"Pause other workflows",k:"crm",d:"Nothing else texts this person until a human has replied."},
+    h4:{t:"Handed to a human",k:"end",d:"The sequence ends here."},
+    m72:{t:"Text",m:"3 days before",k:"send",wait:true,cond:"Only when the call is more than 60 hours away when this comes due. Between 8am and 9pm their time.",q:"Hey Jane, your call with Allan is in 3 days."},
+    m48:{t:"Text",m:"2 days before",k:"send",wait:true,cond:"Only when the call is more than 36 hours away. Between 8am and 9pm their time.",q:"Hey Jane, two days until your call with Allan."},
+    m24e:{t:"Email",m:"24 hours before",k:"send",wait:true,cond:"Only when the call is more than 18 hours away.",q:"Tomorrow: your call with Allan\n\nHey Jane, your call is Friday at 2:00pm."},
+    m24s:{t:"Text",m:"24 hours before",k:"send",wait:true,cond:"Only when the call is more than 18 hours away. Between 8am and 9pm their time.",q:"Hey Jane, your call with Allan is tomorrow (Friday at 2:00pm)."},
+    mm:{t:"Text",m:"morning of, 8am",k:"send",wait:true,cond:"Only for calls at 11am or later.",q:"Morning Jane, your call with Allan is today at 2:00pm."},
+    m1:{t:"Text",m:"1 hour before",k:"send",wait:true,cond:"Not before 7am their time. Skipped under 15 minutes.",q:"Hey Jane, your call with Allan is in an hour (2:00pm)."},
+    m10:{t:"Text",m:"10 minutes before",k:"send",wait:true,d:"Always.",q:"Jane, Allan will call you in 10 minutes."},
+    dn:{t:"Done",k:"end",d:"Every reminder went out, or was skipped by its condition."}
+  };
+  var SPINE=["t1","e1","s1","w1","b1"], REM=["m72","m48","m24e","m24s","mm","m1","m10","dn"];
+  var BR=[{l:"Confirmed",s:["c1"],go:true},{l:"No reply · tell the closers",s:["u1","u2"],go:true},{l:"Cancelled",s:["x1","x2","x3"]},{l:"Reschedule",s:["r1","r2"]},{l:"Unclear",s:["h1","h2","h3","h4"]}];
+  var RUNS=[
+    {n:"Template",st:null},
+    {n:"Leo Park · waiting",st:{done:["t1","e1","s1"],here:"w1"}},
+    {n:"Mia Ortiz · waiting",st:{done:["t1","e1","s1","w1","b1","c1","m48","m24e","m24s"],skip:["m72"],here:"mm",path:["c1"]}},
+    {n:"Chris Wake · done",st:{done:["t1","e1","s1","w1","b1","u1","u2","m24e","m24s","m1","m10","dn"],skip:["m72","m48","mm"],path:["u1","u2"]}},
+    {n:"Sam Nolan · a step failed",st:{done:["t1","e1","s1","w1","b1","x1"],fail:["x2"],path:["x1","x2"]}},
+    {n:"Dev Patel · handed off",st:{done:["t1","e1","s1","w1","b1","h1","h2","h3","h4"],path:["h1","h2","h3","h4"]}}
+  ];
+  var cur={l:"1",r:0};
+  var css=getComputedStyle(document.documentElement),T={};["bg","panel","panel-2","panel-3","fg","fg-2","fg-3","line","edge","acc","acc-ink","ok","ok-bg","warn","warn-bg","cond","cond-bg"].forEach(function(k){T[k]=css.getPropertyValue('--'+k).trim();});
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  function stateOf(id){var st=RUNS[cur.r].st;if(!st)return null;if(st.here===id)return 'here';if((st.fail||[]).indexOf(id)>=0)return 'warn';if((st.skip||[]).indexOf(id)>=0)return 'skip';if(st.done.indexOf(id)>=0)return 'ok';return 'todo';}
+  function wid(id){var n=N[id];var s=n.t+(n.m?' · '+n.m:'');var w=s.length*6.9+34+(n.wait?16:0)+(n.cond?18:0);return Math.max(n.k==='end'?64:96,Math.round(w));}
+  // one node: a rounded box, an optional clock (it waits), an optional condition mark, a state badge in the corner when a run is shown
+  function node(id,x,y,w){var n=N[id],k=n.k,st=stateOf(id);w=w||wid(id);var h=34,H=y-h/2;
+    var fill=k==='trig'?T.acc:k==='end'?'none':k==='fork'?T['panel-3']:T['panel-2'];var stroke=k==='trig'?T.acc:k==='end'?T['fg-3']:T.edge;var ink=k==='trig'?T['acc-ink']:k==='end'?T['fg-2']:T.fg;
+    var dim=st==='skip'||st==='todo';var op=dim?(st==='skip'?.42:.55):1;
+    var g='<g class="nd" tabindex="0" data-id="'+id+'" style="opacity:'+op+'"><rect class="b" x="'+(x-w/2)+'" y="'+H+'" width="'+w+'" height="'+h+'" rx="'+(k==='end'?17:9)+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="1.5"'+(k==='fork'?' transform="rotate(0)"':'')+'/>';
+    var tx=x-w/2+14,cy=y;
+    if(n.wait){g+='<g transform="translate('+(tx-2)+','+(cy-8)+') scale(.8)" style="color:'+T['fg-2']+'">'+ICON.clock+'</g>';tx+=18;}
+    g+='<text x="'+tx+'" y="'+(cy+4.5)+'" fill="'+ink+'">'+esc(n.t)+(n.m?'<tspan fill="'+(k==='trig'?T['acc-ink']:T['fg-2'])+'" font-weight="500"> · '+esc(n.m)+'</tspan>':'')+'</text>';
+    if(n.cond){g+='<g transform="translate('+(x+w/2-26)+','+(cy-8)+') scale(.8)" style="color:'+T.cond+'">'+ICON.cond+'</g>';}
+    if(st&&st!=='todo'&&st!=='skip'){var col=st==='ok'?T.ok:st==='here'?T.acc:T.warn,bg=st==='ok'?T['ok-bg']:st==='here'?T.acc:T['warn-bg'];g+='<g transform="translate('+(x+w/2-10)+','+(H-10)+')"><circle cx="10" cy="10" r="10" fill="'+bg+'"/><g style="color:'+(st==='here'?T['acc-ink']:col)+'" transform="translate(3,3) scale(.7)">'+ICON[st==='ok'?'check':st==='here'?'clock':'warn']+'</g></g>';}
+    if(st==='skip'){g+='<g transform="translate('+(x+w/2-10)+','+(H-10)+')"><circle cx="10" cy="10" r="10" fill="'+T['panel-3']+'"/><g style="color:'+T['fg-3']+'" transform="translate(3,3) scale(.7)">'+ICON.skip+'</g></g>';}
+    return g+'</g>';}
+  function edge(x1,y1,x2,y2,lbl,lx,ly,anchor){var my=(y1+y2)/2;var p='<path d="M'+x1+' '+y1+' C'+x1+' '+my+' '+x2+' '+my+' '+x2+' '+y2+'" fill="none" stroke="'+T.edge+'" stroke-width="1.6"/>';if(lbl)p+='<text class="lbl" x="'+(lx!=null?lx:(x1+x2)/2)+'" y="'+(ly!=null?ly:my-6)+'" text-anchor="'+(anchor||'middle')+'">'+esc(lbl)+'</text>';return p;}
+  function vline(x,y1,y2){return '<path d="M'+x+' '+y1+' V'+y2+'" stroke="'+T.edge+'" stroke-width="1.6"/>';}
+  function spineAndRem(x,gap,y0,startRemY,W,out){var y=y0;SPINE.forEach(function(id,i){if(i)out.push(edge(x,y-gap+17,x,y-17));out.push(node(id,x,y));y+=gap;});var fy=y-gap;var ry=startRemY;REM.forEach(function(id,i){if(i)out.push(edge(x,ry-gap+17,x,ry-17));out.push(node(id,x,ry));ry+=gap;});return {fy:fy,remTop:startRemY,bottom:ry-gap+30};}
+  function svg(W,H,parts){return '<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" role="img" aria-label="Flow chart of the pre-call sequence">'+parts.join('')+'</svg>';}
+
+  // 1 · Columns: five branch columns under the fork, each branch's steps stacked under its label; the two that continue curve back to the spine.
+  function L1(){var W=860,x=430,gap=52,out=[];var cols=[90,250,430,610,770];var fy=30+4*gap;var by=fy+86;var deep=Math.max.apply(null,BR.map(function(b){return b.s.length;}));var remTop=by+deep*gap+40;
+    var o=spineAndRem(x,gap,30,remTop,W,out);
+    BR.forEach(function(b,i){var bx=cols[i];out.push(edge(x,fy+17,bx,by-17-14));out.push('<text class="lbl" x="'+bx+'" y="'+(by-22)+'" text-anchor="middle">'+esc(b.l)+'</text>');var yy=by;b.s.forEach(function(id,j){if(j)out.push(edge(bx,yy-gap+17,bx,yy-17));out.push(node(id,bx,yy));yy+=gap;});if(b.go)out.push(edge(bx,yy-gap+17,x,remTop-17));});
+    return {svg:svg(W,o.bottom,out),sub:"Five columns under the fork. The two that carry on rejoin the spine.",cap:"Widest of the five: on a phone it scrolls sideways or shrinks. Clear on a laptop."};}
+  // 2 · Side exits: the spine stays centered; branches that stop exit to the right as short rows; the two that continue run as two columns and merge.
+  function L2(){var W=720,x=250,gap=52,out=[];var fy=30+4*gap;var by=fy+80;var remTop=by+3*gap+40;
+    var o=spineAndRem(x,gap,30,remTop,W,out);
+    var go=BR.filter(function(b){return b.go;}),stop=BR.filter(function(b){return !b.go;});
+    var gx=[150,350];go.forEach(function(b,i){var bx=gx[i],yy=by;out.push(edge(x,fy+17,bx,by-17-14));out.push('<text class="lbl" x="'+bx+'" y="'+(by-22)+'" text-anchor="middle">'+esc(b.l)+'</text>');b.s.forEach(function(id,j){if(j)out.push(edge(bx,yy-gap+17,bx,yy-17));out.push(node(id,bx,yy));yy+=gap;});out.push(edge(bx,yy-gap+17,x,remTop-17));});
+    stop.forEach(function(b,i){var yy=by-10+i*gap*1.15;var sx=560;out.push('<path d="M'+(x+70)+' '+(fy)+' C'+(x+200)+' '+fy+' '+(x+200)+' '+yy+' '+(sx-wid(b.s[0])/2)+' '+yy+'" fill="none" stroke="'+T.edge+'" stroke-width="1.6"/>');out.push('<text class="lbl" x="'+(sx-wid(b.s[0])/2-6)+'" y="'+(yy-14)+'" text-anchor="end">'+esc(b.l)+'</text>');var cx=sx;b.s.forEach(function(id,j){if(j){out.push('<path d="M'+(cx)+' '+yy+' h12" stroke="'+T.edge+'" stroke-width="1.6"/>');cx+=12;}var w=wid(id);out.push(node(id,cx+w/2,yy,w));cx+=w;});});
+    return {svg:svg(W,o.bottom,out),sub:"The spine never bends. Branches that stop leave to the right as short rows; the two that continue run as two columns and merge.",cap:"Keeps the center line straight all the way down, which is what Ink did well. The rows to the right get long when a branch has four steps."};}
+  // 3 · Decision box: the fork is one wide box with a row per outcome; only the paths that continue are drawn below it. Narrow enough for a phone.
+  function L3(){var W=400,x=200,gap=52,out=[];var fy=30+4*gap;var rows=BR.length;var boxTop=fy+40,rowH=30,boxH=rows*rowH+16,boxW=360;var remTop=boxTop+boxH+54;
+    var o=spineAndRem(x,gap,30,remTop,W,out);
+    out.push(edge(x,fy+17,x,boxTop-2));
+    out.push('<rect x="'+(x-boxW/2)+'" y="'+boxTop+'" width="'+boxW+'" height="'+boxH+'" rx="12" fill="'+T.panel+'" stroke="'+T.edge+'" stroke-width="1.5"/>');
+    BR.forEach(function(b,i){var ry=boxTop+10+i*rowH;var st=RUNS[cur.r].st,on=st&&st.path&&st.path.indexOf(b.s[0])>=0;var fid=b.s[0];out.push('<g class="nd" tabindex="0" data-id="'+fid+'" data-branch="'+i+'"><rect x="'+(x-boxW/2+8)+'" y="'+ry+'" width="'+(boxW-16)+'" height="'+(rowH-4)+'" rx="7" fill="'+(on?T['panel-3']:'none')+'" stroke="none"/>'+(on?'<rect class="b" x="'+(x-boxW/2+8)+'" y="'+ry+'" width="'+(boxW-16)+'" height="'+(rowH-4)+'" rx="7" fill="none" stroke="'+T.acc+'" stroke-width="1.5"/>':'<rect class="b" x="'+(x-boxW/2+8)+'" y="'+ry+'" width="'+(boxW-16)+'" height="'+(rowH-4)+'" rx="7" fill="none" stroke="transparent"/>')+'<text x="'+(x-boxW/2+20)+'" y="'+(ry+17.5)+'" fill="'+T.fg+'">'+esc(b.l)+'</text><text x="'+(x+boxW/2-20)+'" y="'+(ry+17.5)+'" text-anchor="end" fill="'+(b.go?T.ok:T['fg-3'])+'" font-weight="500">'+(b.go?'→ reminders':'■ stops · '+b.s.length+' steps')+'</text></g>');});
+    out.push(edge(x,boxTop+boxH,x,remTop-17));
+    return {svg:svg(W,o.bottom,out),sub:"The fork is a box with one row per outcome. Tap a row for that branch's steps. Only what continues is drawn below.",cap:"Fits a phone screen without scrolling sideways. The cost: the three branches that stop are read in a popover, not seen."};}
+  // 4 · Groups: each branch is a labeled rounded group, side by side; the groups that continue connect back to the spine.
+  function L4(){var W=900,x=450,gap=52,out=[];var fy=30+4*gap;var gy=fy+70;var gw=160,gxs=[90,270,450,630,810];var deep=Math.max.apply(null,BR.map(function(b){return b.s.length;}));var gh=28+deep*gap;var remTop=gy+gh+50;
+    var o=spineAndRem(x,gap,30,remTop,W,out);
+    BR.forEach(function(b,i){var gx=gxs[i];var st=RUNS[cur.r].st,on=st&&st.path&&st.path.indexOf(b.s[0])>=0;out.push('<rect x="'+(gx-gw/2)+'" y="'+gy+'" width="'+gw+'" height="'+(28+b.s.length*gap-18)+'" rx="12" fill="'+T.panel+'" stroke="'+(on?T.acc:T.line)+'" stroke-width="1.5"'+(on?'':' stroke-dasharray="0"')+'/>');out.push('<text class="cap" x="'+gx+'" y="'+(gy+16)+'" text-anchor="middle" fill="'+(on?T.acc:T['fg-3'])+'">'+esc(b.l.toUpperCase())+'</text>');out.push(edge(x,fy+17,gx,gy));var yy=gy+42;b.s.forEach(function(id,j){if(j)out.push(edge(gx,yy-gap+17,gx,yy-17));out.push(node(id,gx,yy,Math.min(wid(id),gw-20)));yy+=gap;});if(b.go)out.push(edge(gx,gy+28+b.s.length*gap-18,x,remTop-17));});
+    return {svg:svg(W,o.bottom,out),sub:"Each outcome is a labeled group. The run's own branch lights up in amber.",cap:"The clearest picture of 'five ways out of the fork' and the widest. Best on a laptop; scrolls on a phone."};}
+  // 5 · Heads only: the fork shows one node per outcome; a branch's steps live in its popover. Compact; the spine stays centered.
+  function L5(){var W=560,x=280,gap=52,out=[];var fy=30+4*gap;var hy=fy+78;var hxs=[52,166,280,394,508];var remTop=hy+gap+36;
+    var o=spineAndRem(x,gap,30,remTop,W,out);
+    BR.forEach(function(b,i){var hx=hxs[i];var w=104;var st=RUNS[cur.r].st,on=st&&st.path&&st.path.indexOf(b.s[0])>=0;out.push(edge(x,fy+17,hx,hy-17));out.push('<g class="nd" tabindex="0" data-id="'+b.s[0]+'" data-branch="'+i+'"><rect class="b" x="'+(hx-w/2)+'" y="'+(hy-17)+'" width="'+w+'" height="34" rx="9" fill="'+T['panel-2']+'" stroke="'+(on?T.acc:T.edge)+'" stroke-width="1.5"/><text x="'+hx+'" y="'+(hy+4.5)+'" text-anchor="middle" fill="'+T.fg+'">'+esc(b.l.split(' · ')[0])+'</text><text class="cap" x="'+hx+'" y="'+(hy+32)+'" text-anchor="middle">'+(b.go?'then reminders':b.s.length+' steps · stops')+'</text></g>');if(b.go)out.push(edge(hx,hy+17,x,remTop-17));});
+    return {svg:svg(W,o.bottom,out),sub:"One node per outcome under the fork. Tap one for that branch's steps. The two that continue join the spine.",cap:"Compact and centered. Reads on a phone with a small sideways scroll. You lose the branch steps from the picture; you get them on tap."};}
+  var LAY={1:["Columns",L1],2:["Side exits",L2],3:["Decision box",L3],4:["Groups",L4],5:["Heads only",L5]};
+
+  // popover: hover on a mouse, tap on touch; flips above the anchor when there is no room below; closes on scroll
+  var pop=document.getElementById('pop'),popc=document.getElementById('popc'),hoverTimer=null,pinned=false;
+  function branchPop(i){var b=BR[i],st=RUNS[cur.r].st;return '<h4>'+esc(b.l)+'</h4><p class="m">'+(b.go?'Then the reminders.':'Then the sequence stops.')+'</p><div style="display:flex;flex-direction:column;gap:4px;margin-top:6px">'+b.s.map(function(id){var s=stateOf(id);var n=N[id];return '<div class="st '+(s||'')+'" style="margin:0;padding:0;border:0"><svg viewBox="0 0 20 20">'+(s==='ok'?ICON.check:s==='here'?ICON.clock:s==='warn'?ICON.warn:ICON.skip)+'</svg><span style="color:'+(s==='ok'||s==='here'||s==='warn'?'inherit':T.fg)+'">'+esc(n.t)+'</span></div>';}).join('')+'</div>';}
+  function nodePop(id){var n=N[id],s=stateOf(id);var h='<h4>'+esc(n.t)+(n.m?' <span style="color:var(--fg-2);font-weight:500">· '+esc(n.m)+'</span>':'')+'</h4>';if(n.d)h+='<p class="m">'+esc(n.d)+'</p>';if(n.kv)h+='<p class="m">'+esc(n.kv)+'</p>';if(n.cond)h+='<div class="c"><svg viewBox="0 0 20 20">'+ICON.cond+'</svg><span>'+esc(n.cond)+'</span></div>';if(n.q)h+='<div class="q">'+esc(n.q)+'</div>';
+    if(s){var words={ok:'Done',here:'Waiting here',warn:'Failed: Slack rejected the post (channel not found). Alert raised.',skip:'Skipped: the condition did not hold for this call',todo:'Not reached'};h+='<div class="st '+s+'"><svg viewBox="0 0 20 20">'+(s==='ok'?ICON.check:s==='here'?ICON.clock:s==='warn'?ICON.warn:ICON.skip)+'</svg>'+words[s]+'</div>';}return h;}
+  function openPop(el){var id=el.dataset.id,bi=el.dataset.branch;popc.innerHTML=bi!=null?branchPop(+bi):nodePop(id);pop.hidden=false;var r=el.getBoundingClientRect();var ph=pop.offsetHeight,pw=pop.offsetWidth;var left=Math.min(Math.max(16,r.left+r.width/2-pw/2),window.innerWidth-pw-16);var below=r.bottom+10,above=r.top-10-ph;var top=(below+ph>window.innerHeight-12&&above>12)?above:below;pop.style.left=left+'px';pop.style.top=Math.max(12,top)+'px';}
+  function closePop(){pop.hidden=true;pinned=false;}
+  pop.querySelector('.x').addEventListener('click',closePop);
+  var fine=window.matchMedia('(hover:hover) and (pointer:fine)').matches;
+  document.addEventListener('mouseover',function(e){if(!fine)return;var el=e.target.closest('.nd');if(!el||pinned)return;clearTimeout(hoverTimer);hoverTimer=setTimeout(function(){openPop(el);},120);});
+  document.addEventListener('mouseout',function(e){if(!fine||pinned)return;var el=e.target.closest('.nd');if(!el)return;var to=e.relatedTarget;if(to&&(pop.contains(to)||el.contains(to)))return;clearTimeout(hoverTimer);hoverTimer=setTimeout(function(){if(!pop.matches(':hover'))closePop();},160);});
+  pop.addEventListener('mouseleave',function(){if(!pinned)closePop();});
+  document.addEventListener('click',function(e){var el=e.target.closest('.nd');if(el){openPop(el);pinned=true;return;}if(!pop.contains(e.target))closePop();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closePop();if(e.key==='Enter'&&e.target.closest&&e.target.closest('.nd')){openPop(e.target.closest('.nd'));pinned=true;}});
+  window.addEventListener('scroll',function(){if(!pop.hidden)closePop();},{passive:true});
+  document.getElementById('chart').addEventListener('scroll',function(){if(!pop.hidden)closePop();},{passive:true});
+
+  function draw(){closePop();var L=LAY[cur.l];var r=L[1]();document.getElementById('chart').innerHTML=r.svg;document.getElementById('ttl').textContent=L[0];document.getElementById('sub').textContent=r.sub;document.getElementById('cap').textContent=r.cap;}
+  var lb=document.querySelectorAll('[data-l]');lb.forEach(function(b){b.addEventListener('click',function(){cur.l=b.dataset.l;lb.forEach(function(x){x.setAttribute('aria-pressed',String(x===b));});draw();try{localStorage.setItem('fl',cur.l);}catch(e){}});});
+  var rb=document.getElementById('runbar');rb.innerHTML=RUNS.map(function(r,i){return '<button aria-pressed="'+(i===0)+'" data-r="'+i+'">'+esc(r.n)+'</button>';}).join('');
+  rb.querySelectorAll('button').forEach(function(b){b.addEventListener('click',function(){cur.r=+b.dataset.r;rb.querySelectorAll('button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b));});draw();});});
+  var hsh=(location.hash||'').replace('#','');var saved=null;try{saved=localStorage.getItem('fl');}catch(e){}
+  cur.l=/^[1-5]$/.test(hsh)?hsh:(saved&&/^[1-5]$/.test(saved)?saved:'1');lb.forEach(function(x){x.setAttribute('aria-pressed',String(x.dataset.l===cur.l));});
+  draw();
+})();
+</script>

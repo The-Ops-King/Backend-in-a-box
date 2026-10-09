@@ -1,0 +1,160 @@
+<title>Who Went Through It</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: chooser, then one structure at a time for the "Who went through it" section. Slate tokens, dark only. Nothing scrolls sideways at any width. */
+:root{--bg:#111214;--panel:#191a1d;--panel-2:#222327;--panel-3:#2b2c31;--fg:#f0f0f2;--fg-2:#a3a4ab;--fg-3:#6e6f76;--line:#2e2f36;--edge:#3a3b43;--acc:#f0b429;--acc-ink:#2a1e04;--acc-soft:#f0b42926;--ok:#5bd087;--ok-bg:#1a3b27;--warn:#ff8a5b;--warn-bg:#3f2316;--cond:#8fb7ff;--cond-bg:#1c2a44;--wait:#a78bfa;--wait-bg:#2a2340;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:"Outfit",system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;padding-block:0 60px;padding-inline:16px}
+*{box-sizing:border-box}
+button{font:inherit}
+.wrap{max-width:760px;margin:0 auto}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding-block:18px 8px}
+.bar h1{font-size:15px;font-weight:600;margin:0 12px 0 0}
+.bar .grp{display:flex;flex-wrap:wrap;gap:8px}
+.bar button{font-size:13px;font-weight:600;background:var(--panel);color:var(--fg-2);border:1px solid var(--line);border-radius:999px;padding:7px 13px;cursor:pointer}
+.bar button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.bar button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.note{color:var(--fg-2);font-size:13px;line-height:1.5;margin:0 0 14px}
+.tnum{font-variant-numeric:tabular-nums}
+.ic{display:inline-grid;place-items:center;width:22px;height:22px;flex:none}
+.ic svg{width:18px;height:18px}
+.ic.ok{color:var(--ok)}.ic.here{color:var(--wait)}.ic.warn{color:var(--warn)}.ic.stop{color:var(--fg-3)}
+.card{background:var(--panel);border-radius:14px;padding:18px 16px;position:relative}
+.card h3{margin:0;font-size:14.5px;font-weight:700}
+.card .hd{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.card .hd .r{display:flex;gap:14px;font-size:13px;color:var(--fg-2)}
+.card .hd .r b{color:var(--fg)}
+.caption{margin-top:12px;color:var(--fg-2);font-size:13px;line-height:1.5}
+.sec[hidden]{display:none}
+.rowbtn{display:grid;align-items:center;gap:12px;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--line);color:inherit;padding:11px 6px;cursor:pointer;border-radius:8px;font-size:14px}
+.rowbtn:first-child{border-top:0}
+.rowbtn:hover,.rowbtn:focus-visible{background:var(--panel-2);outline:none}
+.rowbtn .who{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rowbtn .d{color:var(--fg-3);font-size:12.5px;font-weight:600;white-space:nowrap}
+.rowbtn .at{color:var(--fg-2);font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+.pill{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--panel-2);color:var(--fg-2);white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.here{background:var(--wait-bg);color:var(--wait)}.pill.warn{background:var(--warn-bg);color:var(--warn)}
+/* detail, shared: a bottom sheet on a phone, a floating panel on a laptop */
+.sheet{position:fixed;z-index:9;left:0;right:0;bottom:0;background:var(--panel-2);border-radius:16px 16px 0 0;padding:16px 18px calc(18px + env(safe-area-inset-bottom,0px));box-shadow:0 -14px 34px rgba(0,0,0,.5);max-height:82vh;overflow:auto;font-size:13.5px;line-height:1.45}
+.sheet[hidden]{display:none}
+@media (min-width:700px){.sheet{left:auto;right:auto;bottom:auto;border-radius:12px;width:380px;border:1px solid var(--edge);box-shadow:0 14px 34px rgba(0,0,0,.5)}}
+.sheet h4{margin:0 0 2px;font-size:15px;font-weight:700;padding-right:24px}
+.sheet .m{color:var(--fg-2);margin:0 0 10px}
+.sheet .x{position:absolute;top:10px;right:12px;background:none;border:0;color:var(--fg-3);font-size:18px;cursor:pointer;line-height:1}
+.steps{display:flex;flex-direction:column}
+.steps .s{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.steps .s:first-child{border-top:0}
+.steps .s .t{font-weight:600;min-width:0}
+.steps .s .t small{display:block;font-weight:400;color:var(--fg-2);font-size:12.5px;white-space:normal}
+.steps .s .w{color:var(--fg-3);font-size:12px;white-space:nowrap}
+.steps .s.skip .t{color:var(--fg-3)}
+.steps .s.next .t,.steps .s.next .w{color:var(--fg-3);font-weight:500}
+.steps .s.warn .t small{color:var(--warn)}
+.steps .s.skip .t small{color:var(--cond)}
+.sheet .foot{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+.sheet .foot a{font-size:13px;font-weight:600;color:var(--acc);text-decoration:none;background:var(--panel-3);padding:7px 12px;border-radius:8px}
+/* 1 · List */
+.l1 .rowbtn{grid-template-columns:22px 52px minmax(0,1fr) minmax(0,1fr)}
+/* 2 · Grouped by state */
+.l2 .g{margin-top:14px}
+.l2 .g:first-child{margin-top:0}
+.l2 .gh{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);font-weight:700;display:flex;gap:8px;align-items:center;padding:0 6px 6px}
+.l2 .gh b{color:var(--fg);font-size:12px;background:var(--panel-2);border-radius:999px;padding:1px 7px}
+.l2 .rowbtn{grid-template-columns:52px minmax(0,1fr) auto}
+/* 3 · Progress */
+.l3 .rowbtn{grid-template-columns:22px minmax(0,1fr) auto;padding:12px 6px}
+.l3 .prog{display:flex;gap:3px;margin-top:7px;align-items:center}
+.l3 .prog .bars{display:flex;gap:3px;flex:1;min-width:0}
+.l3 .prog i{display:block;flex:1;height:6px;border-radius:2px;background:var(--panel-3)}
+.l3 .prog i.ok{background:var(--ok)}.l3 .prog i.here{background:var(--wait)}.l3 .prog i.warn{background:var(--warn)}.l3 .prog i.skip{background:var(--cond)}
+.l3 .prog small{color:var(--fg-3);font-size:11.5px;margin-left:8px;white-space:nowrap;flex:none}
+/* 4 · By day */
+.l4 .day{display:grid;grid-template-columns:64px minmax(0,1fr);gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.l4 .day:first-child{border-top:0;padding-top:0}
+.l4 .dl{font-size:12.5px;font-weight:700;color:var(--fg-3);padding-top:9px}
+.l4 .dl small{display:block;font-weight:500}
+.l4 .rowbtn{grid-template-columns:22px minmax(0,1fr) auto;border-top:0;padding:8px 6px}
+/* 5 · Expand inline */
+.l5 .rowbtn{grid-template-columns:22px minmax(0,1fr) auto 18px}
+.l5 .rowbtn .car{color:var(--fg-3);transition:transform .15s}
+.l5 .rowbtn[aria-expanded="true"] .car{transform:rotate(90deg)}
+.l5 .inl{padding:4px 6px 12px 40px;border-top:0}
+.l5 .inl[hidden]{display:none}
+@media (max-width:520px){
+  .l1 .rowbtn{grid-template-columns:22px 48px minmax(0,1fr)}.l1 .rowbtn .at{display:none}
+  .l4 .day{grid-template-columns:1fr;gap:4px}.l4 .dl{padding-top:0}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <div class="bar" role="tablist" aria-label="Structures"><h1>Who went through it, five structures</h1><div class="grp">
+    <button role="tab" aria-pressed="true" data-l="1">1 · List</button>
+    <button role="tab" aria-pressed="false" data-l="2">2 · By state</button>
+    <button role="tab" aria-pressed="false" data-l="3">3 · Progress</button>
+    <button role="tab" aria-pressed="false" data-l="4">4 · By day</button>
+    <button role="tab" aria-pressed="false" data-l="5">5 · Expand in place</button>
+  </div></div>
+  <p class="note">The section under the chart: every person who went through this workflow. Same Slate colors, same eight people, five structures. Tap a person for the detail: a bottom sheet on a phone, a panel on a laptop (option 5 opens in place instead). A skipped step says why, with the numbers; a failed step says what failed.</p>
+  <div class="card">
+    <div class="hd"><h3>Who went through it</h3><div class="r"><span><b class="tnum">8</b> people</span><span><b class="tnum">3</b> in flight</span><span><b class="tnum">1</b> failed</span></div></div>
+    <div id="body"></div>
+    <div class="caption" id="cap"></div>
+  </div>
+</div>
+<div class="sheet" id="sheet" hidden role="dialog"><button class="x" aria-label="Close">×</button><div id="sheetc"></div></div>
+
+<script>
+(function(){
+  var I={check:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg>',
+    clock:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="7.5"/><path d="M10 6v4.5l3 2"/></svg>',
+    warn:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3l8 14H2z"/><path d="M10 9v3.5M10 14.5v.5"/></svg>',
+    stop:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="7.5"/><path d="M7 10h6"/></svg>',
+    skip:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v12M6 8c0 3 8 1 8 5M14 13l-2-2M14 13l2-2"/></svg>',
+    car:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M7 4l6 6-6 6"/></svg>'};
+  // steps in order, with a short title and the when
+  var STEPS=[["t1","Appointment booked"],["e1","Booking email"],["s1","Booking text"],["w1","Wait for a reply","up to 4h"],["b1","What did they say?"],["m72","Text · 3 days before"],["m48","Text · 2 days before"],["m24e","Email · 24 hours before"],["m24s","Text · 24 hours before"],["mm","Text · morning of"],["m1","Text · 1 hour before"],["m10","Text · 10 minutes before"],["dn","Done"]];
+  var BRANCH={c1:"Confirmed",u:"No reply after 4h",x:"Cancelled",r:"Asked to reschedule",q:"Unclear reply"};
+  // runs: state, when, where, what happened per step (ok | here | skip:reason | warn:reason), the branch taken
+  var R=[
+    {n:"Leo Park",st:"here",d:"Today",t:"2:14 PM",call:"Fri Oct 10 · 2:00 PM",at:"Wait for a reply",p:{t1:"ok",e1:"ok",s1:"ok",w1:"here"}},
+    {n:"Mia Ortiz",st:"here",d:"Today",t:"2:08 PM",call:"Sat Oct 11 · 11:00 AM",at:"Text · morning of",br:"c1",p:{t1:"ok",e1:"ok",s1:"ok",w1:"ok",b1:"ok",c1:"ok",m72:"skip:the call was 45 hours away when this came due; it needs more than 60",m48:"ok",m24e:"ok",m24s:"ok",mm:"here"}},
+    {n:"Priya Nair",st:"here",d:"Today",t:"9:40 AM",call:"Tue Oct 14 · 3:00 PM",at:"Text · 3 days before",br:"u",p:{t1:"ok",e1:"ok",s1:"ok",w1:"ok",b1:"ok",u1:"ok",u2:"ok",m72:"here"}},
+    {n:"Chris Wake",st:"ok",d:"Oct 8",t:"4:41 PM",call:"Oct 9 · 2:00 PM",at:"",br:"u",p:{t1:"ok",e1:"ok",s1:"ok",w1:"ok",b1:"ok",u1:"ok",u2:"ok",m72:"skip:the call was 21 hours away when this came due; it needs more than 60",m48:"skip:the call was 21 hours away; it needs more than 36",m24e:"ok",m24s:"ok",mm:"skip:the call was at 2:00 PM, after 11 AM, but the sequence started after 8 AM that day",m1:"ok",m10:"ok",dn:"ok"}},
+    {n:"Sam Nolan",st:"warn",d:"Oct 8",t:"11:02 AM",call:"Oct 9 · 9:00 AM",at:"Tell the closers",br:"x",p:{t1:"ok",e1:"ok",s1:"ok",w1:"ok",b1:"ok",x1:"ok",x2:"warn:Slack rejected the post: channel not found. Alert raised; fix the closers channel in settings."}},
+    {n:"Ava Chen",st:"ok",d:"Oct 7",t:"3:15 PM",call:"Oct 8 · 10:00 AM",at:"",note:"Done: the appointment was cancelled, nothing more to send",br:"x",p:{t1:"ok",e1:"ok",s1:"ok",w1:"ok",b1:"ok",x1:"ok",x2:"ok"}},
+    {n:"Dev Patel",st:"ok",d:"Oct 7",t:"10:05 AM",call:"Oct 8 · 4:00 PM",at:"",br:"q",p:{t1:"ok",e1:"ok",s1:"ok",w1:"ok",b1:"ok",q1:"ok",m72:"skip:the call was 30 hours away; it needs more than 60",m48:"skip:the call was 30 hours away; it needs more than 36",m24e:"ok",m24s:"ok",mm:"ok",m1:"ok",m10:"ok",dn:"ok"}},
+    {n:"Jo Alvarez",st:"ok",d:"Oct 6",t:"8:50 AM",call:"Oct 9 · 1:00 PM",at:"",br:"c1",p:{t1:"ok",e1:"ok",s1:"ok",w1:"ok",b1:"ok",c1:"ok",m72:"ok",m48:"ok",m24e:"ok",m24s:"ok",mm:"ok",m1:"ok",m10:"ok",dn:"ok"}}
+  ];
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  var icon=function(st){return '<span class="ic '+st+'">'+(st==='ok'?I.check:st==='here'?I.clock:st==='warn'?I.warn:I.stop)+'</span>';};
+  var word={ok:"finished",here:"in flight",warn:"a step failed",stop:"stopped"};
+  // every step on this person's path, in order: the spine to the fork, the branch they took, then the reminders when the branch carries on; a run still before the fork shows the reminders as still to come
+  var BRSTEPS={c1:[["c1","Tag confirmed"]],u:[["u1","Tag unconfirmed"],["u2","Tell the closers"]],x:[["x1","Mark cancelled"],["x2","Tell the closers"]],r:[["r1","Text a new time"]],q:[["q1","Show the closers"]]};
+  var CONT={c1:true,u:true,q:true};
+  function pathOf(r){var main=STEPS.slice(0,4),rem=STEPS.slice(5);var out=main.slice();if(r.br){out=out.concat([STEPS[4]],BRSTEPS[r.br]);if(CONT[r.br])out=out.concat(rem);}else if(r.st==="here"){out=out.concat([STEPS[4]],rem);}return out;}
+  function detail(r){var h='<h4>'+esc(r.n)+'</h4><p class="m">'+(r.st==='here'?'Waiting at '+esc(r.at):r.st==='warn'?'Failed at '+esc(r.at):r.note||'Finished')+' · started '+esc(r.d)+' '+esc(r.t)+' · call '+esc(r.call)+'</p><div class="steps">';
+    pathOf(r).forEach(function(s){var v=r.p[s[0]]||'next';if(s[0]==='b1'&&v!=='next'){h+=row(s,v,BRANCH[r.br]);return;}h+=row(s,v);});
+    return h+'</div><div class="foot"><a href="#">Open the contact</a><a href="#">Open this run</a></div>';}
+  function row(s,v,sub){var st=v.split(':')[0],why=v.indexOf(':')>0?v.slice(v.indexOf(':')+1):'';var ic=st==='ok'?I.check:st==='here'?I.clock:st==='warn'?I.warn:st==='next'?'':I.skip;var txt=st==='skip'?"Didn't go out: "+why:st==='warn'?why:sub||'';return '<div class="s '+st+'"><span class="ic '+(st==='skip'?'':st)+'" style="'+(st==='skip'?'color:var(--cond)':'')+'">'+ic+'</span><span class="t">'+esc(s[1])+(txt?'<small>'+esc(txt)+'</small>':'')+'</span><span class="w">'+(s[2]?esc(s[2]):'')+'</span></div>';}
+  var sheet=document.getElementById('sheet'),sheetc=document.getElementById('sheetc');
+  function openSheet(anchor,r){sheetc.innerHTML=detail(r);sheet.hidden=false;if(window.innerWidth>=700){var rc=anchor.getBoundingClientRect();var h=sheet.offsetHeight,w=sheet.offsetWidth;var left=Math.min(Math.max(16,rc.left+rc.width/2-w/2),window.innerWidth-w-16);var top=rc.bottom+8+h>window.innerHeight-12&&rc.top-8-h>12?rc.top-8-h:rc.bottom+8;sheet.style.left=left+'px';sheet.style.top=Math.max(12,top)+'px';}else{sheet.style.left='';sheet.style.top='';}}
+  function closeSheet(){sheet.hidden=true;}
+  sheet.querySelector('.x').addEventListener('click',closeSheet);
+  document.addEventListener('click',function(e){var b=e.target.closest('[data-run]');if(b){var i=+b.dataset.run;if(b.hasAttribute('aria-expanded')){var open=b.getAttribute('aria-expanded')==='true';document.querySelectorAll('[aria-expanded="true"]').forEach(function(x){x.setAttribute('aria-expanded','false');x.nextElementSibling.hidden=true;});if(!open){b.setAttribute('aria-expanded','true');b.nextElementSibling.hidden=false;}return;}openSheet(b,R[i]);return;}if(!sheet.contains(e.target))closeSheet();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closeSheet();});
+  window.addEventListener('scroll',function(){if(!sheet.hidden&&window.innerWidth>=700)closeSheet();},{passive:true});
+
+  var L={
+    1:["List","One row per person: state, started, name, where they are. The smallest. On a phone the 'where' column drops and lives in the sheet.",function(){return '<div class="l1">'+R.map(function(r,i){return '<button class="rowbtn" data-run="'+i+'">'+icon(r.st)+'<span class="d tnum">'+esc(r.d)+'</span><span class="who">'+esc(r.n)+'</span><span class="at">'+esc(r.st==='stop'?r.note:r.at)+'</span></button>';}).join('')+'</div>';}],
+    2:["By state","Three groups with counts: in flight first, then needs attention, then finished. The state is the group, so no icon is needed on the row.",function(){var g=[["In flight",["here"]],["Needs attention",["warn"]],["Finished",["ok","stop"]]];return '<div class="l2">'+g.map(function(x){var rs=R.map(function(r,i){return [r,i];}).filter(function(p){return x[1].indexOf(p[0].st)>=0;});return '<div class="g"><div class="gh">'+x[0]+'<b class="tnum">'+rs.length+'</b></div>'+rs.map(function(p){var r=p[0];return '<button class="rowbtn" data-run="'+p[1]+'"><span class="d tnum">'+esc(r.d)+'</span><span class="who">'+esc(r.n)+'</span><span class="at">'+esc(r.st==='stop'?r.note:r.st==='ok'?'Done':r.at)+'</span></button>';}).join('')+'</div>';}).join('')+'</div>';}],
+    3:["Progress","Each row carries a strip across the row, one segment per step on that person's path: green done, purple where they are now, blue skipped by a condition, orange the step it failed on, dim still to come. A branch that ends on purpose (cancelled, rescheduled) is a completion: a check and a full green strip.",function(){return '<div class="l3">'+R.map(function(r,i){var strip='<span class="bars">'+pathOf(r).filter(function(s){return s[0]!=='b1';}).map(function(s){var v=r.p[s[0]]||'';var st=v?v.split(':')[0]:'';return '<i class="'+st+'" title="'+esc(s[1])+'"></i>';}).join('')+'</span>';return '<button class="rowbtn" data-run="'+i+'">'+icon(r.st)+'<span style="min-width:0"><span class="who" style="display:block">'+esc(r.n)+'</span><span class="prog">'+strip+'<small>'+esc(r.st==='ok'?(r.note?'done · cancelled':'done'):r.st==='warn'?'failed: '+r.at:r.at)+'</small></span></span><span class="d tnum">'+esc(r.d)+'</span></button>';}).join('')+'</div>';}],
+    4:["By day","Grouped by the day they started, newest first. Reads like a log: what came in today, what came in yesterday.",function(){var days=[];R.forEach(function(r,i){var d=days.find(function(x){return x.d===r.d;});if(!d){d={d:r.d,rs:[]};days.push(d);}d.rs.push(i);});return '<div class="l4">'+days.map(function(d){return '<div class="day"><div class="dl">'+esc(d.d)+'<small class="tnum">'+d.rs.length+' '+(d.rs.length===1?'person':'people')+'</small></div><div>'+d.rs.map(function(i){var r=R[i];return '<button class="rowbtn" data-run="'+i+'">'+icon(r.st)+'<span class="who">'+esc(r.n)+' <span class="d tnum">'+esc(r.t)+'</span></span><span class="at">'+esc(r.st==='stop'?r.note:r.st==='ok'?'':r.at)+'</span></button>';}).join('')+'</div></div>';}).join('')+'</div>';}],
+    5:["Expand in place","Tap a row and its steps open right under it, no sheet, no panel. One open at a time. Best when you are checking several people in a row.",function(){return '<div class="l5">'+R.map(function(r,i){return '<div><button class="rowbtn" data-run="'+i+'" aria-expanded="false">'+icon(r.st)+'<span class="who">'+esc(r.n)+'</span><span class="pill '+(r.st==='stop'?'':r.st)+'">'+esc(r.st==='stop'?'stopped':r.st==='ok'?'done':r.st==='warn'?'failed':r.at)+'</span><span class="car">'+I.car+'</span></button><div class="inl" hidden>'+detail(r).replace(/<h4>.*?<\/h4>/,'')+'</div></div>';}).join('')+'</div>';}]
+  };
+  var cur='1';function draw(){closeSheet();document.getElementById('body').innerHTML=L[cur][2]();document.getElementById('cap').textContent=L[cur][1];}
+  var lb=document.querySelectorAll('[data-l]');lb.forEach(function(b){b.addEventListener('click',function(){cur=b.dataset.l;lb.forEach(function(x){x.setAttribute('aria-pressed',String(x===b));});draw();try{localStorage.setItem('rl',cur);}catch(e){}});});
+  var hsh=(location.hash||'').replace('#','');var saved=null;try{saved=localStorage.getItem('rl');}catch(e){}
+  cur=/^[1-5]$/.test(hsh)?hsh:(saved&&/^[1-5]$/.test(saved)?saved:'3');lb.forEach(function(x){x.setAttribute('aria-pressed',String(x.dataset.l===cur));});
+  draw();
+})();
+</script>

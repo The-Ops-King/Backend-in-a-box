@@ -1053,3 +1053,27 @@ scheduled end, which call types), marking every call that ended with no recordin
 the same disposition path the form uses; the company turns the workflow off when its calls are not recorded. No
 per-call ask-back DM: the end-of-day form is the ask, the morning reminder repeats it for unfiled days, and a closer's
 answer on the form overrides the assumption. The wrap-up is Slack text, not a code block: phones wrap it.
+
+## D37. The dashboard gets rebuilt as one React app, on the "Slate" direction (2026-10-09)
+
+Tyler: "UI needs a LOT of work. It just looks very terminal. I want this to look and feel super premium, like Spotify
+or Facebook. Flat, no liquid glass, good spacing." And: "when it's time to rebuild we rebuild the whole thing, in React
+entirely so we get instant page loads and switches." The engine, the JSON templates and the admin endpoints stay as
+they are; the pages become a single React app over a JSON API, with the closer's end-of-day page kept bare (no nav).
+
+The direction was settled section by section from mocks (`design/mocks/`), dark only, one color set ("Slate"):
+
+- The flow chart is vertical, one node per step, the reply branch drawn as a real fork, each reminder its own node
+  marked conditional. No swimlanes. On a phone it wraps to two columns; nothing on any page scrolls sideways.
+  A node's detail opens on hover with a mouse, on tap on a phone, and goes away on scroll; a popup that would fall off
+  the bottom opens upward. A skipped step says why in words with the numbers ("the call was 21 hours away; it needs
+  more than 60"); a failed step says what failed.
+- "Who went through it" is one row per person: icon on the left (clock = waiting, check = finished, warning =
+  a step failed), name, a strip across the row with one segment per step on that person's path (green done, purple
+  where they are now, blue skipped by a condition, orange the step it failed on, dim still to come), the current step
+  in words, the date as short as it can be. A branch that ends on purpose (cancelled, rescheduled) is a completion:
+  check and a full green strip. Tapping a row shows the same steps as a list, from the same data as the strip.
+- Purple is "waiting", orange is "failed", blue is "a condition said no". Nothing else borrows those colors.
+- The page header: the workflow's name, an on/off toggle like Zapier's (no button chrome around it), and the counts
+  on one line. "Ran" as a badge meant nothing to Tyler and is gone.
+- Still to mock, in this order: the header, the company page's workflow list, the run and contact pages, settings.
