@@ -1344,3 +1344,11 @@ evening sweep) have no contact and follow only their own switch. The domain is a
 never a constant; Hair's is jtylerray.com because that is Tyler's. Test contacts are created in the CRM by Tyler,
 never by the engine ("this is to keep you from doing anything unexpected"). Slack posts before live say which rung
 they came from. Going live clears every run not born live (D51) and workflows still go on one at a time.
+
+### D51 addendum. The clean slate (2026-10-09)
+
+Item 9, "mark everything test-born and build one wipe": Go live is the wipe. Besides every run not born live, it
+removes every synthetic appointment the test harness staged (`source='test'`, Calvin's ghost booking among them) with
+the events, recordings and form submissions that pointed at it. Real CRM facts stay: contacts, their tags and real
+appointments are the CRM's, not ours to delete. A live-born run that pointed at a synthetic booking keeps its history
+and loses the pointer.

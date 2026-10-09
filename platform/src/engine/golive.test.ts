@@ -34,8 +34,12 @@ describe.skipIf(!process.env.DATABASE_URL)("go live", () => {
     expect(refused.ok).toBe(false); if (!refused.ok) expect(refused.blockers.map((b) => b.text).join(" ")).toMatch(/Slack is not connected/);
     expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [companyId])))?.mode).toBe("shadow");
     await asOperator((c) => c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id) values ($1,'T1',$2,'U1')", [companyId, Buffer.from("x")]));
+    // a synthetic booking from the test harness is rehearsal too
+    const term = await asOperator((c) => one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' limit 1", [companyId]));
+    await asOperator((c) => c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'test','test-1',$3,now(),now()+interval '45 minutes',now(),'confirmed')", [companyId, ct, term!.id]));
     const live = await asOperator((c) => goLive(c, companyId, "/c/golive", "test"));
-    expect(live.ok).toBe(true); if (live.ok) { expect(live.cleared.runs).toBe(1); expect(live.cleared.steps).toBeGreaterThan(0); }
+    expect(live.ok).toBe(true); if (live.ok) { expect(live.cleared.runs).toBe(1); expect(live.cleared.steps).toBeGreaterThan(0); expect(live.cleared.appointments).toBe(1); }
+    expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from appointments where company_id=$1 and source='test'", [companyId])))?.n).toBe("0");
     expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [companyId])))?.mode).toBe("live");
     expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from runs where company_id=$1", [companyId])))?.n).toBe("0");
     expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from events where company_id=$1 and run_id is not null", [companyId])))?.n).toBe("0");
