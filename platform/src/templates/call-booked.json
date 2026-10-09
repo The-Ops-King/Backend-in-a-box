@@ -70,8 +70,7 @@
         "pipeline": "{{crm.pipeline_setter}}",
         "stage": "{{crm.stage_setter_direct_booked}}",
         "name": "{{contact.name}} -- Direct",
-        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-        "if_missing": "skip"
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
       },
       {
         "id": "s4",
@@ -118,7 +117,6 @@
         "stage": "{{crm.stage_setter_appointment_set}}",
         "name": "{{contact.name}} -- Set",
         "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-        "if_missing": "skip",
         "fields": [
           {
             "id": "{{crm.field_opportunity_setter_owner}}",

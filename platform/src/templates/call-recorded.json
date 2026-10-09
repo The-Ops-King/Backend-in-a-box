@@ -38,14 +38,12 @@
       {
         "id": "a2",
         "type": "analyze",
-        "prompt": "{{prompt.call_notes}}",
-        "into": "notes"
-      },
-      {
-        "id": "a3",
-        "type": "analyze",
-        "prompt": "{{prompt.call_rubric}}",
-        "into": "rubric"
+        "prompt": "{{prompt.call_review}}",
+        "into": [
+          "notes",
+          "rubric"
+        ],
+        "title": "AI: call notes and scorecard"
       },
       {
         "id": "b1",
@@ -68,8 +66,7 @@
         "type": "pipeline_card",
         "pipeline": "{{crm.pipeline_setter}}",
         "stage": "{{crm.stage_setter_showed}}",
-        "status": "won",
-        "if_missing": "skip"
+        "status": "won"
       },
       {
         "id": "k1",
@@ -142,7 +139,7 @@
         "id": "s1",
         "type": "slack_post",
         "channel": "{{slack.channel.calls}}",
-        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{recording.share_url | link:Fathom | line:*Recording:*}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{recording.duration_min | default:?}} min\n\n*Outcome:* {{vars.notes.disposition | default:unclear}}\n*Pain:* {{vars.notes.pain | bullets | default:—}}\n*Goal:* {{vars.notes.desire | bullets | default:—}}\n*Objections:* {{vars.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.notes.next_step | default:—}}{{vars.notes.next_step_date | prefix: by}}",
+        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{recording.share_url | link:Fathom | line:*Recording:*}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{recording.duration_min | default:?}} min\n\n*Outcome:* {{vars.notes.disposition | default:unclear}}\n*Pain:* {{vars.notes.pain | bullets | default:—}}\n*Goal:* {{vars.notes.desire | bullets | default:—}}\n*Objections:* {{vars.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
         "as": {
           "name": "Call recorded",
           "icon": [
@@ -191,10 +188,6 @@
       },
       {
         "from": "a2",
-        "to": "a3"
-      },
-      {
-        "from": "a3",
         "to": "b1"
       },
       {

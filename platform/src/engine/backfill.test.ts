@@ -16,7 +16,7 @@ const d = (daysAgo: number, h: number) => DateTime.now().setZone("UTC").minus({ 
 const appts: AppointmentSnapshot[] = [{ id: "evt-1", calendarId: "CAL", contactId: "G1", assignedUserId: "GC", startTime: d(5, 15).toISO()!, endTime: d(5, 16).toISO()!, status: "confirmed", dateAdded: d(6, 10).toISO()!, raw: {} }];
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async (_c, id) => (id === "call-1" ? { recordingUrl: "https://ghl.test/call-1", transcript: [{ speaker: "0", text: "hi" }] } : { transcript: null }),
+    contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async (_c, id) => (id === "call-1" ? { recordingUrl: "https://ghl.test/call-1", transcript: [{ speaker: "0", text: "hi" }] } : { transcript: null }),
     contactsAddedBetween: async () => [{ id: "G1", firstName: "Hist", email: "hist@x.com", tags: [], customFields: { F1: "x", F2: "y" }, dateUpdated: d(6, 9).toISO()!, dateAdded: d(6, 9).toISO()! }, { id: "G2", firstName: "Old", tags: [], customFields: {}, dateUpdated: d(3, 9).toISO()!, dateAdded: d(3, 9).toISO()! }],
     callsBetween: async () => [
       { id: "call-1", conversationId: "cv1", contactId: "G1", channel: "call", direction: "outbound", status: "completed", dateAdded: d(6, 9).plus({ minutes: 7 }).toISO()!, call: { status: "completed", durationSec: 140, userId: "GS" } },

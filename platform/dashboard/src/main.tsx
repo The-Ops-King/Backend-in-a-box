@@ -13,6 +13,8 @@ import { Run } from "./pages/run";
 import { Contact } from "./pages/contact";
 import { Health } from "./pages/health";
 import { EodList } from "./pages/eod-list";
+import { Setup } from "./pages/setup";
+import { WrapUps } from "./pages/wrapups";
 import { Eod } from "./pages/eod";
 
 const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000 } } });
@@ -32,6 +34,8 @@ createRoot(document.getElementById("root")!).render(
             <Route path="c/:slug/contacts/:id" element={<Contact />} />
             <Route path="c/:slug/health" element={<Health />} />
             <Route path="c/:slug/eod" element={<EodList />} />
+            <Route path="c/:slug/setup" element={<Setup />} />
+            <Route path="c/:slug/wrap-ups" element={<WrapUps />} />
           </Route>
           <Route path="*" element={<Navigate to="/app" replace />} />
         </Routes>

@@ -14,7 +14,7 @@ const recordWrites: Record<string, unknown>[] = [];
 const relations: string[] = [];
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async (c) => (c.id === companyId ? contacts : []),
+    openCards: async () => [], contactsChangedSince: async (c) => (c.id === companyId ? contacts : []),
     inboundSince: async () => { if (inboundThrows) throw new Error("ghl 500"); return []; }, callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [],
     opportunitiesSince: async () => [], getContact: async () => null, listUsers: async () => [],
   },

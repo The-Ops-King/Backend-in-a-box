@@ -29,9 +29,10 @@ const apptStore = new Map<string, AppointmentSnapshot>();   // what GHL "has" fo
 const recordWrites: Record<string, unknown>[] = [];
 const relations: string[] = [];
 const docSends: { templateId: string; contactId: string; userId?: string }[] = [];
+const liveCards = new Map<string, import("@/adapters/types").LiveCard[]>();   // what the CRM "has" for a contact: cards the engine never made (D41)
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
+    contactsChangedSince: async () => [], openCards: async (_c, id) => liveCards.get(id) ?? [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
     getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }),
     listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }],
   },
@@ -52,7 +53,8 @@ const fake: Adapters = {
   analyst: { analyze: async (_k, req) => { analyses.push(req.system.slice(0, 40)); const parsed = /setters and leads/.test(req.system) ? { call_type: setterCallType, confidence: 0.9, reason: "qualifying toward a booking" }
     : /setter phone calls/.test(req.system) ? { summary: "Thinning for a year, wants it handled; asked about price and took Thursday at two.", pains: "getting worse for about a year", goals: "feel like himself again", triage: "", fit_quality: 8, digest: "Thinning for a year, wants it handled; asked about price and took Thursday at two.\nPains: getting worse for about a year\nGoals: feel like himself again\nFit: 8/10 — named the problem, a timeline and asked about price" }
     : /sales call:/.test(req.system) ? { is_sales_call: salesCall, call_kind: "closing", confidence: 0.96, reason: "prospect discussed buying" }
-    : /note-taker/.test(req.system) ? { summary: "Wants to fix thinning; decided to start.", pain: ["thinning at the crown"], objections: [{ objection: "price", quote: "that is a lot right now", handled: true }], disposition: "closed_won", primary_objection: "price", next_step: "onboarding call", quotes: ["I just want it to stop"] }
+    : /note-taker/.test(req.system) ? { notes: { summary: "Wants to fix thinning; decided to start.", pain: ["thinning at the crown"], objections: [{ objection: "price", quote: "that is a lot right now", handled: true }], disposition: "closed_won", primary_objection: "price", next_step: "onboarding call", quotes: ["I just want it to stop"] },
+        rubric: { overall_score: 8, scores: { discovery: 9 }, strengths: ["asked about timeline"], misses: ["no urgency close"], coaching: ["ask for the card earlier"] } }   // one read: notes and scorecard together (D41)
     : { overall_score: 8, scores: { discovery: 9 }, strengths: ["asked about timeline"], misses: ["no urgency close"], coaching: ["ask for the card earlier"] };
     return { text: JSON.stringify(parsed), parsed, model: "fake", usage: { input: 1000, output: 100, cacheRead: 0 } }; } },
 };
@@ -277,18 +279,46 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await tick(fake, undefined, companyId);
     const r = (await runsFor("call-booked")).find((x) => x.contact_id === id)!;
     expect(r).toMatchObject({ status: "completed", exit_reason: "booked" });
-    expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "create", pipelineId: "PIPE-CLOSER", stageId: "STAGE-SCHED", name: "Mia Ortiz -- Direct", assignedUserId: "U1" })]);   // no setter card existed → nothing to move, nothing created
+    expect(oppWrites.slice(nOpp)).toEqual([
+      expect.objectContaining({ op: "create", pipelineId: "PIPE-SETTER", stageId: "STAGE-DIRECT", name: "Mia Ortiz -- Direct", assignedUserId: "U1" }),   // no setter card existed → one is made where it belongs (D41)
+      expect.objectContaining({ op: "create", pipelineId: "PIPE-CLOSER", stageId: "STAGE-SCHED", name: "Mia Ortiz -- Direct", assignedUserId: "U1" }),
+    ]);
     expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-self-booked", "meta booked call"]);
     expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead"]);
     expect(contactWrites.slice(nCw)).toEqual([expect.objectContaining({ id: "CCB1", assignedUserId: "U1", customFields: [{ id: "CF-APPT-DATE", field_value: start.setZone(TZ).toFormat("yyyy-MM-dd") }] })]);
     const steps = await asOperator((c) => many<{ node_id: string; status: string; result: Record<string, unknown> }>(c, "select node_id, status, result from run_steps where run_id=$1 order by started_at", [r.id]));
-    expect(steps.find((x) => x.node_id === "s3")?.status).toBe("skipped");
+    expect(steps.find((x) => x.node_id === "s3")?.status).toBe("ok");
     expect(steps.find((x) => x.node_id === "n4")?.status).toBe("skipped");   // Slack not connected in this company
     const slack = await asOperator((c) => one<{ suppressed_reason: string }>(c, "select suppressed_reason from sends where run_id=$1 and channel='slack'", [r.id]));
     expect(slack?.suppressed_reason).toMatch(/unbound: slack/);
     const cards = await asOperator((c) => many<{ ghl_pipeline_id: string; opportunity_id: string }>(c, "select ghl_pipeline_id, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2", [companyId, id]));
     const appt = await asOperator((c) => one<{ opportunity_id: string }>(c, "select opportunity_id from appointments where company_id=$1 and external_id='ACB1'", [companyId]));
-    expect(cards).toHaveLength(1); expect(cards[0].opportunity_id).toBe(appt!.opportunity_id);   // one pursuit: the appointment and the card share it
+    expect(cards).toHaveLength(2); expect(cards.map((x) => x.opportunity_id)).toEqual([appt!.opportunity_id, appt!.opportunity_id]);   // one pursuit: the appointment and both cards share it
+  });
+
+  it("D41: a setter card the CRM already holds (made by a GHL workflow before the engine watched) is adopted and moved, never duplicated", async () => {
+    const id = await newContact("CCB9", "cb9@x.com"); await asOperator((c) => c.query("update contacts set first_name='Calvin', last_name='Coates' where id=$1", [id]));
+    await asOperator((c) => c.query("update calendars set self_booked=true where company_id=$1 and external_id='CAL'", [companyId]));
+    liveCards.set("CCB9", [{ id: "ghl-live-9", pipelineId: "PIPE-SETTER", stageId: "STAGE-NEW", status: "open", name: "Calvin Coates -- New", assignedUserId: "U1", updatedAt: new Date().toISOString() }]);
+    const start = DateTime.now().plus({ days: 4 }).setZone(TZ).set({ hour: 11, minute: 0, second: 0, millisecond: 0 });
+    const snap: AppointmentSnapshot = { id: "ACB9", calendarId: "CAL", contactId: "CCB9", assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 45 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {} };
+    apptStore.set("ACB9", snap);
+    const nOpp = oppWrites.length;
+    await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snap); });
+    await tick(fake, undefined, companyId);
+    await asOperator((c) => c.query("update calendars set self_booked=null where company_id=$1 and external_id='CAL'", [companyId]));
+    liveCards.delete("CCB9");
+    const r = (await runsFor("call-booked")).find((x) => x.contact_id === id)!;
+    expect(r).toMatchObject({ status: "completed", exit_reason: "booked" });
+    expect(oppWrites.slice(nOpp)).toEqual([
+      expect.objectContaining({ op: "update", id: "ghl-live-9", stageId: "STAGE-DIRECT", name: "Calvin Coates -- Direct" }),   // the CRM's card, moved
+      expect.objectContaining({ op: "create", pipelineId: "PIPE-CLOSER", stageId: "STAGE-SCHED" }),
+    ]);
+    const cards = await asOperator((c) => many<{ ghl_pipeline_id: string; ghl_opportunity_id: string | null; ghl_stage_id: string; opportunity_id: string }>(c, "select ghl_pipeline_id, ghl_opportunity_id, ghl_stage_id, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 order by ghl_pipeline_id", [companyId, id]));
+    expect(cards.map((x) => [x.ghl_pipeline_id, x.ghl_opportunity_id, x.ghl_stage_id])).toEqual([["PIPE-CLOSER", "ghl-opp-" + oppWrites.length, "STAGE-SCHED"], ["PIPE-SETTER", "ghl-live-9", "STAGE-DIRECT"]]);
+    expect(new Set(cards.map((x) => x.opportunity_id)).size).toBe(1);   // the adopted card and the new one share the pursuit
+    const s3 = await asOperator((c) => one<{ result: Record<string, unknown> }>(c, "select result from run_steps where run_id=$1 and node_id='s3'", [r.id]));
+    expect(s3?.result).toMatchObject({ card: "moved", from_stage: "STAGE-NEW", crm_card: "ghl-live-9" });
   });
 
   it("call-booked, setter booked: setter card moves to Appointment Set as '-- Set', closer card '-- Setter Booked', setter stamped on contact and cards, stat-set", async () => {
@@ -331,7 +361,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const id = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CCB1'", [companyId])))!.id;
     const r = (await runsFor("call-cancelled")).find((x) => x.contact_id === id)!;
     expect(r).toMatchObject({ status: "completed", exit_reason: "cancelled_recorded" });
-    expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "create", stageId: "STAGE-S-CANCEL" }), expect.objectContaining({ op: "update", stageId: "STAGE-C-CANCEL", name: "Mia Ortiz -- Cancelled" })]);   // no setter card yet → one is made in Cancelled (Tyler: a cancelled call should always have its cards)
+    expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", stageId: "STAGE-S-CANCEL", name: "Mia Ortiz -- Cancelled" }), expect.objectContaining({ op: "update", stageId: "STAGE-C-CANCEL", name: "Mia Ortiz -- Cancelled" })]);   // both cards exist since booking; both move
     expect(contactWrites.slice(nCw)).toEqual([expect.objectContaining({ id: "CCB1", customFields: [{ id: "CF-APPT-DATE", field_value: "" }] })]);
     expect(tasks.slice(nTasks)).toEqual([expect.objectContaining({ contactId: "CCB1", title: "Rebook Mia Ortiz — cancelled", body: "Cancelled by Mia Ortiz. Reason: work trip.", assignedUserId: "U1" })]);
     const due = (tasks.at(-1)!.dueAt as Date).getTime() - Date.now(); expect(due).toBeGreaterThan(23 * 3600e3); expect(due).toBeLessThan(25 * 3600e3);
@@ -386,7 +416,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await tick(fake, undefined, companyId);
     const run = (await runsFor("call-recorded")).find((x) => x.contact_id === id)!;
     expect(run).toMatchObject({ status: "completed", exit_reason: "recorded" });
-    expect(analyses.slice(nAn)).toHaveLength(3);
+    expect(analyses.slice(nAn)).toHaveLength(2);   // classify, then notes + scorecard in one read
     expect(tags.slice(nTags)).toEqual(["stat-showed"]);
     expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", stageId: "STAGE-SHOWED", status: "won" })]);   // the setter card; the closer card is untouched
     const setterCard = await asOperator((c) => one<{ status: string; ghl_stage_id: string }>(c, "select status, ghl_stage_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id='PIPE-SETTER'", [companyId, id]));
@@ -398,7 +428,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const a = await asOperator((c) => one<{ outcome: string | null }>(c, "select t.category as outcome from appointments a left join company_terms t on t.id=a.outcome_term where a.id=$1", [appt.id]));
     expect(a?.outcome).toBe("showed");
     const evs = await asOperator((c) => many<{ event_type: string }>(c, "select event_type from events where company_id=$1 and contact_id=$2 and event_type in ('appointment.outcome','call.held','call.analyzed') order by id", [companyId, id]));
-    expect(evs.map((e) => e.event_type)).toEqual(["call.analyzed", "call.analyzed", "call.analyzed", "appointment.outcome", "call.held"]);
+    expect(evs.map((e) => e.event_type)).toEqual(["call.analyzed", "call.analyzed", "appointment.outcome", "call.held"]);
     const stored = await asOperator((c) => one<{ analysis: Record<string, unknown> }>(c, "select analysis from recordings where id=$1", [r.recording.id]));
     expect(Object.keys(stored!.analysis).sort()).toEqual(["classify", "notes", "rubric"]);
     const slack = await asOperator((c) => one<{ rendered_body: string; suppressed_reason: string | null }>(c, "select rendered_body, suppressed_reason from sends where run_id=$1 and channel='slack'", [run.id]));

@@ -157,10 +157,17 @@ else.
 **Closer's end-of-day.** Bare: no nav, no way back, no links out. One question first, then only the fields that
 question needs. The closer sees their day and nothing else.
 
-**Settings.** Forms, grouped by what they change (company, team, end-of-day form, retention). To be mocked; it keeps
-the same rows, labels and switch.
+**Setup.** Read-only (D42). Blockers as rows at the top, warnings folded; then sections (company, team,
+connections, booking, calendars, CRM ids, Slack, alerts, prompts, schedule, inbound doors, end-of-day form) as
+rows with the ok / warn icon on the left and the value, or "missing", on the right. Ids carry the CRM's name for
+them. No form, no switch, no secret ever shown.
 
-**Health and wrap-ups.** Lists of rows under section labels, same pieces, "Sweep now" as the one outlined button.
+**Slack previews (D43).** Wherever the dashboard shows a Slack post (a step's "the words", a chart node's
+popover) it is drawn as Slack draws it: the bot's emoji face, its name in bold, the APP tag, the time, and
+the text in Slack's own markup rendered (bold, italic, links, quotes, bullets, emoji). A thread reply is
+indented with a thread line. Nothing else on the page uses Slack's colours.
+
+**Health and wrap-ups.** Lists of rows under section labels, same pieces, "Sweep now" as the one outlined button. Health also folds "What can start a workflow"; a wrap-up folds open to the text as Slack got it.
 
 ## 7. Words
 

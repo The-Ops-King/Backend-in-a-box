@@ -140,6 +140,11 @@ export const ghlRead: CrmRead = {
     const r = await ghl<{ opportunities: { id: string; contact?: { id: string }; pipelineId: string; pipelineStageId: string; status: string; monetaryValue?: number; updatedAt: string }[] }>(c.pit, "GET", `/opportunities/search?location_id=${c.locationId}&date=${d}&limit=100`);
     return (r.opportunities ?? []).map((o) => ({ id: o.id, contactId: o.contact?.id ?? "", pipelineId: o.pipelineId, stageId: o.pipelineStageId, status: o.status, monetaryValue: o.monetaryValue, updatedAt: o.updatedAt }));
   },
+  async openCards(c, ghlContactId) {
+    // snake_case params on this endpoint (ghl/02-api-facts.md); the index lags a few seconds behind a create, so callers never treat absence as deletion
+    const r = await ghl<{ opportunities: { id: string; pipelineId: string; pipelineStageId: string; status: string; name?: string; assignedTo?: string | null; updatedAt: string }[] }>(c.pit, "GET", `/opportunities/search?location_id=${c.locationId}&contact_id=${encodeURIComponent(ghlContactId)}&limit=100`);
+    return (r.opportunities ?? []).map((o) => ({ id: o.id, pipelineId: o.pipelineId, stageId: o.pipelineStageId, status: o.status, name: o.name ?? "", assignedUserId: o.assignedTo ?? undefined, updatedAt: o.updatedAt }));
+  },
   async getContact(c, id) {
     try { const r = await ghl<{ contact: RawContact }>(c.pit, "GET", `/contacts/${id}`); return mapContact(r.contact); }
     catch (e) { if ((e as { status?: number }).status === 404) return null; throw e; }

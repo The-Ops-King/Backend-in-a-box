@@ -29,6 +29,6 @@ export function Company() {
       <Counts people={w.people} in_flight={w.in_flight} failed={w.failed} />
       <Switch on={w.enabled} label={`${w.name} on or off`} onChange={async (next) => { try { await flip.mutateAsync({ id: w.id, enabled: next }); } catch (e) { toast((e as Error).message, true); throw e; } }} />
     </Link>)}</div></div>)}</div>}
-    <details className="fold"><summary>Other pages</summary><div className="body note">Not yet redesigned, still useful: <a href={`/c/${slug}/appointments`}>appointments</a> · <a href={`/c/${slug}/payments`}>payments</a> · <a href={`/c/${slug}/recordings`}>recordings</a> · <a href={`/c/${slug}/reports`}>wrap-ups</a> · <a href={`/c/${slug}/sends`}>sends</a> · <a href={`/c/${slug}/triggers`}>triggers</a>.</div></details>
+    <div className="tagline more"><Link to={`/app/c/${slug}/setup`}>Setup</Link><span>·</span><Link to={`/app/c/${slug}/wrap-ups`}>Wrap-ups</Link><span>·</span><Link to={`/app/c/${slug}/eod`}>End of day</Link></div>
   </>;
 }

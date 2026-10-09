@@ -6,6 +6,7 @@ import type { Edge, Node } from "./definition";
 import { evaluate } from "./predicate";
 import { render, resolvePath, parseDuration, StaleTemplateError, UnknownPathError } from "./template";
 import { predicateWords, durationWords } from "./describe";
+import { syncCards, pickCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
 import { emitEvent } from "./dispatch";
@@ -281,14 +282,19 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "pipeline_card": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
       const pipelineId = render(node.pipeline, d.ctx, env(d));
-      const card = await one<{ id: string; ghl_opportunity_id: string | null; opportunity_id: string; ghl_stage_id: string; name: string }>(d.c, "select id, ghl_opportunity_id, opportunity_id, ghl_stage_id, name from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id=$3 and status='open' order by created_at desc limit 1", [d.company.id, d.run.contact_id, pipelineId]);
+      if (!d.run.contact_id) return { status: "failed", error: `pipeline_card ${node.id}: the run is not about a contact` };
+      // D41: read the CRM first. A card made by anything else (a CRM workflow, a person) is adopted and moved, never duplicated; a CRM that cannot be read fails the step rather than guessing.
+      try { await syncCards(d.c, d.company, d.adapterCompany, d.adapters, d.run.contact_id, contact?.ghl_contact_id); }
+      catch (e) { return { status: "failed", error: `pipeline_card ${node.id}: could not read the contact's cards in the CRM: ${(e as Error).message}` }; }
+      const card = await pickCard(d.c, d.company.id, d.run.contact_id, pipelineId);
       // stage and name are optional on an update: a step that only stamps fields leaves the card where it is
       const stageId = node.stage ? render(node.stage, d.ctx, env(d)) : card?.ghl_stage_id ?? "";
-      const name = node.name ? render(node.name, d.ctx, env(d)) : card?.name ?? "";
+      const name = node.name ? render(node.name, d.ctx, env(d)) : card?.name ?? render("{{contact.name}}", d.ctx, env(d));   // a card made without a name carries the person's
       const customFields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== "");
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
-      // no open card and told not to create one: nothing to do, whatever else is or is not resolvable (a status-only step has no stage of its own)
+      // no open card: a step with a stage makes one there (D41: a contact always has their cards); a status-only step has no stage to make one in, so there is nothing to mark
       if (!card && node.if_missing === "skip") return { status: "skipped", next, result: { kind: "noop", why: "no open card on this board to move; this step never creates one" } };
+      if (!card && !node.stage) return { status: "skipped", next, result: { kind: "noop", why: `no open card on this board to mark ${node.status ?? "updated"}` } };
       if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
       const write = { pipelineId, stageId, name, status: node.status ?? ("open" as const), assignedUserId, customFields };
       // the pursuit the card belongs to: the run's, else the contact's open one, else a new one
@@ -311,7 +317,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       }
       if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
       d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card ? "moved" : "created", name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), fields: customFields } };
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card ? "moved" : "created", ...(card ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), fields: customFields } };
     }
     case "crm_record": {
       const objectKey = render(node.object, d.ctx, env(d)), key = render(node.key, d.ctx, env(d));
@@ -386,9 +392,11 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       catch (e) { if (node.optional) return soft(`analyze: ${(e as Error).message}`); throw e; }
       if (r.refused) return { status: "failed", error: `analyze ${node.id}: the model declined (${r.refused})` };
       const value = node.format === "json" ? (r.parsed ?? { raw: r.text, parse_error: r.parseError }) : r.text;
-      setPath(d.ctx, `vars.${node.into}`, value);
+      // one read, several vars: `into: ["notes", "rubric"]` takes those keys off the object the prompt returned
+      const stored: Record<string, unknown> = Array.isArray(node.into) ? Object.fromEntries(node.into.map((k) => [k, value && typeof value === "object" ? (value as Record<string, unknown>)[k] ?? {} : value])) : { [node.into]: value };
+      for (const [k, v] of Object.entries(stored)) setPath(d.ctx, `vars.${k}`, v);
       const recId = (d.ctx.recording as { id?: string } | undefined)?.id;
-      if (recId) await d.c.query("update recordings set analysis = analysis || $2::jsonb where id=$1", [recId, JSON.stringify({ [node.into]: value })]);
+      if (recId) await d.c.query("update recordings set analysis = analysis || $2::jsonb where id=$1", [recId, JSON.stringify(stored)]);
       await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "call.analyzed", source: "engine", data: { node: node.id, into: node.into, model: r.model, tokens: r.usage, parsed: node.format !== "json" || !!r.parsed, repaired: r.repaired ?? false, recording_id: recId } });
       return node.format === "json" && !r.parsed
         ? { status: "ok", next, result: { into: node.into, parsed: false, parse_error: r.parseError, model: r.model, tokens: r.usage } }
@@ -471,7 +479,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       setPath(d.ctx, `vars.${node.into}`, { body: b.body, period: b.period, numbers: b.numbers, id: b.id });
       return { status: "ok", next, result: { kind, period: b.period, report_id: b.id, ...(manual ? { to_date: true } : {}) } };
     }
-    case "set_var": { const v = typeof node.value === "string" ? render(node.value, d.ctx, env(d)) : node.value; setPath(d.ctx, `vars.${node.key}`, v); return { status: "ok", next }; }
+    case "set_var": {
+      const raw = node.when && !evaluate(node.when, d.ctx) ? node.else_value : node.value;   // a value chosen by a condition: plumbing, not a fork on the chart
+      const v = typeof raw === "string" ? render(raw, d.ctx, env(d)) : raw; setPath(d.ctx, `vars.${node.key}`, v); return { status: "ok", next };
+    }
     case "pause_runs": {
       await d.c.query("update runs set status='paused', exit_reason='paused: human took over' where company_id=$1 and contact_id=$2 and id<>$3 and status in ('active','waiting')", [d.company.id, d.run.contact_id, d.run.id]);
       return { status: "ok", next };

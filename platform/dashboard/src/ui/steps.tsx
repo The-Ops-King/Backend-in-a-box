@@ -1,8 +1,9 @@
+import { SlackMsg } from "./slack";
 import { useState } from "react";
 import type { PathItem } from "~/api";
 import { Chev } from "./icons";
 import { Ic } from "./pieces";
-import { when } from "~/fmt";
+import { when, timeOf } from "~/fmt";
 
 /**
  * The step rows: the feed on a run page and the list in a run's sheet. A send carries "the words" folded; a skipped step
@@ -26,7 +27,8 @@ export function Steps({ items, tz, who }: { items: PathItem[]; tz: string; who?:
       <span className="t"><Title text={title} />{at ? <span className="d">{at}</span> : null}{has ? <span className="pk"><Chev />{s.state === "skip" ? "why" : words ? "the words" : "shadow"}</span> : null}
         {sub ? <small>{sub}</small> : null}
         {why ? <small className="why" hidden={!o}>{s.note}</small> : null}
-        {words ? <span className={`b ${s.channel ?? ""}`} hidden={!o}>{s.send_state === "failed" || s.send_state === "suppressed" ? <span style={{ display: "block", color: "var(--warn)", fontWeight: 600, marginBottom: 4 }}>{s.send_state === "failed" ? "Did not go out" : "Held back"}{s.note ? `: ${s.note}` : ""}</span> : null}{s.words}</span> : null}
+        {words ? <span className={`b ${s.channel ?? ""}`} hidden={!o}>{s.send_state === "failed" || s.send_state === "suppressed" ? <span style={{ display: "block", color: "var(--warn)", fontWeight: 600, marginBottom: 4 }}>{s.send_state === "failed" ? "Did not go out" : "Held back"}{s.note && !why ? `: ${s.note}` : ""}</span> : null}
+          {s.channel === "slack" ? <SlackMsg face={s.face} text={s.words!} time={s.at ? timeOf(s.at, tz) : undefined} thread={/thread/i.test(s.title)} shadow={s.state === "ghost"} /> : s.words}</span> : null}
       </span>
     </div>;
   })}{who ? null : null}</div>;

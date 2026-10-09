@@ -10,6 +10,8 @@ import { scheduleWords } from "@/engine/when";
 import { workflowWithStep } from "@/engine/clock";
 import { STAGES, stageIndex } from "@/engine/stages";
 import { chartOf, pathOf, runState, type PathItem } from "./words";
+import { companyReports } from "@/engine/reports";
+import { EVENT_LABELS } from "@/engine/describe";
 
 /** The company header every page under a company carries. */
 export type CompanyHead = { id: string; name: string; slug: string; mode: "shadow" | "live"; timezone: string; status: string };
@@ -159,8 +161,26 @@ export async function contactPage(c: PoolClient, id: string) {
   const loc = (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='crm.location_id'", [co.id]))?.v?.toString("utf8");
   const phone = idents.find((i) => i.kind === "phone")?.value ?? null, email = idents.find((i) => i.kind === "email")?.value ?? null;
   const facts = Object.entries(ct.attributes ?? {}).filter(([, v]) => v !== null && v !== "" && typeof v !== "object").map(([k, v]) => [k.replace(/_/g, " "), String(v)] as [string, string]);
+  // D42: what the CRM-side lists used to show, folded under the person: their appointments, payments and recordings
+  const appointments = await many<{ id: string; starts_at: Date; status: string; term: string | null; closer: string | null; outcome: string | null; self_booked: boolean | null; set_by: string | null }>(c, `select a.id, a.starts_at, a.status, t.name as term, u.name as closer, o.category as outcome, a.self_booked, a.set_by
+    from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id left join company_terms o on o.id=a.outcome_term where a.contact_id=$1 order by a.starts_at desc limit 20`, [id]);
+  const payments = await many<{ id: string; amount: string; currency: string; status: string; kind: string | null; paid_at: Date }>(c, "select id, amount::text, currency, status, kind, paid_at from payments where contact_id=$1 order by paid_at desc limit 20", [id]);
+  const recordings = await many<{ id: string; title: string | null; started_at: Date; duration_min: number | null; share_url: string | null; provider: string }>(c, "select id, title, started_at, duration_min, share_url, provider from recordings where contact_id=$1 order by started_at desc limit 20", [id]);
+  const history = {
+    appointments: appointments.map((a) => ({ id: a.id, at: a.starts_at, status: a.status, kind: a.term, closer: a.closer, outcome: a.outcome, booked_by: a.self_booked ? "self" : a.set_by })),
+    payments: payments.map((p) => ({ id: p.id, at: p.paid_at, amount: p.amount, currency: p.currency, status: p.status, kind: p.kind })),
+    recordings: recordings.map((r) => ({ id: r.id, at: r.started_at, title: r.title, minutes: r.duration_min, url: r.share_url, provider: r.provider })),
+  };
   return { company: co, contact: { id: ct.id, name: `${ct.first_name ?? ""} ${ct.last_name ?? ""}`.trim() || "Contact", phone, email, timezone: ct.timezone ?? co.timezone, tags: ct.tags, since: ct.created_at, crm_url: loc && ct.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${ct.ghl_contact_id}` : null },
-    facts, identifiers: idents.map((i) => [i.kind, i.value] as [string, string]), runs: rows, next, harness: { allowed: co.mode === "shadow" } };
+    facts, identifiers: idents.map((i) => [i.kind, i.value] as [string, string]), runs: rows, next, history, harness: { allowed: co.mode === "shadow" } };
+}
+
+/** Every wrap-up generated for this company, newest first, exactly as Slack got it (or would have, in shadow). */
+export async function wrapUpsPage(c: PoolClient, co: CompanyHead) {
+  const rows = await companyReports(c, co.id);
+  const wf = await workflowWithStep(c, co.id, "report");
+  return { company: co, reports: rows.map((r) => ({ id: r.id, kind: r.kind, period_start: r.period_start, period_end: r.period_end, generated_at: r.generated_at, on_demand: r.on_demand, body: r.body, status: r.send_status })),
+    workflow: wf ? { id: wf.id, name: wf.name, enabled: wf.enabled, when: wf.enabled && wf.schedule ? scheduleWords(wf.schedule) : null } : null };
 }
 
 /** The health page: what is open, the last sweep check by check, what cleared. */
@@ -174,7 +194,18 @@ export async function healthPage(c: PoolClient, co: CompanyHead) {
     return { id: ck.id, label: ck.label, about: ck.about, state, findings: (failing.length ? failing : fs ?? []).map((f) => ({ ok: f.ok, level: f.level, text: f.text, href: f.href ?? null, href_label: f.hrefLabel ?? null, fix: f.fix ?? null, thread: f.thread ?? null })) }; });
   return { company: co, open: open.map((a) => ({ id: a.id, level: a.level, text: a.text, source: a.source, first_seen: a.first_seen, announce_count: a.announce_count, link: (a.detail as { link?: string }).link ?? null, link_label: (a.detail as { link_label?: string }).link_label ?? null })),
     checks, resolved: recent.filter((a) => a.resolved_at).slice(0, 20).map((a) => ({ id: a.id, text: a.text, first_seen: a.first_seen, resolved_at: a.resolved_at })),
-    sweep: wf ? { workflow_id: wf.id, name: wf.name, enabled: wf.enabled, when: wf.enabled && wf.schedule ? scheduleWords(wf.schedule) : null, last_run_at: h.last_run_at } : null };
+    sweep: wf ? { workflow_id: wf.id, name: wf.name, enabled: wf.enabled, when: wf.enabled && wf.schedule ? scheduleWords(wf.schedule) : null, last_run_at: h.last_run_at } : null,
+    starts: await startsCatalog(c, co.id) };
+}
+
+/** Every event a workflow can start from, which of this company's workflows use it, and how often it was seen (30 days). */
+async function startsCatalog(c: PoolClient, companyId: string) {
+  const rows = await many<{ name: string; category: string; workflows: { id: string; name: string; enabled: boolean }[]; seen: number }>(c, `
+    select et.name, et.category,
+      coalesce((select json_agg(json_build_object('id', w.id, 'name', w.name, 'enabled', w.enabled) order by w.name) from workflow_triggers t join workflows w on w.id=t.workflow_id where t.company_id=$1 and t.event_type=et.name), '[]'::json) as workflows,
+      (select count(*) from events e where e.company_id=$1 and e.event_type=et.name and e.occurred_at > now() - interval '30 days')::int as seen
+    from event_types et order by et.category, et.name`, [companyId]);
+  return rows.map((r) => ({ event: r.name, label: EVENT_LABELS[r.name] ?? r.name, category: r.category, workflows: r.workflows, seen: r.seen }));
 }
 
 export type { Readiness };

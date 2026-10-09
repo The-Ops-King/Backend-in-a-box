@@ -64,15 +64,13 @@
         "type": "pipeline_card",
         "pipeline": "{{crm.pipeline_closer}}",
         "stage": "{{crm.stage_closer_closed_won}}",
-        "status": "won",
-        "if_missing": "skip"
+        "status": "won"
       },
       {
         "id": "p2",
         "type": "pipeline_card",
         "pipeline": "{{crm.pipeline_setter}}",
-        "status": "won",
-        "if_missing": "skip"
+        "status": "won"
       },
       {
         "id": "b1",

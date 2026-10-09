@@ -67,7 +67,7 @@ instance, 5 second idle timeout.
 
 ## Payments (D21)
 
-**Whop by API key.** Install with `whop: { apiKey }` (or paste it in settings › Connections) and the
+**Whop by API key.** Install with `whop: { apiKey }` (it shows under Setup › Connections) and the
 engine creates its own Whop webhook (api v1; payment.succeeded, payment.failed, refund.created) at
 `/api/webhooks/whop/<companyId>`, binding the signing secret it is shown once (`secret.whop_webhook`,
 `whop.webhook_id`), the same way it registers with Fathom. The key also powers the payment history
@@ -75,7 +75,7 @@ backfill. Needs `payment:basic:read` and `developer:manage_webhook` on the key.
 
 Whop posts to `/api/webhooks/whop/<companyId>` (signature verified, Standard Webhooks). Each
 payment is a ledger row linked by member id, email or phone, or left **unlinked** with a team
-alert and a row on `/c/<slug>/payments` where an operator links it to a contact. Linking settles
+alert; a linked payment shows under the person's History on their contact page. Linking (by the engine's matching, or `POST /api/admin/...`) settles
 it: pursuit, derived kind, running total, `cleared`, and the `payment.received` event that starts
 workflows. Set the program price with `contractValueDefault` at install and the Whop signing
 secret with `whop: { webhookSecret }`. Facts about Whop's payload are in `whop/01-api-facts.md`.
@@ -99,7 +99,7 @@ payment door (body: `recording_id`, `title`, `started_at`, `duration_seconds` or
 `share_url`, `recorded_by_email`, `invitees` as "Name <email>, …" or an array, `transcript` as text or
 an array, `summary`). Either way it is a `recordings` row, matched by invitee email → invitee name →
 the recorder's calendar (one appointment within two hours), or left **unmatched** with the reason, a
-team alert, and a row on `/c/<slug>/recordings` where an operator links it. A linked recording
+team alert; a linked recording shows under the person's History on their contact page. A linked recording
 emits `recording.received` (with the contact's appointment nearest the start, within a day) and
 templates take it from there. Facts about Fathom's API are in `fathom/01-api-facts.md`.
 
@@ -168,7 +168,7 @@ period from the rollups into `vars.report` and keeps it as a `wrapups` row, and 
 `{{slack.channel.reports}}`. Time, day, channel, breakdowns (per setter / per closer) and sections (what they
 said = booking-form answers tallied per question) are the steps' settings, edited like any other workflow.
 Each trigger fires once per period (the clock's reentry key); a missed day sends late, never twice. Every
-wrap-up is shown on `/c/<slug>/reports` exactly as sent (shadow: posted with the shadow label).
+wrap-up is shown on `/app/c/<slug>/wrap-ups` exactly as sent (shadow: posted with the shadow label).
 `POST /api/admin/reports { company, kind }` starts the workflow now for that kind (the trigger node `t_<kind>`)
 with the period in progress (today so far / this week so far / this month so far).
 
@@ -263,25 +263,16 @@ Until the in-tool agent exists, the chat is the agent. Three shapes cover almost
 - **Copy a workflow to another offer**: "copy X from A to B". → installed on B; the manifest says which
   copy, channel, stage or field B has not got, and those are the only questions asked.
 
-## Settings screen (`/c/<slug>/settings`)
+## Setup page (`/app/c/<slug>/setup`, read-only — D42)
 
-Everything a company's installed workflows need, driven by their manifests: connections (GHL location
-and PIT, Anthropic, Whop, Fathom — pasted, stored encrypted, shown only as "set · ends with …"),
-booking source (GHL calendars or Calendly with token and host email), each calendar's call type,
-setter-vs-self rule and question map, every `crm.*` id as a drop-down from the live GHL lists
-(pipelines, stages, contact and opportunity fields, associations, users), Slack bot token and
-channel ids, prompts, dark hours and program price, and the inbound door URLs with the Zapier
-secret. Keys a workflow requires and nobody has set are marked missing; the readiness card at the top
-is the same one the company page shows. Test GHL refreshes the roster; Register Fathom webhook
-creates the webhook from here. Install JSON still works for scripting; the screen writes the same
-bindings.
-
-Every host's calendars are pulled (Calendly: all organization members, round-robin types once with all
-their hosts) with their real booking questions; each question gets a "use as" name (`setter`,
-`phone`, or an attribute readable as `appointment.answers.<name>`). Call types are the company's own
-words over the four categories. **Tell it how things work** (top of the page) turns a paragraph plus
-the live facts into a proposal — calendars mapped, setter rule, default closer, roles, call types —
-with the questions it still has; apply or discard. Needs an Anthropic key (company or server).
+Everything a company's installed workflows need, driven by their manifests, shown and never edited here:
+connections (GHL location and PIT, Anthropic, Whop, Fathom, Calendly, Resend — a secret reads "set · ends
+with …" or "missing"), booking source and setter rule, each calendar's call type, setter-vs-self rule and
+question map, every `crm.*` id with the name the live CRM gives it, Slack channels, alert destinations,
+prompts, the schedule workflows, the end-of-day form and the inbound door URLs. Blockers sit at the top;
+warnings fold. Changing any of it is the install API's and the CLI's job (`POST /api/admin/install`,
+`pnpm install:company`); the page shows what they produced. The describe-config proposal flow
+(`src/engine/describe-config.ts`) stays in the engine for the chat to drive.
 
 Nothing on a workflow page is editable (D32): the page shows what the workflow does and what it would
 produce; changes to copy, steps, channels, pipelines or icons go through the chat, which edits the
@@ -299,7 +290,7 @@ remembered with its Slack ts. Still open an hour later → a line in that thread
 (the next run got past the step, the poll succeeded, the sweep found it fine) → "Resolved" in the thread and
 a ✅ reaction on the first post (the Slack app needs `reactions:write`; without it the thread still says
 resolved and says what scope is missing). The dashboard home and each company page show what is open;
-`/c/<slug>/health` shows open alerts, the last sweep check by check, and what cleared recently.
+`/app/c/<slug>/health` shows open alerts, the last sweep check by check, what cleared recently, and (folded) every event a workflow can start from with the workflows that use it.
 
 The **health check** is a workflow (`health-check` template, D35): a schedule trigger (every 60 minutes) and a
 `health_check` step whose settings are the list of checks (`checks: {"<id>": false}` turns one off), the

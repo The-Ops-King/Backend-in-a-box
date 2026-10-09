@@ -1148,3 +1148,43 @@ shows they were skipped." "If the card doesn't exist we should have one."
 - Every step carries the logo of what it touches, at the left. Node text is measured per glyph so a title never spills.
 - Call cancelled creates its cards when they are missing (a cancelled call always has its cards); the other
   `if_missing: skip` moves stay as they are until Tyler decides (see the audit in the session).
+
+## D41. The CRM is the truth about cards (2026-10-09)
+
+Calvin Coates booked and the setter card move skipped: "no open card on this board". He had one, made by a GHL
+workflow on the 6th; the engine only looked in its own `pipeline_cards`. Tyler: "GHL is the source of truth on
+all tags and pipelines and pipeline stages. Read first. Check the contact for opportunities in GHL. That way we
+won't have duplicates."
+
+- Before a card step, and before each run's context is built, the engine reads the contact's cards from the CRM
+  (`openCards`) and folds them into `pipeline_cards` (`src/engine/cards.ts`): a card it never made is adopted
+  (with the contact's open pursuit, or a new one opened by the CRM); a known card takes the CRM's stage, name
+  and status. Rows are never dropped on absence: the CRM's search index lags a create by seconds. A snapshot
+  older than the engine's own last write to that card is ignored for the same reason.
+- A card step with a stage moves the card the CRM has, or makes one when there is none. `if_missing: skip` is
+  gone from every template. A card step with no stage (mark it won) marks the open card and does nothing when
+  there is none; the chart shows that as a sometimes-step. A card made without a name carries the person's.
+- A CRM that cannot be read fails the step; the engine never guesses and creates a duplicate.
+- Contacts that predate the engine's first poll never fire New lead (the baseline is silent by design); their
+  cards are found the first time any step asks.
+- Also in this batch: one AI read for notes and scorecard (`analyze.into: ["notes", "rubric"]`, prompt
+  `call_review`); `set_var` takes `when` / `else_value` so a line of copy chosen by a fact needs no fork
+  (setter-call-logged); `no_reply` and `escalated` exits read "Done", not "Stop".
+
+## D42. Setup is read-only; the utility pages fold into the pages they belong to (2026-10-09)
+
+Tyler: "settings is read only for now"; yes to deleting sends, folding appointments, payments and recordings
+into the contact page, triggers into health, and a short wrap-ups list. The old Next pages and their server
+actions are gone; `/app/c/<slug>/setup` is built from the same manifest-driven rows (`src/api/setup.ts`), with
+the CRM's names for ids. The contact page carries History (calls, payments, recordings); Health carries "What
+can start a workflow"; `/app/c/<slug>/wrap-ups` lists each wrap-up as sent. Changing setup is the install
+API's and the CLI's job until the chat drives it.
+
+## D43. A Slack preview looks like Slack (2026-10-09)
+
+Tyler: "Anywhere we have a slack message it should look like it's a slack message... like a slack message was
+screenshot out of slack." `dashboard/src/ui/slack.tsx` draws a post as Slack does: the face (the step's `as`
+emoji or image), the bot name, the APP tag, the time, and mrkdwn rendered (bold, italic, strike, code,
+links, mentions, quotes, bullets, emoji shortcodes). A thread reply is indented with a thread line; a shadow
+send carries the 🧪 shadow mark. The chart popover and the step rows use it for every Slack step; texts and
+emails keep the plain quote.

@@ -120,8 +120,7 @@
         "id": "a3",
         "type": "pipeline_card",
         "pipeline": "{{crm.pipeline_closer}}",
-        "stage": "{{crm.stage_closer_agreement_sent}}",
-        "if_missing": "skip"
+        "stage": "{{crm.stage_closer_agreement_sent}}"
       },
       {
         "id": "m1",

@@ -4,6 +4,7 @@ import type { Adapters } from "@/adapters/types";
 import { bookingFor } from "@/adapters/types";
 import { parseDefinition, indexDefinition, type Definition } from "./definition";
 import { buildContext, loadCompany, type RunRow } from "./context";
+import { syncCards } from "./cards";
 import { executeNode, type ExecDeps } from "./executor";
 import type { HealthProbes } from "./health";
 import { deferIntoWindow } from "./waitrule";
@@ -78,6 +79,10 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           report.exited++; if (report.recovery) report.staleExits++; return;
         }
 
+        if (run.contact_id) {   // D41: the CRM is the truth about cards; `cards.*` in the context reflects it as of now
+          const ghlId = (await one<{ ghl_contact_id: string | null }>(c, "select ghl_contact_id from contacts where id=$1", [run.contact_id]))?.ghl_contact_id;
+          await syncCards(c, company, adapterCompany, adapters, run.contact_id, ghlId).catch((e: Error) => { console.warn(`run ${run.id}: cards not read from the CRM: ${e.message}`); });
+        }
         const ctx = await buildContext(c, run, company, bindings);
         const deps: ExecDeps = { c, adapters, company, adapterCompany, bindings, run, ctx, edgesFrom, now, probes };
         let nodeId: string | null = run.current_node ?? def.nodes.find((n) => n.type === "trigger")!.id;

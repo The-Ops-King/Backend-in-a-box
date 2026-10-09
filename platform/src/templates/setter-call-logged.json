@@ -98,32 +98,30 @@
         "into": "notes"
       },
       {
-        "id": "b1",
-        "type": "branch"
-      },
-      {
         "id": "y1",
         "type": "set_var",
         "key": "booked_flag",
-        "value": "[\"yes\"]"
+        "value": "[\"yes\"]",
+        "when": {
+          "eq": [
+            "{{recording.led_to_booking}}",
+            true
+          ]
+        },
+        "else_value": ""
       },
       {
         "id": "y2",
         "type": "set_var",
         "key": "outcome_line",
-        "value": "Set — a booking followed this call"
-      },
-      {
-        "id": "n1",
-        "type": "set_var",
-        "key": "booked_flag",
-        "value": ""
-      },
-      {
-        "id": "n2",
-        "type": "set_var",
-        "key": "outcome_line",
-        "value": "No booking yet"
+        "value": "Set — a booking followed this call",
+        "when": {
+          "eq": [
+            "{{recording.led_to_booking}}",
+            true
+          ]
+        },
+        "else_value": "No booking yet"
       },
       {
         "id": "r1",
@@ -208,24 +206,7 @@
       },
       {
         "from": "a2",
-        "to": "b1"
-      },
-      {
-        "from": "b1",
-        "to": "y1",
-        "when": {
-          "eq": [
-            "{{recording.led_to_booking}}",
-            true
-          ]
-        },
-        "label": "a booking followed"
-      },
-      {
-        "from": "b1",
-        "to": "n1",
-        "else": true,
-        "label": "no booking"
+        "to": "y1"
       },
       {
         "from": "y1",
@@ -233,14 +214,6 @@
       },
       {
         "from": "y2",
-        "to": "r1"
-      },
-      {
-        "from": "n1",
-        "to": "n2"
-      },
-      {
-        "from": "n2",
         "to": "r1"
       },
       {

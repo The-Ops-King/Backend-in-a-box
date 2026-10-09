@@ -31,7 +31,7 @@ export async function companyReadiness(c: PoolClient, companyId: string, slugPre
   });
   const issues: Issue[] = [];
   if (co.mode === "shadow") issues.push({ level: "warning", text: "Company is in shadow: nothing reaches the CRM or the contact until someone presses Go live." });
-  if (!slack) issues.push({ level: "blocker", text: "Slack is not connected: every Slack post (team alerts, booking cards, call reviews, unlinked payments) is recorded but never posted.", href: `${slugPrefix}/sends` });
+  if (!slack) issues.push({ level: "blocker", text: "Slack is not connected: every Slack post (team alerts, booking cards, call reviews, unlinked payments) is recorded but never posted.", href: `${slugPrefix}/setup#slack` });
   if (!co.sms_enabled) issues.push({ level: "warning", text: "SMS is off for this company: text steps are skipped and the run continues." });
   for (const w of workflows) {
     if (w.parseError) issues.push({ level: "blocker", text: `${w.name}: its stored definition no longer runs on this engine (${w.parseError.slice(0, 120)}). Re-run install to upgrade it to the current template.`, href: `${slugPrefix}/w/${w.id}` });

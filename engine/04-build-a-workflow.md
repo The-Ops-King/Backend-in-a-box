@@ -64,12 +64,12 @@ settings; the workflow page's trigger popover lists the calendars that match.
 | `slack_post` | `channel` (`{{slack.channel.<name>}}`, or `{{user.slack_user_id}}` for a DM), `template`, `as: { name, icon | [icons] }`, `thread_of?`, `tag?`, `react?` | posts even in shadow (labelled 🧪 shadow). `as` is the face: a name and an emoji or image URL, or a list of emoji one is picked from. `thread_of: "<node id>"` replies under that earlier post; `thread_of: "tag:<name>"` replies under a post another run remembered with `tag` (rendered, e.g. `eod-reminder:{{user.id}}:{{user.eod.day}}`), in that post's channel; `react` puts an emoji on the parent. |
 | `notify_owner` | `template`, `fallback_channel?`, `task?: { title, due }`, `as?` | DM to the contact's owner (looked up in Slack by email), else the fallback channel with an @mention; optional CRM task. |
 | `classify` | `input`, `state?`, `domain`, `threshold`, `into` | the AI picks one option of a domain (`reply_intent`, `appointment_outcome`, `call_outcome`, `lost_reason`, `payment_plan`, `appointment_type`); below the threshold → `unclear`. Result under `vars.<into>` and `reply.intent`. |
-| `analyze` | `prompt` (`{{prompt.<name>}}`), `input` (default the transcript), `into`, `format: json|text`, `max_tokens?`, `optional?` | long-form read: notes, scorecard, a one-line cheer. `optional: true` = skipped quietly when the AI cannot run. Prompts are company bindings with defaults in `src/prompts`. |
+| `analyze` | `prompt` (`{{prompt.<name>}}`), `input` (default the transcript), `into` (a var, or `["notes", "rubric"]`: the keys of one object the prompt returns, one read), `format: json|text`, `max_tokens?`, `optional?` | long-form read: notes, scorecard, a one-line cheer. `optional: true` = skipped quietly when the AI cannot run. Prompts are company bindings with defaults in `src/prompts`. |
 | `branch` | — | the question; its outgoing edges are the answers. |
 | `check` | `when`, `else_exit`, `retry?: { every, for }` | a gate: if false, exit with that reason; with `retry`, park on the step and look again every `every` for up to `for` first (a lead without a phone waits a day for one). A run that stops at a gate before doing anything releases its once-per key (D30). |
 | `set_tag` / `remove_tag` | `tag` or `[tags]` | CRM tags. |
 | `update_contact` | `set: { first_name, last_name, phone, timezone, assign_to }`, `fields: [{ id, value }]`, `clear: [ids]` | empty rendered values are left alone. |
-| `pipeline_card` | `pipeline`, `stage?`, `name?`, `assign_to?`, `status?: open|won|lost|abandoned`, `if_missing: create|skip`, `fields` | one open card per contact per pipeline; re-firing moves it. `if_missing: skip` = only if the card exists. |
+| `pipeline_card` | `pipeline`, `stage?`, `name?` (default the person's name), `assign_to?`, `status?: open|won|lost|abandoned`, `fields` | one open card per contact per pipeline; re-firing moves it. `if_missing: skip` = only if the card exists. |
 | `crm_record` | `object`, `key`, `properties`, `owner?`, `relate: [{ association, first, second }]` | a record on a custom object (payment, sales call), upserted by our key. |
 | `record_outcome` | `outcome`, `call_outcome?`, `notes?` | the appointment's outcome on our row (showed / noshow / …); `call.held` follows a show. |
 | `create_task` | `title`, `body?`, `due`, `assign_to?` | a CRM to-do on the contact. |
@@ -80,7 +80,7 @@ settings; the workflow page's trigger popover lists the calendars that match.
 | `health_check` | `checks: { "<id>": false }`, `channel?`, `as?` | the hourly sweep as a step (D35): every check on, minus the ones turned off; failures are alerts that clear themselves. Belongs after a `schedule` trigger. |
 | `availability_check` | `min_slots` (3), `days` (7) | bookable slots on every active calendar; in a run about a booking, that booking's calendar. Fewer than `min_slots` is a warning with the calendar link and the day-by-day in the thread. |
 | `report` | `kind` (`daily|weekly|monthly`, may be `{{vars.kind}}`), `breakdowns`, `sections`, `into` (`report`) | renders the wrap-up for the period that just ended (the period so far when started by hand) into `vars.<into> = { body, period, numbers }` and keeps it in `wrapups`; a `slack_post` of `{{vars.report.body}}` sends it. |
-| `set_var` | `key`, `value` | remember something for later steps (`vars.<key>`); plumbing, hidden from the outline. |
+| `set_var` | `key`, `value`, `when?`, `else_value?` | remember something for later steps (`vars.<key>`); with `when`, the value if it holds else `else_value` (a line of copy chosen by a fact, without a fork). Plumbing, hidden from the outline. |
 | `start_workflow` | `workflow` (slug), `with?` | hand off. |
 | `pause_runs` | `scope: contact|appointment` | a human took over: pause the contact's other runs. |
 | `exit` | `reason` | done, with a reason the outline shows. |
@@ -140,8 +140,9 @@ is required and the workflow cannot be turned on without it.
   the appointment moves with it. `validity.min_lead` + `on_stale` say what to do when the call is now too close.
 - **Re-entry is a decision.** once per contact, per appointment, per opportunity, or within a window; `always` for
   pure notifications. A gate exit does not spend the once.
-- **One open card per contact per board.** Cards are moved, not duplicated; `if_missing: skip` when a step must
-  not create one.
+- **One open card per contact per board, and the CRM is the truth about it (D41).** Before a card step the engine
+  reads the contact's cards from the CRM and adopts any it did not make; a step with a stage moves that card or
+  makes one when none is open; a status-only step (no stage) marks the open card and does nothing when there is none.
 - **Everything the step depends on is listed by the engine** (`coverage.ts`) and verified by the hourly sweep.
   A new node type must declare what it needs (`NODE_NEEDS`) or the build fails.
 - **Every Slack post has a face** (`as`) and links the contact; the close post @mentions people.

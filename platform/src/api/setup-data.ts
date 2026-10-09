@@ -61,7 +61,7 @@ export async function loadSettings(slug: string): Promise<SettingsData | null> {
     const slack = (await one<{ team_id: string; connected_at: Date }>(c, "select team_id, connected_at from slack_connections where company_id=$1", [co.id])) ?? null;
     let slackChannels: { id: string; name: string }[] | null = null;
     if (slack) { const tok = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [co.id]); slackChannels = await listSlackChannels(decrypt(tok!.bot_token)); }
-    const readiness = await companyReadiness(c, co.id, `/c/${slug}`);
+    const readiness = await companyReadiness(c, co.id, `/app/c/${slug}`);
     const proposal = (await loadProposal(c, co.id))?.value ?? null;
     let liveCalendars: CalendarSnapshot[] = [], liveCalendarsError: string | null = null, catalog: Catalog | null = null;
     const connected = !!adapterCompany.pit && !!adapterCompany.locationId;

@@ -91,14 +91,14 @@ export const Node = z.discriminatedUnion("type", [
   // Reads a document (the call transcript by default) against a prompt bound per company ({{prompt.<name>}}), answer stored under vars.<into>.
   // json: the answer is parsed and its fields are addressable ({{vars.notes.summary}}); text: stored as a string.
   // optional: decoration (a congratulations line); when the AI cannot run the step is skipped and the run goes on without the value
-  z.object({ ...base, type: z.literal("analyze"), prompt: z.string(), input: z.string().default("{{recording.transcript_text}}"), into: z.string(), format: z.enum(["json", "text"]).default("json"), max_tokens: z.number().int().positive().optional(), optional: z.boolean().default(false) }),
+  z.object({ ...base, type: z.literal("analyze"), prompt: z.string(), input: z.string().default("{{recording.transcript_text}}"), into: z.union([z.string(), z.array(z.string().min(1)).min(2)]), format: z.enum(["json", "text"]).default("json"), max_tokens: z.number().int().positive().optional(), optional: z.boolean().default(false) }),   // into: one var, or the keys of one object the prompt returns (`["notes", "rubric"]` → vars.notes, vars.rubric from one read)
   // Writes the appointment's outcome on OUR row (showed / noshow / …), the same path the closer's disposition form takes; call.held follows a show.
   z.object({ ...base, type: z.literal("record_outcome"), outcome: z.string(), call_outcome: z.string().optional(), notes: z.string().optional() }),
   // A record on a CRM custom object (payment, sales call, …), upserted by our own key so the CRM's lagging search is never consulted.
   // `properties` values are templates; an empty rendered value is left out. `relate` links the record to other records by association id.
   z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string(), properties: z.record(z.string()), owner: z.string().optional(),
     relate: z.array(z.object({ association: z.string(), first: z.string(), second: z.string() })).default([]) }),
-  z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown() }),
+  z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown(), when: Predicate.optional(), else_value: z.unknown().optional() }),   // with `when`: value if it holds, else_value otherwise
   z.object({ ...base, type: z.literal("start_workflow"), workflow: z.string(), with: z.record(z.unknown()).optional() }),
   z.object({ ...base, type: z.literal("pause_runs"), scope: z.enum(["contact", "appointment"]).default("contact") }),
   z.object({ ...base, type: z.literal("exit"), reason: z.string() }),

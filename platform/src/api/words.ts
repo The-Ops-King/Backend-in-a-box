@@ -11,12 +11,14 @@ import type { Projected } from "@/engine/project";
  * run did, step by step, with the state of each step). The client lays the chart out; it never reads a definition itself.
  */
 export type ChartKind = "trig" | "send" | "wait" | "reply" | "fork" | "check" | "tag" | "slack" | "crm" | "ai" | "end" | "other";
-export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; detail?: string; quote?: string; cond?: string; channel?: "sms" | "email" | "slack"; hidden?: boolean; stop?: string; logo?: string };
+/** Who a Slack post appears as (D43: a Slack preview looks like Slack): the bot name and its emoji or image. */
+export type SlackFace = { name: string; icon: string | null };
+export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; detail?: string; quote?: string; cond?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; hidden?: boolean; stop?: string; logo?: string };
 export type ChartEdge = { from: string; to: string; label: string; else?: boolean };
 export type Chart = { nodes: ChartNode[]; edges: ChartEdge[] };
 
 export type StepState = "ok" | "ghost" | "skip" | "warn" | "here" | "next" | "stop";
-export type PathItem = { node_id: string; title: string; meta?: string; kind: ChartKind; state: StepState; at: string | null; note?: string; channel?: "sms" | "email" | "slack"; words?: string | null; send_state?: string };
+export type PathItem = { node_id: string; title: string; meta?: string; kind: ChartKind; state: StepState; at: string | null; note?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; words?: string | null; send_state?: string };
 
 export function kindOf(n: Node): ChartKind {
   switch (n.type) {
@@ -35,11 +37,17 @@ export function kindOf(n: Node): ChartKind {
   }
 }
 
+const faceOf = (n: Node, bindings: Record<string, string> = {}): SlackFace | undefined => {
+  if (n.type !== "slack_post" && n.type !== "notify_owner") return undefined;
+  const as = n.as; const icons = as?.icon ? (Array.isArray(as.icon) ? as.icon : [as.icon]) : [];
+  return { name: (as?.name ?? bindings["slack.name"] ?? "Engine").replace(/\{\{[^}]*\}\}/g, "").trim() || "Engine", icon: icons[0]?.trim() || null };
+};
 const channelOf = (n: Node): ChartNode["channel"] => n.type === "send_sms" ? "sms" : n.type === "send_email" ? "email" : n.type === "slack_post" || n.type === "notify_owner" ? "slack" : undefined;
 
 /** Short title for a node on the chart or in a step row: "Text", "Email: You're booked", "Wait until 3 days before the call". */
 /** A task title the way the team reads it: the contact's name placeholder becomes "them", any other binding its plain words. */
 const taskWords = (t: string) => t.replace(/\{\{\s*contact\.(?:first_)?name(?:\s*\|[^}]*)?\s*\}\}/g, "them").replace(/\{\{\s*([a-zA-Z0-9_.]+)(?:\s*\|[^}]*)?\s*\}\}/g, (_, p) => pathWords(p)).replace(/\s+/g, " ").trim();
+const pipelineChip = (pipeline: string) => { const b = /^\{\{\s*crm\.pipeline_([a-z0-9_]+)/.exec(pipeline); return b ? `‹${b[1][0].toUpperCase()}${b[1].slice(1)}›` : undefined; };
 const stageChip = (stage: string | undefined, pipeline: string) => { if (!stage) return undefined; const m = /^\{\{\s*crm\.stage_(setter|closer)_([a-z0-9_]+)/.exec(stage); if (m) return `‹${m[1][0].toUpperCase()}${m[1].slice(1)} → ${m[2].replace(/_/g, " ")}›`; const b = /^\{\{\s*crm\.pipeline_([a-z0-9_]+)/.exec(pipeline); return `‹${b ? `${b[1][0].toUpperCase()}${b[1].slice(1)} → ` : ""}${pathWords(stage).replace(/^stage /, "")}›`; };
 const cap = (t: string) => t.replace(/^./, (c) => c.toUpperCase());
 /** A trigger with a match reads as the event it really waits for: "Appointment cancelled", "Tag “reactivate” added". */
@@ -71,9 +79,9 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "slack_post": return { title: n.thread_of ? "Slack reply in the thread" : "Slack notification" };
     case "notify_owner": return { title: "Slack DM to the owner" };
     case "classify": return { title: "AI reads the reply" };
-    case "analyze": return { title: `AI: ${({ classify: "is it a sales call?", notes: "call notes", rubric: "scores the call", objections: "objections" } as Record<string, string>)[n.into] ?? humanWords(n.into)}` };
+    case "analyze": { const w: Record<string, string> = { classify: "is it a sales call?", notes: "call notes", rubric: "scorecard", objections: "objections" }; const keys = Array.isArray(n.into) ? n.into : [n.into]; return { title: `AI: ${keys.map((k) => w[k] ?? humanWords(k)).join(" and ")}` }; }
     case "update_contact": return { title: "Update the contact" };
-    case "pipeline_card": return { title: n.stage ? (n.if_missing === "skip" ? "Move the card" : "Create or move the card") : "Update the card", meta: stageChip(n.stage, n.pipeline) };
+    case "pipeline_card": return { title: n.stage ? (n.if_missing === "skip" ? "Move the card" : "Move the card") : n.status ? `Mark the card ${n.status}` : "Update the card", meta: n.stage ? stageChip(n.stage, n.pipeline) : pipelineChip(n.pipeline) };
     case "crm_record": return { title: `Write the ${humanWords(n.object.replace(/^custom_objects\./, ""))} record` };
     case "create_task": { const t = taskWords(n.title); return { title: `Task: ${t[0].toLowerCase()}${t.slice(1)}` }; }
     case "note": return { title: "Leave a note" };
@@ -116,10 +124,10 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
   const nodes: ChartNode[] = def.nodes.map((n) => {
     const d = describeNode(n); const s = shortTitle(def, n);
     let quote: string | undefined;
-    try { quote = n.type === "send_sms" || n.type === "send_email" || n.type === "slack_post" || n.type === "notify_owner" || n.type === "note" ? strip(nodeExamples(n, ctx, company.timezone)[0]?.example.text) : undefined; } catch { quote = d.quote; }
-    const cond = n.type === "pipeline_card" && n.if_missing === "skip" ? "Only if a card is already on that board; this step never creates one" : n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : n.type === "check" ? `${n.retry ? `Waits up to ${durationWords(n.retry.for)} for it, looking every ${durationWords(n.retry.every)}. ` : ""}If not: ${exitWords(n.else_exit).toLowerCase()}` : undefined;
+    try { const ex = nodeExamples(n, ctx, company.timezone)[0]?.example.text; quote = n.type === "slack_post" || n.type === "notify_owner" ? ex?.trim() : n.type === "send_sms" || n.type === "send_email" || n.type === "note" ? strip(ex) : undefined; } catch { quote = d.quote; }
+    const cond = n.type === "pipeline_card" && n.if_missing === "skip" ? "Only if a card is already on that board; this step never creates one" : n.type === "pipeline_card" && !n.stage ? "Only when a card is already on that board: there is no stage to make one in" : n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : n.type === "check" ? `${n.retry ? `Waits up to ${durationWords(n.retry.for)} for it, looking every ${durationWords(n.retry.every)}. ` : ""}If not: ${exitWords(n.else_exit).toLowerCase()}` : undefined;
     // the AI reading a reply is plumbing between the wait and the fork; the chart routes around it, the popover of the fork says so
-    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, channel: channelOf(n), hidden: n.type === "classify" || undefined, stop: n.type === "check" ? exitWords(n.else_exit).replace(/^(Stop|Done): /, "") : undefined, logo: logoOf(n, bookingSource) };
+    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, channel: channelOf(n), face: faceOf(n, bindings), hidden: n.type === "classify" || undefined, stop: n.type === "check" ? exitWords(n.else_exit).replace(/^(Stop|Done): /, "") : undefined, logo: logoOf(n, bookingSource) };
   });
   const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e), else: e.else || undefined }));
   return { nodes, edges };
@@ -177,7 +185,7 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
     // a wait row that already fired reads as done; a wait row the run still sits on reads as "here" with when it moves
     const send = sendFor(s.node_id);
     const item: PathItem = { node_id: s.node_id, title: t.title, meta: t.meta, kind: n ? kindOf(n) : "other", state, at: (state === "here" ? run.next_run_at?.toISOString() : null) ?? s.started_at.toISOString(), note: noteOf(s, tz) };
-    if (n) item.channel = channelOf(n);
+    if (n) { item.channel = channelOf(n); item.face = faceOf(n); }
     if (state === "ghost") item.note = [item.note, "Done in shadow: nothing was written to the CRM or sent to anyone; this is what it would have done."].filter(Boolean).join(" · ");
     if (send && send.rendered_body) { item.words = send.channel === "slack" ? send.rendered_body : strip(send.rendered_body) ?? null; item.send_state = send.status; if (send.status === "failed" && send.error) item.note = send.error; }
     if (s.node_type === "exit" && state === "ok") { const w = exitWords(run.exit_reason ?? "done"); item.title = "Done"; item.note = w.startsWith("Stop: ") ? w.replace(/^Stop: /, "") : undefined; }

@@ -1,6 +1,7 @@
 import { useParams } from "react-router-dom";
 import { api, usePage, useAction, type HealthPage } from "~/api";
-import { Crumb, Empty, Ic, NameLine, Sec, Skeleton, Tag, toast } from "~/ui/pieces";
+import { Crumb, Empty, Fold, Ic, NameLine, Sec, Skeleton, Tag, toast } from "~/ui/pieces";
+import { Link } from "react-router-dom";
 import { ago, when } from "~/fmt";
 
 export function Health() {
@@ -10,7 +11,7 @@ export function Health() {
   const sweep = useAction<string, { note: string }>((wid) => api(`/api/v1/workflows/${wid}/fire`, { method: "POST" }), [key, ["company", slug]]);
   const fix = useAction<string, { note: string }>((provider) => api(`/api/v1/companies/${slug}/health/fix`, { method: "POST", json: { provider } }), [key]);
   if (!q.data) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton lines={8} />;
-  const { company: co, open, checks, resolved, sweep: sw } = q.data;
+  const { company: co, open, checks, resolved, sweep: sw, starts } = q.data;
   const st = (s: string) => s === "ok" ? "ok" : s === "error" ? "warn" : s === "warn" ? "warn" : "stop";
   return <>
     <Crumb items={[{ to: `/app/c/${slug}`, label: co.name }]} />
@@ -22,5 +23,7 @@ export function Health() {
     {!sw?.last_run_at ? <Empty>The sweep has not run yet.</Empty> : <div className="rows">{checks.map((c) => <div key={c.id} className={`row ${c.state === "off" || c.state === "na" ? "off" : ""}`}><Ic state={c.state === "off" || c.state === "na" ? "stop" : st(c.state)} /><span className="mid"><span className="nm">{c.label}</span><span className="sub" style={{ display: "block" }}>{c.state === "off" ? "off" : c.state === "na" ? "not applicable" : c.findings.map((f, i) => <span key={i} style={{ display: "block", color: f.ok ? "var(--fg-3)" : "var(--warn)" }}>{f.text}{f.href ? <> <a href={f.href} target="_blank" rel="noreferrer">{f.href_label ?? "open"} ↗</a></> : null}{f.fix ? <> <button type="button" className="btn" style={{ padding: "2px 9px", fontSize: 12, marginLeft: 6 }} disabled={fix.isPending} onClick={async () => { try { const r = await fix.mutateAsync(f.fix!.action.replace("reregister_", "")); toast(r.note); } catch (e) { toast((e as Error).message, true); } }}>{f.fix.label}</button></> : null}</span>)}</span></span><span className="d"></span></div>)}</div>}
     <Sec>Recently resolved</Sec>
     {resolved.length === 0 ? <Empty>Nothing resolved recently.</Empty> : <div className="rows">{resolved.map((a) => <div key={a.id} className="row"><Ic state="ok" /><span className="mid"><span className="nm" style={{ whiteSpace: "normal" }}>{a.text}</span><span className="sub"><span>opened {when(a.first_seen, co.timezone)}</span></span></span><span className="d tnum">{when(a.resolved_at, co.timezone)}</span></div>)}</div>}
+    <Fold title="What can start a workflow"><p className="note">Every fact the engine records is an event. A workflow's first step picks one. Count = seen here in the last 30 days.</p>
+      <div className="rows">{starts.map((e) => <div key={e.event} className={`row noicon ${e.workflows.length ? "" : "off"}`}><span className="mid"><span className="nm">{e.label}</span><span className="sub"><span className="mono">{e.event}</span>{e.workflows.map((w) => <Link key={w.id} to={`/app/c/${slug}/w/${w.id}`}>{w.name}{w.enabled ? "" : " (off)"}</Link>)}</span></span><span className="d">{e.seen || ""}</span></div>)}</div></Fold>
   </>;
 }
