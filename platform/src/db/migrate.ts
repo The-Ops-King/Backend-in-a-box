@@ -20,13 +20,16 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D51: which mode a run was born in; the column arriving on a database that already has runs stamps them with their company's mode today (every run so far was shadow-born where the company is still in shadow)
     const bornIn = await c.query("select 1 from information_schema.columns where table_name='runs' and column_name='born_in'");
     if (bornIn.rowCount === 0) {
-      await c.query(`alter table runs add column born_in text not null default 'live' check (born_in in ('shadow','live'))`);
-      await c.query(`update runs r set born_in=co.mode from companies co where co.id=r.company_id and co.mode in ('shadow','live')`);
+      await c.query(`alter table runs add column born_in text not null default 'live'`);
+      await c.query(`update runs r set born_in=co.mode from companies co where co.id=r.company_id`);
     }
+    // D52: the mode ladder; the check constraints follow the list in one place
+    await c.query(`alter table companies drop constraint if exists companies_mode_check`);
+    await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','test','rehearsal','live'))`);
+    await c.query(`alter table runs drop constraint if exists runs_born_in_check`);
+    await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('shadow','test','rehearsal','live'))`);
     await c.query(`alter table companies add column if not exists reply_retention_days int not null default 7`);
     await c.query(`alter table companies add column if not exists sends_retention_days int not null default 30`);
-    await c.query(`alter table companies drop constraint if exists companies_mode_check`);
-    await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','live'))`);
     await c.query(`alter table sends drop constraint if exists sends_status_check`);
     await c.query(`alter table sends add constraint sends_status_check check (status in ('queued','sent','failed','suppressed','shadow'))`);
     // booking source generalisation (2026-10-06): columns lose their GHL prefix, calendars/appointments carry a source.

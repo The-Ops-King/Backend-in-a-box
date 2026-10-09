@@ -22,7 +22,10 @@ export function useAction<TVars, TOut = unknown>(fn: (v: TVars) => Promise<TOut>
 }
 
 /* ---- shapes, mirrored from src/api/data.ts ---- */
-export type CompanyHead = { id: string; name: string; slug: string; mode: "shadow" | "live"; timezone: string; status: string };
+export type Mode = "shadow" | "test" | "rehearsal" | "live";
+export const MODES: Mode[] = ["shadow", "test", "rehearsal", "live"];
+export const MODE_ABOUT: Record<Mode, string> = { shadow: "sends are written down, not delivered; nothing is written to the CRM", test: "only contacts tagged sys-test or on a test email domain", rehearsal: "only contacts on a test email domain, however they came in", live: "sends go out and the CRM is written, for everyone" };
+export type CompanyHead = { id: string; name: string; slug: string; mode: Mode; timezone: string; status: string };
 export type CompaniesPage = { engine: { last_tick: string | null; recovery: boolean; problems: { key: string; level: string; text: string; company?: string | null; href?: string | null }[] }; companies: { id: string; name: string; slug: string; status: string; mode: string; timezone: string; contacts: number; workflows: number; on: number; in_flight: number; failed_24h: number; last_poll: string | null; alerts: number }[] };
 export type WorkflowRow = { id: string; name: string; enabled: boolean; stage: string | null; sort: number; origin: string | null; description: string | null; people: number; in_flight: number; failed: number; last_ran: string | null; schedule: string | null; ready: boolean; missing: string[]; gaps: string[]; parse_error?: string };
 export type CompanyPage = { company: CompanyHead; stages: { id: string; label: string; about: string }[]; workflows: WorkflowRow[]; issues: { level: string; text: string; href?: string }[]; alerts_open: number };

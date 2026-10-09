@@ -1330,3 +1330,17 @@ alone. The full-scope CRM token is not probed at Go live (Tyler: the token is fu
 prove it); a write the CRM refuses still raises an alert. Message bodies nobody has written are `[placeholder — title]`
 and nothing more; readiness warns how many an enabled workflow still carries, and does not block, since the team is
 testing with them. Rehearsal (item 7) and Go live are separate switches, so neither flips the other by accident.
+
+## D52. The ladder: shadow, test, rehearsal, live (2026-10-09)
+
+Tyler: "ghost mode, then test mode, then dress rehearsal before live… Nothing even touches GHL to write, then ONLY
+sys-test and @jtylerray.com, then ONLY @jtylerray.com, then full test." The company mode is that ladder. Shadow writes
+nothing. Test writes and sends only for a contact tagged `sys-test` or whose email is on a test domain; rehearsal
+only for the domain, so the contact can arrive through the real funnel untouched; live is everyone. Two gates carry
+it, for dual safety "so nothing gets duplicated in front of the client": a run about a contact does not start unless
+the contact passes, and a run already in flight exits at its next step if its contact no longer passes; a send to a
+contact that does not pass is suppressed even inside a run. Team-facing runs (end of day, wrap-ups, health, the
+evening sweep) have no contact and follow only their own switch. The domain is a company setting (`test.domains`),
+never a constant; Hair's is jtylerray.com because that is Tyler's. Test contacts are created in the CRM by Tyler,
+never by the engine ("this is to keep you from doing anything unexpected"). Slack posts before live say which rung
+they came from. Going live clears every run not born live (D51) and workflows still go on one at a time.

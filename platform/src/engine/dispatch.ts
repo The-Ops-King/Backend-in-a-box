@@ -3,6 +3,7 @@ import { many, one } from "@/db/client";
 import { parseDefinition, indexDefinition } from "./definition";
 import { evaluate } from "./predicate";
 import { reentryKey, windowInterval } from "./reentry";
+import { contactPasses, modeOf } from "./mode";
 
 export type EventRow = { id: number; company_id: string; contact_id: string | null; opportunity_id: string | null; appointment_id: string | null; event_type: string; occurred_at: Date; source: string; data: Record<string, unknown> };
 
@@ -52,6 +53,9 @@ export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record
     select t.id, t.workflow_id, t.node_id, t.match from workflow_triggers t join workflows w on w.id=t.workflow_id
     where t.company_id=$1 and t.event_type=$2 and t.enabled and w.enabled`, [e.company_id, e.event_type]);
   const started: string[] = [];
+  if (!triggers.length) return started;
+  // D52: in test or rehearsal a run about a contact starts only for a contact that passes the mode
+  if (e.contact_id) { const m = await modeOf(c, e.company_id); const pass = await contactPasses(c, e.company_id, e.contact_id, m.mode, m.bindings); if (!pass.ok) return started; }
   for (const t of triggers) {
     const ver = await one<{ definition: unknown }>(c, "select v.definition from workflow_versions v join workflows w on w.id=v.workflow_id and w.current_version=v.version where w.id=$1", [t.workflow_id]);
     let nodes: ReturnType<typeof indexDefinition>["nodes"];

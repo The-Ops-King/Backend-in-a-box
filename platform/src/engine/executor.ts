@@ -9,6 +9,7 @@ import { predicateWords, durationWords } from "./describe";
 import { syncCards, pickCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
+import { contactPasses } from "./mode";
 import { emitEvent } from "./dispatch";
 import { applyOutcome, outcomeTermFor } from "./disposition";
 import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } from "./health";
@@ -16,6 +17,8 @@ import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
+/** A post made before live says which rung it came from, so the team never reads a rehearsal as a real client. */
+const modePrefix = (d: ExecDeps) => (d.company.mode === "live" ? "" : d.company.mode === "shadow" ? SHADOW_PREFIX : `🧪 *${d.company.mode}* — `);
 /** The step's own name/icon, else the company's defaults (bindings slack.name / slack.icon), else the app. A list of icons is handed on whole; the notifier picks one per post. */
 const persona = (d: ExecDeps, as?: { name?: string; icon?: string | string[] }) => ({ name: as?.name ? render(as.name, d.ctx, env(d)) : d.bindings["slack.name"], icon: as?.icon ? (Array.isArray(as.icon) ? as.icon.map((i) => render(i, d.ctx, env(d))) : render(as.icon, d.ctx, env(d))) : d.bindings["slack.icon"] });
 type Person = { name: string; email?: string | null; ghl_user_id?: string | null; slack_user_id?: string | null; mention?: string };
@@ -93,6 +96,8 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
     throw e;
   }
   const channel = node.type === "send_sms" ? "sms" : "email";
+  // D52: the second gate — before live, a message reaches only a contact that passes the mode, whatever run brought us here
+  if (d.run.contact_id) { const pass = await contactPasses(d.c, d.company.id, d.run.contact_id, d.company.mode, d.bindings); if (!pass.ok) { await recordSend(d, node, channel, body, "suppressed", `not a test contact: ${pass.why}`); return { status: "skipped", next, result: { kind: "blocked", why: pass.why, would_send: body.slice(0, 120) } }; } }
   const send = await recordSend(d, node, channel, body, "queued");
   if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already sent (idempotency)" } };
   if (shadow(d)) {
@@ -168,7 +173,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const body = slackUser ? text : `${owner?.name ? `*${owner.name}* ` : ""}${text}`;
       if (!conn || !target) { await recordSend(d, node, "slack", body, "suppressed", conn ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, kind: "blocked", why: conn ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", body, "queued"); if (!send) return { status: "skipped", next, result: { ...out, kind: "noop", why: "already posted (idempotency)" } };
-      const r = await d.adapters.notifier.post(decrypt(conn.bot_token), target, shadow(d) ? `${SHADOW_PREFIX}${body}` : body, persona(d, node.as));
+      const r = await d.adapters.notifier.post(decrypt(conn.bot_token), target, `${modePrefix(d)}${body}`, persona(d, node.as));
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
       return { status: "ok", next, result: { ...out, ...(shadow(d) ? { shadow: true } : {}), dm: !!slackUser, ts: r.ts } };
     }
@@ -217,7 +222,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already posted (idempotency)" } };
       // Slack is the team, not the CRM or the contact: in shadow the post still goes out, marked, so the team sees what the engine would do (D31)
       const token = decrypt(conn.bot_token), postTo = parentTs && parentChannel ? parentChannel : channelId;
-      const r = await d.adapters.notifier.post(token, postTo, shadow(d) && !parentTs ? `${SHADOW_PREFIX}${text}` : text, persona(d, node.as), parentTs);
+      const r = await d.adapters.notifier.post(token, postTo, !parentTs ? `${modePrefix(d)}${text}` : text, persona(d, node.as), parentTs);
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
       setPath(d.ctx, `vars.__slack.${node.id}`, r.ts);
       let reacted = false;

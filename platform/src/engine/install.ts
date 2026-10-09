@@ -33,6 +33,7 @@ export type InstallInput = {
   /** Call recordings. `apiKey` registers Fathom's webhook at install (needs PUBLIC_URL); `webhookSecret` binds one made by hand. Either way the Zapier door is open too. */
   recording?: { source: "fathom"; apiKey?: string; webhookSecret?: string };
   anthropicKey?: string;                 // bound as secret.anthropic_key; the analyze node reads it (env ANTHROPIC_API_KEY is the fallback)
+  testDomains?: string[];                // bound as test.domains: email domains whose contacts pass in test and rehearsal (D52), e.g. ["jtylerray.com"]
   jevKey?: string;                       // bound as secret.jev_key; the classify node reads replies with it (env JEV_API_KEY is the fallback)
   /** Where the engine says what broke (D33): a Slack channel id, email addresses (needs resendKey + emailFrom), a webhook (a Zap). */
   alerts?: { slackChannel?: string; email?: string; emailFrom?: string; webhook?: string; resendKey?: string; asName?: string; asIcon?: string };
@@ -45,7 +46,7 @@ export type InstallInput = {
   templates?: string[];                  // slugs; default all
   enable?: boolean;                      // default false — Tyler's rule: build off, enable deliberately
   smsEnabled?: boolean;                  // default true; false when the sub-account has no number
-  mode?: "shadow" | "live";             // default shadow: nothing is written to the CRM until you say live
+  mode?: import("./mode").Mode;          // default shadow; the ladder is shadow → test → rehearsal → live (D52)
   /** Dark hours. Sends wait for the window; `allowTransactional` lets automated receipts ("you're booked") through at any hour. */
   quietHours?: { start?: string; end?: string; allowTransactional?: boolean };
 };
@@ -105,6 +106,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     const bind = (key: string, kind: string, value: string) =>
       c.query(`insert into bindings (company_id, key, kind, value) values ($1,$2,$3,$4) on conflict (company_id, key) do update set value=excluded.value, updated_at=now()`, [companyId, key, kind, kind === "secret" ? encrypt(value) : Buffer.from(value)]);
     await bind("crm.location_id", "id", input.locationId); await bind("secret.ghl_pit", "secret", pit);
+    if (input.testDomains) await bind("test.domains", "text", input.testDomains.map((d) => d.trim().toLowerCase().replace(/^@/, "")).filter(Boolean).join(","));
     if (booking.source === "calendly") {
       await bind("secret.calendly_token", "secret", booking.token); await bind("calendly.organization", "id", booking.organization);
       await bind("calendly.user", "id", booking.user ?? ""); await bind("calendly.phone_question", "text", booking.phoneQuestion ?? ""); await bind("calendly.setter_question", "text", booking.setterQuestion ?? "");

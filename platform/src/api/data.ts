@@ -172,7 +172,7 @@ export async function contactPage(c: PoolClient, id: string) {
     recordings: recordings.map((r) => ({ id: r.id, at: r.started_at, title: r.title, minutes: r.duration_min, url: r.share_url, provider: r.provider })),
   };
   return { company: co, contact: { id: ct.id, name: `${ct.first_name ?? ""} ${ct.last_name ?? ""}`.trim() || "Contact", phone, email, timezone: ct.timezone ?? co.timezone, tags: ct.tags, since: ct.created_at, crm_url: loc && ct.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${ct.ghl_contact_id}` : null },
-    facts, identifiers: idents.map((i) => [i.kind, i.value] as [string, string]), runs: rows, next, history, harness: { allowed: co.mode === "shadow" } };
+    facts, identifiers: idents.map((i) => [i.kind, i.value] as [string, string]), runs: rows, next, history, harness: { allowed: co.mode !== "live" } };
 }
 
 /** Every wrap-up generated for this company, newest first, exactly as Slack got it (or would have, in shadow). */

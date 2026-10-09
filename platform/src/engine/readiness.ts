@@ -1,6 +1,8 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { parseDefinition } from "./definition";
+import { MODE_WORDS, TEST_DOMAINS_KEY, testDomains, type Mode } from "./mode";
+const bindingsOf = (rows: { key: string; value: Buffer }[]) => Object.fromEntries(rows.map((r) => [r.key, r.value.toString("utf8")]));
 
 /**
  * "Is this ready to be live?" answered from facts, not memory: company mode, Slack connection, every enabled or
@@ -17,7 +19,7 @@ export type Readiness = { ready: boolean; issues: Issue[]; workflows: WorkflowRe
 export const KNOWN_GAPS: Record<string, string[]> = {};   // the no-show half shipped as no-recording-no-show (D36 addendum); nothing is known to be missing today
 
 export async function companyReadiness(c: PoolClient, companyId: string, slugPrefix: string): Promise<Readiness> {
-  const co = (await one<{ mode: string; sms_enabled: boolean }>(c, "select mode, sms_enabled from companies where id=$1", [companyId]))!;
+  const co = (await one<{ mode: Mode; sms_enabled: boolean }>(c, "select mode, sms_enabled from companies where id=$1", [companyId]))!;
   const bound = new Set((await many<{ key: string }>(c, "select key from bindings where company_id=$1", [companyId])).map((b) => b.key));
   const slack = await one(c, "select 1 from slack_connections where company_id=$1", [companyId]);
   const rows = await many<{ id: string; name: string; enabled: boolean; slug: string | null; manifest: { bindings: { key: string; required: boolean }[] }; definition: unknown }>(c, `
@@ -32,7 +34,9 @@ export async function companyReadiness(c: PoolClient, companyId: string, slugPre
     return { id: w.id, name: w.name, slug: w.slug, enabled: w.enabled, missing, optionalUnbound, gaps, placeholders, parseError, ready: !missing.length && !gaps.length && !parseError };
   });
   const issues: Issue[] = [];
-  if (co.mode === "shadow") issues.push({ level: "warning", text: "Company is in shadow: nothing reaches the CRM or the contact until someone presses Go live." });
+  if (co.mode !== "live") issues.push({ level: "warning", text: `Company is in ${co.mode}: ${MODE_WORDS[co.mode].about}.` });
+  if ((co.mode === "test" || co.mode === "rehearsal") && !testDomains(bindingsOf(await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key=$2", [companyId, TEST_DOMAINS_KEY]))).length)
+    issues.push({ level: co.mode === "rehearsal" ? "blocker" : "warning", text: co.mode === "rehearsal" ? "Rehearsal needs a test email domain (test.domains); without one no contact passes." : "No test email domain (test.domains): in test only contacts tagged sys-test pass.", href: `${slugPrefix}/setup` });
   if (!slack) issues.push({ level: "blocker", text: "Slack is not connected: every Slack post (team alerts, booking cards, call reviews, unlinked payments) is recorded but never posted.", href: `${slugPrefix}/setup#slack` });
   if (!co.sms_enabled) issues.push({ level: "warning", text: "SMS is off for this company: text steps are skipped and the run continues." });
   for (const w of workflows) {

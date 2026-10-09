@@ -5,6 +5,7 @@ import { bookingFor } from "@/adapters/types";
 import { parseDefinition, indexDefinition, type Definition } from "./definition";
 import { buildContext, loadCompany, type RunRow } from "./context";
 import { syncCards } from "./cards";
+import { contactPasses } from "./mode";
 import { executeNode, type ExecDeps } from "./executor";
 import type { HealthProbes } from "./health";
 import { deferIntoWindow } from "./waitrule";
@@ -79,6 +80,10 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           report.exited++; if (report.recovery) report.staleExits++; return;
         }
 
+        if (run.contact_id) {   // D52: a run in flight about a contact that no longer passes the mode (the mode moved, the tag came off) stops here, before any write
+          const pass = await contactPasses(c, run.company_id, run.contact_id, company.mode, bindings);
+          if (!pass.ok) { await finish("exited", `not a test contact: ${pass.why}`); await emitEvent(c, { company_id: run.company_id, contact_id: run.contact_id, opportunity_id: run.opportunity_id, appointment_id: run.appointment_id, run_id: run.id, event_type: "run.exited", source: "engine", data: { reason: pass.why } }); report.exited++; return; }
+        }
         if (run.contact_id) {   // D41: the CRM is the truth about cards; `cards.*` in the context reflects it as of now
           const ghlId = (await one<{ ghl_contact_id: string | null }>(c, "select ghl_contact_id from contacts where id=$1", [run.contact_id]))?.ghl_contact_id;
           await syncCards(c, company, adapterCompany, adapters, run.contact_id, ghlId).catch((e: Error) => { console.warn(`run ${run.id}: cards not read from the CRM: ${e.message}`); });

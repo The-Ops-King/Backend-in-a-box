@@ -11,7 +11,7 @@ create table companies (
   send_window_end   time not null default '20:00',
   quiet_allow_transactional boolean not null default false,   -- dark hours: true lets transactional sends ("you're booked") through; human-sounding sends always wait
   sms_enabled       boolean not null default true,      -- false when the sub-account has no number; SMS nodes skip
-  mode              text not null default 'shadow' check (mode in ('shadow','live')),  -- shadow: run everything, write nothing to the CRM, record what would have gone out
+  mode              text not null default 'shadow' check (mode in ('shadow','test','rehearsal','live')),  -- the ladder (D52): shadow writes nothing; test = sys-test contacts and test-domain emails only; rehearsal = test-domain emails only; live = everyone
   status            text not null default 'active'
                     check (status in ('onboarding','active','hosted','archived')),
   archived_at       timestamptz,
@@ -476,7 +476,7 @@ create table runs (
   pending_events      jsonb not null default '[]',          -- triggers that arrived while this run held the once-per key; replayed if the run stops at a gate (D30)
   claimed_at          timestamptz,                         -- scheduler lease
   claimed_by          text,
-  born_in             text not null default 'live' check (born_in in ('shadow','live')),   -- the company's mode when the run started; shadow-born runs are cleared at Go live (D51)
+  born_in             text not null default 'live' check (born_in in ('shadow','test','rehearsal','live')),   -- the company's mode when the run started; runs not born live are cleared at Go live (D51)
   started_at          timestamptz not null default now(),
   finished_at         timestamptz,
   unique (workflow_id, reentry_key)
