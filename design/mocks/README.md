@@ -7,6 +7,7 @@ on the table and the chosen one selected on load. They are the reference for the
 | File | Section | Chosen |
 |---|---|---|
 | `flow-chart.html` | The flow chart | Option 4, "Groups": vertical, one node per step, the branch as a fork, reminders as their own conditional nodes; wraps to two columns on a phone, never side-scrolls |
+| `page-header.html` | The top of the workflow page | Option 3, "Numbers": the way back on its own line, the name with the on/off switch at the right of the same line, the tags (stage, origin, shadow) with when it last ran, the description, then four count tiles on one line at every width |
 | `who-went-through-it.html` | The people who went through the workflow | Option 3, "Progress": one row per person, a strip across the row with one segment per step on that person's path; tap for the step list |
 
 Colors are the "Slate" set defined at the top of each file (dark only). The strip and the step list are

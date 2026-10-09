@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Workflow Page Header</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap">
+<style>
+/* The top of a workflow's page: name, on/off, the counts. Five layouts, one at a time. Slate tokens, dark only. Nothing scrolls sideways. */
+:root{--bg:#111214;--panel:#191a1d;--panel-2:#222327;--panel-3:#2b2c31;--fg:#f0f0f2;--fg-2:#a3a4ab;--fg-3:#6e6f76;--line:#2e2f36;--edge:#3a3b43;--acc:#f0b429;--acc-ink:#2a1e04;--ok:#5bd087;--ok-bg:#1a3b27;--warn:#ff8a5b;--warn-bg:#3f2316;--cond:#8fb7ff;--cond-bg:#1c2a44;--wait:#a78bfa;--wait-bg:#2a2340;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:"Outfit",system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;padding-block:0 60px;padding-inline:16px}
+*{box-sizing:border-box}
+button{font:inherit}
+a{color:inherit}
+.wrap{max-width:760px;margin:0 auto}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding-block:18px 8px}
+.bar h1{font-size:15px;font-weight:600;margin:0 12px 0 0}
+.bar .grp{display:flex;flex-wrap:wrap;gap:8px}
+.bar button{font-size:13px;font-weight:600;background:var(--panel);color:var(--fg-2);border:1px solid var(--line);border-radius:999px;padding:7px 13px;cursor:pointer}
+.bar button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.bar button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.note{color:var(--fg-2);font-size:13px;line-height:1.5;margin:0 0 14px}
+.tnum{font-variant-numeric:tabular-nums}
+.caption{margin-top:14px;color:var(--fg-2);font-size:13px;line-height:1.5}
+/* the page frame the header sits in: a faint stand-in for the sections below it */
+.page{background:var(--panel);border-radius:14px;padding:18px 16px 16px;position:relative;overflow:hidden}
+.below{margin-top:22px;border-top:1px solid var(--line);padding-top:14px;display:grid;gap:10px}
+.below i{display:block;height:12px;border-radius:6px;background:var(--panel-2)}
+.below i:nth-child(1){width:38%}.below i:nth-child(2){width:72%}.below i:nth-child(3){width:55%}
+/* pieces shared by every layout */
+.crumb{display:flex;align-items:center;gap:6px;color:var(--fg-3);font-size:13px;font-weight:500;text-decoration:none;min-width:0}
+.crumb svg{width:14px;height:14px;flex:none}
+.crumb span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crumb:hover{color:var(--fg-2)}
+.name{margin:0;font-size:26px;font-weight:700;letter-spacing:-.01em;line-height:1.15}
+.desc{margin:0;color:var(--fg-2);font-size:14px;line-height:1.45}
+.tag{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--panel-2);color:var(--fg-2);white-space:nowrap}
+.tag.spec{background:var(--cond-bg);color:var(--cond)}
+.tag.shadow{background:var(--wait-bg);color:var(--wait)}
+/* the switch: a pill and a knob, no box around it, the word next to it */
+.sw{display:inline-flex;align-items:center;gap:9px;background:none;border:0;padding:0;color:var(--fg);cursor:pointer;border-radius:999px}
+.sw .k{position:relative;width:42px;height:24px;border-radius:999px;background:var(--panel-3);transition:background .15s;flex:none}
+.sw .k::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--fg);transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.sw[aria-checked="true"] .k{background:var(--ok)}
+.sw[aria-checked="true"] .k::after{transform:translateX(18px);background:#0f2419}
+.sw .w{font-size:13.5px;font-weight:600;color:var(--fg-2)}
+.sw[aria-checked="true"] .w{color:var(--fg)}
+.sw:hover .k{filter:brightness(1.12)}
+.sw:focus-visible{outline:2px solid var(--acc);outline-offset:4px}
+.sw.big .k{width:50px;height:28px}
+.sw.big .k::after{width:22px;height:22px}
+.sw.big[aria-checked="true"] .k::after{transform:translateX(22px)}
+.sw.big .w{font-size:14.5px}
+/* the counts: four numbers on one line, always */
+.counts{display:flex;flex-wrap:nowrap;gap:4px 16px;font-size:13.5px;color:var(--fg-2);margin:0;white-space:nowrap}
+@media (max-width:420px){.counts{font-size:12.5px;gap:4px 12px}.counts.dots span+span::before{margin:0 6px}}
+.counts b{color:var(--fg);font-weight:700}
+.counts .f b{color:var(--warn)}
+.counts .h b{color:var(--wait)}
+.counts.dots{gap:0}
+.counts.dots span+span::before{content:"·";margin:0 8px;color:var(--fg-3)}
+/* 1 · Stack */
+.l1{display:grid;gap:10px}
+.l1 .top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.l1 .ttl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+/* 2 · One bar */
+.l2 .row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.l2 .row .name{margin-right:auto}
+.l2 .row2{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:8px}
+/* 3 · Numbers */
+.l3 .state{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.l3 .nums{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:16px}
+.l3 .nums div{background:var(--panel-2);border-radius:10px;padding:10px 12px;min-width:0}
+.l3 .nums b{display:block;font-size:22px;font-weight:700;line-height:1.1}
+.l3 .nums small{display:block;color:var(--fg-2);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.l3 .nums .h b{color:var(--wait)}.l3 .nums .f b{color:var(--warn)}
+@media (max-width:420px){.l3 .nums b{font-size:19px}.l3 .nums div{padding:9px 9px}}
+/* 4 · Sentence */
+.l4{display:grid;gap:8px}
+.l4 .sent{margin:4px 0 0;font-size:14.5px;color:var(--fg-2);line-height:1.5}
+.l4 .sent b{color:var(--fg);font-weight:700}
+.l4 .sent .f{color:var(--warn);font-weight:700}
+.l4 .sent .h{color:var(--wait);font-weight:700}
+.l4 .ctl{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:4px}
+/* 5 · Split */
+.l5{display:grid;gap:14px}
+@media (min-width:600px){.l5{grid-template-columns:minmax(0,1fr) auto;align-items:start}}
+.l5 .left{display:grid;gap:8px;min-width:0}
+.l5 .right{display:grid;gap:10px;justify-items:start}
+@media (min-width:600px){.l5 .right{justify-items:end;text-align:right}}
+.l5 .right .counts{display:flex}
+@media (min-width:600px){.l5 .right .counts{display:grid;gap:3px;justify-items:inherit}}
+.l5 .right .counts span{white-space:nowrap}
+.sec[hidden]{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar"><h1>Page header, five layouts</h1><div class="grp" id="pick"></div></div>
+  <p class="note">The top of a workflow's page: the name, the on/off switch like Zapier's (a pill, no box around it), the four counts on one line, and the way back to the company. Tap the switch; it flips.</p>
+  <div class="page"><div id="body"></div><div class="below"><i></i><i></i><i></i></div></div>
+  <p class="caption" id="cap"></p>
+</div>
+<script>
+  var I={back:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-6 6 6 6"/></svg>'};
+  var W={co:"Save Your Hair",name:"Pre-call sequence",desc:"Booking email and text, a reply wait, then reminders down to ten minutes before the call.",stage:"Pre-call",origin:"your spec",shadow:true,on:true,people:8,flight:3,done:4,failed:1,last:"today 2:14 PM"};
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  function crumb(){return '<a class="crumb" href="#">'+I.back+'<span>'+esc(W.co)+'</span></a>';}
+  function sw(big){return '<button class="sw'+(big?' big':'')+'" role="switch" aria-checked="'+W.on+'"><span class="k"></span><span class="w">'+(W.on?'On':'Off')+'</span></button>';}
+  function tags(){return '<span class="tag">'+esc(W.stage)+'</span><span class="tag spec">'+esc(W.origin)+'</span>'+(W.shadow?'<span class="tag shadow">shadow</span>':'');}
+  function counts(cls){return '<p class="counts '+(cls||'')+' tnum"><span><b>'+W.people+'</b> people</span><span class="h"><b>'+W.flight+'</b> in flight</span><span><b>'+W.done+'</b> finished</span><span class="f"><b>'+W.failed+'</b> failed</span></p>';}
+  var L={
+    1:["Stack","Top to bottom: the way back, then the name with the switch at its right, the one line of what it does, the counts. The stage, where it came from and shadow sit as small tags next to the name; on a narrow phone they wrap under it.",function(){return '<div class="l1">'+crumb()+'<div class="top"><div class="ttl"><h2 class="name">'+esc(W.name)+'</h2>'+tags()+'</div>'+sw()+'</div><p class="desc">'+esc(W.desc)+'</p>'+counts('dots')+'</div>';}],
+    2:["One bar","Everything on one bar: name on the left, the switch on the right, the counts between them. On a phone the bar wraps into two lines, counts first, switch last. The way back and the tags sit on a thin line above.",function(){return '<div class="l2"><div class="row" style="margin-bottom:10px;gap:10px">'+crumb()+'<span style="flex:1"></span>'+tags()+'</div><div class="row"><h2 class="name">'+esc(W.name)+'</h2>'+counts('dots')+sw()+'</div><div class="row2"><p class="desc">'+esc(W.desc)+'</p></div></div>';}],
+    3:["Numbers","The counts are four tiles in a row, the number big and the word under it, one line at every width. The way back on top; the switch on the right of the name's line, centred on it; then the tags with when it last ran, and the description.",function(){return '<div class="l3">'+crumb()+'<div class="state" style="justify-content:space-between;align-items:center;flex-wrap:nowrap;margin-top:10px;margin-bottom:0"><h2 class="name" style="min-width:0;overflow-wrap:anywhere">'+esc(W.name)+'</h2>'+sw()+'</div><div class="state" style="margin-top:8px">'+tags()+'<span style="color:var(--fg-3);font-size:12.5px">last ran '+esc(W.last)+'</span></div><p class="desc" style="margin-top:2px">'+esc(W.desc)+'</p><div class="nums tnum"><div><b>'+W.people+'</b><small>people</small></div><div class="h"><b>'+W.flight+'</b><small>in flight</small></div><div><b>'+W.done+'</b><small>finished</small></div><div class="f"><b>'+W.failed+'</b><small>failed</small></div></div></div>';}],
+    4:["Sentence","The counts read as one sentence instead of four labels: \"8 went through it, 3 are in flight, 4 finished, 1 failed.\" The switch is bigger and sits under the description with the tags beside it, so the top of the page is just the name.",function(){return '<div class="l4">'+crumb()+'<h2 class="name">'+esc(W.name)+'</h2><p class="desc">'+esc(W.desc)+'</p><p class="sent tnum"><b>'+W.people+'</b> went through it, <span class="h">'+W.flight+'</span> are in flight, <b>'+W.done+'</b> finished, <span class="f">'+W.failed+'</span> failed. Last ran '+esc(W.last)+'.</p><div class="ctl">'+sw(true)+tags()+'</div></div>';}],
+    5:["Split","Two columns on a laptop: name, tags and description on the left; the switch and the counts stacked on the right, numbers aligned. On a phone the right column drops under the left, counts back on one line.",function(){return '<div class="l5"><div class="left">'+crumb()+'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 class="name">'+esc(W.name)+'</h2>'+tags()+'</div><p class="desc">'+esc(W.desc)+'</p></div><div class="right">'+sw()+counts()+'</div></div>';}]
+  };
+  var cur='3';
+  var pick=document.getElementById('pick');
+  Object.keys(L).forEach(function(k){var b=document.createElement('button');b.textContent=k+' · '+L[k][0];b.setAttribute('aria-pressed',k===cur);b.addEventListener('click',function(){cur=k;draw();});pick.appendChild(b);});
+  function draw(){document.getElementById('body').innerHTML=L[cur][2]();document.getElementById('cap').textContent=L[cur][1];pick.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-pressed',b.textContent.charAt(0)===cur);});}
+  document.getElementById('body').addEventListener('click',function(e){var s=e.target.closest('.sw');if(!s)return;W.on=!W.on;s.setAttribute('aria-checked',W.on);s.querySelector('.w').textContent=W.on?'On':'Off';});
+  draw();
+</script>
+</body>
+</html>

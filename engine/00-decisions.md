@@ -1074,6 +1074,9 @@ The direction was settled section by section from mocks (`design/mocks/`), dark 
   in words, the date as short as it can be. A branch that ends on purpose (cancelled, rescheduled) is a completion:
   check and a full green strip. Tapping a row shows the same steps as a list, from the same data as the strip.
 - Purple is "waiting", orange is "failed", blue is "a condition said no". Nothing else borrows those colors.
-- The page header: the workflow's name, an on/off toggle like Zapier's (no button chrome around it), and the counts
-  on one line. "Ran" as a badge meant nothing to Tyler and is gone.
-- Still to mock, in this order: the header, the company page's workflow list, the run and contact pages, settings.
+- The page header, top to bottom: the way back to the company; the workflow's name with the on/off switch (a pill like
+  Zapier's, no box around it) at the right of the same line, centred on the title even when it wraps; the tags (stage,
+  "your spec" or "default", "shadow") with when it last ran; one line of what it does; then four tiles on one line at
+  every width: people, in flight, finished, failed, the number big and the word under it. "Ran" as a badge meant
+  nothing to Tyler and is gone.
+- Still to mock, in this order: the company page's workflow list, the run and contact pages, settings.
