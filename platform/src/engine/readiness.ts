@@ -12,9 +12,7 @@ export type WorkflowReadiness = { id: string; name: string; slug: string | null;
 export type Readiness = { ready: boolean; issues: Issue[]; workflows: WorkflowReadiness[] };
 
 /** What a template cannot do yet, by slug. Remove the entry when the piece ships; the UI stops warning on its own. */
-export const KNOWN_GAPS: Record<string, string[]> = {
-  "call-recorded": ["No-show half is not built: an appointment with no recording after it ended is not marked no-show yet (01-open #24)."],
-};
+export const KNOWN_GAPS: Record<string, string[]> = {};   // the no-show half shipped as no-recording-no-show (D36 addendum); nothing is known to be missing today
 
 export async function companyReadiness(c: PoolClient, companyId: string, slugPrefix: string): Promise<Readiness> {
   const co = (await one<{ mode: string; sms_enabled: boolean }>(c, "select mode, sms_enabled from companies where id=$1", [companyId]))!;
