@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Run Page Layouts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap">
+<style>
+/* One person's run of a workflow: what happened, what went out, where they are on the chart. Five structures. Slate tokens, dark only. Nothing scrolls sideways. */
+:root{--bg:#111214;--panel:#191a1d;--panel-2:#222327;--panel-3:#2b2c31;--fg:#f0f0f2;--fg-2:#a3a4ab;--fg-3:#6e6f76;--line:#2e2f36;--edge:#3a3b43;--acc:#f0b429;--acc-ink:#2a1e04;--ok:#5bd087;--ok-bg:#1a3b27;--warn:#ff8a5b;--warn-bg:#3f2316;--cond:#8fb7ff;--cond-bg:#1c2a44;--wait:#a78bfa;--wait-bg:#2a2340;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:"Outfit",system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;padding-block:0 60px;padding-inline:16px}
+*{box-sizing:border-box}
+button{font:inherit}
+a{color:inherit}
+.wrap{max-width:860px;margin:0 auto}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding-block:18px 8px}
+.bar h1{font-size:15px;font-weight:600;margin:0 12px 0 0}
+.bar .grp{display:flex;flex-wrap:wrap;gap:8px}
+.bar button{font-size:13px;font-weight:600;background:var(--panel);color:var(--fg-2);border:1px solid var(--line);border-radius:999px;padding:7px 13px;cursor:pointer}
+.bar button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.bar.runs button[aria-pressed="true"]{background:var(--wait);color:#1a1230;border-color:var(--wait)}
+.note{color:var(--fg-2);font-size:13px;line-height:1.5;margin:0 0 14px}
+.tnum{font-variant-numeric:tabular-nums}
+.caption{margin-top:14px;color:var(--fg-2);font-size:13px;line-height:1.5}
+.page{background:var(--panel);border-radius:14px;padding:18px 16px 16px;position:relative}
+.crumb{display:flex;align-items:center;gap:6px;color:var(--fg-3);font-size:13px;font-weight:500;text-decoration:none;min-width:0;flex-wrap:wrap}
+.crumb svg{width:14px;height:14px;flex:none}
+.crumb a{text-decoration:none}
+.crumb a:hover{color:var(--fg-2)}
+.name{margin:0;font-size:26px;font-weight:700;letter-spacing:-.01em;line-height:1.15;min-width:0;overflow-wrap:anywhere}
+.hdr{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px}
+.state{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;color:var(--fg-2);font-size:13.5px}
+.pill{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--panel-2);color:var(--fg-2);white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.pill svg{width:13px;height:13px}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.here{background:var(--wait-bg);color:var(--wait)}.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.shadow{background:var(--wait-bg);color:var(--wait)}
+.btn{background:none;border:1px solid var(--edge);color:var(--fg);border-radius:999px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-block}
+.btn:hover{background:var(--panel-2)}
+h3.sec{margin:22px 0 8px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+h3.sec:first-child{margin-top:0}
+/* the steps, same rows as the sheet on the runs list */
+.steps{display:flex;flex-direction:column}
+.steps .s{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.steps .s:first-child{border-top:0}
+.steps .s .t{font-weight:600;min-width:0;font-size:14px}
+.steps .s .t small{display:block;font-weight:400;color:var(--fg-2);font-size:12.5px;white-space:normal;line-height:1.4}
+.steps .s .w{color:var(--fg-3);font-size:12px;white-space:nowrap;text-align:right}
+.steps .s.skip .t{color:var(--fg-3)}.steps .s.skip .t small{color:var(--cond)}
+.steps .s.warn .t small{color:var(--warn)}
+.steps .s.next .t,.steps .s.next .w{color:var(--fg-3);font-weight:500}
+.steps .s.here .w{color:var(--wait)}
+.ic{display:inline-grid;place-items:center;width:22px;height:22px;flex:none;color:var(--fg-3)}
+.ic svg{width:18px;height:18px}
+.ic.ok{color:var(--ok)}.ic.here{color:var(--wait)}.ic.warn{color:var(--warn)}.ic.skip{color:var(--cond)}
+/* messages: what went out and what came back, the words */
+.msgs{display:flex;flex-direction:column;gap:8px}
+.msg{display:grid;gap:4px;max-width:92%}
+.msg .m{font-size:12px;color:var(--fg-3);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.msg .m b{color:var(--fg-2);font-weight:600}
+.msg .b{background:var(--panel-2);border-radius:12px 12px 12px 4px;padding:9px 12px;font-size:13.5px;line-height:1.45;white-space:pre-wrap}
+.msg.in{justify-self:end}
+.msg.in .m{justify-content:flex-end}
+.msg.in .b{background:var(--wait-bg);border-radius:12px 12px 4px 12px}
+.msg.slack .b{border-left:3px solid var(--cond);border-radius:4px 12px 12px 4px}
+.msg.email .b{border-left:3px solid var(--fg-3);border-radius:4px 12px 12px 4px}
+.msg.shadow .b{border:1px dashed var(--edge);background:none}
+.feed .f.has{cursor:pointer}
+.feed .f.has .t .pk{display:inline-flex;align-items:center;gap:4px;color:var(--fg-3);font-weight:500;font-size:12px;margin-left:8px;white-space:nowrap}
+.feed .f.has .t .pk svg{width:12px;height:12px;transition:transform .15s}
+.feed .f.has.open .t .pk svg{transform:rotate(90deg)}
+.feed .f .b[hidden]{display:none}
+.feed .f:hover{background:var(--panel-2);margin-inline:-8px;padding-inline:8px;border-radius:8px}
+/* the chart */
+.chart{overflow:hidden}
+.chart svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.chart text{font-family:inherit;font-weight:600;font-size:12.5px;pointer-events:none}
+.chart .nd{cursor:pointer}
+.chart .cap{font-size:11px;font-weight:600;fill:var(--fg-3)}
+.chart .lbl{font-size:11px;font-weight:600;fill:var(--fg-2)}
+.chart .wide{display:none}
+@media (min-width:700px){.chart .wide{display:block}.chart .narrow{display:none}.l3 .chart .wide{display:none}.l3 .chart .narrow{display:block}}
+.chart .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--fg-3);margin-top:8px}
+/* next up */
+.next .s{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:8px 0;border-top:1px solid var(--line);align-items:center;font-size:14px}
+.next .s:first-child{border-top:0}
+.next .s small{display:block;color:var(--fg-2);font-size:12.5px;font-weight:400}
+.next .s .w{color:var(--fg-2);font-size:12.5px;white-space:nowrap;text-align:right}
+.next .s .w b{display:block;color:var(--fg);font-weight:600;font-size:13px}
+/* advanced */
+details.adv{margin-top:18px;border-top:1px solid var(--line);padding-top:10px}
+details.adv summary{cursor:pointer;color:var(--fg-3);font-size:13px;font-weight:600}
+details.adv pre{font-size:12px;color:var(--fg-2);background:var(--panel-2);border-radius:10px;padding:10px 12px;overflow:auto;max-height:200px;margin:10px 0 0}
+/* structures */
+.l3{display:grid;gap:18px}
+@media (min-width:700px){.l3{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.tabs button{font-size:13px;font-weight:600;background:var(--panel-2);color:var(--fg-2);border:0;border-radius:999px;padding:7px 13px;cursor:pointer}
+.tabs button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.feed .f{display:grid;grid-template-columns:22px minmax(0,1fr);gap:10px;padding:8px 0;border-top:1px solid var(--line);align-items:start}
+.feed .f:first-child{border-top:0}
+.feed .f .t{font-weight:600;font-size:14px;display:block;min-width:0}
+.feed .f .t small{display:block;color:var(--fg-2);font-weight:400;font-size:12.5px}
+.feed .f .t .d{color:var(--fg-3);font-weight:500;font-size:12px;margin-left:8px}
+.feed .f .b{display:block;margin-top:6px;background:var(--panel-2);border-radius:10px;padding:8px 11px;font-size:13.5px;line-height:1.45;white-space:pre-wrap;max-width:560px}
+.feed .f.in .b{background:var(--wait-bg)}
+.feed .f .b.slack{border-left:3px solid var(--cond)}
+.feed .f .b.email{border-left:3px solid var(--fg-3)}
+.feed .f.skip .t{color:var(--fg-3)}.feed .f.skip .t small{color:var(--cond)}
+.feed .f.warn .t small{color:var(--warn)}
+.sec[hidden]{display:none}
+.pop{position:fixed;z-index:9;width:min(340px,calc(100vw - 32px));background:var(--panel-2);border:1px solid var(--edge);border-radius:12px;padding:14px 16px;box-shadow:0 14px 34px rgba(0,0,0,.5);font-size:13.5px;line-height:1.45}
+.pop[hidden]{display:none}
+.pop h4{margin:0 0 4px;font-size:14px;font-weight:700;padding-right:20px}
+.pop .m{color:var(--fg-2);margin:0 0 6px}
+.pop .q{background:var(--panel-3);border-left:3px solid var(--acc);padding:8px 10px;border-radius:0 8px 8px 0;margin-top:8px;white-space:pre-wrap}
+.pop .x{position:absolute;top:8px;right:10px;background:none;border:0;color:var(--fg-3);font-size:18px;cursor:pointer;line-height:1}
+.feed .f .t small[hidden]{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar"><h1>Run page, five structures</h1><div class="grp" id="pick"></div></div>
+  <div class="bar runs"><div class="grp" id="runbar"></div></div>
+  <p class="note">One person's run of the pre-call sequence. Every structure has the same five parts: the header (who, which workflow, where it stands), the steps (the same rows as the sheet on the runs list), the messages (what went out and what came back, the words), what happens next, and the chart with this run's path lit. On a phone the chart shows only the path this run took; on a laptop the whole chart with the path lit.</p>
+  <div class="page" id="body"></div>
+  <p class="caption" id="cap"></p>
+</div>
+<div class="pop" id="pop" hidden role="dialog"><button class="x" aria-label="Close">×</button><div id="popc"></div></div>
+<script>
+(function(){
+  var ICON={
+    check:'<path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+    clock:'<circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 6v4.5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    warn:'<path d="M10 3l8 14H2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 9v3.5M10 14.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    cond:'<path d="M6 4v12M6 8c0 3 8 1 8 5M14 13l-2-2M14 13l2-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+    skip:'<circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 10h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+  };
+  // The graph. kind: trig send wait fork tag slack crm end. cond: shown with the blue mark, explained in the popover. wait: the node waits first.
+  var N={
+    t1:{t:"Appointment booked",k:"trig",d:"Starts when a closing call is booked on a closer's calendar.",kv:"Runs once per appointment. A reschedule moves every wait with it."},
+    e1:{t:"Booking email",k:"send",d:"Sent right away.",q:"You're booked: Fri, Oct 9 at 2:00pm — reply to lock it in\n\nHey Jane, your spot for Friday, October 9 at 2:00pm with Allan isn't locked yet: reply CONFIRM to lock it in."},
+    s1:{t:"Booking text",k:"send",d:"Sent right away, inside the send window.",q:"Hey Jane, your call with Allan is booked for Fri, Oct 9 at 2:00pm. Reply with an emoji to lock in your spot."},
+    w1:{t:"Wait for a reply",m:"up to 4 hours",k:"wait",d:"Moves the moment they reply. After 4 hours with nothing, carries on as No reply."},
+    b1:{t:"What did they say?",k:"fork",d:"The AI reads the reply and picks one of four. No reply is the fifth way out."},
+    c1:{t:"Tag confirmed",k:"tag",d:"The contact gets the tag confirmed in the CRM."},
+    u1:{t:"Tag unconfirmed",k:"tag",d:"The contact gets the tag unconfirmed."},
+    u2:{t:"Tell the closers",k:"slack",d:"Posted to the closers' channel.",q:"Jane Doe hasn't confirmed their call tomorrow at 2:00pm with @allan. No reply to the booking text in 4 hours."},
+    x1:{t:"Mark cancelled",k:"crm",d:"The appointment is marked cancelled."},
+    x2:{t:"Tell the closers",k:"slack",d:"Posted to the closers' channel.",q:"Jane cancelled their call tomorrow at 2:00pm."},
+    x3:{t:"Stop",k:"end",d:"The sequence ends here."},
+    r1:{t:"Text a new time",k:"send",d:"The booking link, so they pick a new slot.",q:"No problem — grab a new time here: {{calendar.closer_call.url}}"},
+    r2:{t:"Stop",k:"end",d:"The sequence ends here. A new booking starts a new one."},
+    h1:{t:"Tag needs a human",k:"tag",d:"The reply could not be read with confidence."},
+    h2:{t:"Note on the contact",k:"crm",d:"The reply and the AI's best guesses, on the contact for whoever picks it up."},
+    h3:{t:"Pause other workflows",k:"crm",d:"Nothing else texts this person until a human has replied."},
+    h4:{t:"Handed to a human",k:"end",d:"The sequence ends here."},
+    m72:{t:"Text",m:"3 days before",k:"send",wait:true,cond:"Only when the call is more than 60 hours away when this comes due. Between 8am and 9pm their time.",q:"Hey Jane, your call with Allan is in 3 days."},
+    m48:{t:"Text",m:"2 days before",k:"send",wait:true,cond:"Only when the call is more than 36 hours away. Between 8am and 9pm their time.",q:"Hey Jane, two days until your call with Allan."},
+    m24e:{t:"Email",m:"24 hours before",k:"send",wait:true,cond:"Only when the call is more than 18 hours away.",q:"Tomorrow: your call with Allan\n\nHey Jane, your call is Friday at 2:00pm."},
+    m24s:{t:"Text",m:"24 hours before",k:"send",wait:true,cond:"Only when the call is more than 18 hours away. Between 8am and 9pm their time.",q:"Hey Jane, your call with Allan is tomorrow (Friday at 2:00pm)."},
+    mm:{t:"Text",m:"morning of, 8am",k:"send",wait:true,cond:"Only for calls at 11am or later.",q:"Morning Jane, your call with Allan is today at 2:00pm."},
+    m1:{t:"Text",m:"1 hour before",k:"send",wait:true,cond:"Not before 7am their time. Skipped under 15 minutes.",q:"Hey Jane, your call with Allan is in an hour (2:00pm)."},
+    m10:{t:"Text",m:"10 minutes before",k:"send",wait:true,d:"Always.",q:"Jane, Allan will call you in 10 minutes."},
+    dn:{t:"Done",k:"end",d:"Every reminder went out, or was skipped by its condition."}
+  };
+  var SPINE=["t1","e1","s1","w1","b1"], REM=["m72","m48","m24e","m24s","mm","m1","m10","dn"];
+  var BR=[{l:"Confirmed",s:["c1"],go:true},{l:"No reply · tell the closers",s:["u1","u2"],go:true},{l:"Cancelled",s:["x1","x2","x3"]},{l:"Reschedule",s:["r1","r2"]},{l:"Unclear",s:["h1","h2","h3","h4"]}];
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  function stateOf(id){var st=RUNS[cur.r].s;if(!st)return null;if(st.here===id)return 'here';if((st.fail||[]).indexOf(id)>=0)return 'warn';if((st.skip||[]).indexOf(id)>=0)return 'skip';if(st.done.indexOf(id)>=0)return 'ok';return 'todo';}
+  function wid(id){var n=N[id];var s=n.t+(n.m?' · '+n.m:'');var w=s.length*6.9+34+(n.wait?16:0)+(n.cond?18:0);return Math.max(n.k==='end'?64:96,Math.round(w));}
+  // one node: a rounded box, an optional clock (it waits), an optional condition mark, a state badge in the corner when a run is shown
+  function node(id,x,y,w){var n=N[id],k=n.k,st=stateOf(id);w=w||wid(id);var h=34,H=y-h/2;
+    var fill=k==='trig'?T.acc:k==='end'?'none':k==='fork'?T['panel-3']:T['panel-2'];var stroke=k==='trig'?T.acc:k==='end'?T['fg-3']:T.edge;var ink=k==='trig'?T['acc-ink']:k==='end'?T['fg-2']:T.fg;
+    var dim=st==='skip'||st==='todo';var op=dim?(st==='skip'?.42:.55):1;
+    var g='<g class="nd" tabindex="0" data-id="'+id+'" style="opacity:'+op+'"><rect class="b" x="'+(x-w/2)+'" y="'+H+'" width="'+w+'" height="'+h+'" rx="'+(k==='end'?17:9)+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="1.5"'+(k==='fork'?' transform="rotate(0)"':'')+'/>';
+    var tx=x-w/2+14,cy=y;
+    if(n.wait){g+='<g transform="translate('+(tx-2)+','+(cy-8)+') scale(.8)" style="color:'+T['fg-2']+'">'+ICON.clock+'</g>';tx+=18;}
+    g+='<text x="'+tx+'" y="'+(cy+4.5)+'" fill="'+ink+'">'+esc(n.t)+(n.m?'<tspan fill="'+(k==='trig'?T['acc-ink']:T['fg-2'])+'" font-weight="500"> · '+esc(n.m)+'</tspan>':'')+'</text>';
+    if(n.cond){g+='<g transform="translate('+(x+w/2-26)+','+(cy-8)+') scale(.8)" style="color:'+T.cond+'">'+ICON.cond+'</g>';}
+    if(st&&st!=='todo'&&st!=='skip'){var col=st==='ok'?T.ok:st==='here'?T.wait:T.warn,bg=st==='ok'?T['ok-bg']:st==='here'?T['wait-bg']:T['warn-bg'];g+='<g transform="translate('+(x+w/2-10)+','+(H-10)+')"><circle cx="10" cy="10" r="10" fill="'+bg+'"/><g style="color:'+col+'" transform="translate(3,3) scale(.7)">'+ICON[st==='ok'?'check':st==='here'?'clock':'warn']+'</g></g>';}
+    if(st==='skip'){g+='<g transform="translate('+(x+w/2-10)+','+(H-10)+')"><circle cx="10" cy="10" r="10" fill="'+T['cond-bg']+'"/><g style="color:'+T.cond+'" transform="translate(3,3) scale(.7)">'+ICON.skip+'</g></g>';}
+    return g+'</g>';}
+  function edge(x1,y1,x2,y2,lbl,lx,ly,anchor){var my=(y1+y2)/2;var p='<path d="M'+x1+' '+y1+' C'+x1+' '+my+' '+x2+' '+my+' '+x2+' '+y2+'" fill="none" stroke="'+T.edge+'" stroke-width="1.6"/>';if(lbl)p+='<text class="lbl" x="'+(lx!=null?lx:(x1+x2)/2)+'" y="'+(ly!=null?ly:my-6)+'" text-anchor="'+(anchor||'middle')+'">'+esc(lbl)+'</text>';return p;}
+  function vline(x,y1,y2){return '<path d="M'+x+' '+y1+' V'+y2+'" stroke="'+T.edge+'" stroke-width="1.6"/>';}
+  function spineAndRem(x,gap,y0,startRemY,W,out){var y=y0;SPINE.forEach(function(id,i){if(i)out.push(edge(x,y-gap+17,x,y-17));out.push(node(id,x,y));y+=gap;});var fy=y-gap;var ry=startRemY;REM.forEach(function(id,i){if(i)out.push(edge(x,ry-gap+17,x,ry-17));out.push(node(id,x,ry));ry+=gap;});return {fy:fy,remTop:startRemY,bottom:ry-gap+30};}
+  function svg(W,H,parts){return '<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" role="img" aria-label="Flow chart of the pre-call sequence">'+parts.join('')+'</svg>';}
+
+  // 4 · Groups: each branch is a labeled rounded group, side by side; the groups that continue connect back to the spine.
+  function L4(){var W=900,x=450,gap=52,out=[];var fy=30+4*gap;var gy=fy+70;var gw=160,gxs=[90,270,450,630,810];var deep=Math.max.apply(null,BR.map(function(b){return b.s.length;}));var gh=28+deep*gap;var remTop=gy+gh+50;
+    var o=spineAndRem(x,gap,30,remTop,W,out);
+    BR.forEach(function(b,i){var gx=gxs[i];var st=RUNS[cur.r].s,on=st&&st.path&&st.path.indexOf(b.s[0])>=0;out.push('<rect x="'+(gx-gw/2)+'" y="'+gy+'" width="'+gw+'" height="'+(28+b.s.length*gap-18)+'" rx="12" fill="'+T.panel+'" stroke="'+(on?T.acc:T.line)+'" stroke-width="1.5"'+(on?'':' stroke-dasharray="0"')+'/>');out.push('<text class="cap" x="'+gx+'" y="'+(gy+16)+'" text-anchor="middle" fill="'+(on?T.acc:T['fg-3'])+'">'+esc(b.l.toUpperCase())+'</text>');out.push(edge(x,fy+17,gx,gy));var yy=gy+42;b.s.forEach(function(id,j){if(j)out.push(edge(gx,yy-gap+17,gx,yy-17));out.push(node(id,gx,yy,Math.min(wid(id),gw-20)));yy+=gap;});if(b.go)out.push(edge(gx,gy+28+b.s.length*gap-18,x,remTop-17));});
+    return {svg:svg(W,o.bottom,out),sub:"Each outcome is a labeled group. The run's own branch lights up in amber.",cap:"The clearest picture of 'five ways out of the fork' and the widest. Best on a laptop; scrolls on a phone."};}
+
+  var SVGI={check:'<svg viewBox="0 0 20 20">'+ICON.check+'</svg>',clock:'<svg viewBox="0 0 20 20">'+ICON.clock+'</svg>',warn:'<svg viewBox="0 0 20 20">'+ICON.warn+'</svg>',skip:'<svg viewBox="0 0 20 20">'+ICON.skip+'</svg>',back:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-6 6 6 6"/></svg>'};
+  var RUNS=[
+    {n:"Chris Wake · done",who:"Chris Wake",st:"ok",word:"Finished",started:"Oct 8 · 4:41 PM",call:"Thu Oct 9 · 2:00 PM",closer:"Allan",
+     s:{done:["t1","e1","s1","w1","b1","u1","u2","m24e","m24s","m1","m10","dn"],skip:["m72","m48","mm"],path:["u1","u2"]},
+     steps:[["t1","ok","Oct 8 · 4:41 PM"],["e1","ok","4:41 PM"],["s1","ok","4:41 PM"],["w1","ok","until 8:41 PM","No reply in 4 hours"],["b1","ok","8:41 PM","No reply after 4h"],["u1","ok","8:41 PM"],["u2","ok","8:41 PM"],["m72","skip","","Didn't go out: the call was 21 hours away when this came due; it needs more than 60"],["m48","skip","","Didn't go out: the call was 21 hours away; it needs more than 36"],["m24e","ok","Oct 8 · 8:41 PM"],["m24s","ok","8:41 PM"],["mm","skip","","Didn't go out: the call was at 2:00 PM, after 11 AM, but the sequence started after 8 AM that day"],["m1","ok","Oct 9 · 1:00 PM"],["m10","ok","1:50 PM"],["dn","ok","1:50 PM"]],
+     msgs:[["out","text","Oct 8 · 4:41 PM","Hey Chris, your call with Allan is booked for Thu, Oct 9 at 2:00pm. Reply with an emoji to lock in your spot."],["out","email","Oct 8 · 4:41 PM","You're booked: Thu, Oct 9 at 2:00pm — reply to lock it in\n\nHey Chris, your spot for Thursday, October 9 at 2:00pm with Allan isn't locked yet: reply CONFIRM to lock it in."],["out","slack","Oct 8 · 8:41 PM","Chris Wake hasn't confirmed their call tomorrow at 2:00pm with @allan. No reply to the booking text in 4 hours."],["out","email","Oct 8 · 8:41 PM","Tomorrow: your call with Allan\n\nHey Chris, your call is Thursday at 2:00pm."],["out","text","Oct 8 · 8:41 PM","Hey Chris, your call with Allan is tomorrow (Thursday at 2:00pm)."],["out","text","Oct 9 · 1:00 PM","Hey Chris, your call with Allan is in an hour (2:00pm)."],["out","text","Oct 9 · 1:50 PM","Chris, Allan will call you in 10 minutes."]],
+     next:[]},
+    {n:"Mia Ortiz · in flight",who:"Mia Ortiz",st:"here",word:"Waiting",at:"Text · morning of",started:"Today · 2:08 PM",call:"Sat Oct 11 · 11:00 AM",closer:"Allan",
+     s:{done:["t1","e1","s1","w1","b1","c1","m48","m24e","m24s"],skip:["m72"],here:"mm",path:["c1"]},
+     steps:[["t1","ok","Today · 2:08 PM"],["e1","ok","2:08 PM"],["s1","ok","2:08 PM"],["w1","ok","2:31 PM","They replied at 2:31 PM"],["b1","ok","2:31 PM","Confirmed"],["c1","ok","2:31 PM"],["m72","skip","","Didn't go out: the call was 45 hours away when this came due; it needs more than 60"],["m48","ok","Today · 2:31 PM"],["m24e","ok","Fri · 11:00 AM"],["m24s","ok","Fri · 11:00 AM"],["mm","here","Sat · 8:00 AM"],["m1","next","Sat · 10:00 AM"],["m10","next","Sat · 10:50 AM"],["dn","next",""]],
+     msgs:[["out","text","Today · 2:08 PM","Hey Mia, your call with Allan is booked for Sat, Oct 11 at 11:00am. Reply with an emoji to lock in your spot."],["out","email","Today · 2:08 PM","You're booked: Sat, Oct 11 at 11:00am — reply to lock it in\n\nHey Mia, your spot for Saturday, October 11 at 11:00am with Allan isn't locked yet: reply CONFIRM to lock it in."],["in","text","Today · 2:31 PM","👍 see you then"],["out","text","Today · 2:31 PM","Hey Mia, two days until your call with Allan."]],
+     next:[["mm","Sat · 8:00 AM","Text · morning of","Only for calls at 11am or later: 11:00 AM, so it goes"],["m1","Sat · 10:00 AM","Text · 1 hour before",""],["m10","Sat · 10:50 AM","Text · 10 minutes before",""]]},
+    {n:"Sam Nolan · a step failed",who:"Sam Nolan",st:"warn",word:"Failed",at:"Tell the closers",started:"Oct 8 · 11:02 AM",call:"Thu Oct 9 · 9:00 AM",closer:"Allan",
+     s:{done:["t1","e1","s1","w1","b1","x1"],fail:["x2"],path:["x1","x2"]},
+     steps:[["t1","ok","Oct 8 · 11:02 AM"],["e1","ok","11:02 AM"],["s1","ok","11:02 AM"],["w1","ok","11:40 AM","They replied at 11:40 AM"],["b1","ok","11:40 AM","Cancelled"],["x1","ok","11:40 AM"],["x2","warn","11:40 AM","Slack rejected the post: channel not found. Alert raised; fix the closers channel in settings."]],
+     msgs:[["out","text","Oct 8 · 11:02 AM","Hey Sam, your call with Allan is booked for Thu, Oct 9 at 9:00am. Reply with an emoji to lock in your spot."],["out","email","Oct 8 · 11:02 AM","You're booked: Thu, Oct 9 at 9:00am — reply to lock it in\n\nHey Sam, your spot for Thursday, October 9 at 9:00am with Allan isn't locked yet: reply CONFIRM to lock it in."],["in","text","Oct 8 · 11:40 AM","Sorry, need to cancel. Something came up"],["fail","slack","Oct 8 · 11:40 AM","Sam cancelled their call tomorrow at 9:00am."]],
+     next:[]}
+  ];
+  var cur={l:"6",r:0};
+  var css=getComputedStyle(document.documentElement),T={};["bg","panel","panel-2","panel-3","fg","fg-2","fg-3","line","edge","acc","acc-ink","ok","ok-bg","warn","warn-bg","cond","cond-bg","wait","wait-bg"].forEach(function(k){T[k]=css.getPropertyValue('--'+k).trim();});
+  // the lifted chart reads RUNS[cur.r].s
+  function R(){return RUNS[cur.r];}
+  function ttl(id){var n=N[id];return n.t+(n.m?' · '+n.m:'');}
+  function stIcon(st){return '<span class="ic '+st+'">'+(st==='ok'?SVGI.check:st==='here'?SVGI.clock:st==='warn'?SVGI.warn:st==='skip'?SVGI.skip:'')+'</span>';}
+  function header(){var r=R();var pill=r.st==='ok'?'<span class="pill ok">'+SVGI.check+'Finished</span>':r.st==='here'?'<span class="pill here">'+SVGI.clock+'Waiting · '+esc(r.at)+'</span>':'<span class="pill warn">'+SVGI.warn+'Failed at '+esc(r.at)+'</span>';
+    return '<div class="crumb">'+SVGI.back+'<a href="#">Save Your Hair</a><span>/</span><a href="#">Pre-call sequence</a></div><div class="hdr"><h2 class="name">'+esc(r.who)+'</h2><a class="btn" href="#">Open the contact</a></div><div class="state">'+pill+'<span class="pill shadow">shadow</span><span>started '+esc(r.started)+'</span><span>·</span><span>call '+esc(r.call)+' with '+esc(r.closer)+'</span></div>';}
+  function steps(){return '<div class="steps">'+R().steps.map(function(s){var id=s[0],st=s[1];return '<div class="s '+st+'">'+stIcon(st)+'<span class="t">'+esc(ttl(id))+(s[3]?'<small>'+esc(s[3])+'</small>':'')+'</span><span class="w">'+esc(s[2]||'')+'</span></div>';}).join('')+'</div>';}
+  function msgs(){var m=R().msgs;if(!m.length)return '<p class="note">Nothing yet.</p>';return '<div class="msgs">'+m.map(function(x){var dir=x[0],ch=x[1];var who=dir==='in'?'<b>'+esc(R().who.split(' ')[0])+'</b> replied':ch==='slack'?'to <b>#closers</b>':'<b>'+(ch==='email'?'Email':'Text')+'</b> to '+esc(R().who.split(' ')[0]);return '<div class="msg '+(dir==='in'?'in':'')+' '+ch+(dir==='fail'?' shadow':'')+'"><span class="m">'+who+'<span>'+esc(x[2])+'</span>'+(dir==='fail'?'<span class="pill warn">did not go out</span>':'')+'</span><span class="b">'+esc(x[3])+'</span></div>';}).join('')+'</div>';}
+  function next(){var n=R().next;if(!n.length)return '<p class="note" style="margin:0">'+(R().st==='ok'?'Nothing more: this run is finished.':'Nothing more: the run stopped at the failed step. Fix the cause and it can be retried from there.')+'</p>';return '<div class="next">'+n.map(function(x){return '<div class="s"><span>'+esc(x[2])+(x[3]?'<small>'+esc(x[3])+'</small>':'')+'</span><span class="w"><b>'+esc(x[1])+'</b></span></div>';}).join('')+'</div>';}
+  function pathChart(){var r=R(),gap=52,x=170,W=340,out=[],y=30;var ids=SPINE.slice();var br=BR.filter(function(b){return r.s.path&&r.s.path.indexOf(b.s[0])>=0;})[0];if(br){ids=ids.concat(br.s);if(br.go)ids=ids.concat(REM);}else if(r.s.here){ids=ids.concat(REM);}
+    ids.forEach(function(id,i){var pre=(br&&id===br.s[0])?22:0;if(i)out.push(edge(x,y-gap+17,x,y+pre-17));if(br&&id===br.s[0]){y+=22;out.push('<text class="cap" x="'+x+'" y="'+(y-28)+'" text-anchor="middle">'+esc(br.l.toUpperCase())+'</text>');}out.push(node(id,x,y,Math.min(wid(id),300)));y+=gap;});
+    return '<div class="narrow">'+svg(W,y-gap+30,out)+'<div class="legend"><span>Only the path this run took. '+(br?'Four other ways out of the fork are not drawn.':'')+'</span></div></div>';}
+  function chart(){return '<div class="chart"><div class="wide">'+L4().svg+'</div>'+pathChart()+'<div class="legend"><a class="btn" href="#" style="margin-top:6px">Open the workflow</a></div></div>';}
+  function adv(){return '<details class="adv"><summary>Advanced · raw steps and context</summary><pre>'+esc(JSON.stringify({run_id:"7c1e…",workflow:"pre-call-sequence v2",contact_id:"c_9f2a…",appointment:{external_id:"calendly:011b3262…",starts_at:"2025-10-09T18:00:00Z"},steps:R().steps.length},null,2))+'</pre></details>';}
+  var L={
+    1:["Steps first","Top to bottom: header, the steps, the messages, what happens next, the chart, raw at the bottom. The order you want when something went wrong: the step list says where, the message says what.",function(){return header()+'<h3 class="sec">What happened</h3>'+steps()+'<h3 class="sec">Messages</h3>'+msgs()+'<h3 class="sec">What happens next</h3>'+next()+'<h3 class="sec">On the chart <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--fg-3)">· tap a step for its words, or open the workflow</span></h3>'+chart()+adv();}],
+    2:["Chart first","Header, then the chart with the path lit, then the steps, messages and what happens next. The picture before the list.",function(){return header()+'<h3 class="sec">On the chart <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--fg-3)">· tap a step for its words, or open the workflow</span></h3>'+chart()+'<h3 class="sec">What happened</h3>'+steps()+'<h3 class="sec">Messages</h3>'+msgs()+'<h3 class="sec">What happens next</h3>'+next()+adv();}],
+    3:["Two columns","On a laptop: steps and what happens next on the left, messages and the chart on the right. On a phone the right column drops under the left.",function(){return header()+'<div class="l3" style="margin-top:4px"><div><h3 class="sec">What happened</h3>'+steps()+'<h3 class="sec">What happens next</h3>'+next()+'</div><div><h3 class="sec">Messages</h3>'+msgs()+'<h3 class="sec">On the chart <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--fg-3)">· tap a step for its words, or open the workflow</span></h3>'+chart()+'</div></div>'+adv();}],
+    4:["Tabs","Header, then four tabs: What happened, Messages, Next, Chart. One thing on screen at a time; shortest page.",function(){var t=L4tab;var body=t==='steps'?steps():t==='msgs'?msgs():t==='next'?next():chart();return header()+'<div class="tabs" style="margin-top:16px"><button data-t="steps" aria-pressed="'+(t==='steps')+'">What happened</button><button data-t="msgs" aria-pressed="'+(t==='msgs')+'">Messages · '+R().msgs.length+'</button><button data-t="next" aria-pressed="'+(t==='next')+'">Next'+(R().next.length?' · '+R().next.length:'')+'</button><button data-t="chart" aria-pressed="'+(t==='chart')+'">Chart</button></div>'+body+adv();}],
+    5:["Feed","Steps and messages as one feed in time order: each send carries its words right under it, a reply sits in the same list, skipped steps say why. Then what happens next and the chart.",function(){var r=R();var m=r.msgs.slice();var out='';r.steps.forEach(function(s){var id=s[0],st=s[1];var n=N[id];var body='';var want=n.k==='send'?(n.t==='Email'||n.t==='Booking email'?'email':'text'):n.k==='slack'?'slack':null;if(want&&(st==='ok'||st==='warn')){var xi=-1;for(var q=0;q<m.length;q++){if(m[q][0]!=='in'&&m[q][1]===want){xi=q;break;}}if(xi>=0){var x=m.splice(xi,1)[0];body='<span class="b '+x[1]+'"'+(st==='warn'?' style="opacity:.6"':'')+'>'+esc(x[3])+'</span>';}}
+      out+='<div class="f '+st+'">'+stIcon(st)+'<span class="t">'+esc(ttl(id))+(s[2]?'<span class="d">'+esc(s[2])+'</span>':'')+(s[3]?'<small>'+esc(s[3])+'</small>':'')+body+'</span></div>';
+      if(id==='w1'){var inb=r.msgs.filter(function(x){return x[0]==='in';})[0];if(inb)out+='<div class="f in"><span class="ic"></span><span class="t">'+esc(r.who.split(' ')[0])+' replied<span class="d">'+esc(inb[2])+'</span><span class="b">'+esc(inb[3])+'</span></span></div>';}
+    });return header()+'<h3 class="sec">What happened</h3><div class="feed">'+out+'</div><h3 class="sec">What happens next</h3>'+next()+'<h3 class="sec">On the chart <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--fg-3)">· tap a step for its words, or open the workflow</span></h3>'+chart()+adv();}]
+  ,
+    6:["Feed, folded","A send shows its title and a \"the words\" handle; tap the row and the full copy opens under it. A skipped step is the blue icon and a \"why\" handle; tap and the reason opens. Nothing blue is written on the page until you ask.",function(){var r=R();var m=r.msgs.slice();var out='';r.steps.forEach(function(s,idx){var id=s[0],st=s[1];var n=N[id];var body='';var want=n.k==='send'?(n.t==='Email'||n.t==='Booking email'?'email':'text'):n.k==='slack'?'slack':null;if(want&&(st==='ok'||st==='warn')){var xi=-1;for(var q=0;q<m.length;q++){if(m[q][0]!=='in'&&m[q][1]===want){xi=q;break;}}if(xi>=0){var x=m.splice(xi,1)[0];body='<span class="b '+x[1]+'"'+(st==='warn'?' style="opacity:.6"':'')+(OPEN[idx]?'':' hidden')+'>'+esc(x[3])+'</span>';}}
+      var why=(st==='skip'&&s[3])?'<small'+(OPEN[idx]?'':' hidden')+'>'+esc(s[3])+'</small>':'';var sub=(st!=='skip'&&s[3])?'<small>'+esc(s[3])+'</small>':'';var has=!!(body||why);
+      out+='<div class="f '+st+(has?' has':'')+(OPEN[idx]?' open':'')+'" data-i="'+idx+'">'+stIcon(st)+'<span class="t">'+esc(ttl(id))+(s[2]?'<span class="d">'+esc(s[2])+'</span>':'')+(has?'<span class="pk"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5l5 5-5 5"/></svg>'+(why?'why':'the words')+'</span>':'')+sub+why+body+'</span></div>';
+      if(id==='w1'){var inb=r.msgs.filter(function(x){return x[0]==='in';})[0];if(inb)out+='<div class="f in"><span class="ic"></span><span class="t">'+esc(r.who.split(' ')[0])+' replied<span class="d">'+esc(inb[2])+'</span><span class="b">'+esc(inb[3])+'</span></span></div>';}
+    });return header()+'<h3 class="sec">What happened</h3><div class="feed">'+out+'</div><h3 class="sec">What happens next</h3>'+next()+'<h3 class="sec">On the chart <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--fg-3)">· tap a step for its words, or open the workflow</span></h3>'+chart()+adv();}]
+  };
+  var L4tab='steps';var OPEN={};
+  var pick=document.getElementById('pick');
+  Object.keys(L).forEach(function(k){var b=document.createElement('button');b.textContent=k+' · '+L[k][0];b.setAttribute('aria-pressed',k===cur.l);b.addEventListener('click',function(){cur.l=k;draw();});pick.appendChild(b);});
+  var rb=document.getElementById('runbar');rb.innerHTML=RUNS.map(function(r,i){return '<button aria-pressed="'+(i===0)+'" data-r="'+i+'">'+esc(r.n)+'</button>';}).join('');
+  rb.querySelectorAll('button').forEach(function(b){b.addEventListener('click',function(){cur.r=+b.dataset.r;OPEN={};rb.querySelectorAll('button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b));});draw();});});
+  function draw(){document.getElementById('body').innerHTML=L[cur.l][2]();document.getElementById('cap').textContent=L[cur.l][1];pick.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-pressed',b.textContent.charAt(0)===cur.l);});}
+  document.getElementById('body').addEventListener('click',function(e){var t=e.target.closest('button[data-t]');if(t){L4tab=t.dataset.t;draw();return;}var f=e.target.closest('.f.has');if(f){var i=f.dataset.i;OPEN[i]=!OPEN[i];f.classList.toggle('open',!!OPEN[i]);f.querySelectorAll('.b,.f.skip>.t>small, .t>small[hidden],.t>small').forEach(function(el){if(el.classList.contains('b')||f.classList.contains('skip'))el.hidden=!OPEN[i];});}});
+  // node popover: the step's words and its state
+  var pop=document.getElementById('pop'),popc=document.getElementById('popc');
+  function stateOfId(id){return stateOf(id);}
+  document.addEventListener('click',function(e){var el=e.target.closest('.nd');if(el){var id=el.dataset.id,n=N[id],s=stateOfId(id);var w={ok:'Done',here:'Waiting here',warn:'Failed',skip:'Skipped by its condition',todo:'Not reached'};popc.innerHTML='<h4>'+esc(ttl(id))+'</h4>'+(n.d?'<p class="m">'+esc(n.d)+'</p>':'')+(n.cond?'<p class="m" style="color:var(--cond)">'+esc(n.cond)+'</p>':'')+(n.q?'<div class="q">'+esc(n.q)+'</div>':'')+(s?'<p class="m" style="margin-top:8px;font-weight:600;color:var(--fg)">'+w[s]+'</p>':'');pop.hidden=false;var r=el.getBoundingClientRect();var ph=pop.offsetHeight,pw=pop.offsetWidth;var left=Math.min(Math.max(16,r.left+r.width/2-pw/2),window.innerWidth-pw-16);var below=r.bottom+10,above=r.top-10-ph;pop.style.left=left+'px';pop.style.top=Math.max(12,(below+ph>window.innerHeight-12&&above>12)?above:below)+'px';return;}if(!pop.contains(e.target))pop.hidden=true;});
+  pop.querySelector('.x').addEventListener('click',function(){pop.hidden=true;});
+  window.addEventListener('scroll',function(){pop.hidden=true;},{passive:true});
+  draw();
+})();
+</script>
+</body>
+</html>

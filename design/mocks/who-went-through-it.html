@@ -84,6 +84,7 @@ button{font:inherit}
   .l4 .day{grid-template-columns:1fr;gap:4px}.l4 .dl{padding-top:0}
 }
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+.steps .s .t small[hidden]{display:none}
 </style>
 
 <div class="wrap">
@@ -135,11 +136,12 @@ button{font:inherit}
   function detail(r){var h='<h4>'+esc(r.n)+'</h4><p class="m">'+(r.st==='here'?'Waiting at '+esc(r.at):r.st==='warn'?'Failed at '+esc(r.at):r.note||'Finished')+' · started '+esc(r.d)+' '+esc(r.t)+' · call '+esc(r.call)+'</p><div class="steps">';
     pathOf(r).forEach(function(s){var v=r.p[s[0]]||'next';if(s[0]==='b1'&&v!=='next'){h+=row(s,v,BRANCH[r.br]);return;}h+=row(s,v);});
     return h+'</div><div class="foot"><a href="#">Open the contact</a><a href="#">Open this run</a></div>';}
-  function row(s,v,sub){var st=v.split(':')[0],why=v.indexOf(':')>0?v.slice(v.indexOf(':')+1):'';var ic=st==='ok'?I.check:st==='here'?I.clock:st==='warn'?I.warn:st==='next'?'':I.skip;var txt=st==='skip'?"Didn't go out: "+why:st==='warn'?why:sub||'';return '<div class="s '+st+'"><span class="ic '+(st==='skip'?'':st)+'" style="'+(st==='skip'?'color:var(--cond)':'')+'">'+ic+'</span><span class="t">'+esc(s[1])+(txt?'<small>'+esc(txt)+'</small>':'')+'</span><span class="w">'+(s[2]?esc(s[2]):'')+'</span></div>';}
+  function row(s,v,sub){var st=v.split(':')[0],why=v.indexOf(':')>0?v.slice(v.indexOf(':')+1):'';var ic=st==='ok'?I.check:st==='here'?I.clock:st==='warn'?I.warn:st==='next'?'':I.skip;var txt=st==='skip'?"Didn't go out: "+why:st==='warn'?why:sub||'';return '<div class="s '+st+'"'+(st==='skip'?' data-why="1" style="cursor:pointer"':'')+'><span class="ic '+(st==='skip'?'':st)+'" style="'+(st==='skip'?'color:var(--cond)':'')+'">'+ic+'</span><span class="t">'+esc(s[1])+(st==='skip'?'<span style="color:var(--fg-3);font-weight:500;font-size:12px;margin-left:8px">why</span>':'')+(txt?'<small'+(st==='skip'?' hidden':'')+'>'+esc(txt)+'</small>':'')+'</span><span class="w">'+(s[2]?esc(s[2]):'')+'</span></div>';}
   var sheet=document.getElementById('sheet'),sheetc=document.getElementById('sheetc');
   function openSheet(anchor,r){sheetc.innerHTML=detail(r);sheet.hidden=false;if(window.innerWidth>=700){var rc=anchor.getBoundingClientRect();var h=sheet.offsetHeight,w=sheet.offsetWidth;var left=Math.min(Math.max(16,rc.left+rc.width/2-w/2),window.innerWidth-w-16);var top=rc.bottom+8+h>window.innerHeight-12&&rc.top-8-h>12?rc.top-8-h:rc.bottom+8;sheet.style.left=left+'px';sheet.style.top=Math.max(12,top)+'px';}else{sheet.style.left='';sheet.style.top='';}}
   function closeSheet(){sheet.hidden=true;}
   sheet.querySelector('.x').addEventListener('click',closeSheet);
+  sheetc.addEventListener('click',function(e){var r=e.target.closest('[data-why]');if(!r)return;var sm=r.querySelector('small');if(sm)sm.hidden=!sm.hidden;});
   document.addEventListener('click',function(e){var b=e.target.closest('[data-run]');if(b){var i=+b.dataset.run;if(b.hasAttribute('aria-expanded')){var open=b.getAttribute('aria-expanded')==='true';document.querySelectorAll('[aria-expanded="true"]').forEach(function(x){x.setAttribute('aria-expanded','false');x.nextElementSibling.hidden=true;});if(!open){b.setAttribute('aria-expanded','true');b.nextElementSibling.hidden=false;}return;}openSheet(b,R[i]);return;}if(!sheet.contains(e.target))closeSheet();});
   document.addEventListener('keydown',function(e){if(e.key==='Escape')closeSheet();});
   window.addEventListener('scroll',function(){if(!sheet.hidden&&window.innerWidth>=700)closeSheet();},{passive:true});

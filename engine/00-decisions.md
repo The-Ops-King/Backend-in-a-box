@@ -1085,4 +1085,30 @@ The direction was settled section by section from mocks (`design/mocks/`), dark 
   the section label. Rows are flat (no panels): the name, "your spec" or "default", when it last ran, then people /
   in flight / failed and the switch at the right edge. On a phone the counts fold into a short note under the name.
   Scheduled workflows (Team, Engine) come last; retired copies at the very end under Other.
-- Still to mock, in this order: the run and contact pages, settings.
+- The run page: the header (who, state pill, "shadow", started, the call and the closer), then one feed in time
+  order: the same step rows as the sheet, a send carrying a "the words" handle that opens the full copy under it,
+  a skipped step carrying the blue icon and a "why" handle that opens the reason. Nothing blue is written on the page
+  until asked; Tyler: "the blue text is a lot, too much; a simple blue icon and if I click on it it should explain".
+  Then what happens next, the chart with this run's path lit (on a phone, only the path taken) and a button to the
+  workflow. Raw steps and context fold at the bottom.
+- The contact page is the automations hub's page for a person, not a CRM's. Tyler: "we're not trying to replace the
+  CRM; this is the automations hub". The CRM's facts sit as chips under the name; then two tabs: Workflows (every
+  run this person went through, the live ones first, tap a row for the whole flow) and Next (what is about to happen
+  to them). Identifiers and the test harness fold at the bottom. No history, no message log.
+- Still to mock: settings. The health and wrap-up pages are lists and follow the row rules in `design/GUIDE.md`.
+
+## D38. The hub stores what the engine needs, not the conversation (2026-10-09)
+
+Tyler, on seeing the contact mock with every text and email: "we're not trying to store all the history, right? I
+really don't want to store the SMS and such." Today the poll copies the whole GHL conversation into `messages`
+(inbound and outbound, human and engine, with bodies) and only one thing reads it: the wait-for-reply step, which
+needs the reply's text for a few hours so the AI can read it. So:
+
+- The poll stops copying outbound and human messages. An inbound reply is kept while a run may be waiting on it and
+  its body is dropped 7 days after it arrived; the fact "they replied" stays as the event, without the text.
+- The engine's own sends keep their rendered text (shadow mode shows "this is what would have gone out", and the run
+  page shows the words on tap) for 30 days by default, a per-company setting.
+- Contacts keep the facts templates render from: name, timezone, tags, intake answers, identifiers. Events keep the
+  facts triggers fire on. Runs and steps are the product and are kept.
+- Nothing in the dashboard shows a message log; the run page shows a send's words only inside that run.
+

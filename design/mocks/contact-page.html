@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Contact Page Layouts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap">
+<style>
+/* One person: who they are, what is about to happen to them, every workflow they went through, everything that happened. Five structures. Slate tokens, dark only. Nothing scrolls sideways. */
+:root{--bg:#111214;--panel:#191a1d;--panel-2:#222327;--panel-3:#2b2c31;--fg:#f0f0f2;--fg-2:#a3a4ab;--fg-3:#6e6f76;--line:#2e2f36;--edge:#3a3b43;--acc:#f0b429;--acc-ink:#2a1e04;--ok:#5bd087;--ok-bg:#1a3b27;--warn:#ff8a5b;--warn-bg:#3f2316;--cond:#8fb7ff;--cond-bg:#1c2a44;--wait:#a78bfa;--wait-bg:#2a2340;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:"Outfit",system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;padding-block:0 60px;padding-inline:16px}
+*{box-sizing:border-box}
+button{font:inherit}
+a{color:inherit}
+.wrap{max-width:860px;margin:0 auto}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding-block:18px 8px}
+.bar h1{font-size:15px;font-weight:600;margin:0 12px 0 0}
+.bar .grp{display:flex;flex-wrap:wrap;gap:8px}
+.bar button{font-size:13px;font-weight:600;background:var(--panel);color:var(--fg-2);border:1px solid var(--line);border-radius:999px;padding:7px 13px;cursor:pointer}
+.bar button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.note{color:var(--fg-2);font-size:13px;line-height:1.5;margin:0 0 14px}
+.tnum{font-variant-numeric:tabular-nums}
+.caption{margin-top:14px;color:var(--fg-2);font-size:13px;line-height:1.5}
+.page{background:var(--panel);border-radius:14px;padding:18px 16px 16px;position:relative}
+.crumb{display:flex;align-items:center;gap:6px;color:var(--fg-3);font-size:13px;font-weight:500;flex-wrap:wrap}
+.crumb svg{width:14px;height:14px;flex:none}
+.crumb a{text-decoration:none}
+.name{margin:0;font-size:26px;font-weight:700;letter-spacing:-.01em;line-height:1.15;min-width:0;overflow-wrap:anywhere}
+.hdr{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px}
+.sub{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;margin-top:8px;color:var(--fg-2);font-size:13.5px}
+.sub a{color:var(--fg-2)}
+.pill{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--panel-2);color:var(--fg-2);white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.pill svg{width:13px;height:13px}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.here{background:var(--wait-bg);color:var(--wait)}.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.btn{background:none;border:1px solid var(--edge);color:var(--fg);border-radius:999px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-block}
+.btn:hover{background:var(--panel-2)}
+h3.sec{margin:22px 0 8px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.col h3.sec:first-child{margin-top:0}
+.ic{display:inline-grid;place-items:center;width:22px;height:22px;flex:none;color:var(--fg-3)}
+.ic svg{width:18px;height:18px}
+.ic.ok{color:var(--ok)}.ic.here{color:var(--wait)}.ic.warn{color:var(--warn)}
+/* next up */
+.next .s{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:8px 0;border-top:1px solid var(--line);align-items:center;font-size:14px}
+.next .s:first-child{border-top:0}
+.next .s b{font-weight:600}
+.next .s small{display:block;color:var(--fg-2);font-size:12.5px;font-weight:400}
+.next .s .w{color:var(--fg);font-weight:600;font-size:13px;white-space:nowrap;text-align:right}
+.next .s .w small{text-align:right}
+/* runs: the Progress rows from the workflow page, with the workflow's name instead of the person's */
+.runs .r{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line);text-decoration:none}
+.runs .r:first-child{border-top:0}
+.runs .r:hover{background:var(--panel-2);margin-inline:-8px;padding-inline:8px;border-radius:8px}
+.runs .nm{font-weight:600;display:block;font-size:14px}
+.runs .prog{display:flex;align-items:center;gap:10px;margin-top:5px}
+.runs .bars{display:flex;gap:3px;flex:1;max-width:320px}
+.runs .bars i{display:block;height:6px;border-radius:3px;flex:1;background:var(--panel-3)}
+.runs .bars i.ok{background:var(--ok)}.runs .bars i.here{background:var(--wait)}.runs .bars i.skip{background:var(--cond)}.runs .bars i.warn{background:var(--warn)}
+.runs .prog small{color:var(--fg-3);font-size:12px;white-space:nowrap}
+.runs .d{color:var(--fg-3);font-size:12.5px;font-weight:600;white-space:nowrap}
+/* journey: everything that happened, in time */
+.jo .e{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;padding:8px 0;border-top:1px solid var(--line);align-items:start;font-size:14px}
+.jo .e:first-child{border-top:0}
+.jo .e .t{font-weight:600;min-width:0}
+.jo .e .t small{display:block;color:var(--fg-2);font-weight:400;font-size:12.5px;line-height:1.4}
+.jo .e .t a{color:var(--fg-3);font-size:12px;font-weight:500}
+.jo .e .d{color:var(--fg-3);font-size:12px;white-space:nowrap;text-align:right}
+.jo .e .b{display:block;margin-top:6px;background:var(--panel-2);border-radius:10px;padding:8px 11px;font-size:13.5px;line-height:1.45;white-space:pre-wrap;max-width:560px;font-weight:400}
+.jo .e.in .b{background:var(--wait-bg)}
+.jo .e .b.email{border-left:3px solid var(--fg-3)}.jo .e .b.slack{border-left:3px solid var(--cond)}
+.jo .e .src{color:var(--fg-3);font-weight:500;font-size:12px;margin-left:6px}
+.jo .day{font-size:12px;font-weight:700;color:var(--fg-3);padding:14px 0 4px;letter-spacing:.04em}
+.jo .day:first-child{padding-top:0}
+/* facts */
+.kv{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 14px;font-size:13.5px;margin:0}
+.kv dt{color:var(--fg-3);font-weight:500}
+.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.kv dd.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:var(--fg-2)}
+.facts{background:var(--panel-2);border-radius:12px;padding:12px 14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips span{background:var(--panel-2);border-radius:8px;padding:6px 10px;font-size:13px}
+.chips span b{color:var(--fg-3);font-weight:500;margin-right:6px}
+/* structures */
+.l2{display:grid;gap:18px}
+@media (min-width:700px){.l2{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);align-items:start}}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:16px;margin-bottom:14px}
+.tabs button{font-size:13px;font-weight:600;background:var(--panel-2);color:var(--fg-2);border:0;border-radius:999px;padding:7px 13px;cursor:pointer}
+.tabs button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+details.adv{margin-top:18px;border-top:1px solid var(--line);padding-top:10px}
+details.adv summary{cursor:pointer;color:var(--fg-3);font-size:13px;font-weight:600}
+details.adv .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+details.adv p{color:var(--fg-3);font-size:12.5px;margin:8px 0 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar"><h1>Contact page, five structures</h1><div class="grp" id="pick"></div></div>
+  <p class="note">One person. Every structure has the same parts: who they are (the facts the CRM has), what is about to happen to them, every workflow they went through (the same strip rows as the workflow page, tap to open the run), and everything that happened in time: events, what went out, what they said back. The test harness (stage a step for this person, shadow only) is a folded row at the bottom.</p>
+  <div class="page" id="body"></div>
+  <p class="caption" id="cap"></p>
+</div>
+<script>
+(function(){
+  var I={check:'<svg viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',clock:'<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 6v4.5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',warn:'<svg viewBox="0 0 20 20"><path d="M10 3l8 14H2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 9v3.5M10 14.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',back:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-6 6 6 6"/></svg>',
+    dot:'<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.5" fill="currentColor"/></svg>',out:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h11M11 6l4 4-4 4"/></svg>',inb:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10H5M9 6l-4 4 4 4"/></svg>',cal:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2v4M13 2v4"/></svg>',play:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 4l10 6-10 6z"/></svg>',cash:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="5" width="16" height="10" rx="2"/><circle cx="10" cy="10" r="2.5"/></svg>'};
+  var C={name:"Chris Wake",first:"Chris",phone:"(917) 555-0142",email:"chris.wake@gmail.com",tz:"America/New_York",ghl:"xK2mP9…",tags:["meta booked call","unconfirmed","stat-showed"],
+    attrs:[["Hair loss since","about 2 years"],["Tried before","minoxidil, nothing else"],["Budget","$3–5k"],["Timeline","as soon as possible"],["Source","Meta · video ad 3"]],
+    idents:[["GHL contact","xK2mP9aQ…"],["Calendly invitee","inv_7c1e…"],["Fathom","chris.wake@gmail.com"],["Phone","+19175550142"]],
+    next:[["Post-call follow-up","Text · recap and the next step","Today · 4:30 PM"],["Post-call follow-up","Text · nudge if no reply","Tomorrow · 10:00 AM"]],
+    runs:[
+      {w:"Post-call follow-up",st:"here",d:"Today",at:"Wait · recap at 4:30 PM",bars:["ok","ok","here","","",""]},
+      {w:"Call recorded",st:"ok",d:"Today",at:"done",bars:["ok","ok","ok","ok","ok","ok","ok"]},
+      {w:"Pre-call sequence",st:"ok",d:"Oct 8",at:"done",bars:["ok","ok","ok","ok","ok","ok","ok","skip","skip","ok","ok","skip","ok","ok","ok"]},
+      {w:"Call booked",st:"ok",d:"Oct 8",at:"done",bars:["ok","ok","ok","ok","ok","ok"]},
+      {w:"Speed to lead",st:"ok",d:"Oct 6",at:"done · they booked",bars:["ok","ok","ok","ok"]}
+    ],
+    jo:[
+      ["Today",[
+        ["cal","Call happened · 2:00 PM with Allan","Showed · 41 min · outcome: follow up · objection: price","2:48 PM","Call recorded"],
+        ["play","Post-call follow-up started","","2:48 PM","Post-call follow-up"]
+      ]],
+      ["Oct 9",[
+        ["out","Text · 10 minutes before","","1:50 PM","Pre-call sequence","Chris, Allan will call you in 10 minutes."],
+        ["out","Text · 1 hour before","","1:00 PM","Pre-call sequence","Hey Chris, your call with Allan is in an hour (2:00pm)."]
+      ]],
+      ["Oct 8",[
+        ["out","Text · 24 hours before","","8:41 PM","Pre-call sequence","Hey Chris, your call with Allan is tomorrow (Thursday at 2:00pm)."],
+        ["out","Email · 24 hours before","","8:41 PM","Pre-call sequence","Tomorrow: your call with Allan\n\nHey Chris, your call is Thursday at 2:00pm.","email"],
+        ["slack","Told the closers: no reply in 4 hours","Tagged unconfirmed","8:41 PM","Pre-call sequence","Chris Wake hasn't confirmed their call tomorrow at 2:00pm with @allan. No reply to the booking text in 4 hours.","slack"],
+        ["out","Booking email","","4:41 PM","Pre-call sequence","You're booked: Thu, Oct 9 at 2:00pm — reply to lock it in\n\nHey Chris, your spot for Thursday, October 9 at 2:00pm with Allan isn't locked yet: reply CONFIRM to lock it in.","email"],
+        ["out","Booking text","","4:41 PM","Pre-call sequence","Hey Chris, your call with Allan is booked for Thu, Oct 9 at 2:00pm. Reply with an emoji to lock in your spot."],
+        ["cal","Call booked · Thu Oct 9 · 2:00 PM with Allan","Booked by Jordan (setter) · Calendly","4:41 PM","Call booked"]
+      ]],
+      ["Oct 6",[
+        ["in","Chris replied","","3:12 PM","Speed to lead","Yes, tomorrow afternoon works"],
+        ["out","Text · first touch","","3:04 PM","Speed to lead","Hey Chris, Jordan here from Save Your Hair. Saw you asked about the consult, got 10 min today or tomorrow?"],
+        ["dot","Lead came in","Meta · video ad 3 · form: hair consult","3:02 PM","Speed to lead"]
+      ]]
+    ]};
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  function header(){return '<div class="crumb">'+I.back+'<a href="#">Save Your Hair</a></div><div class="hdr"><h2 class="name">'+esc(C.name)+'</h2><a class="btn" href="#">Open in GHL</a></div><div class="sub"><span>'+esc(C.phone)+'</span><span>·</span><a href="#">'+esc(C.email)+'</a><span>·</span><span>'+esc(C.tz)+'</span></div><div class="tags">'+C.tags.map(function(t){return '<span class="pill">'+esc(t)+'</span>';}).join('')+'</div>';}
+  function next(){return '<div class="next">'+C.next.map(function(n){return '<div class="s"><span><b>'+esc(n[1])+'</b><small>'+esc(n[0])+'</small></span><span class="w">'+esc(n[2])+'</span></div>';}).join('')+'</div>';}
+  function icon(st){return '<span class="ic '+st+'">'+(st==='ok'?I.check:st==='here'?I.clock:I.warn)+'</span>';}
+  function runs(){return '<div class="runs">'+C.runs.map(function(r){return '<a class="r" href="#">'+icon(r.st)+'<span style="min-width:0"><span class="nm">'+esc(r.w)+'</span><span class="prog"><span class="bars">'+r.bars.map(function(b){return '<i class="'+b+'"></i>';}).join('')+'</span><small>'+esc(r.at)+'</small></span></span><span class="d tnum">'+esc(r.d)+'</span></a>';}).join('')+'</div>';}
+  function jo(withBodies){return '<div class="jo">'+C.jo.map(function(day){return '<div class="day">'+esc(day[0])+'</div>'+day[1].map(function(e){var k=e[0];var ic=k==='in'?I.inb:k==='out'?I.out:k==='cal'?I.cal:k==='play'?I.play:k==='slack'?I.out:I.dot;var body=withBodies&&e[5]?'<span class="b '+(e[6]||'')+'">'+esc(e[5])+'</span>':'';return '<div class="e '+(k==='in'?'in':'')+'"><span class="ic" style="color:'+(k==='in'?'var(--wait)':'var(--fg-3)')+'">'+ic+'</span><span class="t">'+esc(e[1])+'<span class="src">'+esc(e[4])+'</span>'+(e[2]?'<small>'+esc(e[2])+'</small>':'')+body+'</span><span class="d">'+esc(e[3])+'</span></div>';}).join('');}).join('')+'</div>';}
+  function facts(){return '<dl class="kv">'+C.attrs.map(function(a){return '<dt>'+esc(a[0])+'</dt><dd>'+esc(a[1])+'</dd>';}).join('')+'</dl>';}
+  function idents(){return '<dl class="kv">'+C.idents.map(function(a){return '<dt>'+esc(a[0])+'</dt><dd class="mono">'+esc(a[1])+'</dd>';}).join('')+'</dl>';}
+  function chips(){return '<div class="chips">'+C.attrs.map(function(a){return '<span><b>'+esc(a[0])+'</b>'+esc(a[1])+'</span>';}).join('')+'</div>';}
+  function adv(){return '<details class="adv"><summary>Test harness · stage a step for this person (shadow only)</summary><div class="row"><button class="btn">Lead comes in</button><button class="btn">Setter books a call</button><button class="btn">Books themselves</button><button class="btn">Reschedules</button><button class="btn">Cancels</button><button class="btn">Pays</button><button class="btn">Call recorded</button><button class="btn" style="color:var(--warn)">Forget this person\'s runs</button></div><p>Nothing reaches GHL, Calendly or a Zap. Refused while the company is live.</p></details>';}
+  var L={
+    1:["Stacked","Top to bottom: who, what happens next, the workflows they went through, everything that happened with the words inline, then the facts. One column at every width.",function(){return header()+'<h3 class="sec">What happens next</h3>'+next()+'<h3 class="sec">Workflows</h3>'+runs()+'<h3 class="sec">Everything that happened</h3>'+jo(true)+'<h3 class="sec">What they told us</h3>'+facts()+'<h3 class="sec">Identifiers</h3>'+idents()+adv();}],
+    2:["Two columns","On a laptop: everything that happened on the left (the longer list), what happens next, the workflows and the facts on the right. On a phone the right column comes first, then the history.",function(){return header()+'<div class="l2" style="margin-top:8px"><div class="col" style="order:2"><h3 class="sec">Everything that happened</h3>'+jo(true)+'</div><div class="col" style="order:1"><h3 class="sec">What happens next</h3>'+next()+'<h3 class="sec">Workflows</h3>'+runs()+'<h3 class="sec">What they told us</h3>'+facts()+'<h3 class="sec">Identifiers</h3>'+idents()+'</div></div>'+adv();}],
+    3:["Facts first","The CRM's facts right under the name as a row of chips, so the person is read before the history. Then what happens next, the workflows, and everything that happened.",function(){return header()+'<div style="margin-top:14px">'+chips()+'</div><h3 class="sec">What happens next</h3>'+next()+'<h3 class="sec">Workflows</h3>'+runs()+'<h3 class="sec">Everything that happened</h3>'+jo(true)+'<h3 class="sec">Identifiers</h3>'+idents()+adv();}],
+    4:["Tabs","Who on top, then four tabs: Next, History, Workflows, Facts. One thing on screen at a time.",function(){var t=L4tab;var body=t==='next'?next():t==='hist'?jo(true):t==='runs'?runs():'<div class="facts">'+facts()+'<h3 class="sec">Identifiers</h3>'+idents()+'</div>';return header()+'<div class="tabs"><button data-t="next" aria-pressed="'+(t==='next')+'">Next · '+C.next.length+'</button><button data-t="hist" aria-pressed="'+(t==='hist')+'">History</button><button data-t="runs" aria-pressed="'+(t==='runs')+'">Workflows · '+C.runs.length+'</button><button data-t="facts" aria-pressed="'+(t==='facts')+'">Facts</button></div>'+body+adv();}],
+    5:["History only","The history is the page: every event, send and reply with the words, day by day. What happens next sits on top as the first day (\"Coming up\"). The workflows and facts are folded rows under the name, opened on tap.",function(){var up='<div class="jo"><div class="day">Coming up</div>'+C.next.map(function(n){return '<div class="e"><span class="ic here">'+I.clock+'</span><span class="t">'+esc(n[1])+'<span class="src">'+esc(n[0])+'</span></span><span class="d">'+esc(n[2])+'</span></div>';}).join('')+'</div>';return header()+'<details class="adv" style="margin-top:14px;border-top:0;padding-top:0"><summary>Workflows · '+C.runs.length+'</summary>'+runs()+'</details><details class="adv" style="margin-top:8px;padding-top:8px"><summary>What they told us · '+C.attrs.length+' answers</summary><div style="margin-top:10px">'+facts()+'</div></details><h3 class="sec">Everything that happened</h3>'+up+jo(true)+adv();}]
+  ,
+    6:["Facts first, tabs","The automations hub's page for a person, not a CRM's: the facts as chips under the name, then three tabs with Workflows open by default. Tap a workflow row to see how it went (the run page). Next is what is about to happen to them. Facts is the full list with identifiers. No history, no messages: those live in the CRM.",function(){var t=L6tab;var body=t==='runs'?runs():t==='next'?next():'<div class="facts">'+facts()+'<h3 class="sec">Identifiers</h3>'+idents()+'</div>';return header()+'<div style="margin-top:14px">'+chips()+'</div><div class="tabs"><button data-t6="runs" aria-pressed="'+(t==='runs')+'">Workflows · '+C.runs.length+'</button><button data-t6="next" aria-pressed="'+(t==='next')+'">Next · '+C.next.length+'</button><button data-t6="facts" aria-pressed="'+(t==='facts')+'">Facts</button></div>'+body+adv();}]
+  ,
+    7:["Facts on top, all workflows","No Facts tab: the facts are the chips under the name, identifiers fold at the bottom. Two tabs. Workflows lists every workflow this person went through, the ones they are in right now first; tap any row and the whole flow opens (the run page, with its chart). Next is what is about to happen to them.",function(){var t=L7tab;var all=C.runs.filter(function(r){return r.st!=='ok';}).concat(C.runs.filter(function(r){return r.st==='ok';}));
+      var body=t==='runs'?(all.length?'<div class="runs">'+all.map(function(r){return '<a class="r" href="#">'+icon(r.st)+'<span style="min-width:0"><span class="nm">'+esc(r.w)+'</span><span class="prog"><span class="bars">'+r.bars.map(function(b){return '<i class="'+b+'"></i>';}).join('')+'</span><small>'+esc(r.at)+'</small></span></span><span class="d tnum">'+esc(r.d)+'</span></a>';}).join('')+'</div>':'<p class="note" style="margin:0">Not in a workflow yet.</p>'):next();
+      return header()+'<div style="margin-top:14px">'+chips()+'</div><div class="tabs"><button data-t7="runs" aria-pressed="'+(t==='runs')+'">Workflows · '+C.runs.length+'</button><button data-t7="next" aria-pressed="'+(t==='next')+'">Next · '+C.next.length+'</button></div>'+body+'<details class="adv"><summary>Identifiers</summary><div style="margin-top:10px">'+idents()+'</div></details>'+adv();}]
+  };
+  var L4tab='next',L6tab='runs',L7tab='runs',cur='7';
+  var pick=document.getElementById('pick');
+  Object.keys(L).forEach(function(k){var b=document.createElement('button');b.textContent=k+' · '+L[k][0];b.setAttribute('aria-pressed',k===cur);b.addEventListener('click',function(){cur=k;draw();});pick.appendChild(b);});
+  function draw(){document.getElementById('body').innerHTML=L[cur][2]();document.getElementById('cap').textContent=L[cur][1];pick.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-pressed',b.textContent.charAt(0)===cur);});}
+  document.getElementById('body').addEventListener('click',function(e){var t=e.target.closest('button[data-t]');if(t){L4tab=t.dataset.t;draw();return;}var t6=e.target.closest('button[data-t6]');if(t6){L6tab=t6.dataset.t6;draw();return;}var t7=e.target.closest('button[data-t7]');if(t7){L7tab=t7.dataset.t7;draw();return;}if(e.target.closest('a'))e.preventDefault();});
+  draw();
+})();
+</script>
+</body>
+</html>
