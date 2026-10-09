@@ -10,7 +10,7 @@ const vocab = new Set([...schema.matchAll(/\('([a-z_.]+)','[a-z]+'\)/g)].map((m)
 
 describe("shipped templates", () => {
   it("has the full core set", () => expect(templates.map((t) => t.slug).sort()).toEqual([
-    "agreement-chase", "agreement-send-manually", "agreement-signed", "booking-decision", "calendar-availability", "call-booked", "call-cancelled", "call-recorded", "cancellation-rebook", "deal-closed", "eod-filed", "eod-reminder", "health-check", "new-lead", "no-recording-no-show", "no-show-noted", "no-show-recovery", "payment-failed", "payment-received", "payment-recorded", "post-call-follow-up", "pre-call-sequence", "reactivation", "setter-call-logged", "speed-to-lead", "wrap-ups"]));
+    "agreement-chase", "agreement-send-manually", "agreement-signed", "booking-decision", "calendar-availability", "call-booked", "call-cancelled", "call-outcome", "call-recorded", "cancellation-rebook", "deal-closed", "eod-filed", "eod-reminder", "health-check", "new-lead", "no-show-recovery", "payment-failed", "payment-recorded", "post-call-follow-up", "pre-call-sequence", "reactivation", "setter-call-logged", "speed-to-lead", "wrap-ups"]));
   for (const t of templates) {
     it(`${t.slug}: parses, triggers on a real event, references only known paths, and its manifest is sane`, () => {
       const def = parseDefinition(t.definition);

@@ -49,11 +49,11 @@ const num = (v: unknown): number => (v === null || v === undefined || v === "" ?
 const str = (v: unknown): string => (typeof v === "string" ? v : Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x : (x as { objection?: string })?.objection ?? JSON.stringify(x))).join("; ") : v == null ? "" : String(v));
 
 /** Their day as the engine saw it. Every value here is a prefill the closer may correct. */
-export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: string; name: string; email: string }, day: string): Promise<EodPrefill> {
+export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: string; name: string; email: string }, day: string, now: DateTime = DateTime.now()): Promise<EodPrefill> {
   const tz = company.timezone;
   const from = DateTime.fromFormat(day, DAY_FMT, { zone: tz }).startOf("day"), to = from.endOf("day");
-  const appts = await many<{ id: string; contact_id: string; contact: string; ghl_contact_id: string | null; starts_at: Date; status: string; outcome_cat: string | null; call_outcome_cat: string | null; notes: string | null; presumed_outcome: string | null }>(c, `
-    select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.ghl_contact_id, a.starts_at, a.status, a.presumed_outcome,
+  const appts = await many<{ id: string; contact_id: string; contact: string; ghl_contact_id: string | null; starts_at: Date; ends_at: Date | null; status: string; outcome_cat: string | null; call_outcome_cat: string | null; notes: string | null }>(c, `
+    select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.ghl_contact_id, a.starts_at, a.ends_at, a.status,
            ot.category as outcome_cat, cot.category as call_outcome_cat,
            (select fs.answers->>'notes' from form_submissions fs where fs.appointment_id=a.id order by fs.submitted_at desc limit 1) as notes
     from appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
@@ -68,11 +68,13 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     const won = await one<{ v: string | null }>(c, "select contract_value::text as v from opportunities where company_id=$1 and contact_id=$2 and status='won' and won_at between $3 and $4 order by won_at desc limit 1", [company.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
     const paid = num(pay?.total), contract = won?.v ? num(won.v) : price;
     const disp = str(notes.disposition);
-    // what the ledger says first (a recorded outcome, then money), then Jev's read of the transcript, then the appointment's status
+    // D54: a call whose time has passed with no recording, no outcome and no money is presumed a no-show on the form only; nothing is marked until the closer answers
+    const over = DateTime.fromJSDate(a.ends_at ?? a.starts_at) < now;
+    // what the ledger says first (a recorded outcome, then money), then the presumption, then Jev's read of the transcript as the tentative pre-set
     const outcome: CallOutcome = a.outcome_cat === "noshow" || a.status === "noshow" ? "no_show" : a.outcome_cat === "rescheduled" ? "rescheduled"
       : a.call_outcome_cat === "closed" ? "closed" : a.call_outcome_cat === "deposit" ? "deposit" : a.call_outcome_cat === "follow_up" ? "follow_up" : a.call_outcome_cat === "lost" ? "lost" : a.call_outcome_cat === "unqualified" ? "dq"
       : paid > 0 ? (contract > 0 && paid < contract ? "deposit" : "closed") : won ? "closed"
-      : a.presumed_outcome === "noshow" ? "no_show"   // D46: no recording by end of day → presumed, for the closer to confirm or correct; money and a filed outcome outrank it
+      : over && !rec && !a.outcome_cat ? "no_show"
       : disp === "closed_won" ? "closed" : disp === "follow_up" || disp === "close_pending" ? "follow_up" : disp === "lost" ? "lost" : disp === "dq" ? "dq" : "";
     const money = MONEY.includes(outcome);
     const aboutParts = [str(notes.summary), str(notes.pain) && `Pains: ${str(notes.pain)}`, str(notes.desire) && `Goals: ${str(notes.desire)}`, str(notes.objections) && `Objections: ${str(notes.objections)}`].filter(Boolean);

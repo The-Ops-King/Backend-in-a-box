@@ -70,8 +70,6 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("health_check"), checks: z.record(z.boolean()).default({}), channel: z.string().optional(), as: Persona.optional() }),
   // Bookable slots on the calendars: fewer than min_slots in the next days is a low-availability alert. In a run about a booking, only that booking's calendar is read.
   z.object({ ...base, type: z.literal("availability_check"), min_slots: z.number().int().min(0).default(3), days: z.number().int().min(1).max(7).default(7) }),
-  // Calls that ended today with no recording and no outcome are no-shows (the company's truth when every held call is recorded). `grace` after the scheduled end; `types` = call types that count.
-  z.object({ ...base, type: z.literal("assume_no_show"), grace: z.string().default("30m"), types: z.array(z.string()).default(["closing"]) }),
   // A wrap-up (daily / weekly / monthly numbers) rendered into vars.<into> = { body, period, numbers } and kept in the wrapups ledger; a slack_post after it sends it.
   z.object({ ...base, type: z.literal("report"), kind: z.string(), breakdowns: z.array(z.string()).default([]), sections: z.record(z.boolean()).default({}), into: z.string().default("report") }),
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string(),

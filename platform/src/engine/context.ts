@@ -68,8 +68,10 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     const a = await one<Record<string, unknown>>(c, `
       select a.id, a.source, a.external_id, a.starts_at, a.ends_at, a.status, a.self_booked, a.set_by, a.answers, a.reschedule_url, a.cancel_url, a.tracking, a.cancelled_by, a.cancel_reason,
              json_build_object('name', t.name, 'category', t.category) as term,
-             json_build_object('id', u.id, 'first_name', split_part(u.name,' ',1), 'name', u.name, 'ghl_user_id', u.ghl_user_id) as closer
+             json_build_object('id', u.id, 'first_name', split_part(u.name,' ',1), 'name', u.name, 'ghl_user_id', u.ghl_user_id) as closer,
+             ot.category as outcome, cot.category as call_outcome
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
+           left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
       where a.id=$1`, [run.appointment_id]);
     if (a) ctx.appointment = { ...a, starts_at: (a.starts_at as Date).toISOString(), ends_at: (a.ends_at as Date).toISOString() };
   }

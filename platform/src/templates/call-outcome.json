@@ -1,0 +1,253 @@
+{
+  "slug": "call-outcome",
+  "name": "Call outcome filed",
+  "category": "post_call",
+  "stage": "post_call",
+  "sort": 4,
+  "origin": "spec",
+  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, and the contact gets the outcome tags. No-show → 👻 and stat-no-show. Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one) and stat-showed, then the call outcome the closer confirmed: closed or deposit → stat-closed-won, follow-up → stat-follow-up, lost → stat-lost, disqualified → stat-disqualified. A reschedule changes nothing here: Call booked already reacted 🔁. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54).",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "none"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "appointment.outcome",
+        "match": {
+          "eq": [
+            "{{event._source}}",
+            "disposition"
+          ]
+        }
+      },
+      {
+        "id": "t2",
+        "type": "trigger",
+        "event": "appointment.status_changed",
+        "match": {
+          "eq": [
+            "{{event.status.to}}",
+            "noshow"
+          ]
+        }
+      },
+      {
+        "id": "b1",
+        "type": "branch",
+        "title": "Did they show?"
+      },
+      {
+        "id": "g1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "react": "ghost",
+        "as": {
+          "name": "No-show",
+          "icon": ":ghost:"
+        },
+        "template": "👻 No-show for the call {{appointment.starts_at | date_company}} with {{appointment.closer.name | default:the closer}}.",
+        "title": "React 👻 on the booking post"
+      },
+      {
+        "id": "g2",
+        "type": "set_tag",
+        "tag": [
+          "stat-no-show"
+        ]
+      },
+      {
+        "id": "s1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "react": "white_check_mark",
+        "as": {
+          "name": "Showed",
+          "icon": ":white_check_mark:"
+        },
+        "template": "✅ Showed, per {{appointment.closer.name | default:the closer}}: {{appointment.call_outcome | words | default:no call outcome given}}.",
+        "title": "React ✅ on the booking post"
+      },
+      {
+        "id": "s2",
+        "type": "set_tag",
+        "tag": [
+          "stat-showed"
+        ]
+      },
+      {
+        "id": "b2",
+        "type": "branch",
+        "title": "How did the call go?"
+      },
+      {
+        "id": "c1",
+        "type": "set_tag",
+        "tag": [
+          "stat-closed-won"
+        ]
+      },
+      {
+        "id": "c2",
+        "type": "set_tag",
+        "tag": [
+          "stat-follow-up"
+        ]
+      },
+      {
+        "id": "c3",
+        "type": "set_tag",
+        "tag": [
+          "stat-lost"
+        ]
+      },
+      {
+        "id": "c4",
+        "type": "set_tag",
+        "tag": [
+          "stat-disqualified"
+        ]
+      },
+      {
+        "id": "x0",
+        "type": "exit",
+        "reason": "nothing_to_mark"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "noted"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "b1"
+      },
+      {
+        "from": "t2",
+        "to": "g1"
+      },
+      {
+        "from": "b1",
+        "to": "g1",
+        "when": {
+          "eq": [
+            "{{event.outcome}}",
+            "noshow"
+          ]
+        },
+        "label": "no-show"
+      },
+      {
+        "from": "b1",
+        "to": "s1",
+        "when": {
+          "eq": [
+            "{{event.outcome}}",
+            "showed"
+          ]
+        },
+        "label": "showed"
+      },
+      {
+        "from": "b1",
+        "to": "x0",
+        "else": true,
+        "label": "rescheduled: the booking post already has the 🔁"
+      },
+      {
+        "from": "g1",
+        "to": "g2"
+      },
+      {
+        "from": "g2",
+        "to": "x1"
+      },
+      {
+        "from": "s1",
+        "to": "s2"
+      },
+      {
+        "from": "s2",
+        "to": "b2"
+      },
+      {
+        "from": "b2",
+        "to": "c1",
+        "when": {
+          "in": [
+            "{{appointment.call_outcome}}",
+            [
+              "closed",
+              "deposit"
+            ]
+          ]
+        },
+        "label": "closed or deposit"
+      },
+      {
+        "from": "b2",
+        "to": "c2",
+        "when": {
+          "eq": [
+            "{{appointment.call_outcome}}",
+            "follow_up"
+          ]
+        },
+        "label": "follow-up"
+      },
+      {
+        "from": "b2",
+        "to": "c3",
+        "when": {
+          "eq": [
+            "{{appointment.call_outcome}}",
+            "lost"
+          ]
+        },
+        "label": "lost"
+      },
+      {
+        "from": "b2",
+        "to": "c4",
+        "when": {
+          "eq": [
+            "{{appointment.call_outcome}}",
+            "unqualified"
+          ]
+        },
+        "label": "disqualified"
+      },
+      {
+        "from": "b2",
+        "to": "x1",
+        "else": true,
+        "label": "no call outcome given"
+      },
+      {
+        "from": "c1",
+        "to": "x1"
+      },
+      {
+        "from": "c2",
+        "to": "x1"
+      },
+      {
+        "from": "c3",
+        "to": "x1"
+      },
+      {
+        "from": "c4",
+        "to": "x1"
+      }
+    ]
+  }
+}

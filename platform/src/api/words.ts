@@ -104,7 +104,6 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "exit": return { title: "Done" };
     case "report": return { title: "Build the wrap-up" };
     case "availability_check": return { title: "Check bookable slots", meta: `alert under ${n.min_slots} in ${n.days} day${n.days === 1 ? "" : "s"}` };
-    case "assume_no_show": return { title: "Presume unrecorded calls no-shows", meta: "for the end-of-day form" };
     case "health_check": return { title: "Run the health checks" };
     default: { const d = describeNode(n); return { title: d.title }; }
   }
@@ -126,7 +125,7 @@ export function logoOf(n: Node, bookingSource: "ghl" | "calendly" = "ghl"): stri
     case "exit": return "end";
     case "webhook": return "webhook";
     case "send_document": return "doc";
-    case "health_check": case "availability_check": case "report": case "assume_no_show": return "engine";
+    case "health_check": case "availability_check": case "report": return "engine";
     case "update_appointment": return bookingSource;
     default: return "ghl";
   }
