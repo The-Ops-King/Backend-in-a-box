@@ -26,6 +26,8 @@ create table companies (
   opp_lost_on       text not null default 'closer_marks_or_inactive'
                     check (opp_lost_on in ('closer_marks','closer_marks_or_inactive')),
   opp_inactive_days int not null default 90,
+  reply_retention_days int not null default 7,       -- D38: an inbound reply's row lives this long (the wait-for-reply step needs hours); the event stays
+  sends_retention_days int not null default 30,      -- D38: the engine's own sends, with their words, live this long
   created_at        timestamptz not null default now()
 );
 

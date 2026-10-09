@@ -17,6 +17,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table companies add column if not exists sms_enabled boolean not null default true`);
     await c.query(`alter table companies add column if not exists mode text not null default 'shadow'`);
     await c.query(`alter table runs add column if not exists wake_on_reply boolean not null default false`);
+    await c.query(`alter table companies add column if not exists reply_retention_days int not null default 7`);
+    await c.query(`alter table companies add column if not exists sends_retention_days int not null default 30`);
     await c.query(`alter table companies drop constraint if exists companies_mode_check`);
     await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','live'))`);
     await c.query(`alter table sends drop constraint if exists sends_status_check`);

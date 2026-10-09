@@ -192,6 +192,8 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
     }
     if (!contact) continue;
     if (m.channel === "call") { await applyCall(c, co, ac, adapters, m, contact.id, isBaseline, rep); const d = DateTime.fromISO(m.dateAdded); if (d > max) max = d; continue; }
+    // D38: the hub is not the CRM. Only a reply is kept (the wait-for-reply step reads it for a few hours), never the outbound side or a human's messages; retention drops the reply later.
+    if (m.direction !== "inbound") { const d = DateTime.fromISO(m.dateAdded); if (d > max) max = d; continue; }
     const ins = await one<{ id: string }>(c, `insert into messages (company_id, contact_id, ghl_message_id, ghl_conversation_id, channel, direction, body, subject, sent_by, status, occurred_at)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) on conflict (company_id, ghl_message_id) do nothing returning id`,
       [co.id, contact.id, m.id, m.conversationId, m.channel, m.direction, m.body ?? null, m.subject ?? null, m.direction === "inbound" ? null : "other", m.status ?? null, m.dateAdded]);

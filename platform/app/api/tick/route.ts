@@ -6,6 +6,7 @@ import { withTickLock } from "@/engine/lock";
 import { asOperator } from "@/db/client";
 import { tickAlerts } from "@/engine/alerts";
 import { dispatchSchedules } from "@/engine/clock";
+import { purgeOld } from "@/engine/retention";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
@@ -22,5 +23,7 @@ export async function GET(req: Request) {
   if (out.busy) return NextResponse.json({ ok: true, mode, busy: true, ms: Date.now() - started });   // another tick holds the lease; nothing to do
   // the engine reports its own problems to the operator (D33); a failure here must never fail the tick
   const alerts = await asOperator((c) => tickAlerts(c, liveAdapters, out.result.poll, out.result.runs)).catch((e) => ({ error: String((e as Error).message).slice(0, 200) }));
-  return NextResponse.json({ ok: true, mode, ms: Date.now() - started, ...out.result, alerts });
+  // D38: what is past its retention goes; a failure here never fails the tick
+  const purged = await asOperator((c) => purgeOld(c)).catch((e) => ({ error: String((e as Error).message).slice(0, 200) }));
+  return NextResponse.json({ ok: true, mode, ms: Date.now() - started, ...out.result, alerts, purged });
 }
