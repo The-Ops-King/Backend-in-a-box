@@ -90,9 +90,11 @@ export interface Sender {
   smsTemplateBody(c: Company, templateId: string): Promise<string | null>;
   deliveryStatus(c: Company, externalId: string): Promise<{ status: string; error?: string }>;
 }
-export type Classification = { value: string; confidence: number; distribution: Record<string, number>; unclear: boolean };
+export type Classification = { value: string; confidence: number; distribution: Record<string, number>; unclear: boolean; ambiguity?: number };
+/** What a classify step hands the classifier besides the question: the company's key, what each option means, and how much doubt is too much (D47). */
+export type ChoiceOptions = { apiKey?: string; criteria?: Record<string, string>; ambiguityMax?: number; model?: string };
 export interface Classifier {
-  choice(state: string | undefined, input: string, options: string[], threshold: number): Promise<Classification>;
+  choice(state: string | undefined, input: string, options: string[], threshold: number, opts?: ChoiceOptions): Promise<Classification>;
 }
 /** Who the post appears to come from (Slack `chat:write.customize`): a display name and an emoji (":calendar:") or an image URL. Blank = the app itself. */
 /** Who a post appears from. `icon` is an emoji (`:tada:`), an image URL, or a list of either: one is picked at random per post. */

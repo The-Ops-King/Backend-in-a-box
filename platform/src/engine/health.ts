@@ -12,6 +12,7 @@ import { calendlyAvailableTimes } from "@/adapters/calendly/health";
 import { whopGetWebhook, whopPing } from "@/adapters/whop/client";
 import { fathomListWebhooks, fathomPing } from "@/adapters/fathom/client";
 import { anthropicPing } from "@/adapters/anthropic/health";
+import { jevPing } from "@/adapters/jev/classifier";
 import { workflowRefs, VERIFIES } from "./coverage";
 import { parseDefinition } from "./definition";
 
@@ -48,6 +49,7 @@ export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "fathom_webhook", label: "Fathom webhook", about: "the recording webhook is still registered (or, when Fathom cannot list webhooks, that deliveries keep arriving)" },
   { id: "slack", label: "Slack", about: "the bot token is alive and the bot is in every channel the workflows post to" },
   { id: "anthropic", label: "Anthropic key", about: "the AI key still answers (the company's, else the server's)" },
+  { id: "jev", label: "Jev (reply reading)", about: "the TypeSafe AI key still answers; without it every reply goes to a person" },
   { id: "steps", label: "Every step can fire", about: "each enabled workflow's steps are walked and everything they depend on outside the engine is checked: bindings exist in the CRM, channels have the bot, prompts and keys are set, custom objects and events exist, hand-off targets are on; kinds that cannot be verified are listed as such" },
   { id: "urls", label: "Links in copy", about: "every fixed http(s) link a message sends (booking pages, forms) still answers; a link that moved is an alert" },
 ];
@@ -61,7 +63,7 @@ export async function ensureHealth(c: PoolClient, companyId: string): Promise<He
 export type HealthProbes = {
   ghlLocationOk: typeof ghlLocationOk; ghlFreeSlots: typeof ghlFreeSlots; ghlCatalog: typeof ghlCatalog;
   calendlyWhoAmI: typeof calendlyWhoAmI; calendlyAvailableTimes: typeof calendlyAvailableTimes;
-  whopPing: typeof whopPing; whopGetWebhook: typeof whopGetWebhook; fathomPing: typeof fathomPing; fathomListWebhooks: typeof fathomListWebhooks; anthropicPing: typeof anthropicPing;
+  whopPing: typeof whopPing; whopGetWebhook: typeof whopGetWebhook; fathomPing: typeof fathomPing; fathomListWebhooks: typeof fathomListWebhooks; anthropicPing: typeof anthropicPing; jevPing?: typeof jevPing;
   urlOk: (url: string) => Promise<{ ok: boolean; status?: number; error?: string }>;
 };
 /** Does a link a person will click still answer? HEAD first, GET when HEAD is refused; anything under 400 after redirects is fine. */
@@ -74,7 +76,7 @@ export async function urlOk(url: string): Promise<{ ok: boolean; status?: number
   } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 120) }; }
   finally { clearTimeout(t); }
 }
-export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, calendlyWhoAmI, calendlyAvailableTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, urlOk };
+export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, calendlyWhoAmI, calendlyAvailableTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk };
 
 const DAYS_AHEAD = 7;
 type SlotRead = { name: string; id: string; slots: number; href?: string; times: string[] };
@@ -194,6 +196,11 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
   }
 
   // Anthropic
+  if (on("jev") && probes.jevPing) {
+    const key = bindings["secret.jev_key"] || process.env.JEV_API_KEY;
+    if (!key) bad("jev", "warning", "No Jev key: every reply to a text goes to a person to read.");
+    else { const r = await probes.jevPing(key); if (r.ok) ok("jev", `${bindings["secret.jev_key"] ? "Company" : "Server"} key answers.`); else bad("jev", "error", `Jev key rejected: ${r.error}`); }
+  }
   if (on("anthropic")) {
     const key = bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY;
     if (key) { const r = await probes.anthropicPing(key); if (r.ok) ok("anthropic", `${bindings["secret.anthropic_key"] ? "Company" : "Server"} key answers.`); else bad("anthropic", "error", `Anthropic key rejected: ${r.error}`); }

@@ -1265,3 +1265,24 @@ should be in simple English: 'Check the call is longer than 60 seconds'." A gate
 as a fork (there is a way out), titled "Check <fact>" with the workflow's own constants filled in (`vars.min_seconds`
 reads as 60 seconds), negations in English ("they have not signed", "there is no transcript"), the else as the pill
 and "Otherwise the run stops: too short" on tap. No blue line on a gate: it is not a sometimes-step.
+
+## D47. Jev is real now: the verified shape, the ambiguity gate, and replies in pieces (2026-10-09)
+
+I had reported "Jev is connected" while checking the Anthropic key. Wrong: Jev is TypeSafe AI, the reply reader
+of D5c, and it had never been connected; every reply was classifying as unclear. Tyler: "Jev should be better. We
+can use the 'please confirm' text plus the response, or multiple responses (very important). If they respond 💯 we
+can see that's a response. But if they respond 👎 that's ambiguous and should require a human."
+
+- Verified live against `POST https://api.typesafe.ai/v1/systemone` (model `jev-latest`, answering `jev-1.13.0`):
+  `state` + `questions` keyed by name, a `choice` with `criteria` (label → meaning) and a `noul`; answers under
+  `answers.<name>` as `{ choice, confidence, probabilities }` and `{ noul }`. The adapter sends two questions for
+  every classification: the choice, and "a careful person would not be sure what this means". It acts only when the
+  choice clears `threshold` AND the doubt is under `ambiguity_max` (0.8); otherwise `unclear` → a human. Probed:
+  💯 👍 🔥🔥 "yes see you then" → confirmed; "no thanks" → cancelled; "thursday instead" → reschedule; 👎 👀 "maybe"
+  "idk" "hmm" → a human.
+- A classify node names what each option means (`criteria`), in the template, so the vocabulary is the workflow's.
+- Replies come in pieces. `wait_for_reply` has `settle` (90 s): after the newest message it waits for the rest; a
+  further message restarts the clock. The classifier then reads everything since our last send as one reply
+  (`reply.inbound_since_send`); the Slack question quotes all of it.
+- The key is a company binding (`secret.jev_key`, install `jevKey`) with `JEV_API_KEY` as the server fallback; the
+  health sweep checks it answers and warns when there is none.

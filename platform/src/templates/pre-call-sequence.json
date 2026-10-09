@@ -55,11 +55,19 @@
       {
         "id": "c1",
         "type": "classify",
-        "input": "{{reply.last_inbound.body}}",
+        "input": "{{reply.inbound_since_send}}",
         "state": "{{reply.last_outbound.body | default:}}",
         "domain": "reply_intent",
         "threshold": 0.8,
-        "into": "reply.intent"
+        "into": "reply.intent",
+        "criteria": {
+          "confirmed": "They clearly confirm or accept the call: yes, ok, see you then, a thumbs up, a positive or celebratory emoji.",
+          "cancelled": "They clearly say, in words, that they will not attend or want to cancel.",
+          "reschedule_request": "They ask for a different day or time.",
+          "question": "They ask something and do not confirm, cancel or ask to move the call.",
+          "unclear": "The meaning is not plain: a negative or ambiguous emoji on its own, 'maybe', 'idk', 'hmm', or an unrelated message."
+        },
+        "ambiguity_max": 0.8
       },
       {
         "id": "b1",
@@ -80,7 +88,7 @@
           "name": "Confirmed",
           "icon": ":white_check_mark:"
         },
-        "template": "✅ {{contact.first_name}} confirmed their call {{appointment.starts_at | relative:auto}}.\n> {{reply.last_inbound.body}}",
+        "template": "✅ {{contact.first_name}} confirmed their call {{appointment.starts_at | relative:auto}}.\n> {{reply.inbound_since_send}}",
         "title": "React ✅, quote their reply"
       },
       {
@@ -112,7 +120,7 @@
         "id": "n_cx_slack",
         "type": "slack_post",
         "channel": "{{slack.channel.bookings}}",
-        "template": "❌ {{contact.first_name}} cancelled by reply.\n> {{reply.last_inbound.body}}",
+        "template": "❌ {{contact.first_name}} cancelled by reply.\n> {{reply.inbound_since_send}}",
         "as": {
           "name": "Call cancelled",
           "icon": ":x:"
@@ -137,7 +145,7 @@
           "name": "Reschedule",
           "icon": ":repeat:"
         },
-        "template": "🔁 {{contact.first_name}} asked to reschedule; the rebooking link went out.\n> {{reply.last_inbound.body}}",
+        "template": "🔁 {{contact.first_name}} asked to reschedule; the rebooking link went out.\n> {{reply.inbound_since_send}}",
         "title": "React 🔁, quote their reply"
       },
       {
@@ -148,7 +156,7 @@
           "name": "Unclear reply, please confirm",
           "icon": ":grey_question:"
         },
-        "template": "❔ *Unclear reply, please confirm.* {{contact.first_name}} replied to the booking text and I couldn't tell what they meant. The reminders keep going until someone decides.\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.last_inbound.body}}\nTap ✅ to mark the call confirmed or ❌ to cancel it.",
+        "template": "❔ *Unclear reply, please confirm.* {{contact.first_name}} replied to the booking text and I couldn't tell what they meant. The reminders keep going until someone decides.\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ to mark the call confirmed or ❌ to cancel it.",
         "title": "Ask the team: ✅ or ❌",
         "thread_of": "tag:appointment:{{appointment.id}}",
         "tag": "decision:{{appointment.id}}",

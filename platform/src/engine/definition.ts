@@ -48,7 +48,7 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("trigger"), event: z.string(), match: Predicate.optional(), schedule: Schedule.optional() }),
   z.object({ ...base, type: z.literal("wait"), rule: WaitRule }),
   // Waits for an inbound reply (woken the minute one arrives) or until `timeout`; follows the edge labeled "timeout" if none, else exits `no_reply`.
-  z.object({ ...base, type: z.literal("wait_for_reply"), timeout: z.string(), channel: z.enum(["sms", "email", "any"]).default("any") }),
+  z.object({ ...base, type: z.literal("wait_for_reply"), timeout: z.string(), channel: z.enum(["sms", "email", "any"]).default("any"), settle: z.string().default("90s") }),   // settle: after the first reply, wait this long for the rest of what they are typing (D47)
   // kind: "human" reads like a person wrote it and always respects dark hours; "transactional" is an automated receipt ("you're booked") the company may let through at any hour
   // ghl_template: the CRM's own SMS snippet / email builder template id (or a {{crm.*}} binding); when set and found, the team's copy in the CRM wins over `template` (D30)
   z.object({ ...base, type: z.literal("send_sms"), template: z.string(), ghl_template: z.string().optional(), kind: z.enum(["human", "transactional"]).default("human"), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
@@ -74,7 +74,8 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("assume_no_show"), grace: z.string().default("30m"), types: z.array(z.string()).default(["closing"]) }),
   // A wrap-up (daily / weekly / monthly numbers) rendered into vars.<into> = { body, period, numbers } and kept in the wrapups ledger; a slack_post after it sends it.
   z.object({ ...base, type: z.literal("report"), kind: z.string(), breakdowns: z.array(z.string()).default([]), sections: z.record(z.boolean()).default({}), into: z.string().default("report") }),
-  z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string() }),
+  z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string(),
+    criteria: z.record(z.string()).optional(), ambiguity_max: z.number().min(0).max(1).default(0.8) }),   // criteria: what each option means, in words; ambiguity_max: a reply a careful person would doubt this much goes to a human (D47)
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),
   z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string(), retry: z.object({ every: z.string(), for: z.string() }).optional() }),   // retry: park and look again every `every` for up to `for` before taking else_exit
   z.object({ ...base, type: z.literal("set_tag"), tag: z.union([z.string(), z.array(z.string()).min(1)]) }),

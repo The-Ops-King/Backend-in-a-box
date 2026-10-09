@@ -34,9 +34,11 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   // D13: the reply the run is reacting to is whatever the contact last sent after this run started; what we last sent is the classifier's state.
   const lastIn = await one<{ body: string | null; occurred_at: Date }>(c, "select body, occurred_at from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at >= $3 order by occurred_at desc limit 1", [company.id, run.contact_id, run.started_at ?? new Date(0)]);
   const lastOut = await one<{ rendered_body: string; sent_at: Date }>(c, "select rendered_body, sent_at from sends where company_id=$1 and contact_id=$2 and status='sent' order by sent_at desc limit 1", [company.id, run.contact_id]);
+  const sinceSend = await many<{ body: string | null }>(c, "select body from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at > $3 order by occurred_at", [company.id, run.contact_id, lastOut?.sent_at ?? run.started_at ?? new Date(0)]);
   const derivedReply: Record<string, unknown> = {
     last_inbound: lastIn ? { body: lastIn.body, at: lastIn.occurred_at.toISOString() } : undefined,
     last_outbound: lastOut ? { body: lastOut.rendered_body, at: lastOut.sent_at?.toISOString() } : undefined,
+    inbound_since_send: sinceSend.map((m) => m.body ?? "").filter(Boolean).join("\n") || undefined, count: sinceSend.length,   // D47: everything they sent since we last did, in order
   };
   // CRM custom fields by the name the company bound them under: crm.field_contact_hair_loss = <id> → contact.fields.hair_loss
   const fields: Record<string, unknown> = {};

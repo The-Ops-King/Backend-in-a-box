@@ -27,6 +27,7 @@ let liveStatus = "confirmed";
 const APPT_START = DateTime.now().setZone("America/Phoenix").plus({ days: 2 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
 const recordWrites: Record<string, unknown>[] = [];
 const relations: string[] = [];
+const classified: string[] = [];
 const fake: Adapters = {
   read: {
     contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
@@ -40,7 +41,7 @@ const fake: Adapters = {
     sendEmail: async (_c, to, subject, html) => { sent.push({ kind: "email", to, body: `${subject}|${html}` }); return { externalId: `em-${sent.length}`, accepted: true }; },
     deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null,
   },
-  classifier: { choice: async (_s, input): Promise<Classification> => /yes|see you/i.test(input) ? { value: "confirmed", confidence: 0.96, distribution: { confirmed: 0.96 }, unclear: false } : { value: "unclear", confidence: 0.3, distribution: { unclear: 0.3 }, unclear: true } },
+  classifier: { choice: async (_s, input): Promise<Classification> => { classified.push(input); return /yes|see you/i.test(input) ? { value: "confirmed", confidence: 0.96, distribution: { confirmed: 0.96 }, unclear: false } : { value: "unclear", confidence: 0.3, distribution: { unclear: 0.3 }, unclear: true }; } },
   notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null, react: async () => true, unreact: async () => true, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
@@ -105,7 +106,13 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
       await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'M2','sms','inbound','yes see you then',now())", [companyId, contactId]);
       await c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting'", [companyId]);
     });
-    const r3 = await tick(fake, undefined, companyId, fakeProbes);                      // w1 sees reply → c1 classify → b1 branch → tag confirmed → the 3-day text is stale (call in 2 days) → parks on the next reminder
+    const r3a = await tick(fake, undefined, companyId, fakeProbes);                     // w1 sees the reply and waits 90 s for the rest of what they are typing (D47)
+    expect(r3a.waiting).toBe(1); expect(tags).not.toContain("confirmed");
+    await asOperator(async (c) => {
+      await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'M3','sms','inbound','🙏',now())", [companyId, contactId]);   // a second piece, after the first
+      await c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting'", [companyId]);
+    });
+    const r3 = await tick(fake, DateTime.now().plus({ minutes: 2 }), companyId, fakeProbes);   // settled: c1 classify on both → b1 branch → tag confirmed → the 3-day text is stale (call in 2 days) → parks on the next reminder
     expect(r3.waiting).toBe(1);
     expect(tags).toContain("confirmed");
     const run = await asOperator((c) => one<{ status: string; current_node: string }>(c, "select r.status, r.current_node from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Pre-call sequence'", [companyId]));
@@ -115,6 +122,7 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
     expect(new Set(ledger.map((l) => l.idempotency_key)).size).toBe(ledger.length);
     const cls = await asOperator((c) => one<{ data: { intent: string } }>(c, "select data from events where company_id=$1 and event_type='reply.classified'", [companyId]));
     expect(cls?.data.intent).toBe("confirmed");
+    expect(classified.at(-1)).toBe("yes see you then\n🙏");   // both pieces, in order, went to the classifier as one reply
   });
 
   it("wait_for_reply timeout: no reply by the deadline → the timeout edge → tagged unconfirmed, the closers told, the reminders go on", async () => {

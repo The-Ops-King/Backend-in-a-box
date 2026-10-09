@@ -604,7 +604,7 @@ Env already set: `CRON_SECRET`, `BINDINGS_KEY`, `OPERATOR_EMAIL`.
 |---|---|---|
 | **Connect the GitHub repo in Vercel** | The project was created with the git link but no deployment fired — the Vercel GitHub app isn't authorized on `The-Ops-King/backend-in-a-box`. | Vercel → project → Settings → Git → Connect. After that every push to `main` deploys. |
 | **`DATABASE_URL`** | No database in production yet. | Vercel → Storage → create Postgres (Neon). It injects `DATABASE_URL` automatically. Then run `pnpm db:migrate` once against it (locally with the URL, or from a one-off script). |
-| **`JEV_API_KEY`** (optional for MVP) | Without it every reply classifies as `unclear` → the human path. Safe, just not smart. | TypeSafe AI account → key → Vercel env. The request shape in `src/adapters/jev/classifier.ts` is unverified against their docs — one function to fix. |
+| **`JEV_API_KEY`** (server fallback; per company it is `secret.jev_key`, install `jevKey`) | TypeSafe AI reads every reply to a text: confirmed, cancelled, reschedule, question, unclear, with an ambiguity gate so a 👎 or a "maybe" goes to a person (D47). Without a key every reply goes to a person. | TypeSafe AI console → key → install API `jevKey`. Shape verified live 2026-10-09 against `POST /v1/systemone`. |
 | **A GHL phone number per sub-account** | SMS sends return `No numbers available in the account`. Email works without it. | Buy a number in each sub-account once A2P is approved. |
 | **Slack** (later) | `slack_post` nodes skip with a warning until a workspace is connected. | OAuth flow isn't built; `slack_connections` table is ready for it. |
 

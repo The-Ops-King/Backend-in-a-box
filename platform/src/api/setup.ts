@@ -8,7 +8,7 @@ import type { CompanyHead } from "./data";
  * is reachable. Changing any of it is still the CLI's and the install API's job.
  */
 const LABELS: Record<string, string> = {
-  "secret.ghl_pit": "GoHighLevel private integration token", "crm.location_id": "GoHighLevel location", "secret.anthropic_key": "Anthropic API key", "secret.whop_api_key": "Whop API key", "secret.whop_webhook": "Whop webhook secret",
+  "secret.ghl_pit": "GoHighLevel private integration token", "crm.location_id": "GoHighLevel location", "secret.anthropic_key": "Anthropic API key (transcripts)", "secret.jev_key": "Jev key (reads replies)", "secret.whop_api_key": "Whop API key", "secret.whop_webhook": "Whop webhook secret",
   "secret.fathom_api_key": "Fathom API key", "secret.fathom_webhook": "Fathom webhook secret", "secret.calendly_token": "Calendly token", "secret.slack_signing": "Slack signing secret (reactions door)", "secret.resend_key": "Resend API key (alert email)", "secret.zapier_inbound": "Zapier door secret",
   "alerts.slack_channel": "Alerts to Slack", "alerts.email": "Alerts by email", "alerts.email_from": "Alert email from", "alerts.webhook": "Alerts to a webhook", "alerts.as_name": "Alerts post as", "alerts.as_icon": "Alert icon",
   "booking.setter_rule": "Setter rule", "crm.default_closer": "Default closer", "calendly.phone_question": "Calendly phone question", "calendly.setter_question": "Calendly setter question", "calendly.user": "Calendly host", "calendly.organization": "Calendly organization",
@@ -51,7 +51,7 @@ export async function setupPage(co: CompanyHead) {
     settings: { name: d.company.name, timezone: d.company.timezone, mode: d.company.mode, sms_enabled: d.company.sms_enabled, send_window: `${d.company.send_window_start.slice(0, 5)}–${d.company.send_window_end.slice(0, 5)}`, quiet_allow_transactional: d.company.quiet_allow_transactional, contract_value_default: d.company.contract_value_default, reached_seconds: d.company.reached_seconds },
     team: d.users.map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, calls: u.calls, in_crm: !!u.ghl_user_id })),
     eod_form: d.eodForm.map((f) => ({ key: f.key, label: f.label, type: f.type, required: !!f.required, scope: f.scope ?? "call", when: f.when ?? null, builtin: !!f.builtin, options: f.options ?? null })),
-    connections: ["crm.location_id", "secret.ghl_pit", "secret.anthropic_key", "secret.whop_api_key", "secret.whop_webhook", "secret.fathom_api_key", "secret.fathom_webhook", "secret.calendly_token", "secret.slack_signing", "secret.resend_key"].map((k) => one(k) ?? { key: k, label: humanKey(k), set: false, value: null, name: null, required: false, used_by: [] }),
+    connections: ["crm.location_id", "secret.ghl_pit", "secret.anthropic_key", "secret.jev_key", "secret.whop_api_key", "secret.whop_webhook", "secret.fathom_api_key", "secret.fathom_webhook", "secret.calendly_token", "secret.slack_signing", "secret.resend_key"].map((k) => one(k) ?? { key: k, label: humanKey(k), set: false, value: null, name: null, required: false, used_by: [] }),
     catalog_errors: cat?.errors ?? [],
     booking: { source: d.bookingSource, setter_rule: one("booking.setter_rule")?.value ?? null, default_closer: one("crm.default_closer")?.name ?? one("crm.default_closer")?.value ?? null, phone_question: one("calendly.phone_question")?.value ?? null, setter_question: one("calendly.setter_question")?.value ?? null },
     call_types: d.terms.map((t) => ({ name: t.name, category: t.category, active: t.active, in_use: t.in_use })),

@@ -1,23 +1,50 @@
-import type { Classifier, Classification } from "../types";
+import type { Classifier, Classification, ChoiceOptions } from "../types";
 
 /**
- * Jev (TypeSafe AI): state + typed question in, probability distribution out.
- * ENDPOINT SHAPE UNVERIFIED — see engine/01-open.md #7. Isolated here so fixing it is one function.
- * Without JEV_API_KEY every call returns `unclear` with confidence 0, which routes to the human path (D13).
+ * Jev (TypeSafe AI, model jev-latest): a state plus typed questions in, probability distributions out. Shape verified
+ * live on 2026-10-09 (D47): POST https://api.typesafe.ai/v1/systemone, Bearer key, `questions` keyed by name with
+ * `type` choice|noul|score, `instructions`, and for a choice `criteria` (label → what it means); answers come back
+ * under `answers.<name>` as `{ choice, confidence, probabilities }` for a choice and `{ noul }` for a noul.
+ *
+ * Two questions go up for every classification: the choice itself, and "would a careful person be unsure what this
+ * means?" (a noul). The answer is only acted on when the choice is confident AND the reply is not ambiguous; otherwise
+ * it is `unclear`, which routes to a human (D13). Tyler: "💯 is a yes; 👎 is ambiguous and should require a human."
+ * Without a key every call returns `unclear` with confidence 0.
  */
+export const JEV_URL = () => process.env.JEV_API_URL ?? "https://api.typesafe.ai/v1/systemone";
+const AMBIGUOUS = "A careful person would not be sure what this reply means without asking the person who sent it.";
+
+export async function jevAsk(apiKey: string, body: Record<string, unknown>): Promise<{ ok: boolean; status: number; data?: Record<string, unknown>; error?: string }> {
+  const res = await fetch(JEV_URL(), { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const text = await res.text();
+  if (!res.ok) return { ok: false, status: res.status, error: text.slice(0, 200) };
+  try { return { ok: true, status: res.status, data: JSON.parse(text) as Record<string, unknown> }; } catch { return { ok: false, status: res.status, error: "not JSON" }; }
+}
+
 export const jevClassifier: Classifier = {
-  async choice(state, input, options, threshold): Promise<Classification> {
-    const key = process.env.JEV_API_KEY;
-    const unclear = (dist: Record<string, number>): Classification => ({ value: "unclear", confidence: 0, distribution: dist, unclear: true });
-    if (!key) return unclear(Object.fromEntries(options.map((o) => [o, 0])));
-    const res = await fetch(process.env.JEV_API_URL ?? "https://api.typesafe.ai/v1/jev", {
-      method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ state: state ?? "", questions: [{ type: "choice", text: input, options }] }),
-    });
-    if (!res.ok) return unclear(Object.fromEntries(options.map((o) => [o, 0])));
-    const data = (await res.json()) as { results?: { distribution?: Record<string, number> }[] };
-    const dist = data.results?.[0]?.distribution ?? {};
-    const [best, p] = Object.entries(dist).sort((a, b) => b[1] - a[1])[0] ?? ["unclear", 0];
-    return p >= threshold ? { value: best, confidence: p, distribution: dist, unclear: false } : { value: "unclear", confidence: p, distribution: dist, unclear: true };
+  async choice(state, input, options, threshold, opts?: ChoiceOptions): Promise<Classification> {
+    const key = opts?.apiKey || process.env.JEV_API_KEY;
+    const unclear = (dist: Record<string, number>, confidence = 0, ambiguity?: number): Classification => ({ value: "unclear", confidence, distribution: dist, unclear: true, ...(ambiguity !== undefined ? { ambiguity } : {}) });
+    const zeros = Object.fromEntries(options.map((o) => [o, 0]));
+    if (!key) return unclear(zeros);
+    const criteria = Object.fromEntries(options.map((o) => [o, opts?.criteria?.[o] ?? o.replace(/_/g, " ")]));
+    const body = { model: opts?.model ?? "jev-latest", state: state ?? "", questions: {
+      answer: { type: "choice", instructions: input, criteria },
+      ambiguous: { type: "noul", instructions: AMBIGUOUS },
+    } };
+    const r = await jevAsk(key, body);
+    if (!r.ok) return unclear(zeros);
+    const answers = (r.data?.answers ?? {}) as Record<string, Record<string, unknown>>;
+    const a = answers.answer ?? {}; const dist = (a.probabilities ?? {}) as Record<string, number>;
+    const choice = typeof a.choice === "string" ? a.choice : "unclear"; const p = typeof a.confidence === "number" ? a.confidence : dist[choice] ?? 0;
+    const amb = answers.ambiguous; const ambiguity = amb && typeof amb.noul === "number" ? amb.noul : 0;
+    if (!options.includes(choice) || p < threshold || ambiguity >= (opts?.ambiguityMax ?? 0.8)) return unclear(dist, p, ambiguity);
+    return { value: choice, confidence: p, distribution: dist, unclear: false, ambiguity };
   },
 };
+
+/** Is the key alive? One tiny noul question (D33 health). */
+export async function jevPing(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+  try { const r = await jevAsk(apiKey, { model: "jev-latest", state: "ping", questions: { ok: { type: "noul", instructions: "The state says ping." } } }); return r.ok ? { ok: true } : { ok: false, error: `${r.status} ${r.error ?? ""}`.trim() }; }
+  catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 160) }; }
+}

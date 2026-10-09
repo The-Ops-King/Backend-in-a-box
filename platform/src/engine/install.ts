@@ -33,6 +33,7 @@ export type InstallInput = {
   /** Call recordings. `apiKey` registers Fathom's webhook at install (needs PUBLIC_URL); `webhookSecret` binds one made by hand. Either way the Zapier door is open too. */
   recording?: { source: "fathom"; apiKey?: string; webhookSecret?: string };
   anthropicKey?: string;                 // bound as secret.anthropic_key; the analyze node reads it (env ANTHROPIC_API_KEY is the fallback)
+  jevKey?: string;                       // bound as secret.jev_key; the classify node reads replies with it (env JEV_API_KEY is the fallback)
   /** Where the engine says what broke (D33): a Slack channel id, email addresses (needs resendKey + emailFrom), a webhook (a Zap). */
   alerts?: { slackChannel?: string; email?: string; emailFrom?: string; webhook?: string; resendKey?: string; asName?: string; asIcon?: string };
   prompts?: Record<string, string>;      // prompt.<name> overrides; defaults from src/prompts fill the rest
@@ -121,6 +122,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (input.recording?.webhookSecret) await bind("secret.fathom_webhook", "secret", input.recording.webhookSecret);
     if (input.recording?.apiKey) await bind("secret.fathom_api_key", "secret", input.recording.apiKey);
     if (input.anthropicKey) await bind("secret.anthropic_key", "secret", input.anthropicKey);
+    if (input.jevKey) await bind("secret.jev_key", "secret", input.jevKey);
     if (input.alerts?.slackChannel) await bind("alerts.slack_channel", "channel", input.alerts.slackChannel);
     if (input.alerts?.email) await bind("alerts.email", "text", input.alerts.email);
     if (input.alerts?.emailFrom) await bind("alerts.email_from", "text", input.alerts.emailFrom);

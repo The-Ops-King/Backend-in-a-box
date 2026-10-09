@@ -178,12 +178,17 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       // boundary = our last contact-facing send in this run (sent, or would-have-sent in shadow); Slack posts don't count
       const lastSend = await one<{ sent_at: Date }>(d.c, "select sent_at from sends where run_id=$1 and channel in ('sms','email') and status in ('sent','shadow') order by sent_at desc limit 1", [d.run.id]);
       const since = lastSend?.sent_at ?? d.run.started_at ?? new Date(0);
-      const reply = await one<{ body: string | null; occurred_at: Date; channel: string }>(d.c,
-        `select body, occurred_at, channel from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at > $3 ${node.channel === "any" ? "" : "and channel=$4"} order by occurred_at desc limit 1`,
+      const replies = await many<{ body: string | null; occurred_at: Date; channel: string }>(d.c,
+        `select body, occurred_at, channel from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at > $3 ${node.channel === "any" ? "" : "and channel=$4"} order by occurred_at`,
         node.channel === "any" ? [d.company.id, d.run.contact_id, since] : [d.company.id, d.run.contact_id, since, node.channel]);
-      if (reply) {
-        setPath(d.ctx, "reply.last_inbound", { body: reply.body, at: reply.occurred_at.toISOString(), channel: reply.channel });
-        return { status: "ok", next, result: { replied_at: reply.occurred_at.toISOString() } };
+      if (replies.length) {
+        // D47: people answer in pieces ("yes" … "see you then"). After the newest message, wait `settle` for the rest; a further reply re-wakes and restarts the clock.
+        const newest = replies[replies.length - 1]; const settled = DateTime.fromJSDate(newest.occurred_at).plus(parseDuration(node.settle));
+        if (d.now < settled) return { status: "waiting", until: settled, stay: true, wakeOnReply: true, result: { settling_until: settled.toISO(), replies: replies.length } };
+        setPath(d.ctx, "reply.last_inbound", { body: newest.body, at: newest.occurred_at.toISOString(), channel: newest.channel });
+        setPath(d.ctx, "reply.inbound_since_send", replies.map((r) => r.body ?? "").filter(Boolean).join("\n"));
+        setPath(d.ctx, "reply.count", replies.length);
+        return { status: "ok", next, result: { replied_at: newest.occurred_at.toISOString(), replies: replies.length } };
       }
       const key = `__wait_for_reply.${node.id}.deadline`;
       let deadline = resolvePath(d.ctx, `vars.${key}`) as string | undefined;
@@ -233,11 +238,11 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "classify": {
       const input = render(node.input, d.ctx, env(d)); const state = node.state ? render(node.state, d.ctx, env(d)) : undefined;
       const options = (await many<{ value: string }>(d.c, "select value from core_categories where domain=$1 order by sort", [node.domain])).map((r) => r.value);
-      const r = await d.adapters.classifier.choice(state, input, options, node.threshold);
+      const r = await d.adapters.classifier.choice(state, input, options, node.threshold, { apiKey: d.bindings["secret.jev_key"] || process.env.JEV_API_KEY, criteria: node.criteria, ambiguityMax: node.ambiguity_max });
       const top = Object.entries(r.distribution).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, p]) => `${k} ${(p * 100).toFixed(0)}%`).join(", ");
       setPath(d.ctx, node.into, r.value); setPath(d.ctx, "reply.confidence", r.confidence); setPath(d.ctx, "reply.top_guesses", top || "none");
       await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, input } });
-      return { status: "ok", next, result: { value: r.value, confidence: r.confidence } };
+      return { status: "ok", next, result: { value: r.value, confidence: r.confidence, ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(r.unclear ? { why: r.confidence < node.threshold ? "not confident enough" : "a careful person would doubt it" } : {}) } };
     }
 
     case "branch": {
