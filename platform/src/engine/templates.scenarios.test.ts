@@ -171,16 +171,15 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(opp?.status).toBe("won");
   });
 
-  it("payment-failed: SMS + email, two days, Slack skipped cleanly when not connected", async () => {
+  it("payment-failed: nothing to the client; one Slack post tagging the closer (suppressed cleanly when Slack is not connected)", async () => {
     const cns = await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CNS'", [companyId]));
     await asOperator(async (c) => { const ev = await applyPayment(c, companyId, cns!.id, { whopPaymentId: "P2", amount: 2500, currency: "USD", status: "failed", paidAt: new Date(), raw: {} }); await dispatchEvent(c, ev, { contact: { id: cns!.id } }); });
     const n = since(); await tick(fake, undefined, companyId);
-    expect(sent.slice(n).map((s) => s.kind).sort()).toEqual(["email", "sms"]);
-    let r = (await runsFor("payment-failed"))[0]; expect(r.current_node).toBe("n3"); expect(DateTime.fromJSDate(r.next_run_at!).diffNow("days").days).toBeGreaterThan(1.9);
-    await expireWait(r.id, "n3"); await tick(fake, undefined, companyId);
-    r = (await runsFor("payment-failed"))[0]; expect(r.exit_reason).toBe("escalated");
-    const slack = await asOperator((c) => one<{ status: string; suppressed_reason: string }>(c, "select status, suppressed_reason from sends where run_id=$1 and channel='slack'", [r.id]));
+    expect(sent.slice(n)).toEqual([]);
+    const r = (await runsFor("payment-failed"))[0]; expect(r.exit_reason).toBe("done");
+    const slack = await asOperator((c) => one<{ status: string; suppressed_reason: string; rendered_body: string }>(c, "select status, suppressed_reason, rendered_body from sends where run_id=$1 and channel='slack'", [r.id]));
     expect(slack?.status).toBe("suppressed"); expect(slack?.suppressed_reason).toMatch(/unbound: slack/);
+    expect(slack?.rendered_body).toMatch(/^\*Payment failed:\* \$2,500/); expect(slack?.rendered_body).toMatch(/\*Closer:\* /);
   });
 
   it("reactivation: tag starts the sequence; a second tag inside 90 days is blocked", async () => {

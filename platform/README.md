@@ -36,7 +36,7 @@ Every template carries a `stage` on the customer's journey (`src/engine/stages.t
 | cancellation-rebook | GHL marks cancelled | SMS + email with the rebook link |
 | post-call-follow-up | disposition says follow-up | next morning SMS |
 | payment-received | Whop payment | thank-you email, tag `client` |
-| payment-failed | Whop failure | SMS + email, 2 days, Slack the owner if connected |
+| payment-failed | Whop failure | one post in `slack.channel.payments` tagging the closer; the client is not messaged |
 | reactivation | tag `reactivate` added | email, 3 days, SMS, 4 days, last email; once per 90 days |
 | call-booked | closing call booked or moved | contact gets appointment date + closer as owner; setter card → Direct Booked Call ("-- Direct") or Appointment Set ("-- Set", setter stamped); closer card created/moved to Scheduled ("-- Direct" / "-- Setter Booked"); tags `stat-booked` + `stat-self-booked`/`stat-set`, nurture tags off; Slack card with intake answers, reschedule link, UTM source. Needs the setter/closer pipeline + stage ids and the custom field ids as `crm.*`; `slack.channel.bookings` optional |
 | call-cancelled | closing call cancelled (a reschedule never fires this) | setter and closer cards → their cancelled stage (move only); appointment date cleared on the contact; rebook task for the closer due in a day with who cancelled and why; `stat-cancelled` on, booked tags off; Slack note. Needs `crm.stage_setter_cancelled`, `crm.stage_closer_cancelled` |

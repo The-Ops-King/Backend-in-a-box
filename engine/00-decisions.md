@@ -1297,3 +1297,11 @@ unclear). A classify step carries the `question` Jev is asked and what each answ
 text, verified live at 18k characters. The Sales Call record's disposition and the Slack outcome line come from
 Jev; Anthropic keeps the notes, digest and scorecard. Below the threshold, or a transcript a careful person would
 read two ways, the answer is unclear and the record's disposition is left blank rather than guessed.
+
+## D49. A failed payment is the closer's problem, told in Slack (2026-10-09)
+
+Tyler: "Payment Failed should post to the slack channel… this automation shouldn't SMS, it should ping slack and tag
+the closer." The old chase (text + email, two days, then the owner) is gone. The workflow is one step: a post in
+`slack.channel.payments` with the amount, the contact link and the closer @mentioned, who follows up personally.
+The client hears nothing from the engine about a declined card. It lands in the payments channel because that is
+where everything goes today; when the team splits channels, the binding moves and the template does not.

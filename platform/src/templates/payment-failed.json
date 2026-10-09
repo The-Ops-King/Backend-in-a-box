@@ -5,7 +5,7 @@
   "stage": "payments",
   "sort": 30,
   "origin": "default",
-  "description": "Text and email when a charge fails; two days later, tell the owner in Slack if it's connected.",
+  "description": "A failed charge is posted in the payments channel with the closer tagged, so they follow up with the client. The client hears nothing from the engine.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -20,32 +20,9 @@
       },
       {
         "id": "n1",
-        "type": "send_sms",
-        "template": "Hey {{contact.first_name}}, heads up, your payment didn't go through. Can you update your card when you get a sec? Reply here if you need a hand.",
-        "on_stale": "skip",
-        "title": "Text about the failed payment"
-      },
-      {
-        "id": "n2",
-        "type": "send_email",
-        "subject": "Payment didn't go through",
-        "template": "<p>Hey {{contact.first_name}},</p><p>Your latest payment didn't go through. Usually it's an expired card. Can you update it when you get a chance? Reply to this email if you need help.</p><p>{{company.name}}</p>",
-        "on_stale": "skip"
-      },
-      {
-        "id": "n3",
-        "type": "wait",
-        "rule": {
-          "anchor": "now",
-          "offset": "+2d",
-          "tz": "company"
-        }
-      },
-      {
-        "id": "n4",
         "type": "slack_post",
-        "channel": "{{slack.channel.owner}}",
-        "template": "{{contact.first_name}}'s payment failed two days ago and hasn't been fixed.",
+        "channel": "{{slack.channel.payments}}",
+        "template": "*Payment failed:* ${{event.amount | money}}{{event.kind | words | prefix: ·}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.mention | default:unassigned}}, please follow up with them.{{contact.setter.name | line:*Setter:*}}",
         "as": {
           "name": "Payment failed",
           "icon": [
@@ -54,12 +31,12 @@
             ":rotating_light:"
           ]
         },
-        "title": "Post failed payment in Slack"
+        "title": "Post the failed payment in Slack and tag the closer"
       },
       {
         "id": "x1",
         "type": "exit",
-        "reason": "escalated"
+        "reason": "done"
       }
     ],
     "edges": [
@@ -69,18 +46,6 @@
       },
       {
         "from": "n1",
-        "to": "n2"
-      },
-      {
-        "from": "n2",
-        "to": "n3"
-      },
-      {
-        "from": "n3",
-        "to": "n4"
-      },
-      {
-        "from": "n4",
         "to": "x1"
       }
     ]
