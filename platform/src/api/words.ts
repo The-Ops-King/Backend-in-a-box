@@ -13,7 +13,7 @@ import type { Projected } from "@/engine/project";
 export type ChartKind = "trig" | "send" | "wait" | "reply" | "fork" | "check" | "tag" | "slack" | "crm" | "ai" | "end" | "other";
 /** Who a Slack post appears as (D43: a Slack preview looks like Slack): the bot name and its emoji or image. */
 export type SlackFace = { name: string; icon: string | null };
-export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; detail?: string; quote?: string; cond?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string | string[]; offer?: string[]; hidden?: boolean; stop?: string; logo?: string };
+export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; detail?: string; quote?: string; cond?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string | string[]; offer?: string[]; hidden?: boolean; logo?: string };
 export type ChartEdge = { from: string; to: string; label: string; else?: boolean };
 export type Chart = { nodes: ChartNode[]; edges: ChartEdge[] };
 
@@ -145,7 +145,7 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
     try { const ex = nodeExamples(n, ctx, company.timezone)[0]?.example.text; quote = n.type === "slack_post" || n.type === "notify_owner" ? ex?.trim() : n.type === "send_sms" || n.type === "send_email" || n.type === "note" ? strip(ex) : undefined; } catch { quote = d.quote; }
     const cond = n.only_if ? `Only if ${predicateWords(n.only_if)}${n.type === "slack_post" && n.thread_only ? "; and only when the post it reacts to is in Slack" : ""}` : n.type === "slack_post" && n.thread_only ? "Only when the post it reacts to is in Slack; nothing is posted otherwise" : n.type === "pipeline_card" && n.if_missing === "skip" ? "Only if a card is already on that board; this step never creates one" : n.type === "pipeline_card" && !n.stage ? "Only when a card is already on that board: there is no stage to make one in" : n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : undefined;
     // the AI reading a reply is plumbing between the wait and the fork; the chart routes around it, the popover of the fork says so
-    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), hidden: (n.type === "classify" && (n.domain === "reply_intent" || foldsIntoGate(full, n))) || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource), stop: n.type === "check" ? exitWords(n.else_exit).replace(/^(Stop|Done): /, "") : undefined };
+    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), hidden: (n.type === "classify" && (n.domain === "reply_intent" || foldsIntoGate(full, n))) || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource) };
   });
   const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e), else: e.else || undefined }));
   return { nodes, edges };

@@ -158,16 +158,6 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
       for (const it of rest) {
         if (prevBottom !== null) link(x, prevBottom, x, y);
         prevBottom = put(it, x, y, maxNodeW); y = prevBottom + GAP;
-        if (it.n.kind === "check" && it.n.stop) {
-          // the "else" of an if: a short branch to the right that ends; the spine (the "yes") carries on straight down
-          const label = `else: ${it.n.stop}`; const pillW = Math.min(Math.max(90, label.length * 6.4 + 22), W / 2 - 24); const lines = wrap(label, Math.floor((pillW - 22) / 6.4)).slice(0, 2);
-          const ph = 8 + lines.length * 14; const px = Math.min(W - pillW / 2 - 8, x + W / 4 + pillW / 2 - 10); const py = y - GAP / 2 + ph / 2 + 2;
-          const sz = sizeOf(it, maxNodeW); link(x + sz.w / 2 - 8, prevBottom - 4, px, py - ph / 2);
-          out.push(`<g style="opacity:.75"><rect x="${px - pillW / 2}" y="${py - ph / 2}" width="${pillW}" height="${ph}" rx="${ph / 2}" fill="none" stroke="${T("fg-3")}" stroke-width="1.5"/>`);
-          lines.forEach((l, i) => out.push(`<text class="lbl" x="${px}" y="${py - ph / 2 + 14 + i * 14}" text-anchor="middle" fill="${T("fg-2")}">${esc(l)}</text>`));
-          out.push("</g>");
-          y += ph + 6;
-        }
       }
       continue;
     }
