@@ -21,7 +21,7 @@ right answer is a template decision first). Ranked by how likely it is to bite i
 | G2 | A CRM outage (401 after a token rotation, a 5xx) **at the premise check fails the run for good**. D5 says a 20-minute outage means late, never lost; today it means every due reminder is lost at once. Expected: the run stays `waiting` and is looked at again next tick. | `runner.ts:76` calls `premiseAlive`, which reads the booking source live and throws; the catch at `runner.ts:140-142` marks the run `failed` | `the CRM is down (401, token rotated) at the premise check…` |
 | G3 | A workflow **turned off while runs are parked keeps running them**: the switch is read only when a run starts. Turning a workflow off in week one is the one-switch undo D52 promises; today the texts already in flight still go. Expected: a parked run of a disabled workflow does nothing when it wakes (exits, or waits for the switch). | `runner.ts:57-59` claims by status and due time only; `dispatch.ts` checks `w.enabled` at start | `a workflow turned off while a run is parked…` |
 | G4 | The D45 supersede rule ("a person is in a workflow once at a time") is applied to **`always` workflows whose runs are about distinct facts**: two payments in one minute, two recordings of one call, two dialer calls in one poll. The first run exits `superseded` before it ticks and its fact is never written (one Payment record missing from the CRM). Expected: the supersede applies to per-person sequences (once_per_contact / once_per_appointment), not to `always`. | `dispatch.ts:42-44` | `two payments for one person in the same minute…` |
-| G5 | The Slack door writes `slack.reaction` events with `source: 'slack'`, which **the events table's check constraint does not allow**. On a freshly migrated database every real tap in Slack is a 500. (The shared test database has lost that constraint, which is why the door test passes there.) | `app/api/webhooks/slack/[companyId]/route.ts:39`; `engine/schema.sql:341`; `src/db/migrate.ts:6` | `the Slack door's event source is one the events table accepts…` (pure) |
+| G5 | **Fixed (D53).** The Slack door wrote `slack.reaction` events with `source: 'slack'`, which the events table's check constraint did not allow; `slack` is now in the schema and in `migrate.ts` EVENT_SOURCES. | `app/api/webhooks/slack/[companyId]/route.ts:39`; `engine/schema.sql:341`; `src/db/migrate.ts:6` | `the Slack door's event source is one the events table accepts…` (pure) |
 | G6 | **A person rebooks, the old call is then cancelled** (how a GHL reschedule done as cancel + new booking arrives): Call cancelled moves the setter and closer cards to Cancelled with a live call days away, and Cancellation rebook texts "saw the call got cancelled, pick a new time" to someone who just did. Expected: both check for a newer confirmed closing call and stop. | `call-cancelled.json` n1/n2, `cancellation-rebook.json` n1; `poll.ts:135` only links a reschedule the source links itself (Calendly) | `a person rebooks and the old call is then cancelled…` |
 | G7 | **A call booked a few hours out gets no reminders**: the booking text's reply wait holds the run for its full 4-hour timeout, and nothing caps it at the call time. The 1-hour and 10-minute texts never run; the run exits moot when the call starts. Expected: the reply wait ends at the call (or the reminders run beside it). | `executor.ts:216-219` | `a call booked two hours out…` |
 | G8 | **Slack refusing the bot token fails the run** at the post, and every CRM step after the post is skipped. In Sales call recorded the post comes before the Sales Call record and the note on purpose ("Slack goes out first"), so a revoked token means the call is never written to the CRM. Expected: a Slack error is recorded on the send and alerted; the run continues. | `executor.ts:243` (`slack_post`), `executor.ts:194` (`notify_owner`) let `notifier.post` throw; `runner.ts:111` turns the throw into `failed` | `Slack refuses the bot token in the middle of Sales call recorded…` |
@@ -333,7 +333,9 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | Zero of zero | Renders "—" | `reports.test.ts › renders rates with their denominators and '—' for zero-of-zero` |
 | The reports channel unbound | The post is recorded suppressed | `reports.test.ts › builds the daily wrap-up…` |
 
-## Booking decided in Slack
+## Booking decided in Slack (retired, D53)
+
+The workflow is gone: the question now waits for its own answer inside the pre-call sequence (`wait_for_reaction`). The cases below still apply, to that step.
 
 | Edge case | What should happen | Covered by |
 |---|---|---|
@@ -345,7 +347,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | Slack redelivers the event | `duplicate_delivery`, one event | same test |
 | A forged or stale signature | 401 | same test; `webhooks/slack.test.ts › accepts Slack's signature inside the window and refuses a forged or stale one` |
 | The signing secret not bound yet | The URL check is answered; every real event is 401 | `not yet` |
-| The event's source is not in the schema's list | Should be accepted. **Today:** G5 | `edge-cases.test.ts › the Slack door's event source is one the events table accepts…` (`it.fails`) |
+| The event's source is not in the schema's list | Accepted (G5, fixed in D53) | `edge-cases.test.ts › the Slack door's event source is one the events table accepts…` |
 | A tap by someone not on the roster | "a team member" in the thread | `not yet` |
 | A tap on a question whose appointment was already cancelled | `update_appointment` on a cancelled booking; should be a no-op | `not yet` |
 

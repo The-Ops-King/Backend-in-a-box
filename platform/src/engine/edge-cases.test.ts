@@ -55,7 +55,7 @@ const fake: Adapters = {
 };
 
 const CRM = { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_setter_direct_booked: "STAGE-DIRECT", stage_setter_appointment_set: "STAGE-SET", stage_closer_scheduled: "STAGE-SCHED", stage_setter_cancelled: "STAGE-S-CANCEL", stage_closer_cancelled: "STAGE-C-CANCEL", field_contact_appointment_date: "CF-APPT-DATE", field_contact_setter: "CF-SETTER", field_opportunity_setter_owner: "CF-SETTER-OWNER", agreement_template: "TPL-AGREE", agreement_sender: "U1", default_closer: "U1", stage_closer_agreement_sent: "STAGE-AGREE", stage_closer_closed_won: "STAGE-WON", field_contact_cash_collected: "CF-CASH", field_contact_revenue_generated: "CF-REV", assoc_payment_contact: "ASSOC-PC", assoc_payment_opportunity: "ASSOC-PO", stage_setter_showed: "STAGE-SHOWED", assoc_sales_call_contact: "ASSOC-SC", assoc_sales_call_opportunity: "ASSOC-SO" };
-const TEMPLATES = ["pre-call-sequence", "call-booked", "call-cancelled", "cancellation-rebook", "payment-recorded", "call-recorded", "booking-decision"];
+const TEMPLATES = ["pre-call-sequence", "call-booked", "call-cancelled", "cancellation-rebook", "payment-recorded", "call-recorded"];
 const TABLES = ["alerts", "eod_reports", "slack_posts", "agreements", "sends", "runs", "events", "slack_connections", "workflow_triggers", "workflows", "messages", "crm_records", "webhook_deliveries", "payments", "recordings", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"];
 let companyId: string;
 
@@ -95,7 +95,7 @@ const knock = async (event: Record<string, unknown>, eventId: string, badSignatu
 const reaction = (user: string, ts: string, over: Record<string, unknown> = {}) => ({ type: "reaction_added", user, reaction: "white_check_mark", item: { type: "message", channel: "C1", ts }, ...over });
 
 describe("edge cases (pure)", () => {
-  it.fails("the Slack door's event source is one the events table accepts (route.ts writes source 'slack'; schema.sql and migrate.ts EVENT_SOURCES do not list it, so on a freshly migrated database every real tap is a 500)", () => {
+  it("the Slack door's event source is one the events table accepts (route.ts writes source 'slack'; schema.sql and migrate.ts EVENT_SOURCES list it since D53)", () => {
     const allowed = /create table events[\s\S]*?source\s+text not null check \(source in \(([^)]*)\)\)/.exec(SCHEMA)![1];
     expect(allowed).toMatch(/'slack'/);
   });
@@ -233,16 +233,16 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     expect((await knock(reaction("UBOT", TS), "EvBot")).body).toMatchObject({ ignored: "own reaction" });
     expect((await knock(reaction("U1", "999.000001"), "EvUnknown")).body).toMatchObject({ ignored: "not a post the engine remembers" });
     expect((await knock(reaction("U1", TS, { type: "reaction_removed" }), "EvRemoved")).body).toMatchObject({ ignored: "reaction_removed" });
+    // D53: the question's own run is parked on the wait; the tap wakes that run and no other
+    await asOperator((c) => c.query("update runs set status='waiting', current_node='w_dec', wake_on_tag=$2, next_run_at=null where id=$1", [run.id, `decision:${run.appointment_id}`]));
     const real = await knock(reaction("U1", TS), "EvReal");
-    expect(real.body).toMatchObject({ runs_started: 1 }); expect(String(real.body.event)).toMatch(/^\d+$/);
+    expect(real.body).toMatchObject({ runs_woken: 1 }); expect(String(real.body.event)).toMatch(/^\d+$/);
     expect((await knock(reaction("U1", TS), "EvReal")).body).toMatchObject({ duplicate_delivery: true });   // Slack retries: the same event id lands twice
     const after = Number((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from events where company_id=$1 and event_type='slack.reaction'", [companyId])))!.n);
     expect(after - before).toBe(1);
-    const decision = (await runsFor("booking-decision")).filter((r) => r.contact_id === id);
-    expect(decision).toHaveLength(1); expect(decision[0].appointment_id).toBe(run.appointment_id);
     const nTags = tags.length; await tick(fake, undefined, companyId);
-    expect((await runsFor("booking-decision")).find((r) => r.id === decision[0].id)).toMatchObject({ status: "completed", exit_reason: "decided" });
-    expect(tags.slice(nTags)).toEqual(["stat-confirmed"]);
+    expect(tags.slice(nTags)).toContain("stat-confirmed");
+    expect((await runsFor("pre-call-sequence")).find((r) => r.id === run.id)?.current_node).not.toBe("w_dec");
   });
 
   it.fails("a person rebooks and the old call is then cancelled (a GHL reschedule done as cancel + new booking): the cards for the live booking stay at Scheduled and no rebook text goes out (call-cancelled and cancellation-rebook never ask whether a newer booking exists)", async () => {
