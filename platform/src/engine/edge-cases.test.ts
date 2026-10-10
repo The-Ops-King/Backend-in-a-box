@@ -341,7 +341,7 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
   });
 
   it("re-running install with mode: live on a shadow company is a go-live: refused while readiness has a blocker, and shadow-born runs are cleared first (D51)", async () => {
-    const input = { name: "Edges 2", slug: "edges2", timezone: TZ, locationId: "LOC2", pit: "pit-fake", calendars: { CAL: "closing" }, bookingCalendar: "CAL", templates: ["speed-to-lead"], enable: true };
+    const input = { name: "Edges 2", slug: "edges2", timezone: TZ, locationId: "LOC2", pit: "pit-fake", calendars: { CAL: "closing" }, bookingCalendar: "CAL", templates: ["speed-to-lead"], enable: true, quietHours: { start: "00:00", end: "23:59" } };   // the texts here are about go-live, not the hour
     const co2 = (await installCompany({ ...input, mode: "shadow" }, fake)).companyId;
     const id = await asOperator(async (c) => { const x = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, timezone) values ($1,'CS1','Sh',$2) returning id", [co2, TZ]))!.id; await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email','sh@x.com'),($1,$2,'phone','+16025550099')", [co2, x]); return x; });
     await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: co2, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "test", data: {} }), { contact: { id } }));

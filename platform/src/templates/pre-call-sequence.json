@@ -436,7 +436,14 @@
           "anchor": "appointment.starts_at",
           "offset": "day_of@08:00",
           "tz": "contact"
-        }
+        },
+        "only_if": {
+          "gte": [
+            "{{appointment.starts_at | date:HH}}",
+            "09"
+          ]
+        },
+        "title": "Wait for 8am their time (calls at 9am or later; an earlier call goes straight to its 1-hour text)"
       },
       {
         "id": "bm",
