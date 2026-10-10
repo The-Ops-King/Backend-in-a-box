@@ -20,15 +20,19 @@ export const TEST_TAG = "sys-test";
 export const TEST_DOMAINS_KEY = "test.domains";
 export const testDomains = (bindings: Record<string, string>) => (bindings[TEST_DOMAINS_KEY] ?? "").split(",").map((d) => d.trim().toLowerCase().replace(/^@/, "")).filter(Boolean);
 
+/** The one rule for "the team's own test contact" (D52): tagged sys-test, or an email on one of the company's test domains. Test mode lets them through; every metric leaves them out (D73). */
+export const isTestContact = (p: { tags?: string[] | null; emails?: (string | null | undefined)[] }, domains: string[]): boolean =>
+  (p.tags ?? []).includes(TEST_TAG) || (p.emails ?? []).some((e) => !!e && domains.includes(e.toLowerCase().split("@")[1] ?? ""));
+/** The same rule in SQL over a contacts row aliased `ct` (no row is not a test contact); `domains` is a text[] parameter. */
+export const testContactSql = (ct: string, domains: string) =>
+  `coalesce('${TEST_TAG}' = any(${ct}.tags) or exists (select 1 from contact_identifiers ti where ti.contact_id=${ct}.id and ti.kind='email' and split_part(lower(ti.value),'@',2) = any(${domains}::text[])), false)`;
+
 /** Does this contact pass the company's mode? Always in shadow and live; in test by the sys-test tag or a test-domain email. */
 export async function contactPasses(c: PoolClient, companyId: string, contactId: string, mode: Mode, bindings: Record<string, string>): Promise<{ ok: true } | { ok: false; why: string }> {
   if (mode === "shadow" || mode === "live") return { ok: true };
-  const domains = testDomains(bindings);
-  const emails = (await many<{ value: string }>(c, "select value from contact_identifiers where company_id=$1 and contact_id=$2 and kind='email'", [companyId, contactId])).map((r) => r.value.toLowerCase());
-  const onDomain = emails.some((e) => domains.includes(e.split("@")[1] ?? ""));
-  if (onDomain) return { ok: true };
-  const tagged = await many<{ tags: string[] }>(c, "select tags from contacts where id=$1 and $2 = any(tags)", [contactId, TEST_TAG]);
-  if (tagged.length) return { ok: true };
+  const emails = (await many<{ value: string }>(c, "select value from contact_identifiers where company_id=$1 and contact_id=$2 and kind='email'", [companyId, contactId])).map((r) => r.value);
+  const tags = (await many<{ tags: string[] }>(c, "select tags from contacts where id=$1", [contactId]))[0]?.tags ?? [];
+  if (isTestContact({ tags, emails }, testDomains(bindings))) return { ok: true };
   return { ok: false, why: `test mode: not tagged ${TEST_TAG} and no email on a test domain` };
 }
 

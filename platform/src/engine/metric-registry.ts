@@ -1,12 +1,17 @@
 import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
+import { liveGhlReads, type GhlReads } from "@/adapters/ghl/metrics";
 import { dayBounds, setterMetrics, type SetterStats } from "./metrics";
 import { AvailabilityUnreadable, readAvailability, type Availability, type HealthProbes } from "./health";
+import { loadCompany } from "./context";
+import { testContactSql, testDomains } from "./mode";
+import { GHL_SOURCE, closesFor, ghlRows, showBreakdown, type GhlCtx, type GhlEntity, type QualificationSummary, type ShowBreakdown } from "./ghl-metrics";
 
 /**
  * The metric layer (D70): every number the Slack bot says has ONE definition here, written once in SQL against the
- * ledger, with the plain-words sentence the answer carries under it. Definitions follow what the wrap-ups (rollups, D29)
+ * ledger or, for people, deals and calls, read live from GHL (D73), with the plain-words sentence the model and /help use.
+ * Test contacts (D52's rule) never count anywhere. Definitions follow what the wrap-ups (rollups, D29)
  * and setter metrics (D64) already count; nothing is re-invented. Counts and sums are computed per group; a rate is
  * always two of them divided where it is read (never an average of averages).
  */
@@ -20,8 +25,12 @@ export type MetricResult = {
   metric: string; label: string; definition: string; unit: Unit; period_label: string; period_name: string; from: string; to: string; timezone: string;
   value: number | null; numerator?: number; denominator?: number; numerator_label?: string; denominator_label?: string;
   group_by?: GroupBy; rows?: MetricRow[]; filters?: Record<string, string>;
-  /** Where the number was read: every metric here is the engine's ledger (the CRM, booking source, dialer and payments as polled and received). */
+  /** Where the number was read: GHL live (people, deals, calls) or the engine's ledger (bookings, cash, dials as polled and received). */
   source: string;
+  /** MQLs: how the period's leads answered the work-situation question. */
+  qualification?: QualificationSummary;
+  /** Show rate: every due call by outcome, who has none filed, and where GHL and the booking source disagree. */
+  shows_breakdown?: ShowBreakdown;
 };
 export const LEDGER = "the engine's ledger";
 export class MetricError extends Error {}
@@ -115,58 +124,57 @@ export function previousPeriod(p: Period, unit: "month" | "week", tz: string, no
 }
 
 // ---- the registry -----------------------------------------------------------------------------------------------------
-type Entity = "contact" | "appointment_booked" | "appointment_due" | "opportunity" | "payment" | "reschedule";
-type Q = { companyId: string; start: Date; end: Date; tz: string; sourceField: string; now: Date; groupBy?: GroupBy; filters: { closer?: string; setter?: string; source?: string } };
+type Entity = "contact" | "appointment_booked" | "appointment_due" | "payment" | "reschedule";
+type Q = { companyId: string; start: Date; end: Date; tz: string; sourceField: string; now: Date; domains: string[]; groupBy?: GroupBy; filters: { closer?: string; setter?: string; source?: string } };
 
 // a person's source: the CRM's lead-source field the company bound (crm.field_contact_lead_source), else the UTM source on their latest booking
 const SOURCE = (ct: string) => `coalesce(nullif(${ct}.ghl_fields->>$5::text,''), (select nullif(sa.tracking->>'utm_source','') from appointments sa where sa.company_id=${ct}.company_id and sa.contact_id=${ct}.id and sa.source<>'test' and coalesce(sa.tracking->>'utm_source','')<>'' order by sa.booked_at desc limit 1), 'unknown')`;
+// $7: the company's test domains; every entity leaves test contacts out (D73)
+const NOT_TEST = `not ${testContactSql("ct", "$7")}`;
 const ENTITIES: Record<Entity, { from: string; where: string; time: string; closer?: string; setter?: string; source: string }> = {
-  contact: { from: "contacts ct", where: "ct.company_id=$1 and ct.merged_into is null", time: "ct.ghl_added_at", source: SOURCE("ct") },
+  contact: { from: "contacts ct", where: `ct.company_id=$1 and ct.merged_into is null and ${NOT_TEST}`, time: "ct.ghl_added_at", source: SOURCE("ct") },
   appointment_booked: { from: "appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term",
-    where: "a.company_id=$1 and a.source<>'test'", time: "a.booked_at", closer: "a.assigned_user_id",
+    where: `a.company_id=$1 and a.source<>'test' and ${NOT_TEST}`, time: "a.booked_at", closer: "a.assigned_user_id",
     setter: "(select su.id from users su where su.company_id=a.company_id and lower(su.name)=lower(a.set_by) limit 1)", source: SOURCE("ct") },
   appointment_due: { from: "appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term",
-    where: "a.company_id=$1 and a.source<>'test'", time: "a.starts_at", closer: "a.assigned_user_id",
+    where: `a.company_id=$1 and a.source<>'test' and ${NOT_TEST}`, time: "a.starts_at", closer: "a.assigned_user_id",
     setter: "(select su.id from users su where su.company_id=a.company_id and lower(su.name)=lower(a.set_by) limit 1)", source: SOURCE("ct") },
-  // a won deal belongs to the closer of the person's latest call (the rollups' rule, D29)
-  opportunity: { from: "opportunities o left join contacts ct on ct.id=o.contact_id", where: "o.company_id=$1 and o.status='won'", time: "o.won_at",
-    closer: "(select oa.assigned_user_id from appointments oa where oa.company_id=o.company_id and (oa.opportunity_id=o.id or oa.contact_id=o.contact_id) and oa.source<>'test' order by oa.starts_at desc limit 1)", source: SOURCE("ct") },
   // money belongs to the closer of the person's latest call at or before the payment (any call when none came before)
-  payment: { from: "payments p left join contacts ct on ct.id=p.contact_id", where: "p.company_id=$1 and coalesce(p.raw->>'simulated','')=''", time: "p.paid_at",
+  payment: { from: "payments p left join contacts ct on ct.id=p.contact_id", where: `p.company_id=$1 and coalesce(p.raw->>'simulated','')='' and ${NOT_TEST}`, time: "p.paid_at",
     closer: "(select pa.assigned_user_id from appointments pa where pa.company_id=p.company_id and pa.contact_id=p.contact_id and pa.source<>'test' order by (pa.starts_at<=p.paid_at) desc, pa.starts_at desc limit 1)",
     source: `case when ct.id is null then 'unlinked payment' else ${SOURCE("ct")} end` },
-  reschedule: { from: "events e join appointments a on a.id=e.appointment_id join contacts ct on ct.id=a.contact_id", where: "e.company_id=$1 and e.event_type='appointment.rescheduled' and e.source<>'test' and a.source<>'test'",
+  reschedule: { from: "events e join appointments a on a.id=e.appointment_id join contacts ct on ct.id=a.contact_id", where: `e.company_id=$1 and e.event_type='appointment.rescheduled' and e.source<>'test' and a.source<>'test' and ${NOT_TEST}`,
     time: "e.occurred_at", closer: "a.assigned_user_id", source: SOURCE("ct") },
 };
 
 type Base = { kind: "base"; label: string; unit: Unit; definition: string; entity: Entity; value: string; where?: string };
 type Rate = { kind: "rate"; label: string; definition: string; num: string; den: string };
 type Setter = { kind: "setter"; label: string; unit: Unit; definition: string; pick: (s: SetterStats) => number | null; count: (s: SetterStats) => number };
-type Def = Base | Rate | Setter;
+/** Read live from GHL (D73): the computation is in ghl-metrics.ts, keyed by the metric's name. */
+type Ghl = { kind: "ghl"; label: string; unit: Unit; definition: string; entity: GhlEntity };
+type Def = Base | Rate | Setter | Ghl;
 
 const DUE = "a.starts_at < $6 and a.status not in ('cancelled','invalid') and coalesce(ot.category,'') not in ('cancelled','rescheduled')";
-const SHOWED = "(ot.category='showed' or a.status='showed')";
-const TAG = (cond: string) => `exists (select 1 from unnest(ct.tags) tg where ${cond})`;
 
 export const METRICS: Record<string, Def> = {
-  leads: { kind: "base", label: "Leads", unit: "count", entity: "contact", value: "count(*)", definition: "people who entered their information: contacts by the date the CRM first saw them" },
-  mqls: { kind: "base", label: "MQLs", unit: "count", entity: "contact", value: "count(*)", where: TAG("lower(tg)='mql'"), definition: "qualified leads: leads that arrived in the period and carry the CRM tag mql" },
-  leads_booked: { kind: "base", label: "Leads who booked", unit: "count", entity: "contact", value: "count(*)", where: "exists (select 1 from appointments la where la.company_id=ct.company_id and la.contact_id=ct.id and la.source<>'test')", definition: "leads that arrived in the period and have booked a call (any time since)" },
-  leads_showed: { kind: "base", label: "Leads who showed", unit: "count", entity: "contact", value: "count(*)", where: "exists (select 1 from appointments la left join company_terms lt on lt.id=la.outcome_term where la.company_id=ct.company_id and la.contact_id=ct.id and la.source<>'test' and (lt.category='showed' or la.status='showed'))", definition: "leads that arrived in the period and have showed on a call (any time since)" },
-  mql_rate: { kind: "rate", label: "MQL rate", num: "mqls", den: "leads", definition: "MQLs ÷ leads, both by arrival date" },
-  dqls: { kind: "base", label: "Marketing DQs", unit: "count", entity: "contact", value: "count(*)", where: TAG("lower(tg)='dq' or lower(tg) like 'dq-%'"), definition: "leads that arrived in the period tagged dq or any dq-* tag (marketing disqualified)" },
-  dqls_financial: { kind: "base", label: "DQLs (financial)", unit: "count", entity: "contact", value: "count(*)", where: TAG("lower(tg)='dq-budget'"), definition: "leads that arrived in the period tagged dq-budget: disqualified on financial status" },
-  booked: { kind: "base", label: "Calls booked", unit: "count", entity: "appointment_booked", value: "count(*)", definition: "bookings made in the period (the act of booking), any call type, by the closer they were booked with" },
-  calls_due: { kind: "base", label: "Calls due", unit: "count", entity: "appointment_due", value: "count(*)", where: DUE, definition: "calls whose start time fell in the period and has passed, not cancelled or rescheduled" },
-  shows: { kind: "base", label: "Shows", unit: "count", entity: "appointment_due", value: "count(*)", where: `${DUE} and ${SHOWED}`, definition: "calls due in the period that showed (the closer's filed outcome, or the booking source's status)" },
-  no_shows: { kind: "base", label: "No-shows", unit: "count", entity: "appointment_due", value: "count(*)", where: `${DUE} and (ot.category='noshow' or a.status='noshow')`, definition: "calls due in the period marked no-show (filed by the closer or the booking source); unmarked calls are not counted here" },
-  show_rate: { kind: "rate", label: "Show rate", num: "shows", den: "calls_due", definition: "shows ÷ calls due (start time passed, not cancelled or rescheduled); a call with no outcome filed counts as not showed" },
-  cancellations: { kind: "base", label: "Cancellations", unit: "count", entity: "appointment_due", value: "count(*)", where: "(a.status='cancelled' or ot.category='cancelled')", definition: "calls scheduled for the period that were cancelled" },
-  reschedules: { kind: "base", label: "Reschedules", unit: "count", entity: "reschedule", value: "count(*)", definition: "times a booked call was moved to a new time, by when it was moved" },
-  sales_dqs: { kind: "base", label: "Sales DQs", unit: "count", entity: "appointment_due", value: "count(*)", where: `${DUE} and cot.category='unqualified'`, definition: "calls due in the period the closer filed as disqualified (took the call, not qualified)" },
-  closes: { kind: "base", label: "Closes", unit: "count", entity: "opportunity", value: "count(*)", definition: "deals won in the period (opportunity marked won), credited to the closer of the person's latest call" },
+  leads: { kind: "ghl", label: "Leads", unit: "count", entity: "lead", definition: "people who entered their information: GHL contacts by the date GHL added them" },
+  mqls: { kind: "ghl", label: "MQLs", unit: "count", entity: "lead", definition: "leads whose answer to the work-situation question meets the employment standard (an MQL answer in the company's list); a blank answer is not an MQL unless the company counts it, and an answer outside both lists is never counted" },
+  leads_booked: { kind: "base", label: "Leads who booked", unit: "count", entity: "contact", value: "count(*)", where: "exists (select 1 from appointments la where la.company_id=ct.company_id and la.contact_id=ct.id and la.source<>'test')", definition: "leads that arrived in the period and have booked a call (any time since), from the ledger" },
+  leads_showed: { kind: "base", label: "Leads who showed", unit: "count", entity: "contact", value: "count(*)", where: "exists (select 1 from appointments la left join company_terms lt on lt.id=la.outcome_term where la.company_id=ct.company_id and la.contact_id=ct.id and la.source<>'test' and (lt.category='showed' or la.status='showed'))", definition: "leads that arrived in the period and have showed on a call (any time since), from the ledger" },
+  mql_rate: { kind: "rate", label: "MQL rate", num: "mqls", den: "leads", definition: "MQLs ÷ leads, both by the date GHL added them" },
+  marketing_dqs: { kind: "ghl", label: "Marketing DQs", unit: "count", entity: "lead", definition: "leads filtered out before a sales call on financial signals: their answer to the work-situation question is a DQ answer (e.g. currently between jobs, employed part-time). Also called DQLs" },
+  booked: { kind: "base", label: "Bookings made", unit: "count", entity: "appointment_booked", value: "count(*)", definition: "bookings made in the period (the act of booking), any call type, by the closer they were booked with, from the booking source" },
+  calls_booked_due: { kind: "ghl", label: "Calls booked", unit: "count", entity: "call", definition: "Sales Call records in GHL whose call time fell in the period and has passed, cancellations included (future calls are not counted)" },
+  calls_due: { kind: "base", label: "Calls due", unit: "count", entity: "appointment_due", value: "count(*)", where: DUE, definition: "ledger: calls whose start time fell in the period and has passed, not cancelled or rescheduled" },
+  shows: { kind: "ghl", label: "Shows", unit: "count", entity: "call", definition: "calls booked in the period whose GHL Sales Call outcome is showed" },
+  no_shows: { kind: "ghl", label: "No-shows", unit: "count", entity: "call", definition: "calls booked in the period whose GHL Sales Call outcome is no-show" },
+  show_rate: { kind: "rate", label: "Show rate", num: "shows", den: "calls_booked_due", definition: "shows ÷ calls booked whose time has passed, cancellations included; a call with no outcome filed is missing from EOD disposition and counts as not showed" },
+  cancellations: { kind: "ghl", label: "Cancellations", unit: "count", entity: "call", definition: "calls booked in the period that were cancelled: the Sales Call outcome cancelled or late cancel, or the booking source saying cancelled (which wins)" },
+  reschedules: { kind: "base", label: "Reschedules", unit: "count", entity: "reschedule", value: "count(*)", definition: "times a booked call was moved to a new time, by when it was moved, from the booking source" },
+  sales_dqs: { kind: "ghl", label: "Sales DQs", unit: "count", entity: "call", definition: "people who got on a sales call and were disqualified for any reason: Sales Call records in GHL whose call time fell in the period with a DQ disposition" },
+  closes: { kind: "ghl", label: "Closes", unit: "count", entity: "close", definition: "new people we collected cash from: distinct people with a won card on the Closer pipeline in GHL, by when it was won (the setter pipeline's won is a show, not a sale); credited to the closer of their latest call, else the card's owner" },
   close_rate: { kind: "rate", label: "Close rate", num: "closes", den: "shows", definition: "closes ÷ shows in the same period" },
-  revenue: { kind: "base", label: "Revenue", unit: "money", entity: "opportunity", value: "coalesce(sum(o.contract_value),0)", definition: "contract value of the deals won in the period" },
+  revenue: { kind: "ghl", label: "Revenue", unit: "money", entity: "close", definition: "value of the won Closer-pipeline cards in GHL in the period" },
   cash_collected: { kind: "base", label: "Cash collected", unit: "money", entity: "payment", value: "coalesce(sum(p.amount),0)", where: "p.status in ('succeeded','refunded')", definition: "payments received in the period net of refunds issued in it (refunds are negative lines)" },
   cash_gross: { kind: "base", label: "Payments", unit: "money", entity: "payment", value: "coalesce(sum(p.amount),0)", where: "p.status='succeeded'", definition: "successful payments in the period, before refunds" },
   refunds: { kind: "base", label: "Refunds", unit: "money", entity: "payment", value: "coalesce(-sum(p.amount),0)", where: "p.status='refunded'", definition: "money refunded in the period" },
@@ -182,6 +190,7 @@ export function dimsOf(name: string): GroupBy[] {
   const d = METRICS[name]; if (!d) return [];
   if (d.kind === "setter") return ["setter"];
   if (d.kind === "rate") { const a = dimsOf(d.num), b = dimsOf(d.den); return a.filter((x) => b.includes(x)); }
+  if (d.kind === "ghl") return GROUP_BYS.filter((g) => g !== "setter" && (g !== "closer" || d.entity !== "lead"));
   const e = ENTITIES[d.entity];
   return GROUP_BYS.filter((g) => (g === "closer" ? !!e.closer : g === "setter" ? !!e.setter : true));
 }
@@ -190,7 +199,7 @@ export const catalogue = () => METRIC_NAMES.map((n) => `${n}: ${METRICS[n].label
 
 function buildBase(d: Base, q: Q): { sql: string; params: unknown[] } {
   const e = ENTITIES[d.entity];
-  const params: unknown[] = [q.companyId, q.start, q.end, q.tz, q.sourceField, q.now];
+  const params: unknown[] = [q.companyId, q.start, q.end, q.tz, q.sourceField, q.now, q.domains];
   const where = [e.where, `${e.time} >= $2 and ${e.time} < $3`, d.where ? `(${d.where})` : ""].filter(Boolean);
   const bind = (v: unknown) => { params.push(v); return `$${params.length}`; };
   if (q.filters.closer) { if (!e.closer) throw new MetricError(`${d.label} cannot be filtered by closer`); where.push(`${e.closer} = ${bind(q.filters.closer)}::uuid`); }
@@ -205,41 +214,49 @@ function buildBase(d: Base, q: Q): { sql: string; params: unknown[] } {
 
 export type MetricQuery = { metric: string; period: Period; groupBy?: GroupBy; filters?: Filters; now?: Date };
 /** Runs one named metric for one company over a period, optionally split and filtered. Throws MetricError when the ask does not fit the metric. */
-export async function getMetric(c: PoolClient, companyId: string, q: MetricQuery): Promise<MetricResult> {
+export async function getMetric(c: PoolClient, companyId: string, q: MetricQuery, reads: GhlReads = liveGhlReads): Promise<MetricResult> {
   const def = METRICS[q.metric];
   if (!def) throw new MetricError(`no metric named "${q.metric}"; known: ${METRIC_NAMES.join(", ")}`);
   if (q.groupBy && !dimsOf(q.metric).includes(q.groupBy)) throw new MetricError(`${def.label} cannot be split by ${q.groupBy}; it can be split by: ${dimsOf(q.metric).join(", ") || "nothing"}`);
-  const co = await one<{ timezone: string }>(c, "select timezone from companies where id=$1", [companyId]);
+  const co = await one<{ id: string }>(c, "select id from companies where id=$1", [companyId]);
   if (!co) throw new MetricError("company not found");
-  const tz = co.timezone;
+  const { row, adapterCompany: ac, bindings } = await loadCompany(c, companyId);
+  const tz = row.timezone;
   const roster = await many<{ id: string; name: string; role: string }>(c, "select id::text as id, name, role from users where company_id=$1", [companyId]);
   const nameOf = (id: string) => roster.find((u) => u.id === id)?.name;
   const filters = resolveFilters(q.metric, q.filters ?? {}, roster);
-  const sourceField = (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='crm.field_contact_lead_source'", [companyId]))?.v.toString("utf8") ?? "";
-  const start = dayBounds(q.period.from, tz).start, end = dayBounds(q.period.to, tz).end;
-  const base: Omit<Q, "groupBy"> = { companyId, start, end, tz, sourceField, now: q.now ?? new Date(), filters };
-  const head = { source: LEDGER, metric: q.metric, label: def.label, definition: def.definition, unit: unitOf(def), period_label: q.period.label, period_name: q.period.name, from: q.period.from, to: q.period.to, timezone: tz, group_by: q.groupBy,
+  const sourceField = bindings["crm.field_contact_lead_source"] ?? "", domains = testDomains(bindings);
+  const start = dayBounds(q.period.from, tz).start, end = dayBounds(q.period.to, tz).end, now = q.now ?? new Date();
+  const base: Omit<Q, "groupBy"> = { companyId, start, end, tz, sourceField, now, domains, filters };
+  const ghl: GhlCtx = { c, companyId, ac, bindings, reads, tz, start, end, now, sourceField, domains, filters, memo: { sources: new Map() } };
+  const isGhl = (name: string): boolean => { const d = METRICS[name]; return d.kind === "ghl" || (d.kind === "rate" && isGhl(d.num) && isGhl(d.den)); };
+  const fromGhl = (name: string): boolean => { const d = METRICS[name]; return d.kind === "ghl" || (d.kind === "rate" && (fromGhl(d.num) || fromGhl(d.den))); };
+  const head = { source: isGhl(q.metric) ? GHL_SOURCE : fromGhl(q.metric) ? `${GHL_SOURCE} and ${LEDGER}` : LEDGER, metric: q.metric, label: def.label, definition: def.definition, unit: unitOf(def), period_label: q.period.label, period_name: q.period.name, from: q.period.from, to: q.period.to, timezone: tz, group_by: q.groupBy,
     filters: Object.fromEntries(Object.entries(filters).filter(([, v]) => v).map(([k, v]) => [k, k === "source" ? v! : nameOf(v!) ?? v!])) };
   const label = (g: GroupBy | undefined, k: string) => (g === "closer" || g === "setter" ? (k ? nameOf(k) ?? k : "unassigned") : g === "day" ? DateTime.fromISO(k, { zone: tz }).toFormat("ccc LLL d") : g === "week" ? `week of ${DateTime.fromISO(k, { zone: tz }).toFormat("LLL d")}` : g === "month" ? DateTime.fromISO(`${k}-01`, { zone: tz }).toFormat("LLLL yyyy") : k);
 
   if (def.kind === "setter") {
     if (filters.closer || filters.source) throw new MetricError(`${def.label} can only be filtered by setter`);
-    const m = await setterMetrics(c, companyId, { from: q.period.from, to: q.period.to });
+    const m = await setterMetrics(c, companyId, { from: q.period.from, to: q.period.to }, { testDomains: domains });
     const only = filters.setter ? m.setters.find((s) => s.id === filters.setter) : null;
     const value = filters.setter ? (only ? def.pick(only) : def.unit === "minutes" ? null : 0) : def.pick(m.totals);
     const rows = q.groupBy === "setter" ? m.setters.filter((s) => !filters.setter || s.id === filters.setter).map((s) => ({ key: s.id, label: s.name, value: def.pick(s), numerator: def.count(s) })) : undefined;
     return { ...head, value, rows };
   }
+  let qualification: QualificationSummary | undefined;
   const runBase = async (name: string, groupBy?: GroupBy): Promise<Map<string, number>> => {
-    const d = METRICS[name] as Base;
+    const g = METRICS[name];
+    if (g.kind === "ghl") { const r = await ghlRows(ghl, name, g.entity, g.label, groupBy); qualification ??= r.qualification; return r.rows; }
+    const d = g as Base;
     const { sql, params } = buildBase(d, { ...base, groupBy });
     const r = await many<{ g: string | null; n: number }>(c, sql, params);
     return new Map(r.map((x) => [x.g ?? "", Number(x.n) || 0]));
   };
-  if (def.kind === "base") {
+  const extra = async () => ({ ...(qualification ? { qualification } : {}), ...(q.metric === "show_rate" ? { shows_breakdown: await showBreakdown(ghl) } : {}) });
+  if (def.kind === "base" || def.kind === "ghl") {
     const total = (await runBase(q.metric)).get("") ?? 0;
     const rows = q.groupBy ? [...(await runBase(q.metric, q.groupBy)).entries()].map(([k, v]) => ({ key: k, label: label(q.groupBy, k), value: v })) : undefined;
-    return { ...head, value: total, rows: rows && sortRows(rows, q.groupBy) };
+    return { ...head, value: total, rows: rows && sortRows(rows, q.groupBy), ...(await extra()) };
   }
   const rate = (n: number, d: number) => (d > 0 ? n / d : null);
   const n = (await runBase(def.num)).get("") ?? 0, d = (await runBase(def.den)).get("") ?? 0;
@@ -248,7 +265,23 @@ export async function getMetric(c: PoolClient, companyId: string, q: MetricQuery
     const ns = await runBase(def.num, q.groupBy), ds = await runBase(def.den, q.groupBy);
     rows = sortRows([...new Set([...ns.keys(), ...ds.keys()])].map((k) => ({ key: k, label: label(q.groupBy, k), value: rate(ns.get(k) ?? 0, ds.get(k) ?? 0), numerator: ns.get(k) ?? 0, denominator: ds.get(k) ?? 0 })), q.groupBy);
   }
-  return { ...head, value: rate(n, d), numerator: n, denominator: d, numerator_label: METRICS[def.num].label.toLowerCase(), denominator_label: METRICS[def.den].label.toLowerCase(), rows };
+  return { ...head, value: rate(n, d), numerator: n, denominator: d, numerator_label: METRICS[def.num].label.toLowerCase(), denominator_label: METRICS[def.den].label.toLowerCase(), rows, ...(await extra()) };
+}
+
+export type ClosesList = { metric: "closes_list"; label: string; source: string; period_label: string; period_name: string; timezone: string; count: number; filters?: Record<string, string>;
+  closes: { name: string; closer: string; won: string; value: number }[] };
+/** Each close of a period, newest first: the person, the closer credited, the day it was won. The same people `closes` counts. */
+export async function getCloses(c: PoolClient, companyId: string, q: { period: Period; filters?: Filters; now?: Date }, reads: GhlReads = liveGhlReads): Promise<ClosesList> {
+  const { row, adapterCompany: ac, bindings } = await loadCompany(c, companyId);
+  const tz = row.timezone;
+  const roster = await many<{ id: string; name: string; role: string }>(c, "select id::text as id, name, role from users where company_id=$1", [companyId]);
+  const filters = resolveFilters("closes", q.filters ?? {}, roster);
+  const start = dayBounds(q.period.from, tz).start, end = dayBounds(q.period.to, tz).end;
+  const x: GhlCtx = { c, companyId, ac, bindings, reads, tz, start, end, now: q.now ?? new Date(), sourceField: bindings["crm.field_contact_lead_source"] ?? "", domains: testDomains(bindings), filters, memo: { sources: new Map() } };
+  const list = await closesFor(x);
+  const nameOf = (id: string) => (id ? roster.find((u) => u.id === id)?.name ?? id : "unassigned");
+  return { metric: "closes_list", label: "Closes", source: GHL_SOURCE, period_label: q.period.label, period_name: q.period.name, timezone: tz, count: list.length,
+    ...(filters.closer ? { filters: { closer: nameOf(filters.closer) } } : {}), closes: list.map((k) => ({ name: k.name, closer: nameOf(k.closer), won: k.at.toFormat("ccc LLL d"), value: k.value })) };
 }
 
 const sortRows = (rows: MetricRow[], g?: GroupBy) => (g === "day" || g === "week" || g === "month" ? rows.sort((a, b) => a.key.localeCompare(b.key)) : rows.sort((a, b) => (b.denominator ?? b.value ?? 0) - (a.denominator ?? a.value ?? 0) || a.label.localeCompare(b.label)));

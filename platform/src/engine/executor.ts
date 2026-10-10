@@ -622,7 +622,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "health_check": {
       const channel = node.channel ? (/^\{\{/.test(node.channel) ? (resolvePath(d.ctx, node.channel.replace(/^\{\{\s*|\s*\}\}$/g, "")) as string | undefined) : node.channel) : undefined;
       const as = persona(d, node.as);
-      const r = await runHealthStep(d.c, d.company, d.adapters, d.probes ?? liveProbes, { checks: node.checks, min_slots: 0, slots_days: 7, channel: channel ?? null, as_name: node.as?.name ? as.name : null, as_icon: node.as?.icon ? (Array.isArray(as.icon) ? as.icon[0] : as.icon) : null }, d.now as DateTime<true>);
+      const r = await runHealthStep(d.c, d.company, d.adapters, d.probes ?? liveProbes, { checks: node.checks, min_slots: 0, slots_days: 7, channel: channel ?? null, run_id: d.run.id, as_name: node.as?.name ? as.name : null, as_icon: node.as?.icon ? (Array.isArray(as.icon) ? as.icon[0] : as.icon) : null }, d.now as DateTime<true>);
       const failing = r.findings.filter((f) => !f.ok);
       return { status: "ok", next, result: { checks: r.findings.length, failing: failing.length, raised: r.raised, resolved: r.resolved, ...(failing.length ? { problems: failing.map((f) => f.text).slice(0, 10) } : {}) } };
     }

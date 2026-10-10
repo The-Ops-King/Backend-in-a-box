@@ -409,6 +409,13 @@ Setup and the Slack app changes are in `platform/README.md` › Slack bot. What 
 
 - Saving a report someone built in a thread as a new shortcut ("save this as /leads-by-source"), so a good question
   becomes a command without a deploy.
-- Live reads beyond the calendars: the tools read the engine's ledger plus live calendar slots; a question only the CRM
-  can answer right now (open cards on a board, a contact's current tags) escalates until a live tool exists for it.
+- Live reads beyond the calendars: since D73 people, won deals and Sales Calls are read from GHL at answer time; other
+  CRM-only questions (open cards on a board, a contact's current tags) still escalate until a live tool exists for them.
 - Lead source is the CRM's lead-source field, else the latest booking's UTM source; full attribution (D25) is not built.
+
+## 39. Tag MQL / DQ from the work-situation answer (deferred by Tyler, 2026-10-10)
+
+The bot counts MQLs and marketing DQs from the answer itself (D73), so nothing depends on tags. Tyler will add a workflow
+later, with a Typeform automation: when the "What best describes your current work situation?" answer arrives, tag the
+contact `mql` (an MQL answer) or `dq-budget` (a DQ answer), using the same answer lists (`qualify.mql_answers`,
+`qualify.dq_answers`). Blank answers get no tag.

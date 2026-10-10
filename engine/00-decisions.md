@@ -2192,3 +2192,76 @@ Tyler: per person, in one table, and the alert's day-by-day the same table.
   the API, so a host can be counted at a time Calendly would not give them; the self-check only catches the opposite.
   The new reads are implemented from Calendly's public API reference and exercised through fakes; the first live read
   on Hair verifies them.
+
+## D73. The bot reads people and deals from GHL (2026-10-10)
+
+Was (D70): every bot number came from the ledger. Tyler tested `/mtd` on Hair (booking source Calendly) and found it off
+against GHL: 58 leads in the ledger against 59 in GHL (one not yet polled); MQLs counted from a tag `mql` (4) when an MQL
+is really the answer to a form question; a close rate of 133% because `closes` counted four won cards, two of them on the
+setter pipeline (marked won when a prospect shows, not a sale) and one a test contact; a show rate that left cancelled
+calls out. He ruled: **"Always GHL. It's the truth. If the two are different, that's an issue."** And, on the
+differences: "the engine is only the mirror of the truth and it needs to stay updated with reality; if there are
+inconsistencies it needs updated, and the health check should do that."
+
+- **Read live, at answer time** (`ghl-metrics.ts`, adapter calls in `adapters/ghl/metrics.ts`, injectable as `GhlReads`).
+  Contacts: `POST /contacts/search` with a `dateAdded` range, 500 a page, continued with the last record's `searchAfter`.
+  Won cards: `GET /opportunities/search?location_id&pipeline_id&status=won`, 100 a page; the won time is
+  `lastStatusChangeAt`. Sales Calls: `POST /objects/<key>/records/search`, continued with `searchAfter`. A read that
+  hits its page cap refuses to answer rather than return a short count. Results say `from GHL, read just now`. GHL that
+  cannot be read is an error naming its status ("GHL could not be read (contacts, 503)"), escalated like a failed
+  calendar read; the ledger never stands in.
+- **Test contacts count nowhere.** D52's rule, now one function in `mode.ts` (`isTestContact`, and `testContactSql` for
+  the ledger's SQL): tagged `sys-test`, or an email on a `test.domains` domain. Every metric leaves them out, GHL-read and
+  ledger-read (and the setter numbers when the bot asks). Harness appointments (`source='test'`) stay out as before.
+- **Leads** = GHL contacts by `dateAdded`, in the company's day bounds.
+- **MQL / marketing DQ** come from the answer to the contact field "What best describes your current work situation?"
+  (`crm.field_contact_work_situation`; on Hair `8JjXmfXouYVTX3VLXjzP`, filled by the booking form). The answer lists are
+  company config, matched exactly (trimmed, any case), since they are fixed form options: `qualify.mql_answers` (Hair:
+  Employed full-time, Business owner or entrepreneur, Investor) and `qualify.dq_answers` (Currently between jobs, Employed
+  part-time). Every lead is MQL, DQ, unanswered (blank; 43 of Hair's 59 October leads) or unrecognized (any other text,
+  never counted as MQL). Tyler: blanks are not MQLs (`qualify.unanswered_is_mql`, default false). The answer says it:
+  `MQLs: 16 matched the employment standard · 43 didn't answer`, plus the unrecognized count when there is one.
+- **Exactly two kinds of DQ.** A marketing DQ (also "DQL") was filtered out before a sales call on financial signals:
+  the DQ answers above (`marketing_dqs`; the tag-based `dqls` and `dqls_financial` are gone). A sales DQ got on the call
+  and was disqualified for any reason: a Sales Call record whose `disposition` is one of `sales_call.dq_dispositions`.
+- **Closes** = distinct people with a won card on the Closer pipeline (`crm.pipeline_closer`), by won time, test contacts
+  out: "the number of new people we collected cash from". `revenue` is the value of those cards. Credit: the closer of
+  the person's latest call in the ledger, else the card's owner. `close_rate` = closes ÷ shows. `/closes` lists them,
+  newest first: person, closer, day won.
+- **Calls and shows come from GHL's Sales Call records** (`crm.object_sales_call`, outcomes mapped by
+  `sales_call.outcomes`; Hair: `showed`, `no_show` → no-show, `cancelled` and `late_cancel` → cancelled; blank or anything
+  unmapped is not filed). Tyler: "12 calls were booked, 3 showed": **calls booked** = records whose call time fell in the
+  period and has passed, cancellations included, future calls not; `show_rate` = shows ÷ calls booked. The answer breaks
+  it down: `Calls booked: 12 · Showed 3 · No-show 3 · Cancelled 2 · Missing from EOD disposition 4 (names…)`. Closer =
+  the record's `closer` name on the roster, else the name as written.
+- **Cancelled wins, by its timing.** A record is tied to a ledger booking only one-to-one: the same external id, else the
+  same GHL contact starting the same minute (Hair's records carry an outside integration's id, not the Calendly event's,
+  so the person and minute is what matches; never the name). When the booking source cancelled the booking before the
+  call's start (German Arellano: Calendly cancelled Oct 2, call Oct 5, no-show filed later), the call is cancelled
+  whatever was filed, and the answer names it ("GHL says no-show, Calendly says cancelled"). Cancelled after the start (a
+  host clearing the slot after a no-show), the filed outcome stands. The cancel time is the earliest of the source's own
+  update stamp and the poll's status change; unknown, it decides nothing.
+- **Footers carry only the period.** Definitions stay in the registry for `/help` (which now lists the main ones) and the
+  model; no answer prints them.
+- `/mtd`, `/weekly` and `/monthly` show leads, MQLs, calls booked, show rate and close rate from GHL and cash from the
+  ledger (payments are the ledger's own record); `/leads` is leads, MQLs and marketing DQs by source.
+- **The health sweep keeps the mirror true** (`ledger-drift.ts`, check `ledger_drift`): over the last 7 days, minus the
+  30 minutes the poll has not reached, it compares GHL with the ledger and repairs:
+  - a contact GHL added that the ledger lacks is pulled in with the poll's own upsert; a record new to the engine fires
+    `lead.created` once, there, so the poll sees it as known and never fires it again;
+  - a ledger contact of those days that GHL itself says is gone (asked first, D69; an unanswered read is never a "gone")
+    is stamped gone;
+  - a Sales Call the booking source cancelled before its start is set to cancelled in GHL and in the ledger. The GHL write
+    follows the mode (D52: in test only a test contact's record is written; anyone else's is held back and stays an
+    alert) and the effects ledger (D66: `step_effects` row `repair:<record>:outcome` against the sweep's run; a refused
+    write releases its claim, an unanswered one is not asked twice, and a record set back after a repair is never written
+    again but left for a person);
+  - otherwise a filed GHL outcome replaces the ledger's.
+  Every repair is in `audit_log` (`health.repaired`) and listed in the sweep's result. What it cannot repair (a record
+  matching no booking or several, a cancel at an unknown time, a write the mode holds back or GHL refuses, a ledger
+  outcome GHL has no outcome for) is one alert naming the people, resolved by the sweep that finds nothing left. If GHL
+  cannot be read, whatever alert was open stays as it is.
+- Config, all bindings set at install (`InstallInput.qualify`, `.salesCall`, `crm.field_contact_work_situation` and
+  `crm.pipeline_closer` through `crm`): see `platform/README.md` › Slack bot.
+- Not done: tagging `mql` / `dq-budget` on the contact when the work-situation answer arrives (Tyler will add it with a
+  Typeform automation; open item 39).

@@ -4,12 +4,13 @@ import { asCompany, asOperator, many, one } from "@/db/client";
 import type { Adapters, BotMessage, BotToolDef } from "@/adapters/types";
 import { decrypt } from "./crypto";
 import { liveProbes, type HealthProbes } from "./health";
+import { liveGhlReads, type GhlReads } from "@/adapters/ghl/metrics";
 import { checkQuery, runQuery } from "./query";
 import {
-  GROUP_BYS, METRIC_NAMES, MetricError, catalogue, getAvailability, getMetric, parsePeriod, previousPeriod,
-  type Availability, type Filters, type GroupBy, type MetricResult, type Period,
+  GROUP_BYS, METRIC_NAMES, MetricError, catalogue, getAvailability, getCloses, getMetric, parsePeriod, previousPeriod,
+  type Availability, type ClosesList, type Filters, type GroupBy, type MetricResult, type Period,
 } from "./metric-registry";
-import { ESCALATE_PING, ESCALATE_UNSURE, fmt, formatAnswer, formatAvailability, formatCombined, formatSummary, helpText } from "./bot-format";
+import { ESCALATE_PING, ESCALATE_UNSURE, fmt, formatAnswer, formatAvailability, formatCloses, formatCombined, formatSummary, helpText } from "./bot-format";
 
 /**
  * The Slack bot (D70). Shortcuts are slash commands answered from the metric registry with no model in the way; anything
@@ -18,7 +19,8 @@ import { ESCALATE_PING, ESCALATE_UNSURE, fmt, formatAnswer, formatAvailability, 
  * cannot tell what is asked it asks; when it cannot get the answer it says so and pings the company's escalation person.
  * "No answer beats a wrong answer."
  */
-export type BotDeps = { adapters: Adapters; probes?: HealthProbes; now?: DateTime; respond?: (responseUrl: string, body: Record<string, unknown>) => Promise<void> };
+/** `ghl`: the live CRM reads behind people, deals and calls (D73); a fake in tests. */
+export type BotDeps = { adapters: Adapters; probes?: HealthProbes; ghl?: GhlReads; now?: DateTime; respond?: (responseUrl: string, body: Record<string, unknown>) => Promise<void> };
 export type SlackMessage = { eventId: string; teamId?: string; type: "app_mention" | "message"; channel: string; channelType?: string; user?: string; botId?: string; subtype?: string; text: string; ts: string; threadTs?: string };
 export type Turn = { role: "user" | "bot"; text: string; user?: string; kind?: "answer" | "clarify" | "escalate"; at: string };
 type Asker = { id: string; name: string; role: string } | null;
@@ -123,7 +125,7 @@ const escalation = (ctx: Ctx, reason: string, failed?: string[]): Out => ({ kind
 
 // ---- the model ---------------------------------------------------------------------------------------------------------
 export const BOT_TOOLS: BotToolDef[] = [
-  { name: "get_metric", description: "Compute one named metric from the company's ledger over a period. Returns the value (and rows when split). The only source of numbers besides get_availability and run_readonly_query.",
+  { name: "get_metric", description: "Compute one named metric over a period. People (leads, MQLs, DQs), deals (closes, revenue) and calls (calls booked, shows, no-shows, cancellations, show rate) are read live from GHL, the source of truth; bookings made, cash and dials come from the engine's ledger. Returns the value (and rows when split; for MQLs how leads answered the work-situation question, for show rate every due call by outcome). An error that starts with \"GHL\" means GHL could not be read: say so, never substitute another number. The only source of numbers besides get_availability and run_readonly_query.",
     input_schema: { type: "object", additionalProperties: false, required: ["metric", "period", "group_by", "filters"], properties: {
       metric: { type: "string", enum: METRIC_NAMES },
       period: { type: "string", description: "The asker's period in plain words exactly as meant: 'this month', 'last month', 'this week', 'last week', 'today', 'yesterday', 'last 30 days', 'September', 'Sep 1 to Sep 15', '2026-09-01..2026-09-30'." },
@@ -131,6 +133,9 @@ export const BOT_TOOLS: BotToolDef[] = [
       filters: { type: "object", additionalProperties: false, required: ["closer", "setter", "source", "me"], properties: {
         closer: { type: "string", description: "A closer's name from the roster, or empty" }, setter: { type: "string", description: "A setter's name from the roster, or empty" },
         source: { type: "string", description: "A lead source exactly as the data names it, or empty" }, me: { type: "boolean", description: "true when the asker said my / me / I: the number is filtered to the asker" } } } } } },
+  { name: "list_closes", description: "List every close in a period, newest first: the person, the closer credited, the day it was won (read live from GHL's Closer pipeline, the same people the closes metric counts). Use it for \"who closed\" / \"which deals\" questions.",
+    input_schema: { type: "object", additionalProperties: false, required: ["period", "closer"], properties: {
+      period: { type: "string", description: "The asker's period in plain words, as for get_metric" }, closer: { type: "string", description: "A closer's name from the roster, or empty" } } } },
   { name: "get_availability", description: "Open bookable calendar slots for the next days (at most 7), per day and per closer, read live from the booking calendars.",
     input_schema: { type: "object", additionalProperties: false, required: ["days"], properties: { days: { type: "integer", description: "1 to 7; 7 when not said" } } } },
   { name: "run_readonly_query", description: "Last resort, only when no metric fits (for example a list of individual people): one read-only SELECT over the company's own tables. The answer is labelled ad hoc.",
@@ -151,7 +156,10 @@ How you work:
 - The period: pass the asker's own words. If the question has no period and the context gives no default, call ask_clarification for the period. Never assume one. "This month" means the calendar month so far in the company's time zone.
 - "My", "me", "I": set filters.me = true. If the context says the asker is not on the roster, ask who they are in the CRM.
 - A person named in the question must match the roster in the context; if the name is unclear or matches two people, ask.
-- Ambiguous or unknown terms: ask. Notably "DQ" alone can mean a marketing DQ (dqls, any dq tag), the financial DQL (dqls_financial, tag dq-budget) or a sales DQ (sales_dqs, a call taken by someone not qualified) — ask which unless the asker made it clear. Glossary: a lead is a person who entered their information; an MQL is a qualified lead (tag mql); a DQL / marketing DQ is disqualified on financial status; a sales DQ is a call taken where the person was not qualified.
+- GHL is the truth for people, deals and calls. Those numbers are read live from GHL; if GHL cannot be read the tool says so and you call cannot_answer with that reason. Never answer them from run_readonly_query over the ledger.
+- Ambiguous or unknown terms: ask. There are exactly two kinds of DQ: a marketing DQ (marketing_dqs; also called a DQL: filtered out before a sales call on financial signals, from the work-situation answer) and a sales DQ (sales_dqs: got on the call and was disqualified for any reason). "DQ" alone: ask which, unless the asker made it clear.
+- Glossary: a lead is a person who entered their information (a GHL contact, by the date GHL added them). An MQL is a lead whose answer to the work-situation question ("What best describes your current work situation?") meets the employment standard; "Currently between jobs" or "Employed part-time" is a marketing DQ; a blank answer is not an MQL. A sales DQ is a Sales Call in GHL with a DQ disposition. Calls booked (for show rate) are the Sales Call records in GHL whose call time has passed in the period, cancellations included; show rate = shows ÷ those calls; a call with no outcome filed is "missing from EOD disposition". A close is a new person we collected cash from: a won card on the Closer pipeline (the setter pipeline's won is a show, not a sale); close rate = closes ÷ shows. Test contacts never count.
+- Answers show numbers and the period, not definitions. When the asker asks what a number means, get the metric and reply with a one-sentence note restating its definition from the list below, with no number of your own.
 - Calendar availability: get_availability.
 - run_readonly_query only when no metric fits, e.g. a list of individual people. Write one SELECT against the tables described in the context; describe in \`why\` what it returns.
 - If the tools cannot answer — no metric or table holds it, a tool keeps failing, or you would have to guess — call cannot_answer with the reason.
@@ -160,7 +168,7 @@ How you work:
 Metrics (name: label — definition (split by)):
 ${catalogue()}`;
 
-const SCHEMA_HINT = `Tables for run_readonly_query (rows are already limited to this company; harness rows have appointments.source='test' or raw->>'simulated'):
+const SCHEMA_HINT = `Tables for run_readonly_query (rows are already limited to this company; harness rows have appointments.source='test' or raw->>'simulated'; the team's test contacts are tagged sys-test or have an email on a test domain — leave them out):
 contacts(id, first_name, last_name, tags text[], ghl_added_at timestamptz = arrival, ghl_fields jsonb, merged_into uuid — skip rows where it is set)
 appointments(id, contact_id, assigned_user_id → users.id = closer, starts_at, booked_at, status in new|confirmed|cancelled|showed|noshow|invalid, outcome_term → company_terms, call_outcome_term → company_terms, set_by text = setter name, tracking jsonb utm_*)
 company_terms(id, domain appointment_outcome|call_outcome|appointment_type, category showed|noshow|cancelled|rescheduled|closed|deposit|follow_up|lost|unqualified|…, name)
@@ -169,7 +177,7 @@ opportunities(id, contact_id, status open|won|lost, won_at, contract_value)
 users(id, name, role closer|setter|owner|manager|staff)
 recordings(id, contact_id, provider, started_at, raw jsonb)`;
 
-type Held = { id: string; kind: "metric"; r: MetricResult } | { id: string; kind: "availability"; a: Availability } | { id: string; kind: "adhoc"; why: string; columns: string[]; rows: unknown[][]; truncated: boolean };
+type Held = { id: string; kind: "metric"; r: MetricResult } | { id: string; kind: "availability"; a: Availability } | { id: string; kind: "closes"; k: ClosesList } | { id: string; kind: "adhoc"; why: string; columns: string[]; rows: unknown[][]; truncated: boolean };
 
 async function contextText(ctx: Ctx, asker: Asker, slackUser: string, now: DateTime): Promise<string> {
   const roster = await asCompany(ctx.companyId, (c) => many<{ name: string; role: string }>(c, "select name, role from users where company_id=$1 and active and role in ('closer','setter','owner','manager') order by role, name", [ctx.companyId]));
@@ -205,7 +213,7 @@ export async function converse(deps: BotDeps, ctx: Ctx, q: { question: string; h
       // data first, so a reply in the same turn can name what was just computed
       for (const call of r.calls.filter((x) => !["ask_clarification", "cannot_answer", "reply"].includes(x.name))) {
         const res = await runTool(deps, ctx, q.asker, call.name, call.input, held, now);
-        if (res.error && call.name === "get_availability") failed.push(res.content);
+        if (res.error && (call.name === "get_availability" || /^GHL /.test(res.content))) failed.push(res.content);
         results.push({ type: "tool_result", tool_use_id: call.id, content: res.content, ...(res.error ? { is_error: true } : {}) });
       }
       const end = r.calls.find((x) => ["ask_clarification", "cannot_answer", "reply"].includes(x.name));
@@ -235,9 +243,17 @@ async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, inpu
       if (f.me && !asker) return err("The asker is not on the roster, so \"my\" cannot be resolved. Ask who they are in the CRM.");
       const filters: Filters = { closer: str(f.closer), setter: str(f.setter), source: str(f.source), userId: f.me && asker ? asker.id : undefined };
       const groupBy = input.group_by && input.group_by !== "none" ? (String(input.group_by) as GroupBy) : undefined;
-      const r = await asCompany(ctx.companyId, (c) => getMetric(c, ctx.companyId, { metric, period, groupBy, filters, now: now.toJSDate() }));
+      const r = await asCompany(ctx.companyId, (c) => getMetric(c, ctx.companyId, { metric, period, groupBy, filters, now: now.toJSDate() }, deps.ghl ?? liveGhlReads));
       held.push({ id, kind: "metric", r });
-      return { content: JSON.stringify({ id, metric: r.metric, label: r.label, period: r.period_label, value: r.value, display: fmt(r.unit, r.value), numerator: r.numerator, denominator: r.denominator, filters: r.filters, rows: r.rows?.slice(0, 40).map((x) => ({ label: x.label, display: fmt(r.unit, x.value), numerator: x.numerator, denominator: x.denominator })) }) };
+      return { content: JSON.stringify({ id, metric: r.metric, label: r.label, source: r.source, period: r.period_label, value: r.value, display: fmt(r.unit, r.value), numerator: r.numerator, denominator: r.denominator, filters: r.filters,
+        qualification: r.qualification, shows_breakdown: r.shows_breakdown, rows: r.rows?.slice(0, 40).map((x) => ({ label: x.label, display: fmt(r.unit, x.value), numerator: x.numerator, denominator: x.denominator })) }) };
+    }
+    if (name === "list_closes") {
+      const period = parsePeriod(String(input.period ?? ""), ctx.tz, now);
+      if (!period) return err(`"${input.period}" is not a period I can read. Ask the asker for the period, or pass e.g. "this month", "last week", "Sep 1 to Sep 15".`);
+      const k = await asCompany(ctx.companyId, (c) => getCloses(c, ctx.companyId, { period, filters: { closer: str(input.closer) }, now: now.toJSDate() }, deps.ghl ?? liveGhlReads));
+      held.push({ id, kind: "closes", k });
+      return { content: JSON.stringify({ id, period: k.period_label, count: k.count, closes: k.closes.slice(0, 50) }) };
     }
     if (name === "get_availability") {
       const days = Math.min(7, Math.max(1, Math.round(Number(input.days) || 7)));
@@ -265,6 +281,7 @@ function render(held: Held[], ids: string[], note: string): Out {
   const chosen = pick.length ? pick : held;
   const body = formatAnswer(chosen.flatMap((h) => (h.kind === "metric" ? [h.r] : [])), {
     availability: chosen.flatMap((h) => (h.kind === "availability" ? [h.a] : [])),
+    closes: chosen.flatMap((h) => (h.kind === "closes" ? [h.k] : [])),
     adhoc: chosen.flatMap((h) => (h.kind === "adhoc" ? [{ why: h.why, columns: h.columns, rows: h.rows, truncated: h.truncated }] : [])),
   });
   const clean = note.trim().split(/\n/)[0].slice(0, 280);
@@ -279,8 +296,8 @@ function render(held: Held[], ids: string[], note: string): Out {
 
 // ---- slash commands ----------------------------------------------------------------------------------------------------
 export type SlashCommand = { command: string; text: string; userId: string; channelId: string; channelName?: string; teamId?: string; responseUrl?: string };
-export type Shortcut = "mtd" | "weekly" | "monthly" | "show-rate" | "close-rate" | "cash" | "availability" | "leads" | "help";
-export const COMMANDS: Record<string, Shortcut> = { mtd: "mtd", weekly: "weekly", monthly: "monthly", "show-rate": "show-rate", "close-rate": "close-rate", cash: "cash", availability: "availability", leads: "leads", help: "help", "ops-help": "help", "bot-help": "help" };
+export type Shortcut = "mtd" | "weekly" | "monthly" | "show-rate" | "close-rate" | "cash" | "availability" | "leads" | "closes" | "help";
+export const COMMANDS: Record<string, Shortcut> = { mtd: "mtd", weekly: "weekly", monthly: "monthly", "show-rate": "show-rate", "close-rate": "close-rate", cash: "cash", availability: "availability", leads: "leads", closes: "closes", help: "help", "ops-help": "help", "bot-help": "help" };
 export type Plan = { shortcut: Exclude<Shortcut, "help">; title: string; period?: Period; days?: number };
 
 /** What a command means before any work: its period from the text (or its default), or the reason it cannot be read. */
@@ -300,11 +317,12 @@ export function planCommand(cmd: SlashCommand, tz: string, now: DateTime = DateT
   const period = parsePeriod(text || fallback, tz, now);
   if (!period) return { error: `I couldn't read "${text}" as a period. Try \`${cmd.command} last month\`, \`${cmd.command} last 30 days\` or \`${cmd.command} Sep 1 to Sep 15\`.` };
   const titles: Record<string, string> = { mtd: "Month to date", weekly: period.name === "This week" ? "This week" : period.name === "Last week" ? "Last week" : "Week", monthly: period.name === "This month" ? "This month" : period.name === "Last month" ? "Last month" : period.name,
-    "show-rate": "Show rate", "close-rate": "Close rate", cash: "Cash", leads: "Leads" };
+    "show-rate": "Show rate", "close-rate": "Close rate", cash: "Cash", leads: "Leads", closes: "Closes" };
   return { plan: { shortcut: name, title: titles[name], period } };
 }
 
-const SUMMARY = ["leads", "mqls", "booked", "show_rate", "close_rate", "cash_collected"];
+// people, calls and deals from GHL (D73); only cash is the ledger's
+const SUMMARY = ["leads", "mqls", "calls_booked_due", "show_rate", "close_rate", "cash_collected"];
 /** The body of a shortcut: deterministic, from the registry alone. */
 export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan): Promise<string> {
   const now = deps.now ?? DateTime.now();
@@ -312,7 +330,7 @@ export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan)
   return asCompany(companyId, async (c) => {
     const tz = (await one<{ timezone: string }>(c, "select timezone from companies where id=$1", [companyId]))!.timezone;
     const p = plan.period!, at = now.toJSDate();
-    const m = (metric: string, groupBy?: GroupBy, period: Period = p) => getMetric(c, companyId, { metric, period, groupBy, now: at });
+    const m = (metric: string, groupBy?: GroupBy, period: Period = p) => getMetric(c, companyId, { metric, period, groupBy, now: at }, deps.ghl ?? liveGhlReads);
     switch (plan.shortcut) {
       case "mtd": case "weekly": case "monthly": {
         const cur = []; for (const x of SUMMARY) cur.push(await m(x));
@@ -332,9 +350,10 @@ export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan)
         return formatCombined(rs);
       }
       case "leads": {
-        const rs = [await m("leads", "source"), await m("mqls", "source"), await m("dqls", "source"), await m("dqls_financial", "source")];
+        const rs = [await m("leads", "source"), await m("mqls", "source"), await m("marketing_dqs", "source")];
         return formatCombined(rs);
       }
+      case "closes": return formatCloses(await getCloses(c, companyId, { period: p, now: at }, deps.ghl ?? liveGhlReads));
     }
     throw new Error(`no body for ${plan.shortcut}`);
   });
@@ -348,7 +367,7 @@ export async function runCommand(deps: BotDeps, companyId: string, cmd: SlashCom
   try { body = await shortcutBody(deps, companyId, plan); }
   catch (e) {
     const why = String((e as Error).message).slice(0, 300);
-    body = escalation(ctx, `/${plan.shortcut} failed: ${why}`, plan.shortcut === "availability" ? [why] : undefined).text;
+    body = escalation(ctx, `/${plan.shortcut} failed: ${why}`, plan.shortcut === "availability" || /^GHL /.test(why) ? [why] : undefined).text;
     escalated = true;
   }
   const text = `📊 *${plan.title}* — asked by <@${cmd.userId}>\n${body}`;

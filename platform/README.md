@@ -377,16 +377,16 @@ setup, once per app: scopes `reactions:write` and `reactions:read`; Event Subscr
 `<PUBLIC_URL>/api/webhooks/slack/<companyId>` (the URL check is answered), bot event `reaction_added`; the signing
 secret from Basic Information goes to the install API as `slackSigningSecret`, the bot token as `slackToken`.
 
-## Slack bot (D70)
+## Slack bot (D70, D73)
 
 Anyone in the workspace can ask the ledger a question in Slack. Every number in an answer comes from a tool result, never
-from the model: the metric registry (`src/engine/metric-registry.ts`, one definition per metric, read from the engine's
-ledger), the live calendar read (`get_availability`, the open times GHL free-slots / Calendly available-times offer,
+from the model: the metric registry (`src/engine/metric-registry.ts`, one definition per metric; people, won deals and
+calls read live from GHL by `src/engine/ghl-metrics.ts`, bookings made, cash and dials from the engine's ledger), the live calendar read (`get_availability`, the open times GHL free-slots / Calendly available-times offer,
 split per closer, D72; the same read as the low-availability thread) or, as a last resort, the read-only query door (D64), whose answers are labelled *ad hoc, from
 the raw ledger*. Each key line says where its number came from (`from the engine's ledger`, `from GHL, read just now`).
 A live read that fails is named in the answer, never filled with an estimate. The message is rendered by our formatter
 (`src/engine/bot-format.ts`): key numbers first in bold, tables as aligned monospace blocks (25 rows at most, totals
-row), then each metric's definition and the period in the company's time zone.
+row), then only the period in the company's time zone (definitions are for `/help` and the model, D73).
 
 **Shortcuts** (slash commands, answered from the registry with no model in the way; each takes an optional period in
 plain words). A slash command leaves no message to thread under, so it posts its own visible message (`📊 *Month to
@@ -395,14 +395,15 @@ the bot is not in, only the asker sees it, with a note to invite the bot.
 
 | Command | Answers | Default period |
 |---|---|---|
-| `/mtd` | leads, MQLs, calls booked, show rate (shows ÷ calls due), close rate (closes ÷ shows), cash collected, top source by cash, each vs the same days last month | this month so far |
+| `/mtd` | leads, MQLs, calls booked, show rate (shows ÷ calls booked), close rate (closes ÷ shows), cash collected, top source by cash, each vs the same days last month | this month so far |
 | `/weekly` | the same set, vs the week before (`/weekly this week` for the week so far) | last full week (Mon–Sun) |
 | `/monthly` | the same set, vs the month before (`/monthly this month`) | last full month |
-| `/show-rate` | show rate overall, by closer and by source | this month |
+| `/show-rate` | show rate overall, by closer and by source, with `Calls booked · Showed · No-show · Cancelled · Missing from EOD disposition (names)` and any call GHL and the booking source disagree on | this month |
 | `/close-rate` | close rate overall, by closer and by source | this month |
 | `/cash` | payments, refunds and net cash, by closer | this month |
 | `/availability` | open bookable slots in one table: a row per day, a column per closer, the day's total and a total row; `/availability 3` for three days | next 7 days |
-| `/leads` | leads, MQLs, marketing DQs and financial DQLs by source | this month |
+| `/leads` | leads, MQLs (with how many matched the employment standard and how many didn't answer) and marketing DQs by source | this month |
+| `/closes` | every close, newest first: the person, their closer, the day won, with the count on top | this month |
 | `/help` | every shortcut with a one-line description, and example questions (privately) | — |
 
 **Availability per closer (D72).** The times come only from what the booking source offers (Calendly available times,
@@ -431,13 +432,33 @@ how to get that information. Let me ping Tyler real quick." and then "Hey @Tyler
 (`audit_log` action `bot.escalated` keeps the reason); after that the thread is the team's and the bot stays out of it
 unless mentioned again.
 
-**Metrics** (`get_metric`): `leads`, `mqls` (tag `mql`), `mql_rate`, `dqls` (tag `dq` or any `dq-*`), `dqls_financial`
-(tag `dq-budget`), `leads_booked`, `leads_showed`, `booked`, `calls_due`, `shows`, `no_shows`, `show_rate`,
-`cancellations`, `reschedules`, `sales_dqs` (closer filed disqualified), `closes`, `close_rate`, `revenue`,
-`cash_collected` (net of refunds), `cash_gross`, `refunds`, `speed_to_lead` (median minutes, D64), `dials`, `connected`.
-Split by `source`, `closer`, `setter`, `day`, `week` or `month` where the metric has that side; filter by closer,
-setter, source or the asker. A person's source is the CRM lead-source field (`crm.field_contact_lead_source`), else the
-UTM source on their latest booking, else `unknown`.
+**Metrics** (`get_metric`). From GHL, read at answer time (D73): `leads` (contacts by `dateAdded`), `mqls` and
+`marketing_dqs` (the answer to the work-situation field `crm.field_contact_work_situation`: an answer in
+`qualify.mql_answers` is an MQL, one in `qualify.dq_answers` a marketing DQ, matched exactly; blank counts as an MQL only
+with `qualify.unanswered_is_mql`; any other answer is "unrecognized" and never counted), `mql_rate`, `calls_booked_due`
+(Sales Call records, `crm.object_sales_call`, whose call time fell in the period and has passed, cancellations
+included), `shows`, `no_shows`, `cancellations` (outcomes mapped by `sales_call.outcomes`; a booking the source
+cancelled before the call's start is cancelled whatever was filed), `show_rate` (shows ÷ calls booked), `sales_dqs` (a
+`sales_call.dq_dispositions` disposition), `closes` (distinct people with a won card on `crm.pipeline_closer`, by won
+time), `revenue`, `close_rate` (closes ÷ shows). From the ledger: `booked` (bookings made), `calls_due`,
+`leads_booked`, `leads_showed`, `reschedules`, `cash_collected` (net of refunds), `cash_gross`, `refunds`,
+`speed_to_lead` (median minutes, D64), `dials`, `connected`. Test contacts (`sys-test`, or an email on `test.domains`)
+count in none of them. GHL that cannot be read is an error with its status, never the ledger's number. Split by
+`source`, `closer`, `setter`, `day`, `week` or `month` where the metric has that side; filter by closer, setter, source
+or the asker. A person's source is the CRM lead-source field (`crm.field_contact_lead_source`), else the UTM source on
+their latest booking, else `unknown`. A Sales Call record is tied to a ledger booking only one-to-one (same external id,
+else the same GHL contact starting the same minute).
+
+Install input for the GHL config (Hair's values):
+
+```json
+{ "crm": { "field_contact_work_situation": "8JjXmfXouYVTX3VLXjzP", "pipeline_closer": "<closer pipeline id>" },
+  "qualify": { "mqlAnswers": ["Employed full-time", "Business owner or entrepreneur", "Investor"],
+               "dqAnswers": ["Currently between jobs", "Employed part-time"], "unansweredIsMql": false },
+  "salesCall": { "object": "custom_objects.sales_call",
+                 "outcomes": { "showed": "showed", "no_show": "noshow", "noshow": "noshow", "cancelled": "cancelled", "late_cancel": "cancelled" },
+                 "dqDispositions": ["dq"] } }
+```
 
 **Setup, once per Slack app** (then **reinstall the app to the workspace**: Slack asks for the new scopes; the bot token
 normally stays the same, and if Slack shows a new one, re-run install with it as `slackToken`). App manifest fragment, with the
@@ -459,7 +480,8 @@ features:
     - { command: /close-rate, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Close rate by closer and source", usage_hint: "[last month]", should_escape: false }
     - { command: /cash, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Cash collected, refunds and net by closer", usage_hint: "[last week]", should_escape: false }
     - { command: /availability, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Open calendar slots per day and per closer", usage_hint: "[days, up to 7]", should_escape: false }
-    - { command: /leads, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Leads, MQLs and DQs by source", usage_hint: "[yesterday]", should_escape: false }
+    - { command: /leads, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Leads, MQLs and marketing DQs by source", usage_hint: "[yesterday]", should_escape: false }
+    - { command: /closes, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Every close in the period: who, closer, day won", usage_hint: "[last month]", should_escape: false }
     - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "What the bot can answer", usage_hint: "", should_escape: false }
 oauth_config:
   scopes:
@@ -520,7 +542,7 @@ resolved and says what scope is missing). The dashboard home and each company pa
 The **health check** is a workflow (`health-check` template, D35): a schedule trigger (every 60 minutes) and a
 `health_check` step whose settings are the list of checks (`checks: {"<id>": false}` turns one off), the
 channel its alerts announce in and the face they post as. Edit the company's copy to change any of it. It is
-read-only against every vendor. Checks: the GHL token opens the location; every mapped GHL calendar returns
+read-only against every vendor except for the ledger repair below. Checks: the GHL token opens the location; every mapped GHL calendar returns
 free slots over the next 7 days (a closer's Google/Outlook sync dropping shows up as no slots: GHL has no flag
 for it); every bound pipeline, stage, contact field and opportunity field still exists; closers on calendars
 and open cards are still users; the Calendly token answers and every mapped event type is active with
@@ -531,7 +553,12 @@ falls back to delivery age); the Slack bot token is alive and the bot is in ever
 to; the Anthropic key answers; no enabled workflow is missing a binding; no person is held twice by the CRM
 (D63: two records the poll folded into one person by phone or email, or two persons whose phone or email differ
 only in spelling — one finding and one alert per person, `duplicate:<contact_id>`, with the CRM contact to merge
-at; the engine never merges, and the finding clears when the CRM no longer has the dropped record). A failed
+at; the engine never merges, and the finding clears when the CRM no longer has the dropped record); and the ledger
+matches GHL over the last 7 days (D73, `ledger_drift`, the one check that writes: a contact GHL added that the ledger
+lacks is pulled in and fires New lead once; one GHL says is gone is marked gone; a Sales Call the booking source
+cancelled before its start is set to cancelled in GHL, under the mode rules and the effects ledger, and in the ledger;
+otherwise GHL's filed outcome replaces the ledger's; every repair is in `audit_log` as `health.repaired`, and what cannot
+be repaired is one alert, `health:ledger_drift`). A failed
 check is an alert like any other and clears itself on the next clean sweep. `Sweep now` on the health page
 starts the workflow now (`fireNow`), as does `POST /api/admin/health { company }`.
 Probes live in `src/adapters/*/health.ts` and are injectable (`HealthProbes`), so `src/engine/health.ts`
