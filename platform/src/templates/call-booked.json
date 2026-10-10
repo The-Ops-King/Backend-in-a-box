@@ -5,7 +5,7 @@
   "stage": "booking",
   "sort": 10,
   "origin": "spec",
-  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, the Sales Call record is created (the recording updates it later; a reschedule moves it), and the team gets the Slack card with the intake answers. A reschedule runs the same CRM updates but posts no new card: it reacts 🔁 on the booking post and puts the new time in its thread.",
+  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, the Sales Call record is created (the recording updates it later; a reschedule moves it), and the team gets the Slack card with the intake answers. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar; later reactions (confirmed, cancelled, outcome, payment) land on that newest card.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -212,46 +212,42 @@
         ]
       },
       {
-        "id": "n4",
-        "type": "slack_post",
-        "channel": "{{slack.channel.bookings}}",
-        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}\n*Hair loss:* {{contact.fields.hair_loss | default:—}} {{contact.fields.hair_loss_stage | default:}}\n*Noticing for:* {{contact.fields.noticing_for | default:—}}\n*Commit to routine:* {{contact.fields.commit_routine | default:—}}\n*Work situation:* {{contact.fields.work_situation | default:—}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{appointment.tracking.utm_source | default:—}} · {{vars.booking_kind}}",
-        "as": {
-          "name": "New call booked",
-          "icon": [
-            ":telephone_receiver:",
-            ":calendar:",
-            ":date:",
-            ":spiral_calendar_pad:"
-          ]
-        },
-        "title": "Post booking card in Slack",
-        "tag": "appointment:{{appointment.id}}",
-        "only_if": {
-          "neq": [
-            "{{event._type}}",
-            "appointment.rescheduled"
-          ]
-        }
-      },
-      {
-        "id": "n4r",
-        "type": "slack_post",
-        "only_if": {
+        "id": "v4",
+        "type": "set_var",
+        "key": "card",
+        "when": {
           "eq": [
             "{{event._type}}",
             "appointment.rescheduled"
           ]
         },
-        "channel": "{{slack.channel.bookings}}",
-        "thread_of": "tag:appointment:{{appointment.id}}",
-        "react": "repeat",
-        "as": {
-          "name": "Rescheduled",
-          "icon": ":repeat:"
+        "value": {
+          "name": "Call rescheduled",
+          "icons": [
+            ":repeat:"
+          ]
         },
-        "template": "🔁 Rescheduled to {{appointment.starts_at | date_company}} with {{appointment.closer.name | default:unassigned}}.",
-        "title": "React 🔁, new time in the thread"
+        "else_value": {
+          "name": "New call booked",
+          "icons": [
+            ":telephone_receiver:",
+            ":calendar:",
+            ":date:",
+            ":spiral_calendar_pad:"
+          ]
+        }
+      },
+      {
+        "id": "n4",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}\n*Hair loss:* {{contact.fields.hair_loss | default:—}} {{contact.fields.hair_loss_stage | default:}}\n*Noticing for:* {{contact.fields.noticing_for | default:—}}\n*Commit to routine:* {{contact.fields.commit_routine | default:—}}\n*Work situation:* {{contact.fields.work_situation | default:—}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{appointment.tracking.utm_source | default:—}} · {{vars.booking_kind}}",
+        "as": {
+          "name": "{{vars.card.name}}",
+          "icon": "{{vars.card.icons}}"
+        },
+        "title": "Post the booking card in Slack (🔁 face on a reschedule)",
+        "tag": "appointment:{{appointment.id}}"
       },
       {
         "id": "x1",
@@ -326,20 +322,8 @@
         "to": "b6"
       },
       {
-        "from": "n4",
-        "to": "n4r"
-      },
-      {
         "from": "k3",
         "to": "k4"
-      },
-      {
-        "from": "k4",
-        "to": "n4"
-      },
-      {
-        "from": "n4r",
-        "to": "x1"
       },
       {
         "from": "s5",
@@ -348,6 +332,18 @@
       {
         "from": "b6",
         "to": "k3"
+      },
+      {
+        "from": "k4",
+        "to": "v4"
+      },
+      {
+        "from": "v4",
+        "to": "n4"
+      },
+      {
+        "from": "n4",
+        "to": "x1"
       }
     ]
   }

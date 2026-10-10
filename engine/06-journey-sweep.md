@@ -52,7 +52,7 @@ Setter vs self is decided per company (`booking.setter_rule`, D24): by calendar,
 | Self-booked | same, s3, s4, s5 | **Direct Booked Call**, "Name -- Direct", open, closer | **Scheduled**, "Name -- Direct", open, closer | `stat-booked`, `stat-self-booked`, `meta booked call` | same eight | — | same post, "self-booked" | same |
 | Either | **Pre-call sequence** (`once_per_appointment`, premise `appointment_in_future`) e1 email, s1 text, w1 | — | — | — | — | "You're booked: … reply to lock it in" email (valid while ≥ 5 m before the call), booking text (≥ 15 m) | — | then w1 `wait_for_reply 4h` (sms) |
 | Either | **Calendar availability** | — | — | — | — | — | alert when the calendar has < 3 slots in 7 days | — |
-| A reschedule (`appointment.rescheduled`, same appointment moved) | **Call booked** again (t2): n1, cards re-stamped, tags re-added (idempotent), k3 skipped (`only_if`), k4 record updated, n4 skipped, n4r | same stage | same stage | same tags again | same eight again | — | 🔁 on the booking post, "Rescheduled to <time>" in its thread | Pre-call is **not** restarted: a parked run follows the new time (D20); a finished one does not (F4) |
+| A reschedule (`appointment.rescheduled`, same appointment moved) | **Call booked** again (t2): n1, cards re-stamped, tags re-added (idempotent), k3 skipped (`only_if`), k4 record updated, n4 posts the card again | same stage | same stage | same tags again | same eight again | — | the booking card again with the new time under the 🔁 face (D71); later reactions go on it | Pre-call is **not** restarted: a parked run follows the new time (D20); a finished one does not (F4) |
 
 Still running from §1.1: Speed to lead's 2h wait (F3). Both cards hang off one opportunity (the pursuit), opened at
 first booking (`lifecycle.ts:8`).
@@ -210,7 +210,7 @@ outlive a short-notice call are the 4-hour reply wait and the 24-hour tap wait (
 | Reply: confirmed / cancelled / reschedule request / unclear | ✅ / ❌ / 🔁 / the question with ✅ ❌ 🔁 offered; a thread line quoting them | — |
 | 4h silence | ⏳ + thread line | — |
 | Source cancel | ❌ + thread line (who, why, task) | — |
-| Reschedule (same appointment) | 🔁 + "Rescheduled to <time>" | no new card |
+| Reschedule (same appointment) | the card again, 🔁 face, new time | the newest card carries the reactions (D71) |
 | Showed (recording) | ✅ + "Showed · N min" | the review, own message in `calls`, scorecard in its thread |
 | Showed (EOD) | ✅ ensured + "Showed, per <closer>: <outcome>" | — |
 | No-show (EOD or CRM) | 👻 + thread line | — |

@@ -22,8 +22,13 @@ import { claimEffect, markEffect, PENDING_WHY, type EffectKind } from "./effects
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
 /** A post made before live says which rung it came from, so the team never reads a rehearsal as a real client; a run shadowed in test says shadow. */
 const modePrefix = (d: ExecDeps) => (d.company.mode === "live" ? "" : d.effective === "shadow" ? SHADOW_PREFIX : `🧪 *${d.company.mode}* — `);
-/** The step's own name/icon, else the company's defaults (bindings slack.name / slack.icon), else the app. A list of icons is handed on whole; the notifier picks one per post. */
-const persona = (d: ExecDeps, as?: { name?: string; icon?: string | string[] }) => ({ name: as?.name ? render(as.name, d.ctx, env(d)) : d.bindings["slack.name"], icon: as?.icon ? (Array.isArray(as.icon) ? as.icon.map((i) => render(i, d.ctx, env(d))) : render(as.icon, d.ctx, env(d))) : d.bindings["slack.icon"] });
+/** The step's own name/icon, else the company's defaults (bindings slack.name / slack.icon), else the app. A list of icons is handed on whole; the notifier picks one per post.
+ *  An icon that is one whole `{{expr}}` takes the value as it is, so a set_var can hand over a list of faces (a reschedule's 🔁 instead of the calendars). */
+const faces = (d: ExecDeps, icon: string): string[] => { const m = /^\s*\{\{([^}]+)\}\}\s*$/.exec(icon); const v = m ? resolveExpr(m[1], d.ctx, env(d)) : render(icon, d.ctx, env(d)); return (Array.isArray(v) ? v : [v]).map((x) => (x === undefined || x === null ? "" : String(x))).filter(Boolean); };
+const persona = (d: ExecDeps, as?: { name?: string; icon?: string | string[] }) => {
+  const icons = as?.icon ? (Array.isArray(as.icon) ? as.icon : [as.icon]).flatMap((i) => faces(d, i)) : [];
+  return { name: as?.name ? render(as.name, d.ctx, env(d)) : d.bindings["slack.name"], icon: icons.length > 1 ? icons : icons[0] ?? d.bindings["slack.icon"] };
+};
 type Person = { name: string; email?: string | null; ghl_user_id?: string | null; slack_user_id?: string | null; mention?: string };
 /** The people a post may @mention (contact.closer, contact.setter, contact.owner): look each up in Slack by email once and remember it, so `{{contact.closer.mention}}` is a real mention, not a name. */
 async function resolveMentions(d: ExecDeps, botToken: string): Promise<void> {

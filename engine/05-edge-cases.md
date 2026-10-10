@@ -153,7 +153,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | The recording's ✅ is already on the booking post when the closer files showed | Slack answers `already_reacted`; the engine reads that as done, no second ✅ | `adapters/slack/notifier.ts:22` reads it; `not yet` as a test |
 | The closer refiles with a corrected outcome | Reentry `always`: it reacts again (a correction must be able to) | `engine.integration.test.ts › disposition…` asserts the second start (`r3.runs` is 1) |
 | No booking post exists (booked before the engine, or the channel unbound) | `thread_only`: the post is skipped with that reason, the tag still goes on | `not yet` |
-| Rescheduled filed as the outcome | Exit `nothing_to_mark`: Call booked already reacted 🔁 | `not yet` |
+| Rescheduled filed as the outcome | Exit `nothing_to_mark`: Call booked already posted the 🔁 card | `not yet` |
 | A deposit filed | `stat-closed-won` (closed or deposit) | `not yet` |
 | A no-show for a call whose reply Jev read as a cancel or a reschedule and nobody answered (D58) | `stat-possible-cancel` on top of `stat-no-show`, and `intent.unanswered_no_show` with the read, its confidence and when it was asked; a no-show with no pending read gets neither | `templates.scenarios.test.ts › D58: nobody taps by the call…` |
 | The Sales Call record | Updated when the contact has one, keyed by the appointment: `outcome` showed or noshow, and for a show the closer's answer as the CRM's disposition (closed/deposit → closed_won, follow_up, lost, unqualified → dq) through the `oneof:` guard (F7, D59) | `journey.test.ts › F7 (fixed, D59): the Sales Call record says showed / follow_up…`; `› end of day, the closer files 'showed, closed'…` |
@@ -206,7 +206,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | Self-booked closing call | Closer card at Scheduled, setter card made/moved to Direct, tags on/off, date + owner on the contact, Slack card (skipped when unbound) | `templates.scenarios.test.ts › call-booked, self-booked: …` |
 | Setter-booked | Setter card → Set, closer card "-- Setter Booked", setter stamped | `templates.scenarios.test.ts › call-booked, setter booked: …` |
 | A setter card the CRM already has | Adopted and moved | `templates.scenarios.test.ts › D41: …` |
-| A reschedule | Second trigger; the task is not re-created; the booking post gets a 🔁 reply instead of a new card | `funnel.e2e.test.ts › reschedule → same appointment moves…` (one appointment); the `only_if` steps: `not yet` |
+| A reschedule | Second trigger; the task is not re-created; the booking card is posted again with the new time under the 🔁 face, no thread reply (D71) | `funnel.e2e.test.ts › reschedule → same appointment moves…` (one appointment); `journey.test.ts › the closer drags the call to next week…` |
 | Two closing calls booked for one person in one poll | Both runs complete: `always` runs are never superseded (G4, D56) | `edge-cases.test.ts › two payments for one person in the same minute…` (same rule) |
 | A booking from a calendar not mapped to a call type | `applyAppointment` returns early: no appointment row, no event | `not yet` |
 | A booking with no phone (Calendly) | The run does not send texts; the card and tags still happen | `not yet` |

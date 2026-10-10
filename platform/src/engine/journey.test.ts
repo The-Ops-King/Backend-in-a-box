@@ -39,7 +39,7 @@ const contactWrites: Record<string, unknown>[] = [];
 const tasks: Record<string, unknown>[] = [];
 const recordWrites: Record<string, unknown>[] = [];
 const docSends: { templateId: string; contactId: string; userId?: string }[] = [];
-const posts: { channel: string; text: string; threadTs?: string; as?: { name?: string } }[] = [];
+const posts: { channel: string; text: string; threadTs?: string; as?: { name?: string; icon?: string | string[] } }[] = [];
 const reactions: { channel: string; ts: string; emoji: string }[] = [];
 const apptStore = new Map<string, AppointmentSnapshot>();   // what the booking source "has"
 const liveCards = new Map<string, LiveCard[]>();            // what the CRM "has" for a contact (D41)
@@ -334,6 +334,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       run = await lastRun("pre-call-sequence", kai);
       expect(run).toMatchObject({ status: "waiting", current_node: "w1" });
       bookingTs = (await postTs(`appointment:${run.appointment_id}`))!;
+      expect(posts.find((p) => `ts${posts.indexOf(p) + 1}` === bookingTs)?.as).toEqual({ name: "New call booked", icon: [":telephone_receiver:", ":calendar:", ":date:", ":spiral_calendar_pad:"] });
     });
 
     it("no reply by 2pm (one hour before the call): stat-unconfirmed and ⏳; the 3-day, 2-day and 24-hour messages are stale by then and skipped, the morning-of branch is taken (F10) but its text is stale too (G7); the 1-hour text goes at once; the 10-minute text at 2:50", async () => {
@@ -358,14 +359,18 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await stepStatus(run.id, ["mm"])).toEqual({ mm: "ok" });
     });
 
-    it("the closer drags the call to next week (a GHL reschedule, same appointment): Call booked reacts 🔁 with the new time in the thread and posts no new card; the finished pre-call is not revived, a fresh one starts for the new time (F4, D59)", async () => {
+    it("the closer drags the call to next week (a GHL reschedule, same appointment): Call booked posts the card again with the new time under the 🔁 face, no thread reply, and later reactions go on that card; the finished pre-call is not revived, a fresh one starts for the new time (F4, D59)", async () => {
       const moved = snap("A-KAI", "KAI1", A.plus({ days: 7 }));
       await book(moved);
       await tickAt(A.minus({ minutes: 5 }));
       const booked = await lastRun("call-booked", kai);
       expect(booked).toMatchObject({ status: "completed", exit_reason: "booked" });
-      expect(await stepStatus(booked.id, ["k3", "n4", "n4r"])).toEqual({ k3: "skipped", n4: "skipped", n4r: "ok" });
-      expect(reactionsOn(bookingTs).at(-1)).toBe("repeat"); expect(threadOf(bookingTs).at(-1)).toMatch(/^🔁 Rescheduled to /);
+      expect(await stepStatus(booked.id, ["k3", "n4"])).toEqual({ k3: "skipped", n4: "ok" });
+      const card = posts.at(-1)!;
+      expect(card).toMatchObject({ threadTs: undefined, as: { name: "Call rescheduled", icon: ":repeat:" } }); expect(card.text).toMatch(/^\*Name:\*/); expect(card.text).not.toContain("Rescheduled to");
+      expect(posts.filter((p) => p.threadTs === bookingTs && /Rescheduled/.test(p.text))).toEqual([]);
+      expect(await postTs(`appointment:${booked.appointment_id}`)).toBe(`ts${posts.length}`);   // ✅ ❌ 👻 💵 from here on go on the new card
+      expect(reactionsOn(bookingTs)).not.toContain("repeat");
       expect((await runsFor("pre-call-sequence", kai)).map((r) => r.status)).toEqual(["completed", "waiting"]);
     });
     it("F4 (fixed, D59): a call rescheduled after its sequence ended gets a fresh pre-call sequence for the new time: pre-call also starts on appointment.rescheduled, its reentry key carries the start time, the booking email and text go for the new time and the run waits for the reply", async () => {

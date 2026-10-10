@@ -1210,7 +1210,7 @@ that event get emojis and threads."
   summary.
 - Tyler, same day: "reschedule, yes. No-show, the ghost is good. Show: when the recording lands; the call review
   is its own thread. Payment: its own alert, plus a cash emoji on the lead and the booked call." So: a reschedule
-  is 🔁 with the new time in the booking thread and no new card (Call booked branches on `event._type`);
+  is 🔁 with the new time in the booking thread and no new card (Call booked branches on `event._type`; superseded by D71: the card again under a 🔁 face);
   a no-show, however noticed, is 👻 on the booking post (the `no-show-noted` template, once per appointment);
   a show is ✅ on the booking post when the recording lands, and the review stays its own message, remembered
   as `recording:<id>`; a payment stays its own message and adds 💵 on the person's latest booking post and call
@@ -1402,7 +1402,7 @@ own showed, written when a recording lands, is Sales call recorded's business an
 `event.outcome` carries the owner's conditions as pills: no-show → 👻 in the booking post's thread and `stat-no-show`;
 showed → ✅ in that thread (Slack answers `already_reacted` when the recording's ✅ is there, and the engine reads that as
 done, so the EOD show ensures the ✅ and never doubles it) and `stat-showed`, then a second branch on the call outcome;
-rescheduled → stop, Call booked already reacted 🔁. The call outcome is read from the appointment row
+rescheduled → stop, Call booked already posted the 🔁 card (D71). The call outcome is read from the appointment row
 (`appointment.call_outcome`, new in the run context) rather than from a `call.held` trigger: `call.held` fires after
 `appointment.outcome` for every show, so starting on it too would mean two runs per filed call, or a trigger match that
 hides the showed/no-show condition the owner wanted on the chart; the row is what the closer's disposition just wrote,
@@ -2132,3 +2132,16 @@ made-up data."
   response.
 - Not built: saving a thread's report as a new shortcut; live tools beyond the calendars (a question only the CRM can
   answer right now escalates); full lead attribution (D25). Open item 38.
+
+## D71. A reschedule is the booking card again, under a 🔁 face (2026-10-10)
+
+Was: a reschedule posted no new card; a separate step reacted 🔁 on the booking post and replied "Rescheduled to <time>" in
+its thread (D44). Tyler: drop that step; a rebooked call shows as the booking card with 🔁 as its face instead of the calendar.
+
+- Call booked has one Slack step for both. A set_var (plumbing, not on the chart) picks the face: `appointment.rescheduled`
+  → "Call rescheduled" with `:repeat:`, anything else → "New call booked" with the rotating calendar faces (D31).
+- The card carries the new time, the intake answers and the reschedule link, same as the first one.
+- It takes the `appointment:<id>` tag, so ✅ confirmed, ❌ cancelled, 👻 no-show, ✅ showed and 💵 land on the newest card.
+  The old card keeps what it had; a tap on it is no longer a fact the engine reads (only the newest post is remembered).
+- Engine: a persona icon written as one whole `{{expr}}` takes the value as is, so a var can hand over a list of faces.
+
