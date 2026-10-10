@@ -10,6 +10,10 @@ Where the engine does something other than the row expects, the row says **Today
 Known gap has a test marked `it.fails` in `edge-cases.test.ts`: the test states the expected behaviour, and the day
 the engine is fixed the test turns red for the right reason.
 
+What happens when a step's vendor answers 400, 401, 503 or nothing at all — per node type, with the retry and pause
+policy, today's behaviour by line, and the places a retry could duplicate a card, a message, a task or a note — is its
+own catalogue: `engine/07-step-failures.md` (D67), tested by `platform/src/engine/step-failures.test.ts`.
+
 ## Known gaps
 
 Engine behaviour that looks wrong, each shown by an `it.fails` test in `edge-cases.test.ts` (an `it.todo` where the
