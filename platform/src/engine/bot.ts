@@ -11,7 +11,7 @@ import {
   type Availability, type ClosesList, type Filters, type GroupBy, type MetricResult, type Period,
 } from "./metric-registry";
 import { ESCALATE_PING, ESCALATE_UNSURE, fmt, formatAnswer, formatAvailability, formatCloses, formatCombined, formatSummary, helpText } from "./bot-format";
-import { fieldBreakdown, fieldCatalog, type FieldBreakdown } from "./field-breakdown";
+import { fieldBreakdown, fieldCatalog, fieldVsCalls, type FieldBreakdown, type FieldVsCalls } from "./field-breakdown";
 
 /**
  * The Slack bot (D70). Shortcuts are slash commands answered from the metric registry with no model in the way; anything
@@ -143,6 +143,8 @@ export const BOT_TOOLS: BotToolDef[] = [
     input_schema: { type: "object", additionalProperties: false, required: ["object", "field", "period", "list"], properties: {
       object: { type: "string", description: "\"contact\" or the custom object key from list_fields" }, field: { type: "string", description: "the field key from list_fields" },
       period: { type: "string", description: "The asker's period in plain words, as for get_metric" }, list: { type: "boolean", description: "true to also list each person and their answer (\"who said…\", \"which leads…\")" } } } },
+  { name: "compare_with_shows", description: "Does a contact field's answer go with showing up? For the Sales Calls in a period (call time passed, live from GHL), each answer of one contact field: calls, shows, no-shows, cancels, unfiled, its show rate and its share of all shows, plus a permutation test saying whether the differences are bigger than chance. Use it for \"do people who said X show up more\", \"correlation between X and show rate\", \"show rate by X\".",
+    input_schema: { type: "object", additionalProperties: false, required: ["field", "period"], properties: { field: { type: "string", description: "a contact field key from list_fields" }, period: { type: "string", description: "The asker's period in plain words, as for get_metric" } } } },
   { name: "get_availability", description: "Open bookable calendar slots for the next days (at most 7), per day and per closer, read live from the booking calendars.",
     input_schema: { type: "object", additionalProperties: false, required: ["days"], properties: { days: { type: "integer", description: "1 to 7; 7 when not said" } } } },
   { name: "run_readonly_query", description: "Last resort, only when no metric fits (for example a list of individual people): one read-only SELECT over the company's own tables. The answer is labelled ad hoc.",
@@ -151,7 +153,7 @@ export const BOT_TOOLS: BotToolDef[] = [
     input_schema: { type: "object", additionalProperties: false, required: ["question"], properties: { question: { type: "string" } } } },
   { name: "cannot_answer", description: "Say the tools cannot answer this (no metric or table holds it, or the data could not be read). Ends your turn; the team is pinged.",
     input_schema: { type: "object", additionalProperties: false, required: ["reason"], properties: { reason: { type: "string" } } } },
-  { name: "reply", description: "Finish: show these tool results to the asker. The message is rendered from the results; `note` is at most one short sentence of interpretation, with no number that is not in the results, or empty.",
+  { name: "reply", description: "Finish: show these tool results to the asker. The message is rendered from the results; `note` is your reading of them (up to four short sentences), with no number that is not in the results, or empty.",
     input_schema: { type: "object", additionalProperties: false, required: ["result_ids", "note"], properties: { result_ids: { type: "array", items: { type: "string" } }, note: { type: "string" } } } },
 ];
 
@@ -165,6 +167,8 @@ How you work:
 - A person named in the question must match the roster in the context; if the name is unclear or matches two people, ask.
 - GHL is the truth for people, deals and calls. Those numbers are read live from GHL; if GHL cannot be read the tool says so and you call cannot_answer with that reason. Never answer them from run_readonly_query over the ledger.
 - A term no metric covers (hair loss stage, goals, age, scalp condition, objections, a call's score…): call list_fields and pick the field yourself by meaning. One field clearly fits: use it with field_breakdown; the answer names the field, so do not ask. Ask (ask_clarification, naming the candidate fields) only when two fields fit about equally well and would give different answers, or when nothing fits. Prefer a field with fixed answer options over free text for the same question.
+- Comparing an answer with showing up (correlation, "do people who said X show more"): compare_with_shows. If the field you picked is mostly unanswered for those calls, try the other field that fits and use the one people actually answered, saying so.
+- Explaining a result: your note may be up to four short sentences that reason through the results the way an analyst would ("Of the 10 who showed, 7 said noticeable thinning: 70% of shows…"), but every number in it must already be in the results, and a pattern is only called a pattern when the test in the results says so; otherwise say the numbers are too few or could be chance.
 - There are exactly two kinds of DQ: a marketing DQ (marketing_dqs; also called a DQL: filtered out before a sales call on financial signals, from the work-situation answer) and a sales DQ (sales_dqs: got on the call and was disqualified for any reason). "DQ" alone: ask which, unless the asker made it clear.
 - Glossary: a lead is a person who entered their information (a GHL contact, by the date GHL added them). An MQL is a lead whose answer to the work-situation question ("What best describes your current work situation?") meets the employment standard; "Currently between jobs" or "Employed part-time" is a marketing DQ; a blank answer is not an MQL. A sales DQ is a Sales Call in GHL with a DQ disposition. Calls booked (for show rate) are the Sales Call records in GHL whose call time has passed in the period, cancellations included; show rate = shows ÷ those calls; a call with no outcome filed is "missing from EOD disposition". A close is a new person we collected cash from: a won card on the Closer pipeline (the setter pipeline's won is a show, not a sale); close rate = closes ÷ shows. Test contacts never count.
 - Answers show numbers and the period, not definitions. When the asker asks what a number means, get the metric and reply with a one-sentence note restating its definition from the list below, with no number of your own.
@@ -185,7 +189,7 @@ opportunities(id, contact_id, status open|won|lost, won_at, contract_value)
 users(id, name, role closer|setter|owner|manager|staff)
 recordings(id, contact_id, provider, started_at, raw jsonb)`;
 
-type Held = { id: string; kind: "breakdown"; b: FieldBreakdown } | { id: string; kind: "metric"; r: MetricResult } | { id: string; kind: "availability"; a: Availability } | { id: string; kind: "closes"; k: ClosesList } | { id: string; kind: "adhoc"; why: string; columns: string[]; rows: unknown[][]; truncated: boolean };
+type Held = { id: string; kind: "versus"; v: FieldVsCalls } | { id: string; kind: "breakdown"; b: FieldBreakdown } | { id: string; kind: "metric"; r: MetricResult } | { id: string; kind: "availability"; a: Availability } | { id: string; kind: "closes"; k: ClosesList } | { id: string; kind: "adhoc"; why: string; columns: string[]; rows: unknown[][]; truncated: boolean };
 
 async function contextText(ctx: Ctx, asker: Asker, slackUser: string, now: DateTime): Promise<string> {
   const roster = await asCompany(ctx.companyId, (c) => many<{ name: string; role: string }>(c, "select name, role from users where company_id=$1 and active and role in ('closer','setter','owner','manager') order by role, name", [ctx.companyId]));
@@ -287,6 +291,14 @@ async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, inpu
       held.push({ id, kind: "breakdown", b });
       return { content: JSON.stringify({ id, field: b.field_name, basis: b.basis, period: b.period_label, total: b.total, answered: b.answered, unanswered: b.unanswered, rows: b.rows.slice(0, 40), list: b.list?.slice(0, 40) }) };
     }
+    if (name === "compare_with_shows") {
+      const period = parsePeriod(String(input.period ?? ""), ctx.tz, now);
+      if (!period) return err(`"${input.period}" is not a period I can read. Ask the asker for the period, or pass e.g. "this month", "last 90 days".`);
+      const v = await asCompany(ctx.companyId, (c) => fieldVsCalls(c, ctx.companyId, { field: String(input.field ?? ""), period, now: now.toJSDate() }, deps.ghl ?? liveGhlReads));
+      held.push({ id, kind: "versus", v });
+      return { content: JSON.stringify({ id, field: v.field_name, period: v.period_label, calls: v.calls, answered_calls: v.answered_calls, showed: v.showed, show_rate: pctStr(v.show_rate),
+        rows: v.rows.map((r) => ({ ...r, show_rate: pctStr(r.show_rate), share_of_shows: pctStr(r.share_of_shows) })), test: v.test }) };
+    }
     if (name === "get_availability") {
       const days = Math.min(7, Math.max(1, Math.round(Number(input.days) || 7)));
       const a = await asOperator((c) => getAvailability(c, ctx.companyId, deps.probes ?? liveProbes, days, now));
@@ -306,6 +318,7 @@ async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, inpu
   }
 }
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+const pctStr = (x: number | null) => (x === null ? null : `${Math.round(x * 100)}%`);
 
 /** Our rendering of the chosen results. The note survives only if every number in it is already in the message. */
 function render(held: Held[], ids: string[], note: string): Out {
@@ -315,9 +328,10 @@ function render(held: Held[], ids: string[], note: string): Out {
     availability: chosen.flatMap((h) => (h.kind === "availability" ? [h.a] : [])),
     closes: chosen.flatMap((h) => (h.kind === "closes" ? [h.k] : [])),
     breakdowns: chosen.flatMap((h) => (h.kind === "breakdown" ? [h.b] : [])),
+    versus: chosen.flatMap((h) => (h.kind === "versus" ? [h.v] : [])),
     adhoc: chosen.flatMap((h) => (h.kind === "adhoc" ? [{ why: h.why, columns: h.columns, rows: h.rows, truncated: h.truncated }] : [])),
   });
-  const clean = note.trim().split(/\n/)[0].slice(0, 280);
+  const clean = note.trim().replace(/\s*\n+\s*/g, " ").slice(0, 700);
   const flat = body.replace(/,/g, "");
   const ok = clean && (clean.match(/\d[\d,.]*/g) ?? []).every((n) => flat.includes(n.replace(/,/g, "").replace(/\.$/, "")));
   if (!ok || !clean) return { kind: "answer", text: body };

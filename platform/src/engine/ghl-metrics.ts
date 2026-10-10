@@ -163,6 +163,22 @@ async function sourcesOf(x: GhlCtx, list: { ghl: string; utm: string | null }[])
  * the same external id, else the same person (GHL contact id) starting the same minute; none or several, it stands on its
  * own outcome. Closer: the record's closer name on the roster, else the name as written.
  */
+/**
+ * A Sales Call's start: an ISO stamp, or the display text an outside integration writes ("Mon Oct 5 · 10:00 AM EDT") read
+ * on the record's call_date in the company's zone, trusted only when its zone abbreviation is the company zone's on that
+ * day. Null when neither holds: the record then matches by person and day.
+ */
+export function callTime(v: unknown, day: DateTime | null, tz: string): DateTime | null {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) { const d = DateTime.fromISO(s); return d.isValid ? d.setZone(tz) : null; }
+  const m = /(\d{1,2}):(\d{2})\s*([AP]M)\s*([A-Z]{2,5})?\s*$/i.exec(s);
+  if (!m || !day) return null;
+  const h = (Number(m[1]) % 12) + (m[3].toUpperCase() === "PM" ? 12 : 0);
+  const at = day.set({ hour: h, minute: Number(m[2]), second: 0, millisecond: 0 });
+  return !m[4] || at.toFormat("ZZZZ").toUpperCase() === m[4].toUpperCase() ? at : null;
+}
+
 async function calls(x: GhlCtx): Promise<Call[]> {
   connected(x);
   return (x.memo.calls ??= (async () => {
@@ -171,23 +187,23 @@ async function calls(x: GhlCtx): Promise<Call[]> {
     if (!Object.keys(cfg.outcomes).length) throw new MetricError("the Sales Call outcomes are not mapped (sales_call.outcomes), so a show cannot be told from a no-show");
     const recs = await read("Sales Call records", () => x.reads.objectRecords(x.ac, cfg.object));
     const due = recs.flatMap((r) => {
-      const p = r.properties, sched = Date.parse(String(p.scheduled_at ?? ""));
-      const day = /^\d{4}-\d{2}-\d{2}$/.test(String(p.call_date ?? "")) ? DateTime.fromISO(String(p.call_date), { zone: x.tz }) : null;
-      const at = Number.isFinite(sched) ? DateTime.fromMillis(sched).setZone(x.tz) : day;
+      const p = r.properties, day = /^\d{4}-\d{2}-\d{2}$/.test(String(p.call_date ?? "")) ? DateTime.fromISO(String(p.call_date), { zone: x.tz }) : null;
+      const sched = callTime(p.scheduled_at, day, x.tz);
+      const at = sched ?? day;
       if (!at) return [];
-      const passed = Number.isFinite(sched) ? sched < x.now.getTime() : day!.plus({ days: 1 }).toMillis() <= x.now.getTime();
-      return at.toMillis() >= x.start.getTime() && at.toMillis() < x.end.getTime() && passed ? [{ r, at, exact: Number.isFinite(sched) }] : [];
+      const passed = sched ? sched.toMillis() < x.now.getTime() : day!.plus({ days: 1 }).toMillis() <= x.now.getTime();
+      return at.toMillis() >= x.start.getTime() && at.toMillis() < x.end.getTime() && passed ? [{ r, at, exact: !!sched }] : [];
     });
     type Hit = { rid: string; by_ext: boolean; id: string; contact_id: string; status: string; source: string; outcome: string | null; starts_at: Date; cancelled_at: Date | null; name: string | null; test: boolean };
     // the cancel time: the earliest of the source's own update stamp and the poll's status change to cancelled, both at or after it
     const hits = due.length ? await many<Hit>(x.c, `select x.rid, a.external_id = x.ext as by_ext, a.id::text as id, a.contact_id::text as contact_id, a.status, a.source, ot.category as outcome, a.starts_at,
         case when a.status='cancelled' then least(a.source_updated_at, (select min(e.occurred_at) from events e where e.company_id=a.company_id and e.appointment_id=a.id and e.event_type='appointment.status_changed' and e.data->'status'->>'to'='cancelled')) end as cancelled_at,
         nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, ${testContactSql("ct", "$6")} as test
-      from unnest($2::text[], $3::text[], $4::text[], $5::timestamptz[]) as x(rid, ext, ghl, at)
-      join appointments a on a.company_id=$1 and (a.external_id = x.ext or (x.at is not null and date_trunc('minute', a.starts_at) = date_trunc('minute', x.at)
+      from unnest($2::text[], $3::text[], $4::text[], $5::timestamptz[], $8::text[]) as x(rid, ext, ghl, at, day)
+      join appointments a on a.company_id=$1 and (a.external_id = x.ext or ((case when x.at is not null then date_trunc('minute', a.starts_at) = date_trunc('minute', x.at) else (a.starts_at at time zone $7)::date = x.day::date end)
         and a.contact_id in (select ct2.id from contacts ct2 where ct2.company_id=$1 and (ct2.ghl_contact_id=x.ghl or ct2.id in (select i.contact_id from contact_identifiers i where i.company_id=$1 and i.kind='ghl_contact' and i.value=x.ghl)))))
       join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term`,
-      [x.companyId, due.map((d) => d.r.id), due.map((d) => String(d.r.properties.external_id ?? "")), due.map((d) => String(d.r.properties.contact_id ?? "")), due.map((d) => (d.exact ? d.at.toJSDate() : null)), x.domains]) : [];
+      [x.companyId, due.map((d) => d.r.id), due.map((d) => String(d.r.properties.external_id ?? "")), due.map((d) => String(d.r.properties.contact_id ?? "")), due.map((d) => (d.exact ? d.at.toJSDate() : null)), x.domains, x.tz, due.map((d) => d.at.toISODate())]) : [];
     const facts = await ledgerFacts(x, [...new Set(due.map((d) => String(d.r.properties.contact_id ?? "")).filter(Boolean))]);
     const roster = await many<{ id: string; name: string }>(x.c, "select id::text as id, name from users where company_id=$1", [x.companyId]);
     const closerOf = (n: string) => { const w = n.trim().toLowerCase(); if (!w) return ""; const hit = roster.filter((u) => u.name.toLowerCase() === w); return hit.length === 1 ? hit[0].id : n.trim(); };

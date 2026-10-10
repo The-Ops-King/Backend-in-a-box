@@ -80,3 +80,79 @@ export async function fieldBreakdown(c: PoolClient, companyId: string, q: { obje
     ...(q.list ? { list: people.slice(0, LIST_MAX).map((p) => ({ name: p.name, value: p.values.join(", ") || NO_ANSWER })) } : {}),
   };
 }
+
+/**
+ * A contact field's answers against how their calls went (D74): each answer's calls, shows, no-shows, cancels and unfiled,
+ * its show rate (shows ÷ calls booked, cancels in, D73) and its share of all shows. Whether the show rates differ by more
+ * than chance would explain is a permutation test (deterministic), never the model's impression; with few answered calls
+ * the verdict says so instead of claiming a pattern. A person with several calls counts once per call; a multi-pick counts
+ * the call under each pick.
+ */
+export type FieldVsCalls = {
+  metric: "field_vs_calls"; source: string; period_label: string; period_name: string; timezone: string;
+  field: string; field_name: string; multi: boolean; calls: number; answered_calls: number; showed: number; show_rate: number | null;
+  rows: { value: string; calls: number; showed: number; noshow: number; cancelled: number; missing: number; show_rate: number | null; share_of_shows: number | null }[];
+  test: { p: number | null; verdict: string };
+};
+const PERMUTATIONS = 5000;
+const MIN_CALLS = 10;
+
+/** χ² of a 2×K table (showed / not, per answer) — the statistic the permutation test shuffles. */
+function chi2(groups: { n: number; s: number }[]): number {
+  const N = groups.reduce((a, g) => a + g.n, 0), S = groups.reduce((a, g) => a + g.s, 0);
+  if (!N || !S || S === N) return 0;
+  return groups.reduce((a, g) => { const es = (g.n * S) / N, en = g.n - es; return a + (es ? (g.s - es) ** 2 / es : 0) + (en ? (g.n - g.s - en) ** 2 / en : 0); }, 0);
+}
+export function permutationP(groups: { n: number; s: number }[]): number {
+  const labels = groups.flatMap((g, i) => Array.from({ length: g.n }, () => i));
+  const outcomes: number[] = groups.flatMap((g) => Array.from({ length: g.n }, (_, j) => (j < g.s ? 1 : 0)));
+  const seen = chi2(groups);
+  let seed = 0x9e3779b9, hits = 0;
+  const rand = () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  for (let k = 0; k < PERMUTATIONS; k++) {
+    for (let i = outcomes.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [outcomes[i], outcomes[j]] = [outcomes[j], outcomes[i]]; }
+    const g = groups.map(() => ({ n: 0, s: 0 }));
+    labels.forEach((l, i) => { g[l].n++; g[l].s += outcomes[i]; });
+    if (chi2(g) >= seen - 1e-9) hits++;
+  }
+  return (hits + 1) / (PERMUTATIONS + 1);
+}
+
+export async function fieldVsCalls(c: PoolClient, companyId: string, q: { field: string; period: Period; now: Date }, reads: GhlReads): Promise<FieldVsCalls> {
+  const { row, adapterCompany: ac, bindings } = await loadCompany(c, companyId);
+  const tz = row.timezone, domains = testDomains(bindings);
+  const defs = await reads.fieldCatalog(ac).catch((e) => { throw new MetricError(`GHL could not be read (field list: ${String((e as Error).message).slice(0, 160)})`); });
+  const want = q.field.trim().toLowerCase();
+  const def = defs.find((f) => f.object === "contact" && [f.key, f.id, f.prop].some((k) => k.toLowerCase() === want));
+  if (!def) throw new MetricError(`no contact field "${q.field}" in GHL; call list_fields and pass a contact field key exactly as listed`);
+  const start = dayBounds(q.period.from, tz).start, end = dayBounds(q.period.to, tz).end;
+  const { salesCallsFor } = await import("./ghl-metrics");
+  const calls = (await salesCallsFor({ c, companyId, ac, bindings, reads, tz, start, end, now: q.now, sourceField: bindings["crm.field_contact_lead_source"] ?? "", domains }))
+    .filter((k) => !k.test && k.at.toMillis() <= q.now.getTime());
+  const people = new Map<string, string[]>();
+  const ids = [...new Set(calls.map((k) => k.ghl).filter(Boolean))];
+  for (let i = 0; i < ids.length; i += 5) await Promise.all(ids.slice(i, i + 5).map(async (id) => {
+    const k = await reads.getContact(ac, id).catch((e) => { throw new MetricError(`GHL could not be read (contact ${id}: ${String((e as Error).message).slice(0, 120)})`); });
+    people.set(id, k && !isTestContact({ tags: k.tags, emails: [k.email] }, domains) ? answers(k.customFields[def.prop], def) : []);
+  }));
+  const by = new Map<string, { calls: number; showed: number; noshow: number; cancelled: number; missing: number }>();
+  for (const k of calls) for (const v of (people.get(k.ghl) ?? []).length ? people.get(k.ghl)! : [NO_ANSWER]) {
+    const r = by.get(v) ?? { calls: 0, showed: 0, noshow: 0, cancelled: 0, missing: 0 }; by.set(v, r);
+    r.calls++; if (k.cls === "showed") r.showed++; else if (k.cls === "noshow") r.noshow++; else if (k.cls === "cancelled" || k.cls === "rescheduled") r.cancelled++; else r.missing++;
+  }
+  const showed = calls.filter((k) => k.cls === "showed").length;
+  const rank = (v: string) => { const i = def.options.findIndex((o) => o.label === v); return v === NO_ANSWER ? 1e6 : i < 0 ? 1e5 : i; };
+  const rows = [...by.entries()].map(([value, r]) => ({ value, ...r, show_rate: r.calls ? r.showed / r.calls : null, share_of_shows: showed ? r.showed / showed : null }))
+    .sort((a, b) => rank(a.value) - rank(b.value) || b.calls - a.calls);
+  const answered = rows.filter((r) => r.value !== NO_ANSWER);
+  const answeredCalls = answered.reduce((a, r) => a + r.calls, 0);
+  let test: FieldVsCalls["test"];
+  if (answered.length < 2) test = { p: null, verdict: "Fewer than two different answers among these calls, so there is nothing to compare." };
+  else if (answeredCalls < MIN_CALLS) test = { p: null, verdict: `Only ${answeredCalls} calls have an answer to this question: too few to tell a pattern from chance.` };
+  else {
+    const p = permutationP(answered.map((r) => ({ n: r.calls, s: r.showed })));
+    test = { p, verdict: p < 0.05 ? `The show rates differ by more than chance would explain (p = ${p.toFixed(3)}).` : `A difference this size could easily be chance (p = ${p.toFixed(2)}); not enough to call it a pattern yet.` };
+  }
+  return { metric: "field_vs_calls", source: GHL_SOURCE, period_label: q.period.label, period_name: q.period.name, timezone: tz, field: def.key, field_name: def.name,
+    multi: def.type === "CHECKBOX" || def.type === "MULTIPLE_OPTIONS", calls: calls.length, answered_calls: answeredCalls, showed, show_rate: calls.length ? showed / calls.length : null, rows, test };
+}

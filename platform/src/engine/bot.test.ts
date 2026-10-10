@@ -426,6 +426,19 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(await preview(deps(), companyId, { command: "/nope" })).toMatchObject({ kind: "error" });
       expect(posts).toEqual([]);
     });
+    it("D74: an answer against showing up: each answer's calls and show rate, its share of shows, and a verdict the numbers earn (too few here)", async () => {
+      script = [() => call("compare_with_shows", { field: "contact.what_best_describes_your_current_work_situation", period: "this month" }),
+        () => call("reply", { result_ids: ["r1"], note: "Too few calls to call it a pattern." })];
+      await handleMessage(deps(), companyId, msg({ text: "<@UBOT> do people's jobs line up with who shows?" }));
+      const text = posts[0].text;
+      expect(text.split("\n")[0]).toMatch(/^\*Show rate by "What best describes your current work situation\?"\*: \d+ of \d+ calls showed \(\d+%\)  · _Sales Calls in the period, from GHL, read just now_$/);
+      expect(text).toContain("Too few calls to call it a pattern.");
+      expect(text).toMatch(/Answer\s+Calls\s+Showed\s+No-show.*Show rate\s+Share of shows/);
+      expect(text).toMatch(/Employed full-time\s+\d+/);
+      expect(text).toMatch(/_Only \d+ calls have an answer to this question: too few to tell a pattern from chance\._/);
+      const res = JSON.parse(lastToolResult().content);
+      expect(res.rows.reduce((a: number, r: { calls: number }) => a + r.calls, 0)).toBe(res.calls);
+    });
     it("D74: a field key the catalogue does not hold is an error back to the model, never a guess", async () => {
       script = [() => call("field_breakdown", { object: "contact", field: "hair_severity", period: "this month", list: false }), () => call("ask_clarification", { question: "Which field?" })];
       await handleMessage(deps(), companyId, msg({ text: "<@UBOT> hair severity this month" }));

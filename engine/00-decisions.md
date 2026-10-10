@@ -2286,3 +2286,22 @@ match, then it could ask."
 - `POST /api/admin/bot-preview` (bearer, operator): a shortcut or a question answered exactly as Slack would get it,
   returned instead of posted, so live answers are checked before anyone is told they work.
 
+### D74 addendum. Comparing an answer with showing up; reasoning; the drift alert asks (2026-10-10)
+
+- Tyler asked whether hair-loss severity goes with showing up; the bot found the field, then had no way to join it to the
+  calls and gave up. `compare_with_shows`: the Sales Calls of a period (call time passed, GHL), each contact's answer to
+  one field (read live per contact), and per answer the calls, shows, no-shows, cancels, unfiled, show rate (D73's) and
+  share of all shows. Whether the show rates differ by more than chance is a permutation test over the answered calls
+  (χ², 5,000 deterministic shuffles); under 10 answered calls, or one answer only, the verdict says it is too few to tell.
+  A pattern is called a pattern only when the test says so.
+- The model's note may now be up to four short sentences reasoning through the results ("of the 10 who showed, 7 said…"),
+  every number already in the rendered answer, or the note is dropped.
+- Matching a Sales Call to a booking failed for Hair: the outside integration writes `scheduled_at` as display text
+  ("Mon Oct 5 · 10:00 AM EDT"), not a stamp, so person-and-minute never matched and every October call alerted as
+  "matches no booking". The time is now read on the record's `call_date` in the company's zone (trusted only when the
+  zone abbreviation is the company zone's that day); with no readable time, the person and the day match instead.
+- The drift alert is written for a person: what was fixed is a count ("5 records in the engine didn't match GHL; they've
+  been updated from GHL"), then "Except these, which I have questions about:" with one line per item phrased as the
+  question it needs answered. Repairs alone are logged, never announced. An open alert is updated in place, not posted
+  again; it is posted again only after it resolved and something new appears.
+

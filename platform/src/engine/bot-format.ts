@@ -1,5 +1,5 @@
 import { METRICS, type Availability, type ClosesList, type MetricResult, type MetricRow, type Unit } from "./metric-registry";
-import type { FieldBreakdown } from "./field-breakdown";
+import type { FieldBreakdown, FieldVsCalls } from "./field-breakdown";
 
 /**
  * Everything the Slack bot posts is rendered here from tool results, never written by the model (D70): key numbers first
@@ -67,18 +67,20 @@ export function detailLines(r: MetricResult): string[] {
 }
 
 /** A whole answer: every key number on top, the model's one sentence (if any), the tables, then definitions and the period. */
-export function formatAnswer(results: MetricResult[], opts: { note?: string; availability?: Availability[]; closes?: ClosesList[]; breakdowns?: FieldBreakdown[]; adhoc?: { why: string; columns: string[]; rows: unknown[][]; truncated: boolean }[] } = {}): string {
+export function formatAnswer(results: MetricResult[], opts: { note?: string; availability?: Availability[]; closes?: ClosesList[]; breakdowns?: FieldBreakdown[]; versus?: FieldVsCalls[]; adhoc?: { why: string; columns: string[]; rows: unknown[][]; truncated: boolean }[] } = {}): string {
   const L: string[] = [...new Set(results.flatMap((r) => [keyLine(r), ...detailLines(r)]))];
   for (const k of opts.closes ?? []) L.push(closesKey(k));
   for (const a of opts.availability ?? []) L.push(availabilityKey(a));
   for (const b of opts.breakdowns ?? []) L.push(breakdownKey(b));
+  for (const v of opts.versus ?? []) L.push(versusKey(v));
   if (opts.note) L.push(opts.note);
   for (const r of results) { const t = metricTable(r); if (t) L.push("", `*${r.label} by ${r.group_by}*`, t); }
   for (const a of opts.availability ?? []) L.push("", availabilityBody(a));
   for (const k of opts.closes ?? []) L.push("", ...closesBody(k));
   for (const b of opts.breakdowns ?? []) L.push("", ...breakdownBody(b));
+  for (const v of opts.versus ?? []) L.push("", ...versusBody(v));
   for (const q of opts.adhoc ?? []) L.push("", `*Ad hoc, from the raw ledger:* ${q.why}`, adhocTable(q));
-  const periods = [...results, ...(opts.closes ?? []), ...(opts.breakdowns ?? [])];
+  const periods = [...results, ...(opts.closes ?? []), ...(opts.breakdowns ?? []), ...(opts.versus ?? [])];
   if (periods.length) L.push("", `_${[...new Set(periods.map((r) => periodLine(r)))].join(" · ")}_`);
   for (const a of opts.availability ?? []) L.push("", availabilityFooter(a));
   return L.join("\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -100,6 +102,18 @@ function breakdownBody(b: FieldBreakdown): string[] {
   if (b.multi) L.push("_Several answers can be picked, so the shares add up to more than 100%._");
   if (b.list?.length) L.push("", ...b.list.map((x) => `• ${x.name} — ${x.value}`), ...(b.list.length < b.total ? [`_First ${b.list.length} of ${b.total}._`] : []));
   return L;
+}
+
+/** A field against showing up (D74): each answer's calls and how they went, its show rate and share of shows, then the test's verdict. */
+const pc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
+const versusKey = (v: FieldVsCalls) => `*Show rate by "${v.field_name}"*: ${v.showed} of ${v.calls} calls showed (${pc(v.show_rate)})  · _Sales Calls in the period, from ${v.source}_`;
+function versusBody(v: FieldVsCalls): string[] {
+  if (!v.calls) return ["_No calls in this period._"];
+  const any = (k: "cancelled" | "missing") => v.rows.some((r) => r[k] > 0);
+  const head = ["Answer", "Calls", "Showed", "No-show", ...(any("cancelled") ? ["Cancelled"] : []), ...(any("missing") ? ["Unfiled"] : []), "Show rate", "Share of shows"];
+  const rows = v.rows.map((r) => [r.value, String(r.calls), String(r.showed), String(r.noshow), ...(any("cancelled") ? [String(r.cancelled)] : []), ...(any("missing") ? [String(r.missing)] : []), pc(r.show_rate), pc(r.share_of_shows)]);
+  const total = ["Total", String(v.calls), String(v.showed), String(v.rows.reduce((a, r) => a + r.noshow, 0)), ...(any("cancelled") ? [String(v.rows.reduce((a, r) => a + r.cancelled, 0))] : []), ...(any("missing") ? [String(v.rows.reduce((a, r) => a + r.missing, 0))] : []), pc(v.show_rate), v.showed ? "100%" : "—"];
+  return [table(head, rows, total, 40), `_${v.test.verdict}${v.multi ? " Several answers can be picked, so a call can sit under more than one." : ""}_`];
 }
 
 /** /closes: the count on top, then one line per close, newest first. */
