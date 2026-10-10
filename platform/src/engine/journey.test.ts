@@ -4,9 +4,10 @@
  * operator worries about (a call booked five hours out, a texted cancel, a show the closer filed with no recording, a
  * no-show who rebooks). The catalogue is engine/06-journey-sweep.md; every `it.fails` here is a Finding there: the test
  * states the behaviour the operator expects, the engine does something else today, and the title says where. The
- * findings D59 fixed (F1, F3, F4, F7, F8's recovery half, F10, F11, F13) are plain `it` now and say so.
+ * findings D59 fixed (F1, F3, F4, F7, F8's recovery half, F10, F11, F13) are plain `it` now and say so, as are F9 (the
+ * tag half of F8) and F21, fixed by D62.
  */
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { DateTime } from "luxon";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -164,7 +165,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
         { pipeline: "PIPE-SETTER", stage: "STAGE-SET", name: "Jordan Vale -- Set", status: "open" },
       ]);
       expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-set", "meta booked call"]);
-      expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead"]);   // removed; nothing in any template ever adds them
+      expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead", "stat-no-show", "stat-cancelled", "stat-possible-cancel", "stat-needs-attention"]);   // the four nurture tags nothing in any template adds, and the four a fresh booking resets (D62)
       expect(await tagsOf(jordan)).toEqual(["meta booked call", "stat-booked", "stat-new", "stat-set"]);
       expect(contactWrites.filter((w) => w.id === "JV1").map((w) => w.customFields)).toEqual([[{ id: "CF-APPT-DATE", field_value: A.toFormat("yyyy-MM-dd") }], [{ id: "CF-SETTER", field_value: "Luis" }]]);
       expect(tasks.slice(nTasks)).toEqual([expect.objectContaining({ contactId: "JV1", title: "Send Jordan a personalized video", assignedUserId: "U1" })]);
@@ -466,12 +467,12 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await tagsOf(quinn)).toEqual(["meta booked call", "stat-booked", "stat-no-show", "stat-self-booked"]);
       expect(await cardsOf(quinn)).toEqual([expect.objectContaining({ pipeline: "PIPE-CLOSER", stage: "STAGE-SCHED", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-DIRECT", status: "open" })]);
     });
-    it("they book again: Call booked moves the same two cards back to Scheduled / Direct Booked, re-adds stat-booked (stat-no-show stays, F9); the parked recovery run wakes a day later, sees the new call on the calendar and exits `rebooked` without the 'Want to reschedule?' email (F8, D59)", async () => {
+    it("they book again: Call booked moves the same two cards back to Scheduled / Direct Booked, re-adds stat-booked and takes stat-no-show off (F9, D62); the parked recovery run wakes a day later, sees the new call on the calendar and exits `rebooked` without the 'Want to reschedule?' email (F8, D59)", async () => {
       await book(snap("A-Q2", "QUINN1", daysOut(11, 10)));
       await tickAt(DateTime.now());
       expect(await runsFor("call-booked", quinn)).toHaveLength(2);
       expect(await cardsOf(quinn)).toHaveLength(2);
-      expect(await tagsOf(quinn)).toEqual(["meta booked call", "stat-booked", "stat-no-show", "stat-self-booked"]);
+      expect(await tagsOf(quinn)).toEqual(["meta booked call", "stat-booked", "stat-self-booked"]);
       const rec = await lastRun("no-show-recovery", quinn);
       expect(rec).toMatchObject({ status: "waiting", current_node: "n4" });
       const n = sent.length;
@@ -484,8 +485,49 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     it("F8 (fixed, D59): a new booking ends the no-show recovery; the check before each send reads the calendar", async () => {
       expect(sent.filter((s) => s.to === "QUINN1" && /^Want to reschedule\?/.test(s.body))).toHaveLength(0);
     });
-    it.fails("F8 / F9 (open, the owner's call): stat-no-show should come off on the new booking; Call booked removes seq-no-show, a tag nothing sets, and the owner asked for the GHL-side tags to be left alone until the stat-* tags are declared cumulative or current", async () => {
+    it("F8 / F9 (fixed, D62): stat-no-show comes off on the new booking — the owner: a filter on no-show or cancelled must not catch someone who has rebooked; the other stat-* tags stay milestones", async () => {
       expect(await tagsOf(quinn)).not.toContain("stat-no-show");
+      expect(await tagsOf(quinn)).toContain("stat-booked");
+    });
+  });
+
+  // ---- a booking made in dark hours (F21) ----
+  describe("booked at 23:00 for a 9am call (F21, fixed D62)", () => {
+    let rae: string, pre: Run;
+    const A = daysOut(2, 9);              // the call: 9am their time
+    const B = A.minus({ hours: 10 });     // booked at 23:00 the night before, inside the company's dark hours
+    beforeAll(() => asOperator((c) => c.query("update companies set send_window_start='08:00', send_window_end='20:00', quiet_allow_transactional=true where id=$1", [companyId])));
+    afterAll(() => asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59', quiet_allow_transactional=false where id=$1", [companyId])));
+    it("the booking email and text go at 23:00 (receipts, and the company lets transactional sends through); the 4-hour reply wait starts then, under its call − 1h cap (D58)", async () => {
+      rae = await newContact("RAE1", "Rae", "Lindqvist", "rae@x.com", "+16025550106");
+      const n = sent.length;
+      await book(snap("A-RAE", "RAE1", A));
+      await tickAt(B);
+      expect(await lastRun("call-booked", rae)).toMatchObject({ status: "completed", exit_reason: "booked" });
+      expect(sent.slice(n).filter((s) => s.to === "RAE1").map((s) => s.kind)).toEqual(["email", "sms"]);
+      pre = await lastRun("pre-call-sequence", rae);
+      expect(pre).toMatchObject({ status: "waiting", current_node: "w1" });
+      const steps = await stepsOf(pre.id);
+      expect(steps.filter((s) => s.result.quiet_hours_until).map((s) => s.node_id)).toEqual([]);   // nothing waited for 08:00
+      expect(steps.find((s) => s.node_id === "w1")?.result).toMatchObject({ deadline: B.plus({ hours: 4 }).toISO() });   // 03:00, before the 08:00 cap
+    });
+    it("no reply by 03:00: ⏳ and stat-unconfirmed; the reminders go on and the first human-sounding one waits for 08:00", async () => {
+      await wake(pre.id); await tickAt(B.plus({ hours: 4 }));
+      expect(await tagsOf(rae)).toContain("stat-unconfirmed");
+      pre = await lastRun("pre-call-sequence", rae);
+      expect(pre).toMatchObject({ status: "waiting", current_node: "r72" });
+      expect((await stepsOf(pre.id)).filter((s) => s.node_id === "r72").at(-1)?.result).toMatchObject({ deferred_into_window: true });
+    });
+    it("08:00: the 3-day, 2-day and 24-hour reminders are stale and skipped, the 1-hour text goes at 08:00 (call − 1h) and the 10-minute text at 08:50 — the texts F21 lost", async () => {
+      const n = sent.length;
+      await wake(pre.id); await tickAt(A.minus({ hours: 1 }));
+      expect(sent.slice(n).filter((s) => s.to === "RAE1").map((s) => s.body)).toEqual([expect.stringContaining("1-hour text")]);
+      pre = await lastRun("pre-call-sequence", rae);
+      expect(pre).toMatchObject({ status: "waiting", current_node: "r10" });
+      expect(await stepStatus(pre.id, ["m72", "m48", "m24e", "m24s", "m1"])).toEqual({ m72: "stale", m48: "stale", m24e: "stale", m24s: "stale", m1: "ok" });
+      await wake(pre.id); await tickAt(A.minus({ minutes: 10 }));
+      expect(sent.slice(n).filter((s) => s.to === "RAE1").map((s) => s.body)).toEqual([expect.stringContaining("1-hour text"), expect.stringContaining("10-minute text")]);
+      expect(await lastRun("pre-call-sequence", rae)).toMatchObject({ status: "completed", exit_reason: "done" });
     });
   });
 
@@ -505,10 +547,13 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     it("tags a template removes that no template ever adds: the nurture tags Call booked clears (set by the CRM, if at all; the CRM spells 'opt-in lead' as 'optin lead', D50) and the manual send-agreement trigger", () => {
       expect([...removes.keys()].filter((t) => !adds.has(t)).sort()).toEqual(["opt-in lead", "seq-no-show", "seq-nurture", "seq-winback", "sys-send-agreement-manually"]);
     });
-    it("tags a template adds that nothing ever removes (F9): every stat-* milestone, meta booked call, pay-paid-full; stat-no-show, stat-cancelled and stat-unconfirmed are not cleared by the booking or the confirmation that outdates them, and stat-agreement-unsigned is not cleared by the signature", () => {
-      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-paid-full", "pay-refunded", "stat-agreement-sent", "stat-agreement-signed", "stat-agreement-unsigned", "stat-cancelled", "stat-closed-won", "stat-customer", "stat-disqualified", "stat-follow-up", "stat-lost", "stat-new", "stat-no-show", "stat-possible-cancel", "stat-showed"]);
+    it("tags a template adds that nothing ever removes (F9, D62): the milestones — every other stat-*, meta booked call, pay-paid-full, pay-refunded; the ones that would misfire on a filter come off: stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention on a fresh booking, stat-agreement-unsigned on the signature, stat-unconfirmed on the confirmation", () => {
+      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-paid-full", "pay-refunded", "stat-agreement-sent", "stat-agreement-signed", "stat-closed-won", "stat-customer", "stat-disqualified", "stat-follow-up", "stat-lost", "stat-new", "stat-showed"]);
       expect(removes.get("stat-unconfirmed")).toEqual(["pre-call-sequence:n_conf"]);
       expect(removes.get("stat-booked")).toEqual(["call-cancelled:n5"]);
+      for (const t of ["stat-no-show", "stat-cancelled", "stat-possible-cancel"]) expect(removes.get(t)).toEqual(["call-booked:s5", "call-booked:b6"]);
+      expect(removes.get("stat-needs-attention")).toEqual(["pre-call-sequence:n_att_off", "call-booked:s5", "call-booked:b6"]);
+      expect(removes.get("stat-agreement-unsigned")).toEqual(["agreement-signed:g1"]);
     });
   });
 });

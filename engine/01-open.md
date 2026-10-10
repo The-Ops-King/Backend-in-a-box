@@ -356,3 +356,13 @@ Tyler, 2026-10-08: "if we have a Typeform connected and the URL changes somehow 
 health page). Typeform is not integrated yet (#29): when it is, its webhook is registered by the engine from
 a Typeform token, verified each sweep (`GET /forms/{id}/webhooks`), and re-registered from the same button.
 
+
+## 35. Deal closed must not fire on a deposit, once deposits are a distinct kind
+
+Tyler, 2026-10-10, on Deal closed firing at the first dollar plus a signature: "Correct, not paid in full. However NOT if
+it's a deposit, which we don't have set up right now, but that's something we need to remember." Today the gate is
+`contact.paid` (any succeeded payment on the pursuit) and the signature; `deriveKind` (`payments.ts`) already tells
+`deposit` from `paid_in_full` / `balance` by amount against the contract value, but nothing reads it at the gate, and a
+deposit is not yet a product the engine knows as its own kind (a reservation fee vs the first instalment of the price).
+When it is: the gate reads the kinds paid, not the fact of a payment — a deposit alone, even signed, is not a close; the
+first non-deposit dollar with the signature is. Decide with it whether the agreement chase and `stat-customer` wait too.

@@ -5,7 +5,7 @@
   "stage": "closing",
   "sort": 20,
   "origin": "spec",
-  "description": "The signer completed the purchase agreement (the engine watches the CRM's documents): stat-agreement-signed is added, a dated note goes on the contact, and the team sees it in Slack with what has been paid so far. Deal closed takes it from here when payment is also in.",
+  "description": "The signer completed the purchase agreement (the engine watches the CRM's documents): stat-agreement-signed is added and stat-agreement-unsigned comes off (a signed client must not carry the chase's tag, D62), a dated note goes on the contact, and the team sees it in Slack with what has been paid so far. Deal closed takes it from here when payment is also in.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -20,9 +20,12 @@
       },
       {
         "id": "g1",
-        "type": "set_tag",
-        "tag": [
+        "type": "tags",
+        "add": [
           "stat-agreement-signed"
+        ],
+        "remove": [
+          "stat-agreement-unsigned"
         ]
       },
       {

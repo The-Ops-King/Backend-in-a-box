@@ -54,6 +54,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | Edge case | What should happen | Covered by |
 |---|---|---|
 | A booking starts the sequence; the day-one email and text go once; a second tick sends nothing again | One run, two sends, the ledger refuses a duplicate | `engine.integration.test.ts › a booked appointment starts the pre-call sequence; the booking email and text go once; it waits for the reply` |
+| A booking at 23:00 for a 9am call | The booking email and text are receipts (`kind: transactional`) and go at 23:00 when the company lets transactional sends through dark hours (`quiet_allow_transactional`); the 4-hour reply wait runs from then (its call − 1h cap is 08:00, D58); no reply by 03:00 → ⏳ and `stat-unconfirmed`; the 3-day, 2-day and 24-hour reminders are stale and skipped at 08:00; the 1-hour text goes at 08:00 and the 10-minute text at 08:50 (F21, D62). With the flag off they wait for 08:00 like every other send | `journey.test.ts › booked at 23:00 for a 9am call (F21, fixed D62)` (three tests) |
 | A reply arrives while the run is parked on the booking text | The poll wakes the run the same minute (`wake_on_reply`); classify → branch | `engine.integration.test.ts › reply → classify → branch → tag confirmed → on to the reminders…` |
 | A reply in pieces ("yes" … "🙏") | After the newest piece the run waits `settle` (90 s); a further piece restarts the clock; the classifier reads both as one reply | same test (`settled`, `classified.at(-1)` is both pieces) |
 | A reply during the settle window that cancels the first ("yes… actually no") | Both pieces go to the classifier together; the last word is read in context | `not yet` (the fake classifier answers by regex) |
@@ -117,7 +118,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | The no-show is marked three days late | "sorry we missed each other" is outside `after_event max_lag 3d`: skipped as stale | `not yet` |
 | The appointment is deleted at the source after the no-show | Premise: `appointment deleted at the booking source` → exit | `not yet` |
 | A reply during the 24-hour wait | Woken, exits `replied`; no second email | covered by the first row's test only for the timeout edge; the reply edge: `not yet` |
-| The person books a new call during the recovery | The check before each send reads `contact.has_upcoming_call` (a live closing call other than the no-show's own): the run exits `rebooked`, nothing more is sent; Call booked runs for the new one. `stat-no-show` stays on until the owner decides the stat tags (F9) | `journey.test.ts › F8 (fixed, D59): a new booking ends the no-show recovery…` |
+| The person books a new call during the recovery | The check before each send reads `contact.has_upcoming_call` (a live closing call other than the no-show's own): the run exits `rebooked`, nothing more is sent; Call booked runs for the new one. `stat-no-show` comes off with the new booking (F9, D62) | `journey.test.ts › F8 (fixed, D59): a new booking ends the no-show recovery…`; `journey.test.ts › F8 / F9 (fixed, D62): stat-no-show comes off on the new booking…` |
 
 ## Cancellation rebook
 

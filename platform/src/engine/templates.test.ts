@@ -46,11 +46,13 @@ describe("shipped templates", () => {
   });
   it("the shipped flows that add and remove tags do it in one step, adds before removes", () => {
     const node = (slug: string, id: string) => parseDefinition(templates.find((t) => t.slug === slug)!.definition).nodes.find((n) => n.id === id);
-    expect(node("call-booked", "s5")).toMatchObject({ type: "tags", add: ["stat-booked", "stat-self-booked", "meta booked call"], remove: ["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead"] });
-    expect(node("call-booked", "b6")).toMatchObject({ type: "tags", add: ["stat-booked", "stat-set", "meta booked call"], remove: ["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead"] });
+    expect(node("call-booked", "s5")).toMatchObject({ type: "tags", add: ["stat-booked", "stat-self-booked", "meta booked call"], remove: ["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead", "stat-no-show", "stat-cancelled", "stat-possible-cancel", "stat-needs-attention"] });
+    expect(node("call-booked", "b6")).toMatchObject({ type: "tags", add: ["stat-booked", "stat-set", "meta booked call"], remove: ["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead", "stat-no-show", "stat-cancelled", "stat-possible-cancel", "stat-needs-attention"] });
     expect(node("call-cancelled", "n5")).toMatchObject({ type: "tags", add: ["stat-cancelled"], remove: ["stat-booked", "stat-self-booked", "stat-set", "stat-confirmed"] });
     expect(node("payment-recorded", "f1")).toMatchObject({ type: "tags", add: ["pay-paid-full"], remove: ["pay-plan-active"] });
     expect(node("payment-recorded", "g1")).toMatchObject({ type: "tags", add: ["pay-refunded"], only_if: { eq: ["{{event.kind}}", "refund"] } });   // D57: a refund adds its own tag and leaves the others as the last payment left them
     expect(node("agreement-send-manually", "g1")).toMatchObject({ type: "tags", add: ["stat-agreement-sent"], remove: ["sys-send-agreement-manually"] });
+    expect(node("agreement-signed", "g1")).toMatchObject({ type: "tags", add: ["stat-agreement-signed"], remove: ["stat-agreement-unsigned"] });   // D62: a signed client must not carry the chase's tag
+    expect(node("pre-call-sequence", "e1")).toMatchObject({ type: "send_email", kind: "transactional" }); expect(node("pre-call-sequence", "s1")).toMatchObject({ type: "send_sms", kind: "transactional" });   // D62: booking receipts go at once in dark hours when the company allows it
   });
 });

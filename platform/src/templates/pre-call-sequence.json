@@ -5,7 +5,7 @@
   "stage": "pre_call",
   "sort": 10,
   "origin": "spec",
-  "description": "Everything the prospect hears between booking and the call: the booking email and text (reply with an emoji to lock in; every reply and a 4-hour silence become a reaction and a thread reply on the booking post in Slack, never a new message and the closers told; the reply wait ends an hour before the call, so a call booked two hours out still gets its reminders). A clear yes confirms on its own. A reply Jev reads as a cancel or a reschedule, or cannot read at all, is put to the team in the attention channel (the bookings channel when none is bound): the closer is mentioned, the post says how sure Jev is (\"Jev is 95% sure they want to cancel.\"), offers ✅ ❌ 🔁, tags the contact stat-needs-attention and notes the pending read on the appointment. The reminders do NOT wait for the answer: the run goes straight on and listens; a tap, whenever it comes, pulls the run to the confirmed, cancelled or reschedule path (who decided is noted, Jev is scored with its confidence, the question gets the outcome reaction, the tag comes off) and a confirmation returns the run to the reminder it was on. Nobody by the call: the listener disarms, the tag comes off, intent.unanswered is recorded and the pending read stays on the appointment so a no-show after it is marked stat-possible-cancel. Then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
+  "description": "Everything the prospect hears between booking and the call: the booking email and text, which are receipts and go out the minute the booking lands, dark hours or not, when the company lets transactional sends through (D62) (reply with an emoji to lock in; every reply and a 4-hour silence become a reaction and a thread reply on the booking post in Slack, never a new message and the closers told; the reply wait ends an hour before the call, so a call booked two hours out still gets its reminders). A clear yes confirms on its own. A reply Jev reads as a cancel or a reschedule, or cannot read at all, is put to the team in the attention channel (the bookings channel when none is bound): the closer is mentioned, the post says how sure Jev is (\"Jev is 95% sure they want to cancel.\"), offers ✅ ❌ 🔁, tags the contact stat-needs-attention and notes the pending read on the appointment. The reminders do NOT wait for the answer: the run goes straight on and listens; a tap, whenever it comes, pulls the run to the confirmed, cancelled or reschedule path (who decided is noted, Jev is scored with its confidence, the question gets the outcome reaction, the tag comes off) and a confirmation returns the run to the reminder it was on. Nobody by the call: the listener disarms, the tag comes off, intent.unanswered is recorded and the pending read stays on the appointment so a no-show after it is marked stat-possible-cancel. Then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
   "definition": {
     "schema": 1,
     "reentry": "once_per_appointment",
@@ -39,6 +39,7 @@
       {
         "id": "e1",
         "type": "send_email",
+        "kind": "transactional",
         "subject": "You're booked: {{appointment.starts_at | date:ccc, LLL d 'at' h:mma}} — reply to lock it in",
         "template": "[placeholder — day-one email]",
         "validity": {
@@ -50,6 +51,7 @@
       {
         "id": "s1",
         "type": "send_sms",
+        "kind": "transactional",
         "template": "[placeholder — immediate text]",
         "validity": {
           "anchor": "before_event",

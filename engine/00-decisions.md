@@ -1683,3 +1683,44 @@ recorded and alerted, never silently skipped; nothing hardcoded; names render as
 - **G17, left.** Healing an orphan when the buyer's contact arrives through the CRM poll is a D21 question (an exact
   email match is what `resolvePayer` already trusts, but the owner decided that nothing links without a payment or a
   hand); the test stays `it.fails` until that is decided.
+
+## D62. Milestone tags that would misfire come off; booking receipts go at once (2026-10-10)
+
+Two owner calls on the journey sweep's open findings (06-journey-sweep.md F9 and F21).
+
+On the tags (F9, the open half of F8): "Tags are mostly milestones. BUT I think if they book again, the 'no-show' or
+'canceled' should be removed so we don't get any weird behavior, like if someone filters by 'canceled' tag, and someone
+who showed up to their last call gets a 'you canceled your call' message." So the `stat-*` tags stay cumulative, with the
+exceptions that would put a person in the wrong filter:
+
+- **Call booked** (`call-booked.json` s5 self-booked, b6 setter-booked — the one tags step per path) removes
+  `stat-no-show`, `stat-cancelled`, `stat-possible-cancel` and `stat-needs-attention` beside the four nurture tags it
+  already removed (`seq-no-show`, `seq-nurture`, `seq-winback`, `opt-in lead`). A fresh booking resets the attention
+  state: the no-show, the cancel, the possible cancel and the open question all belong to the call before this one.
+- **Agreement signed** (`agreement-signed.json` g1, now a `tags` step) removes `stat-agreement-unsigned` as it adds
+  `stat-agreement-signed`, so a signed client never sits in the chase's filter.
+- Nothing else changes: `stat-showed`, `stat-closed-won`, `stat-customer`, `stat-follow-up`, `stat-lost`, `stat-new`,
+  `stat-agreement-sent`, `meta booked call` and the `pay-*` tags are milestones nothing removes; Call cancelled still
+  takes the booked tags off; a corrected filing still puts the new outcome tag beside the old one.
+- The pure test (`tags across every template`) pins the two lists: what is added and never removed is now exactly the
+  milestones; the four reset tags are removed by `call-booked:s5` and `call-booked:b6` (and `stat-needs-attention` also
+  by the pre-call's own `n_att_off`); `stat-agreement-unsigned` by `agreement-signed:g1`. The removal is a CRM write
+  whether or not the tag is there (as every `tags` step is), so a first booking removes four tags nobody set.
+
+On the booking receipts (F21): "If they book at midnight for 9am, they might never get the response. Immediate 'you're
+booked' text and email should go out imo." The pre-call sequence's `e1` (booking email) and `s1` (booking text) are
+`kind: "transactional"`; no other node of the sequence changed. The mechanism is D5d's as written: the runner
+(`runner.ts` send window) lets a transactional send through dark hours only when the company's
+`quiet_allow_transactional` is on; a human-sounding send always waits. So the flag is what decides, per company: on, the
+receipts go the minute the booking lands, the 4-hour reply wait runs from then (its cap stays call − 1h, D58), ⏳ and
+`stat-unconfirmed` land at +4h even in the dark (a Slack post and a CRM write, not a send), the stale reminders are
+skipped at 08:00 and the 1-hour and 10-minute texts go; off, the receipts wait for 08:00 as before. **Hair's company row
+needs `quiet_allow_transactional = true`** for the owner's wording to hold there — the install input is
+`quietHours: { allowTransactional: true }` (`installCompany`, an upgrade install sets only what is given); the
+`install:company` script has no flag for it yet, so it is the install API's payload or the company row. The journey test
+`booked at 23:00 for a 9am call (F21, fixed D62)` walks the night: receipts at 23:00, deadline 03:00, ⏳, the first
+human-sounding reminder parked on the window, 1-hour text at 08:00, 10-minute text at 08:50, exit `done`.
+
+Noted for later, not built (01-open.md #35): Deal closed fires on the first dollar plus a signature, and the owner
+confirmed it should — "Correct, not paid in full. However NOT if it's a deposit, which we don't have set up right now,
+but that's something we need to remember."

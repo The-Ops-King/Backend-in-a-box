@@ -5,7 +5,7 @@
   "stage": "booking",
   "sort": 10,
   "origin": "spec",
-  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off, meta booked call goes on, the owner gets a task to send a personal video, the Sales Call record is created (the recording updates it later; a reschedule moves it), and the team gets the Slack card with the intake answers. A reschedule runs the same CRM updates but posts no new card: it reacts 🔁 on the booking post and puts the new time in its thread.",
+  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, the Sales Call record is created (the recording updates it later; a reschedule moves it), and the team gets the Slack card with the intake answers. A reschedule runs the same CRM updates but posts no new card: it reacts 🔁 on the booking post and puts the new time in its thread.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -92,7 +92,11 @@
           "seq-no-show",
           "seq-nurture",
           "seq-winback",
-          "opt-in lead"
+          "opt-in lead",
+          "stat-no-show",
+          "stat-cancelled",
+          "stat-possible-cancel",
+          "stat-needs-attention"
         ]
       },
       {
@@ -157,7 +161,11 @@
           "seq-no-show",
           "seq-nurture",
           "seq-winback",
-          "opt-in lead"
+          "opt-in lead",
+          "stat-no-show",
+          "stat-cancelled",
+          "stat-possible-cancel",
+          "stat-needs-attention"
         ]
       },
       {

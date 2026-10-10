@@ -321,7 +321,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       expect.objectContaining({ op: "create", pipelineId: "PIPE-CLOSER", stageId: "STAGE-SCHED", name: "Mia Ortiz -- Direct", assignedUserId: "U1" }),
     ]);
     expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-self-booked", "meta booked call"]);
-    expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead"]);
+    expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead", "stat-no-show", "stat-cancelled", "stat-possible-cancel", "stat-needs-attention"]);   // D62: a fresh booking takes the no-show / cancel / attention tags off
     expect(contactWrites.slice(nCw)).toEqual([expect.objectContaining({ id: "CCB1", assignedUserId: "U1", customFields: [{ id: "CF-APPT-DATE", field_value: start.setZone(TZ).toFormat("yyyy-MM-dd") }] })]);
     const steps = await asOperator((c) => many<{ node_id: string; status: string; result: Record<string, unknown> }>(c, "select node_id, status, result from run_steps where run_id=$1 order by started_at", [r.id]));
     expect(steps.find((x) => x.node_id === "s3")?.status).toBe("ok");
