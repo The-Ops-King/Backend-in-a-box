@@ -26,6 +26,7 @@ import { salesCallConfig, salesCallsFor, type SalesCall, type SalesCallConfig } 
  */
 export const DRIFT_DAYS = 7;
 export const POLL_LAG_MIN = 30;
+export const LATE_LEAD_MIN = 60;   // pulled in later than this after arriving: no lead workflows, a person is told
 const NAMES = 10;
 
 /** D69: ask the CRM before saying a record is gone. A "not found" in any shape is gone; anything else that fails is unknown. */
@@ -76,10 +77,13 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     const { emitEvent, dispatchEvent } = await import("./dispatch");
     for (const s of missing) await guarded(async () => {
       const up = await upsertContact(c, company.id, company.timezone, s, boundFieldIds(bindings));
-      // the record is new to the engine here, so the sweep is what makes it a lead: the poll will now see it as known and fire nothing
-      if (up.isNew) await dispatchEvent(c, await emitEvent(c, { company_id: company.id, contact_id: up.id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: s.id, by: "health" } }), { contact: { id: up.id, ghl_contact_id: s.id, tags: s.tags } });
-      await audit("contact", up.id, null, { repair: "pulled_in", ghl_contact_id: s.id, lead_created: up.isNew });
-      repaired(s.id, `${snapName(s)} was in GHL but not the ledger; pulled in${up.isNew ? " (New lead fired once)" : ""}`, { ghl_contact_id: s.id, contact_id: up.id });
+      // the record is new to the engine here, so the sweep is what makes it a lead: the poll will now see it as known and fire nothing.
+      // A lead found long after it arrived does not start the lead workflows: a first text days late is worse than none, so a person is told instead.
+      const late = up.isNew && now.toMillis() - Date.parse(s.dateAdded) > LATE_LEAD_MIN * 60_000;
+      if (up.isNew && !late) await dispatchEvent(c, await emitEvent(c, { company_id: company.id, contact_id: up.id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: s.id, by: "health" } }), { contact: { id: up.id, ghl_contact_id: s.id, tags: s.tags } });
+      await audit("contact", up.id, null, { repair: "pulled_in", ghl_contact_id: s.id, lead_created: up.isNew && !late, late });
+      if (late) cannot(`${snapName(s)} arrived in GHL ${DateTime.fromISO(s.dateAdded).setZone(company.timezone).toFormat("ccc LLL d 'at' h:mma")} and the engine missed them until now; pulled in, but New lead and Speed to lead did NOT run, so follow up by hand`, { kind: "late_lead", ghl_contact_id: s.id, contact_id: up.id });
+      else repaired(s.id, `${snapName(s)} was in GHL but not the ledger; pulled in${up.isNew ? " (New lead fired once)" : ""}`, { ghl_contact_id: s.id, contact_id: up.id });
     }, (e) => cannot(`${snapName(s)} is in GHL but not the ledger, and could not be pulled in (${why(e)})`, { kind: "missing", ghl_contact_id: s.id }));
   }
 

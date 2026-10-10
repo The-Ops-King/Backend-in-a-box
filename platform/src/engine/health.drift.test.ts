@@ -80,7 +80,8 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       await appt("AP6", k1, ago({ days: 1, hours: 2 }).startOf("minute"), "cancelled", null, null);        // cancelled, when unknown
     });
     contacts.push(gc("G-K1", ago({ days: 3 })), gc("G-K2", ago({ days: 3 })), gc("G-TEST", ago({ days: 3 }), { tags: ["sys-test"] }),
-      gc("G-NEW", ago({ days: 1 }), { firstName: "Nina", lastName: "New", email: "nina@x.co" }),   // the poll never brought her in
+      gc("G-NEW", ago({ days: 1 }), { firstName: "Nina", lastName: "New", email: "nina@x.co" }),   // the poll never brought her in, and a day has passed
+      gc("G-SOON", ago({ minutes: 45 }), { firstName: "Sol", lastName: "Soon", email: "sol@x.co" }),  // missed by one poll: still a fresh lead
       gc("G-RECENT", ago({ minutes: 10 })));                                                       // inside the poll's lag: not yet a difference
     gone.add("G-GONE"); flaky.add("G-FLAKY");
     records.push(
@@ -96,7 +97,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     const r = await sweep();
     const fs = drift(r.findings);
     const repaired = fs.filter((f) => f.ok).map((f) => f.item).sort();
-    expect(repaired).toEqual(["repair:G-GONE", "repair:G-NEW", "repair:R1:ledger", "repair:R2:ghl", "repair:R2:ledger", "repair:R3:ledger", "repair:R4:ledger"]);
+    expect(repaired).toEqual(["repair:G-GONE", "repair:G-SOON", "repair:R1:ledger", "repair:R2:ghl", "repair:R2:ledger", "repair:R3:ledger", "repair:R4:ledger"]);
     // the test contact's record is written to GHL; the real contact's is held back by test mode
     expect(writes).toEqual([{ id: "R2", outcome: "cancelled" }]);
     expect(await outcomeOf("AP1")).toBe("cancelled"); expect(await outcomeOf("AP2")).toBe("cancelled");
@@ -105,16 +106,19 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     expect(await outcomeOf("AP6")).toBeNull();
     const nina = await asOperator((c) => one<{ id: string; first_name: string }>(c, "select id, first_name from contacts where company_id=$1 and ghl_contact_id='G-NEW'", [companyId]));
     expect(nina?.first_name).toBe("Nina");
-    expect(await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from events where company_id=$1 and contact_id=$2 and event_type='lead.created'", [companyId, nina!.id]))).toEqual({ n: 1 });
+    // a day late: in the ledger, but no lead workflows; a person is told. 45 minutes late: a lead like any other
+    expect(await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from events where company_id=$1 and contact_id=$2 and event_type='lead.created'", [companyId, nina!.id]))).toEqual({ n: 0 });
+    expect(await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from events e join contacts ct on ct.id=e.contact_id where e.company_id=$1 and ct.ghl_contact_id='G-SOON' and e.event_type='lead.created'", [companyId]))).toEqual({ n: 1 });
     expect(await asOperator((c) => one(c, "select 1 from contacts where company_id=$1 and ghl_contact_id='G-RECENT'", [companyId]))).toBeUndefined();
     expect((await asOperator((c) => one<{ gone_at: Date | null }>(c, "select gone_at from contacts where company_id=$1 and ghl_contact_id='G-GONE'", [companyId])))?.gone_at).toBeTruthy();
     expect((await asOperator((c) => one<{ gone_at: Date | null }>(c, "select gone_at from contacts where company_id=$1 and ghl_contact_id='G-FLAKY'", [companyId])))?.gone_at).toBeNull();   // GHL did not answer: unconfirmed, untouched, unsaid
     const audit = await asOperator((c) => many<{ target_id: string; after: { repair: string } }>(c, "select target_id, after from audit_log where company_id=$1 and action='health.repaired'", [companyId]));
-    expect(audit.map((a) => a.after.repair).sort()).toEqual(["booking_cancelled", "booking_cancelled", "booking_cancelled", "ghl_outcome", "ghl_outcome", "marked_gone", "pulled_in"]);
+    expect(audit.map((a) => a.after.repair).sort()).toEqual(["booking_cancelled", "booking_cancelled", "booking_cancelled", "ghl_outcome", "ghl_outcome", "marked_gone", "pulled_in", "pulled_in"]);
     const bad = fs.find((f) => !f.ok)!;
     expect(bad.text).toMatch(/^GHL and the ledger disagree \(last 7 days\), not repaired: /);
     expect(bad.text).toContain("G-K1's call on"); expect(bad.text).toContain("not written to GHL: test mode: would set the outcome to \"cancelled\"");
     expect(bad.text).toContain("the Sales Call record matches no booking in the ledger");
+    expect(bad.text).toMatch(/Nina New arrived in GHL .* New lead and Speed to lead did NOT run, so follow up by hand/);
     expect(bad.text).toContain("Calendly says cancelled, GHL says no-show, and when it was cancelled is unknown");
     expect(bad.text).not.toContain("G-FLAKY");
     expect((await asOperator((c) => openAlerts(c, companyId))).filter((a) => a.key === "health:ledger_drift")).toHaveLength(1);
