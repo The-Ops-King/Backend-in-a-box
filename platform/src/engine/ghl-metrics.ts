@@ -186,6 +186,11 @@ async function calls(x: GhlCtx): Promise<Call[]> {
     if (!cfg) throw new MetricError("calls and shows are read from the Sales Call records in GHL, and no object is bound (crm.object_sales_call)");
     if (!Object.keys(cfg.outcomes).length) throw new MetricError("the Sales Call outcomes are not mapped (sales_call.outcomes), so a show cannot be told from a no-show");
     const recs = await read("Sales Call records", () => x.reads.objectRecords(x.ac, cfg.object));
+    // the record's contact_id field is a copy; GHL's association is the link itself, read when the copy is empty
+    for (const r of recs.filter((k) => !String(k.properties.contact_id ?? "").trim())) {
+      const id = await read("a Sales Call's contact", () => x.reads.recordContact(x.ac, r.id));
+      if (id) r.properties = { ...r.properties, contact_id: id };
+    }
     const due = recs.flatMap((r) => {
       const p = r.properties, day = /^\d{4}-\d{2}-\d{2}$/.test(String(p.call_date ?? "")) ? DateTime.fromISO(String(p.call_date), { zone: x.tz }) : null;
       const sched = callTime(p.scheduled_at, day, x.tz);

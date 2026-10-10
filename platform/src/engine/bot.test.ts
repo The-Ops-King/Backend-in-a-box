@@ -10,7 +10,8 @@ import { encrypt } from "./crypto";
 import { fakeAdapters, fakeProbes } from "./test-install";
 import type { HealthProbes } from "./health";
 import { getAvailability, getCloses, getMetric, parsePeriod, previousPeriod } from "./metric-registry";
-import { answerList, classifyCall, qualify, type QualifyConfig } from "./ghl-metrics";
+import { answerList, classifyCall, qualify, salesCallsFor, type QualifyConfig } from "./ghl-metrics";
+import { loadCompany } from "./context";
 import { formatAnswer, formatCombined, formatSummary, formatAvailability, availabilityBody, table, MAX_ROWS, helpText } from "./bot-format";
 import { handleMessage, planCommand, preview, runCommand, type SlackMessage } from "./bot";
 
@@ -81,6 +82,7 @@ const salesCalls: GhlObjectRecord[] = [
   sc("S10", "INV-9f2c", "C3", "2026-10-09T16:00", "showed", "Dan Dealer"),   // an outside integration's id (the invitee's): matched to A12 by C3 and 16:00
   sc("S11", "A13", "C1", "2026-10-08T09:00", "no_show", "Cara Closer"),     // cancelled after the start: the no-show stands
 ];
+salesCalls.push({ id: "S-LINKED", createdAt: "2026-08-01T00:00:00Z", properties: { external_id: "X-LINKED", call_date: "2026-08-14", outcome: "showed", closer: "Cara Closer" } });   // August, linked to its contact only by GHL's association
 salesCalls.find((r) => r.id === "S3")!.properties.disposition = "dq";
 salesCalls.find((r) => r.id === "S1")!.properties.objections_raised = ["price", "timing"];
 salesCalls.find((r) => r.id === "S2")!.properties.objections_raised = ["price"];
@@ -92,6 +94,7 @@ const ghlReads: GhlReads = {
   wonCards: async () => ghlCards,
   objectRecords: async (_c, key) => (key === "custom_objects.sales_call" ? salesCalls : []),
   getContact: async (_c, id) => ghlContacts.find((k) => k.id === id) ?? null,
+  recordContact: async (_c, id) => (id === "S-LINKED" ? "C3" : null),
   fieldCatalog: async () => [
     { object: "contact", objectLabel: "Contact", id: WORK, key: "contact.what_best_describes_your_current_work_situation", prop: WORK, name: "What best describes your current work situation?", type: "TEXT", options: [] },
     { object: "contact", objectLabel: "Contact", id: "F-SRC", key: "contact.utm_source", prop: "F-SRC", name: "UTM Source", type: "TEXT", options: [] },
@@ -445,6 +448,11 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(text).toMatch(/_Only \d+ calls have an answer to this question: too few to tell a pattern from chance\._/);
       const res = JSON.parse(lastToolResult().content);
       expect(res.rows.reduce((a: number, r: { calls: number }) => a + r.calls, 0)).toBe(res.calls);
+    });
+    it("D74: a Sales Call linked to its contact only by GHL's association is read through that association", async () => {
+      const calls = await asOperator(async (c) => { const { adapterCompany: ac, bindings } = await loadCompany(c, companyId);
+        return salesCallsFor({ c, companyId, ac, bindings, reads: ghlReads, tz: TZ, start: DateTime.fromISO("2026-08-01", { zone: TZ }).toJSDate(), end: DateTime.fromISO("2026-09-01", { zone: TZ }).toJSDate(), now: NOW.toJSDate(), sourceField: "", domains: [] }); });
+      expect(calls.map((k) => [k.id, k.ghl, k.cls])).toEqual([["S-LINKED", "C3", "showed"]]);
     });
     it("D74: a field key the catalogue does not hold is an error back to the model, never a guess", async () => {
       script = [() => call("field_breakdown", { object: "contact", field: "hair_severity", period: "this month", list: false }), () => call("ask_clarification", { question: "Which field?" })];

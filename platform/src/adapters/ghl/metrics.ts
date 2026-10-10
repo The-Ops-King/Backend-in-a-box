@@ -97,6 +97,13 @@ export async function ghlFieldCatalog(c: Company): Promise<GhlFieldDef[]> {
   return out;
 }
 
+/** The contact a custom object record is associated with in GHL (the link the CRM itself shows), or null. */
+export async function ghlRecordContact(c: Company, recordId: string): Promise<string | null> {
+  const r = await ghl<{ relations?: { firstObjectKey: string; firstRecordId: string; secondObjectKey: string; secondRecordId: string }[] }>(c.pit, "GET", `/associations/relations/${recordId}?locationId=${c.locationId}`);
+  const hit = (r.relations ?? []).find((x) => x.firstObjectKey === "contact" || x.secondObjectKey === "contact");
+  return hit ? (hit.firstObjectKey === "contact" ? hit.firstRecordId : hit.secondRecordId) : null;
+}
+
 /** What the metric layer and the drift check read from the CRM, injectable so tests never touch the network. */
 export type GhlReads = {
   contactsAdded(c: Company, from: Date, to: Date): Promise<ContactSnapshot[]>;
@@ -105,5 +112,6 @@ export type GhlReads = {
   /** null when the CRM says the record is gone */
   getContact(c: Company, id: string): Promise<ContactSnapshot | null>;
   fieldCatalog(c: Company): Promise<GhlFieldDef[]>;
+  recordContact(c: Company, recordId: string): Promise<string | null>;
 };
-export const liveGhlReads: GhlReads = { contactsAdded: ghlContactsAdded, wonCards: ghlWonCards, objectRecords: ghlObjectRecords, getContact: (c, id) => ghlRead.getContact(c, id), fieldCatalog: ghlFieldCatalog };
+export const liveGhlReads: GhlReads = { contactsAdded: ghlContactsAdded, wonCards: ghlWonCards, objectRecords: ghlObjectRecords, getContact: (c, id) => ghlRead.getContact(c, id), fieldCatalog: ghlFieldCatalog, recordContact: ghlRecordContact };
