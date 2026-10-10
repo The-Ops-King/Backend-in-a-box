@@ -20,6 +20,7 @@ import { tick } from "@/engine/runner";
 import { fakeAdapters, fakeProbes } from "@/engine/test-install";
 import { recordRecording, recordPhoneCall, settlePhoneCall, phoneFacts, type RecordingInput } from "@/engine/recordings";
 import { simulate } from "@/engine/simulate";
+import { reactionArrived } from "@/engine/webhooks/slack";
 import { templates } from "@/templates";
 import type { Adapters, AppointmentSnapshot, Classification, LiveCard } from "@/adapters/types";
 
@@ -110,7 +111,8 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       for (const t of TABLES) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
       await c.query("delete from companies where id=$1", [co.id]);
     });
-    const r = await installCompany({ name: "Journey", slug: "journey", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, setterRule: "question", closers: ["sam@x.com"], enable: true, mode: "live", crm: CRM, slack: SLACK, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);
+    const r = await installCompany({ name: "Journey", slug: "journey", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, setterRule: "question", closers: ["sam@x.com"], enable: true, crm: CRM, slack: SLACK, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);
+    await asOperator((c) => c.query("update companies set mode='live' where id=$1", [r.companyId]));   // D56: install cannot reach live without Slack; this journey asserts behaviour with Slack unbound
     companyId = r.companyId;
     expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(templates.length);
     await asOperator(async (c) => {
@@ -371,10 +373,16 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       await inbound(mina, "sorry, I need to cancel"); await wake(run.id);
       await tickAt(DateTime.now().plus({ minutes: 3 }));
       replyIntent = "confirmed";
+      // D55: Jev's cancel read is a question for the closers, not an action; the run waits for the tap
+      expect(await lastRun("pre-call-sequence", mina)).toMatchObject({ status: "waiting", current_node: "w_dec" });
+      expect((await apptRow(mina))!.status).not.toBe("cancelled");
+      const qTs = (await postTs(`decision:${run.appointment_id}`))!; expect(qTs).toBeTruthy();
+      await asOperator((c) => reactionArrived(c, companyId, { kind: "reaction", eventId: `EvMina${qTs}`, user: "UTYLER", reaction: "x", channel: "CBOOK", ts: qTs, removed: false }));
+      await tickAt(DateTime.now().plus({ minutes: 4 }));
       expect(await lastRun("pre-call-sequence", mina)).toMatchObject({ status: "completed", exit_reason: "cancelled" });
       expect((await apptRow(mina))!.status).toBe("cancelled");
       const ts = (await postTs(`appointment:${run.appointment_id}`))!;
-      expect(reactionsOn(ts)).toEqual(["x"]); expect(threadOf(ts).at(-1)).toMatch(/^❌ Mina's call is cancelled\.\n> sorry, I need to cancel$/);
+      expect(reactionsOn(ts)).toEqual(["x"]); expect(threadOf(ts).at(-1)).toMatch(/^❌ Mina's call is cancelled\.\n> sorry, I need to cancel\nDecided by /);   // D55: a person decided
       // the next poll sees the source agree: cancelled → cancelled is no change, so no appointment.status_changed is emitted
       await book({ ...apptStore.get("A-MINA")!, status: "cancelled" });
       await tickAt(DateTime.now());
