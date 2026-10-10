@@ -18,9 +18,9 @@ export function fmt(unit: Unit, v: number | null | undefined): string {
 
 const cell = (s: string, w: number) => (s.length > w ? `${s.slice(0, w - 1)}…` : s);
 /** An aligned monospace table: first column left, the rest right. Over MAX_ROWS rows the rest are counted, never dropped silently. */
-export function table(head: string[], rows: string[][], total?: string[]): string {
+export function table(head: string[], rows: string[][], total?: string[], firstWidth = 24): string {
   const shown = rows.slice(0, MAX_ROWS);
-  const all = [head, ...shown, ...(total ? [total] : [])].map((r) => r.map((x, i) => (i === 0 ? cell(x.replace(/`/g, "'"), 24) : x)));
+  const all = [head, ...shown, ...(total ? [total] : [])].map((r) => r.map((x, i) => (i === 0 ? cell(x.replace(/`/g, "'"), firstWidth) : x)));
   const w = head.map((_, i) => Math.max(...all.map((r) => (r[i] ?? "").length)));
   const line = (r: string[]) => r.map((x, i) => (i === 0 ? (x ?? "").padEnd(w[i]) : (x ?? "").padStart(w[i]))).join("  ").trimEnd();
   const out = [line(all[0]), ...all.slice(1, 1 + shown.length).map(line)];
@@ -95,7 +95,8 @@ const breakdownKey = (b: FieldBreakdown) => `*${b.field_name}*: ${b.answered.toL
 function breakdownBody(b: FieldBreakdown): string[] {
   if (!b.total) return ["_Nothing in this period._"];
   const pct = (n: number) => `${Math.round((n / b.total) * 100)}%`;
-  const L = [table(["Answer", "Count", "Share"], b.rows.map((r) => [r.value, r.count.toLocaleString("en-US"), pct(r.count)]))];
+  // an answer is the whole point of the row, so it gets room a name column does not
+  const L = [`*${b.field_name}*`, table(["Answer", "Count", "Share"], b.rows.map((r) => [r.value, r.count.toLocaleString("en-US"), pct(r.count)]), undefined, 60)];
   if (b.multi) L.push("_Several answers can be picked, so the shares add up to more than 100%._");
   if (b.list?.length) L.push("", ...b.list.map((x) => `• ${x.name} — ${x.value}`), ...(b.list.length < b.total ? [`_First ${b.list.length} of ${b.total}._`] : []));
   return L;

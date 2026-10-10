@@ -405,7 +405,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       const text = posts[0].text;
       // October's leads: C1–C4; the test contacts and September's lead are not in it
       expect(text.split("\n")[0]).toBe("*What best describes your current work situation?*: 3 of 4 answered  · _leads GHL added in the period, from GHL, read just now_");
-      expect(text).toMatch(/Employed full-time\s+1\s+25%/); expect(text).toMatch(/Currently between jobs\s+1/); expect(text).toMatch(/retired\s+1/); expect(text).toMatch(/\(no answer\)\s+1/);
+      expect(text).toContain("\n*What best describes your current work situation?*\n```"); expect(text).toMatch(/Employed full-time\s+1\s+25%/); expect(text).toMatch(/Currently between jobs\s+1/); expect(text).toMatch(/retired\s+1/); expect(text).toMatch(/\(no answer\)\s+1/);
       expect(text).toContain("• C3 — (no answer)"); expect(text).not.toContain("CT1");
       expect(text.trim().split("\n").at(-1)).toMatch(/^_Period: /);
     });
