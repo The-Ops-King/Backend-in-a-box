@@ -35,6 +35,9 @@ export function projectRun(def: Definition, run: Pick<RunRow, "status" | "curren
     } else if (n.type === "wait_for_reply") {
       out.push({ node_id: id, title: d.title, kind: "wait", at: null, note: `moves on the moment they reply, or after ${n.timeout}` });
       break;
+    } else if (n.type === "wait_for_reaction") {
+      out.push({ node_id: id, title: d.title, kind: "wait", at: null, note: n.timeout ? `moves on the moment the team taps, or after ${n.timeout}` : "moves on the moment the team taps" });
+      break;
     } else if (n.type === "send_sms" || n.type === "send_email") {
       const dark = n.kind === "transactional" && company.quiet_allow_transactional ? { at: cursor, deferred: false } : deferIntoWindow(cursor, contactTz, company.send_window_start, company.send_window_end);
       if (dark.deferred) cursor = dark.at;

@@ -15,7 +15,7 @@ export function kindOf(n: Node): NodeKind {
     case "send_sms": case "send_email": case "slack_post": case "send_document": case "notify_owner": return "message";
     case "tags": case "set_tag": case "remove_tag": case "note": case "update_appointment": case "update_opportunity": case "pipeline_card": case "update_contact": case "create_task": case "crm_record": case "record_outcome": return "crm";
     case "check": case "branch": return "decision";
-    case "wait": case "wait_for_reply": return "wait";
+    case "wait": case "wait_for_reply": case "wait_for_reaction": return "wait";
     case "classify": case "analyze": return "ai";
     case "set_var": case "start_workflow": case "pause_runs": return "control";
     case "webhook": return "message";
@@ -40,7 +40,7 @@ const PATHS: Record<string, string> = {
   "event.amount": "amount", "event.kind": "payment kind", "event.running_total": "running total", "event.contract_value": "program price", "event.outstanding": "outstanding", "event.cleared": "paid in full", "event.provider_payment_id": "transaction id", "event.paid_at": "paid at",
   "contact.ghl_contact_id": "contact id", "vars.setter_line": "setter line", "vars.booking_kind": "booking kind", "crm.location_id": "location id",
   "event._type": "this", "event._source": "the source", "event.status.to": "new status", "event.status.from": "previous status", "event.outcome": "outcome", "event.tag": "tag",
-  "reply.intent": "the reply", "reply.last_inbound.body": "their reply", "reply.last_outbound.body": "our last message", "reply.top_guesses": "top guesses",
+  "reply.intent": "the reply", "reaction.reaction": "the tap", "reaction.user_name": "who tapped", "reply.last_inbound.body": "their reply", "reply.last_outbound.body": "our last message", "reply.top_guesses": "top guesses",
   "opportunity.status": "opportunity status", "company.name": "company name", "calendar.closer_call.url": "booking link", "calendar.booking.url": "booking link", "now": "today",
   "recording.transcript_text": "the transcript", "recording.share_url": "recording link", "recording.title": "meeting title", "recording.started_at": "the call started", "recording.ended_at": "the call ended", "contact.latest_appointment_id": "their latest booking", "contact.latest_recording_id": "their latest recorded call", "recording.id": "this recording", "recording.duration_min": "call length (minutes)", "recording.closer.name": "closer", "recording.closer.ghl_user_id": "the closer", "recording.recorded_by.name": "who recorded", "recording.summary": "the recorder's summary", "recording.invitee_names": "attendees", "recording.matched_by": "how the contact was matched", "recording.external_id": "recording id",
   "recording.duration_sec": "call length (seconds)", "recording.caller.name": "who dialed", "recording.caller.ghl_user_id": "who dialed", "recording.led_to_booking": "a booking after the call", "recording.has_transcript": "there is a transcript", "recording.kind": "kind of recording", "recording.connected": "the call connected", "recording.direction": "call direction", "recording.status": "call status", "recording.url": "the recording",
@@ -141,6 +141,7 @@ export function describeNode(n: Node): NodeText {
     case "branch": return { title: "Which way?" };
     case "wait": return { title: waitWords(n.rule), detail: `${n.rule.tz === "contact" ? "Contact's" : "Company's"} time zone${guardWords(n.rule)}` };
     case "wait_for_reply": return { title: `Wait for ${n.channel === "any" ? "a" : n.channel === "sms" ? "a text" : "an email"} reply`, detail: `Up to ${durationWords(n.timeout)}; continues the minute one arrives` };
+    case "wait_for_reaction": return { title: `Wait for a reaction on ${n.of.startsWith("tag:") ? "that Slack post" : "the post before"}: ${n.emojis.map((e) => `:${e}:`).join(" ")}`, detail: `${n.timeout ? `Up to ${durationWords(n.timeout)}; ` : ""}continues the minute a team member taps one of them on that very message; any other reaction, or a tap on another post, changes nothing${n.timeout ? "; silence continues with no decision" : ""}` };
     case "send_sms": return { title: n.kind === "transactional" ? "Send text (automated receipt, may go out in dark hours)" : "Send text", quote: templateWords(n.template), detail: n.validity?.min_lead ? `Only if at least ${durationWords(n.validity.min_lead)} before the call; otherwise ${n.on_stale === "skip" ? "skip it" : n.on_stale === "substitute" ? "send the fallback" : "pause for a human"}` : undefined };
     case "send_email": return { title: `Send email: “${templateWords(n.subject)}”`, quote: templateWords(n.template), detail: n.kind === "transactional" ? "Automated receipt: may go out in dark hours if the company allows it" : undefined };
     case "slack_post": { const bits = [n.react ? `reacts ${(Array.isArray(n.react) ? n.react : [n.react]).map((e) => `:${e}:`).join(" ")} on it` : "", n.offer ? `offers ${n.offer.map((e) => `:${e}:`).join(" ")} for a person to tap` : "", n.unreact ? `takes its own ${n.unreact.emojis.map((e) => `:${e}:`).join(" ")} off the post once decided` : ""].filter(Boolean);

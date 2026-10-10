@@ -21,5 +21,4 @@ import healthCheck from "./health-check.json";
 import calendarAvailability from "./calendar-availability.json";
 import wrapUps from "./wrap-ups.json";
 import callOutcome from "./call-outcome.json";
-import bookingDecision from "./booking-decision.json";
-export const templates = [preCall, speedToLead, noShow, cancellation, postCall, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, healthCheck, calendarAvailability, wrapUps, callOutcome, bookingDecision] as const;
+export const templates = [preCall, speedToLead, noShow, cancellation, postCall, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, healthCheck, calendarAvailability, wrapUps, callOutcome] as const;

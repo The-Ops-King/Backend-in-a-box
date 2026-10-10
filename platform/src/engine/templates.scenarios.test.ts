@@ -14,6 +14,7 @@ import { tick } from "@/engine/runner";
 import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from "@/adapters/types";
 import { recordRecording, linkRecording, recordPhoneCall, settlePhoneCall, phoneFacts, type RecordingInput } from "@/engine/recordings";
 import { simulate } from "@/engine/simulate";
+import { reactionArrived } from "@/engine/webhooks/slack";
 
 const HAS_DB = !!process.env.DATABASE_URL;
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -48,9 +49,9 @@ const fake: Adapters = {
     deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null,
   },
   classifier: { choice: async (_s, _input, options): Promise<Classification> => {   // Jev, faked by vocabulary (D48)
-    const value = options.includes("setting") ? setterCallType : options.includes("sales_call") ? (salesCall ? "sales_call" : "other") : options.includes("closed_won") ? "closed_won" : "confirmed";
+    const value = options.includes("setting") ? setterCallType : options.includes("sales_call") ? (salesCall ? "sales_call" : "other") : options.includes("closed_won") ? "closed_won" : replyIntent;
     return { value, confidence: 0.95, distribution: { [value]: 0.95 }, unclear: false }; } },
-  notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null, react: async () => true, unreact: async () => true, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
+  notifier: { post: async (_t, channel, text, _as, threadTs) => { slackPosts.push({ channel, text, threadTs }); return { ts: `ts${slackPosts.length}` }; }, lookupUserByEmail: async () => null, react: async () => true, unreact: async (_t, _ch, ts, emoji) => { unreacted.push(`${ts}:${emoji}`); return true; }, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
   // answers by which prompt is asked, the way the real model would: classify → is it a sales call, notes → the write-up, rubric → the score
   analyst: { analyze: async (_k, req) => { analyses.push(req.system.slice(0, 40)); const parsed = /setters and leads/.test(req.system) ? { call_type: setterCallType, confidence: 0.9, reason: "qualifying toward a booking" }
     : /setter phone calls/.test(req.system) ? { summary: "Thinning for a year, wants it handled; asked about price and took Thursday at two.", pains: "getting worse for about a year", goals: "feel like himself again", triage: "", fit_quality: 8, digest: "Thinning for a year, wants it handled; asked about price and took Thursday at two.\nPains: getting worse for about a year\nGoals: feel like himself again\nFit: 8/10 — named the problem, a timeline and asked about price" }
@@ -61,7 +62,10 @@ const fake: Adapters = {
     return { text: JSON.stringify(parsed), parsed, model: "fake", usage: { input: 1000, output: 100, cacheRead: 0 } }; } },
 };
 const analyses: string[] = [];
+const slackPosts: { channel: string; text: string; threadTs?: string }[] = [];   // every message is its own ts, as in Slack
+const unreacted: string[] = [];
 let salesCall = true;
+let replyIntent = "confirmed";
 let setterCallType = "setting";
 const since = () => sent.length;
 const bySlug = (slug: string) => asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug=$2", [companyId, slug]));
@@ -100,7 +104,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
     // (ticks below are scoped to this company: the test database is shared with the other suites)
     // the test database is shared with the other suites; park their leftover runs so this file's ticks only ever send for this company
-    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(24);
+    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(23);
   });
 
   it("speed-to-lead: email + SMS now; a reply → tag engaged; silence → second email", async () => {
@@ -647,5 +651,61 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const after = (await runsFor("deal-closed")).filter((x) => x.contact_id === who.id);
     expect(after.map((x) => x.exit_reason)).toEqual(["not_yet", "not_yet", "closed"]);
     expect(await asOperator((c) => many(c, "select 1 from runs r join workflows w on w.id=r.workflow_id join workflow_templates t on t.id=w.template_id where r.company_id=$1 and r.contact_id=$2 and t.slug='deal-closed' and jsonb_array_length(r.pending_events) > 0 and r.status in ('active','waiting')", [companyId, who.id]))).toHaveLength(0);
+  });
+
+  it("D53: an unclear reply asks the team on the booking thread and the run waits for a tap on THAT message; another booking's tap or a stray emoji changes nothing; ✅ confirms this contact, 🔁 sends them the rebooking link", async () => {
+    // Slack joins the scenarios here, last: the scenarios above assert what happens while it is not connected
+    await asOperator(async (c) => {
+      await c.query("insert into slack_connections (company_id, team_id, bot_token, channels) values ($1,'TSCN',$2,'{}')", [companyId, encrypt("xoxb-fake")]);
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.bookings','channel',$2)", [companyId, Buffer.from("CBOOK")]);
+      await c.query("insert into users (company_id, email, name, role, slack_user_id) values ($1,'tyler@x.com','Tyler','owner','UTYLER')", [companyId]);
+      await c.query("update companies set sms_enabled=true where id=$1", [companyId]);   // the sms_enabled scenario above left it off
+    });
+    liveStatus = "confirmed"; replyIntent = "unclear";
+    const book = async (ghl: string) => {
+      const id = await newContact(ghl, `${ghl.toLowerCase()}@x.com`);
+      const start = DateTime.now().plus({ days: 5 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
+      const snap: AppointmentSnapshot = { id: `A${ghl}`, calendarId: "CAL", contactId: ghl, assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 30 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {} };
+      apptStore.set(snap.id, snap);
+      await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snap); });
+      return id;
+    };
+    const jeremy = await book("CJEREMY"), kai = await book("CKAI");
+    const runOf = async (id: string) => (await runsFor("pre-call-sequence")).find((r) => r.contact_id === id)!;
+    await tick(fake, undefined, companyId);   // booking email + text; both park on the reply wait
+    for (const id of [jeremy, kai]) { await inbound(id, "hmm maybe idk"); await wake((await runOf(id)).id); }
+    const nPosts = slackPosts.length;
+    await tick(fake, DateTime.now().plus({ minutes: 2 }), companyId);   // settled → Jev cannot read it → the question goes to the team → the run waits for the tap
+    const asked = slackPosts.slice(nPosts).filter((p) => /replied to the booking text/.test(p.text));
+    expect(asked).toHaveLength(2);
+    expect(asked[0].text).not.toMatch(/Unclear reply, please confirm/);   // the persona carries that title; the body does not say it again (item 20)
+    expect(asked[0].text).toMatch(/Tap ✅ confirmed, ❌ declined or 🔁 reschedule/);
+    const [rj, rk] = [await runOf(jeremy), await runOf(kai)];
+    expect([rj, rk].map((r) => [r.status, r.current_node])).toEqual([["waiting", "w_dec"], ["waiting", "w_dec"]]);
+    const q = await asOperator((c) => many<{ tag: string; ts: string; run_id: string }>(c, "select tag, ts, run_id from slack_posts where company_id=$1 and tag like 'decision:%'", [companyId]));
+    const qOf = (runId: string) => q.find((x) => x.run_id === runId)!;
+    expect((await asOperator((c) => one<{ wake_on_tag: string }>(c, "select wake_on_tag from runs where id=$1", [rj.id])))!.wake_on_tag).toBe(qOf(rj.id).tag);
+    const tap = (ts: string, reaction: string) => asOperator((c) => reactionArrived(c, companyId, { kind: "reaction", eventId: `Ev${ts}${reaction}`, user: "UTYLER", reaction, channel: "CBOOK", ts, removed: false }));
+    // Kai's ✅ is Kai's: Jeremy's run is not even woken (item 17)
+    const parkedUntil = rj.next_run_at!.getTime();
+    expect(await tap(qOf(rk.id).ts, "white_check_mark")).toMatchObject({ runs_woken: 1, runs_started: 0 });
+    expect((await runOf(jeremy)).next_run_at!.getTime()).toBe(parkedUntil);
+    // 👀 on Jeremy's question is not one of the three offered: the run wakes, finds no decision, and keeps waiting
+    expect(await tap(qOf(rj.id).ts, "eyes")).toMatchObject({ runs_woken: 1 });
+    const nTags = tags.length, nSent = since(), nP2 = slackPosts.length, nUn = unreacted.length;
+    await tick(fake, undefined, companyId);
+    expect(await runOf(jeremy)).toMatchObject({ status: "waiting", current_node: "w_dec" });
+    expect(await runOf(kai)).toMatchObject({ status: "waiting", current_node: "r72" });   // confirmed: on to the reminders, as if Kai had said yes
+    expect(tags.slice(nTags)).toEqual(["stat-confirmed"]); expect(removedTags.at(-1)).toBe("stat-unconfirmed");
+    expect(slackPosts.slice(nP2).map((p) => p.text)).toEqual([expect.stringMatching(/^✅ CKAI's call .* is confirmed\.\n> hmm maybe idk\nDecided by Tyler$/)]);
+    expect(unreacted.slice(nUn)).toEqual(["white_check_mark", "x", "repeat"].map((e) => `${qOf(rk.id).ts}:${e}`));   // the bot's own three come off Kai's question, not Jeremy's
+    // Jeremy's team taps 🔁: Jeremy gets the rebooking link and the run ends as a reschedule
+    expect(await tap(qOf(rj.id).ts, "repeat")).toMatchObject({ runs_woken: 1 });
+    await tick(fake, undefined, companyId);
+    expect(await runOf(jeremy)).toMatchObject({ status: "completed", exit_reason: "reschedule_sent" });
+    expect(sent.slice(nSent).filter((x) => x.kind === "sms").map((x) => [x.to, x.body])).toEqual([["CJEREMY", expect.stringMatching(/^No problem — grab a new time here/)]]);
+    const evs = await asOperator((c) => many<{ data: { kind: string; reaction: string; user_name: string; ref: string } }>(c, "select data from events where company_id=$1 and event_type='slack.reaction' order by id", [companyId]));
+    expect(evs.map((e) => [e.data.kind, e.data.reaction, e.data.user_name])).toEqual([["decision", "white_check_mark", "Tyler"], ["decision", "eyes", "Tyler"], ["decision", "repeat", "Tyler"]]);
+    replyIntent = "confirmed";
   });
 });

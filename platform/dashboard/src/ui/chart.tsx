@@ -1,4 +1,4 @@
-import { SlackMsg } from "./slack";
+import { SlackMsg, emoji } from "./slack";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Chart, PathItem } from "~/api";
 import { Title } from "./steps";
@@ -23,7 +23,8 @@ function tw(s: string, per = TEXT_W): number {
   for (const ch of s) w += /[ilj.,:;'|!]/.test(ch) ? 0.42 : /[ftrI ()\-]/.test(ch) ? 0.55 : /[mwMW]/.test(ch) ? 1.25 : /[A-Z]/.test(ch) ? 0.9 : /[0-9]/.test(ch) ? 0.78 : /[→‹›“”]/.test(ch) ? 0.9 : 0.74;
   return w * per / 0.72;   // the 600-weight face runs a touch wider than the per-glyph table
 }
-const labelOf = (it: Item) => it.n.title + (it.n.meta && it.n.kind !== "send" ? ` · ${it.n.meta}` : "") + (it.waits ? ` · ${it.waits}` : "");
+// :shortcodes: in the words (the emoji a step waits for) are drawn as the emoji, the way Slack shows them
+const labelOf = (it: Item) => (it.n.title + (it.n.meta && it.n.kind !== "send" ? ` · ${it.n.meta}` : "") + (it.waits ? ` · ${it.waits}` : "")).replace(/:([a-z0-9_+-]+):/g, (m, code) => emoji(code) ?? m);
 /** Words onto lines no wider than `max` characters; two lines wanted, three at most, nothing cut. */
 function wrap(text: string, max: number): string[] {
   const words = text.split(/\s+/); const lines: string[] = []; let cur = "";
@@ -126,7 +127,9 @@ export function arrange(chart: Chart): Row[] {
     const count = new Map<string, number>(); for (const c of chains) for (const id of new Set(c)) count.set(id, (count.get(id) ?? 0) + 1);
     let join: string | null = null;
     for (const c of chains) { const j = c.find((id) => (count.get(id) ?? 0) > 1); if (j && (!join || c.indexOf(j) < c.indexOf(join))) join = j; }
-    const groups: Group[] = ways.map((w, i) => { const c = chains[i]; const upto = join ? c.indexOf(join) : -1; const ids = upto >= 0 ? c.slice(0, upto) : c; ids.forEach((id) => seen.add(id)); const items = ids.map(item); return { label: w.label.replace(/^the reply is (a )?/i, "").replace(/[“”"]/g, "").replace(/^./, (ch) => ch.toUpperCase()), items, go: upto >= 0, first: ids[0] ?? null }; });
+    // a group may end in a fork of its own (the team's tap after an unclear reply): it carries on when one of that fork's ways is the join
+    const forksOn = (id: string | undefined) => !!id && byId.get(id)?.kind === "fork" && !!join && outs(id).some((e) => skip(e.to) === join);
+    const groups: Group[] = ways.map((w, i) => { const c = chains[i]; const upto = join ? c.indexOf(join) : -1; const ids = upto >= 0 ? c.slice(0, upto) : c; ids.forEach((id) => seen.add(id)); const items = ids.map(item); return { label: w.label.replace(/^the reply is (a )?/i, "").replace(/[“”"]/g, "").replace(/^./, (ch) => ch.toUpperCase()), items, go: upto >= 0 || forksOn(ids[ids.length - 1]), first: ids[0] ?? null }; });
     return { groups, join };
   }
 }

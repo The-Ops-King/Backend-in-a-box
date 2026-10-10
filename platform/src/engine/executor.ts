@@ -40,7 +40,7 @@ const jsonArrayOr = (r: string): unknown => { try { const v = JSON.parse(r); ret
 export type StepOutcome =
   | { status: "ok"; next: string | null; result?: Record<string, unknown> }
   | { status: "skipped" | "stale"; next: string | null; result?: Record<string, unknown> }
-  | { status: "waiting"; until: DateTime; stay?: boolean; wakeOnReply?: boolean; result?: Record<string, unknown> }   // stay: re-execute this same node on wake; wakeOnReply: an inbound message wakes it early
+  | { status: "waiting"; until?: DateTime; stay?: boolean; wakeOnReply?: boolean; wakeOnTag?: string; result?: Record<string, unknown> }   // stay: re-execute this same node on wake; wakeOnReply: an inbound message wakes it early; wakeOnTag: a tap on that Slack post does; no until: only a wake moves it
   | { status: "exit"; reason: string; result?: Record<string, unknown>; gate?: boolean }   // gate: stopped at a check before doing anything, so the run does not count toward "once per …" (D30)
   | { status: "paused"; reason: string; result?: Record<string, unknown> }
   | { status: "failed"; error: string };
@@ -219,6 +219,24 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (d.now < DateTime.fromISO(deadline)) return { status: "waiting", until: DateTime.fromISO(deadline), stay: true, wakeOnReply: true, result: { deadline } };
       const timeoutEdge = d.edgesFrom(node.id).find((e) => e.label === "timeout");
       return timeoutEdge ? { status: "ok", next: timeoutEdge.to, result: { timed_out: true } } : { status: "exit", reason: "no_reply", result: { timed_out: true } };
+    }
+
+    case "wait_for_reaction": {
+      // the message: a post remembered under a tag, or a post this run made (by node id). The door matches taps to it by tag; the step by the message itself (channel + ts).
+      const post = node.of.startsWith("tag:")
+        ? await one<{ tag: string; channel: string; ts: string }>(d.c, "select tag, channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, render(node.of.slice(4), d.ctx, env(d))])
+        : await one<{ tag: string; channel: string; ts: string }>(d.c, "select tag, channel, ts from slack_posts where company_id=$1 and run_id=$2 and ts=$3", [d.company.id, d.run.id, String(resolvePath(d.ctx, `vars.__slack.${node.of}`) ?? "")]);
+      if (!post) { setPath(d.ctx, node.into, null); return { status: "skipped", next, result: { kind: "noop", why: "nothing to tap: that post is not in Slack (channel unbound, or the post was skipped)" } }; }
+      // the first tap that counts, on that very message; the door already dropped the bot's own reactions and removals
+      const tap = await one<{ data: { reaction: string; user: string; user_name: string; ts: string }; occurred_at: Date }>(d.c,
+        "select data, occurred_at from events where company_id=$1 and event_type='slack.reaction' and data->>'channel'=$2 and data->>'ts'=$3 and data->>'reaction' = any($4::text[]) order by occurred_at, id limit 1", [d.company.id, post.channel, post.ts, node.emojis]);
+      if (tap) { setPath(d.ctx, node.into, { reaction: tap.data.reaction, user: tap.data.user, user_name: tap.data.user_name, ts: tap.data.ts }); return { status: "ok", next, result: { reaction: tap.data.reaction, by: tap.data.user_name, at: tap.occurred_at.toISOString() } }; }
+      const key = `__wait_for_reaction.${node.id}.deadline`;
+      let deadline = resolvePath(d.ctx, `vars.${key}`) as string | undefined;
+      if (!deadline && node.timeout) { deadline = d.now.plus(parseDuration(node.timeout)).toISO()!; setPath(d.ctx, `vars.${key}`, deadline); }
+      if (!deadline || d.now < DateTime.fromISO(deadline)) return { status: "waiting", until: deadline ? DateTime.fromISO(deadline) : undefined, stay: true, wakeOnTag: post.tag, result: { tag: post.tag, emojis: node.emojis, deadline: deadline ?? null } };
+      setPath(d.ctx, node.into, null);
+      return { status: "ok", next, result: { timed_out: true } };
     }
 
     case "slack_post": {

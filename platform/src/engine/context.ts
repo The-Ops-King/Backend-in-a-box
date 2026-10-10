@@ -33,7 +33,8 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     from contacts ct where ct.id=$1`, [run.contact_id]);
   // D13: the reply the run is reacting to is whatever the contact last sent after this run started; what we last sent is the classifier's state.
   const lastIn = await one<{ body: string | null; occurred_at: Date }>(c, "select body, occurred_at from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at >= $3 order by occurred_at desc limit 1", [company.id, run.contact_id, run.started_at ?? new Date(0)]);
-  const lastOut = await one<{ rendered_body: string; sent_at: Date }>(c, "select rendered_body, sent_at from sends where company_id=$1 and contact_id=$2 and status='sent' order by sent_at desc limit 1", [company.id, run.contact_id]);
+  // what we last said to THEM: a text or an email; a Slack post about them (the question to the team) is not a message they saw
+  const lastOut = await one<{ rendered_body: string; sent_at: Date }>(c, "select rendered_body, sent_at from sends where company_id=$1 and contact_id=$2 and channel in ('sms','email') and status='sent' order by sent_at desc limit 1", [company.id, run.contact_id]);
   const sinceSend = await many<{ body: string | null }>(c, "select body from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at > $3 order by occurred_at", [company.id, run.contact_id, lastOut?.sent_at ?? run.started_at ?? new Date(0)]);
   const derivedReply: Record<string, unknown> = {
     last_inbound: lastIn ? { body: lastIn.body, at: lastIn.occurred_at.toISOString() } : undefined,
@@ -50,6 +51,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     vars: (run.context.vars as Record<string, unknown>) ?? {},
     reply: { ...((run.context.reply as Record<string, unknown>) ?? {}), ...derivedReply },   // last_inbound/last_outbound are re-derived every tick; intent/confidence from classify persist
     event: run.context.event ?? {},
+    reaction: run.context.reaction,   // what a wait_for_reaction stored (D53); carried so the steps after it can say who decided even across a park
     calendar: {}, slack: { channel: {} }, crm: {}, prompt: {},
   };
   // the recording a run was started by (recording.received) — read from the ledger every tick, never copied into the run's context

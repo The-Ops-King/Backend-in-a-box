@@ -68,9 +68,9 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
         const ver = await one<{ definition: unknown }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [run.workflow_id, run.workflow_version]);
         const def = parseDefinition(ver!.definition);
         const { nodes, edgesFrom } = indexDefinition(def);
-        const finish = async (status: string, exit_reason?: string, next_run_at?: Date | null, current_node?: string | null, ctx?: Record<string, unknown>, wakeOnReply = false) =>
-          c.query("update runs set status=$2, exit_reason=coalesce($3, exit_reason), next_run_at=$4, current_node=coalesce($5,current_node), context=coalesce($6,context), wake_on_reply=$7, claimed_at=null, claimed_by=null, finished_at=case when $2 in ('completed','exited','failed') then now() end where id=$1",
-            [run.id, status, exit_reason ?? null, next_run_at ?? null, current_node ?? null, ctx ?? null, wakeOnReply]);
+        const finish = async (status: string, exit_reason?: string, next_run_at?: Date | null, current_node?: string | null, ctx?: Record<string, unknown>, wake: { reply?: boolean; tag?: string } = {}) =>
+          c.query("update runs set status=$2, exit_reason=coalesce($3, exit_reason), next_run_at=$4, current_node=coalesce($5,current_node), context=coalesce($6,context), wake_on_reply=$7, wake_on_tag=$8, claimed_at=null, claimed_by=null, finished_at=case when $2 in ('completed','exited','failed') then now() end where id=$1",
+            [run.id, status, exit_reason ?? null, next_run_at ?? null, current_node ?? null, ctx ?? null, !!wake.reply, wake.tag ?? null]);
 
         // 1. premise — the always-on moot check
         const alive = await premiseAlive(def, { c, adapters, company, adapterCompany, bindings, run });
@@ -113,7 +113,7 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
             [step!.id, out.status === "exit" || out.status === "paused" ? "ok" : out.status === "waiting" ? "waiting" : out.status, "result" in out ? out.result ?? {} : {}, "error" in out ? out.error : null]);
           if (out.status === "ok" && (node.type === "send_sms" || node.type === "send_email")) { sendsThisTick.set(run.company_id, (sendsThisTick.get(run.company_id) ?? 0) + 1); report.sends++; }
 
-          if (out.status === "waiting") { await finish("waiting", undefined, out.until.toJSDate(), out.stay ? node.id : (edgesFrom(node.id).find((e) => e.label !== "timeout") ?? edgesFrom(node.id)[0])?.to ?? null, ctx, !!out.wakeOnReply); report.waiting++; return; }
+          if (out.status === "waiting") { await finish("waiting", undefined, out.until?.toJSDate() ?? null, out.stay ? node.id : (edgesFrom(node.id).find((e) => e.label !== "timeout") ?? edgesFrom(node.id)[0])?.to ?? null, ctx, { reply: out.wakeOnReply, tag: out.wakeOnTag }); report.waiting++; return; }
           if (out.status === "exit") {
             // a run that stopped at a gate did nothing: release its once-per key so the next trigger (payment first, signature later) gets its turn (D30)
             if (out.gate) {
