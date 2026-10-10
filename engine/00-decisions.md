@@ -2064,3 +2064,12 @@ testing. GHL could change the contact id, or the email gets updated."
   test contact gone on its first run); a fixture with a CRM of its own passes `fakeAdapters({ crm })`, and an id that
   CRM lacks is a 404. G21's test now sees the deletion at the run's next look, before the send, as D68 says.
 
+
+## D69. Ask the CRM before saying anything (2026-10-10)
+
+Tyler: "I just got an alert that there are 2 of the same contact, that's not true. I deleted the one contact in GHL
+first. So that is alerting me based on what we have stored in the engine NOT what we have in GHL." The duplicates
+check did ask the CRM, but read a 400 "Contact not found" as "could not read" and alerted anyway. Now the CRM's
+"not found" is gone whatever the status (the read adapter and the check agree), and a record the CRM cannot confirm
+either way is "unknown": an unconfirmed pair is never alerted, it is looked at again next sweep. The rule for every
+check that names a person: the CRM is asked first; the engine's copy is never the grounds for an alert.

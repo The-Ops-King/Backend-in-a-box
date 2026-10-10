@@ -161,7 +161,8 @@ export const ghlRead: CrmRead = {
   },
   async getContact(c, id) {
     try { const r = await ghl<{ contact: RawContact }>(c.pit, "GET", `/contacts/${id}`); return mapContact(r.contact); }
-    catch (e) { if ((e as { status?: number }).status === 404) return null; throw e; }
+    // the CRM says "not found" with a 404 on this endpoint and a 400 on others; either way the record is gone, not an outage
+    catch (e) { if ((e as { status?: number }).status === 404 || /\bcontact (with id \S+ )?not found\b/i.test(String((e as Error).message))) return null; throw e; }
   },
   async listUsers(c) {
     const r = await ghl<{ users: { id: string; email?: string; name?: string; firstName?: string; lastName?: string }[] }>(c.pit, "GET", `/users/?locationId=${c.locationId}`);
@@ -177,7 +178,8 @@ export const ghlBooking: BookingRead = {
   },
   async getAppointment(c, id) {
     try { const r = await ghl<{ appointment?: RawEvent; event?: RawEvent }>(c.pit, "GET", `/calendars/events/appointments/${id}`, { version: "2021-04-15" }); const e = r.appointment ?? r.event; return e ? mapAppt(e) : null; }
-    catch (e) { if ((e as { status?: number }).status === 404) return null; throw e; }
+    // the CRM says "not found" with a 404 on this endpoint and a 400 on others; either way the record is gone, not an outage
+    catch (e) { if ((e as { status?: number }).status === 404 || /\bcontact (with id \S+ )?not found\b/i.test(String((e as Error).message))) return null; throw e; }
   },
   async listCalendars(c) {
     const r = await ghl<{ calendars: { id: string; name: string; teamMembers?: { userId: string }[] }[] }>(c.pit, "GET", `/calendars/?locationId=${c.locationId}`);

@@ -298,8 +298,13 @@ async function findDuplicates(c: PoolClient, company: CompanyRow, ac: Company, a
   const crmUrl = (ghlId: string | null) => (ac.locationId && ghlId ? `https://app.gohighlevel.com/v2/location/${ac.locationId}/contacts/detail/${ghlId}` : undefined);
   const page = (id: string) => `/app/c/${company.slug}/contacts/${id}`;
   const nameOf = (r: { first_name: string | null; last_name: string | null; email?: string | null; phone?: string | null }) => `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || r.email || r.phone || "a contact";
-  // a record the CRM answers 404 for is the one the merge dropped; a CRM that cannot be read is the token check's finding, not a merge
-  const vanished = async (ghlId: string) => { if (!connected) return false; try { return !(await adapters.read.getContact(ac, ghlId)); } catch { return false; } };
+  // the CRM is asked about every suspect record before anything is said: a record it no longer has (404, or a "not found" body on any
+  // status) is the one the merge dropped; a CRM that cannot be read is "unknown", and an unconfirmed pair is never alerted (D69)
+  const presence = async (ghlId: string): Promise<"present" | "gone" | "unknown"> => {
+    if (!connected) return "unknown";
+    try { return (await adapters.read.getContact(ac, ghlId)) ? "present" : "gone"; }
+    catch (e) { return /\bcontact (with id \S+ )?not found\b/i.test(String((e as Error).message)) ? "gone" : "unknown"; }
+  };
   const push = (item: string, text: string, ghlId: string | null, contactId: string, detail: Record<string, unknown>) =>
     out.push({ check: "duplicates", item, key: `duplicate:${item}`, ok: false, level: "warning", text, detail, href: crmUrl(ghlId) ?? page(contactId), hrefLabel: crmUrl(ghlId) ? "Open in the CRM" : "Open the contact", page: page(contactId) });
 
@@ -314,14 +319,16 @@ async function findDuplicates(c: PoolClient, company: CompanyRow, ac: Company, a
       and (select count(*) from contact_identifiers where contact_id=ct.id and kind='ghl_contact' and retired_at is null) > 1
     order by ct.created_at`, [company.id]);
   for (const f of folded) {
-    let ids = f.ids;
+    let ids = f.ids, confirmed = true;
     for (const id of f.ids) {
-      if (!(await vanished(id))) continue;
+      const p = await presence(id);
+      if (p === "unknown") confirmed = false;
+      if (p !== "gone") continue;
       await c.query("update contact_identifiers set retired_at=now() where company_id=$1 and contact_id=$2 and kind='ghl_contact' and value=$3 and retired_at is null", [company.id, f.id, id]);
       ids = ids.filter((x) => x !== id);
       if (f.ghl_contact_id === id && ids.length) { await c.query("update contacts set ghl_contact_id=$2, updated_at=now() where id=$1", [f.id, ids[0]]); f.ghl_contact_id = ids[0]; }   // sends follow the survivor
     }
-    if (ids.length < 2) continue;
+    if (ids.length < 2 || !confirmed) continue;   // unconfirmed by the CRM: say nothing this sweep rather than alert on the engine's copy
     const shared = [...(f.phones.length === 1 ? [`phone ${f.phones[0]}`] : []), ...(f.emails.length === 1 ? [`email ${f.emails[0]}`] : [])];
     const primary = f.ghl_contact_id && ids.includes(f.ghl_contact_id) ? f.ghl_contact_id : ids[0];
     push(f.id, `${ids.length === 2 ? "Two" : ids.length} CRM records for one person: ${nameOf({ ...f, phone: f.phones[0], email: f.emails[0] })} — ${ids.join(", ")}${shared.length ? ` (same ${shared.join(", ")})` : ""}`, primary, f.id, { contact_id: f.id, ghl_contact_ids: ids, phones: f.phones, emails: f.emails });
@@ -341,11 +348,15 @@ async function findDuplicates(c: PoolClient, company: CompanyRow, ac: Company, a
     where a.canon<>'' order by a.created_at, a.ghl_contact_id, a.contact_id, b.created_at, b.ghl_contact_id, b.contact_id`, [company.id]);
   const gone = new Set<string>();
   for (const p of pairs) {
+    let confirmed = true;
     for (const [id, ghl] of [[p.a_id, p.a_ghl], [p.b_id, p.b_ghl]] as const) {
-      if (gone.has(id) || !ghl || !(await vanished(ghl))) continue;
+      if (gone.has(id)) continue;
+      const pr = ghl ? await presence(ghl) : "unknown";
+      if (pr === "unknown") { confirmed = false; continue; }
+      if (pr !== "gone") continue;
       await c.query("update contacts set gone_at=now(), updated_at=now() where id=$1 and gone_at is null", [id]); gone.add(id);
     }
-    if (gone.has(p.a_id) || gone.has(p.b_id)) continue;
+    if (gone.has(p.a_id) || gone.has(p.b_id) || !confirmed) continue;
     const a = nameOf({ first_name: p.a_first, last_name: p.a_last }), b = nameOf({ first_name: p.b_first, last_name: p.b_last });
     push(`${p.a_id}:${p.b_id}`, `Two CRM records for one person: ${a}${b !== a ? ` / ${b}` : ""} — ${p.a_ghl ?? p.a_id}, ${p.b_ghl ?? p.b_id} (same ${p.kind} ${p.a_value} / ${p.b_value})`, p.a_ghl, p.a_id, { contact_ids: [p.a_id, p.b_id], ghl_contact_ids: [p.a_ghl, p.b_ghl], kind: p.kind, values: [p.a_value, p.b_value] });
   }

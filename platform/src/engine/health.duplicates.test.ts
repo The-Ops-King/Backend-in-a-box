@@ -155,4 +155,25 @@ describe.skipIf(!process.env.DATABASE_URL)("health: duplicate contacts (D63)", (
     const ann = await asOperator((c) => announceDue(c, fake, new Date(), companyId));
     expect(ann.resolved).toBeGreaterThanOrEqual(1); expect(mine()).toHaveLength(2); expect(mine()[1].text).toMatch(/^✅ Resolved/);
   });
+
+  it("D69: the CRM is asked before anything is said — a 'not found' body on a 400 retires the record like a 404, and a CRM that cannot be read means no finding and no alert, not an alert from the engine's copy", async () => {
+    posts.length = 0;
+    inCrm("GH-1", { firstName: "Gone", lastName: "Half", phone: "+16025550777" });
+    inCrm("GH-2", { firstName: "Gone", lastName: "Half", phone: "1-602-555-0777" });
+    await pollAll(fake);
+    const ct = (await contactByGhl("GH-2"))!;
+    const real = fake.read.getContact;
+    // the CRM is down: nothing is said about this person this sweep
+    fake.read.getContact = async () => { throw new Error("GHL 503 on /contacts/x: upstream"); };
+    let r = await sweep();
+    expect(dupes(r.findings).some((f) => !f.ok && /GH-1/.test(f.text))).toBe(false);
+    expect((await open()).filter((a) => a.key === `duplicate:${ct.id}`)).toHaveLength(0);
+    // the CRM says the old record is gone, with the 400 it uses on some endpoints
+    fake.read.getContact = async (c, id) => { if (id === "GH-1") throw new Error(`GHL 400 on /contacts/${id}: {"message":"Contact not found for id:${id}"}`); return real(c, id); };
+    r = await sweep();
+    expect(dupes(r.findings).some((f) => !f.ok && /GH-/.test(f.text))).toBe(false);
+    expect(await idents(ct.id, "ghl_contact")).toEqual([{ value: "GH-1", retired: true }, { value: "GH-2", retired: false }]);
+    expect((await open()).filter((a) => a.key === `duplicate:${ct.id}`)).toHaveLength(0);
+    fake.read.getContact = real;
+  });
 });
