@@ -162,7 +162,13 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
   }
 
   // Fathom
-  if (on("fathom_key") && bindings["secret.fathom_api_key"]) { if (await probes.fathomPing(bindings["secret.fathom_api_key"])) ok("fathom_key", "Key lists meetings."); else bad("fathom_key", "error", "Fathom API key rejected."); }
+  if (on("fathom_key") && bindings["secret.fathom_api_key"]) {
+    const r = await probes.fathomPing(bindings["secret.fathom_api_key"]);
+    if (r === true) ok("fathom_key", "Key lists meetings.");
+    // only a 401/403 means the key is wrong; anything else is Fathom not answering, and says so with its status (D69: no alert on a guess)
+    else if (r && typeof r === "object" && (r.status === 401 || r.status === 403)) bad("fathom_key", "error", `Fathom API key rejected (${r.status}): ${r.detail || "no detail"}. Replace it in Setup.`);
+    else bad("fathom_key", "warning", `Fathom did not answer the key check (${r && typeof r === "object" ? (r.status ?? "network error") : "no answer"}${r && typeof r === "object" && r.detail ? `: ${r.detail}` : ""}). The key may be fine; checked again next sweep.`);
+  }
   if (on("fathom_webhook") && bindings["secret.fathom_api_key"] && bindings["fathom.webhook_id"]) {
     let list: Awaited<ReturnType<typeof fathomListWebhooks>> = null, err: string | null = null;
     try { list = await probes.fathomListWebhooks(bindings["secret.fathom_api_key"]); } catch (e) { err = String((e as Error).message).slice(0, 160); }

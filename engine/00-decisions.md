@@ -2073,3 +2073,10 @@ check did ask the CRM, but read a 400 "Contact not found" as "could not read" an
 "not found" is gone whatever the status (the read adapter and the check agree), and a record the CRM cannot confirm
 either way is "unknown": an unconfirmed pair is never alerted, it is looked at again next sweep. The rule for every
 check that names a person: the CRM is asked first; the engine's copy is never the grounds for an alert.
+
+### D69 addendum. A vendor check names its status (2026-10-10)
+
+The Fathom key check called any non-2xx a rejected key; Tyler got "Fathom API key rejected" with nothing to go on.
+Now only a 401/403 is "rejected" (an error, with Fathom's own words); any other status or a network failure is a
+warning that names the status and says the key may be fine. Same rule as D69: the alert states what the vendor said,
+never a guess.

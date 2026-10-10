@@ -29,7 +29,11 @@ export async function fathomListWebhooks(apiKey: string): Promise<{ id: string; 
   return list as { id: string; url?: string; destination_url?: string }[];
 }
 /** Cheap key check: one page of meetings. */
-export async function fathomPing(apiKey: string): Promise<boolean> {
-  const res = await fetch(`${BASE}/meetings?include_transcript=false`, { headers: headers(apiKey) });
-  return res.ok;
+/** true when the key lists meetings; otherwise the status and Fathom's own words, so a rejected key is told apart from Fathom being slow or down. */
+export async function fathomPing(apiKey: string): Promise<boolean | { ok: false; status: number | null; detail: string }> {
+  let res: Response;
+  try { res = await fetch(`${BASE}/meetings?include_transcript=false`, { headers: headers(apiKey) }); }
+  catch (e) { return { ok: false, status: null, detail: String((e as Error).message).slice(0, 160) }; }
+  if (res.ok) return true;
+  return { ok: false, status: res.status, detail: (await res.text().catch(() => "")).slice(0, 160) };
 }
