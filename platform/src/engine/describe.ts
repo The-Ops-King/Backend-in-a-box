@@ -17,7 +17,7 @@ export function kindOf(n: Node): NodeKind {
     case "check": case "branch": return "decision";
     case "wait": case "wait_for_reply": case "wait_for_reaction": return "wait";
     case "classify": case "analyze": return "ai";
-    case "set_var": case "start_workflow": case "pause_runs": case "record": return "control";
+    case "set_var": case "start_workflow": case "pause_runs": case "record": case "resume": return "control";
     case "webhook": return "message";
     case "health_check": case "availability_check": case "report": return "control";
     case "exit": return "exit";
@@ -121,6 +121,7 @@ export function waitWords(rule: WaitRule): string {
   }
   const hm = (t: string) => clock(t.slice(0, 2), t.slice(3, 5));
   const win = rule.earliest || rule.latest ? ` (${[rule.earliest ? `not before ${hm(rule.earliest)}` : "", rule.latest ? `not after ${hm(rule.latest)}` : ""].filter(Boolean).join(", ")})` : "";
+  if (anchor && /^[-+]?0+\s*[smhdw]$/.test(rule.offset)) return `Wait until ${anchor}${win}`;
   return (anchor ? `Wait until ${durationWords(rule.offset.replace(/^[-+]/, ""))} ${rule.offset.startsWith("-") ? "before" : "after"} ${anchor}` : `Wait ${durationWords(rule.offset.replace(/^[-+]/, ""))}`) + win;
 }
 const guardWords = (rule: WaitRule) => rule.guard ? ` (if that is less than ${durationWords(rule.guard.min_lead)} away, use ${waitWords({ ...rule, offset: rule.guard.fallback, guard: undefined }).replace(/^Wait until /, "")} instead)` : "";
@@ -141,11 +142,14 @@ export function describeNode(n: Node): NodeText {
     case "branch": return { title: "Which way?" };
     case "wait": return { title: waitWords(n.rule), detail: `${n.rule.tz === "contact" ? "Contact's" : "Company's"} time zone${guardWords(n.rule)}` };
     case "wait_for_reply": return { title: `Wait for ${n.channel === "any" ? "a" : n.channel === "sms" ? "a text" : "an email"} reply`, detail: `Up to ${durationWords(n.timeout)}; continues the minute one arrives` };
-    case "wait_for_reaction": return { title: `Wait for a reaction on ${n.of.startsWith("tag:") ? "that Slack post" : "the post before"}: ${n.emojis.map((e) => `:${e}:`).join(" ")}`, detail: `${n.timeout ? `Up to ${durationWords(n.timeout)}; ` : ""}continues the minute a team member taps one of them on that very message; any other reaction, or a tap on another post, changes nothing${n.timeout ? "; silence continues with no decision" : ""}` };
+    case "wait_for_reaction": return n.blocking
+      ? { title: `Wait for a reaction on ${n.of.startsWith("tag:") ? "that Slack post" : "the post before"}: ${n.emojis.map((e) => `:${e}:`).join(" ")}`, detail: `${n.timeout ? `Up to ${durationWords(n.timeout)}; ` : ""}continues the minute a team member taps one of them on that very message; any other reaction, or a tap on another post, changes nothing${n.timeout ? "; silence continues with no decision" : ""}` }
+      : { title: `Listen for a reaction on ${n.of.startsWith("tag:") ? "that Slack post" : "the post before"}: ${n.emojis.map((e) => `:${e}:`).join(" ")}`, detail: `The run goes on at once; a tap on that very message, whenever it comes, pulls the run to the tap path and \"go back\" returns it to where it was${n.until ? `; nobody by ${waitWords(n.until).replace(/^Wait until /, "").replace(/^Wait /, "")} and it takes the no-answer path` : ""}` };
+    case "resume": return { title: "Go back to where the run was", detail: "The step the listener pulled the run away from, with its own due time; nothing to go back to, and the run simply goes on" };
     case "send_sms": return { title: n.kind === "transactional" ? "Send text (automated receipt, may go out in dark hours)" : "Send text", quote: templateWords(n.template), detail: n.validity?.min_lead ? `Only if at least ${durationWords(n.validity.min_lead)} before the call; otherwise ${n.on_stale === "skip" ? "skip it" : n.on_stale === "substitute" ? "send the fallback" : "pause for a human"}` : undefined };
     case "send_email": return { title: `Send email: “${templateWords(n.subject)}”`, quote: templateWords(n.template), detail: n.kind === "transactional" ? "Automated receipt: may go out in dark hours if the company allows it" : undefined };
-    case "slack_post": { const bits = [n.react ? `reacts ${(Array.isArray(n.react) ? n.react : [n.react]).map((e) => (/\{\{/.test(e) ? pathWords(e) : `:${e}:`)).join(" ")} on it` : "", n.offer ? `offers ${n.offer.map((e) => `:${e}:`).join(" ")} for a person to tap` : "", n.unreact ? `takes its own ${n.unreact.emojis.map((e) => `:${e}:`).join(" ")} off the post once decided` : ""].filter(Boolean);
-      return { title: n.thread_of ? `Reply in the thread of that Slack post` : `Post to Slack (${pathWords(n.channel)})`, detail: bits.length ? bits.join("; ") : undefined, quote: templateWords(n.template) }; }
+    case "slack_post": { const bits = [n.react ? `reacts ${(Array.isArray(n.react) ? n.react : [n.react]).map((e) => (/\{\{/.test(e) ? pathWords(e) : `:${e}:`)).join(" ")} on it` : "", n.offer ? `offers ${n.offer.map((e) => `:${e}:`).join(" ")} for a person to tap` : "", n.unreact ? `takes its own ${n.unreact.emojis.map((e) => `:${e}:`).join(" ")} off the post once decided` : "", n.react_on ? `reacts ${n.react_on.emojis.map((e) => `:${e}:`).join(" ")} on the question it answers` : ""].filter(Boolean);
+      return { title: n.thread_of ? `Reply in the thread of that Slack post` : `Post to Slack (${pathWords(n.channel)}${n.fallback_channel ? `, else ${pathWords(n.fallback_channel)}` : ""})`, detail: bits.length ? bits.join("; ") : undefined, quote: templateWords(n.template) }; }
     case "send_document": return { title: `Send ${pathWords(n.template)} for signature`, detail: `${n.sender ? `From ${pathWords(n.sender)}; ` : ""}recorded in the agreements ledger; the poll reports when it is signed` };
     case "notify_owner": return { title: "Nudge the contact's owner", quote: templateWords(n.template), detail: `Slack DM when the owner is in Slack${n.fallback_channel ? `, else ${pathWords(n.fallback_channel)} with an @mention` : ""}${n.task ? `; CRM task “${templateWords(n.task.title)}” due in ${durationWords(n.task.due)}` : ""}` };
     case "classify": return { title: n.question ? `Jev: ${n.question.replace(/\?$/, "").replace(/^./, (c) => c.toLowerCase())}?` : "Jev reads the reply", detail: `Decides between ${Object.keys(n.criteria ?? {}).map((k) => humanWords(k)).join(", ") || `the ${humanWords(n.domain)} options`}; below ${Math.round(n.threshold * 100)}% sure, or a reply a careful person would doubt, goes to a person` };
@@ -160,7 +164,9 @@ export function describeNode(n: Node): NodeText {
       return { title: "Update the contact in the CRM", detail: bits.join("; ") || undefined };
     }
     case "note": return { title: "Leave an internal note", quote: templateWords(n.template) };
-    case "update_appointment": return { title: `Mark appointment ${Object.entries(n.set).map(([k, v]) => `${humanWords(k)} → ${value(v)}`).join(", ")}` };
+    case "update_appointment": return "pending_read" in n.set && Object.keys(n.set).length === 1
+      ? { title: n.set.pending_read === null ? "Clear the pending read on the appointment" : "Note Jev's pending read on the appointment", detail: n.set.pending_read === null ? "A person decided; the appointment no longer carries an open question" : "What Jev read, how sure it was and when, kept until a person decides; a no-show after it is a possible cancel" }
+      : { title: `Mark appointment ${Object.entries(n.set).filter(([k]) => k !== "pending_read").map(([k, v]) => `${humanWords(k)} → ${value(v)}`).join(", ")}` };
     case "update_opportunity": return { title: `Update opportunity: ${Object.entries(n.set).map(([k, v]) => `${humanWords(k)} → ${value(v)}`).join(", ")}` };
     case "pipeline_card": return {
       title: n.stage ? `${n.if_missing === "skip" ? "Move" : "Create or move"} pipeline card${n.name ? ` “${templateWords(n.name)}”` : ""}` : `Update the ${pathWords(n.pipeline)} card`,
@@ -187,6 +193,8 @@ export function branchTitle(def: Definition, nodeId: string): string {
 
 export function edgeWords(e: Edge): string {
   if (e.label === "timeout") return "no reply in time";
+  if (e.label === "tap") return "a team member taps";
+  if (e.label === "until") return "nobody tapped in time";
   if (e.label === "replied") return "they replied";
   if (e.label) return humanWords(e.label);
   if (e.else) return "otherwise";

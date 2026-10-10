@@ -211,6 +211,7 @@ create table appointments (
   cancel_url           text,
   tracking             jsonb not null default '{}',                -- utm_* etc. as the booking source reported them
   cancelled_by         text,                                       -- who cancelled (name) and why, when the source says
+  pending_read         jsonb,                                      -- D58: Jev's read of a reply the team was asked about and has not answered: { intent, confidence, at }; cleared when a person taps
   cancel_reason        text,
   booked_at            timestamptz not null,
   -- replica of the booking source's state (GHL vocabulary; Calendly active/canceled maps onto it)
@@ -321,7 +322,7 @@ insert into event_types values
   ('appointment.booked','appointment'), ('appointment.rescheduled','appointment'),
   ('appointment.status_changed','appointment'), ('appointment.outcome','appointment'),
   ('call.held','call'),
-  ('message.sent','message'), ('message.received','message'), ('reply.classified','message'), ('intent.reviewed','message'),
+  ('message.sent','message'), ('message.received','message'), ('reply.classified','message'), ('intent.reviewed','message'), ('intent.unanswered','message'), ('intent.unanswered_no_show','message'),
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
   ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'),
   ('agreement.sent','agreement'), ('agreement.signed','agreement'),
@@ -470,7 +471,9 @@ create table runs (
   current_node        text,
   next_run_at         timestamptz,                         -- THE clock. Null when not waiting.
   wake_on_reply       boolean not null default false,       -- true only while parked on wait_for_reply; an inbound message wakes these and nothing else
-  wake_on_tag         text,                                 -- set only while parked on wait_for_reaction: the tag of the Slack post whose tap wakes it (D53)
+  wake_on_tag         text,                                 -- set while parked on wait_for_reaction, or while a non-blocking listener is armed: the tag of the Slack post whose tap wakes it (D53, D58)
+  resume_node         text,                                 -- D58: where a run with an armed listener was parked, so `resume` can return it there after the decision path
+  resume_at           timestamptz,                          -- D58: that parked step's own due time, kept intact across the jump
   context             jsonb not null default '{}',         -- resolved vars, last reply, etc.
   exit_reason         text,
   reentry_key         text not null,                       -- computed per policy; unique prevents double runs

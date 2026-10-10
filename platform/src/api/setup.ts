@@ -13,6 +13,7 @@ const LABELS: Record<string, string> = {
   "alerts.slack_channel": "Alerts to Slack", "alerts.email": "Alerts by email", "alerts.email_from": "Alert email from", "alerts.webhook": "Alerts to a webhook", "alerts.as_name": "Alerts post as", "alerts.as_icon": "Alert icon",
   "booking.setter_rule": "Setter rule", "crm.default_closer": "Default closer", "calendly.phone_question": "Calendly phone question", "calendly.setter_question": "Calendly setter question", "calendly.user": "Calendly host", "calendly.organization": "Calendly organization",
   "calendar.closer_call": "The closer call", "calendar.booking": "The booking link we send", "test.domains": "Test email domains (test and rehearsal)",
+  "slack.channel.attention": "Attention channel (open questions)",
 };
 const humanKey = (k: string) => LABELS[k] ?? k.replace(/^(crm\.|slack\.channel\.|prompt\.|calendar\.|alerts\.|calendly\.|booking\.)/, "").replace(/_/g, " ");
 

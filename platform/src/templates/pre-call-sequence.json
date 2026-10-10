@@ -5,7 +5,7 @@
   "stage": "pre_call",
   "sort": 10,
   "origin": "spec",
-  "description": "Everything the prospect hears between booking and the call: the booking email and text (reply with an emoji to lock in; every reply and a 4-hour silence become a reaction and a thread reply on the booking post in Slack, never a new message and the closers told). A clear yes confirms on its own. A reply Jev reads as a cancel or a reschedule, or cannot read at all, is put to the team on the booking thread with Jev's read and ✅ ❌ 🔁 to tap; nothing touches the appointment or texts the prospect until a person taps. The run waits for the tap on that one message and takes the confirmed, cancelled or reschedule path as the tap says, noting who decided and recording whether they agreed with Jev (a day of silence and the reminders go on). Then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
+  "description": "Everything the prospect hears between booking and the call: the booking email and text (reply with an emoji to lock in; every reply and a 4-hour silence become a reaction and a thread reply on the booking post in Slack, never a new message and the closers told; the reply wait ends an hour before the call, so a call booked two hours out still gets its reminders). A clear yes confirms on its own. A reply Jev reads as a cancel or a reschedule, or cannot read at all, is put to the team in the attention channel (the bookings channel when none is bound): the closer is mentioned, the post says how sure Jev is (\"Jev is 95% sure they want to cancel.\"), offers ✅ ❌ 🔁, tags the contact stat-needs-attention and notes the pending read on the appointment. The reminders do NOT wait for the answer: the run goes straight on and listens; a tap, whenever it comes, pulls the run to the confirmed, cancelled or reschedule path (who decided is noted, Jev is scored with its confidence, the question gets the outcome reaction, the tag comes off) and a confirmation returns the run to the reminder it was on. Nobody by the call: the listener disarms, the tag comes off, intent.unanswered is recorded and the pending read stays on the appointment so a no-show after it is marked stat-possible-cancel. Then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
   "definition": {
     "schema": 1,
     "reentry": "once_per_appointment",
@@ -50,7 +50,12 @@
         "id": "w1",
         "type": "wait_for_reply",
         "timeout": "4h",
-        "channel": "sms"
+        "channel": "sms",
+        "until": {
+          "anchor": "appointment.starts_at",
+          "offset": "-1h",
+          "tz": "contact"
+        }
       },
       {
         "id": "c1",
@@ -102,6 +107,12 @@
             "x",
             "repeat"
           ]
+        },
+        "react_on": {
+          "of": "tag:decision:{{appointment.id}}",
+          "emojis": [
+            "white_check_mark"
+          ]
         }
       },
       {
@@ -148,6 +159,12 @@
             "x",
             "repeat"
           ]
+        },
+        "react_on": {
+          "of": "tag:decision:{{appointment.id}}",
+          "emojis": [
+            "x"
+          ]
         }
       },
       {
@@ -175,6 +192,12 @@
             "x",
             "repeat"
           ]
+        },
+        "react_on": {
+          "of": "tag:decision:{{appointment.id}}",
+          "emojis": [
+            "repeat"
+          ]
         }
       },
       {
@@ -183,28 +206,29 @@
         "key": "jev_read",
         "value": "{{reply.intent}}",
         "pick": {
-          "cancelled": "they want to cancel.",
-          "reschedule_request": "they want to reschedule."
+          "cancelled": "Jev is {{reply.intent_confidence}}% sure they want to cancel.",
+          "reschedule_request": "Jev is {{reply.intent_confidence}}% sure they want to reschedule.",
+          "question": "Jev read it as a question, not an answer ({{reply.intent_confidence}}% sure)."
         },
-        "else_value": "I couldn't tell what they meant."
+        "else_value": "Jev couldn't tell what they meant (its guesses: {{reply.top_guesses}})."
       },
       {
         "id": "n_ask",
         "type": "slack_post",
-        "channel": "{{slack.channel.bookings}}",
+        "channel": "{{slack.channel.attention}}",
         "as": {
           "name": "Keep, cancel or reschedule?",
           "icon": ":grey_question:"
         },
-        "template": "{{contact.first_name}} replied to the booking text. Jev read this as: {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link).",
-        "title": "Ask the team: keep, cancel or reschedule?",
-        "thread_of": "tag:appointment:{{appointment.id}}",
+        "template": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link). The reminders keep going until you do.",
+        "title": "Ask the closer in the attention channel: keep, cancel or reschedule?",
         "tag": "decision:{{appointment.id}}",
         "offer": [
           "white_check_mark",
           "x",
           "repeat"
-        ]
+        ],
+        "fallback_channel": "{{slack.channel.bookings}}"
       },
       {
         "id": "w_dec",
@@ -215,7 +239,13 @@
           "x",
           "repeat"
         ],
-        "timeout": "24h"
+        "blocking": false,
+        "until": {
+          "anchor": "appointment.starts_at",
+          "offset": "-0m",
+          "tz": "contact"
+        },
+        "title": "Listen for the tap while the reminders go on"
       },
       {
         "id": "v_decided",
@@ -246,11 +276,9 @@
         "id": "rec",
         "type": "record",
         "event": "intent.reviewed",
-        "only_if": {
-          "exists": "reaction.reaction"
-        },
         "data": {
           "predicted": "{{reply.intent}}",
+          "predicted_confidence": "{{reply.intent_confidence}}",
           "decided": "{{vars.decided}}",
           "agreed": "{{vars.agreed}}",
           "decided_by": "{{reaction.user_name}}",
@@ -261,6 +289,57 @@
       {
         "id": "b_dec",
         "type": "branch"
+      },
+      {
+        "id": "n_pending",
+        "type": "update_appointment",
+        "set": {
+          "pending_read": {
+            "intent": "{{reply.intent}}",
+            "confidence": "{{reply.intent_confidence}}",
+            "at": "{{now}}"
+          }
+        },
+        "title": "Note Jev's pending read on the appointment"
+      },
+      {
+        "id": "n_att_on",
+        "type": "tags",
+        "add": [
+          "stat-needs-attention"
+        ]
+      },
+      {
+        "id": "n_clear",
+        "type": "update_appointment",
+        "set": {
+          "pending_read": null
+        },
+        "title": "Clear the pending read: a person decided"
+      },
+      {
+        "id": "n_att_off",
+        "type": "tags",
+        "remove": [
+          "stat-needs-attention"
+        ]
+      },
+      {
+        "id": "rec_un",
+        "type": "record",
+        "event": "intent.unanswered",
+        "data": {
+          "predicted": "{{reply.intent}}",
+          "predicted_confidence": "{{reply.intent_confidence}}",
+          "hours_before_call": "{{appointment.starts_at | hours_until}}",
+          "appointment_id": "{{appointment.id}}"
+        },
+        "title": "Record that nobody answered before the call"
+      },
+      {
+        "id": "rs",
+        "type": "resume",
+        "title": "Back to the reminder the run was on"
       },
       {
         "id": "r72",
@@ -447,10 +526,6 @@
         }
       },
       {
-        "from": "n_conf_slack",
-        "to": "r72"
-      },
-      {
         "from": "n_unc",
         "to": "n_unc_slack"
       },
@@ -552,24 +627,12 @@
         "to": "n_ask"
       },
       {
-        "from": "n_ask",
-        "to": "w_dec"
-      },
-      {
-        "from": "w_dec",
-        "to": "v_decided"
-      },
-      {
         "from": "v_decided",
         "to": "v_agreed"
       },
       {
         "from": "v_agreed",
         "to": "rec"
-      },
-      {
-        "from": "rec",
-        "to": "b_dec"
       },
       {
         "from": "b_dec",
@@ -605,14 +668,65 @@
         "label": "🔁 reschedule"
       },
       {
-        "from": "b_dec",
-        "to": "r72",
-        "else": true,
-        "label": "nobody decided in time"
-      },
-      {
         "from": "n_conf",
         "to": "n_conf_slack"
+      },
+      {
+        "from": "n_ask",
+        "to": "n_pending"
+      },
+      {
+        "from": "n_pending",
+        "to": "n_att_on"
+      },
+      {
+        "from": "n_att_on",
+        "to": "w_dec"
+      },
+      {
+        "from": "w_dec",
+        "to": "r72",
+        "label": "the reminders go on"
+      },
+      {
+        "from": "w_dec",
+        "to": "v_decided",
+        "label": "tap"
+      },
+      {
+        "from": "w_dec",
+        "to": "rec_un",
+        "label": "until"
+      },
+      {
+        "from": "rec",
+        "to": "n_clear"
+      },
+      {
+        "from": "n_clear",
+        "to": "n_att_off"
+      },
+      {
+        "from": "rec_un",
+        "to": "n_att_off"
+      },
+      {
+        "from": "n_att_off",
+        "to": "b_dec"
+      },
+      {
+        "from": "b_dec",
+        "to": "rs",
+        "else": true,
+        "label": "nobody decided: back to where the reminders were"
+      },
+      {
+        "from": "n_conf_slack",
+        "to": "rs"
+      },
+      {
+        "from": "rs",
+        "to": "r72"
       }
     ]
   }

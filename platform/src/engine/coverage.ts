@@ -43,7 +43,7 @@ export const NODE_NEEDS: { [T in Node["type"]]: (n: Extract<Node, { type: T }>) 
   trigger: (n) => (n.schedule ? [] : [{ kind: "event", value: n.event, node: n.id, what: "the event it starts on" }]),
   webhook: (n) => [{ kind: "webhook", value: n.url, node: n.id, what: "the endpoint it calls" }],
   health_check: () => [], availability_check: () => [], report: () => [],
-  wait: () => [], wait_for_reply: () => [], wait_for_reaction: () => [], branch: () => [], check: () => [], exit: () => [], set_var: () => [], pause_runs: () => [],
+  wait: () => [], wait_for_reply: () => [], wait_for_reaction: () => [], resume: () => [], branch: () => [], check: () => [], exit: () => [], set_var: () => [], pause_runs: () => [],
   send_sms: (n) => (n.ghl_template ? [{ kind: "ghl_template", value: n.ghl_template, node: n.id, what: "the CRM text template" }] : []),
   send_email: (n) => (n.ghl_template ? [{ kind: "ghl_template", value: n.ghl_template, node: n.id, what: "the CRM email template" }] : []),
   slack_post: (n) => [{ kind: "slack", value: "connection", node: n.id, what: "Slack" }],

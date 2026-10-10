@@ -18,6 +18,10 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table companies add column if not exists mode text not null default 'shadow'`);
     await c.query(`alter table runs add column if not exists wake_on_reply boolean not null default false`);
     await c.query(`alter table runs add column if not exists wake_on_tag text`);   // D53: the Slack post whose tap wakes a run parked on wait_for_reaction
+    // D58: a non-blocking listener; where the run was parked (and when it was due) so `resume` can put it back after the decision path
+    await c.query(`alter table runs add column if not exists resume_node text`);
+    await c.query(`alter table runs add column if not exists resume_at timestamptz`);
+    await c.query(`alter table appointments add column if not exists pending_read jsonb`);
     // D51: which mode a run was born in; the column arriving on a database that already has runs stamps them with their company's mode today (every run so far was shadow-born where the company is still in shadow)
     const bornIn = await c.query("select 1 from information_schema.columns where table_name='runs' and column_name='born_in'");
     if (bornIn.rowCount === 0) {
@@ -131,6 +135,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`insert into event_types values ('slack.reaction','slack') on conflict do nothing`);
     // D55: a person's verdict on Jev's read of a reply (predicted vs decided), so Jev can be scored before cancels and reschedules are automated
     await c.query(`insert into event_types values ('intent.reviewed','message') on conflict do nothing`);
+    // D58: the question nobody answered before the call, and a no-show after one Jev had read as a cancel or a reschedule
+    await c.query(`insert into event_types values ('intent.unanswered','message'), ('intent.unanswered_no_show','message') on conflict do nothing`);
     // D48: the three call decisions Jev makes (what kind of recording, what kind of setter call, how the sales call ended)
     await c.query(`insert into core_categories (domain, value, label, sort) values
       ('recording_kind','sales_call','Sales call',1), ('recording_kind','internal','Internal',2), ('recording_kind','other','Other',3),

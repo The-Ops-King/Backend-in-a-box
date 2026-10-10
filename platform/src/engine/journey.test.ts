@@ -373,8 +373,10 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       await inbound(mina, "sorry, I need to cancel"); await wake(run.id);
       await tickAt(DateTime.now().plus({ minutes: 3 }));
       replyIntent = "confirmed";
-      // D55: Jev's cancel read is a question for the closers, not an action; the run waits for the tap
-      expect(await lastRun("pre-call-sequence", mina)).toMatchObject({ status: "waiting", current_node: "w_dec" });
+      // D55/D58: Jev's cancel read is a question for the closers, not an action; the reminders go on while the question is open
+      const parked = await lastRun("pre-call-sequence", mina);
+      expect(parked.status).toBe("waiting"); expect(parked.current_node).not.toBe("w_dec");
+      expect((await asOperator((c) => one<{ wake_on_tag: string | null }>(c, "select wake_on_tag from runs where id=$1", [parked.id])))?.wake_on_tag).toBe(`decision:${run.appointment_id}`);
       expect((await apptRow(mina))!.status).not.toBe("cancelled");
       const qTs = (await postTs(`decision:${run.appointment_id}`))!; expect(qTs).toBeTruthy();
       await asOperator((c) => reactionArrived(c, companyId, { kind: "reaction", eventId: `EvMina${qTs}`, user: "UTYLER", reaction: "x", channel: "CBOOK", ts: qTs, removed: false }));
@@ -485,7 +487,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect([...removes.keys()].filter((t) => !adds.has(t)).sort()).toEqual(["opt-in lead", "seq-no-show", "seq-nurture", "seq-winback", "sys-send-agreement-manually"]);
     });
     it("tags a template adds that nothing ever removes (F9): every stat-* milestone, meta booked call, pay-paid-full; stat-no-show, stat-cancelled and stat-unconfirmed are not cleared by the booking or the confirmation that outdates them, and stat-agreement-unsigned is not cleared by the signature", () => {
-      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-paid-full", "pay-refunded", "stat-agreement-sent", "stat-agreement-signed", "stat-agreement-unsigned", "stat-cancelled", "stat-closed-won", "stat-customer", "stat-disqualified", "stat-follow-up", "stat-lost", "stat-new", "stat-no-show", "stat-showed"]);
+      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-paid-full", "pay-refunded", "stat-agreement-sent", "stat-agreement-signed", "stat-agreement-unsigned", "stat-cancelled", "stat-closed-won", "stat-customer", "stat-disqualified", "stat-follow-up", "stat-lost", "stat-new", "stat-no-show", "stat-possible-cancel", "stat-showed"]);
       expect(removes.get("stat-unconfirmed")).toEqual(["pre-call-sequence:n_conf"]);
       expect(removes.get("stat-booked")).toEqual(["call-cancelled:n5"]);
     });

@@ -525,7 +525,9 @@ create table runs (
   current_node        text,
   next_run_at         timestamptz,                         -- THE clock. Null when not waiting.
   wake_on_reply       boolean not null default false,       -- true only while parked on wait_for_reply; an inbound message wakes these and nothing else
-  wake_on_tag         text,                                 -- set only while parked on wait_for_reaction: the tag of the Slack post whose tap wakes it (D53)
+  wake_on_tag         text,                                 -- set while parked on wait_for_reaction, or while a non-blocking listener is armed: the tag of the Slack post whose tap wakes it (D53, D58)
+  resume_node         text,                                 -- D58: where a run with an armed listener was parked, so `resume` can return it there after the decision path
+  resume_at           timestamptz,                          -- D58: that parked step's own due time, kept intact across the jump
   context             jsonb not null default '{}',         -- resolved vars, last reply, etc.
   exit_reason         text,
   reentry_key         text not null,                       -- computed per policy; unique prevents double runs

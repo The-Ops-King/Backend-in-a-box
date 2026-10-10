@@ -2,9 +2,9 @@ import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
-import type { Edge, Node } from "./definition";
+import { onwardEdge, type Edge, type Node } from "./definition";
 import { evaluate } from "./predicate";
-import { render, resolvePath, parseDuration, StaleTemplateError, UnknownPathError } from "./template";
+import { render, resolveExpr, resolvePath, parseDuration, StaleTemplateError, UnknownPathError } from "./template";
 import { predicateWords, durationWords } from "./describe";
 import { syncCards, pickCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow } from "./waitrule";
@@ -25,7 +25,8 @@ type Person = { name: string; email?: string | null; ghl_user_id?: string | null
 /** The people a post may @mention (contact.closer, contact.setter, contact.owner): look each up in Slack by email once and remember it, so `{{contact.closer.mention}}` is a real mention, not a name. */
 async function resolveMentions(d: ExecDeps, botToken: string): Promise<void> {
   const contact = d.ctx.contact as Record<string, unknown> | undefined;
-  const people: (Person & { id?: string })[] = [...(contact ? ["closer", "setter", "owner"].map((k) => contact[k] as Person | undefined) : []), d.ctx.user as (Person & { id?: string }) | undefined].filter((p): p is Person & { id?: string } => !!p);
+  const appt = d.ctx.appointment as Record<string, unknown> | undefined;
+  const people: (Person & { id?: string })[] = [...(contact ? ["closer", "setter", "owner"].map((k) => contact[k] as Person | undefined) : []), appt?.closer as (Person & { id?: string }) | undefined, d.ctx.user as (Person & { id?: string }) | undefined].filter((p): p is Person & { id?: string } => !!p && !!p.name);
   for (const p of people) {
     if (p.slack_user_id || !p.email) continue;
     const id = await d.adapters.notifier.lookupUserByEmail(botToken, p.email).catch(() => null);
@@ -43,14 +44,19 @@ export type StepOutcome =
   | { status: "waiting"; until?: DateTime; stay?: boolean; wakeOnReply?: boolean; wakeOnTag?: string; result?: Record<string, unknown> }   // stay: re-execute this same node on wake; wakeOnReply: an inbound message wakes it early; wakeOnTag: a tap on that Slack post does; no until: only a wake moves it
   | { status: "exit"; reason: string; result?: Record<string, unknown>; gate?: boolean }   // gate: stopped at a check before doing anything, so the run does not count toward "once per …" (D30)
   | { status: "paused"; reason: string; result?: Record<string, unknown> }
+  | { status: "resume"; result?: Record<string, unknown> }   // D58: back to runs.resume_node (the step a listener pulled the run away from) with its saved due time
   | { status: "failed"; error: string };
+
+/** D58: a non-blocking wait_for_reaction, armed on the run (vars.__listen) while it goes on; the runner reads it at every wake. */
+export type Listener = { node: string; tag: string; channel: string; ts: string; emojis: string[]; into: string; until: string | null; armed_at: string };
+export const listenerOf = (ctx: Record<string, unknown>): Listener | undefined => resolvePath(ctx, "vars.__listen") as Listener | undefined;
 
 export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes };
 
 const contactTz = (d: ExecDeps) => ((d.ctx.contact as { timezone?: string } | undefined)?.timezone) ?? d.company.timezone;
 /** Shadow mode: the run proceeds exactly as it would live, but nothing is written to the CRM; sends are recorded as "would have sent". */
 const shadow = (d: ExecDeps) => d.company.mode === "shadow";
-const single = (d: ExecDeps, id: string): string | null => (d.edgesFrom(id).find((e) => e.label !== "timeout") ?? d.edgesFrom(id)[0])?.to ?? null;
+const single = (d: ExecDeps, id: string): string | null => onwardEdge(d.edgesFrom(id))?.to ?? null;
 const env = (d: ExecDeps) => ({ now: d.now, tz: contactTz(d), companyTz: d.company.timezone });
 
 function validityOk(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "send_email" }>): { ok: true } | { ok: false; why: string } {
@@ -228,7 +234,12 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       }
       const key = `__wait_for_reply.${node.id}.deadline`;
       let deadline = resolvePath(d.ctx, `vars.${key}`) as string | undefined;
-      if (!deadline) { deadline = d.now.plus(parseDuration(node.timeout)).toISO()!; setPath(d.ctx, `vars.${key}`, deadline); }
+      if (!deadline) {
+        let at = d.now.plus(parseDuration(node.timeout));
+        // D58 (G7): the wait never outlives its `until` rule — the booking text's reply wait ends before the reminders are due
+        if (node.until) { const cap = computeWaitUntil(node.until, { now: d.now, contactTz: contactTz(d), companyTz: d.company.timezone, ctx: d.ctx }).at; if (cap < at) at = cap; }
+        deadline = at.toISO()!; setPath(d.ctx, `vars.${key}`, deadline);
+      }
       if (d.now < DateTime.fromISO(deadline)) return { status: "waiting", until: DateTime.fromISO(deadline), stay: true, wakeOnReply: true, result: { deadline } };
       const timeoutEdge = d.edgesFrom(node.id).find((e) => e.label === "timeout");
       return timeoutEdge ? { status: "ok", next: timeoutEdge.to, result: { timed_out: true } } : { status: "exit", reason: "no_reply", result: { timed_out: true } };
@@ -240,6 +251,13 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
         ? await one<{ tag: string; channel: string; ts: string }>(d.c, "select tag, channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, render(node.of.slice(4), d.ctx, env(d))])
         : await one<{ tag: string; channel: string; ts: string }>(d.c, "select tag, channel, ts from slack_posts where company_id=$1 and run_id=$2 and ts=$3", [d.company.id, d.run.id, String(resolvePath(d.ctx, `vars.__slack.${node.of}`) ?? "")]);
       if (!post) { setPath(d.ctx, node.into, null); return { status: "skipped", next, result: { kind: "noop", why: "nothing to tap: that post is not in Slack (channel unbound, or the post was skipped)" } }; }
+      if (!node.blocking) {
+        // D58: arm the listener and go on; the runner watches for the tap at every wake and jumps the run to the "tap" edge, or to "until" when the time comes
+        const until = node.until ? computeWaitUntil(node.until, { now: d.now, contactTz: contactTz(d), companyTz: d.company.timezone, ctx: d.ctx }).at.toISO() : null;
+        const listener: Listener = { node: node.id, tag: post.tag, channel: post.channel, ts: post.ts, emojis: node.emojis, into: node.into, until, armed_at: d.now.toISO()! };
+        setPath(d.ctx, "vars.__listen", listener);
+        return { status: "ok", next, result: { listening: post.tag, emojis: node.emojis, until } };
+      }
       // the first tap that counts, on that very message; the door already dropped the bot's own reactions and removals
       const tap = await one<{ data: { reaction: string; user: string; user_name: string; ts: string }; occurred_at: Date }>(d.c,
         "select data, occurred_at from events where company_id=$1 and event_type='slack.reaction' and data->>'channel'=$2 and data->>'ts'=$3 and data->>'reaction' = any($4::text[]) order by occurred_at, id limit 1", [d.company.id, post.channel, post.ts, node.emojis]);
@@ -257,8 +275,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       // the channel binding is optional (manifest marks slack.* not required), so resolve without throwing: unbound → skip the node, keep the run going
       const { decrypt } = await import("./crypto");
       if (conn) await resolveMentions(d, decrypt(conn.bot_token));   // also fills user.slack_user_id, which a DM step uses as its channel
-      const ref = /^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/.exec(node.channel);
-      const channelId = ref ? (resolvePath(d.ctx, ref[1]) as string | undefined) : node.channel;
+      const channelOf = (c: string) => { const ref = /^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/.exec(c); return ref ? (resolvePath(d.ctx, ref[1]) as string | undefined) : c; };
+      const channelId = channelOf(node.channel) || (node.fallback_channel ? channelOf(node.fallback_channel) : undefined);
       // render first even when it cannot post: the dashboard shows what WOULD have gone to Slack, which is the whole point of shadow
       const text = render(node.template, d.ctx, env(d));
       if (!conn || !channelId) { await recordSend(d, node, "slack", text, "suppressed", conn ? "unbound: slack channel" : "unbound: slack"); return { status: "skipped", next, result: { kind: "blocked", why: conn ? "slack channel not bound" : "slack not connected", would_post: text.slice(0, 160) } }; }
@@ -284,14 +302,14 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       // D45: the choices a person can tap, as reactions on this post; the door turns their tap into a slack.reaction event
       const offered: string[] = [];
       for (const emoji of node.offer ?? []) if (await d.adapters.notifier.react(token, postTo, r.ts, emoji).catch(() => false)) offered.push(emoji);
-      let unreacted = 0;
-      if (node.unreact) {
-        const target = node.unreact.of.startsWith("tag:") ? await one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, render(node.unreact.of.slice(4), d.ctx, env(d))]) : (() => { const ts = resolvePath(d.ctx, `vars.__slack.${node.unreact!.of}`) as string | undefined; return ts ? { channel: postTo, ts } : null; })();
-        if (target) for (const emoji of node.unreact.emojis) if (await d.adapters.notifier.unreact(token, target.channel, target.ts, emoji).catch(() => false)) unreacted++;
-      }
+      // another post this one decorates: the bot's own reactions come off it (unreact) and the outcome goes on it (react_on)
+      const postOf = async (of: string) => of.startsWith("tag:") ? one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, render(of.slice(4), d.ctx, env(d))]) : (() => { const ts = resolvePath(d.ctx, `vars.__slack.${of}`) as string | undefined; return ts ? { channel: postTo, ts } : null; })();
+      let unreacted = 0, reactedOn = 0;
+      if (node.unreact) { const target = await postOf(node.unreact.of); if (target) for (const emoji of node.unreact.emojis) if (await d.adapters.notifier.unreact(token, target.channel, target.ts, emoji).catch(() => false)) unreacted++; }
+      if (node.react_on) { const target = await postOf(node.react_on.of); if (target) for (const emoji of node.react_on.emojis) if (await d.adapters.notifier.react(token, target.channel, target.ts, emoji).catch(() => false)) reactedOn++; }
       let tag: string | undefined;
       if (node.tag) { tag = render(node.tag, d.ctx, env(d)); await d.c.query("insert into slack_posts (company_id, tag, channel, ts, run_id) values ($1,$2,$3,$4,$5) on conflict (company_id, tag) do update set channel=excluded.channel, ts=excluded.ts, run_id=excluded.run_id, posted_at=now()", [d.company.id, tag, postTo, r.ts, d.run.id]); }
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null, ...(tagged ? { tag: tagged } : {}) } : {}), ...(tag ? { remembered_as: tag } : {}), ...(node.react ? { reacted } : {}), ...(node.offer ? { offered } : {}), ...(node.unreact ? { unreacted } : {}) } };
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null, ...(tagged ? { tag: tagged } : {}) } : {}), ...(tag ? { remembered_as: tag } : {}), ...(node.react ? { reacted } : {}), ...(node.offer ? { offered } : {}), ...(node.unreact ? { unreacted } : {}), ...(node.react_on ? { reacted_on: reactedOn } : {}) } };
     }
 
     case "classify": {
@@ -299,7 +317,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const options = (await many<{ value: string }>(d.c, "select value from core_categories where domain=$1 order by sort", [node.domain])).map((r) => r.value);
       const r = await d.adapters.classifier.choice(state, input, options, node.threshold, { apiKey: d.bindings["secret.jev_key"] || process.env.JEV_API_KEY, criteria: node.criteria, ambiguityMax: node.ambiguity_max, question: node.question });
       const top = Object.entries(r.distribution).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, p]) => `${k} ${(p * 100).toFixed(0)}%`).join(", ");
-      setPath(d.ctx, node.into, r.value); setPath(d.ctx, "reply.confidence", r.confidence); setPath(d.ctx, "reply.top_guesses", top || "none");
+      setPath(d.ctx, node.into, r.value); setPath(d.ctx, "reply.confidence", r.confidence); setPath(d.ctx, "reply.intent_confidence", Math.round(r.confidence * 100)); setPath(d.ctx, "reply.top_guesses", top || "none");
       const recId = (d.ctx.recording as { id?: string } | undefined)?.id; const intoKey = node.into.replace(/^vars\./, "").split(".");
       if (recId && node.input.includes("recording.")) { const nested = intoKey.reduceRight<unknown>((acc, k) => ({ [k]: acc }), { value: r.value, confidence: r.confidence, ambiguity: r.ambiguity ?? null }); await d.c.query("update recordings set analysis = analysis || $2::jsonb where id=$1", [recId, JSON.stringify(nested)]); }
       await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, input } });
@@ -337,7 +355,15 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "update_appointment": {
       if (!d.run.appointment_id) return { status: "failed", error: "update_appointment with no appointment on run" };
       const a = await one<{ external_id: string; source: string }>(d.c, "select external_id, source from appointments where id=$1", [d.run.appointment_id]);
-      const patch = Object.fromEntries(Object.entries(node.set).map(([k, v]) => [k, typeof v === "string" ? render(v, d.ctx, env(d)) : v]));
+      const patch = Object.fromEntries(Object.entries(node.set).filter(([k]) => k !== "pending_read").map(([k, v]) => [k, typeof v === "string" ? render(v, d.ctx, env(d)) : v]));
+      // pending_read is OUR column (D58), never the CRM's: written whatever the source and the mode, like `record`
+      let pending: unknown;
+      if ("pending_read" in node.set) {
+        pending = node.set.pending_read === null ? null : deepRender(node.set.pending_read, d.ctx, env(d));
+        await d.c.query("update appointments set pending_read=$2 where id=$1", [d.run.appointment_id, pending === null ? null : JSON.stringify(pending)]);
+        if (d.ctx.appointment) (d.ctx.appointment as Record<string, unknown>).pending_read = pending;
+        if (!Object.keys(patch).length) return { status: "ok", next, result: { pending_read: pending } };
+      }
       // only the CRM's own calendars accept writes; a Calendly booking is read-only to us, so the node records that and moves on
       if (a!.source !== "ghl") return { status: "ok", next, result: { skipped: true, reason: `appointments from ${a!.source} are read-only`, would_update: patch } };
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch } };
@@ -544,6 +570,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: node.event, source: "engine", data });
       return { status: "ok", next, result: { event: node.event, ...data } };
     }
+    case "resume": return d.run.resume_node ? { status: "resume", result: { to: d.run.resume_node, due: d.run.resume_at?.toISOString() ?? null } } : { status: "ok", next, result: { kind: "noop", why: "nothing to go back to: no listener pulled this run away" } };
     case "pause_runs": {
       await d.c.query("update runs set status='paused', exit_reason='paused: human took over' where company_id=$1 and contact_id=$2 and id<>$3 and status in ('active','waiting')", [d.company.id, d.run.contact_id, d.run.id]);
       return { status: "ok", next };
@@ -563,12 +590,12 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
 
 export /** Every string inside a JSON body is a template; the shape stays. */
 function deepRender(v: unknown, ctx: Record<string, unknown>, e: ReturnType<typeof env>): unknown {
-  if (typeof v === "string") { const whole = /^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/.exec(v); if (whole) { const got = resolvePath(ctx, whole[1]); return got === undefined ? render(v, ctx, e) : got; } return render(v, ctx, e); }
+  if (typeof v === "string") { const whole = /^\{\{\s*([^}]+?)\s*\}\}$/.exec(v); if (whole) { const got = resolveExpr(whole[1], ctx, e); return got === undefined ? "" : got; } return render(v, ctx, e); }   // one whole expression keeps its type: a boolean stays a boolean, a filtered number a number
   if (Array.isArray(v)) return v.map((x) => deepRender(x, ctx, e));
   if (v && typeof v === "object") return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, deepRender(x, ctx, e)]));
   return v;
 }
-function setPath(obj: Record<string, unknown>, path: string, value: unknown) {
+export function setPath(obj: Record<string, unknown>, path: string, value: unknown) {
   const parts = path.split("."); let cur = obj;
   for (const p of parts.slice(0, -1)) { if (typeof cur[p] !== "object" || cur[p] === null) cur[p] = {}; cur = cur[p] as Record<string, unknown>; }
   cur[parts[parts.length - 1]] = value;

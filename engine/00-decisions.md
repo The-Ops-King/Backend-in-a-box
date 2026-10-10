@@ -1531,3 +1531,53 @@ related steps stay inside one workflow", so the refund lives in Payment recorded
 - Open, catalogued: a refund that brings the total to zero followed by a new first payment (`prior_total == 0` matches
   again); a refund of the whole deal leaves `pay-paid-full` on by this rule, which is the intended reading until the
   owner says otherwise.
+
+## D58. The question stays open while the reminders go on (2026-10-10)
+
+Tyler, on the D55 question blocking the sequence: "Reminders go out, but we ping the channel, to say 'hey something is up
+with this client'… the person who said maybe still gets reminders, but then the closer can reach out." "If the call starts
+with no tap, it takes the normal route, BUT we should tag it like 'possible cancel'… the 'needs attention' tag should be a
+temporary tag, so we can filter by anyone who needs attention… the possible cancel should be like 'hey we're pretty sure this
+guy canceled and we didn't open up the slot'." "Store Jev's confidence locally and mention it in the Slack notification for
+cancel / reschedule, like 'we're 95% sure this is a cancel'." On where the question goes: "default to the same one as the
+booked call, but in reality we should have our own attention / cancel channel." And: "I'm the data king, I want all the data."
+
+- `wait_for_reaction` gained `blocking: false` and `until` (a wait rule). The step arms a *listener* on the run (`vars.__listen`:
+  the post, the emojis, the until) and the run goes straight on along its plain edge. While the listener is armed every park
+  also wakes on that post's tag (`runs.wake_on_tag`, as the blocking form did) and no later than the until, and the runner
+  writes where the run parked and when it was due (`runs.resume_node`, `runs.resume_at`, new columns). At every wake the
+  runner looks first for a tap on that very message (one of the emojis; the door's `slack.reaction` event, as D53): a tap
+  jumps the run to the step's edge labelled `tap` with the tap under `into`; the until time (or the run reaching an exit with
+  the listener still armed) jumps it to the edge labelled `until` with `into` null; a stray emoji wakes it and it goes back to
+  sleep on the same step. A new node, `resume`, ends a listener's path: back to the step the run was pulled from, which
+  re-parks itself with its own due time (a `wait` recomputes from its anchor, a reply wait keeps its pinned deadline). The
+  edge labels `tap` and `until` join `timeout` as side paths a step never follows on its own (`SIDE_LABELS`). The blocking
+  form is unchanged and remains the default; the chart draws the listener as "Listen for a reaction" and the two labelled
+  edges, and the run page shows the arming and the jump as two rows of the same step.
+- Pre-call's question (`n_ask`) is its own message in a new optional channel, `slack.channel.attention` (install input
+  `slack.attention`; Setup: "Attention channel (open questions)"), falling back to `slack.channel.bookings` through a new
+  `slack_post.fallback_channel` — the resolver's job, so a channel with a bound fallback is not a readiness or health warning.
+  It addresses the closer (`{{appointment.closer.mention}}`: `<@U…>` when known in Slack, else the name; the run context's
+  `appointment.closer` gained `email`, `slack_user_id` and `mention`, and the mention resolver looks them up like the
+  contact's people) and says how sure Jev was: `classify` now also stores `reply.intent_confidence` (0–100), carried in the
+  run's context, and `v_read` picks the whole sentence ("Jev is 95% sure they want to cancel." / "…want to reschedule." /
+  "Jev read it as a question, not an answer (N% sure)." / "Jev couldn't tell what they meant (its guesses: …)"). The decision
+  lines (`n_conf_slack`, `n_cx_slack`, `n_rs_slack`) stay in the booking thread and also put the outcome on the question
+  (`slack_post.react_on`, the mirror of `unreact`), so the attention channel shows ✅ ❌ 🔁 at a glance.
+- The sequence after the question: note the read on the appointment (`update_appointment` `set.pending_read`, ours never the
+  CRM's: `appointments.pending_read` `{ intent, confidence, at }`, exposed as `appointment.pending_read`), tag
+  `stat-needs-attention`, arm the listener, on to the 3-day wait. The tap path: `decided`, `agreed`, `intent.reviewed` (now
+  with `predicted_confidence`), clear the pending read, take the tag off, then the branch: ✅ confirms and `resume`s, ❌
+  cancels and exits, 🔁 texts the rebooking link and exits. The until path: `intent.unanswered` `{ predicted,
+  predicted_confidence, hours_before_call, appointment_id }` (a new filter, `hours_until`, and `record` data that is one whole
+  `{{expression}}` now keeps the value's type, so the hours are a number), the tag off, and the same branch's else → `resume`;
+  the pending read stays. Call outcome filed's no-show branch reads it: a pending cancel or reschedule read means
+  `stat-possible-cancel` and `intent.unanswered_no_show` `{ predicted, predicted_confidence, asked_at, appointment_id }`.
+  Both event types are in the schema seed and the migration. The two tags do not exist in the CRM yet (D50: the CRM's tags
+  are the tags); Tyler creates them.
+- G7 is fixed on the way: `wait_for_reply` gained `until` (a wait rule) and the booking text's wait ends an hour before the
+  call (`-1h`, editable), so a call booked two hours out takes the timeout path in time for its 1-hour and 10-minute texts. A
+  call booked three minutes out now moves on at once (the until is already past): every reminder is stale but the 10-minute
+  text, which has no validity rule and goes.
+- Seen in passing, not fixed: the morning-of wait (`rm`, 8am) sits ahead of the 1-hour and 10-minute waits, so a call before
+  8am their time sleeps through itself and those two texts never go (05-edge-cases, observed).
