@@ -235,20 +235,21 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
 
   // ---- 5: the same person twice in the CRM ----
 
-  it("two CRM contacts sharing an email collapse into one person: the second's CRM id attaches to the first; a payment by that email and a booking under the second id land on the one person; New lead moves the one card", async () => {
+  it("two CRM contacts sharing an email collapse into one person: the second's CRM id attaches to the first and becomes the primary; a payment by that email and a booking under the second id land on the one person; no second New lead (D65)", async () => {
     inCrm("DUP-A", { firstName: "Dup", lastName: "One", email: "dup@x.com", phone: "+16025550501" });
     await poll(); await tick(fake, undefined, companyId);
     const a = (await contactByGhl("DUP-A"))!;
     inCrm("DUP-B", { firstName: "Dup", lastName: "Two", email: "dup@x.com", phone: "+16025550502" });
     await poll(); await tick(fake, undefined, companyId);
-    expect(await contactByGhl("DUP-B")).toBeUndefined();   // no second person
+    expect((await contactByGhl("DUP-B"))?.id).toBe(a.id);   // no second person: the one person now answers to the live record (D65)
     expect((await identifiers(a.id)).filter((i) => i.kind === "ghl_contact").map((i) => i.value).sort()).toEqual(["DUP-A", "DUP-B"]);
     expect((await identifiers(a.id)).filter((i) => i.kind === "phone").map((i) => i.value).sort()).toEqual(["+16025550501", "+16025550502"]);
     expect(await asOperator((c) => many(c, "select 1 from contacts where company_id=$1 and id in (select contact_id from contact_identifiers where company_id=$1 and kind='email' and value='dup@x.com')", [companyId]))).toHaveLength(1);
-    // the second arrival counts as a new lead again (isNew is "no row with this CRM id"): New lead (always) moves the card, Speed to lead (once per contact) does not start twice
-    expect((await runsFor("new-lead")).filter((r) => r.contact_id === a.id)).toHaveLength(2);
+    // D65: the second arrival is the same person, not a new lead: no second New lead run, and the record the CRM is delivering now becomes the primary id writes go to
+    expect((await runsFor("new-lead")).filter((r) => r.contact_id === a.id)).toHaveLength(1);
     expect((await runsFor("speed-to-lead")).filter((r) => r.contact_id === a.id)).toHaveLength(1);
-    expect(await cardNames(a.id)).toEqual([{ name: "Dup Two -- New" }]);   // one card, renamed by the second record's name
+    expect((await asOperator((c) => one<{ ghl_contact_id: string }>(c, "select ghl_contact_id from contacts where id=$1", [a.id])))?.ghl_contact_id).toBe("DUP-B");
+    expect(await cardNames(a.id)).toEqual([{ name: "Dup One -- New" }]);   // one card, untouched by the second record
     const p = await asOperator((c) => recordPayment(c, companyId, { providerPaymentId: "P-DUP-1", amount: 500, status: "succeeded", paidAt: new Date(), email: "Dup@x.com" }));
     expect(p.outcome).toBe("linked"); if (p.outcome === "linked") expect(p.contactId).toBe(a.id);
     await book(snap("AP-DUP-B", { contactId: "DUP-B" }));
@@ -256,7 +257,7 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
   });
 
   it("a reply from the duplicate CRM record's thread counts as the person's reply and wakes the run parked on it (G14, fixed by D60)", async () => {
-    const a = (await contactByGhl("DUP-A"))!;
+    const a = (await contactByGhl("DUP-B"))!;   // the primary is the live record (D65); DUP-A is still an identifier
     const stl = await runOf("speed-to-lead", a.id); expect(stl).toMatchObject({ status: "waiting", current_node: "n3" });
     const before = Number((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from messages where contact_id=$1", [a.id])))!.n);
     await reply("DUP-B", "yes let's talk");

@@ -124,10 +124,10 @@ const mark = (level: Level) => (level === "error" ? "🔴" : "🟡");
 const hoursOpen = (from: Date, to: Date) => Math.round((to.getTime() - from.getTime()) / 36e5);
 
 /** Say what is new, repeat what is still open after an hour (in its thread), and close what has cleared (in its thread, with a ✅). */
-export async function announceDue(c: PoolClient, adapters: Adapters, now = new Date()): Promise<{ posted: number; repeated: number; resolved: number }> {
+export async function announceDue(c: PoolClient, adapters: Adapters, now = new Date(), onlyCompanyId?: string): Promise<{ posted: number; repeated: number; resolved: number }> {
   const out = { posted: 0, repeated: 0, resolved: 0 };
   const due = await many<AlertRow & { slug: string | null; company: string | null }>(c, `select a.*, co.slug, co.name as company from alerts a left join companies co on co.id=a.company_id
-    where (a.resolved_at is null and (a.announced_at is null or a.announced_at < $1)) or (a.resolved_at is not null and not a.resolved_announced) order by a.first_seen`, [new Date(now.getTime() - REPEAT_AFTER_MIN * 60e3)]);
+    where ($2::uuid is null or a.company_id=$2) and ((a.resolved_at is null and (a.announced_at is null or a.announced_at < $1)) or (a.resolved_at is not null and not a.resolved_announced)) order by a.first_seen`, [new Date(now.getTime() - REPEAT_AFTER_MIN * 60e3), onlyCompanyId ?? null]);
   for (const a of due) {
     const dest: Destinations = a.company_id ? await destinationsFor(c, a.company_id) : { slackToken: null, channel: null, emails: [], webhook: process.env.OPERATOR_WEBHOOK_URL ?? null, emailKey: null, emailFrom: null, as: { name: "Engine alerts" } };
     // the sweep can have its own channel and face
@@ -178,9 +178,9 @@ async function sendWebhook(dest: Destinations, event: string, a: AlertRow, now: 
 }
 
 /** The whole tick's worth: collect, then announce. The tick route wraps this so a failure here never fails the tick. */
-export async function tickAlerts(c: PoolClient, adapters: Adapters, poll: PollReport, tick: TickReport, now = new Date()): Promise<{ raised: number; resolved: number; posted: number; repeated: number; closed: number }> {
+export async function tickAlerts(c: PoolClient, adapters: Adapters, poll: PollReport, tick: TickReport, now = new Date(), onlyCompanyId?: string): Promise<{ raised: number; resolved: number; posted: number; repeated: number; closed: number }> {
   const col = await collectThisTick(c, poll, tick, now);
-  const ann = await announceDue(c, adapters, now);
+  const ann = await announceDue(c, adapters, now, onlyCompanyId);   // a test, or a tick for one company, hears only its own alerts
   return { raised: col.raised, resolved: col.resolved, posted: ann.posted, repeated: ann.repeated, closed: ann.resolved };   // resolved: state changes this tick; closed: "resolved" notes that went out
 }
 

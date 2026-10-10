@@ -1862,3 +1862,13 @@ all the data."
   simulated call that must not count, a booking by dial and one by name) and `query.test.ts` (the guard, then the
   door: scope, read-only, timeout, cap, hidden columns, the audit rows).
 
+
+## D65. The same person under a new CRM id is not a new lead (2026-10-10)
+
+Tyler's first test-mode contact shared his email with an older record the CRM no longer had. Every poll delivered the
+new record, the engine matched it to the person by email, kept the dead record as the id to write to, and counted the
+arrival as a new lead: nine New lead runs in half an hour, each failing on "Contact not found". Tyler: "I can't have it
+trying so many times just to fix one thing." Now an identity match is never a new lead (`lead.created` fires only for
+a person the engine has never seen by any id), and the record the CRM is delivering now becomes the person's primary
+id, since it is the one that exists; the older id stays as an identifier so the duplicates check (D63) can still name
+the pair. A write that the CRM refuses fails its run once and alerts; nothing restarts it.
