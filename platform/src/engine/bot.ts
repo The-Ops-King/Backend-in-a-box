@@ -11,6 +11,7 @@ import {
   type Availability, type ClosesList, type Filters, type GroupBy, type MetricResult, type Period,
 } from "./metric-registry";
 import { ESCALATE_PING, ESCALATE_UNSURE, fmt, formatAnswer, formatAvailability, formatCloses, formatCombined, formatSummary, helpText } from "./bot-format";
+import { fieldBreakdown, fieldCatalog, type FieldBreakdown } from "./field-breakdown";
 
 /**
  * The Slack bot (D70). Shortcuts are slash commands answered from the metric registry with no model in the way; anything
@@ -136,6 +137,12 @@ export const BOT_TOOLS: BotToolDef[] = [
   { name: "list_closes", description: "List every close in a period, newest first: the person, the closer credited, the day it was won (read live from GHL's Closer pipeline, the same people the closes metric counts). Use it for \"who closed\" / \"which deals\" questions.",
     input_schema: { type: "object", additionalProperties: false, required: ["period", "closer"], properties: {
       period: { type: "string", description: "The asker's period in plain words, as for get_metric" }, closer: { type: "string", description: "A closer's name from the roster, or empty" } } } },
+  { name: "list_fields", description: "Every field GHL holds that a question can be about: contact fields (the forms' questions, UTM fields…) and each custom object's fields (e.g. Sales Call outcome, disposition, objections, score), with their answer options. Read it whenever the question names a thing no metric covers, then pick the field yourself.",
+    input_schema: { type: "object", additionalProperties: false, required: ["object"], properties: { object: { type: "string", description: "\"contact\", a custom object key such as \"custom_objects.sales_call\", or \"all\"" } } } },
+  { name: "field_breakdown", description: "Count (and optionally list) the answers to one GHL field over a period, read live from GHL: for a contact field, the leads GHL added in the period; for a custom object, its records dated in the period. Test contacts never count. Pass the field key exactly as list_fields gave it.",
+    input_schema: { type: "object", additionalProperties: false, required: ["object", "field", "period", "list"], properties: {
+      object: { type: "string", description: "\"contact\" or the custom object key from list_fields" }, field: { type: "string", description: "the field key from list_fields" },
+      period: { type: "string", description: "The asker's period in plain words, as for get_metric" }, list: { type: "boolean", description: "true to also list each person and their answer (\"who said…\", \"which leads…\")" } } } },
   { name: "get_availability", description: "Open bookable calendar slots for the next days (at most 7), per day and per closer, read live from the booking calendars.",
     input_schema: { type: "object", additionalProperties: false, required: ["days"], properties: { days: { type: "integer", description: "1 to 7; 7 when not said" } } } },
   { name: "run_readonly_query", description: "Last resort, only when no metric fits (for example a list of individual people): one read-only SELECT over the company's own tables. The answer is labelled ad hoc.",
@@ -157,11 +164,12 @@ How you work:
 - "My", "me", "I": set filters.me = true. If the context says the asker is not on the roster, ask who they are in the CRM.
 - A person named in the question must match the roster in the context; if the name is unclear or matches two people, ask.
 - GHL is the truth for people, deals and calls. Those numbers are read live from GHL; if GHL cannot be read the tool says so and you call cannot_answer with that reason. Never answer them from run_readonly_query over the ledger.
-- Ambiguous or unknown terms: ask. There are exactly two kinds of DQ: a marketing DQ (marketing_dqs; also called a DQL: filtered out before a sales call on financial signals, from the work-situation answer) and a sales DQ (sales_dqs: got on the call and was disqualified for any reason). "DQ" alone: ask which, unless the asker made it clear.
+- A term no metric covers (hair loss stage, goals, age, scalp condition, objections, a call's score…): call list_fields and pick the field yourself by meaning. One field clearly fits: use it with field_breakdown; the answer names the field, so do not ask. Ask (ask_clarification, naming the candidate fields) only when two fields fit about equally well and would give different answers, or when nothing fits. Prefer a field with fixed answer options over free text for the same question.
+- There are exactly two kinds of DQ: a marketing DQ (marketing_dqs; also called a DQL: filtered out before a sales call on financial signals, from the work-situation answer) and a sales DQ (sales_dqs: got on the call and was disqualified for any reason). "DQ" alone: ask which, unless the asker made it clear.
 - Glossary: a lead is a person who entered their information (a GHL contact, by the date GHL added them). An MQL is a lead whose answer to the work-situation question ("What best describes your current work situation?") meets the employment standard; "Currently between jobs" or "Employed part-time" is a marketing DQ; a blank answer is not an MQL. A sales DQ is a Sales Call in GHL with a DQ disposition. Calls booked (for show rate) are the Sales Call records in GHL whose call time has passed in the period, cancellations included; show rate = shows ÷ those calls; a call with no outcome filed is "missing from EOD disposition". A close is a new person we collected cash from: a won card on the Closer pipeline (the setter pipeline's won is a show, not a sale); close rate = closes ÷ shows. Test contacts never count.
 - Answers show numbers and the period, not definitions. When the asker asks what a number means, get the metric and reply with a one-sentence note restating its definition from the list below, with no number of your own.
 - Calendar availability: get_availability.
-- run_readonly_query only when no metric fits, e.g. a list of individual people. Write one SELECT against the tables described in the context; describe in \`why\` what it returns.
+- run_readonly_query only when no metric and no GHL field fits, e.g. a ledger-only detail. Write one SELECT against the tables described in the context; describe in \`why\` what it returns.
 - If the tools cannot answer — no metric or table holds it, a tool keeps failing, or you would have to guess — call cannot_answer with the reason.
 - End every turn with exactly one of reply, ask_clarification or cannot_answer.
 
@@ -177,7 +185,7 @@ opportunities(id, contact_id, status open|won|lost, won_at, contract_value)
 users(id, name, role closer|setter|owner|manager|staff)
 recordings(id, contact_id, provider, started_at, raw jsonb)`;
 
-type Held = { id: string; kind: "metric"; r: MetricResult } | { id: string; kind: "availability"; a: Availability } | { id: string; kind: "closes"; k: ClosesList } | { id: string; kind: "adhoc"; why: string; columns: string[]; rows: unknown[][]; truncated: boolean };
+type Held = { id: string; kind: "breakdown"; b: FieldBreakdown } | { id: string; kind: "metric"; r: MetricResult } | { id: string; kind: "availability"; a: Availability } | { id: string; kind: "closes"; k: ClosesList } | { id: string; kind: "adhoc"; why: string; columns: string[]; rows: unknown[][]; truncated: boolean };
 
 async function contextText(ctx: Ctx, asker: Asker, slackUser: string, now: DateTime): Promise<string> {
   const roster = await asCompany(ctx.companyId, (c) => many<{ name: string; role: string }>(c, "select name, role from users where company_id=$1 and active and role in ('closer','setter','owner','manager') order by role, name", [ctx.companyId]));
@@ -189,6 +197,17 @@ async function contextText(ctx: Ctx, asker: Asker, slackUser: string, now: DateT
     `A person's lead source is the CRM field ${ctx.sourceField ? `contacts.ghl_fields->>'${ctx.sourceField}'` : "(none bound)"}, else the latest booking's tracking->>'utm_source', else 'unknown'.`,
     SCHEMA_HINT,
   ].join("\n");
+}
+
+/** A question or shortcut answered exactly as Slack would get it, but returned instead of posted: the operator's check on live data. */
+export async function preview(deps: BotDeps, companyId: string, q: { command?: string; text?: string; question?: string }): Promise<{ kind: string; text: string }> {
+  const ctx = await asOperator((c) => loadCtx(c, companyId));
+  if (!ctx) return { kind: "error", text: "company or its Slack connection not found" };
+  if (q.question) { const out = await converse(deps, ctx, { question: q.question, history: [], asker: null, slackUser: "preview" }); return { kind: out.kind, text: out.text }; }
+  const res = planCommand({ command: q.command ?? "", text: q.text ?? "", userId: "preview", channelId: "preview" }, ctx.tz, deps.now ?? DateTime.now());
+  if ("help" in res) return { kind: "help", text: helpText() };
+  if ("error" in res) return { kind: "error", text: res.error };
+  return { kind: "answer", text: await shortcutBody(deps, companyId, res.plan) };
 }
 
 /** Runs the tool loop for one question. Never throws: any failure is an escalation. */
@@ -255,6 +274,19 @@ async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, inpu
       held.push({ id, kind: "closes", k });
       return { content: JSON.stringify({ id, period: k.period_label, count: k.count, closes: k.closes.slice(0, 50) }) };
     }
+    if (name === "list_fields") {
+      const all = await asCompany(ctx.companyId, (c) => fieldCatalog(c, ctx.companyId, deps.ghl ?? liveGhlReads)).catch((e) => { throw new MetricError(`GHL could not be read (field list: ${String((e as Error).message).slice(0, 160)})`); });
+      const want = String(input.object ?? "all").trim();
+      const pick = want === "all" || !want ? all : all.filter((f) => f.object === want);
+      return { content: JSON.stringify({ objects: [...new Set(all.map((f) => `${f.object} (${f.object_label})`))], fields: pick }) };
+    }
+    if (name === "field_breakdown") {
+      const period = parsePeriod(String(input.period ?? ""), ctx.tz, now);
+      if (!period) return err(`"${input.period}" is not a period I can read. Ask the asker for the period, or pass e.g. "this month", "last week", "Sep 1 to Sep 15".`);
+      const b = await asCompany(ctx.companyId, (c) => fieldBreakdown(c, ctx.companyId, { object: String(input.object ?? "contact"), field: String(input.field ?? ""), period, list: input.list === true }, deps.ghl ?? liveGhlReads));
+      held.push({ id, kind: "breakdown", b });
+      return { content: JSON.stringify({ id, field: b.field_name, basis: b.basis, period: b.period_label, total: b.total, answered: b.answered, unanswered: b.unanswered, rows: b.rows.slice(0, 40), list: b.list?.slice(0, 40) }) };
+    }
     if (name === "get_availability") {
       const days = Math.min(7, Math.max(1, Math.round(Number(input.days) || 7)));
       const a = await asOperator((c) => getAvailability(c, ctx.companyId, deps.probes ?? liveProbes, days, now));
@@ -282,6 +314,7 @@ function render(held: Held[], ids: string[], note: string): Out {
   const body = formatAnswer(chosen.flatMap((h) => (h.kind === "metric" ? [h.r] : [])), {
     availability: chosen.flatMap((h) => (h.kind === "availability" ? [h.a] : [])),
     closes: chosen.flatMap((h) => (h.kind === "closes" ? [h.k] : [])),
+    breakdowns: chosen.flatMap((h) => (h.kind === "breakdown" ? [h.b] : [])),
     adhoc: chosen.flatMap((h) => (h.kind === "adhoc" ? [{ why: h.why, columns: h.columns, rows: h.rows, truncated: h.truncated }] : [])),
   });
   const clean = note.trim().split(/\n/)[0].slice(0, 280);

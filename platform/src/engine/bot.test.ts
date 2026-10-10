@@ -12,7 +12,7 @@ import type { HealthProbes } from "./health";
 import { getAvailability, getCloses, getMetric, parsePeriod, previousPeriod } from "./metric-registry";
 import { answerList, classifyCall, qualify, type QualifyConfig } from "./ghl-metrics";
 import { formatAnswer, formatCombined, formatSummary, formatAvailability, availabilityBody, table, MAX_ROWS, helpText } from "./bot-format";
-import { handleMessage, planCommand, runCommand, type SlackMessage } from "./bot";
+import { handleMessage, planCommand, preview, runCommand, type SlackMessage } from "./bot";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const pending: Promise<unknown>[] = [];
@@ -82,6 +82,9 @@ const salesCalls: GhlObjectRecord[] = [
   sc("S11", "A13", "C1", "2026-10-08T09:00", "no_show", "Cara Closer"),     // cancelled after the start: the no-show stands
 ];
 salesCalls.find((r) => r.id === "S3")!.properties.disposition = "dq";
+salesCalls.find((r) => r.id === "S1")!.properties.objections_raised = ["price", "timing"];
+salesCalls.find((r) => r.id === "S2")!.properties.objections_raised = ["price"];
+salesCalls.find((r) => r.id === "S9")!.properties.objections_raised = ["price"];   // a test contact's call: never counted
 salesCalls.find((r) => r.id === "S10")!.properties.disposition = "closed_won";
 let ghlDown = false;
 const ghlReads: GhlReads = {
@@ -89,6 +92,12 @@ const ghlReads: GhlReads = {
   wonCards: async () => ghlCards,
   objectRecords: async (_c, key) => (key === "custom_objects.sales_call" ? salesCalls : []),
   getContact: async (_c, id) => ghlContacts.find((k) => k.id === id) ?? null,
+  fieldCatalog: async () => [
+    { object: "contact", objectLabel: "Contact", id: WORK, key: "contact.what_best_describes_your_current_work_situation", prop: WORK, name: "What best describes your current work situation?", type: "TEXT", options: [] },
+    { object: "contact", objectLabel: "Contact", id: "F-SRC", key: "contact.utm_source", prop: "F-SRC", name: "UTM Source", type: "TEXT", options: [] },
+    { object: "custom_objects.sales_call", objectLabel: "Sales Call", id: "P1", key: "custom_objects.sales_call.call_date", prop: "call_date", name: "Call date", type: "DATE", options: [] },
+    { object: "custom_objects.sales_call", objectLabel: "Sales Call", id: "P2", key: "custom_objects.sales_call.objections_raised", prop: "objections_raised", name: "Objections raised", type: "MULTIPLE_OPTIONS", options: [{ key: "price", label: "Price" }, { key: "timing", label: "Timing" }] },
+  ],
 };
 const deps = () => ({ adapters: adapters(), probes, ghl: ghlReads, now: NOW });
 const cfgQ: QualifyConfig = { field: WORK, mql: ["Employed full-time", "Business owner or entrepreneur", "Investor"], dq: ["Currently between jobs", "Employed part-time"], unansweredIsMql: false };
@@ -384,6 +393,43 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       posts = [];
       await handleMessage(deps(), companyId, msg({ text: "<@UBOT> leads this month?" }));
       expect(posts[0].text).not.toContain("37%");
+    });
+    it("D74: a term no metric covers is resolved to a GHL field by the model, counted live, and the answer names the field it used", async () => {
+      script = [() => call("list_fields", { object: "all" }),
+        () => call("field_breakdown", { object: "contact", field: "contact.what_best_describes_your_current_work_situation", period: "this month", list: true }),
+        () => call("reply", { result_ids: ["r1"], note: "" })];
+      await handleMessage(deps(), companyId, msg({ text: "<@UBOT> how do this month's leads describe their jobs?" }));
+      const fields = JSON.parse((seen[1][seen[1].length - 1].content as { content: string }[])[0].content);
+      expect(fields.fields.map((f: { name: string }) => f.name)).toContain("Objections raised");
+      expect(fields.fields.find((f: { name: string }) => f.name === "Objections raised").options).toEqual(["Price", "Timing"]);
+      const text = posts[0].text;
+      // October's leads: C1–C4; the test contacts and September's lead are not in it
+      expect(text.split("\n")[0]).toBe("*What best describes your current work situation?*: 3 of 4 answered  · _leads GHL added in the period, from GHL, read just now_");
+      expect(text).toMatch(/Employed full-time\s+1\s+25%/); expect(text).toMatch(/Currently between jobs\s+1/); expect(text).toMatch(/retired\s+1/); expect(text).toMatch(/\(no answer\)\s+1/);
+      expect(text).toContain("• C3 — (no answer)"); expect(text).not.toContain("CT1");
+      expect(text.trim().split("\n").at(-1)).toMatch(/^_Period: /);
+    });
+    it("D74: a custom object's multi-pick field counts each pick by its label, dated by the object's date field, test contacts left out", async () => {
+      script = [() => call("field_breakdown", { object: "custom_objects.sales_call", field: "custom_objects.sales_call.objections_raised", period: "this month", list: false }),
+        () => call("reply", { result_ids: ["r1"], note: "" })];
+      await handleMessage(deps(), companyId, msg({ text: "<@UBOT> most common objections this month?" }));
+      const text = posts[0].text;
+      expect(text.split("\n")[0]).toMatch(/^\*Objections raised\*: 2 of \d+ answered  · _Sales Call records with call date in the period, from GHL, read just now_$/);
+      expect(text).toMatch(/Price\s+2\s/); expect(text).toMatch(/Timing\s+1\s/);
+      expect(text).toContain("Several answers can be picked");
+    });
+    it("preview: a shortcut or a question answered as Slack would get it, and nothing posted", async () => {
+      const a = await preview(deps(), companyId, { command: "/closes", text: "this month" });
+      expect(a.kind).toBe("answer"); expect(a.text).toMatch(/^\*Closes: \d+\*/);
+      script = [() => call("ask_clarification", { question: "For which period?" })];
+      expect(await preview(deps(), companyId, { question: "show rate?" })).toEqual({ kind: "clarify", text: "For which period?" });
+      expect(await preview(deps(), companyId, { command: "/nope" })).toMatchObject({ kind: "error" });
+      expect(posts).toEqual([]);
+    });
+    it("D74: a field key the catalogue does not hold is an error back to the model, never a guess", async () => {
+      script = [() => call("field_breakdown", { object: "contact", field: "hair_severity", period: "this month", list: false }), () => call("ask_clarification", { question: "Which field?" })];
+      await handleMessage(deps(), companyId, msg({ text: "<@UBOT> hair severity this month" }));
+      expect(lastToolResult()).toMatchObject({ is_error: true }); expect(lastToolResult().content).toMatch(/call list_fields/);
     });
     it("no period: the bot asks, then the reply in the thread continues the conversation without a new mention", async () => {
       const ev = msg({ text: "<@UBOT> what's our show rate?" });

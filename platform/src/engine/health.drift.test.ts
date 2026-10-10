@@ -32,6 +32,7 @@ const reads: GhlReads = {
   wonCards: async () => [],
   objectRecords: async () => records,
   getContact: async (_c, id) => { if (flaky.has(id)) throw Object.assign(new Error("GHL 503 on /contacts"), { status: 503 }); return gone.has(id) ? null : contacts.find((k) => k.id === id) ?? gc(id, ago({ days: 30 })); },
+  fieldCatalog: async () => [],
 };
 const probes: HealthProbes = { ...fakeProbes, ghl: reads };
 const writes: { id: string; outcome: unknown }[] = [];

@@ -406,6 +406,12 @@ the bot is not in, only the asker sees it, with a note to invite the bot.
 | `/closes` | every close, newest first: the person, their closer, the day won, with the count on top | this month |
 | `/help` | every shortcut with a one-line description, and example questions (privately) | — |
 
+**Any GHL field** (D74): a question about something no metric covers ("hair loss stage this month", "most common
+objections last month", "who said they're between jobs") is answered from the field GHL holds for it. The bot reads the
+field list itself, picks the field that fits, counts its answers live from GHL and names the field on the first line; it
+asks only when two fields fit equally. **Preview** any answer without posting: `POST /api/admin/bot-preview` with
+`{ "company": "hair", "command": "/mtd", "text": "" }` or `{ "company": "hair", "question": "…" }` (bearer `CRON_SECRET`).
+
 **Availability per closer (D72).** The times come only from what the booking source offers (Calendly available times,
 GHL free slots) on the active closing calendars. A round robin's offered times are pooled, so each one is given to every
 host free for the whole call then: on Calendly by the schedule the event type uses for that host

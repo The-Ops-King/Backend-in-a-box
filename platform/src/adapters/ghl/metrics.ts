@@ -77,6 +77,26 @@ export async function ghlObjectRecords(c: Company, objectKey: string): Promise<G
   throw new Error(`more than ${OBJ_PAGE * OBJ_PAGES} ${objectKey} records; not counted rather than cut short`);
 }
 
+/**
+ * The fields people can ask about: the location's contact custom fields and every custom object's properties, with their
+ * answer options. A contact's value is keyed by the field id; an object record's by the last segment of the field key, and
+ * an option field holds the option key (shown by its label).
+ */
+export type GhlFieldDef = { object: string; objectLabel: string; id: string; key: string; prop: string; name: string; type: string; options: { key: string; label: string }[] };
+export async function ghlFieldCatalog(c: Company): Promise<GhlFieldDef[]> {
+  const out: GhlFieldDef[] = [];
+  const cf = await ghl<{ customFields?: { id: string; name: string; fieldKey?: string; dataType?: string; picklistOptions?: unknown[] }[] }>(c.pit, "GET", `/locations/${c.locationId}/customFields?model=contact`);
+  for (const f of cf.customFields ?? []) out.push({ object: "contact", objectLabel: "Contact", id: f.id, key: f.fieldKey ?? f.id, prop: f.id, name: f.name, type: f.dataType ?? "TEXT",
+    options: (f.picklistOptions ?? []).map((o) => (typeof o === "string" ? { key: o, label: o } : { key: String((o as { key?: unknown }).key ?? ""), label: String((o as { label?: unknown }).label ?? (o as { key?: unknown }).key ?? "") })) });
+  const objs = await ghl<{ objects?: { key: string; labels?: { singular?: string } }[] }>(c.pit, "GET", `/objects/?locationId=${c.locationId}`);
+  for (const o of (objs.objects ?? []).filter((x) => x.key.startsWith("custom_objects."))) {
+    const d = await ghl<{ fields?: { id: string; name: string; fieldKey: string; dataType?: string; options?: { key: string; label?: string }[] | null }[] }>(c.pit, "GET", `/objects/${o.key}?locationId=${c.locationId}&fetchProperties=true`);
+    for (const f of d.fields ?? []) out.push({ object: o.key, objectLabel: o.labels?.singular ?? o.key, id: f.id, key: f.fieldKey, prop: f.fieldKey.split(".").pop()!, name: f.name, type: f.dataType ?? "TEXT",
+      options: (f.options ?? []).map((x) => ({ key: x.key, label: x.label ?? x.key })) });
+  }
+  return out;
+}
+
 /** What the metric layer and the drift check read from the CRM, injectable so tests never touch the network. */
 export type GhlReads = {
   contactsAdded(c: Company, from: Date, to: Date): Promise<ContactSnapshot[]>;
@@ -84,5 +104,6 @@ export type GhlReads = {
   objectRecords(c: Company, objectKey: string): Promise<GhlObjectRecord[]>;
   /** null when the CRM says the record is gone */
   getContact(c: Company, id: string): Promise<ContactSnapshot | null>;
+  fieldCatalog(c: Company): Promise<GhlFieldDef[]>;
 };
-export const liveGhlReads: GhlReads = { contactsAdded: ghlContactsAdded, wonCards: ghlWonCards, objectRecords: ghlObjectRecords, getContact: (c, id) => ghlRead.getContact(c, id) };
+export const liveGhlReads: GhlReads = { contactsAdded: ghlContactsAdded, wonCards: ghlWonCards, objectRecords: ghlObjectRecords, getContact: (c, id) => ghlRead.getContact(c, id), fieldCatalog: ghlFieldCatalog };

@@ -1,4 +1,5 @@
 import { METRICS, type Availability, type ClosesList, type MetricResult, type MetricRow, type Unit } from "./metric-registry";
+import type { FieldBreakdown } from "./field-breakdown";
 
 /**
  * Everything the Slack bot posts is rendered here from tool results, never written by the model (D70): key numbers first
@@ -66,16 +67,18 @@ export function detailLines(r: MetricResult): string[] {
 }
 
 /** A whole answer: every key number on top, the model's one sentence (if any), the tables, then definitions and the period. */
-export function formatAnswer(results: MetricResult[], opts: { note?: string; availability?: Availability[]; closes?: ClosesList[]; adhoc?: { why: string; columns: string[]; rows: unknown[][]; truncated: boolean }[] } = {}): string {
+export function formatAnswer(results: MetricResult[], opts: { note?: string; availability?: Availability[]; closes?: ClosesList[]; breakdowns?: FieldBreakdown[]; adhoc?: { why: string; columns: string[]; rows: unknown[][]; truncated: boolean }[] } = {}): string {
   const L: string[] = [...new Set(results.flatMap((r) => [keyLine(r), ...detailLines(r)]))];
   for (const k of opts.closes ?? []) L.push(closesKey(k));
   for (const a of opts.availability ?? []) L.push(availabilityKey(a));
+  for (const b of opts.breakdowns ?? []) L.push(breakdownKey(b));
   if (opts.note) L.push(opts.note);
   for (const r of results) { const t = metricTable(r); if (t) L.push("", `*${r.label} by ${r.group_by}*`, t); }
   for (const a of opts.availability ?? []) L.push("", availabilityBody(a));
   for (const k of opts.closes ?? []) L.push("", ...closesBody(k));
+  for (const b of opts.breakdowns ?? []) L.push("", ...breakdownBody(b));
   for (const q of opts.adhoc ?? []) L.push("", `*Ad hoc, from the raw ledger:* ${q.why}`, adhocTable(q));
-  const periods = [...results, ...(opts.closes ?? [])];
+  const periods = [...results, ...(opts.closes ?? []), ...(opts.breakdowns ?? [])];
   if (periods.length) L.push("", `_${[...new Set(periods.map((r) => periodLine(r)))].join(" · ")}_`);
   for (const a of opts.availability ?? []) L.push("", availabilityFooter(a));
   return L.join("\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -85,6 +88,17 @@ function adhocTable(q: { columns: string[]; rows: unknown[][]; truncated: boolea
   if (!q.rows.length) return "_No rows._";
   const s = (v: unknown) => (v === null || v === undefined ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
   return table(q.columns, q.rows.map((r) => r.map(s))) + (q.truncated ? "\n_More rows than shown._" : "");
+}
+
+/** A GHL field's answers (D74): the field it used named on top, so the asker sees how their words were read. */
+const breakdownKey = (b: FieldBreakdown) => `*${b.field_name}*: ${b.answered.toLocaleString("en-US")} of ${b.total.toLocaleString("en-US")} answered  · _${b.basis}, from ${b.source}_`;
+function breakdownBody(b: FieldBreakdown): string[] {
+  if (!b.total) return ["_Nothing in this period._"];
+  const pct = (n: number) => `${Math.round((n / b.total) * 100)}%`;
+  const L = [table(["Answer", "Count", "Share"], b.rows.map((r) => [r.value, r.count.toLocaleString("en-US"), pct(r.count)]))];
+  if (b.multi) L.push("_Several answers can be picked, so the shares add up to more than 100%._");
+  if (b.list?.length) L.push("", ...b.list.map((x) => `• ${x.name} — ${x.value}`), ...(b.list.length < b.total ? [`_First ${b.list.length} of ${b.total}._`] : []));
+  return L;
 }
 
 /** /closes: the count on top, then one line per close, newest first. */

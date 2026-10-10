@@ -2265,3 +2265,24 @@ inconsistencies it needs updated, and the health check should do that."
   `crm.pipeline_closer` through `crm`): see `platform/README.md` › Slack bot.
 - Not done: tagging `mql` / `dq-budget` on the contact when the work-situation answer arrives (Tyler will add it with a
   Typeform automation; open item 39).
+
+## D74. The bot reads any GHL field, and picks the field itself (2026-10-10)
+
+Was: a question about a thing no metric covers ("hair loss severity") got "which field holds it?". The bot could not see the
+CRM's field names (the ledger keys values by field id) and its rules said an unknown term is asked. Tyler: "I'd rather it
+always check what it has available… 'this field matches best, this is probably what they mean'; if two fields could
+match, then it could ask."
+
+- `list_fields`: the location's contact custom fields and every custom object's fields (Sales Call outcome, disposition,
+  objections, score…), with their answer options, read from GHL when asked.
+- `field_breakdown`: one field's answers over a period, read live from GHL (D73): for a contact field the leads GHL added
+  in the period; for a custom object its records whose one date field (else creation) falls in it. Multi-picks count each
+  pick; option keys read as their labels; blanks are "(no answer)"; test contacts never count. `list: true` also names
+  each person and their answer (first 100).
+- The model resolves the asker's words to a field by meaning and uses it; the answer's first line names the field, so the
+  asker sees how they were read. It asks only on a real tie (two fields that would give different answers) or no match, and
+  prefers a field with fixed options over free text. A field key the catalogue does not hold is an error back to the
+  model, never a guess.
+- `POST /api/admin/bot-preview` (bearer, operator): a shortcut or a question answered exactly as Slack would get it,
+  returned instead of posted, so live answers are checked before anyone is told they work.
+
