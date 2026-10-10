@@ -101,7 +101,8 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
   beforeAll(async () => {
     await migrate().catch((e: Error) => { if (!/events_source_check/.test(e.message)) throw e; });
     await wipe("edgesc");
-    const r = await installCompany({ name: "Edges Contacts", slug: "edgesc", timezone: TZ, locationId: "LOC-EDGESC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live", templates: TEMPLATES, crm: CRM, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);
+    const r = await installCompany({ name: "Edges Contacts", slug: "edgesc", timezone: TZ, locationId: "LOC-EDGESC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, templates: TEMPLATES, crm: CRM, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);
+    await asOperator((c) => c.query("update companies set mode='live' where id=$1", [r.companyId]));   // D56: install cannot reach live without Slack
     companyId = r.companyId;
     expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(TEMPLATES.length);
     await asOperator(async (c) => {
@@ -126,10 +127,13 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     const deadline = DateTime.fromISO(((nl.context.vars as Record<string, Record<string, Record<string, string>>>).__check.n1).deadline);
     expect(Math.abs(deadline.diff(DateTime.fromMillis(before), "hours").hours - 24)).toBeLessThan(0.1);            // gives up after a day (D39)
     expect(nl.next_run_at!.getTime() - before).toBeGreaterThan(9 * 60e3); expect(nl.next_run_at!.getTime() - before).toBeLessThan(11 * 60e3);   // looks again in 10 minutes
-    const st = await steps(nl.id); expect(st.at(-1)).toMatchObject({ node_id: "n1", status: "waiting", result: { why: expect.stringMatching(/not yet/) } });
+    const st = await steps(nl.id); expect(st.find((x) => x.node_id === "n1")).toMatchObject({ node_id: "n1", status: "waiting", result: { why: expect.stringMatching(/not yet/) } });   // t1 and n1 share a timestamp; order is not the point
     expect(await cardNames(ct.id)).toEqual([]);
     const stl = await runOf("speed-to-lead", ct.id);
-    expect(stl.exit_reason ?? "").toMatch(/no email|no phone/);   // the run does say why, if only as the CRM's refusal
+    // D56 (G1): a refused send no longer fails the run; the steps say why and the run goes on to its reply wait
+    expect(stl.status).not.toBe("failed");
+    const whys = await asOperator((c) => many<{ why: string }>(c, "select coalesce(result->>'why','') as why from run_steps where run_id=$1 and node_type in ('send_sms','send_email')", [stl.id]));
+    expect(whys.map((w) => w.why).join(" | ")).toMatch(/no email|no phone|refused/);   // the run does say why, if only as the CRM's refusal
   });
 
   it.fails("a lead with no phone and no email: Speed to lead records the email and the text as suppressed (no address) and goes on to its reply wait (doSend never looks at contact.email / contact.phone; it asks the CRM and the refusal fails the run, G1 / G11)", async () => {

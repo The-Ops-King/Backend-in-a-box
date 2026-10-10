@@ -1495,3 +1495,39 @@ template decisions and stay as they were.
   readiness has one (the company keeps its mode), otherwise the rehearsal is cleared and the result carries it as
   `wentLive`. Any other mode value sets the flag as before. The test fixtures that installed straight to live without Slack
   (funnel, scenarios) now set the flag themselves and say so: the scenarios assert what happens while Slack is not connected.
+
+## D57. A refund is a line with a minus sign (2026-10-10)
+
+Tyler, on what a refund should do to the payment tracker: "I think we wanted to add a new line to the payment tracker
+with a negative number." Until now nothing listened to `payment.refunded` (edge case G10): the ledger lowered the
+running total, but cash collected on the contact and `pay-paid-full` stood after the money went back. "Directly
+related steps stay inside one workflow", so the refund lives in Payment recorded, not in a workflow of its own.
+
+- Payment recorded has a second trigger, `t2` on `payment.refunded`. The event carries the same shape as
+  `payment.received` (the amount already negative, `kind` refund, `running_total` already lower), so the steps that
+  compute from the event do the right thing untouched: cash collected = the lower running total, the Sales Call
+  record's cash collected follows, and the Payment record is a NEW line keyed by the refund's own provider id with the
+  negative `amount`, `type` refund and `status` refunded — never an edit of the payment it reverses. The CRM's Payment
+  picklists must know `refund` and `refunded`; there is no `oneof:` guard on these two fields, so an option the CRM
+  lacks would be dropped by it silently.
+- One `set_var` (`v1`, `pick` on `event.kind`) chooses the words, the sign and the emoji for both paths, so there is
+  still one Slack post node (`*Refund:* −$500` instead of `*Payment received:* $500`, posted as "Refund"), one note
+  (`REFUND — …`) and one pair of thread lines, now 💸 "Refunded" with a `money_with_wings` reaction where a payment
+  gets 💵 and `dollar`. `react` on a Slack post is rendered like the template, so it can be picked; a new `abs` filter
+  gives the number without its sign and the template writes the minus itself.
+- Tags: `pay-refunded` is added on the refund path only (`g1`, the refund edge off the same branch that sets the
+  paid-full / plan tags, with `only_if` kind = refund as belt and braces). `pay-paid-full` and `pay-plan-active` are
+  NOT flipped: a refund is not a payment plan, and a partial refund of a paid-in-full deal would otherwise read as
+  "still owes". They stay as the last payment left them; `pay-refunded` says what came back. `pay-refunded` is the
+  only tag the owner has for it; no other tag was invented.
+- Not re-done on a refund: revenue generated (the stamp edge also requires kind ≠ refund, so a contact whose replica
+  never learned the stamp still is not stamped by a refund), the agreement send (same guard on the first-payment edge).
+  The ledger side was already right (`payments.ts`: refunds count negative in the running total, `cleared` recomputed).
+- Found on the way: the 💵 thread lines named `tag:appointment:{{contact.latest_appointment_id}}` and
+  `tag:recording:{{contact.latest_recording_id}}` without `default:`, so a payment for a contact with no recording (or no
+  booking) failed the whole run at that step whenever the calls (or bookings) channel was bound — the Payment record
+  was written, the exit never reached. Both now render empty and the step skips as "no post to reply to", which is
+  what `thread_only` was for.
+- Open, catalogued: a refund that brings the total to zero followed by a new first payment (`prior_total == 0` matches
+  again); a refund of the whole deal leaves `pay-paid-full` on by this rule, which is the intended reading until the
+  owner says otherwise.

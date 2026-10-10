@@ -485,7 +485,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect([...removes.keys()].filter((t) => !adds.has(t)).sort()).toEqual(["opt-in lead", "seq-no-show", "seq-nurture", "seq-winback", "sys-send-agreement-manually"]);
     });
     it("tags a template adds that nothing ever removes (F9): every stat-* milestone, meta booked call, pay-paid-full; stat-no-show, stat-cancelled and stat-unconfirmed are not cleared by the booking or the confirmation that outdates them, and stat-agreement-unsigned is not cleared by the signature", () => {
-      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-paid-full", "stat-agreement-sent", "stat-agreement-signed", "stat-agreement-unsigned", "stat-cancelled", "stat-closed-won", "stat-customer", "stat-disqualified", "stat-follow-up", "stat-lost", "stat-new", "stat-no-show", "stat-showed"]);
+      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-paid-full", "pay-refunded", "stat-agreement-sent", "stat-agreement-signed", "stat-agreement-unsigned", "stat-cancelled", "stat-closed-won", "stat-customer", "stat-disqualified", "stat-follow-up", "stat-lost", "stat-new", "stat-no-show", "stat-showed"]);
       expect(removes.get("stat-unconfirmed")).toEqual(["pre-call-sequence:n_conf"]);
       expect(removes.get("stat-booked")).toEqual(["call-cancelled:n5"]);
     });
