@@ -373,3 +373,17 @@ Tyler, 2026-10-10: "They'll live in new lead in the pipeline forever until they'
 long as we sort properly." No ageing rule for the setter board, no long-term-nurture stage there. Revisit if the New Lead
 column stops being readable; the closer board's Long Term Nurture stage is the closer's own and the engine never moves a
 card out of it.
+
+## 37. The owner's build list from the value ideas (2026-10-10)
+
+Tyler picked these to build eventually: revenue leak report; closer scorecards from transcripts; objection library;
+source-to-cash ROI; live speed-to-lead SLA ping; follow-up hygiene nudges; cash forecast; buyer's-remorse early
+warning; capacity planning; commissions with refund clawbacks; post-call follow-up draft for one-tap approval; the
+owner's weekly digest. Most become answers the Slack bot gives (item 38) once the metric layer exists.
+
+## 38. Ask the ledger from Slack
+
+Shortcuts (`/mtd`, `/monthly`, `/show-rate`, `/close-rate`, …) and free questions to the bot ("build me a report of
+this month's leads that showed, by source"; "what does our calendar availability look like?"). Answers must be
+correct before they are clever: named metrics with fixed definitions first, free queries only through the read-only
+door (D64), every answer says its period and definition. Design questions open with Tyler.
