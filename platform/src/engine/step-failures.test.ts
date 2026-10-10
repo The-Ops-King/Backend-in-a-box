@@ -363,11 +363,11 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("addTag")).toBe(1);
     });
 
-    it("503 that never clears: retried at 1 min, 5 min, 15 min and 1 h on the same step, then paused; five calls, one run — today the first 503 fails the run", async () => {
+    it("503 that never clears: retried at 1 min and 5 min on the same step, then paused with one alert; three calls in all, one run (D76: no loops)", async () => {
       fail("addTag", { status: 503, times: 99 });
       const ct = await person("DOWN503");
       const id = await start(wfTag, ct);
-      for (const minutes of [1, 5, 15, 60]) {
+      for (const minutes of [1, 5]) {
         await tickOnce();
         const r = await runRow(id); expect(r).toMatchObject({ status: "waiting", current_node: "n1" });
         expect(dueIn(r)).toBeGreaterThan(minutes * 0.8); expect(dueIn(r)).toBeLessThan(minutes * 1.2);
@@ -375,7 +375,8 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       }
       await tickOnce();
       expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1" });
-      expect(callsTo("addTag")).toBe(5);
+      expect(callsTo("addTag")).toBe(3);
+      expect((await openAlerts()).filter((a) => a.key === `run:${id}:paused`)).toHaveLength(1);
       expect(await runsOf(wfTag, ct)).toHaveLength(1);
     });
 

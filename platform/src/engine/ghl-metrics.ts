@@ -83,7 +83,8 @@ type Close = { ghl: string; name: string; at: DateTime; value: number; assignedT
 /** A due Sales Call with the ledger appointment it matched one-to-one (by external id, else by the person and the start minute), if any. */
 export type SalesCall = { id: string; ext: string; ghl: string; name: string; test: boolean; at: DateTime; filed: CallClass | null; disposition: string; cls: CallClass | "missing"; flipped: boolean; cancelUnknown: boolean;
   match: "one" | "none" | "many"; appt: { id: string; contact_id: string; status: string; source: string; outcome: string | null; starts_at: Date; cancelled_at: Date | null } | null; closer: string; utm: string | null; booking_source: string;
-  /** the record's own booking_source value (setter or direct), as GHL keeps it */ booked: string };
+  /** the record's own booking_source value (setter or direct), as GHL keeps it */ booked: string;
+  /** D76: the record's links as GHL holds them: its contact_id field, whether the contact came only from the association, its opportunity_id field */ links: { contact_field: boolean; opportunity: string } };
 type Call = SalesCall;
 export type GhlCtx = {
   c: PoolClient; companyId: string; ac: Company; bindings: Record<string, string>; reads: GhlReads; tz: string; start: Date; end: Date; now: Date;
@@ -209,6 +210,7 @@ async function calls(x: GhlCtx): Promise<Call[]> {
     if (!cfg) throw new MetricError("calls and shows are read from the Sales Call records in GHL, and no object is bound (crm.object_sales_call)");
     if (!Object.keys(cfg.outcomes).length) throw new MetricError("the Sales Call outcomes are not mapped (sales_call.outcomes), so a show cannot be told from a no-show");
     const recs = await read("Sales Call records", () => x.reads.objectRecords(x.ac, cfg.object));
+    const ownField = new Set(recs.filter((k) => String(k.properties.contact_id ?? "").trim()).map((k) => k.id));
     // the record's contact_id field is a copy; GHL's association is the link itself, read when the copy is empty
     for (const r of recs.filter((k) => !String(k.properties.contact_id ?? "").trim())) {
       const id = await read("a Sales Call's contact", () => x.reads.recordContact(x.ac, r.id));
@@ -245,7 +247,8 @@ async function calls(x: GhlCtx): Promise<Call[]> {
       const { cls, flipped, cancelUnknown } = classifyCall(filed, a ? { status: a.status, cancelledAt: a.cancelled_at, startsAt: a.starts_at } : null);
       out.push({ id: r.id, ext: String(p.external_id ?? ""), ghl: ghlId, test: cand.some((h) => h.test) || !!facts.get(ghlId)?.test, name: a?.name ?? (String(p.display_label ?? "").trim() || ghlId || r.id), at, filed, disposition: norm(answerText(p.disposition)), cls, flipped, cancelUnknown,
         match: cand.length === 1 ? "one" : cand.length ? "many" : "none", appt: a ? { id: a.id, contact_id: a.contact_id, status: a.status, source: a.source, outcome: a.outcome, starts_at: a.starts_at, cancelled_at: a.cancelled_at } : null,
-        closer: closerOf(String(p.closer ?? "")), utm: facts.get(ghlId)?.utm ?? null, booking_source: a?.source === "calendly" ? "Calendly" : "the GHL calendar", booked: String(p.booking_source ?? "") });
+        closer: closerOf(String(p.closer ?? "")), utm: facts.get(ghlId)?.utm ?? null, booking_source: a?.source === "calendly" ? "Calendly" : "the GHL calendar", booked: String(p.booking_source ?? ""),
+        links: { contact_field: ownField.has(r.id), opportunity: String(p.opportunity_id ?? "").trim() } });
     }
     return out.sort((a, b) => a.at.toMillis() - b.at.toMillis());
   })());
@@ -259,7 +262,8 @@ export async function showBreakdown(x: GhlCtx): Promise<ShowBreakdown> {
   const list = (await counted(x)).filter((k) => !x.filters.closer || k.closer === x.filters.closer);
   const pool = x.filters.source ? await (async () => { const s = await sourcesOf(x, list); return list.filter((k) => (s.get(k.ghl) ?? "unknown").toLowerCase() === x.filters.source!.toLowerCase()); })() : list;
   const n = (c: Call["cls"]) => pool.filter((k) => k.cls === c).length;
-  return { booked: pool.length, showed: n("showed"), noshow: n("noshow"), cancelled: n("cancelled"), rescheduled: n("rescheduled"), missing: n("missing"),
+  // D76: a slot the call moved away from is listed, but it is no call that could show: outside the rate
+  return { booked: pool.filter((k) => k.cls !== "rescheduled").length, showed: n("showed"), noshow: n("noshow"), cancelled: n("cancelled"), rescheduled: n("rescheduled"), missing: n("missing"),
     missing_names: pool.filter((k) => k.cls === "missing").map((k) => k.name), mismatches: pool.flatMap((k) => { const m = mismatchOf(k); return m ? [m] : []; }) };
 }
 
@@ -321,7 +325,7 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
     const dqs = salesCallConfig(x.bindings)?.dqDispositions ?? [];
     if (metric === "sales_dqs" && !dqs.length) throw new MetricError("sales DQs are the Sales Call records whose disposition is a DQ, and no DQ disposition is set (sales_call.dq_dispositions)");
     const sources = groupBy === "source" || x.filters.source ? await sourcesOf(x, list) : null;
-    const counts = (k: Call) => metric === "calls_booked_due" || (metric === "shows" ? k.cls === "showed" : metric === "no_shows" ? k.cls === "noshow" : metric === "sales_dqs" ? dqs.includes(k.disposition) : k.cls === "cancelled");
+    const counts = (k: Call) => (metric === "calls_booked_due" && k.cls !== "rescheduled") || (metric === "shows" ? k.cls === "showed" : metric === "no_shows" ? k.cls === "noshow" : metric === "sales_dqs" ? dqs.includes(k.disposition) : k.cls === "cancelled");
     for (const k of list) {
       if (!counts(k) || (x.filters.closer && k.closer !== x.filters.closer)) continue;
       if (x.filters.source && src(sources!.get(k.ghl)) !== src(x.filters.source)) continue;

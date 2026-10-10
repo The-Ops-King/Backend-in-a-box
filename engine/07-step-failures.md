@@ -106,7 +106,7 @@ so a refusal is never an exception.
 | Situation | Expected | Today | Test |
 |---|---|---|---|
 | The CRM accepts | `sent`, external id kept, `message.sent` event | `executor.ts:120-122` | every passing send test |
-| 503 / 502 / 500 / 429 / network from the CRM (transient) | Retry the step in place at 1, 5, 15, 60 min; the text goes once; one `sent` row for the step | The refusal is written `failed`, the step is `skipped` as `blocked` (one `blocked:` alert), the run walks on (`executor.ts:126`, D56/G1). **Never retried, so the text never goes.** And F1: the failed row would block a retry. | `20 messages (503 twice, then ok)…` (`it.fails`); invariant `20 messages, the invariant that holds today…` |
+| 503 / 502 / 500 / 429 / network from the CRM (transient) | Retry the step in place at 1 and 5 min (three tries in all, D76); the text goes once; one `sent` row for the step | The refusal is written `failed`, the step is `skipped` as `blocked` (one `blocked:` alert), the run walks on (`executor.ts:126`, D56/G1). **Never retried, so the text never goes.** And F1: the failed row would block a retry. | `20 messages (503 twice, then ok)…` (`it.fails`); invariant `20 messages, the invariant that holds today…` |
 | 401 / 403 (token rotated) | Pause at once; one alert for the CRM; woken when the token is replaced | Same as above: written, blocked, walks on — and every CRM step after it fails the same way, each its own alert | `401 on a send…` (`it.fails`) |
 | 400 / 422 (the number is invalid, the sub-account has no SMS number) | **Policy:** pause with the vendor's words. **D56/G1:** write the refusal, skip as blocked, carry on to the emails. Decide. | D56: `executor.ts:126` | `400 on a send…` (`it.todo`) |
 | 404 / "Contact with id … not found" | Stamp `gone_at`, one alert per contact, exit `moot` at the next look | `executor.ts:124,130-140` | `the contact is deleted in the CRM mid-run…` |
@@ -176,7 +176,7 @@ idempotent in the CRM (adding an existing tag, removing an absent one, both succ
 | 400 / 422 | Pause with the vendor's words; asked once | Failed; asked once | `400: never retried…` (passes); `400: the run pauses…` (`it.fails`) |
 | 404 (the contact is gone) | Stamp gone + exit moot, as a send does; never failed | Failed | `404 on a tag write…` (`it.fails`) |
 | 429 | Transient (the client already waited 1.5 s and 3 s, `client.ts:19`); retry at 1 min | Failed | `429 (the client already waited…)…` (`it.fails`) |
-| 503 / 502 / 500 | Retry at 1, 5, 15, 60 min, then pause; five calls in all | Failed on the first | `503 that never clears…` (`it.fails`) |
+| 503 / 502 / 500 | Retry at 1 and 5 min, then pause with one alert; three calls in all (D76) | Failed on the first | `503 that never clears…` (`it.fails`) |
 | Network (ECONNRESET, timeout) | Transient | Failed | `a network error (ECONNRESET, no status)…` (`it.fails`) |
 | Unknown (a TypeError in the adapter) | One try a minute later, then pause | Failed at once | `an error nobody classified…` (`it.fails`) |
 | Stopped run retried by hand | Resumes at the tag step; the trigger ran once; the tag went on once | Exactly that (`runner.ts:126`, `:183`) | `a stopped run retried by hand resumes at the step…` |

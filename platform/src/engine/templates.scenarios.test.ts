@@ -326,7 +326,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(await runOf(noShow)).toMatchObject({ status: "completed", exit_reason: "noted" });
     expect(oppWrites.length).toBe(n);
     const again = (await runOf(noShow)).id;
-    expect((await asOperator((c) => many<{ node_id: string; result: Record<string, unknown> }>(c, "select node_id, result from run_steps where run_id=$1 and node_id in ('gn1','gn2') order by node_id", [again]))).map((s) => [s.node_id, s.result.why])).toEqual([["gn1", "no open card on this board to move; this step never creates one"], ["gn2", "already there"]]);   // the setter card is lost (closed), the closer card is already there
+    expect((await asOperator((c) => many<{ node_id: string; result: Record<string, unknown> }>(c, "select node_id, result from run_steps where run_id=$1 and node_id in ('gn1','gn2') order by node_id", [again]))).map((s) => [s.node_id, s.result.why])).toEqual([["gn1", "already there"], ["gn2", "already there"]]);   // D76: the card steps take the board's latest card, so the setter card the first filing marked lost is where it should be   // the setter card is lost (closed), the closer card is already there
     n = oppWrites.length;
     await file(await apptOf("CO2"), "showed", "follow_up"); await tick(fake, undefined, companyId);
     expect(await runOf(followUp)).toMatchObject({ status: "completed", exit_reason: "noted" });

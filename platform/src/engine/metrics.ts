@@ -85,7 +85,7 @@ export async function rollupDay(c: PoolClient, companyId: string, day: string, t
     select coalesce(a.assigned_user_id::text,'unknown') as closer, count(*)::int as scheduled,
            count(*) filter (where t.category='showed' or a.status='showed')::int as showed,
            count(*) filter (where t.category='noshow' or a.status='noshow')::int as noshow,
-           count(*) filter (where a.status='cancelled' or t.category='cancelled')::int as cancelled
+           count(*) filter (where (a.status='cancelled' or t.category='cancelled') and coalesce(t.category,'') not in ('showed','noshow'))::int as cancelled   -- D76: a cancel after a show or a no-show never overwrites it
     from appointments a left join company_terms t on t.id=a.outcome_term
     where a.company_id=$1 and a.source<>'test' and a.starts_at>=$2 and a.starts_at<$3 and ${real("a.contact_id")} group by a.assigned_user_id`, p);
   for (const m of ["scheduled", "showed", "noshow", "cancelled"] as const) { let t = 0; for (const r of sched) { add("closer", r.closer, m, r[m]); t += Number(r[m]) || 0; } add("total", "", m, t); }

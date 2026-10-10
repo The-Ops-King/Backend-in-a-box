@@ -5,7 +5,7 @@
   "stage": "post_call",
   "sort": 4,
   "origin": "spec",
-  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed or deposit → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A call filed as rescheduled or cancelled on the call only updates its Sales Call record (Call booked reacts 🔁 to a real reschedule). The Sales Call record is updated with the outcome in the company's own option keys and, for a show, the disposition the closer confirmed; a booking whose record the engine never wrote is found in GHL by the booking's id, else the person and the start minute, never made. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54).",
+  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed or deposit → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A call filed as rescheduled or cancelled on the call only updates its Sales Call record (Call booked reacts 🔁 to a real reschedule). The Sales Call record is updated with the outcome in the company's own option keys and, for a show, the disposition the closer confirmed; a booking whose record the engine never wrote is found in GHL by the booking's id, else the person and the start minute, never made. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54). A refiled answer edits, never adds (D76): the thread line is edited in place, the earlier answer's reaction and tags come off where they differ, and the cards follow the new answer (the most recent card on each board, whatever the last answer left it as).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -36,6 +36,117 @@
         }
       },
       {
+        "id": "u1",
+        "type": "set_var",
+        "key": "tags_before",
+        "value": "{{event.previous_outcome | default:}}:{{event.previous_call_outcome | default:}}",
+        "pick": {
+          "noshow:": [
+            "stat-no-show",
+            "stat-possible-cancel"
+          ],
+          "showed:": [
+            "stat-showed"
+          ],
+          "showed:closed": [
+            "stat-showed",
+            "stat-closed-won"
+          ],
+          "showed:deposit": [
+            "stat-showed",
+            "stat-closed-won"
+          ],
+          "showed:follow_up": [
+            "stat-showed",
+            "stat-follow-up"
+          ],
+          "showed:lost": [
+            "stat-showed",
+            "stat-lost"
+          ],
+          "showed:unqualified": [
+            "stat-showed",
+            "stat-disqualified"
+          ]
+        },
+        "else_value": [],
+        "title": "What the call's earlier answer tagged"
+      },
+      {
+        "id": "u2",
+        "type": "set_var",
+        "key": "tags_now",
+        "value": "{{event.outcome}}:{{appointment.call_outcome | default:}}",
+        "pick": {
+          "noshow:": [
+            "stat-no-show"
+          ],
+          "showed:": [
+            "stat-showed"
+          ],
+          "showed:closed": [
+            "stat-showed",
+            "stat-closed-won"
+          ],
+          "showed:deposit": [
+            "stat-showed",
+            "stat-closed-won"
+          ],
+          "showed:follow_up": [
+            "stat-showed",
+            "stat-follow-up"
+          ],
+          "showed:lost": [
+            "stat-showed",
+            "stat-lost"
+          ],
+          "showed:unqualified": [
+            "stat-showed",
+            "stat-disqualified"
+          ]
+        },
+        "else_value": [],
+        "title": "What this answer tags"
+      },
+      {
+        "id": "u3",
+        "type": "set_var",
+        "key": "undo_emoji",
+        "value": "{{event.previous_outcome | default:}}>{{event.outcome}}",
+        "pick": {
+          "noshow>showed": "ghost",
+          "noshow>rescheduled": "ghost",
+          "showed>noshow": "white_check_mark",
+          "showed>rescheduled": "white_check_mark"
+        },
+        "else_value": "",
+        "title": "The reaction the earlier answer left that this one takes back"
+      },
+      {
+        "id": "u4",
+        "type": "tags",
+        "remove": [
+          "{{vars.tags_before}}"
+        ],
+        "keep": [
+          "{{vars.tags_now}}"
+        ],
+        "only_if": {
+          "and": [
+            {
+              "exists": "event.previous_outcome"
+            },
+            {
+              "neq": [
+                "{{event.previous_outcome | default:}}:{{event.previous_call_outcome | default:}}",
+                "{{event.outcome}}:{{appointment.call_outcome | default:}}"
+              ]
+            }
+          ]
+        },
+        "title": "A changed answer: take off what the earlier answer tagged and this one does not"
+      },
+      {
         "id": "b1",
         "type": "branch",
         "title": "Did they show?"
@@ -52,7 +163,15 @@
           "icon": ":ghost:"
         },
         "template": "👻 No-show for the call {{appointment.starts_at | date_company}} with {{appointment.closer.name | default:the closer}}.",
-        "title": "React 👻 on the booking post"
+        "title": "React 👻 on the booking post",
+        "tag": "outcome:{{appointment.id}}",
+        "edit": true,
+        "unreact": {
+          "of": "tag:appointment:{{appointment.id}}",
+          "emojis": [
+            "{{vars.undo_emoji | default:}}"
+          ]
+        }
       },
       {
         "id": "g2",
@@ -68,7 +187,8 @@
         "stage": "{{crm.stage_setter_cancelled}}",
         "if_missing": "skip",
         "title": "Setter card → No-Show / Cancel / Reschedule, marked lost (the setter pipeline is won on a show, lost on a no-show; the next booking makes a fresh setter card)",
-        "status": "lost"
+        "status": "lost",
+        "pick": "latest"
       },
       {
         "id": "gn2",
@@ -76,7 +196,8 @@
         "pipeline": "{{crm.pipeline_closer}}",
         "stage": "{{crm.stage_closer_cancelled}}",
         "if_missing": "skip",
-        "title": "Closer card → No Show / Cancelled (move only: they can rebook)"
+        "title": "Closer card → No Show / Cancelled (move only: they can rebook)",
+        "pick": "latest"
       },
       {
         "id": "g3",
@@ -128,7 +249,15 @@
           "icon": ":white_check_mark:"
         },
         "template": "✅ Showed, per {{appointment.closer.name | default:the closer}}: {{appointment.call_outcome | words | default:no call outcome given}}.",
-        "title": "React ✅ on the booking post"
+        "title": "React ✅ on the booking post",
+        "tag": "outcome:{{appointment.id}}",
+        "edit": true,
+        "unreact": {
+          "of": "tag:appointment:{{appointment.id}}",
+          "emojis": [
+            "{{vars.undo_emoji | default:}}"
+          ]
+        }
       },
       {
         "id": "s2",
@@ -144,7 +273,8 @@
         "stage": "{{crm.stage_setter_showed}}",
         "if_missing": "skip",
         "status": "won",
-        "title": "Setter card → Showed, won (as the recording path does; a no-op when it is already there)"
+        "title": "Setter card → Showed, won (as the recording path does; a no-op when it is already there)",
+        "pick": "latest"
       },
       {
         "id": "b2",
@@ -159,6 +289,35 @@
         ]
       },
       {
+        "id": "kc",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_scheduled}}",
+        "if_missing": "skip",
+        "pick": "latest",
+        "only_if": {
+          "or": [
+            {
+              "eq": [
+                "{{event.previous_outcome | default:}}",
+                "noshow"
+              ]
+            },
+            {
+              "in": [
+                "{{event.previous_call_outcome | default:}}",
+                [
+                  "follow_up",
+                  "lost",
+                  "unqualified"
+                ]
+              ]
+            }
+          ]
+        },
+        "title": "A changed answer to closed: the closer card leaves No Show / Follow Up / Lost / Disqualified for Scheduled (Payment recorded and Deal closed move it on)"
+      },
+      {
         "id": "c2",
         "type": "set_tag",
         "tag": [
@@ -171,7 +330,8 @@
         "pipeline": "{{crm.pipeline_closer}}",
         "stage": "{{crm.stage_closer_follow_up}}",
         "if_missing": "skip",
-        "title": "Closer card → Follow Up"
+        "title": "Closer card → Follow Up",
+        "pick": "latest"
       },
       {
         "id": "c3",
@@ -187,7 +347,8 @@
         "stage": "{{crm.stage_closer_lost}}",
         "if_missing": "skip",
         "status": "lost",
-        "title": "Closer card → Lost, marked lost"
+        "title": "Closer card → Lost, marked lost",
+        "pick": "latest"
       },
       {
         "id": "c4",
@@ -203,7 +364,8 @@
         "stage": "{{crm.stage_closer_disqualified}}",
         "if_missing": "skip",
         "status": "lost",
-        "title": "Closer card → Disqualified, marked lost"
+        "title": "Closer card → Disqualified, marked lost",
+        "pick": "latest"
       },
       {
         "id": "x0",
@@ -219,7 +381,7 @@
         "id": "r2",
         "type": "crm_record",
         "object": "custom_objects.sales_call",
-        "key": "{{appointment.external_id}}",
+        "key": "{{appointment.slot_key}}",
         "if_missing": "match",
         "properties": {
           "external_id": "{{appointment.external_id}}",
@@ -246,7 +408,7 @@
         "id": "r1",
         "type": "crm_record",
         "object": "custom_objects.sales_call",
-        "key": "{{appointment.external_id}}",
+        "key": "{{appointment.slot_key}}",
         "if_missing": "match",
         "properties": {
           "external_id": "{{appointment.external_id}}",
@@ -259,11 +421,11 @@
         "id": "r3",
         "type": "crm_record",
         "object": "custom_objects.sales_call",
-        "key": "{{appointment.external_id}}",
+        "key": "{{appointment.slot_key}}",
         "if_missing": "match",
         "properties": {
           "external_id": "{{appointment.external_id}}",
-          "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
+          "outcome": "{{picklist.sales_call_outcome.on_call}}"
         },
         "title": "Sales Call record: rescheduled or cancelled on the call"
       }
@@ -271,6 +433,22 @@
     "edges": [
       {
         "from": "t1",
+        "to": "u1"
+      },
+      {
+        "from": "u1",
+        "to": "u2"
+      },
+      {
+        "from": "u2",
+        "to": "u3"
+      },
+      {
+        "from": "u3",
+        "to": "u4"
+      },
+      {
+        "from": "u4",
         "to": "b1"
       },
       {
@@ -379,7 +557,7 @@
       },
       {
         "from": "c1",
-        "to": "x1"
+        "to": "kc"
       },
       {
         "from": "c2",
@@ -447,6 +625,10 @@
       },
       {
         "from": "r3",
+        "to": "x1"
+      },
+      {
+        "from": "kc",
         "to": "x1"
       }
     ]

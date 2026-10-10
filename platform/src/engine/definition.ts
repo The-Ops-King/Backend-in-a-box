@@ -71,7 +71,7 @@ export const Node = z.discriminatedUnion("type", [
   // thread_of: the id of an earlier slack_post in this run; this one goes into that message's thread (the scorecard under the call post)
   // tag: remember this post under a name (rendered, e.g. "eod-reminder:{{user.id}}:{{user.eod.day}}") so a later run can thread under it: thread_of "tag:<that name>"
   // react: an emoji put on the parent post (thread_of) once this reply is up, e.g. white_check_mark
-  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), fallback_channel: z.string().optional(), template: z.string(), as: Persona.optional(), thread_of: z.string().optional(), thread_only: z.boolean().default(false), tag: z.string().optional(), react: z.union([z.string(), z.array(z.string())]).optional(),
+  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), fallback_channel: z.string().optional(), template: z.string(), as: Persona.optional(), thread_of: z.string().optional(), thread_only: z.boolean().default(false), tag: z.string().optional(), edit: z.boolean().default(false), react: z.union([z.string(), z.array(z.string())]).optional(),
     offer: z.array(z.string().min(1)).optional(), unreact: z.object({ of: z.string(), emojis: z.array(z.string().min(1)).min(1) }).optional(), react_on: z.object({ of: z.string(), emojis: z.array(z.string().min(1)).min(1) }).optional() }),   // react_on: reactions put on ANOTHER post ("tag:…" or a node id), e.g. the outcome on the question the team was asked (D58)   // fallback_channel: posts there when `channel` is an unbound binding (an attention channel that falls back to the bookings channel, D58)   // offer: reactions added to this post for a person to tap (D45); unreact: the bot's own reactions taken off that post ("tag:…" or a node id) once a person has decided   // thread_only: a reaction or note on an existing post; nothing when that post is not there
   // An HTTP call out: Airtable, a Zap or Make scenario, Apps Script, anything with a URL. Headers and body are templates; {{secret.<key>}} resolves
   // in headers and body only here and is never written to the ledger. The response (JSON when it is) lands in vars.<into>.
@@ -81,6 +81,8 @@ export const Node = z.discriminatedUnion("type", [
   // Bookable slots on the calendars: fewer than min_slots in the next days is a low-availability alert. In a run about a booking, only that booking's calendar is read.
   z.object({ ...base, type: z.literal("availability_check"), min_slots: z.number().int().min(0).default(3), days: z.number().int().min(1).max(7).default(7) }),
   // A wrap-up (daily / weekly / monthly numbers) rendered into vars.<into> = { body, period, numbers } and kept in the wrapups ledger; a slack_post after it sends it.
+  // D76: the closer's outstanding days for the end-of-day reminder: unfiled days in the ledger and days whose GHL Sales Calls have no outcome
+  z.object({ ...base, type: z.literal("eod_due"), period: z.enum(["evening", "morning"]), into: z.string().default("lines") }),
   z.object({ ...base, type: z.literal("report"), kind: z.string(), breakdowns: z.array(z.string()).default([]), sections: z.record(z.boolean()).default({}), into: z.string().default("report") }),
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string(),
     question: z.string().optional(), criteria: z.record(z.string()).optional(), ambiguity_max: z.number().min(0).max(1).default(0.8) }),   // question: what Jev is asked about `input`; `state` is context (what we sent)   // criteria: what each option means, in words; ambiguity_max: a reply a careful person would doubt this much goes to a human (D47)
@@ -88,7 +90,8 @@ export const Node = z.discriminatedUnion("type", [
   // else_pause: once the retry window has run out, the run pauses for a person with this reason instead of taking else_exit
   z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string(), else_pause: z.string().optional(), retry: z.object({ every: z.string(), for: z.string() }).optional() }),   // retry: park and look again every `every` for up to `for` before taking else_exit
   // The contact's tags in one step: `add` goes on, then `remove` comes off. set_tag / remove_tag are the older one-direction forms; installed copies still carry them.
-  z.object({ ...base, type: z.literal("tags"), add: TagList.optional(), remove: TagList.optional() }),
+  // keep: tags this step never takes off even when `remove` names them (undoing an earlier answer keeps what the new one also says, D76)
+  z.object({ ...base, type: z.literal("tags"), add: TagList.optional(), remove: TagList.optional(), keep: TagList.optional() }),
   z.object({ ...base, type: z.literal("set_tag"), tag: TagList }),
   z.object({ ...base, type: z.literal("remove_tag"), tag: TagList }),
   // Writes to the CRM contact: a few native fields plus custom fields by id. A field whose rendered value is empty is left alone, never blanked.
@@ -100,7 +103,7 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("update_opportunity"), set: z.record(z.unknown()) }),
   // A card on a CRM pipeline board. One open card per contact per pipeline: re-firing moves/renames it instead of duplicating. Cards hang off the contact's one open opportunity.
   // `status` closes the card (won/lost): the board's terminal column. A closed card no longer counts as the contact's open card on that board.
-  z.object({ ...base, type: z.literal("pipeline_card"), pipeline: z.string(), stage: z.string().optional(), name: z.string().optional(), assign_to: z.string().optional(), status: z.enum(["open", "won", "lost", "abandoned"]).optional(), if_missing: z.enum(["create", "skip"]).default("create"), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
+  z.object({ ...base, type: z.literal("pipeline_card"), pipeline: z.string(), stage: z.string().optional(), name: z.string().optional(), assign_to: z.string().optional(), status: z.enum(["open", "won", "lost", "abandoned"]).optional(), if_missing: z.enum(["create", "skip"]).default("create"), pick: z.enum(["open", "latest"]).default("open"), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),
   // Reads a document (the call transcript by default) against a prompt bound per company ({{prompt.<name>}}), answer stored under vars.<into>.
   // json: the answer is parsed and its fields are addressable ({{vars.notes.summary}}); text: stored as a string.
   // optional: decoration (a congratulations line); when the AI cannot run the step is skipped and the run goes on without the value

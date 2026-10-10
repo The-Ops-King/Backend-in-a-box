@@ -21,7 +21,8 @@ export async function foldCard(c: PoolClient, companyId: string, contactId: stri
   if (known) {
     // the CRM's search index lags its writes by a few seconds: a snapshot older than our last write to that card is the past, not the truth
     const liveAt = Date.parse(card.updatedAt); if (Number.isFinite(liveAt) && liveAt < known.updated_at.getTime()) return null;
-    const moved = known.ghl_stage_id !== card.stageId || known.status !== card.status;
+    // a card marked gone on a 404 that the CRM lists again was never a hand's move: the replica takes it back quietly
+    const moved = known.status !== "gone" && (known.ghl_stage_id !== card.stageId || known.status !== card.status);
     await c.query("update pipeline_cards set ghl_pipeline_id=$2, ghl_stage_id=$3, name=$4, status=$5, assigned_user_id=coalesce($6, assigned_user_id), updated_at=now() where id=$1", [known.id, card.pipelineId, card.stageId, card.name, card.status, owner?.id ?? null]);
     return moved ? { contactId, cardId: known.id, opportunityId: known.opportunity_id, crmCardId: card.id, pipelineId: card.pipelineId, fromStage: known.ghl_stage_id, toStage: card.stageId, fromStatus: known.status, toStatus: card.status, movedBy: card.updatedBy, at: Number.isFinite(liveAt) ? new Date(liveAt) : new Date() } : null;
   }
@@ -49,3 +50,8 @@ export async function pickCard(c: PoolClient, companyId: string, contactId: stri
 }
 
 export const openCardRows = (c: PoolClient, companyId: string, contactId: string) => many<CardRow & { ghl_pipeline_id: string }>(c, "select id, ghl_opportunity_id, opportunity_id, ghl_pipeline_id, ghl_stage_id, name, status from pipeline_cards where company_id=$1 and contact_id=$2 and status='open'", [companyId, contactId]);
+
+/** The contact's most recent card on a board, open or closed (never one the CRM said is gone): what a changed answer moves back. */
+export async function latestCard(c: PoolClient, companyId: string, contactId: string, pipelineId: string): Promise<CardRow | null> {
+  return (await one<CardRow>(c, "select id, ghl_opportunity_id, opportunity_id, ghl_stage_id, name, status from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id=$3 and status<>'gone' order by (ghl_opportunity_id is not null) desc, updated_at desc, created_at desc limit 1", [companyId, contactId, pipelineId])) ?? null;
+}

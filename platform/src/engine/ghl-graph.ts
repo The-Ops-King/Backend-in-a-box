@@ -229,7 +229,8 @@ async function rowsOf(g: Graph, unit: GraphUnit, period: Period, need: Set<strin
       }
     }
   } else if (unit === "call") {
-    const list = (await salesCallsFor(g.ctx(start, end))).filter((k) => !k.test && k.at.toMillis() <= now);
+    // D76: a slot the call was rescheduled away from is no call of its own
+    const list = (await salesCallsFor(g.ctx(start, end))).filter((k) => !k.test && k.at.toMillis() <= now && k.cls !== "rescheduled");
     const recs = new Map((await get("Sales Call records", () => g.reads.objectRecords(g.ac, g.scObject))).map((r) => [r.id, r]));
     await g.fetchContacts(list.map((k) => k.ghl));
     rows = list.map((k) => {
@@ -329,7 +330,8 @@ function measure(unit: GraphUnit, a: Acc): Group & { showedPeople: number; close
   const g = { value: a.value, count: a.rows.length, booked: 0, calls: 0, showed: 0, noshow: 0, cancelled: 0, missing: 0, closed: 0, cash: 0, card_value: 0, days_to_close: null as number | null,
     booked_rate: null as number | null, show_rate: null as number | null, close_rate: null as number | null, share: null, showedPeople: 0, closedOfShowed: 0 };
   const days: number[] = [];
-  const tally = (cls: string | undefined) => { g.calls++; if (cls === "showed") g.showed++; else if (cls === "noshow") g.noshow++; else if (cls === "cancelled" || cls === "rescheduled") g.cancelled++; else g.missing++; };
+  // D76: a rescheduled slot is no call that could show; it is outside the show rate
+  const tally = (cls: string | undefined) => { if (cls === "rescheduled") return; g.calls++; if (cls === "showed") g.showed++; else if (cls === "noshow") g.noshow++; else if (cls === "cancelled") g.cancelled++; else g.missing++; };
   for (const r of a.rows) {
     const won = r.closer?.status === "won";
     if (unit === "lead") {

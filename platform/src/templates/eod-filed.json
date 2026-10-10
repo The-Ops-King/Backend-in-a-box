@@ -5,7 +5,7 @@
   "stage": "team",
   "sort": 20,
   "origin": "spec",
-  "description": "When a closer files their day: the summary and what they corrected to the team's channel, a ✅ on their reminder. Add a webhook step to send the report anywhere else.",
+  "description": "When a closer files their day: the summary and what they corrected to the team's channel, a ✅ on their reminder. Add a webhook step to send the report anywhere else. Filing the same day again edits the summary and the reply in place (D76).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -27,7 +27,9 @@
           "icon": ":clipboard:"
         },
         "template": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.corrections_block | default:Nothing corrected: the prefill matched. | line}}{{event.day_answers_lines | line}}",
-        "title": "Post the day's summary in Slack"
+        "title": "Post the day's summary in Slack",
+        "tag": "eod-summary:{{event.user_id}}:{{event.day}}",
+        "edit": true
       },
       {
         "id": "n_ack",
@@ -40,7 +42,9 @@
           "icon": ":clipboard:"
         },
         "template": "✅ Got it. {{event.totals_line}}.",
-        "title": "React ✅ on the reminder"
+        "title": "React ✅ on the reminder",
+        "tag": "eod-ack:{{event.user_id}}:{{event.day}}",
+        "edit": true
       },
       {
         "id": "x_done",

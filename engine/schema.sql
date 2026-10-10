@@ -214,6 +214,7 @@ create table appointments (
   tracking             jsonb not null default '{}',                -- utm_* etc. as the booking source reported them
   cancelled_by         text,                                       -- who cancelled (name) and why, when the source says
   pending_read         jsonb,                                      -- D58: Jev's read of a reply the team was asked about and has not answered: { intent, confidence, at }; cleared when a person taps
+  slot_key             text,                                       -- D76: the call slot a Sales Call record is keyed by: the booking's id, or id@start after a move that kept the id; null = external_id
   cancel_reason        text,
   booked_at            timestamptz not null,
   -- replica of the booking source's state (GHL vocabulary; Calendly active/canceled maps onto it)

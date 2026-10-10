@@ -160,21 +160,20 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   const contact = await resolveContactForBooking(c, co, ac, adapters, s);
   if (!contact) return;
   const userId = s.assignedUserId ? await ensureUser(c, adapters, ac, s.assignedUserId) : await userIdByEmail(c, co.id, s.assignedUserEmail);
-  const find = (ext: string) => one<{ id: string; status: string; starts_at: Date; external_id: string }>(c, "select id, status, starts_at, external_id from appointments where company_id=$1 and source=$2 and external_id=$3", [co.id, source, ext]);
+  const find = (ext: string) => one<{ id: string; status: string; starts_at: Date; external_id: string; slot_key: string | null; repointed_from?: string }>(c, "select id, status, starts_at, external_id, slot_key from appointments where company_id=$1 and source=$2 and external_id=$3", [co.id, source, ext]);
   let existing = await find(s.id);
   if (!existing && s.rescheduledFrom) {
     // the source cancelled the old booking and created this one; to us it is the same appointment moved
     const prior = await find(s.rescheduledFrom);
     if (prior) {
-      await c.query("update appointments set external_id=$2, reschedule_url=coalesce($3, reschedule_url), cancel_url=coalesce($4, cancel_url) where id=$1", [prior.id, s.id, s.rescheduleUrl ?? null, s.cancelUrl ?? null]);
-      // the CRM records keyed by the booking's id (the Sales Call) follow it, so the steps that write them update the one record rather than making a second
-      await c.query("update crm_records r set record_key=$3, updated_at=now() where r.company_id=$1 and r.record_key=$2 and not exists (select 1 from crm_records x where x.company_id=r.company_id and x.object_key=r.object_key and x.record_key=$3)", [co.id, s.rescheduledFrom, s.id]);
-      existing = { ...prior, external_id: s.id };
+      // D76: each call slot is its own Sales Call; the moved booking's new slot is keyed by the new event's id and the old slot's record stays the old one's
+      await c.query("update appointments set external_id=$2, slot_key=$2, reschedule_url=coalesce($3, reschedule_url), cancel_url=coalesce($4, cancel_url) where id=$1", [prior.id, s.id, s.rescheduleUrl ?? null, s.cancelUrl ?? null]);
+      existing = { ...prior, external_id: s.id, repointed_from: prior.slot_key ?? prior.external_id };
     }
   }
   if (!existing) {
-    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.setBy ?? null, JSON.stringify(s.answers ?? {}), s.rescheduleUrl ?? null, s.cancelUrl ?? null, s.tracking ?? {}, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null]);
+    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at, slot_key)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$4) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.setBy ?? null, JSON.stringify(s.answers ?? {}), s.rescheduleUrl ?? null, s.cancelUrl ?? null, s.tracking ?? {}, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null]);
     if (baseline) { if (rep) rep.baselined++; return; }   // replica only; an appointment that existed before install is not a new booking
     if (contact.lead) {   // the booking brought a new person: lead.created first (New lead, Speed to lead), the same shape the contacts poll emits, then the booking
       const started = await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: contact.lead.ghlContactId } }), { contact: { id: contact.id, ghl_contact_id: contact.lead.ghlContactId, tags: contact.lead.tags } });
@@ -189,6 +188,11 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
     return;
   }
   const changes: Record<string, unknown> = {};
+  // D76: a cancel after the call's start never overwrites a show or a no-show the call already has: the outcome stands
+  if (s.status === "cancelled" && existing.status !== "cancelled" && Math.min(Date.now(), Date.parse(s.dateUpdated ?? "") || Date.now()) >= new Date(s.startTime).getTime()) {
+    const held = await one<{ outcome: string | null }>(c, "select ot.category as outcome from appointments a left join company_terms ot on ot.id=a.outcome_term where a.id=$1", [existing.id]);
+    if (["showed", "noshow"].includes(held?.outcome ?? "") || ["showed", "noshow"].includes(existing.status)) s = { ...s, status: existing.status as AppointmentSnapshot["status"] };
+  }
   if (existing.status !== s.status) changes.status = { from: existing.status, to: s.status };
   if (Math.abs(existing.starts_at.getTime() - new Date(s.startTime).getTime()) > 60e3) changes.starts_at = { from: existing.starts_at.toISOString(), to: s.startTime };
   if (!Object.keys(changes).length) return;
@@ -196,6 +200,13 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, assigned_user_id=coalesce($5,assigned_user_id), source_updated_at=$6, cancelled_by=coalesce($7,cancelled_by), cancel_reason=coalesce($8,cancel_reason) where id=$1",
     [existing.id, s.status, s.startTime, s.endTime, userId, s.dateUpdated ?? new Date(), s.cancellation?.by ?? null, s.cancellation?.reason ?? null]);
   const type = changes.starts_at ? "appointment.rescheduled" : "appointment.status_changed";
+  // the slot the call left (its Sales Call is logged as rescheduled) and the one it is now; a move that kept the booking's id gets a slot key of its own
+  if (changes.starts_at) {
+    const from = existing.repointed_from ?? existing.slot_key ?? existing.external_id;
+    const to = existing.repointed_from ? existing.external_id : `${existing.external_id}@${new Date(s.startTime).toISOString()}`;
+    await c.query("update appointments set slot_key=$2 where id=$1", [existing.id, to]);
+    changes.slot = { from, to };
+  }
   // runs parked on this appointment wake now: a wait anchored to it recomputes from the new start, and a run whose premise
   // no longer holds (reminder for a cancelled call) exits moot immediately instead of at its old wake time
   await c.query("update runs set next_run_at=now() where company_id=$1 and appointment_id=$2 and status='waiting'", [co.id, existing.id]);

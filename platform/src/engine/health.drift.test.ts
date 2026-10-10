@@ -41,7 +41,9 @@ const probes: HealthProbes = { ...fakeProbes, ghl: reads };
 const writes: { id: string; outcome: unknown }[] = [];
 let refuse = false;
 const base = fakeAdapters();
-const fake: Adapters = { ...base, write: { ...base.write, updateRecord: async (_c, _key, id, props) => {
+const linkWrites: { id: string; props: Record<string, unknown> }[] = [], relations: string[] = [];
+const fake: Adapters = { ...base, write: { ...base.write, relateRecords: async (_c, a, f, t) => { relations.push(`${a}:${f}>${t}`); }, updateRecord: async (_c, _key, id, props) => {
+  if (!("outcome" in props)) { linkWrites.push({ id, props }); return; }
   if (refuse) throw Object.assign(new Error("GHL 422 on /objects: bad value"), { status: 422 });
   writes.push({ id, outcome: props.outcome }); const r = records.find((x) => x.id === id); if (r) r.properties.outcome = props.outcome; } } };
 
@@ -58,7 +60,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       const co = await one<{ id: string }>(c, "select id from companies where slug='drift'");
       if (co) {
         await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
-        for (const t of ["step_effects", "sends", "poll_cursors", "messages", "crm_records", "opportunities", "runs", "workflow_triggers", "workflows", "alerts", "health_checks", "audit_log", "events", "appointments", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+        for (const t of ["step_effects", "sends", "poll_cursors", "messages", "crm_records", "pipeline_cards", "opportunities", "runs", "workflow_triggers", "workflows", "alerts", "health_checks", "audit_log", "events", "appointments", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
         await c.query("delete from companies where id=$1", [co.id]);
       }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode) values ('Drift Co','drift',$1,'test') returning id", [TZ]))!.id;
@@ -172,7 +174,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     won.push({ id: "W-K1", pipelineId: "PIPE-CLOSER", status: "won", wonAt: ago({ days: 2 }).toUTC().toISO()!, contactId: "G-K1", contactName: "G-K1", contactTags: [] },
       { id: "W-TEST", pipelineId: "PIPE-CLOSER", status: "won", wonAt: ago({ days: 2 }).toUTC().toISO()!, contactId: "G-TEST", contactName: "G-TEST", contactTags: [] });   // the team's test contact: never asked about
     try {
-      expect(drift((await sweep()).findings).map((f) => f.text).join("\n")).not.toMatch(/closer card/);   // no Payment records at all: nothing to compare yet
+      expect(drift((await sweep()).findings).map((f) => f.text).join("\n")).not.toMatch(/won closer card|closer card was won/);   // no Payment records at all: nothing to compare yet
       payments.push({ id: "PAY-K2", createdAt: ago({ days: 1 }).toISO()!, properties: { contact_id: "G-K2", amount: 500, type: "deposit", status: "succeeded", occurred_at: ago({ days: 1 }).toUTC().toISO() } },
         { id: "PAY-K2b", createdAt: ago({ days: 1 }).toISO()!, properties: { contact_id: "G-K2", amount: 250, type: "installment", status: "succeeded", occurred_at: ago({ hours: 5 }).toUTC().toISO() } });
       const bad = drift((await sweep()).findings).find((f) => !f.ok)!;
@@ -185,5 +187,21 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       won.splice(0); payments.splice(0);
       await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='crm.pipeline_closer'", [companyId]));
     }
+  });
+  it("D76: a Sales Call missing its link to the closer card is linked (field and association) when the person has exactly one; with none or several it is a question; never twice", async () => {
+    await asOperator(async (c) => {
+      for (const [k, v] of [["crm.pipeline_closer", "PIPE-CLOSER"], ["crm.assoc_sales_call_opportunity", "ASSOC-OPP"], ["crm.assoc_sales_call_contact", "ASSOC-CT"]]) await c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,'id',$3) on conflict (company_id, key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]);
+      const k2 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K2'", [companyId]))!.id;
+      const opp = (await one<{ id: string }>(c, "insert into opportunities (company_id, contact_id, opened_by) values ($1,$2,'test') returning id", [companyId, k2]))!.id;
+      await c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, status) values ($1,$2,$3,'CARD-K2','PIPE-CLOSER','ST','G-K2 -- Direct','open')", [companyId, opp, k2]);
+    });
+    try {
+      const fs = drift((await sweep()).findings);
+      expect(linkWrites).toEqual(expect.arrayContaining([{ id: "R3", props: { opportunity_id: "CARD-K2" } }]));
+      expect(relations).toContain("ASSOC-OPP:R3>CARD-K2");
+      expect(fs.find((f) => f.item === "repair:R3:links")?.text).toMatch(/linked to the closer card/);
+      expect(fs.find((f) => !f.ok)!.text).toMatch(/G-K1, .*: this Sales Call isn't linked to a closer card, and the person has none\. Which card is it\?/);
+      const n = linkWrites.length; await sweep(); expect(linkWrites.length).toBe(n);   // a link is written once
+    } finally { await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('crm.pipeline_closer','crm.assoc_sales_call_opportunity','crm.assoc_sales_call_contact')", [companyId])); }
   });
 });

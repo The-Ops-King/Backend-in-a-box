@@ -226,4 +226,31 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     await tick(fake, DateTime.now(), companyId);
     expect(posts.slice(n).filter((p) => p.channel === "CBOOK").map((p) => p.text)).toEqual(["✅ Showed, per Allan P: lost."]);
   });
+  it("D76: the reminder goes on every day until each of the closer's Sales Calls in GHL has an outcome (GHL is the truth, not only the ledger); blank two days on, the operator is told", async () => {
+    const day = (n: number) => DateTime.now().setZone(TZ).minus({ days: n });
+    const rec = (id: string, d: DateTime, outcome: string, closer = "Allan P") => ({ id, createdAt: d.toISO()!, properties: { display_label: `${id} Person — ${d.toISODate()}`, scheduled_at: d.set({ hour: 10, minute: 0 }).toUTC().toISO(), call_date: d.toISODate(), outcome, closer } });
+    const before = fake.read.objectRecords;
+    fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [rec("Xena", day(3), ""), rec("Yuri", day(0), "scheduled"), rec("Zoe", day(2), "showed"), rec("Walt", day(3), "", "Someone Else")] : []);
+    await asOperator(async (c) => {
+      for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })], ["bot.escalate_to", "UOPS"]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]);
+      // today's reminders already went (above); the clock starts them again as a new day would
+      await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]);
+      await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]);
+      await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='End-of-day reminder')", [companyId]);
+    });
+    try {
+      const at = DateTime.now().setZone(TZ).set({ hour: 17, minute: 1 }) as DateTime<true>;
+      await asOperator((c) => dispatchSchedules(c, at, companyId));
+      const n = posts.length; await tick(fake, at, companyId);
+      const token = await asOperator((c) => tokenFor(c, allan));
+      const dm = posts.slice(n).filter((p) => p.channel === "UALLAN").map((p) => p.text);
+      const label = (d: DateTime) => d.toFormat("ccc LLL d");
+      expect(dm).toContain(`Hey Allan, your end-of-day is waiting:\n• <https://engine.test/eod/${token}?day=${day(3).toISODate()}|${label(day(3))}>: 1 call with no outcome in GHL\n• <https://engine.test/eod/${token}|today>: 1 call with no outcome in GHL\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`);
+      expect(dm.some((t) => t.includes("Walt") || t.includes("Zoe"))).toBe(false);
+      expect(posts.slice(n).filter((p) => p.channel === "UOPS").map((p) => p.text)).toEqual([`Allan P still has Sales Calls with no outcome in GHL after two days:\n• ${label(day(3))}: Xena Person`]);   // once a day, from the evening reminder
+    } finally {
+      fake.read.objectRecords = before;
+      await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes','bot.escalate_to')", [companyId]));
+    }
+  });
 });

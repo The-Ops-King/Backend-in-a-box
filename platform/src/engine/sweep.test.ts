@@ -27,6 +27,8 @@ let events: AppointmentSnapshot[] = [];
 let ghlContacts: ContactSnapshot[] = [];
 let ghlSalesCalls: ObjectRecord[] = [];
 const records: { op: string; object: string; id?: string; props: Record<string, unknown> }[] = [];
+const slack: { op: string; channel: string; ts: string; text?: string; emoji?: string; thread?: string }[] = [];
+const tagOps: { op: string; to: string; tag: string }[] = [], cardOps: { id: string; stageId?: string; status?: string }[] = [];
 const relations: string[] = [];
 let opps = 0;
 const noBooking = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] };
@@ -35,12 +37,13 @@ const fake: Adapters = {
     objectRecords: async (_c, key) => (key === "custom_objects.sales_call" ? ghlSalesCalls : []), documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [],
     getContact: async (_c, id) => ghlContacts.find((k) => k.id === id) ?? null, listUsers: async () => [] },
   booking: { ghl: noBooking, calendly: { listCalendars: async () => [], getAppointment: async (_c, id) => events.find((e) => e.id === id) ?? null, appointmentsInWindow: async (c, cal) => (c.id === companyId ? events.filter((e) => e.calendarId === cal) : []) } },
-  write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }),
+  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, to, tag) => { tagOps.push({ op: "add", to, tag }); }, removeTag: async (_c, to, tag) => { tagOps.push({ op: "remove", to, tag }); }, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }),
     createRecord: async (_c, object, props) => { records.push({ op: "create", object, props }); return { id: `rec-${records.length}` }; }, updateRecord: async (_c, object, id, props) => { records.push({ op: "update", object, id, props }); },
-    relateRecords: async (_c, a, f, s) => { relations.push(`${a}:${f}>${s}`); }, createOpportunity: async () => ({ id: `opp-${++opps}` }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "doc-x" }) },
+    relateRecords: async (_c, a, f, s) => { relations.push(`${a}:${f}>${s}`); }, createOpportunity: async () => ({ id: `opp-${++opps}` }), updateOpportunity: async (_c, id, w) => { cardOps.push({ id, stageId: w.stageId, status: w.status }); }, sendDocumentTemplate: async () => ({ id: "doc-x" }) },
   sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },
   classifier: { choice: async () => ({ value: "unclear", confidence: 0, distribution: {}, unclear: true }) },
-  notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null, react: async () => true, unreact: async () => true, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
+  notifier: { post: async (_t, channel, text, _as, thread) => { const ts = `${slack.length + 1}.0001`; slack.push({ op: "post", channel, ts, text, thread }); return { ts }; }, update: async (_t, channel, ts, text) => { slack.push({ op: "update", channel, ts, text }); },
+    lookupUserByEmail: async () => null, react: async (_t, channel, ts, emoji) => { slack.push({ op: "react", channel, ts, emoji }); return true; }, unreact: async (_t, channel, ts, emoji) => { slack.push({ op: "unreact", channel, ts, emoji }); return true; }, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 const local = () => DateTime.now().setZone(TZ);
@@ -73,7 +76,7 @@ describe.skipIf(!process.env.DATABASE_URL)("sweep 2026-10-10 on a Calendly compa
       for (const [k, v] of Object.entries({ pipeline_setter: "PIPE-S", pipeline_closer: "PIPE-C", stage_setter_direct_booked: "ST-DIRECT", stage_closer_scheduled: "ST-SCHED", stage_setter_showed: "ST-SHOWED", stage_setter_cancelled: "ST-S-CX", stage_closer_cancelled: "ST-C-CX",
         stage_closer_follow_up: "ST-FU", stage_closer_lost: "ST-LOST", stage_closer_disqualified: "ST-DQ", field_contact_appointment_date: "CF-DATE", assoc_sales_call_contact: "ASSOC-SC-CONTACT", assoc_sales_call_opportunity: "ASSOC-SC-OPP", object_sales_call: "custom_objects.sales_call" })) await bind(`crm.${k}`, "id", v);
       // Hair's outcome map as installed (D73): its own spellings, the engine's alias, the late cancel; and the value a new booking carries
-      await bind("sales_call.outcomes", "text", JSON.stringify({ scheduled: "scheduled", showed: "showed", no_show: "noshow", noshow: "noshow", cancelled: "cancelled", late_cancel: "cancelled" }));
+      await bind("sales_call.outcomes", "text", JSON.stringify({ scheduled: "scheduled", showed: "showed", no_show: "noshow", noshow: "noshow", cancelled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" }));
       await bind("test.domains", "text", "sweep-test.com");
       await c.query("insert into users (company_id, email, name, role, ghl_user_id) values ($1,'james@sweep.test','James Closer','closer','GU-JAMES')", [companyId]);
       const term = (cat: string) => one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category=$2", [companyId, cat]);
@@ -84,7 +87,7 @@ describe.skipIf(!process.env.DATABASE_URL)("sweep 2026-10-10 on a Calendly compa
     await pollAll(fake);   // baseline
   });
 
-  it("the first booking's record carries the closer card the run just made, a machine-readable time and the booking's id; a reschedule (Calendly: cancel + new event) updates that record rather than making a second", async () => {
+  it("the first booking's record carries the closer card the run just made, a machine-readable time and the booking's id; a reschedule (Calendly: cancel + new event) logs the old slot's record as rescheduled and gives the new slot its own (D76)", async () => {
     // Tyler made the test contact in GHL first; the contacts poll has them before the booking lands
     ghlContacts = [person("GC-TESS", "tyler@sweep-test.com", "Tess", { tags: ["sys-test"] })];
     events = [appt("EV-1", T0)];
@@ -102,22 +105,25 @@ describe.skipIf(!process.env.DATABASE_URL)("sweep 2026-10-10 on a Calendly compa
     events = [appt("EV-1", T0, { status: "cancelled", rescheduledTo: "EV-2" }), appt("EV-2", T1, { rescheduledFrom: "EV-1" })];
     await pollAll(fake);
     expect(await tick(fake, undefined, companyId)).toMatchObject({ completed: 1, failed: 0, paused: 0 });
-    expect(salesCalls().filter((r) => r.op === "create")).toHaveLength(1);
-    expect(salesCalls().at(-1)).toMatchObject({ op: "update", id: "rec-1", props: { external_id: "EV-2", outcome: "scheduled" } });
-    expect(DateTime.fromISO(String(salesCalls().at(-1)!.props.scheduled_at)).toMillis()).toBe(DateTime.fromISO(T1).toMillis());
-    const ours = await asOperator((c) => many<{ record_key: string; ghl_record_id: string }>(c, "select record_key, ghl_record_id from crm_records where company_id=$1", [companyId]));
-    expect(ours).toEqual([{ record_key: "EV-2", ghl_record_id: "rec-1" }]);
+    const moved = salesCalls().slice(1);
+    expect(moved).toEqual([
+      expect.objectContaining({ op: "update", id: "rec-1", props: { outcome: "rescheduled" } }),   // the old slot is logged, never moved or reused
+      expect.objectContaining({ op: "create", props: expect.objectContaining({ external_id: "EV-2", contact_id: "GC-TESS", opportunity_id: closerCard, outcome: "scheduled" }) }),
+    ]);
+    expect(DateTime.fromISO(String(moved[1].props.scheduled_at)).toMillis()).toBe(DateTime.fromISO(T1).toMillis());
+    const ours = await asOperator((c) => many<{ record_key: string; ghl_record_id: string }>(c, "select record_key, ghl_record_id from crm_records where company_id=$1 order by created_at", [companyId]));
+    expect(ours).toEqual([{ record_key: "EV-1", ghl_record_id: "rec-1" }, { record_key: "EV-2", ghl_record_id: "rec-3" }]);   // the fake numbers a record by the writes before it
   });
 
-  it("D-1: the closer's filing writes the company's own option keys: a no-show is no_show (never the engine's noshow), a call rescheduled or cancelled on the call is its late cancel", async () => {
+  it("D-1: the closer's filing writes the company's own option keys: a no-show is no_show (never the engine's noshow), a call rescheduled or cancelled on the call is the rescheduled key", async () => {
     await asOperator((c) => installTemplateForTest(c, companyId, "call-outcome"));
     const ev2 = await apptId("EV-2");
     await file(ev2, "noshow");
     await tick(fake, undefined, companyId);
-    expect(salesCalls().at(-1)).toMatchObject({ op: "update", id: "rec-1", props: { outcome: "no_show" } });
+    expect(salesCalls().at(-1)).toMatchObject({ op: "update", id: "rec-3", props: { outcome: "no_show" } });
     await file(ev2, "rescheduled");
     await tick(fake, undefined, companyId);
-    expect(salesCalls().at(-1)).toMatchObject({ op: "update", id: "rec-1", props: { outcome: "late_cancel" } });
+    expect(salesCalls().at(-1)).toMatchObject({ op: "update", id: "rec-3", props: { outcome: "rescheduled" } });
     expect(salesCalls().map((r) => r.props.outcome).filter(Boolean)).not.toContain("noshow");
   });
 
@@ -156,12 +162,15 @@ describe.skipIf(!process.env.DATABASE_URL)("sweep 2026-10-10 on a Calendly compa
 
   it("D-3 and D-9: a cancel the source records after the call's start is not a cancel (no Call cancelled, no rebook text, the call stays on the end-of-day form); a cancel before it is; an intro call's cancel is not a closing call's", async () => {
     await asOperator(async (c) => { await installTemplateForTest(c, companyId, "call-cancelled"); await installTemplateForTest(c, companyId, "cancellation-rebook"); });
-    const past = local().minus({ hours: 3 }).startOf("minute").toUTC().toISO()!, later = day(3, 11), intro = day(2, 9);
-    events = [appt("EV-PAST", past), appt("EV-LATER", later), appt("EV-INTRO", intro, { calendarId: "ET-INTRO" })];
+    const past = local().minus({ hours: 3 }).startOf("minute").toUTC().toISO()!, earlier = local().minus({ hours: 5 }).startOf("minute").toUTC().toISO()!, later = day(3, 11), intro = day(2, 9);
+    events = [appt("EV-PAST", past), appt("EV-NOSHOW", earlier), appt("EV-LATER", later), appt("EV-INTRO", intro, { calendarId: "ET-INTRO" })];
     await pollAll(fake); await tick(fake, undefined, companyId);
+    await file(await apptId("EV-NOSHOW"), "noshow"); await tick(fake, undefined, companyId);   // the closer filed a no-show before the host cleared the slot
     const now = new Date().toISOString();
-    events = [appt("EV-PAST", past, { status: "cancelled", dateUpdated: now }), appt("EV-LATER", later, { status: "cancelled", dateUpdated: now }), appt("EV-INTRO", intro, { status: "cancelled", calendarId: "ET-INTRO", dateUpdated: now })];
+    events = [appt("EV-PAST", past, { status: "cancelled", dateUpdated: now }), appt("EV-NOSHOW", earlier, { status: "cancelled", dateUpdated: now }), appt("EV-LATER", later, { status: "cancelled", dateUpdated: now }), appt("EV-INTRO", intro, { status: "cancelled", calendarId: "ET-INTRO", dateUpdated: now })];
     await pollAll(fake);
+    // D76: the later cancel never overwrites the no-show: our row keeps it, and it counts as a no-show
+    expect(await asOperator((c) => one<{ status: string; outcome: string }>(c, "select a.status, ot.category as outcome from appointments a join company_terms ot on ot.id=a.outcome_term where a.company_id=$1 and a.external_id='EV-NOSHOW'", [companyId]))).toEqual({ status: "confirmed", outcome: "noshow" });
     const [pastId, laterId] = [await apptId("EV-PAST"), await apptId("EV-LATER")];
     expect((await runsOf("Call cancelled")).map((r) => r.appointment_id)).toEqual([laterId]);
     expect((await runsOf("Cancellation rebook")).map((r) => r.appointment_id)).toEqual([laterId]);
@@ -212,5 +221,39 @@ describe.skipIf(!process.env.DATABASE_URL)("sweep 2026-10-10 on a Calendly compa
     const allBookedToday = await asOperator(async (c) => Number((await one<{ n: string }>(c, "select count(*)::text as n from appointments a where a.company_id=$1 and (a.booked_at at time zone $2)::date = $3::date", [companyId, TZ, today]))!.n));
     expect(tessBookedToday).toBeGreaterThan(0);
     expect(total("booked")).toBe(allBookedToday - tessBookedToday);
+  });
+  it("D76: a refiled answer edits, never adds: no-show then showed / closed edits the one thread line, takes the 👻 and stat-no-show back, moves the setter card back to Showed (won) and the closer card back to Scheduled, and updates the same Sales Call record", async () => {
+    await asOperator(async (c) => {
+      await c.query("insert into slack_connections (company_id, team_id, bot_token, channels) values ($1,'T1',$2,'{}')", [companyId, encrypt("xoxb-fake")]);
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.bookings','channel',$2)", [companyId, Buffer.from("CBOOK")]);
+    });
+    ghlContacts = [...ghlContacts, person("GC-RAY", "ray@x.com", "Ray")];
+    await pollAll(fake);
+    events = [appt("EV-RAY", day(1, 10), { invitee: { email: "ray@x.com", firstName: "Ray", lastName: "Sweep", timezone: TZ } })];
+    await pollAll(fake); await tick(fake, undefined, companyId);
+    const ray = await apptId("EV-RAY");
+    const booking = slack.find((m) => m.op === "post" && m.channel === "CBOOK" && !m.thread)!;
+    const cards = await asOperator((c) => many<{ ghl_pipeline_id: string; ghl_opportunity_id: string }>(c, "select p.ghl_pipeline_id, p.ghl_opportunity_id from pipeline_cards p join contacts ct on ct.id=p.contact_id where ct.ghl_contact_id='GC-RAY'", []));
+    const setter = cards.find((k) => k.ghl_pipeline_id === "PIPE-S")!.ghl_opportunity_id, closer = cards.find((k) => k.ghl_pipeline_id === "PIPE-C")!.ghl_opportunity_id;
+    const rec = (await asOperator((c) => one<{ ghl_record_id: string }>(c, "select ghl_record_id from crm_records where company_id=$1 and record_key='EV-RAY'", [companyId])))!.ghl_record_id;
+
+    await file(ray, "noshow"); await tick(fake, undefined, companyId);
+    const line = slack.find((m) => m.op === "post" && m.thread === booking.ts)!;
+    expect(line.text).toMatch(/^👻 No-show/);
+    expect(cardOps.filter((k) => k.id === setter).at(-1)).toMatchObject({ stageId: "ST-S-CX", status: "lost" });
+
+    const n = slack.length, nt = tagOps.length, nc = cardOps.length, nr = records.length;
+    await file(ray, "showed", "closed"); await tick(fake, undefined, companyId);
+    const after = slack.slice(n);
+    expect(after.filter((m) => m.op === "post")).toEqual([]);   // nothing new in the channel or the thread
+    expect(after.find((m) => m.op === "update")).toMatchObject({ ts: line.ts, text: "✅ Showed, per James Closer: closed." });
+    expect(after).toContainEqual(expect.objectContaining({ op: "unreact", ts: booking.ts, emoji: "ghost" }));
+    expect(after).toContainEqual(expect.objectContaining({ op: "react", ts: booking.ts, emoji: "white_check_mark" }));
+    expect(tagOps.slice(nt).filter((t) => t.op === "remove").map((t) => t.tag).sort()).toEqual(["stat-no-show", "stat-possible-cancel"]);
+    expect(tagOps.slice(nt).filter((t) => t.op === "remove").map((t) => t.tag)).not.toContain("stat-showed");
+    expect(cardOps.slice(nc)).toEqual(expect.arrayContaining([{ id: setter, stageId: "ST-SHOWED", status: "won" }, { id: closer, stageId: "ST-SCHED", status: "open" }]));
+    expect(records.slice(nr).filter((r) => r.object === "custom_objects.sales_call")).toEqual([expect.objectContaining({ op: "update", id: rec, props: expect.objectContaining({ outcome: "showed", disposition: "closed_won" }) })]);
+    // filing the same answer again changes nothing anywhere
+    const m = slack.length; await tick(fake, undefined, companyId); expect(slack.length).toBe(m);
   });
 });

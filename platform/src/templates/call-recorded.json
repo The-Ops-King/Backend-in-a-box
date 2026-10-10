@@ -116,7 +116,7 @@
         "id": "k1",
         "type": "set_var",
         "key": "call_key",
-        "value": "{{appointment.external_id}}"
+        "value": "{{appointment.slot_key}}"
       },
       {
         "id": "k3",

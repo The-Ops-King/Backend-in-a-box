@@ -111,11 +111,43 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     await audit("appointment", k.appt!.id, { outcome: k.appt!.outcome }, { repair: reason, outcome: cat, sales_call: k.id });
     repaired(`${k.id}:ledger`, `${callLabel(k)}: the ledger said ${WORDS[k.appt!.outcome ?? ""] ?? "nothing"}, now ${WORDS[cat]} as ${reason === "booking_cancelled" ? `${k.booking_source} cancelled it before the call` : "GHL says"}`, { appointment_id: k.appt!.id, sales_call: k.id, outcome: cat }, k.ghl || k.id);
   };
+  // D76: every Sales Call is linked to its contact and the closer card (fields and associations); repaired when the one right card and contact are certain
+  const linkRecord = async (k: SalesCall) => {
+    if (!cfg) return;
+    const label = callLabel(k), closerBoard = bindings["crm.pipeline_closer"];
+    const needContact = !k.links.contact_field, needCard = !!closerBoard && !k.links.opportunity;
+    if (!needContact && !needCard) return;
+    const ghlContact = (await one<{ v: string | null }>(c, "select ghl_contact_id as v from contacts where id=$1", [k.appt!.contact_id]))?.v ?? null;
+    if (!ghlContact) { cannot(`${label}: this Sales Call isn't linked to its contact, and the engine doesn't know the person's GHL id. Who is it?`, { kind: "link_contact", record_id: k.id }); return; }
+    let card: string | null = null;
+    if (needCard) {
+      const cards = await many<{ v: string }>(c, "select ghl_opportunity_id as v from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id=$3 and ghl_opportunity_id is not null and status<>'gone'", [company.id, k.appt!.contact_id, closerBoard]);
+      if (cards.length !== 1) { cannot(`${label}: this Sales Call isn't linked to a closer card, and the person has ${cards.length ? `${cards.length} closer cards` : "none"}. Which card is it?`, { kind: "link_card", record_id: k.id, cards: cards.length }); return; }
+      card = cards[0].v;
+    }
+    // the mode decides, as for every repair (D52): a contact the company may not write to yet is linked once it may
+    if (!runId || (await effectiveMode(c, company.id, k.appt!.contact_id, company.mode, bindings)) === "shadow") return;
+    const node = `repair:${k.id}:links`;
+    const cl = await claimEffect(c, company.id, runId, node, "record");
+    if (!cl.fresh) return;
+    const props: Record<string, unknown> = { ...(needContact ? { contact_id: ghlContact } : {}), ...(card ? { opportunity_id: card } : {}) };
+    try {
+      await adapters.write.updateRecord(ac, cfg.object, k.id, props);
+      if (needContact && bindings["crm.assoc_sales_call_contact"]) await adapters.write.relateRecords(ac, bindings["crm.assoc_sales_call_contact"], ghlContact, k.id);
+      if (card && bindings["crm.assoc_sales_call_opportunity"]) await adapters.write.relateRecords(ac, bindings["crm.assoc_sales_call_opportunity"], k.id, card);
+    } catch (e) { if ((e as { status?: number }).status) await releasePending(c, runId, node); cannot(`${label}: GHL refused the link (${why(e)}).`, { kind: "link_refused", record_id: k.id }); return; }
+    await markEffect(c, runId, node, "record", k.id);
+    await audit("sales_call", k.id, null, { repair: "linked", ...props });
+    repaired(`${k.id}:links`, `${label}: the Sales Call is now linked to ${[needContact ? "its contact" : "", card ? "the closer card" : ""].filter(Boolean).join(" and ")}`, { sales_call: k.id, ...props }, k.ghl || k.id);
+  };
   for (const k of calls) {
     const label = callLabel(k);
+    // D76: a slot a call moved away from keeps its own record, logged as rescheduled; it matches no booking by design
+    if (k.match === "none" && k.filed === "rescheduled") continue;
     if (k.match === "none") { cannot(`${label}: GHL has this Sales Call, but the engine has no booking for that person at that time. Was it booked outside ${k.booking_source || "the booking calendar"}, or moved?`, { kind: "unmatched", record_id: k.id }); continue; }
     if (k.match === "many") { cannot(`${label}: this Sales Call fits more than one booking in the engine, so I won't guess which. Which booking is it?`, { kind: "ambiguous", record_id: k.id }); continue; }
     const a = k.appt!;
+    await guarded(() => linkRecord(k), (e) => cannot(`${label}: the engine couldn't link this Sales Call (${why(e)}). I'll try again next hour.`, { kind: "link_write", record_id: k.id }));
     if (k.cancelUnknown && k.filed) { cannot(`${label}: ${k.booking_source} says cancelled, GHL says ${WORDS[k.filed]}, and I can't tell when it was cancelled. Which is right?`, { kind: "cancel_time_unknown", record_id: k.id }); continue; }
     const cancelWins = k.cls === "cancelled" && k.filed !== "cancelled" && a.status === "cancelled";
     if (cancelWins) {

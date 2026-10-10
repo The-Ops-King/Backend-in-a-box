@@ -157,7 +157,7 @@ when to actually re-test that step, and when to just alert."
 - **Only the step is retried, never the run.** A run parks on the failed node (`waiting`, `next_run_at`, wake flags
   kept); nothing before it runs again, nothing after it moves. Each try is its own `run_steps` row (`result.attempt`).
 - **Four classes, one place** (`platform/src/engine/failures.ts`): *transient* (a network error, a timeout, 408/425/429/5xx
-  from any vendor, a database connection) retries at 1, 5, 15 and 60 minutes (`RETRY_SCHEDULE`: five tries over 81
+  from any vendor, a database connection) retries at 1 and 5 minutes (three tries in all, D76) (`RETRY_SCHEDULE`: five tries over 81
   minutes), then pauses; *auth* (401/403) pauses at once; *permanent* (400/404/422, "not found" / "invalid", an unbound
   binding, a term the company does not have, a step's own config) pauses at once; *unknown* gets one retry, then is
   permanent. A failure the step returned itself (its verdict on its config or data) is permanent.

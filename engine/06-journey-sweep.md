@@ -88,9 +88,9 @@ Setter vs self is decided per company (`booking.setter_rule`, D24): by calendar,
 | Self-booked | same, s3, s4, s5 | **Direct Booked Call**, "Name -- Direct", open, closer | **Scheduled**, "Name -- Direct", open, closer | `stat-booked`, `stat-self-booked`, `meta booked call` | same eight | — | same post, "self-booked" | same |
 | Either | **Pre-call sequence** (`once_per_appointment`, premise `appointment_in_future`) e1 email, s1 text, w1 | — | — | — | — | "You're booked: … reply to lock it in" email (valid while ≥ 5 m before the call), booking text (≥ 15 m) | — | then w1 `wait_for_reply 4h` (sms) |
 | Either | **Calendar availability** | — | — | — | — | — | alert when the calendar has < 3 slots in 7 days | — |
-| A reschedule (`appointment.rescheduled`, same appointment moved; on Calendly the old event is cancelled and a new one made, and the poll moves our row onto the new event id) | **Call booked** again (t2): n1, cards re-stamped, tags re-added (idempotent), k3 skipped (`only_if`), k4 updates the **same** Sales Call record (on Calendly our record key follows the new event id, sweep 2026-10-10; it used to make a second record), n4 posts the card again | same stage | same stage | same tags again | same eight again | — | the booking card again with the new time under the 🔁 face, 🔁 on the old card (D71); later reactions go on the new one | Pre-call: a parked run follows the new time (D20); a finished one starts afresh for the new time (F4, D59) |
+| A reschedule (`appointment.rescheduled`, same appointment moved; on Calendly the old event is cancelled and a new one made, and the poll moves our row onto the new event id) | **Call booked** again (t2): n1, cards re-stamped, tags re-added (idempotent), k3 skipped (`only_if`), k5 logs the old slot's Sales Call record as `rescheduled` and k4 gives the new slot its own record (D76: each call slot is its own Sales Call; this reversed the sweep's S1), n4 posts the card again | same stage | same stage | same tags again | same eight again | — | the booking card again with the new time under the 🔁 face, 🔁 on the old card (D71); later reactions go on the new one | Pre-call: a parked run follows the new time (D20); a finished one starts afresh for the new time (F4, D59) |
 
-k4 writes `external_id` = the booking's id (the Calendly event uuid), `scheduled_at` = the start as an ISO stamp (`callTime` reads both that and the outside integration's display text), `call_date` in the company's zone, `outcome: scheduled`, and `opportunity_id` = the closer card the same run just made (sweep 2026-10-10: the context's `cards.*` is refreshed after a card step; before, a first booking's record had no closer card and no association to it).
+k4 is keyed by the slot (`appointment.slot_key`) and writes `external_id` = the booking's id (the Calendly event uuid), `scheduled_at` = the start as an ISO stamp (`callTime` reads both that and the outside integration's display text), `call_date` in the company's zone, `outcome: scheduled`, and `opportunity_id` = the closer card the same run just made (sweep 2026-10-10: the context's `cards.*` is refreshed after a card step; before, a first booking's record had no closer card and no association to it).
 
 Still running from §1.1: Speed to lead's 2h wait (F3, now ended by a booking). Both cards hang off one opportunity (the pursuit), opened at
 first booking (`lifecycle.ts:8`).
@@ -323,7 +323,7 @@ every write path.
 
 | # | Defect | Fix | Test |
 |---|---|---|---|
-| S1 | **A Calendly reschedule made a second Sales Call record.** Calendly cancels the old event and makes a new one; the poll moves our appointment onto the new event id, but `crm_records` stayed keyed by the old id, so Call booked's k4 (and every later record step) created a fresh record and left the old one `scheduled` forever — two calls booked in the bot's show rate, the old one "missing from EOD". | `poll.ts` `applyAppointment`: the records keyed by the old booking id follow it to the new one; k4 then updates the one record (new `external_id`, new `scheduled_at`). | `sweep.test.ts` |
+| S1 | **Reversed by D76** (each call slot is its own Sales Call; the old slot's record is logged rescheduled). Was: **A Calendly reschedule made a second Sales Call record.** Calendly cancels the old event and makes a new one; the poll moves our appointment onto the new event id, but `crm_records` stayed keyed by the old id, so Call booked's k4 (and every later record step) created a fresh record and left the old one `scheduled` forever — two calls booked in the bot's show rate, the old one "missing from EOD". | `poll.ts` `applyAppointment`: the records keyed by the old booking id follow it to the new one; k4 then updates the one record (new `external_id`, new `scheduled_at`). | `sweep.test.ts` |
 | S2 | **A first booking's Sales Call record had no closer card.** The run's `cards.*` was read once at claim, before s4/b5 made the closer card, so k4's `opportunity_id` rendered empty and the association to the card was skipped; only a later recording ever set it. | `executor.ts`: after a card step the run's `cards.<board>` is read again. | `sweep.test.ts` (opportunity id + association); same test pins `scheduled_at` as an ISO stamp that `callTime` reads back, `external_id` the event id |
 | S3 | **Refiling the end of day re-ran Call outcome filed for every call** (and filing a call the ledger already held — a hand move, the CRM's no-show): a second ✅/👻 thread line per call, tags and record rewritten. | `eod.ts` `submitEod`: a call whose answer is already on the appointment is not filed again; a changed answer still files (D54's "a corrected refiling must react again"). | `eod.test.ts › refiling the day` |
 | S4 | **An update of a Sales Call record could create a bare one.** Call outcome filed r1/r2, Payment recorded r2 and Deal closed r1 are updates, but `crm_record` creates when our row has no CRM id — e.g. a booking made while the contact was shadowed: a record with only `outcome` / cash and no contact or date. | `crm_record` gained `if_missing: skip` (update only; describe says "only if the record already exists"); the four steps carry it. | `step-failures.test.ts › an update-only record step…` |
@@ -366,6 +366,17 @@ chargeback; `status` succeeded, failed, refunded, disputed, pending). D-2, D-6, 
 | S14 | Call booked and the pre-call receipts wait for the CRM id | A first `check` (c0) on `contact.ghl_contact_id`, every 2 minutes for an hour; `check` gained `else_pause`, so when the hour runs out the run pauses with "contact has no CRM id yet" instead of exiting. | `sweep.test.ts › D-5` |
 | S15 | Wrap-ups leave test contacts out | `rollupDay`: every statement leaves out contacts that pass `testContactSql` with the company's `test.domains`. | `sweep.test.ts › D-8` |
 
+### D76: the owner's rulings, built the same day
+
+One record per call slot (S1 reversed; old slot logged `rescheduled`, cancels logged `cancelled`); rescheduled slots
+outside the show rate; every Sales Call linked to its contact and closer card (the drift sweep repairs or asks); a refiled
+end of day edits in place and undoes what the earlier answer did; a cancel after the call never overwrites a show or a
+no-show; at most three tries of a failing step, then one alert; the End-of-day reminder chases GHL Sales Calls left blank
+(and tells the operator after two days); until live, DMs to the team go to `slack.channel.ops` (else the operator) marked
+"Would have sent to …", and a run with no contact is shadow in test; wrap-ups from the bot's registry, only what happened.
+Full text: 00-decisions.md D76. Tests: `sweep.test.ts`, `mode.test.ts › D76`, `eod.test.ts › D76`, `health.drift.test.ts ›
+D76`, `reports.test.ts › D76`, `retry.test.ts`, `step-failures.test.ts`.
+
 ### Copy a real person would receive that is still a placeholder
 
 All in Pre-call sequence, to the prospect (in test mode, to test contacts only): e1 the booking email body
@@ -389,5 +400,5 @@ negative number; Whop's `refund.created` payload (identity, `payment_id`); Calen
 old Sales Call Zap being off. The test contact itself: tag `sys-test` **and** an email on jtylerray.com (the domain is
 what lets a Calendly booking pass before GHL's tags reach the engine), created in GHL before booking.
 
-Suite after this sweep (with S9–S15): 57 files, 492 tests passed, 4 todo (`tsc` clean). Rerun any single file alone to rule out the
+Suite after this sweep (with S9–S15 and D76): 57 files, 498 tests passed, 4 todo (`tsc` clean). Rerun any single file alone to rule out the
 shared database.

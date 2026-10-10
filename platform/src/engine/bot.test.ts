@@ -82,6 +82,7 @@ const salesCalls: GhlObjectRecord[] = [
   sc("S9", "A10", "CT1", "2026-10-07T13:00", "showed", "Cara Closer"),      // a test contact
   sc("S10", "INV-9f2c", "C3", "2026-10-09T16:00", "showed", "Dan Dealer"),   // an outside integration's id (the invitee's): matched to A12 by C3 and 16:00
   sc("S11", "A13", "C1", "2026-10-08T09:00", "no_show", "Cara Closer"),     // cancelled after the start: the no-show stands
+  sc("S12", "A14", "C1", "2026-10-06T15:00", "rescheduled", "Cara Closer"), // D76: a slot the call moved away from: listed, outside the show rate
 ];
 salesCalls.push({ id: "S-LINKED", createdAt: "2026-08-01T00:00:00Z", properties: { external_id: "X-LINKED", call_date: "2026-08-14", outcome: "showed", closer: "Cara Closer" } });   // August, linked to its contact only by GHL's association
 salesCalls.find((r) => r.id === "S3")!.properties.disposition = "dq";
@@ -165,7 +166,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id) values ($1,'T-BOT',$2,'UBOT')", [companyId, encrypt("xoxb-fake")]);
       for (const [k, kind, v] of [["secret.slack_signing", "secret", SECRET], ["secret.anthropic_key", "secret", "sk-fake"], ["secret.ghl_pit", "secret", "pit"], ["crm.location_id", "id", "LOC"], ["crm.field_contact_lead_source", "id", "F-SRC"], ["bot.escalate_to", "id", "U-TYLER"],
         ["crm.field_contact_work_situation", "id", WORK], ["qualify.mql_answers", "text", JSON.stringify(["Employed full-time", "Business owner or entrepreneur", "Investor"])], ["qualify.dq_answers", "text", JSON.stringify(["Currently between jobs", "Employed part-time"])],
-        ["crm.pipeline_closer", "id", "PIPE-CLOSER"], ["crm.pipeline_setter", "id", "PIPE-SETTER"], ["crm.field_contact_cash_collected", "id", "CF-CASH"], ["crm.object_sales_call", "id", "custom_objects.sales_call"], ["sales_call.outcomes", "text", JSON.stringify({ showed: "showed", no_show: "noshow", noshow: "noshow", cancelled: "cancelled", late_cancel: "cancelled" })], ["test.domains", "text", "test.co"], ["sales_call.dq_dispositions", "text", JSON.stringify(["dq"])]])
+        ["crm.pipeline_closer", "id", "PIPE-CLOSER"], ["crm.pipeline_setter", "id", "PIPE-SETTER"], ["crm.field_contact_cash_collected", "id", "CF-CASH"], ["crm.object_sales_call", "id", "custom_objects.sales_call"], ["sales_call.outcomes", "text", JSON.stringify({ showed: "showed", no_show: "noshow", noshow: "noshow", cancelled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" })], ["test.domains", "text", "test.co"], ["sales_call.dq_dispositions", "text", JSON.stringify(["dq"])]])
         await c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,$3,$4)", [companyId, k, kind, kind === "secret" ? encrypt(v) : Buffer.from(v)]);
       const cal = async (ext: string, owner: string) => (await one<{ id: string }>(c, "insert into calendars (company_id, source, external_id, name, appointment_term, default_user_id) values ($1,'ghl',$2,$3,$4,$5) returning id", [companyId, ext, `Calendar ${ext}`, closing, owner]))!.id;
       await cal("CAL-CARA", ids.cara); await cal("CAL-DAN", ids.dan);
@@ -257,7 +258,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       const sr = await metric("show_rate", { groupBy: "closer" });
       expect(sr).toMatchObject({ numerator: 3, denominator: 8, source: "GHL, read just now" });
       expect(sr.rows!.map((x) => [x.label, x.numerator, x.denominator])).toEqual([["Cara Closer", 1, 4], ["Dan Dealer", 2, 3], ["Zed Outsider", 0, 1]]);
-      expect(sr.shows_breakdown).toEqual({ booked: 8, showed: 3, noshow: 2, cancelled: 2, rescheduled: 0, missing: 1, missing_names: ["C4"],
+      expect(sr.shows_breakdown).toEqual({ booked: 8, showed: 3, noshow: 2, cancelled: 2, rescheduled: 1, missing: 1, missing_names: ["C4"],
         mismatches: [{ name: "C2", ghl_contact_id: "C2", record_id: "S6", ghl: "noshow", booking_source: "the GHL calendar" }] });
       expect((await metric("shows")).value).toBe(3);
       expect((await metric("no_shows")).value).toBe(2);       // S11 stands: cancelled after the start
@@ -356,7 +357,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       const text = formatAnswer([await metric("show_rate", { groupBy: "closer" }), await metric("show_rate", { groupBy: "source" })]);
       const lines = text.split("\n");
       expect(lines.slice(0, 3)).toEqual(["*Show rate: 37.5%*  ·  3 shows ÷ 8 calls booked  · _from GHL, read just now_",
-        "Calls booked: 8 · Showed 3 · No-show 2 · Cancelled 2 · Missing from EOD disposition 1 (C4)",
+        "Calls booked: 8 · Showed 3 · No-show 2 · Cancelled 2 · Missing from EOD disposition 1 (C4) · Rescheduled 1 (outside the rate)",
         "⚠️ C2: GHL says no-show, the GHL calendar says cancelled (counted as cancelled; fix the Sales Call in GHL)"]);
       expect(text).toContain("Zed Outsider");
       expect(formatAnswer([await metric("mqls")]).split("\n")[1]).toBe("MQLs: 1 matched the employment standard · 1 didn't answer · 1 unrecognized answer (\"retired\")");
@@ -383,7 +384,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(lines[3]).toBe("MQLs: 1 matched the employment standard · 1 didn't answer · 1 unrecognized answer (\"retired\")");
       expect(lines.find((l) => l.startsWith("*Calls booked"))).toMatch(/^\*Calls booked: 8\*  · _from GHL, read just now_/);
       expect(lines.find((l) => l.startsWith("*Show rate"))).toMatch(/^\*Show rate: 37.5%\*  ·  3 shows ÷ 8 calls booked/);
-      expect(lines).toContain("Calls booked: 8 · Showed 3 · No-show 2 · Cancelled 2 · Missing from EOD disposition 1 (C4)");
+      expect(lines).toContain("Calls booked: 8 · Showed 3 · No-show 2 · Cancelled 2 · Missing from EOD disposition 1 (C4) · Rescheduled 1 (outside the rate)");
       expect(lines.find((l) => l.startsWith("*Close rate"))).toMatch(/^\*Close rate: 66.7%\*  ·  2 closes ÷ 3 shows/);
       expect(posts[0].text).not.toMatch(/^_(?!Period).*: /m);   // no definition lines, only the period
       expect(posts[0].text).toContain("*Cash collected: $3,900*  · _from GHL, read just now_  ·  same days last month $2,000 (▲ $1,900)"); expect(posts[0].text).toContain("*Top source by cash: instagram* ($2,500)");

@@ -16,12 +16,17 @@ export async function applyOutcome(c: PoolClient, args: { companyId: string; app
   const outcome = await one<{ category: string; name: string }>(c, "select category, name from company_terms where id=$1 and company_id=$2 and domain='appointment_outcome'", [args.outcomeTermId, args.companyId]);
   if (!outcome) throw new Error("outcome term not found");
   const callOutcome = args.callOutcomeTermId ? await one<{ category: string }>(c, "select category from company_terms where id=$1 and company_id=$2 and domain='call_outcome'", [args.callOutcomeTermId, args.companyId]) : null;
-  await c.query("update appointments set outcome_term=$2, call_outcome_term=coalesce($3, call_outcome_term), disposition_id=coalesce($4, disposition_id), dispositioned_at=now(), dispositioned_by=coalesce($5, dispositioned_by) where id=$1",
+  // what this call carried before, so a changed answer can undo what the last one did (D76)
+  const before = await one<{ outcome: string | null; call_outcome: string | null }>(c, "select ot.category as outcome, ct.category as call_outcome from appointments a left join company_terms ot on ot.id=a.outcome_term left join company_terms ct on ct.id=a.call_outcome_term where a.id=$1", [a.id]);
+  // a closer's answer is the whole answer: a no-show after a "lost" carries no call outcome; the engine's own showed (a recording) keeps the closer's
+  const exact = args.source === "disposition";
+  await c.query(`update appointments set outcome_term=$2, call_outcome_term=${exact ? "$3" : "coalesce($3, call_outcome_term)"}, disposition_id=coalesce($4, disposition_id), dispositioned_at=now(), dispositioned_by=coalesce($5, dispositioned_by) where id=$1`,
     [a.id, args.outcomeTermId, args.callOutcomeTermId ?? null, args.dispositionId ?? null, args.userId ?? null]);
+  if (exact && before?.call_outcome === "lost" && callOutcome?.category !== "lost" && a.opportunity_id) await c.query("update opportunities set status='open', lost_at=null where id=$1 and status='lost'", [a.opportunity_id]);
   const base = { company_id: args.companyId, contact_id: a.contact_id, opportunity_id: a.opportunity_id, appointment_id: a.id, source: args.source, run_id: args.runId ?? null };
   const ctx = { contact: { id: a.contact_id }, appointment: { id: a.id, term: { category: a.term_category } } };
   let events = 0, runs = 0;
-  const ev1 = await emitEvent(c, { ...base, event_type: "appointment.outcome", data: { outcome: outcome.category, label: outcome.name, by: args.by ?? args.source } }); events++;
+  const ev1 = await emitEvent(c, { ...base, event_type: "appointment.outcome", data: { outcome: outcome.category, label: outcome.name, by: args.by ?? args.source, previous_outcome: before?.outcome ?? null, previous_call_outcome: before?.call_outcome ?? null } }); events++;
   runs += (await dispatchEvent(c, ev1, ctx)).length;
   if (outcome.category === "showed") {
     const ev2 = await emitEvent(c, { ...base, event_type: "call.held", data: { type: a.term_category, outcome: callOutcome?.category ?? null, notes: args.notes ? args.notes.slice(0, 500) : undefined, by: args.by ?? args.source } }); events++;
