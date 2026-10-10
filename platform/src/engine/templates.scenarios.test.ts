@@ -89,7 +89,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='scn'");
       if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
         await c.query("update appointments set disposition_id=null where company_id=$1", [co.id]);
-        for (const t of ["agreements", "sends", "runs", "events", "workflow_triggers", "workflows", "messages", "crm_records", "webhook_deliveries", "payments", "recordings", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+        for (const t of ["agreements", "sends", "runs", "events", "slack_connections", "slack_posts", "workflow_triggers", "workflows", "messages", "crm_records", "webhook_deliveries", "payments", "recordings", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
         await c.query("delete from companies where id=$1", [co.id]); }
     });
     const r = await installCompany({ name: "Scenarios", slug: "scn", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live",
@@ -100,7 +100,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
     // (ticks below are scoped to this company: the test database is shared with the other suites)
     // the test database is shared with the other suites; park their leftover runs so this file's ticks only ever send for this company
-    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(26);
+    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(24);
   });
 
   it("speed-to-lead: email + SMS now; a reply → tag engaged; silence → second email", async () => {
@@ -161,12 +161,14 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(at.hour).toBe(9); expect(at.minute).toBe(0); expect(at.toISODate()).toBe(DateTime.now().setZone(TZ).plus({ days: 1 }).toISODate());
   });
 
-  it("payment-received: thank-you email + client tag; opportunity becomes a deal", async () => {
+  it("payment-recorded: a payment is written to the CRM side only (nothing goes to the customer from here, D54); opportunity becomes a deal", async () => {
     const cns = await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CNS'", [companyId]));
     await asOperator(async (c) => { const ev = await applyPayment(c, companyId, cns!.id, { whopPaymentId: "P1", amount: 2500, currency: "USD", status: "succeeded", paidAt: new Date(), raw: {} }); await dispatchEvent(c, ev, { contact: { id: cns!.id } }); });
-    const n = since(); await tick(fake, undefined, companyId);
-    expect(sent.slice(n).map((s) => s.body)).toEqual([expect.stringMatching(/^You're in/)]); expect(tags).toContain("client");
-    expect((await runsFor("payment-received"))[0].exit_reason).toBe("done");
+    const n = since(), nTags = tags.length, nCw = contactWrites.length; await tick(fake, undefined, companyId);
+    expect(sent.slice(n)).toEqual([]);   // no thank-you email: the customer-facing "Payment received" template is gone
+    expect(tags.slice(nTags)).toContain("pay-plan-active"); expect(tags).not.toContain("client");
+    expect(contactWrites.slice(nCw).map((w) => w.customFields)).toContainEqual([{ id: "CF-CASH", field_value: "2500" }]);
+    expect((await runsFor("payment-recorded")).find((r) => r.contact_id === cns!.id)?.exit_reason).toBe("recorded");
     const opp = await asOperator((c) => one<{ status: string }>(c, "select status from opportunities where company_id=$1 and contact_id=$2", [companyId, cns!.id]));
     expect(opp?.status).toBe("won");
   });
@@ -195,18 +197,21 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
 
   it("shadow mode: the run completes, messages are recorded as would-send, nothing reaches the CRM", async () => {
     await asOperator((c) => c.query("update companies set mode='shadow', sms_enabled=true where id=$1", [companyId]));
-    const id = await newContact("CSHADOW", "shadow@x.com");
-    await asOperator(async (c) => { const ev = await applyPayment(c, companyId, id, { whopPaymentId: "P9", amount: 100, currency: "USD", status: "succeeded", paidAt: new Date(), raw: {} }); await dispatchEvent(c, ev, { contact: { id } }); });
-    const n = since(), nt = tags.length; await tick(fake, undefined, companyId);
-    expect(sent.length).toBe(n);            // the fake sender was never called
-    expect(tags.length).toBe(nt);           // the fake CRM never got the tag
-    const r = (await runsFor("payment-received")).find((r) => r.contact_id === id)!;
-    expect(r.exit_reason).toBe("done");     // but the run went all the way through
-    const ledger = await asOperator((c) => many<{ status: string; rendered_body: string }>(c, "select status, rendered_body from sends where run_id=$1", [r.id]));
-    expect(ledger).toEqual([{ status: "shadow", rendered_body: expect.stringMatching(/Payment came through/) }]);
+    const id = await newContact("CSHADOW", "shadow@x.com"); await withPhone(id, "+16025550199");
+    await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: {} }), { contact: { id } }));
+    const n = since(), nt = tags.length, nOpps = oppWrites.length; await tick(fake, undefined, companyId);
+    expect(sent.length).toBe(n);            // the fake sender was never called (speed-to-lead's email and text)
+    expect(tags.length).toBe(nt);           // the fake CRM never got the tag (new-lead's stat-new)
+    expect(oppWrites.length).toBe(nOpps);   // nor the setter card
+    const lead = (await runsFor("new-lead")).find((r) => r.contact_id === id)!;
+    expect(lead.exit_reason).toBe("done");  // but the run went all the way through
+    const speed = (await runsFor("speed-to-lead")).find((r) => r.contact_id === id)!;
+    expect(speed).toMatchObject({ status: "waiting", current_node: "n3" });   // and the sequence is parked for a reply as it would be live
+    const ledger = await asOperator((c) => many<{ status: string; rendered_body: string }>(c, "select status, rendered_body from sends where run_id=$1 order by channel", [speed.id]));
+    expect(ledger).toEqual([{ status: "shadow", rendered_body: expect.any(String) }, { status: "shadow", rendered_body: expect.any(String) }]);   // email and text, written down, not delivered
     const local = await asOperator((c) => one<{ tags: string[] }>(c, "select tags from contacts where id=$1", [id]));
-    expect(local?.tags).not.toContain("client");   // shadow touches neither GHL nor our replica of GHL's tags
-    const logged = await asOperator((c) => one<{ data: { shadow?: boolean } }>(c, "select data from events where run_id=$1 and event_type='tag.added'", [r.id]));
+    expect(local?.tags ?? []).not.toContain("stat-new");   // shadow touches neither GHL nor our replica of GHL's tags
+    const logged = await asOperator((c) => one<{ data: { shadow?: boolean } }>(c, "select data from events where run_id=$1 and event_type='tag.added'", [lead.id]));
     expect(logged?.data.shadow).toBe(true);        // but the journey records what would have happened
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
   });
@@ -232,7 +237,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
   it("a redelivered payment webhook records nothing new and starts nothing", async () => {
     const id = await newContact("CDUP", "dup@x.com");
     const pay = () => asOperator(async (c) => { const ev = await applyPayment(c, companyId, id, { whopPaymentId: "PDUP", amount: 50, currency: "USD", status: "succeeded", paidAt: new Date(), raw: {} }); return ev.id === -1 ? [] : dispatchEvent(c, ev, { contact: { id } }); });
-    expect(await pay()).toHaveLength(4);   // payment-received (customer-facing), payment-recorded (CRM side), deal-closed (gate: not signed yet) and the unsigned-agreement chase all start
+    expect(await pay()).toHaveLength(3);   // payment-recorded (CRM side), deal-closed (gate: not signed yet) and the unsigned-agreement chase all start
     expect(await pay()).toHaveLength(0);
     const evs = await asOperator((c) => many(c, "select 1 from events where contact_id=$1 and event_type='payment.received'", [id]));
     expect(evs).toHaveLength(1);
@@ -383,8 +388,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     let r = (await runsFor("payment-recorded")).find((x) => x.contact_id === id)!;
     expect(r).toMatchObject({ status: "completed", exit_reason: "recorded" });
     expect(contactWrites.slice(nCw).map((w) => w.customFields)).toEqual([[{ id: "CF-CASH", field_value: "1500" }], [{ id: "CF-REV", field_value: "2999" }]]);
-    const notClient = (t: string) => t !== "client";   // payment-received (the customer-facing template) also runs here and tags client
-    expect(tags.slice(nTags).filter(notClient)).toEqual(["pay-plan-active", "stat-agreement-sent"]); expect(removedTags.slice(nRm)).toEqual([]);   // first payment, nothing signed → the agreement goes out
+    expect(tags.slice(nTags)).toEqual(["pay-plan-active", "stat-agreement-sent"]); expect(removedTags.slice(nRm)).toEqual([]);   // first payment, nothing signed → the agreement goes out
     expect(docSends.at(-1)).toEqual({ templateId: "TPL-AGREE", contactId: "CCB2", userId: "U1" });
     const rec = recordWrites.slice(nRec); expect(rec).toHaveLength(2);   // the Payment record, then the payment stamped on the Sales Call record call-booked created
     expect(rec[1]).toMatchObject({ op: "update" });
@@ -397,7 +401,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await tick(fake, undefined, companyId);
     r = (await runsFor("payment-recorded")).filter((x) => x.contact_id === id).at(-1)!;
     expect(r.status).toBe("completed");
-    expect(tags.slice(nTags2).filter(notClient)).toEqual(["pay-paid-full"]); expect(removedTags.slice(nRm2)).toEqual(["pay-plan-active"]);
+    expect(tags.slice(nTags2)).toEqual(["pay-paid-full"]); expect(removedTags.slice(nRm2)).toEqual(["pay-plan-active"]);
     expect(recordWrites.slice(nRec2)[0]).toMatchObject({ op: "create", transaction_id: "pay_leo_2", type: "balance" });
     const ours = await asOperator((c) => many<{ record_key: string; ghl_record_id: string }>(c, "select record_key, ghl_record_id from crm_records where company_id=$1 and contact_id=$2 and object_key='custom_objects.payment' order by created_at", [companyId, id]));
     expect(ours.map((x) => x.record_key)).toEqual(["pay_leo_1", "pay_leo_2"]);

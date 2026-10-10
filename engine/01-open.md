@@ -204,7 +204,7 @@ Ticks are serialized by a lease row (`engine_state.tick_lock`, 6 minutes, see
 The minute scheduler is pg_cron + pg_net inside the Supabase database (`platform/src/engine/schedule.ts`);
 GitHub's five-minute schedule fired once in four hours and is kept only as a backup.
 
-## 24. Show / no-show for companies whose booking source has no outcome (closed 2026-10-08: `no-recording-no-show` template, D36)
+## 24. Show / no-show for companies whose booking source has no outcome (closed 2026-10-08: `no-recording-no-show` template, D36; that template retired 2026-10-09, D54: the end-of-day form presumes it from the call time alone)
 Calendly carries an invitee `no_show` mark (mapped to `noshow` when present) but Hair does not
 use it. Hair's truth is: a Fathom recording exists for the call → showed, otherwise no-show.
 That is the next automation to build; until then Hair appointments have no outcome and the

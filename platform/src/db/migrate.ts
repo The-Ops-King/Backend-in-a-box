@@ -125,7 +125,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`insert into event_types values ('schedule','clock'), ('eod.filed','report') on conflict do nothing`);
     // D45: a team member's reaction on a post the engine remembered is an event a workflow can start from
     await c.query(`alter table slack_connections add column if not exists bot_user_id text`);
-    // D46: a call with no recording by end of day is presumed a no-show for the closer's form; the closer's answer is the fact
+    // D46 column, unused since D54 (the end-of-day form presumes a no-show from the call time alone); left in place, nothing reads it
     await c.query(`alter table appointments add column if not exists presumed_outcome text`);
     await c.query(`insert into event_types values ('slack.reaction','slack') on conflict do nothing`);
     // D48: the three call decisions Jev makes (what kind of recording, what kind of setter call, how the sales call ended)

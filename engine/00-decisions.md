@@ -1364,3 +1364,37 @@ effects for test contacts alone. Live arrives by workflow switch in three sectio
 proves (payments, agreements), then the ones that only note things (call outcome, end of day, wrap-ups, health,
 calendar watch), then one system at a time (booking, cancellation, recordings, setter calls, the chase; pre-call
 last of all), so a break is one switch away from being undone.
+## D54. One workflow per call outcome (2026-10-09)
+
+Tyler, on the three small post-call workflows: "Remove 'No recording, presumed no-show' workflow; EOD form defaults to
+no-show when call time passed and attendance empty; nothing marked." "Remove 'No-show noted' workflow; reactions move
+into the EOD-filed automation as conditions (showed → ✅, no-show → 👻). Sales call recorded keeps its own ✅ ('we can be
+100% confident they were a show'); EOD show ensures ✅ but doesn't overwrite." "Remove 'Payment received' (default);
+'Payment recorded' stays." And the rule behind it: "Workflows accomplish one task… directly related steps stay inside one
+workflow." "Simplify and condense wherever possible."
+
+So three templates are gone and one arrived. `no-recording-no-show` and its `assume_no_show` step (D36 addendum, D46)
+are deleted: the end-of-day form itself now opens with no-show for a call whose end time has passed with no recording, no
+recorded outcome and no money, and nothing is marked until the closer answers (the ledger's outcome and money still
+outrank it; Jev's read of a transcript still pre-fills a recorded call). The `presumed_outcome` column stays, unread.
+`no-show-noted` and `payment-received` (the default thank-you email + `client` tag; `payment-recorded` is the real one)
+are deleted.
+
+`call-outcome` ("Call outcome filed") is the one workflow for what a closer filed. It starts on `appointment.outcome`,
+which the disposition path emits once per call, so one run is one call, whichever form filed it (end-of-day or the
+per-call disposition); the trigger takes only a closer's filing (`event._source` is `disposition`), because the engine's
+own showed, written when a recording lands, is Sales call recorded's business and already carries its ✅ and
+`stat-showed`. The CRM marking a no-show is `appointment.status_changed → noshow`, which never passes through
+`appointment.outcome`, so the second trigger from No-show noted stays and goes straight to the 👻. A branch on
+`event.outcome` carries the owner's conditions as pills: no-show → 👻 in the booking post's thread and `stat-no-show`;
+showed → ✅ in that thread (Slack answers `already_reacted` when the recording's ✅ is there, and the engine reads that as
+done, so the EOD show ensures the ✅ and never doubles it) and `stat-showed`, then a second branch on the call outcome;
+rescheduled → stop, Call booked already reacted 🔁. The call outcome is read from the appointment row
+(`appointment.call_outcome`, new in the run context) rather than from a `call.held` trigger: `call.held` fires after
+`appointment.outcome` for every show, so starting on it too would mean two runs per filed call, or a trigger match that
+hides the showed/no-show condition the owner wanted on the chart; the row is what the closer's disposition just wrote,
+so the value is human-confirmed by construction (D50: "use the fathom only as a way to 'tentatively' pre-set the EOD
+notes. until they can be confirmed by a closer."). Tags, from the CRM's own list: closed or deposit → `stat-closed-won`,
+follow-up → `stat-follow-up`, lost → `stat-lost`, disqualified → `stat-disqualified`; the form has no financing
+outcome, so `stat-financing-pending` is not written by anything. Reentry is `always`: a CRM no-show followed by a filed
+show (or a corrected refiling) must react again, and `once_per_appointment` would have blocked it for good.

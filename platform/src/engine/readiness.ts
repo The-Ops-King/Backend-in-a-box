@@ -16,7 +16,7 @@ export const isPlaceholderCopy = (body: string | undefined) => /\[placeholder\b/
 export type Readiness = { ready: boolean; issues: Issue[]; workflows: WorkflowReadiness[] };
 
 /** What a template cannot do yet, by slug. Remove the entry when the piece ships; the UI stops warning on its own. */
-export const KNOWN_GAPS: Record<string, string[]> = {};   // the no-show half shipped as no-recording-no-show (D36 addendum); nothing is known to be missing today
+export const KNOWN_GAPS: Record<string, string[]> = {};   // nothing is known to be missing today
 
 export async function companyReadiness(c: PoolClient, companyId: string, slugPrefix: string): Promise<Readiness> {
   const co = (await one<{ mode: Mode; sms_enabled: boolean }>(c, "select mode, sms_enabled from companies where id=$1", [companyId]))!;

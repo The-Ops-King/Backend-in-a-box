@@ -8,7 +8,7 @@ import { prefill, submitEod, tokenFor, closerByToken, diffAnswers, todayFor, loa
 import { dispatchSchedules } from "@/engine/clock";
 import { tick } from "@/engine/runner";
 import { installTemplateForTest } from "@/engine/test-install";
-import { fireNow } from "@/engine/clock";
+import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { totalsOf, DQ_REASONS } from "@/engine/eod-form";
 import { loadCompany } from "@/engine/context";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
@@ -27,7 +27,7 @@ const fake: Adapters = {
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 const TZ = "America/Phoenix";
-let companyId: string, allan: string, bea: string, sarah: string, leo: string, apptSarah: string, apptLeo: string;
+let companyId: string, allan: string, bea: string, sarah: string, leo: string, apptSarah: string, apptLeo: string, apptMia: string, apptNoah: string, apptTheo: string;
 
 describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
   beforeAll(async () => {
@@ -147,18 +147,61 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect((await asOperator((c) => dispatchSchedules(c, DateTime.now().setZone(TZ).set({ hour: 18 }) as DateTime<true>, companyId))).started).toEqual([]);
   });
 
-  it("no recording, presumed no-show (D46): at the end of the day a call that ended with no recording and no outcome is presumed a no-show for the closer's form, never marked; recorded or already answered calls are left alone", async () => {
-    const wf = await asOperator((c) => installTemplateForTest(c, companyId, "no-recording-no-show"));
-    const at = DateTime.now().setZone(TZ).set({ hour: 23, minute: 0 }) as DateTime<true>;
-    await asOperator((c) => fireNow(c, companyId, wf, undefined, at));
-    expect(await tick(fake, at, companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
-    const step = await asOperator((c) => one<{ result: { presumed: string[]; checked: number } }>(c, "select s.result from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_type='assume_no_show'", [wf]));
-    expect(step?.result).toMatchObject({ checked: 1, presumed: ["Sarah Kim"] });   // Bea's 4pm call with Sarah: no recording, no answer; Allan's two were filed (showed)
-    const beaCall = await asOperator((c) => one<{ oc: string | null; presumed: string | null }>(c, "select ot.category as oc, a.presumed_outcome as presumed from appointments a left join company_terms ot on ot.id=a.outcome_term where a.company_id=$1 and a.assigned_user_id=$2", [companyId, bea]));
-    expect(beaCall).toEqual({ oc: null, presumed: "noshow" });   // nothing marked: the closer decides
-    expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from events where company_id=$1 and event_type='appointment.outcome' and data->>'by'='no recording by end of day'", [companyId])))!.n).toBe("0");
-    const day = at.toFormat("yyyy-MM-dd");
-    const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: bea, name: "Bea", email: "bea@x.com" }, day));
-    expect(pre.calls.find((x) => x.contact === "Sarah Kim")?.outcome).toBe("no_show");   // the form opens with the presumption, for the closer to confirm or correct
+  it("presumed no-show (D54): a call whose time has passed with no recording, no outcome and no money opens the form as no-show; a call still ahead opens blank; nothing is marked", async () => {
+    const day = DateTime.now().setZone(TZ).minus({ days: 1 }).toFormat("yyyy-MM-dd");
+    const at = (h: number) => DateTime.fromFormat(day, "yyyy-MM-dd", { zone: TZ }).set({ hour: h }).toJSDate();
+    await asOperator(async (c) => {
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1", [companyId]))!.id;
+      const mia = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,'GM','Mia','Chen') returning id", [companyId]))!.id;
+      const noah = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,'GN','Noah','Reyes') returning id", [companyId]))!.id;
+      const theo = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,'GT','Theo','Park') returning id", [companyId]))!.id;
+      apptMia = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id) values ($1,$2,$3,'A4',$4,$5,now(),'confirmed',$6,$7) returning id", [companyId, mia, cal, at(10), at(11), term, allan]))!.id;
+      apptNoah = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id) values ($1,$2,$3,'A5',$4,$5,now(),'confirmed',$6,$7) returning id", [companyId, noah, cal, at(14), at(15), term, allan]))!.id;
+      apptTheo = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id) values ($1,$2,$3,'A6',$4,$5,now(),'confirmed',$6,$7) returning id", [companyId, theo, cal, at(16), at(17), term, allan]))!.id;
+      // Noah's call was recorded and Jev read it as a follow-up; Mia's and Theo's left no recording
+      await c.query("insert into recordings (company_id, contact_id, appointment_id, provider, external_id, title, started_at, share_url, analysis, linked_by, raw) values ($1,$2,$3,'fathom','R2','Noah <> Allan',$4,'https://fathom.video/share/r2',$5,'invitee_email','{}')", [companyId, noah, apptNoah, at(14), { notes: { disposition: "follow_up", next_step: "call back Friday" } }]);
+      // the booking posts Call booked made, remembered by appointment, so a reaction has a post to land on
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.bookings','channel',$2)", [companyId, Buffer.from("CBOOK")]);
+      for (const [tag, ts] of [[`appointment:${apptMia}`, "bk-mia"], [`appointment:${apptNoah}`, "bk-noah"], [`appointment:${apptTheo}`, "bk-theo"]]) await c.query("insert into slack_posts (company_id, tag, channel, ts) values ($1,$2,'CBOOK',$3)", [companyId, tag, ts]);
+    });
+    const who = { id: allan, name: "Allan P", email: "allan@eod.test" };
+    // opened at 9am that day, before any call: nothing is presumed yet
+    const morning = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, day, DateTime.fromFormat(day, "yyyy-MM-dd", { zone: TZ }).set({ hour: 9 })));
+    expect(morning.calls.map((x) => [x.contact, x.outcome])).toEqual([["Mia Chen", ""], ["Noah Reyes", "follow_up"], ["Theo Park", ""]]);   // Jev's read stands regardless of the clock: a recording exists
+    // opened at the end of the day: the two unrecorded calls are over and presumed no-shows for the closer to confirm or correct
+    const evening = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, day, DateTime.fromFormat(day, "yyyy-MM-dd", { zone: TZ }).set({ hour: 23 })));
+    expect(evening.calls.map((x) => [x.contact, x.outcome])).toEqual([["Mia Chen", "no_show"], ["Noah Reyes", "follow_up"], ["Theo Park", "no_show"]]);
+    expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from appointments where company_id=$1 and outcome_term is not null and id in ($2,$3,$4)", [companyId, apptMia, apptNoah, apptTheo])))!.n).toBe("0");   // nothing marked: the closer decides
+  });
+
+  it("call outcome filed (D54): filing one no-show and one showed follow-up starts one Call outcome run per call: 👻 and stat-no-show on the one, ✅ and stat-showed + stat-follow-up on the other, each in its own booking post's thread; the CRM marking a no-show takes the same path", async () => {
+    await asOperator((c) => installTemplateForTest(c, companyId, "call-outcome"));
+    const day = DateTime.now().setZone(TZ).minus({ days: 1 }).toFormat("yyyy-MM-dd");
+    const token = await asOperator((c) => tokenFor(c, allan));
+    const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, day));
+    // Theo is left out of the filing (the CRM will mark him below); Mia confirmed no-show, Noah confirmed follow-up
+    const calls = pre.calls.filter((x) => x.contact !== "Theo Park").map((x) => ({ ...x, notes: x.contact === "Mia Chen" ? "never joined" : "wants Friday", next_date: x.contact === "Mia Chen" ? null : DateTime.now().plus({ days: 2 }).toISODate() }));
+    const n = posts.length, nr = reactions.length;
+    expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} } }))).toEqual({ ok: true, recorded: 2, changes: expect.any(Array) });
+    const runs = await asOperator((c) => many<{ id: string; appointment_id: string }>(c, "select r.id, r.appointment_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Call outcome filed'", [companyId]));
+    expect(runs.map((r) => r.appointment_id).sort()).toEqual([apptMia, apptNoah].sort());   // one run per call; the eod-filed run starts too
+    expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 3, completed: 3, failed: 0 });
+    expect(reactions.slice(nr).filter((r) => r.channel === "CBOOK").sort((a, b) => a.ts.localeCompare(b.ts))).toEqual([{ channel: "CBOOK", ts: "bk-mia", emoji: "ghost" }, { channel: "CBOOK", ts: "bk-noah", emoji: "white_check_mark" }]);   // two runs, either order
+    const ghost = posts.slice(n).find((p) => p.threadTs === "bk-mia")!, check = posts.slice(n).find((p) => p.threadTs === "bk-noah")!;
+    expect(ghost).toMatchObject({ channel: "CBOOK", as: { name: "No-show" } }); expect(ghost.text).toMatch(/^👻 No-show for the call .* with Allan P\.$/);
+    expect(check).toMatchObject({ channel: "CBOOK", as: { name: "Showed" } }); expect(check.text).toBe("✅ Showed, per Allan P: follow up.");
+    const tagsOf = (ghl: string) => asOperator(async (c) => (await one<{ tags: string[] }>(c, "select tags from contacts where company_id=$1 and ghl_contact_id=$2", [companyId, ghl]))!.tags);
+    expect(await tagsOf("GM")).toEqual(["stat-no-show"]);
+    expect((await tagsOf("GN")).sort()).toEqual(["stat-follow-up", "stat-showed"]);
+    expect((await asOperator((c) => many<{ reason: string }>(c, "select exit_reason as reason from runs where id = any($1)", [runs.map((r) => r.id)]))).map((r) => r.reason)).toEqual(["noted", "noted"]);
+    // the CRM marks Theo a no-show: the same workflow, straight to the 👻
+    const theo = (await asOperator((c) => one<{ contact_id: string }>(c, "select contact_id from appointments where id=$1", [apptTheo])))!.contact_id;
+    await asOperator(async (c) => { await c.query("update appointments set status='noshow' where id=$1", [apptTheo]); const ev = await emitEvent(c, { company_id: companyId, contact_id: theo, opportunity_id: null, appointment_id: apptTheo, event_type: "appointment.status_changed", source: "ghl_poll", data: { source: "ghl", status: { from: "confirmed", to: "noshow" } } }); return dispatchEvent(c, ev, { contact: { id: theo }, appointment: { id: apptTheo } }); });
+    expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
+    expect(reactions.at(-1)).toEqual({ channel: "CBOOK", ts: "bk-theo", emoji: "ghost" });
+    expect(await tagsOf("GT")).toEqual(["stat-no-show"]);
+    // the engine's own showed (a recording landing) is Sales call recorded's business, not this workflow's: no run
+    expect(await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: theo, opportunity_id: null, appointment_id: apptTheo, event_type: "appointment.outcome", source: "engine", data: { outcome: "showed", label: "Showed", by: "workflow:o1" } }), { contact: { id: theo }, appointment: { id: apptTheo } }))).toEqual([]);
   });
 });

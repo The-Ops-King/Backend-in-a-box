@@ -13,7 +13,7 @@ the core workflows. Everything installs OFF.
 | no-show-recovery | appointment.status_changed → noshow | once per appointment | 10 min, SMS + email with rebook link, wait 24h, second email if silent |
 | cancellation-rebook | appointment.status_changed → cancelled | once per appointment | SMS + email with rebook link |
 | post-call-follow-up | call.held, outcome follow_up | once per appointment | next morning SMS |
-| payment-received | payment.received | always | thank-you email, tag client |
+| ~~payment-received~~ | payment.received | — | removed 2026-10-09 (D54): the customer-facing thank-you is gone; payment-recorded is the one payment workflow |
 | payment-failed | payment.failed | always | Slack post in the payments channel tagging the closer (D49: no client messaging) |
 | reactivation | tag.added "reactivate" | once per contact per 90d | email, 3 days, SMS, 4 days, last email |
 

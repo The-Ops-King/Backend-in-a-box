@@ -152,9 +152,9 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
       const pc = await one<{ status: string }>(c, "select r.status from runs r join workflows w on w.id=r.workflow_id where w.name='Post-call follow-up' and r.appointment_id=$1", [apptId]);
       expect(pc?.status).toBe("active");
       const r2 = await recordDisposition(c, { companyId, appointmentId: apptId, outcomeTermId: noshow!.id });
-      expect(r2.runs).toBe(2);   // no-show recovery (the prospect) and no-show noted (👻 on the booking post, D44)
-      const r3 = await recordDisposition(c, { companyId, appointmentId: apptId, outcomeTermId: noshow!.id });   // same appointment again → reentry blocks a second run
-      expect(r3.runs).toBe(0);
+      expect(r2.runs).toBe(2);   // no-show recovery (the prospect) and call outcome filed (👻 on the booking post, D54)
+      const r3 = await recordDisposition(c, { companyId, appointmentId: apptId, outcomeTermId: noshow!.id });   // same appointment again → recovery is once per appointment; the outcome workflow reacts again (a correction must be able to)
+      expect(r3.runs).toBe(1);
       const ns = await many(c, "select 1 from runs r join workflows w on w.id=r.workflow_id where w.name='No-show recovery' and r.appointment_id=$1", [apptId]);
       expect(ns).toHaveLength(1);
       const j = await many<{ event_type: string }>(c, "select event_type from events where appointment_id=$1 and source='disposition' order by id", [apptId]);
