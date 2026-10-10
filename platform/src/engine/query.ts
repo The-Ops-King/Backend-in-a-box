@@ -50,6 +50,9 @@ export function ensureQueryRole(): Promise<string | null> {
     try {
       if (!(await one(c, "select 1 from pg_roles where rolname=$1", [QUERY_ROLE]))) await c.query(`create role ${QUERY_ROLE} nologin nobypassrls`).catch((e) => { if ((e as { code?: string }).code !== "42710") throw e; });
       await c.query(`grant usage on schema public to ${QUERY_ROLE}`);
+      // the login user must be a member to `set role` to it; a hosted database's user is not a superuser, so the grant is explicit
+      const me = (await one<{ u: string }>(c, "select current_user as u"))!.u;
+      await c.query(`grant ${QUERY_ROLE} to "${me}"`).catch((e) => { if (!/already a member|cannot be granted to itself/i.test(String((e as Error).message))) throw e; });
       const present = new Set((await c.query<{ table_name: string }>("select table_name from information_schema.tables where table_schema='public'")).rows.map((r) => r.table_name));
       const tables = ownTables().filter((t) => present.has(t) && !QUERY_DENY_TABLES.includes(t));
       if (tables.length) await c.query(`grant select on ${tables.join(", ")} to ${QUERY_ROLE}`);
