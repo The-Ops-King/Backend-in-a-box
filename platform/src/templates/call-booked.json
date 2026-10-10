@@ -5,7 +5,7 @@
   "stage": "booking",
   "sort": 10,
   "origin": "spec",
-  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, the Sales Call record is created (the recording updates it later; a reschedule moves it), and the team gets the Slack card with the intake answers. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar; later reactions (confirmed, cancelled, outcome, payment) land on that newest card.",
+  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, the Sales Call record is created (the recording updates it later; a reschedule moves it), and the team gets the Slack card with the intake answers. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar and reacts 🔁 on the card it replaces; later reactions (confirmed, cancelled, outcome, payment) land on that newest card.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -225,7 +225,8 @@
           "name": "Call rescheduled",
           "icons": [
             ":repeat:"
-          ]
+          ],
+          "reschedule_mark": "repeat"
         },
         "else_value": {
           "name": "New call booked",
@@ -234,7 +235,8 @@
             ":calendar:",
             ":date:",
             ":spiral_calendar_pad:"
-          ]
+          ],
+          "reschedule_mark": ""
         }
       },
       {
@@ -246,8 +248,14 @@
           "name": "{{vars.card.name}}",
           "icon": "{{vars.card.icons}}"
         },
-        "title": "Post the booking card in Slack (🔁 face on a reschedule)",
-        "tag": "appointment:{{appointment.id}}"
+        "title": "Post the booking card in Slack (a reschedule: 🔁 face, 🔁 on the old card)",
+        "tag": "appointment:{{appointment.id}}",
+        "react_on": {
+          "of": "tag:appointment:{{appointment.id}}",
+          "emojis": [
+            "{{vars.card.reschedule_mark}}"
+          ]
+        }
       },
       {
         "id": "x1",

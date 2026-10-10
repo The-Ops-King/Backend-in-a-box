@@ -2141,6 +2141,9 @@ its thread (D44). Tyler: drop that step; a rebooked call shows as the booking ca
 - Call booked has one Slack step for both. A set_var (plumbing, not on the chart) picks the face: `appointment.rescheduled`
   → "Call rescheduled" with `:repeat:`, anything else → "New call booked" with the rotating calendar faces (D31).
 - The card carries the new time, the intake answers and the reschedule link, same as the first one.
+- The card it replaces gets a 🔁 reaction (Tyler, same day), so the old time reads as moved. The same step does it with
+  `react_on` on the appointment tag, which still names the old card at that moment; a first booking renders the mark empty
+  and reacts nothing. The outcome reactions are unchanged.
 - It takes the `appointment:<id>` tag, so ✅ confirmed, ❌ cancelled, 👻 no-show, ✅ showed and 💵 land on the newest card.
   The old card keeps what it had; a tap on it is no longer a fact the engine reads (only the newest post is remembered).
 - Engine: a persona icon written as one whole `{{expr}}` takes the value as is, so a var can hand over a list of faces.

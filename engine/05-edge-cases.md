@@ -206,7 +206,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | Self-booked closing call | Closer card at Scheduled, setter card made/moved to Direct, tags on/off, date + owner on the contact, Slack card (skipped when unbound) | `templates.scenarios.test.ts › call-booked, self-booked: …` |
 | Setter-booked | Setter card → Set, closer card "-- Setter Booked", setter stamped | `templates.scenarios.test.ts › call-booked, setter booked: …` |
 | A setter card the CRM already has | Adopted and moved | `templates.scenarios.test.ts › D41: …` |
-| A reschedule | Second trigger; the task is not re-created; the booking card is posted again with the new time under the 🔁 face, no thread reply (D71) | `funnel.e2e.test.ts › reschedule → same appointment moves…` (one appointment); `journey.test.ts › the closer drags the call to next week…` |
+| A reschedule | Second trigger; the task is not re-created; the booking card is posted again with the new time under the 🔁 face, 🔁 on the old card, no thread reply (D71) | `funnel.e2e.test.ts › reschedule → same appointment moves…` (one appointment); `journey.test.ts › the closer drags the call to next week…` |
 | Two closing calls booked for one person in one poll | Both runs complete: `always` runs are never superseded (G4, D56) | `edge-cases.test.ts › two payments for one person in the same minute…` (same rule) |
 | A booking from a calendar not mapped to a call type | `applyAppointment` returns early: no appointment row, no event | `not yet` |
 | A booking with no phone (Calendly) | The run does not send texts; the card and tags still happen | `not yet` |

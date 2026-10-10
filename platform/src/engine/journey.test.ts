@@ -334,6 +334,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       run = await lastRun("pre-call-sequence", kai);
       expect(run).toMatchObject({ status: "waiting", current_node: "w1" });
       bookingTs = (await postTs(`appointment:${run.appointment_id}`))!;
+      expect(reactionsOn(bookingTs)).toEqual([]);   // a first booking marks nothing
       expect(posts.find((p) => `ts${posts.indexOf(p) + 1}` === bookingTs)?.as).toEqual({ name: "New call booked", icon: [":telephone_receiver:", ":calendar:", ":date:", ":spiral_calendar_pad:"] });
     });
 
@@ -359,7 +360,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await stepStatus(run.id, ["mm"])).toEqual({ mm: "ok" });
     });
 
-    it("the closer drags the call to next week (a GHL reschedule, same appointment): Call booked posts the card again with the new time under the 🔁 face, no thread reply, and later reactions go on that card; the finished pre-call is not revived, a fresh one starts for the new time (F4, D59)", async () => {
+    it("the closer drags the call to next week (a GHL reschedule, same appointment): Call booked posts the card again with the new time under the 🔁 face and reacts 🔁 on the old card, no thread reply, and later reactions go on the new card; the finished pre-call is not revived, a fresh one starts for the new time (F4, D59)", async () => {
       const moved = snap("A-KAI", "KAI1", A.plus({ days: 7 }));
       await book(moved);
       await tickAt(A.minus({ minutes: 5 }));
@@ -370,7 +371,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(card).toMatchObject({ threadTs: undefined, as: { name: "Call rescheduled", icon: ":repeat:" } }); expect(card.text).toMatch(/^\*Name:\*/); expect(card.text).not.toContain("Rescheduled to");
       expect(posts.filter((p) => p.threadTs === bookingTs && /Rescheduled/.test(p.text))).toEqual([]);
       expect(await postTs(`appointment:${booked.appointment_id}`)).toBe(`ts${posts.length}`);   // ✅ ❌ 👻 💵 from here on go on the new card
-      expect(reactionsOn(bookingTs)).not.toContain("repeat");
+      expect(reactionsOn(bookingTs).at(-1)).toBe("repeat"); expect(reactionsOn(`ts${posts.length}`)).toEqual([]);   // the old card is marked moved; the new one starts clean
       expect((await runsFor("pre-call-sequence", kai)).map((r) => r.status)).toEqual(["completed", "waiting"]);
     });
     it("F4 (fixed, D59): a call rescheduled after its sequence ended gets a fresh pre-call sequence for the new time: pre-call also starts on appointment.rescheduled, its reentry key carries the start time, the booking email and text go for the new time and the run waits for the reply", async () => {
