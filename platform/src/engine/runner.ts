@@ -2,11 +2,11 @@ import { DateTime } from "luxon";
 import { asOperator, many, one } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
 import { bookingFor } from "@/adapters/types";
-import { parseDefinition, indexDefinition, type Definition } from "./definition";
+import { parseDefinition, indexDefinition, onwardEdge, type Definition } from "./definition";
 import { buildContext, loadCompany, type RunRow } from "./context";
 import { syncCards } from "./cards";
 import { contactPasses } from "./mode";
-import { executeNode, type ExecDeps } from "./executor";
+import { executeNode, listenerOf, setPath, type ExecDeps, type Listener } from "./executor";
 import type { HealthProbes } from "./health";
 import { deferIntoWindow } from "./waitrule";
 import { emitEvent, startRun, type EventRow } from "./dispatch";
@@ -41,6 +41,15 @@ async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ct
   return { ok: true };
 }
 
+/** D58: has the run's armed listener fired — a tap (one of its emojis, on that very message) or its until time? */
+async function listenerFired(c: import("pg").PoolClient, companyId: string, lis: Listener, now: DateTime): Promise<{ edge: "tap"; tap: Record<string, unknown> } | { edge: "until" } | null> {
+  const tap = await one<{ data: { reaction: string; user: string; user_name: string; ts: string }; occurred_at: Date }>(c,
+    "select data, occurred_at from events where company_id=$1 and event_type='slack.reaction' and data->>'channel'=$2 and data->>'ts'=$3 and data->>'reaction' = any($4::text[]) order by occurred_at, id limit 1", [companyId, lis.channel, lis.ts, lis.emojis]);
+  if (tap) return { edge: "tap", tap: { reaction: tap.data.reaction, user: tap.data.user, user_name: tap.data.user_name, ts: tap.data.ts, at: tap.occurred_at.toISOString() } };
+  if (lis.until && DateTime.fromISO(lis.until) <= now) return { edge: "until" };
+  return null;
+}
+
 /** `onlyCompanyId` limits the claim to one company (tests share a database; an operator may want one company run now). */
 export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompanyId?: string, probes?: HealthProbes): Promise<TickReport> {
   const report: TickReport = { claimed: 0, completed: 0, waiting: 0, exited: 0, failed: 0, paused: 0, recovery: false, staleExits: 0, sends: 0 };
@@ -68,9 +77,13 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
         const ver = await one<{ definition: unknown }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [run.workflow_id, run.workflow_version]);
         const def = parseDefinition(ver!.definition);
         const { nodes, edgesFrom } = indexDefinition(def);
-        const finish = async (status: string, exit_reason?: string, next_run_at?: Date | null, current_node?: string | null, ctx?: Record<string, unknown>, wake: { reply?: boolean; tag?: string } = {}) =>
-          c.query("update runs set status=$2, exit_reason=coalesce($3, exit_reason), next_run_at=$4, current_node=coalesce($5,current_node), context=coalesce($6,context), wake_on_reply=$7, wake_on_tag=$8, claimed_at=null, claimed_by=null, finished_at=case when $2 in ('completed','exited','failed') then now() end where id=$1",
-            [run.id, status, exit_reason ?? null, next_run_at ?? null, current_node ?? null, ctx ?? null, !!wake.reply, wake.tag ?? null]);
+        const finish = async (status: string, exit_reason?: string, next_run_at?: Date | null, current_node?: string | null, ctx?: Record<string, unknown>, wake: { reply?: boolean; tag?: string } = {}) => {
+          // D58: a run parking with a listener armed also wakes on that post's tag and no later than the listener's until; where it parked (and when it was due) is kept for `resume`
+          const lis = status === "waiting" && ctx ? listenerOf(ctx) : undefined;
+          const due = lis?.until && (!next_run_at || new Date(lis.until) < next_run_at) ? new Date(lis.until) : next_run_at ?? null;
+          return c.query("update runs set status=$2, exit_reason=coalesce($3, exit_reason), next_run_at=$4, current_node=coalesce($5,current_node), context=coalesce($6,context), wake_on_reply=$7, wake_on_tag=$8, resume_node=case when $9 then coalesce($5,current_node) else resume_node end, resume_at=case when $9 then $10 else resume_at end, claimed_at=null, claimed_by=null, finished_at=case when $2 in ('completed','exited','failed') then now() end where id=$1",
+            [run.id, status, exit_reason ?? null, due, current_node ?? null, ctx ?? null, !!wake.reply, wake.tag ?? lis?.tag ?? null, !!lis, next_run_at ?? null]);
+        };
 
         // 1. premise — the always-on moot check
         const alive = await premiseAlive(def, { c, adapters, company, adapterCompany, bindings, run });
@@ -91,9 +104,21 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
         const ctx = await buildContext(c, run, company, bindings);
         const deps: ExecDeps = { c, adapters, company, adapterCompany, bindings, run, ctx, edgesFrom, now, probes };
         let nodeId: string | null = run.current_node ?? def.nodes.find((n) => n.type === "trigger")!.id;
+        // D58: a listener armed on this run fires wherever the run is parked: the run jumps to its "tap" (or "until") edge, remembering where it was for `resume`
+        const jump = async (lis: Listener, fired: NonNullable<Awaited<ReturnType<typeof listenerFired>>>, from: string | null, at: Date | null) => {
+          setPath(ctx, lis.into, fired.edge === "tap" ? fired.tap : null); delete (ctx.vars as Record<string, unknown>).__listen;
+          const edge = edgesFrom(lis.node).find((e) => e.label === fired.edge); if (!edge) return null;
+          await c.query("update runs set resume_node=$2, resume_at=$3 where id=$1", [run.id, from, at]); run.resume_node = from; run.resume_at = at;
+          await c.query("insert into run_steps (run_id,node_id,node_type,status,result,finished_at) values ($1,$2,'wait_for_reaction','ok',$3,now())", [run.id, lis.node, { listener: fired.edge, ...(fired.edge === "tap" ? { reaction: fired.tap.reaction, by: fired.tap.user_name } : {}), interrupted: from }]);
+          return edge.to;
+        };
+        const armed = listenerOf(ctx);
+        if (armed) { const fired = await listenerFired(c, run.company_id, armed, now); if (fired) nodeId = (await jump(armed, fired, run.current_node, run.resume_at ?? run.next_run_at)) ?? nodeId; }
 
         for (let i = 0; i < MAX_STEPS && nodeId; i++) {
           const node = nodes.get(nodeId); if (!node) { await finish("failed", `unknown node ${nodeId}`); report.failed++; return; }
+          // a run ending with its listener still armed disarms it first (the "until" path: the question was never answered), then comes back to this exit through `resume`
+          if (node.type === "exit") { const lis = listenerOf(ctx); if (lis) { const to = await jump(lis, { edge: "until" }, node.id, null); if (to) { nodeId = to; continue; } } }
 
           // 2. send window — any send outside the company's hours waits for the next opening (D5d), then premise re-runs
           if (node.type === "send_sms" || node.type === "send_email") {
@@ -110,10 +135,14 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           let out: Awaited<ReturnType<typeof executeNode>>;
           try { out = await executeNode(deps, node); } catch (e) { out = { status: "failed", error: String((e as Error).message).slice(0, 500) }; }
           await c.query("update run_steps set status=$2, result=$3, error=$4, finished_at=now() where id=$1",
-            [step!.id, out.status === "exit" || out.status === "paused" ? "ok" : out.status === "waiting" ? "waiting" : out.status, "result" in out ? out.result ?? {} : {}, "error" in out ? out.error : null]);
+            [step!.id, out.status === "exit" || out.status === "paused" || out.status === "resume" ? "ok" : out.status === "waiting" ? "waiting" : out.status, "result" in out ? out.result ?? {} : {}, "error" in out ? out.error : null]);
           if (out.status === "ok" && (node.type === "send_sms" || node.type === "send_email")) { sendsThisTick.set(run.company_id, (sendsThisTick.get(run.company_id) ?? 0) + 1); report.sends++; }
 
-          if (out.status === "waiting") { await finish("waiting", undefined, out.until?.toJSDate() ?? null, out.stay ? node.id : (edgesFrom(node.id).find((e) => e.label !== "timeout") ?? edgesFrom(node.id)[0])?.to ?? null, ctx, { reply: out.wakeOnReply, tag: out.wakeOnTag }); report.waiting++; return; }
+          if (out.status === "waiting") { await finish("waiting", undefined, out.until?.toJSDate() ?? null, out.stay ? node.id : onwardEdge(edgesFrom(node.id))?.to ?? null, ctx, { reply: out.wakeOnReply, tag: out.wakeOnTag }); report.waiting++; return; }
+          if (out.status === "resume") {   // D58: back to the step the listener pulled the run from; that step re-parks itself with its own due time (a wait recomputes, a reply wait keeps its pinned deadline)
+            const to = run.resume_node!; await c.query("update runs set resume_node=null, resume_at=null where id=$1", [run.id]); run.resume_node = null; run.resume_at = null;
+            nodeId = to; continue;
+          }
           if (out.status === "exit") {
             // a run that stopped at a gate did nothing: release its once-per key so the next trigger (payment first, signature later) gets its turn (D30)
             if (out.gate) {

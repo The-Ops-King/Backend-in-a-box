@@ -5,7 +5,7 @@
   "stage": "post_call",
   "sort": 4,
   "origin": "spec",
-  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, and the contact gets the outcome tags. No-show → 👻 and stat-no-show. Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one) and stat-showed, then the call outcome the closer confirmed: closed or deposit → stat-closed-won, follow-up → stat-follow-up, lost → stat-lost, disqualified → stat-disqualified. A reschedule changes nothing here: Call booked already reacted 🔁. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54).",
+  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, and the contact gets the outcome tags. No-show → 👻 and stat-no-show. Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one) and stat-showed, then the call outcome the closer confirmed: closed or deposit → stat-closed-won, follow-up → stat-follow-up, lost → stat-lost, disqualified → stat-disqualified. A reschedule changes nothing here: Call booked already reacted 🔁. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54). A no-show after Jev had read a reply as a cancel or a reschedule and nobody answered the question (the appointment still carries that pending read) also gets stat-possible-cancel and records intent.unanswered_no_show: we were pretty sure they cancelled and the slot was never opened (D58).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -60,6 +60,44 @@
         "tag": [
           "stat-no-show"
         ]
+      },
+      {
+        "id": "g3",
+        "type": "record",
+        "event": "intent.unanswered_no_show",
+        "only_if": {
+          "in": [
+            "{{appointment.pending_read.intent}}",
+            [
+              "cancelled",
+              "reschedule_request"
+            ]
+          ]
+        },
+        "data": {
+          "predicted": "{{appointment.pending_read.intent}}",
+          "predicted_confidence": "{{appointment.pending_read.confidence}}",
+          "asked_at": "{{appointment.pending_read.at}}",
+          "appointment_id": "{{appointment.id}}"
+        },
+        "title": "Record the no-show after an unanswered cancel or reschedule read"
+      },
+      {
+        "id": "g4",
+        "type": "tags",
+        "add": [
+          "stat-possible-cancel"
+        ],
+        "only_if": {
+          "in": [
+            "{{appointment.pending_read.intent}}",
+            [
+              "cancelled",
+              "reschedule_request"
+            ]
+          ]
+        },
+        "title": "Tag stat-possible-cancel: we were pretty sure they cancelled and the slot was never opened"
       },
       {
         "id": "s1",
@@ -168,10 +206,6 @@
         "to": "g2"
       },
       {
-        "from": "g2",
-        "to": "x1"
-      },
-      {
         "from": "s1",
         "to": "s2"
       },
@@ -246,6 +280,18 @@
       },
       {
         "from": "c4",
+        "to": "x1"
+      },
+      {
+        "from": "g2",
+        "to": "g3"
+      },
+      {
+        "from": "g3",
+        "to": "g4"
+      },
+      {
+        "from": "g4",
         "to": "x1"
       }
     ]

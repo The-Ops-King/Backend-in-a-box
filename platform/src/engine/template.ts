@@ -56,6 +56,8 @@ const filters: Record<string, Filter> = {
   // same as date, in the company's zone: lists the team reads (Slack, pipeline cards) stay in one zone
   date_company: (v, arg, env) => (absent(v) ? undefined : toDT(v, env.companyTz ?? env.tz).toFormat(arg ?? "ccc LLL d · h:mm a ZZZZ")),
   tz: (v, arg) => (absent(v) ? undefined : toDT(v, arg ?? "UTC").toISO()),
+  // hours from now until that time, one decimal, negative once it has passed: {{appointment.starts_at | hours_until}} → 41.5
+  hours_until: (v, _arg, env) => (absent(v) ? undefined : Math.round(toDT(v, env.tz).diff(env.now ?? DateTime.now(), "hours").hours * 10) / 10),
   words: (v) => String(v ?? "").replace(/[_-]+/g, " "),   // closed_won → closed won
   upper: (v) => String(v ?? "").toUpperCase(),
   lower: (v) => String(v ?? "").toLowerCase(),
@@ -122,21 +124,23 @@ function toDT(v: unknown, tz: string): DateTime {
   return dt.setZone(tz);
 }
 
+/** One `path | filter:arg | filter2` expression, as a value (its type kept: a number stays a number). Unknown path → throws (also enforced at save). */
+export function resolveExpr(expr: string, ctx: Record<string, unknown>, env: RenderEnv): unknown {
+  const [pathRaw, ...pipes] = expr.split("|").map((s) => s.trim());
+  let v = resolvePath(ctx, pathRaw);
+  if (v === undefined && !pipes.some((p) => /^(default|prefix|line|link|bullets|oneof)\b/.test(p))) throw new UnknownPathError(`unknown path {{${pathRaw}}}`);   // these pipes mean "may be absent"
+  for (const pipe of pipes) {
+    // split on the FIRST colon only — "date:h:mma" has a colon inside its argument
+    const i = pipe.indexOf(":"); const name = (i < 0 ? pipe : pipe.slice(0, i)).trim(); const arg = i < 0 ? undefined : pipe.slice(i + 1).trim();
+    const f = filters[name];
+    if (!f) throw new Error(`unknown filter ${name}`);
+    v = f(v, arg, env);
+  }
+  return v;
+}
 /** Renders `{{ path | filter:arg | filter2 }}`. Unknown path → throws (also enforced at save). */
 export function render(template: string, ctx: Record<string, unknown>, env: RenderEnv): string {
-  return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
-    const [pathRaw, ...pipes] = expr.split("|").map((s) => s.trim());
-    let v = resolvePath(ctx, pathRaw);
-    if (v === undefined && !pipes.some((p) => /^(default|prefix|line|link|bullets|oneof)\b/.test(p))) throw new UnknownPathError(`unknown path {{${pathRaw}}}`);   // these pipes mean "may be absent"
-    for (const pipe of pipes) {
-      // split on the FIRST colon only — "date:h:mma" has a colon inside its argument
-      const i = pipe.indexOf(":"); const name = (i < 0 ? pipe : pipe.slice(0, i)).trim(); const arg = i < 0 ? undefined : pipe.slice(i + 1).trim();
-      const f = filters[name];
-      if (!f) throw new Error(`unknown filter ${name}`);
-      v = f(v, arg, env);
-    }
-    return v === undefined || v === null ? "" : String(v);
-  });
+  return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => { const v = resolveExpr(expr, ctx, env); return v === undefined || v === null ? "" : String(v); });
 }
 
 /** Save-time check: every {{path}} must be a known root. Bindings are checked against the manifest separately. */

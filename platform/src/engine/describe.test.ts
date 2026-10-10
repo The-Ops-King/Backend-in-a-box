@@ -32,7 +32,7 @@ describe("plain-English descriptions", () => {
     expect(branchTitle(def, "n2")).toBe("Setter booked, or self booked?");
     const rem = parseDefinition(templates.find((t) => t.slug === "pre-call-sequence")!.definition);
     expect(branchTitle(rem, "b1")).toBe("The reply is “confirmed”, or neither?");   // D55: only a clear yes acts on its own; everything else is put to the team
-    expect(branchTitle(rem, "b_dec")).toBe("✅ keep the call, or ❌ cancel it, or 🔁 reschedule, or nobody decided in time?");
+    expect(branchTitle(rem, "b_dec")).toBe("✅ keep the call, or ❌ cancel it, or 🔁 reschedule, or nobody decided: back to where the reminders were?");
   });
   it("a record step names the event in plain words; a picked set_var lists its choices", () => {
     expect(describeNode({ id: "r", type: "record", event: "intent.reviewed", data: { predicted: "{{reply.intent}}", decided: "{{vars.decided}}", agreed: "{{vars.agreed}}" } }))

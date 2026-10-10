@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import type { Definition, Node } from "./definition";
+import { SIDE_LABELS, type Definition, type Node } from "./definition";
 import { describeNode, branchTitle, edgeWords } from "./describe";
 import { computeWaitUntil, deferIntoWindow } from "./waitrule";
 import { resolvePath } from "./template";
@@ -35,7 +35,7 @@ export function projectRun(def: Definition, run: Pick<RunRow, "status" | "curren
     } else if (n.type === "wait_for_reply") {
       out.push({ node_id: id, title: d.title, kind: "wait", at: null, note: `moves on the moment they reply, or after ${n.timeout}` });
       break;
-    } else if (n.type === "wait_for_reaction") {
+    } else if (n.type === "wait_for_reaction" && n.blocking) {
       out.push({ node_id: id, title: d.title, kind: "wait", at: null, note: n.timeout ? `moves on the moment the team taps, or after ${n.timeout}` : "moves on the moment the team taps" });
       break;
     } else if (n.type === "send_sms" || n.type === "send_email") {
@@ -50,7 +50,7 @@ export function projectRun(def: Definition, run: Pick<RunRow, "status" | "curren
     } else if (n.type !== "trigger") {
       out.push({ node_id: id, title: d.title, kind: "step", at: cursor.toISO() });
     }
-    const edges = next(id).filter((e) => e.label !== "timeout");
+    const edges = next(id).filter((e) => !SIDE_LABELS.has(e.label ?? ""));
     id = (edges[0] ?? next(id)[0])?.to ?? null;
   }
   return out;

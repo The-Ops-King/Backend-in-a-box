@@ -221,20 +221,23 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     } finally { await asOperator((c) => c.query("update workflows set current_version=1 where id=$1", [wf])); }
   });
 
-  it("the Slack door: a forged signature, the bot's own reaction, a reaction on a post the engine does not remember, a removed reaction and a redelivered event all change nothing; one real tap starts the booking decision", async () => {
+  it("the Slack door: a forged signature, the bot's own reaction, a reaction on a post the engine does not remember, a removed reaction and a redelivered event all change nothing; one real tap pulls the listening run off its reminder into the decision and `resume` puts it back (D58)", async () => {
     const id = await newContact("CE7", "e7@x.com", "+16025550007");
     await book(snap("AE7", "CE7", daysOut(3)));
     await tick(fake, undefined, companyId);
     const run = (await runsFor("pre-call-sequence")).find((r) => r.contact_id === id)!;
     const TS = "1700000000.000100";
     await asOperator((c) => c.query("insert into slack_posts (company_id, tag, channel, ts, run_id) values ($1,$2,'C1',$3,$4)", [companyId, `decision:${run.appointment_id}`, TS, run.id]));
+    await asOperator((c) => c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'ME7','sms','inbound','hmm',now())", [companyId, id]));   // the reply the question was about
     const before = Number((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from events where company_id=$1 and event_type='slack.reaction'", [companyId])))!.n);
     expect((await knock(reaction("U1", TS), "EvForged", true)).status).toBe(401);
     expect((await knock(reaction("UBOT", TS), "EvBot")).body).toMatchObject({ ignored: "own reaction" });
     expect((await knock(reaction("U1", "999.000001"), "EvUnknown")).body).toMatchObject({ ignored: "not a post the engine remembers" });
     expect((await knock(reaction("U1", TS, { type: "reaction_removed" }), "EvRemoved")).body).toMatchObject({ ignored: "reaction_removed" });
-    // D53: the question's own run is parked on the wait; the tap wakes that run and no other
-    await asOperator((c) => c.query("update runs set status='waiting', current_node='w_dec', wake_on_tag=$2, next_run_at=null where id=$1", [run.id, `decision:${run.appointment_id}`]));
+    // D53/D58: the question's own run listens for the tap while parked on a reminder; the tap wakes that run and no other
+    const tag = `decision:${run.appointment_id}`;
+    await asOperator((c) => c.query("update runs set status='waiting', current_node='r72', resume_node='r72', wake_on_tag=$2, next_run_at=null, context = jsonb_set(context, '{vars,__listen}', $3::jsonb) where id=$1",
+      [run.id, tag, JSON.stringify({ node: "w_dec", tag, channel: "C1", ts: TS, emojis: ["white_check_mark", "x", "repeat"], into: "reaction", until: null, armed_at: new Date().toISOString() })]));
     const real = await knock(reaction("U1", TS), "EvReal");
     expect(real.body).toMatchObject({ runs_woken: 1 }); expect(String(real.body.event)).toMatch(/^\d+$/);
     expect((await knock(reaction("U1", TS), "EvReal")).body).toMatchObject({ duplicate_delivery: true });   // Slack retries: the same event id lands twice
@@ -242,7 +245,9 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     expect(after - before).toBe(1);
     const nTags = tags.length; await tick(fake, undefined, companyId);
     expect(tags.slice(nTags)).toContain("stat-confirmed");
-    expect((await runsFor("pre-call-sequence")).find((r) => r.id === run.id)?.current_node).not.toBe("w_dec");
+    const back = (await runsFor("pre-call-sequence")).find((r) => r.id === run.id)!;
+    expect(back.status).toBe("waiting"); expect(["r72", "r48"]).toContain(back.current_node);   // confirmed, and back on the reminders it was listening from (the 3-day wait is already due for a call three days out, so it may have moved to the next)
+    expect(await asOperator((c) => one<{ wake_on_tag: string | null; resume_node: string | null; listen: unknown }>(c, "select wake_on_tag, resume_node, context->'vars'->'__listen' as listen from runs where id=$1", [run.id]))).toEqual({ wake_on_tag: null, resume_node: null, listen: null });
   });
 
   it.fails("a person rebooks and the old call is then cancelled (a GHL reschedule done as cancel + new booking): the cards for the live booking stay at Scheduled and no rebook text goes out (call-cancelled and cancellation-rebook never ask whether a newer booking exists)", async () => {
@@ -279,7 +284,7 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     } finally { slackDown = false; }
   });
 
-  it.fails("a call booked two hours out: the 1-hour and 10-minute texts still go (executor.ts wait_for_reply holds the run for its full 4-hour timeout; nothing caps it at the call time)", async () => {
+  it("a call booked two hours out: the reply wait ends an hour before the call (D58 fixes G7: `until` on wait_for_reply), so the run moves on to the reminders instead of sleeping through the call", async () => {
     const id = await newContact("CE10", "e10@x.com", "+16025550010");
     const start = DateTime.now().plus({ hours: 2 });
     await book(snap("AE10", "CE10", start));
@@ -288,28 +293,27 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     expect(sent.slice(n).map((s) => s.kind).sort()).toEqual(["email", "sms"]);   // the day-one email and text go at once
     const run = (await runsFor("pre-call-sequence")).find((r) => r.contact_id === id)!;
     expect(run).toMatchObject({ status: "waiting", current_node: "w1" });
+    expect(run.next_run_at!.getTime() - Date.now()).toBeLessThan(61 * 60e3);   // the deadline is the hour before the call, not four hours out
     // eight minutes before the call, no reply ever came
     await wake(run.id); await tick(fake, DateTime.now().plus({ hours: 1, minutes: 52 }), companyId);
     const after = (await runsFor("pre-call-sequence")).find((r) => r.id === run.id)!;
-    expect(after.current_node).not.toBe("w1");   // today: still w1; the reminders never run and the run exits moot when the call starts
+    expect(after.current_node).not.toBe("w1");
+    const steps = await asOperator((c) => many<{ node_id: string }>(c, "select node_id from run_steps where run_id=$1 order by id", [run.id]));
+    expect(steps.map((s) => s.node_id)).toEqual(expect.arrayContaining(["w1", "n_unc", "r72"]));   // the timeout path: unconfirmed, then on to the reminders
   });
 
-  it("a call booked three minutes out: the day-one messages are skipped as stale, nothing fails, and the run exits moot once the call has started", async () => {
+  it("a call booked three minutes out: the day-one messages are skipped as stale, nothing fails; the reply wait does not outlive the call (D58), so the run moves on: every reminder is stale but the 10-minute text, which goes, and the run completes", async () => {
     const id = await newContact("CE11", "e11@x.com", "+16025550011");
     const s = snap("AE11", "CE11", DateTime.now().plus({ minutes: 3 }));
     await book(s);
     const n = sent.length;
     await tick(fake, undefined, companyId);
-    expect(sent.length).toBe(n);
     const run = (await runsFor("pre-call-sequence")).find((r) => r.contact_id === id)!;
-    expect(run).toMatchObject({ status: "waiting", current_node: "w1" });
-    const steps = await asOperator((c) => many<{ node_id: string; status: string }>(c, "select node_id, status from run_steps where run_id=$1 and node_id in ('e1','s1')", [run.id]));
-    expect(steps.map((x) => x.status)).toEqual(["stale", "stale"]);
-    // the call has started: the next wake finds the premise dead
-    apptStore.set("AE11", { ...s, startTime: DateTime.now().minus({ minutes: 1 }).toISO()!, endTime: DateTime.now().plus({ minutes: 44 }).toISO()! });
-    await wake(run.id); await tick(fake, undefined, companyId);
-    expect((await runsFor("pre-call-sequence")).find((r) => r.id === run.id)).toMatchObject({ status: "exited", exit_reason: expect.stringMatching(/moot: appointment already happened/) });
-    expect(sent.length).toBe(n);
+    expect(run).toMatchObject({ status: "completed", exit_reason: "done" });
+    const steps = await asOperator((c) => many<{ node_id: string; status: string }>(c, "select node_id, status from run_steps where run_id=$1 and node_id in ('e1','s1','m72','m48','m24e','m24s','m1','m10')", [run.id]));
+    expect(Object.fromEntries(steps.map((x) => [x.node_id, x.status]))).toEqual({ e1: "stale", s1: "stale", m72: "stale", m48: "stale", m24e: "stale", m24s: "stale", m1: "stale", m10: "ok" });
+    expect(sent.slice(n).map((x) => x.body)).toEqual([expect.stringMatching(/10-minute text/)]);   // the one reminder with no validity rule: it always goes
+    expect(tags).toContain("stat-unconfirmed");
   });
 
   it("placeholder copy at go-live time is a warning, not a blocker: readiness names the workflow and the count", async () => {

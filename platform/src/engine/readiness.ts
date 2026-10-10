@@ -22,12 +22,12 @@ export async function companyReadiness(c: PoolClient, companyId: string, slugPre
   const co = (await one<{ mode: Mode; sms_enabled: boolean }>(c, "select mode, sms_enabled from companies where id=$1", [companyId]))!;
   const bound = new Set((await many<{ key: string }>(c, "select key from bindings where company_id=$1", [companyId])).map((b) => b.key));
   const slack = await one(c, "select 1 from slack_connections where company_id=$1", [companyId]);
-  const rows = await many<{ id: string; name: string; enabled: boolean; slug: string | null; manifest: { bindings: { key: string; required: boolean }[] }; definition: unknown }>(c, `
+  const rows = await many<{ id: string; name: string; enabled: boolean; slug: string | null; manifest: { bindings: { key: string; required: boolean; fallback?: string }[] }; definition: unknown }>(c, `
     select w.id, w.name, w.enabled, t.slug, v.manifest, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version left join workflow_templates t on t.id=w.template_id
     where w.company_id=$1 order by w.name`, [companyId]);
   const workflows: WorkflowReadiness[] = rows.map((w) => {
     const missing = w.manifest.bindings.filter((b) => b.required && !bound.has(b.key)).map((b) => b.key);
-    const optionalUnbound = w.manifest.bindings.filter((b) => !b.required && !bound.has(b.key)).map((b) => b.key);
+    const optionalUnbound = w.manifest.bindings.filter((b) => !b.required && !bound.has(b.key) && !(b.fallback && bound.has(b.fallback))).map((b) => b.key);   // a channel with a bound fallback is not a gap: its posts land there
     const gaps = w.slug ? KNOWN_GAPS[w.slug] ?? [] : [];
     let parseError: string | undefined, placeholders = 0;
     try { const def = parseDefinition(w.definition); placeholders = def.nodes.filter((n) => (n.type === "send_sms" || n.type === "send_email") && isPlaceholderCopy(n.template)).length; } catch (e) { parseError = String((e as Error).message).split("\n").find((l) => /message/.test(l))?.replace(/.*"message":\s*"?/, "").replace(/"?,?\s*$/, "") ?? "does not parse"; }

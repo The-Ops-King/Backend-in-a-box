@@ -226,7 +226,10 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
         switch (r.kind) {
           case "binding": {
             const v = bindings[r.value];
-            if (!v) { if (r.value.startsWith("slack.channel.")) miss(`step ${r.node} posts to ${r.value}, which is not bound; those posts are skipped.`, "warning"); else miss(`step ${r.node} needs ${r.value}, which is not bound.`); break; }
+            if (!v) {
+              const post = def.nodes.find((n) => n.id === r.node); const fb = post?.type === "slack_post" && post.fallback_channel ? post.fallback_channel.replace(/[{}\s]/g, "") : undefined;
+              if (fb && bindings[fb]) break;   // D58: the post falls back to a bound channel
+              if (r.value.startsWith("slack.channel.")) miss(`step ${r.node} posts to ${r.value}, which is not bound; those posts are skipped.`, "warning"); else miss(`step ${r.node} needs ${r.value}, which is not bound.`); break; }
             if (r.value === "crm.agreement_template") { unverifiable.push(`${wf.name}: the agreement template (${v})`); break; }
             if (!catalog && r.value.startsWith("crm.") && r.value !== "crm.location_id") break;   // ghl_token already said the CRM cannot be read
             if (r.value.startsWith("crm.pipeline_") && !pipes.has(v)) miss(`step ${r.node}: pipeline ${r.value} (${v}) no longer exists in the CRM.`);

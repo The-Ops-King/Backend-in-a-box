@@ -33,8 +33,16 @@ describe("shipped templates", () => {
     expect(from("b1").map((e) => [e.to, e.when ? JSON.stringify(e.when) : "else"])).toEqual([["n_conf", JSON.stringify({ eq: ["{{reply.intent}}", "confirmed"] })], ["v_read", "else"]]);
     for (const id of ["n_cx", "n_rs"]) expect(def.edges.filter((e) => e.to === id).map((e) => e.from)).toEqual(["b_dec"]);
     expect(def.nodes.find((n) => n.id === "n_ask")).toMatchObject({ type: "slack_post", tag: "decision:{{appointment.id}}", offer: ["white_check_mark", "x", "repeat"] });
-    expect(def.nodes.find((n) => n.id === "rec")).toMatchObject({ type: "record", event: "intent.reviewed", only_if: { exists: "reaction.reaction" }, data: { predicted: "{{reply.intent}}", decided: "{{vars.decided}}", agreed: "{{vars.agreed}}", decided_by: "{{reaction.user_name}}", appointment_id: "{{appointment.id}}" } });
-    expect(vocab.has("intent.reviewed")).toBe(true);
+    expect(def.nodes.find((n) => n.id === "rec")).toMatchObject({ type: "record", event: "intent.reviewed", data: { predicted: "{{reply.intent}}", predicted_confidence: "{{reply.intent_confidence}}", decided: "{{vars.decided}}", agreed: "{{vars.agreed}}", decided_by: "{{reaction.user_name}}", appointment_id: "{{appointment.id}}" } });
+    for (const ev of ["intent.reviewed", "intent.unanswered", "intent.unanswered_no_show"]) expect(vocab.has(ev), ev).toBe(true);
+    // D58: the question does not block the reminders — the listener is armed and the run goes on; a tap jumps it to the decision path, the call time disarms it; the question goes to the attention channel, else bookings
+    expect(def.nodes.find((n) => n.id === "w_dec")).toMatchObject({ type: "wait_for_reaction", blocking: false, until: { anchor: "appointment.starts_at" } });
+    expect(from("w_dec").map((e) => [e.to, e.label])).toEqual([["r72", "the reminders go on"], ["v_decided", "tap"], ["rec_un", "until"]]);
+    expect(def.nodes.find((n) => n.id === "n_ask")).toMatchObject({ channel: "{{slack.channel.attention}}", fallback_channel: "{{slack.channel.bookings}}" });
+    expect(def.nodes.find((n) => n.id === "w1")).toMatchObject({ type: "wait_for_reply", until: { anchor: "appointment.starts_at", offset: "-1h" } });   // G7
+    expect(from("b_dec").find((e) => e.else)?.to).toBe("rs"); expect(def.nodes.find((n) => n.id === "rs")?.type).toBe("resume");
+    const out = parseDefinition(templates.find((t) => t.slug === "call-outcome")!.definition);
+    expect(out.nodes.find((n) => n.id === "g4")).toMatchObject({ type: "tags", add: ["stat-possible-cancel"], only_if: { in: ["{{appointment.pending_read.intent}}", ["cancelled", "reschedule_request"]] } });
   });
   it("the shipped flows that add and remove tags do it in one step, adds before removes", () => {
     const node = (slug: string, id: string) => parseDefinition(templates.find((t) => t.slug === slug)!.definition).nodes.find((n) => n.id === id);

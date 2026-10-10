@@ -6,7 +6,7 @@ import { transcriptText, type RecordingRow } from "./recordings";
 import { latestAgreement, facts as agreementFacts, type AgreementRow } from "./agreements";
 import { eodFacts } from "./eod";
 
-export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string | null; user_id?: string | null; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date };
+export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string | null; user_id?: string | null; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date; resume_node?: string | null; resume_at?: Date | null };
 export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; status: string; sms_enabled: boolean; mode: import("./mode").Mode; contract_value_default: string | null };
 
 export async function loadCompany(c: PoolClient, companyId: string): Promise<{ row: CompanyRow; adapterCompany: Company; bindings: Record<string, string> }> {
@@ -68,9 +68,9 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   }
   if (run.appointment_id) {
     const a = await one<Record<string, unknown>>(c, `
-      select a.id, a.source, a.external_id, a.starts_at, a.ends_at, a.status, a.self_booked, a.set_by, a.answers, a.reschedule_url, a.cancel_url, a.tracking, a.cancelled_by, a.cancel_reason,
+      select a.id, a.source, a.external_id, a.starts_at, a.ends_at, a.status, a.self_booked, a.set_by, a.answers, a.reschedule_url, a.cancel_url, a.tracking, a.cancelled_by, a.cancel_reason, a.pending_read,
              json_build_object('name', t.name, 'category', t.category) as term,
-             json_build_object('id', u.id, 'first_name', split_part(u.name,' ',1), 'name', u.name, 'ghl_user_id', u.ghl_user_id) as closer,
+             json_build_object('id', u.id, 'first_name', split_part(u.name,' ',1), 'name', u.name, 'email', u.email, 'ghl_user_id', u.ghl_user_id, 'slack_user_id', u.slack_user_id, 'mention', coalesce('<@' || u.slack_user_id || '>', u.name)) as closer,
              ot.category as outcome, cot.category as call_outcome
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
            left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term

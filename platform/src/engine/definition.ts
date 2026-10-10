@@ -49,10 +49,16 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("trigger"), event: z.string(), match: Predicate.optional(), schedule: Schedule.optional() }),
   z.object({ ...base, type: z.literal("wait"), rule: WaitRule }),
   // Waits for an inbound reply (woken the minute one arrives) or until `timeout`; follows the edge labeled "timeout" if none, else exits `no_reply`.
-  z.object({ ...base, type: z.literal("wait_for_reply"), timeout: z.string(), channel: z.enum(["sms", "email", "any"]).default("any"), settle: z.string().default("90s") }),   // settle: after the first reply, wait this long for the rest of what they are typing (D47)
+  // until: a wait rule that caps the deadline (D58, G7: the booking text's reply wait ends an hour before the call, so a call booked two hours out still gets its reminders).
+  z.object({ ...base, type: z.literal("wait_for_reply"), timeout: z.string(), channel: z.enum(["sms", "email", "any"]).default("any"), settle: z.string().default("90s"), until: WaitRule.optional() }),   // settle: after the first reply, wait this long for the rest of what they are typing (D47)
   // Waits for a team member's tap on ONE Slack message (D53): `of` names it ("tag:<tag>" as a slack_post remembered it, or the id of a slack_post in this run); only `emojis` count,
   // on that very message. The tap lands under `into` as { reaction, user, user_name, ts }. With `timeout`, silence continues with it null so a branch can handle it; without, it waits for the tap.
-  z.object({ ...base, type: z.literal("wait_for_reaction"), of: z.string(), emojis: z.array(z.string().min(1)).min(1), timeout: z.string().optional(), into: z.string().default("reaction") }),
+  // blocking: false (D58) arms a listener instead and the run goes straight on: a tap, wherever the run is parked later, jumps it to the edge labeled "tap" (where it was and when it was
+  // due are kept, and a `resume` node puts it back); at `until` (a wait rule) the listener disarms, the run takes the edge labeled "until" with `into` null, or when the run reaches an
+  // exit first. A run holds one listener at a time.
+  z.object({ ...base, type: z.literal("wait_for_reaction"), of: z.string(), emojis: z.array(z.string().min(1)).min(1), timeout: z.string().optional(), into: z.string().default("reaction"), blocking: z.boolean().default(true), until: WaitRule.optional() }),
+  // Returns a run its listener pulled away (D58) to the step it was parked on, with that step's own due time; with nothing to return to, follows its edge like any step.
+  z.object({ ...base, type: z.literal("resume") }),
   // kind: "human" reads like a person wrote it and always respects dark hours; "transactional" is an automated receipt ("you're booked") the company may let through at any hour
   // ghl_template: the CRM's own SMS snippet / email builder template id (or a {{crm.*}} binding); when set and found, the team's copy in the CRM wins over `template` (D30)
   z.object({ ...base, type: z.literal("send_sms"), template: z.string(), ghl_template: z.string().optional(), kind: z.enum(["human", "transactional"]).default("human"), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
@@ -65,8 +71,8 @@ export const Node = z.discriminatedUnion("type", [
   // thread_of: the id of an earlier slack_post in this run; this one goes into that message's thread (the scorecard under the call post)
   // tag: remember this post under a name (rendered, e.g. "eod-reminder:{{user.id}}:{{user.eod.day}}") so a later run can thread under it: thread_of "tag:<that name>"
   // react: an emoji put on the parent post (thread_of) once this reply is up, e.g. white_check_mark
-  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), template: z.string(), as: Persona.optional(), thread_of: z.string().optional(), thread_only: z.boolean().default(false), tag: z.string().optional(), react: z.union([z.string(), z.array(z.string())]).optional(),
-    offer: z.array(z.string().min(1)).optional(), unreact: z.object({ of: z.string(), emojis: z.array(z.string().min(1)).min(1) }).optional() }),   // offer: reactions added to this post for a person to tap (D45); unreact: the bot's own reactions taken off that post ("tag:…" or a node id) once a person has decided   // thread_only: a reaction or note on an existing post; nothing when that post is not there
+  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), fallback_channel: z.string().optional(), template: z.string(), as: Persona.optional(), thread_of: z.string().optional(), thread_only: z.boolean().default(false), tag: z.string().optional(), react: z.union([z.string(), z.array(z.string())]).optional(),
+    offer: z.array(z.string().min(1)).optional(), unreact: z.object({ of: z.string(), emojis: z.array(z.string().min(1)).min(1) }).optional(), react_on: z.object({ of: z.string(), emojis: z.array(z.string().min(1)).min(1) }).optional() }),   // react_on: reactions put on ANOTHER post ("tag:…" or a node id), e.g. the outcome on the question the team was asked (D58)   // fallback_channel: posts there when `channel` is an unbound binding (an attention channel that falls back to the bookings channel, D58)   // offer: reactions added to this post for a person to tap (D45); unreact: the bot's own reactions taken off that post ("tag:…" or a node id) once a person has decided   // thread_only: a reaction or note on an existing post; nothing when that post is not there
   // An HTTP call out: Airtable, a Zap or Make scenario, Apps Script, anything with a URL. Headers and body are templates; {{secret.<key>}} resolves
   // in headers and body only here and is never written to the ledger. The response (JSON when it is) lands in vars.<into>.
   z.object({ ...base, type: z.literal("webhook"), url: z.string(), method: z.enum(["POST", "PUT", "PATCH", "GET", "DELETE"]).default("POST"), headers: z.record(z.string()).default({}), body: z.unknown().optional(), into: z.string().optional(), on_error: z.enum(["fail", "skip"]).default("fail") }),
@@ -116,6 +122,10 @@ export type Node = z.infer<typeof Node>;
 
 export const Edge = z.object({ from: z.string(), to: z.string(), when: Predicate.optional(), else: z.boolean().optional(), label: z.string().optional() });
 export type Edge = z.infer<typeof Edge>;
+/** Edge labels that are not "go on": the reply wait's `timeout`, a listener's `tap` and `until` (D58). */
+export const SIDE_LABELS = new Set(["timeout", "tap", "until"]);
+/** The edge a step follows when it simply finishes: the first one not labelled as a side path (else the first at all). */
+export const onwardEdge = (edges: Edge[]): Edge | undefined => edges.find((e) => !SIDE_LABELS.has(e.label ?? "")) ?? edges[0];
 
 export const Premise = z.object({
   check: z.enum(["none", "appointment_in_future", "appointment_exists", "opportunity_open", "contact_exists"]).default("none"),
@@ -138,11 +148,16 @@ export const Definition = z.object({
   const hasOut = new Set(d.edges.map((e) => e.from));
   for (const n of d.nodes) if (n.type !== "exit" && !hasOut.has(n.id)) ctx.addIssue({ code: "custom", message: `node ${n.id} (${n.type}) has no outgoing edge` });
   for (const n of d.nodes) if (n.type === "tags" && !n.add && !n.remove) ctx.addIssue({ code: "custom", message: `node ${n.id} (tags) adds nothing and removes nothing` });
+  for (const n of d.nodes) if (n.type === "wait_for_reaction" && !n.blocking) {
+    const labels = d.edges.filter((e) => e.from === n.id).map((e) => e.label);
+    if (!labels.includes("tap")) ctx.addIssue({ code: "custom", message: `node ${n.id} (wait_for_reaction, blocking: false) has no edge labeled "tap"` });
+    if (!labels.some((l) => l !== "tap" && l !== "until")) ctx.addIssue({ code: "custom", message: `node ${n.id} (wait_for_reaction, blocking: false) has no edge to go on by` });
+  }
 });
 export type Definition = z.infer<typeof Definition>;
 
 // ---- manifest: every {{binding}} the definition references (D3) --------------------
-export type ManifestEntry = { key: string; kind: "secret" | "id" | "text" | "channel" | "number"; required: boolean; resolves?: string };
+export type ManifestEntry = { key: string; kind: "secret" | "id" | "text" | "channel" | "number"; required: boolean; resolves?: string; fallback?: string };   // fallback: a channel binding whose only use is a slack_post that posts to `fallback` when it is unbound (D58)
 const BINDING_PREFIXES: Record<string, ManifestEntry["kind"]> = { "crm.": "id", "calendar.": "id", "slack.channel.": "channel", "secret.": "secret", "prompt.": "text" };
 
 export function extractManifest(def: Definition): { bindings: ManifestEntry[] } {
@@ -167,6 +182,11 @@ export function extractManifest(def: Definition): { bindings: ManifestEntry[] } 
     }
   }
   if (!out.has("crm.location_id")) out.set("crm.location_id", { key: "crm.location_id", kind: "id", required: true });
+  // a channel that every post falls back from is optional twice over: unbound, the posts still land in the fallback
+  const chan = (t?: string) => t && /^\{\{\s*slack\.channel\.[a-zA-Z0-9_]+\s*\}\}$/.test(t) ? t.replace(/[{}\s]/g, "") : undefined;
+  const fallbackOf = new Map<string, string | null>();
+  for (const n of def.nodes) { if (n.type !== "slack_post") continue; const c = chan(n.channel), f = chan(n.fallback_channel); if (!c) continue; fallbackOf.set(c, fallbackOf.has(c) && fallbackOf.get(c) !== f ? null : f ?? null); }
+  for (const [key, fb] of fallbackOf) { const e = out.get(key); if (e && fb && !def.nodes.some((n) => n.type !== "slack_post" && JSON.stringify(n).includes(key)) && !JSON.stringify(def.edges).includes(key)) e.fallback = fb; }
   return { bindings: [...out.values()].sort((a, b) => a.key.localeCompare(b.key)) };
 }
 
