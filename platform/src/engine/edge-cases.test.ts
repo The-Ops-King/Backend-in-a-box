@@ -106,7 +106,8 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     // the test database is shared: a sibling branch's rows may not satisfy main's event-source check (see the schema test below); the schema itself is already there
     await migrate().catch((e: Error) => { if (!/events_source_check/.test(e.message)) throw e; });
     await wipe("edges"); await wipe("edges2");
-    const r = await installCompany({ name: "Edges", slug: "edges", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live", templates: TEMPLATES, crm: CRM, slack: { calls: "CCALLS" }, slackSigningSecret: SIGNING, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);
+    const input = { name: "Edges", slug: "edges", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, templates: TEMPLATES, crm: CRM, slack: { calls: "CCALLS" }, slackSigningSecret: SIGNING, anthropicKey: "sk-fake", contractValueDefault: 2999 };
+    const r = await installCompany(input, fake);
     companyId = r.companyId;
     expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(TEMPLATES.length);
     await asOperator(async (c) => {
@@ -114,6 +115,8 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
       // Slack is connected (the bot is UBOT); no bookings channel is bound, so booking posts are recorded, not posted
       await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id, channels) values ($1,'T1',$2,'UBOT','{}')", [companyId, encrypt("xoxb-fake")]);
     });
+    // live is a go-live (D56): readiness wants Slack connected first, so the mode comes on a second install
+    await installCompany({ ...input, mode: "live" }, fake);
   });
 
   it("D45: a second booking for the same person supersedes the pre-call run parked for the first; the new run carries on alone", async () => {
@@ -139,7 +142,7 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     expect(sent.length).toBe(n2);
   });
 
-  it.fails("a workflow turned off while a run is parked: the run does nothing when it wakes (runner.ts never re-reads workflows.enabled; dispatch.ts checks it only at start)", async () => {
+  it("a workflow turned off while a run is parked: the run does nothing when it wakes; it exits as 'workflow turned off' so turning the switch back on starts fresh", async () => {
     const id = await newContact("CE2", "e2@x.com", "+16025550002");
     await book(snap("AE3", "CE2", daysOut(3)));
     await tick(fake, undefined, companyId);
@@ -153,10 +156,12 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
       await tick(fake, undefined, companyId);
       expect(tags.length).toBe(nTags);   // no stat-unconfirmed written to the CRM by a workflow that is off
       expect(Number((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from run_steps where run_id=$1", [run.id])))!.n)).toBe(nSteps);
+      expect((await runsFor("pre-call-sequence")).find((r) => r.id === run.id)).toMatchObject({ status: "exited", exit_reason: "workflow turned off" });
+      expect((await asOperator((c) => one<{ data: { reason: string } }>(c, "select data from events where run_id=$1 and event_type='run.exited'", [run.id])))?.data).toMatchObject({ reason: "workflow turned off" });
     } finally { await asOperator((c) => c.query("update workflows set enabled=true where id=$1", [wf])); }
   });
 
-  it.fails("the CRM is down (401, token rotated) at the premise check: the run stays waiting and is late, never lost (runner.ts catches the throw and marks the run failed for good)", async () => {
+  it("the CRM is down (401, token rotated) at the premise check: the run stays waiting and is late, never lost; the operator is told once", async () => {
     const id = await newContact("CE3", "e3@x.com", "+16025550003");
     await book(snap("AE4", "CE3", daysOut(3)));
     await tick(fake, undefined, companyId);
@@ -166,11 +171,20 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     try {
       await wake(run.id); await tick(fake, undefined, companyId);
       const after = (await runsFor("pre-call-sequence")).find((r) => r.id === run.id)!;
-      expect(after.status).toBe("waiting");   // today: "failed", exit_reason "401 Unauthorized…"
+      expect(after).toMatchObject({ status: "waiting", current_node: "w1" });
+      expect(after.next_run_at!.getTime()).toBeGreaterThan(Date.now() + 60e3);   // a few minutes out, not now and not never
+      const open = await asOperator((c) => many<{ key: string }>(c, "select key from alerts where company_id=$1 and key like 'premise:%' and resolved_at is null", [companyId]));
+      expect(open).toHaveLength(1);
+      await wake(run.id); await tick(fake, undefined, companyId);   // still down: the same alert, still one
+      expect(await asOperator((c) => many(c, "select 1 from alerts where company_id=$1 and key like 'premise:%'", [companyId]))).toHaveLength(1);
     } finally { ghlDown = false; }
+    // the source is back: the run is looked at again as if nothing happened, and the alert closes
+    await wake(run.id); await tick(fake, undefined, companyId);
+    expect((await runsFor("pre-call-sequence")).find((r) => r.id === run.id)).toMatchObject({ status: "waiting", current_node: "w1" });
+    expect(await asOperator((c) => many(c, "select 1 from alerts where company_id=$1 and key like 'premise:%' and resolved_at is null", [companyId]))).toHaveLength(0);
   });
 
-  it.fails("the CRM refuses the text (no number on the sub-account, no phone on the contact): the text is recorded as failed and the run goes on to the reply wait and the email reminders (executor.ts doSend returns failed, which ends the run)", async () => {
+  it("the CRM refuses the text (no number on the sub-account, no phone on the contact): the text is recorded as failed and the run goes on to the reply wait and the email reminders", async () => {
     const id = await newContact("CE4", "e4@x.com");   // no phone
     smsReject = true;
     try {
@@ -178,20 +192,21 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
       await tick(fake, undefined, companyId);
       const run = (await runsFor("pre-call-sequence")).find((r) => r.contact_id === id)!;
       const text = await asOperator((c) => one<{ status: string; error: string | null }>(c, "select status, error from sends where run_id=$1 and channel='sms'", [run.id]));
-      expect(text).toMatchObject({ status: "failed", error: expect.stringMatching(/No numbers available/) });   // true today: the ledger has the refusal
-      expect(run.status).not.toBe("failed");                       // today: the whole pre-call sequence dies here
-      expect(run.current_node).toBe("w1");
+      expect(text).toMatchObject({ status: "failed", error: expect.stringMatching(/No numbers available/) });   // the ledger has the refusal
+      expect(run).toMatchObject({ status: "waiting", current_node: "w1" });
+      const step = await asOperator((c) => one<{ status: string; result: { kind: string; why: string } }>(c, "select status, result from run_steps where run_id=$1 and node_id='s1'", [run.id]));
+      expect(step).toMatchObject({ status: "skipped", result: { kind: "blocked", why: expect.stringMatching(/refused the sms: No numbers available/) } });   // what the alert sweep turns into "step could not run" (D33)
     } finally { smsReject = false; }
   });
 
-  it.fails("two payments for one person in the same minute (deposit, then a fee): both are written to the CRM (dispatch.ts D45 supersede exits the first `always` run before it ticks; one Payment record is never written)", async () => {
+  it("two payments for one person in the same minute (deposit, then a fee): both are written to the CRM; D45 supersede is for per-person sequences, not `always` runs", async () => {
     const id = await newContact("CE5", "e5@x.com", "+16025550005");
     await pay(id, "PE1", 1500); await pay(id, "PE2", 99);   // two deliveries, one tick between none
     await tick(fake, undefined, companyId); await tick(fake, undefined, companyId);
     const records = await asOperator((c) => many<{ record_key: string }>(c, "select record_key from crm_records where company_id=$1 and contact_id=$2 and object_key='custom_objects.payment' order by record_key", [companyId, id]));
-    expect(records.map((r) => r.record_key)).toEqual(["PE1", "PE2"]);   // today: ["PE2"]
+    expect(records.map((r) => r.record_key)).toEqual(["PE1", "PE2"]);
     const runs = (await runsFor("payment-recorded")).filter((r) => r.contact_id === id);
-    expect(runs.map((r) => r.exit_reason)).toEqual(["recorded", "recorded"]);   // today: ["superseded: a newer run for this person", "recorded"]
+    expect(runs.map((r) => r.exit_reason)).toEqual(["recorded", "recorded"]);
   });
 
   it("a template upgraded while a run is parked: the run finishes on the version it started with; a new booking starts on the new one", async () => {
@@ -262,7 +277,7 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     expect(await card()).toEqual({ ghl_stage_id: "STAGE-SCHED" });   // today: STAGE-C-CANCEL, with a live call five days out
   });
 
-  it.fails("Slack refuses the bot token in the middle of Sales call recorded: the post is recorded as failed and the Sales Call record is still written (executor.ts lets notifier.post throw, so the run fails before the CRM steps)", async () => {
+  it("Slack refuses the bot token in the middle of Sales call recorded: the post is recorded as failed and the Sales Call record is still written", async () => {
     const id = await newContact("CE9", "e9@x.com", "+16025550009");
     const rec: RecordingInput = { externalId: "fathom-edge-9", title: "CE9 and Sam", startedAt: new Date(Date.now() - 3600e3), durationMin: 40, recordedBy: { name: "Sam Closer", email: "sam@x.com" }, invitees: [{ name: "Sam Closer", email: "sam@x.com", isExternal: false }, { name: "CE9 Edge", email: "e9@x.com", isExternal: true }], transcript: [{ speaker: "CE9 Edge", text: "I want to start." }] };
     const r = await asOperator((c) => recordRecording(c, companyId, rec));
@@ -272,9 +287,9 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     try {
       await tick(fake, undefined, companyId);
       const run = (await runsFor("call-recorded")).find((x) => x.contact_id === id)!;
-      const post = await asOperator((c) => one<{ status: string }>(c, "select status from sends where run_id=$1 and channel='slack' order by scheduled_for limit 1", [run.id]));
-      expect(post?.status).not.toBe("sent");
-      expect(await asOperator((c) => many(c, "select 1 from crm_records where company_id=$1 and contact_id=$2 and object_key='custom_objects.sales_call'", [companyId, id]))).toHaveLength(1);   // today: none; the run failed at the post
+      const post = await asOperator((c) => one<{ status: string; error: string | null }>(c, "select status, error from sends where run_id=$1 and channel='slack' order by scheduled_for limit 1", [run.id]));
+      expect(post).toMatchObject({ status: "failed", error: expect.stringMatching(/invalid_auth/) });
+      expect(await asOperator((c) => many(c, "select 1 from crm_records where company_id=$1 and contact_id=$2 and object_key='custom_objects.sales_call'", [companyId, id]))).toHaveLength(1);
       expect(run.status).toBe("completed");
     } finally { slackDown = false; }
   });
@@ -320,17 +335,22 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     expect(warn.map((i) => i.text).join(" ")).toMatch(/Pre-call sequence: \d+ messages are still placeholder copy/);
   });
 
-  it.fails("re-running install with mode: live on a shadow company is a go-live: shadow-born runs are cleared first (install.ts sets the mode flag directly; only the dashboard route goes through goLive, D51)", async () => {
+  it("re-running install with mode: live on a shadow company is a go-live: refused while readiness has a blocker, and shadow-born runs are cleared first (D51)", async () => {
     const input = { name: "Edges 2", slug: "edges2", timezone: TZ, locationId: "LOC2", pit: "pit-fake", calendars: { CAL: "closing" }, bookingCalendar: "CAL", templates: ["speed-to-lead"], enable: true };
     const co2 = (await installCompany({ ...input, mode: "shadow" }, fake)).companyId;
     const id = await asOperator(async (c) => { const x = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, timezone) values ($1,'CS1','Sh',$2) returning id", [co2, TZ]))!.id; await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email','sh@x.com'),($1,$2,'phone','+16025550099')", [co2, x]); return x; });
     await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: co2, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "test", data: {} }), { contact: { id } }));
     await tick(fake, undefined, co2);
     expect((await runsFor("speed-to-lead", co2))[0]).toMatchObject({ status: "waiting", current_node: "n3", born_in: "shadow" });
-    await installCompany({ ...input, mode: "live" }, fake);
+    // no Slack yet: the same refusal the dashboard gives, and the flag does not move
+    await expect(installCompany({ ...input, mode: "live" }, fake)).rejects.toThrow(/not ready to go live.*Slack is not connected/);
+    expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [co2])))?.mode).toBe("shadow");
+    await asOperator((c) => c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id, channels) values ($1,'T2',$2,'UBOT2','{}')", [co2, encrypt("xoxb-fake")]));
+    const live = await installCompany({ ...input, mode: "live" }, fake);
+    expect(live.wentLive?.runs).toBe(1);
     expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [co2])))?.mode).toBe("live");
     const leftover = await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and born_in<>'live' and status in ('active','waiting')", [co2]));
-    expect(leftover).toHaveLength(0);   // today: the shadow-born run is still parked and its next email goes to the contact for real
+    expect(leftover).toHaveLength(0);
   });
 
   // catalogued, not yet written: each needs a template decision before the test can say what "right" is

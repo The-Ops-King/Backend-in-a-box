@@ -111,7 +111,19 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
     : viaCrmEmailTemplate ? await d.adapters.sender.sendEmailTemplate(d.adapterCompany, ghlContactId, ghlTemplateId) : await d.adapters.sender.sendEmail(d.adapterCompany, ghlContactId, subject, body);
   await d.c.query("update sends set status=$2, external_id=$3, error=$4, sent_at=case when $2='sent' then now() end where id=$1", [send.id, r.accepted ? "sent" : "failed", r.externalId || null, r.error ?? null]);
   await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: r.accepted ? "message.sent" : "send.suppressed", source: "engine", data: { channel, node: node.id, external_id: r.externalId, error: r.error, substituted } });
-  return r.accepted ? { status: "ok", next, result: { external_id: r.externalId, substituted } } : { status: "failed", error: r.error ?? "send rejected" };
+  if (r.accepted) return { status: "ok", next, result: { external_id: r.externalId, substituted } };
+  // D56: the refusal is on the send row and raises a "step could not run" alert; the rest of the sequence still runs
+  return { status: "skipped", next, result: { kind: "blocked", why: `the CRM refused the ${channel}: ${r.error ?? "send rejected"}`, would_send: body.slice(0, 120) } };
+}
+
+/** D56: Slack refusing a post (bad token, channel gone) fails that send and alerts; the run goes on (the CRM steps after a post are the point of the run). */
+async function slackPostOrFail(d: ExecDeps, sendId: string, post: () => Promise<{ ts: string }>): Promise<{ ts: string } | { refused: string }> {
+  try { return await post(); }
+  catch (e) {
+    const refused = String((e as Error).message).slice(0, 500);
+    await d.c.query("update sends set status='failed', error=$2 where id=$1", [sendId, refused]);
+    return { refused };
+  }
 }
 
 /** The contact's tags: `add` goes on, then `remove` comes off, in the CRM and on our replica; one tag.added / tag.removed event per direction. */
@@ -191,7 +203,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const body = slackUser ? text : `${owner?.name ? `*${owner.name}* ` : ""}${text}`;
       if (!conn || !target) { await recordSend(d, node, "slack", body, "suppressed", conn ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, kind: "blocked", why: conn ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", body, "queued"); if (!send) return { status: "skipped", next, result: { ...out, kind: "noop", why: "already posted (idempotency)" } };
-      const r = await d.adapters.notifier.post(decrypt(conn.bot_token), target, `${modePrefix(d)}${body}`, persona(d, node.as));
+      const r = await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(decrypt(conn.bot_token), target, `${modePrefix(d)}${body}`, persona(d, node.as)));
+      if ("refused" in r) return { status: "skipped", next, result: { ...out, kind: "blocked", why: `Slack refused the post: ${r.refused}`, would_post: body.slice(0, 160) } };
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
       return { status: "ok", next, result: { ...out, ...(shadow(d) ? { shadow: true } : {}), dm: !!slackUser, ts: r.ts } };
     }
@@ -252,13 +265,18 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       // a thread reply needs the parent's ts: an earlier post in this run, or a post another run remembered under a tag ("tag:eod-reminder:<user>:<day>").
       // Without one (parent skipped, nothing under that tag) it posts to the channel and says so.
       let parentTs: string | undefined, parentChannel: string | undefined, tagged: string | undefined;
-      if (node.thread_of?.startsWith("tag:")) { tagged = render(node.thread_of.slice(4), d.ctx, env(d)); const p = await one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, tagged]); parentTs = p?.ts; parentChannel = p?.channel; }
+      if (node.thread_of?.startsWith("tag:")) {
+        // an anchor the context cannot name ({{contact.latest_recording_id}} for a contact never recorded) is no post to reply to, not a broken template
+        try { tagged = render(node.thread_of.slice(4), d.ctx, env(d)); } catch (e) { if (!(e instanceof UnknownPathError)) throw e; }
+        if (tagged) { const p = await one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, tagged]); parentTs = p?.ts; parentChannel = p?.channel; }
+      }
       else if (node.thread_of) parentTs = resolvePath(d.ctx, `vars.__slack.${node.thread_of}`) as string | undefined;
       if (node.thread_only && !parentTs) { await recordSend(d, node, "slack", text, "suppressed", "no post to reply to"); return { status: "skipped", next, result: { kind: "noop", why: "nothing to react to: the post this replies to is not in Slack (booked before the engine, or its channel was unbound)" } }; }
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already posted (idempotency)" } };
       // Slack is the team, not the CRM or the contact: in shadow the post still goes out, marked, so the team sees what the engine would do (D31)
       const token = decrypt(conn.bot_token), postTo = parentTs && parentChannel ? parentChannel : channelId;
-      const r = await d.adapters.notifier.post(token, postTo, !parentTs ? `${modePrefix(d)}${text}` : text, persona(d, node.as), parentTs);
+      const r = await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(token, postTo, !parentTs ? `${modePrefix(d)}${text}` : text, persona(d, node.as), parentTs));
+      if ("refused" in r) return { status: "skipped", next, result: { kind: "blocked", why: `Slack refused the post: ${r.refused}`, would_post: text.slice(0, 160) } };
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
       setPath(d.ctx, `vars.__slack.${node.id}`, r.ts);
       let reacted = false;

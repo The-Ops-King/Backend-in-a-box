@@ -10,13 +10,16 @@ import { executeNode, type ExecDeps } from "./executor";
 import type { HealthProbes } from "./health";
 import { deferIntoWindow } from "./waitrule";
 import { emitEvent, startRun, type EventRow } from "./dispatch";
+import { raise, resolve } from "./alerts";
 
 const LEASE_MIN = 5, MAX_STEPS = 50, BATCH = 100;
 export const RECOVERY_AFTER_MIN = 10;          // D5b: a gap longer than this means we were down
+export const PREMISE_RETRY_MIN = 5;            // D56: the booking source could not be read; look at the run again this much later
+const PREMISE_ALERT_KEY = "premise:booking-source-unreachable";
 const RECOVERY_SEND_CAP = 20;                  // per company per tick while catching up: never burst one client's inbox, never let one client's backlog starve another's
 
 type PendingTrigger = { event_id: number; trigger_id: string | null; trigger_node_id: string; contact_id: string; appointment_id: string | null; opportunity_id: string | null };
-export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number; replayed?: number };
+export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number; replayed?: number; deferred?: number };
 
 /** D5b premise check — reads the booking source live, never the replica. */
 async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ctx" | "now">): Promise<{ ok: true } | { ok: false; why: string }> {
@@ -60,6 +63,7 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
   });
   report.claimed = runs.length;
   const sendsThisTick = new Map<string, number>();   // company → sends this tick (recovery cap is per company)
+  const premiseRead = new Set<string>(), premiseDown = new Set<string>();   // companies whose booking source answered / could not be read this tick
 
   for (const run of runs) {
     try {
@@ -72,8 +76,26 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           c.query("update runs set status=$2, exit_reason=coalesce($3, exit_reason), next_run_at=$4, current_node=coalesce($5,current_node), context=coalesce($6,context), wake_on_reply=$7, wake_on_tag=$8, claimed_at=null, claimed_by=null, finished_at=case when $2 in ('completed','exited','failed') then now() end where id=$1",
             [run.id, status, exit_reason ?? null, next_run_at ?? null, current_node ?? null, ctx ?? null, !!wake.reply, wake.tag ?? null]);
 
+        // D56: a workflow turned off while this run was parked: the one-switch undo. The run exits; turning it back on starts fresh runs from new events.
+        const wf = await one<{ enabled: boolean }>(c, "select enabled from workflows where id=$1", [run.workflow_id]);
+        if (!wf?.enabled) {
+          await finish("exited", "workflow turned off");
+          await emitEvent(c, { company_id: run.company_id, contact_id: run.contact_id, opportunity_id: run.opportunity_id, appointment_id: run.appointment_id, run_id: run.id, event_type: "run.exited", source: "engine", data: { reason: "workflow turned off" } });
+          report.exited++; return;
+        }
+
         // 1. premise — the always-on moot check
-        const alive = await premiseAlive(def, { c, adapters, company, adapterCompany, bindings, run });
+        // D56: "the check could not run" (the booking source is unreachable) is not "the check said no": the run waits and is looked at again (D5: late, never lost)
+        let alive: Awaited<ReturnType<typeof premiseAlive>>;
+        try { alive = await premiseAlive(def, { c, adapters, company, adapterCompany, bindings, run }); }
+        catch (e) {
+          const why = String((e as Error).message).slice(0, 300);
+          const r = run as RunRow & { wake_on_reply?: boolean; wake_on_tag?: string | null };
+          await finish("waiting", undefined, now.plus({ minutes: PREMISE_RETRY_MIN }).toJSDate(), run.current_node, undefined, { reply: !!r.wake_on_reply, tag: r.wake_on_tag ?? undefined });
+          await raise(c, { companyId: run.company_id, key: PREMISE_ALERT_KEY, level: "warning", source: "engine", text: `The booking source could not be read, so runs due now are held and retried every ${PREMISE_RETRY_MIN} minutes: ${why}`, detail: { run_id: run.id, error: why }, href: `/app/c/${company.slug}` }, now.toJSDate());
+          premiseDown.add(run.company_id); report.waiting++; report.deferred = (report.deferred ?? 0) + 1; return;
+        }
+        if (def.premise.check.startsWith("appointment_")) premiseRead.add(run.company_id);
         if (!alive.ok) {
           await finish("exited", report.recovery ? `stale_after_outage: ${alive.why}` : `moot: ${alive.why}`);
           await emitEvent(c, { company_id: run.company_id, contact_id: run.contact_id, opportunity_id: run.opportunity_id, appointment_id: run.appointment_id, run_id: run.id, event_type: "run.exited", source: "engine", data: { reason: alive.why, recovery: report.recovery } });
@@ -142,5 +164,6 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
       await asOperator((c) => c.query("update runs set status='failed', exit_reason=$2, claimed_at=null where id=$1", [run.id, String((e as Error).message).slice(0, 500)])).catch(() => {});
     }
   }
+  for (const co of premiseRead) if (!premiseDown.has(co)) await asOperator((c) => resolve(c, co, PREMISE_ALERT_KEY, now.toJSDate())).catch(() => {});
   return report;
 }
