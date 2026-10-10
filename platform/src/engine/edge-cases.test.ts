@@ -33,6 +33,7 @@ const sent: { kind: string; to: string; body: string }[] = [];
 const tags: string[] = [];
 const oppWrites: Record<string, unknown>[] = [];
 const recordWrites: Record<string, unknown>[] = [];
+const contactWrites: Record<string, unknown>[] = [];
 const posts: { channel: string; text: string; threadTs?: string }[] = [];
 const apptStore = new Map<string, AppointmentSnapshot>();   // what the booking source "has" for each appointment the tests book
 let ghlDown = false;      // the CRM answers 401 (token rotated) to every live read
@@ -44,7 +45,7 @@ const fake: Adapters = {
   read: { ...base.read, listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }], getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }) },
   booking: (() => { const b = { appointmentsInWindow: async () => [], listCalendars: async () => [{ id: "CAL", name: "Closer Call", teamMemberIds: ["U1"] }],
     getAppointment: async (_c: unknown, id: string) => { if (ghlDown) throw new Error("401 Unauthorized: the CRM token was rotated"); return apptStore.get(id) ?? null; } }; return { ghl: b, calendly: b }; })(),
-  write: { ...base.write, addTag: async (_c, _id, t) => { tags.push(t); }, createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; }, updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); },
+  write: { ...base.write, addTag: async (_c, _id, t) => { tags.push(t); }, updateContact: async (_c, id, patch) => { contactWrites.push({ id, ...patch }); }, createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; }, updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); },
     createRecord: async (_c, _o, props) => { recordWrites.push({ op: "create", ...props }); return { id: `rec-${recordWrites.length}` }; }, updateRecord: async (_c, _o, id, props) => { recordWrites.push({ op: "update", id, ...props }); } },
   sender: { ...base.sender,
     sendSms: async (_c, to, body) => { if (smsReject) return { externalId: "", accepted: false, error: "No numbers available in the account" }; sent.push({ kind: "sms", to, body }); return { externalId: `s${sent.length}`, accepted: true }; },
@@ -334,7 +335,21 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
   });
 
   // catalogued, not yet written: each needs a template decision before the test can say what "right" is
-  it.todo("a refund: no template listens to payment.refunded, so cash collected and pay-paid-full stand after the money went back");
+  it("a refund (G10, fixed by D57): cash collected drops to the lower running total, a second Payment record carries the minus sign, pay-refunded is added and pay-paid-full stays", async () => {
+    const id = await newContact("CEREF", "eref@x.com", "+16025550077");
+    await pay(id, "PR1", 2999); await tick(fake, undefined, companyId);   // paid in full
+    const nCw = contactWrites.length, nRec = recordWrites.length;
+    await asOperator(async (c) => { const ev = await applyPayment(c, companyId, id, { whopPaymentId: "PR2", amount: 500, currency: "USD", status: "refunded", paidAt: new Date(), raw: {} }); await dispatchEvent(c, ev, { contact: { id } }); });
+    await tick(fake, undefined, companyId);
+    const runs = (await runsFor("payment-recorded")).filter((r) => r.contact_id === id);
+    expect(runs.map((r) => r.exit_reason)).toEqual(["recorded", "recorded"]);
+    expect(contactWrites.slice(nCw).map((w) => w.customFields)).toEqual([[{ id: "CF-CASH", field_value: "2499" }]]);
+    expect(recordWrites.slice(nRec)[0]).toMatchObject({ op: "create", transaction_id: "PR2", amount: -500, type: "refund", status: "refunded" });
+    const contactTags = (await asOperator((c) => one<{ tags: string[] }>(c, "select tags from contacts where id=$1", [id])))!.tags;
+    expect(contactTags).toEqual(expect.arrayContaining(["pay-paid-full", "pay-refunded"])); expect(contactTags).not.toContain("pay-plan-active");
+    const slack = await asOperator((c) => many<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [runs[1].id]));   // the payments-channel line, the booking thread line and the review thread line
+    expect(slack.map((s) => s.rendered_body)).toContainEqual(expect.stringMatching(/^\*Refund:\* −\$500\n/));
+  });
   it.todo("a closer files the same day twice: outcomes are re-recorded, Call outcome filed reacts again by design (always), the summary post does not say it is a refiling (eod-filed.json never reads event.refiled)");
   it.todo("a call moved to tomorrow after the end-of-day form opened: the submitted outcome is still recorded on an appointment that is no longer today's (eod.ts submitEod records every answered call; diffAnswers skips it silently)");
   it.todo("a reply that arrives after the reply wait ended (the person texts 'can't make it' two days before the call): message.received fires, no workflow listens, the reminders carry on");

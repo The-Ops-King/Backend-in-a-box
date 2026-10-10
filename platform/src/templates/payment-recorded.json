@@ -5,7 +5,7 @@
   "stage": "payments",
   "sort": 20,
   "origin": "spec",
-  "description": "A payment landed in the ledger: cash collected on the contact becomes the running total, revenue generated is stamped once with the program price, pay-plan-active or pay-paid-full is set, the payment is written to the CRM's Payment object and linked to the contact and the closer card. On the first payment, if the agreement is not signed yet, the purchase agreement is sent for signature, stat-agreement-sent is added and the closer card moves to Agreement Sent. A dated note records the payment, the Sales Call record's cash collected is updated when there is one, and the team gets the Slack line. Nothing goes to the customer from here.",
+  "description": "A payment landed in the ledger: cash collected on the contact becomes the running total, revenue generated is stamped once with the program price, pay-plan-active or pay-paid-full is set, the payment is written to the CRM's Payment object and linked to the contact and the closer card. On the first payment, if the agreement is not signed yet, the purchase agreement is sent for signature, stat-agreement-sent is added and the closer card moves to Agreement Sent. A dated note records the payment, the Sales Call record's cash collected is updated when there is one, and the team gets the Slack line. A refund is a new line in the same tracker with a minus sign: cash collected drops to the lower running total, the Payment record is written with the negative amount, pay-refunded is added (pay-paid-full / pay-plan-active stay as the last payment left them), the Slack line reads Refund, and nothing is re-stamped. Nothing goes to the customer from here.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -17,6 +17,36 @@
         "id": "t1",
         "type": "trigger",
         "event": "payment.received"
+      },
+      {
+        "id": "t2",
+        "type": "trigger",
+        "event": "payment.refunded"
+      },
+      {
+        "id": "v1",
+        "type": "set_var",
+        "key": "pay",
+        "value": "{{event.kind}}",
+        "pick": {
+          "refund": {
+            "head": "Refund",
+            "sign": "−",
+            "status": "refunded",
+            "note": "REFUND",
+            "line": "💸 Refunded",
+            "react": "money_with_wings"
+          }
+        },
+        "else_value": {
+          "head": "Payment received",
+          "sign": "",
+          "status": "succeeded",
+          "note": "PAYMENT RECEIVED",
+          "line": "💵 Paid",
+          "react": "dollar"
+        },
+        "title": "Payment or refund: the words, the sign, the emoji"
       },
       {
         "id": "n1",
@@ -64,17 +94,31 @@
         ]
       },
       {
+        "id": "g1",
+        "type": "tags",
+        "add": [
+          "pay-refunded"
+        ],
+        "only_if": {
+          "eq": [
+            "{{event.kind}}",
+            "refund"
+          ]
+        },
+        "title": "Tag pay-refunded (pay-paid-full / pay-plan-active stay as the last payment left them)"
+      },
+      {
         "id": "n4",
         "type": "crm_record",
         "object": "custom_objects.payment",
         "key": "{{event.provider_payment_id}}",
         "properties": {
-          "display_label": "${{event.amount}} · {{contact.name | default:Unknown}} · {{event.paid_at | date_company:yyyy-MM-dd}}",
+          "display_label": "{{vars.pay.sign}}${{event.amount | abs}} · {{contact.name | default:Unknown}} · {{event.paid_at | date_company:yyyy-MM-dd}}",
           "transaction_id": "{{event.provider_payment_id}}",
           "amount": "{{event.amount}}",
           "occurred_at": "{{event.paid_at}}",
           "type": "{{event.kind}}",
-          "status": "succeeded",
+          "status": "{{vars.pay.status}}",
           "processor": "whop",
           "contact_id": "{{contact.ghl_contact_id | default:}}",
           "opportunity_id": "{{cards.closer.id | default:}}",
@@ -121,7 +165,7 @@
       {
         "id": "m1",
         "type": "note",
-        "template": "PAYMENT RECEIVED — {{event.paid_at | date_company}} · ${{event.amount}} ({{event.kind}}) · collected {{event.running_total}} of {{event.contract_value | default:?}}"
+        "template": "{{vars.pay.note}} — {{event.paid_at | date_company}} · {{vars.pay.sign}}${{event.amount | abs}} ({{event.kind}}) · collected {{event.running_total}} of {{event.contract_value | default:?}}"
       },
       {
         "id": "b2",
@@ -140,9 +184,9 @@
         "id": "n5",
         "type": "slack_post",
         "channel": "{{slack.channel.payments}}",
-        "template": "*Payment received:* ${{event.amount | money}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.name | default:unassigned}}{{contact.setter.name | line:*Setter:*}}",
+        "template": "*{{vars.pay.head}}:* {{vars.pay.sign}}${{event.amount | abs | money}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.name | default:unassigned}}{{contact.setter.name | line:*Setter:*}}",
         "as": {
-          "name": "Payment received",
+          "name": "{{vars.pay.head}}",
           "icon": [
             ":moneybag:",
             ":money_with_wings:",
@@ -151,35 +195,35 @@
             ":heavy_dollar_sign:"
           ]
         },
-        "title": "Post payment in Slack"
+        "title": "Post the payment or refund in Slack"
       },
       {
         "id": "p_book",
         "type": "slack_post",
         "channel": "{{slack.channel.bookings}}",
-        "thread_of": "tag:appointment:{{contact.latest_appointment_id}}",
+        "thread_of": "tag:appointment:{{contact.latest_appointment_id | default:}}",
         "thread_only": true,
-        "react": "dollar",
+        "react": "{{vars.pay.react}}",
         "as": {
           "name": "Payment",
           "icon": ":dollar:"
         },
-        "template": "💵 Paid {{event.amount | money}}{{event.kind | prefix: ·}}. Details in the payments channel.",
-        "title": "React 💵 on the booking post"
+        "template": "{{vars.pay.line}} {{event.amount | abs | money}}{{event.kind | prefix: ·}}. Details in the payments channel.",
+        "title": "React 💵 (💸 on a refund) on the booking post"
       },
       {
         "id": "p_rev",
         "type": "slack_post",
         "channel": "{{slack.channel.calls}}",
-        "thread_of": "tag:recording:{{contact.latest_recording_id}}",
+        "thread_of": "tag:recording:{{contact.latest_recording_id | default:}}",
         "thread_only": true,
-        "react": "dollar",
+        "react": "{{vars.pay.react}}",
         "as": {
           "name": "Payment",
           "icon": ":dollar:"
         },
-        "template": "💵 Paid {{event.amount | money}}{{event.kind | prefix: ·}}.",
-        "title": "React 💵 on the call review"
+        "template": "{{vars.pay.line}} {{event.amount | abs | money}}{{event.kind | prefix: ·}}.",
+        "title": "React 💵 (💸 on a refund) on the call review"
       },
       {
         "id": "x1",
@@ -190,6 +234,14 @@
     "edges": [
       {
         "from": "t1",
+        "to": "v1"
+      },
+      {
+        "from": "t2",
+        "to": "v1"
+      },
+      {
+        "from": "v1",
         "to": "n1"
       },
       {
@@ -200,11 +252,21 @@
         "from": "n2",
         "to": "r1",
         "when": {
-          "not": {
-            "exists": "contact.fields.revenue_generated"
-          }
+          "and": [
+            {
+              "not": {
+                "exists": "contact.fields.revenue_generated"
+              }
+            },
+            {
+              "neq": [
+                "{{event.kind}}",
+                "refund"
+              ]
+            }
+          ]
         },
-        "label": "first time: stamp revenue"
+        "label": "first payment: stamp revenue"
       },
       {
         "from": "n2",
@@ -215,6 +277,17 @@
       {
         "from": "r1",
         "to": "n3"
+      },
+      {
+        "from": "n3",
+        "to": "g1",
+        "when": {
+          "eq": [
+            "{{event.kind}}",
+            "refund"
+          ]
+        },
+        "label": "refund: tags stay as the last payment left them"
       },
       {
         "from": "n3",
@@ -235,6 +308,10 @@
       },
       {
         "from": "p1",
+        "to": "n4"
+      },
+      {
+        "from": "g1",
         "to": "n4"
       },
       {
@@ -260,6 +337,12 @@
               "eq": [
                 "{{contact.agreement_signed}}",
                 false
+              ]
+            },
+            {
+              "neq": [
+                "{{event.kind}}",
+                "refund"
               ]
             }
           ]

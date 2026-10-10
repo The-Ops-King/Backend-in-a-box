@@ -428,6 +428,26 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(ours.map((x) => x.record_key)).toEqual(["pay_leo_1", "pay_leo_2"]);
   });
 
+  it("payment-recorded (D57): a refund is a new line with a minus sign: cash collected drops to the lower running total, a second Payment record carries the negative amount, pay-refunded is added, pay-paid-full stays, the Slack line says Refund and the thread lines go 💸", async () => {
+    // Leo has paid 1,500 + 1,499 = the 2,999 program and wears pay-paid-full; part of the second payment goes back
+    const id = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CCB2'", [companyId])))!.id;
+    const nTags = tags.length, nRm = removedTags.length, nCw = contactWrites.length, nRec = recordWrites.length, nDoc = docSends.length;
+    await asOperator(async (c) => { const ev = await applyPayment(c, companyId, id, { whopPaymentId: "pay_leo_r1", amount: 500, currency: "USD", status: "refunded", paidAt: new Date(), raw: {} }); expect(ev.event_type).toBe("payment.refunded"); await dispatchEvent(c, ev, { contact: { id } }); });
+    await tick(fake, undefined, companyId);
+    const r = (await runsFor("payment-recorded")).filter((x) => x.contact_id === id).at(-1)!;
+    expect(r).toMatchObject({ status: "completed", exit_reason: "recorded" });
+    expect(contactWrites.slice(nCw).map((w) => w.customFields)).toEqual([[{ id: "CF-CASH", field_value: "2499" }]]);   // cash collected follows the ledger; revenue generated is not re-stamped
+    expect(tags.slice(nTags)).toEqual(["pay-refunded"]); expect(removedTags.slice(nRm)).toEqual([]);   // pay-paid-full / pay-plan-active stay as the last payment left them
+    expect(docSends.length).toBe(nDoc);   // a refund never sends the agreement
+    const rec = recordWrites.slice(nRec); expect(rec).toHaveLength(2);
+    expect(rec[0]).toMatchObject({ op: "create", transaction_id: "pay_leo_r1", amount: -500, type: "refund", status: "refunded", processor: "whop", contact_id: "CCB2", display_label: expect.stringMatching(/^−\$500 · /) });
+    expect(rec[1]).toMatchObject({ op: "update", cash_collected: "2499" });   // the Sales Call record follows too
+    const ours = await asOperator((c) => many<{ record_key: string }>(c, "select record_key from crm_records where company_id=$1 and contact_id=$2 and object_key='custom_objects.payment' order by created_at", [companyId, id]));
+    expect(ours.map((x) => x.record_key)).toEqual(["pay_leo_1", "pay_leo_2", "pay_leo_r1"]);   // a new line, never an edit of the old one
+    const slack = await asOperator((c) => many<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack' order by id", [r.id]));
+    expect(slack.map((s) => s.rendered_body.split("\n")[0]).sort()).toEqual(["*Refund:* −$500", "💸 Refunded 500· refund.", "💸 Refunded 500· refund. Details in the payments channel."]);   // the three Slack lines of the run (payments channel, booking thread, review thread)
+  });
+
   it("call-recorded: a Fathom recording matched by invitee email → AI classifies, notes, scores; appointment marked showed (call.held fires), stat-showed, setter card to Showed + won, Sales Call record linked, note, Slack; an internal meeting stops at the check", async () => {
     // Leo Park (setter-booked scenario, closer card owned by U1) has an appointment ACB2 and a setter card
     const id = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CCB2'", [companyId])))!.id;

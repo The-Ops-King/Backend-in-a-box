@@ -262,7 +262,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
       setPath(d.ctx, `vars.__slack.${node.id}`, r.ts);
       let reacted = false;
-      for (const emoji of node.react ? (Array.isArray(node.react) ? node.react : [node.react]) : []) if (parentTs) reacted = (await d.adapters.notifier.react(token, postTo, parentTs, emoji).catch(() => false)) || reacted;
+      for (const emoji of (node.react ? (Array.isArray(node.react) ? node.react : [node.react]) : []).map((e) => render(e, d.ctx, env(d))).filter(Boolean)) if (parentTs) reacted = (await d.adapters.notifier.react(token, postTo, parentTs, emoji).catch(() => false)) || reacted;
       // D45: the choices a person can tap, as reactions on this post; the door turns their tap into a slack.reaction event
       const offered: string[] = [];
       for (const emoji of node.offer ?? []) if (await d.adapters.notifier.react(token, postTo, r.ts, emoji).catch(() => false)) offered.push(emoji);

@@ -42,6 +42,7 @@ describe("shipped templates", () => {
     expect(node("call-booked", "b6")).toMatchObject({ type: "tags", add: ["stat-booked", "stat-set", "meta booked call"], remove: ["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead"] });
     expect(node("call-cancelled", "n5")).toMatchObject({ type: "tags", add: ["stat-cancelled"], remove: ["stat-booked", "stat-self-booked", "stat-set", "stat-confirmed"] });
     expect(node("payment-recorded", "f1")).toMatchObject({ type: "tags", add: ["pay-paid-full"], remove: ["pay-plan-active"] });
+    expect(node("payment-recorded", "g1")).toMatchObject({ type: "tags", add: ["pay-refunded"], only_if: { eq: ["{{event.kind}}", "refund"] } });   // D57: a refund adds its own tag and leaves the others as the last payment left them
     expect(node("agreement-send-manually", "g1")).toMatchObject({ type: "tags", add: ["stat-agreement-sent"], remove: ["sys-send-agreement-manually"] });
   });
 });
