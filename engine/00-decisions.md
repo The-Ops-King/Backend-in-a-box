@@ -1683,3 +1683,57 @@ recorded and alerted, never silently skipped; nothing hardcoded; names render as
 - **G17, left.** Healing an orphan when the buyer's contact arrives through the CRM poll is a D21 question (an exact
   email match is what `resolvePayer` already trusts, but the owner decided that nothing links without a payment or a
   hand); the test stays `it.fails` until that is decided.
+
+## D61. The cards follow the call, and a hand on a card is seen (2026-10-10)
+
+Tyler: "Closer card should update based on what happened in the call. And when the closer manually moves them into
+cancelled or no-show or follow up or whatever, that also needs to be reflected in our tracking." The journey sweep
+had the two halves as F2 (a show confirmed on the EOD form with no recording left the setter card at Set / Direct)
+and F6 (the closer card never left Scheduled on a show, a no-show, a loss, a DQ or a follow-up).
+
+- **Call outcome filed moves the cards** (`call-outcome.json`). Tyler: "Setter pipeline is won when they show and lost
+  when they don't show." No-show: the setter card → `crm.stage_setter_cancelled` ("No-Show / Cancel / Reschedule"),
+  status **lost**; the closer card → `crm.stage_closer_cancelled` ("No Show / Cancelled"), move-only, still open. A
+  rebooked no-show therefore reuses the open closer card (D41 `pickCard` is open-only) and gets a **fresh setter card**
+  on the next booking (Call booked makes one when none is open): that is how the owner counts setter wins and losses,
+  per booking cycle. Showed: the setter card →
+  `crm.stage_setter_showed`, won, the move Sales call recorded makes (already won by the recording, the step skips);
+  then by the filed outcome: follow-up → `crm.stage_closer_follow_up`, lost → `crm.stage_closer_lost` (status lost),
+  unqualified → `crm.stage_closer_disqualified` (status lost); closed or deposit leave the closer card to Payment
+  recorded (Agreement Sent) and Deal closed (Closed - Won). The three new `crm.*` keys are required bindings of the
+  template through its manifest, so readiness asks for them. Every card step here is `if_missing: skip` — the one
+  deliberate exception to D41's "gone from every template": an outcome moves a card that exists and never makes one
+  (a contact booked before the engine may have none; booking makes cards).
+- **A card already where a step would put it is a no-op** (`executor.ts`, `pipeline_card`: `already there`): no CRM
+  write, no replica bump. A second filing, the CRM's no-show after the form, or a hand that moved it first costs
+  nothing.
+- **A hand on a card is seen.** Opportunities were read live per run (D41) but a closer dragging a card between runs
+  was invisible. The poll has a `cards` entity (`poll.ts` `pollCards`): each tick reads the two bound boards whole
+  (`CrmRead.pipelineCards`, `GET /opportunities/search?pipeline_id=…`, 100 a page, ten pages at most — the CRM's
+  search has no updated-since filter) and folds every card of a known contact into `pipeline_cards` (`cards.ts`
+  `foldCard`). A known card whose stage or status differs from the replica, with a CRM stamp newer than our last write
+  to it, was moved by a hand or a CRM workflow (`card-moves.ts` `handMoved`): `card.moved` on the contact {pipeline,
+  pipeline_id, from_stage, to_stage, from_name, to_name, from_status, to_status, by: crm, mover, crm_card}, the
+  replica follows, and the booking post's thread gets "🗂️ <who> moved the closer card to Follow Up" — the mover when
+  the CRM payload says who (`lastStageChangeBy` / `updatedBy`, which it usually does not), else "someone". Stage names
+  come from the binding keys (`crm.stage_closer_follow_up` → Follow Up), never from a CRM call. The same detection
+  runs inside every run's read of a contact's cards (`syncCards`), so whichever looks first records it, once. The
+  first pass is a silent baseline, like every other entity: the replica takes the CRM's state and nothing is said.
+- **A hand move that names an outcome files it.** Closer card into No Show / Cancelled → no-show; into Lost → showed +
+  lost; into Disqualified → showed + unqualified; setter card into No-Show / Cancel / Reschedule → no-show — through
+  `recordDisposition`, the EOD form's path, so Call outcome filed runs (tags, ✅/👻 line, Sales Call record) and its
+  own card steps read `already there` or find no open card (only a status the stage implies, lost, is written). The
+  handler itself never writes a status: the replica keeps the status the CRM returned, and a status the closer set by
+  hand (won, lost, abandoned) is never changed, because the card step only ever picks an open card. Only for a closing call whose time has passed: a future call dragged to No Show /
+  Cancelled is a cancel, and the calendar poll carries cancels. Follow Up and Financing Pending are the closer's own
+  stages: noted, nothing filed. Other setter-board moves: noted, nothing filed.
+- **Seen on the contact page**: the moves are listed under History (`data.ts`, `history.cards`); the event is in
+  `event_types` (`card.moved`, crm) and `EVENT_LABELS`.
+- Not built, proposed: an optional `crm.stage_setter_confirmed` ("Appointment Confirmed", Hair id
+  `0d9c50e8-0966-4224-b790-d67b888aae83`) moved on a confirmation. Pre-call sequence owns the confirm path and was
+  being edited on another branch; the confirmation produces no event of its own today, so the step would need either
+  a `pipeline_card` on pre-call's confirmed path or a new `appointment.confirmed` event from `update_appointment`.
+  Open for the owner.
+- Tests: F2 and F6 are plain `it` in `journey.test.ts` (titled `fixed, D61`), with the hand-move journey (Pat's
+  card dragged to Lost: event, replica, thread line, outcome filed, Call outcome filed's tags and the status write);
+  `templates.scenarios.test.ts › D61` drives the no-show, follow-up and DQ filings and the `already there` no-op.

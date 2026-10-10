@@ -38,7 +38,7 @@ Events the engine emits (`event_types`): `lead.created` `intake.recorded` `conta
 `appointment.outcome` `call.held` `message.sent` `message.received` `reply.classified` `payment.received`
 `payment.failed` `payment.paid_in_full` `payment.refunded` `payment.unlinked` `payment.linked` `recording.received`
 `recording.unlinked` `recording.linked` `call.analyzed` `call.logged` `agreement.sent` `agreement.signed` `tag.added`
-`tag.removed` `stage.changed` `run.started` `run.exited` `send.suppressed` `eod.filed` (a closer filed their day: the whole
+`tag.removed` `stage.changed` `card.moved` (a pipeline card moved by a hand in the CRM: `event.pipeline`, `event.from_name`, `event.to_name`, `event.mover`, D61) `run.started` `run.exited` `send.suppressed` `eod.filed` (a closer filed their day: the whole
 report in `event`, the run is about that closer: `user.*`) `intent.reviewed` `intent.unanswered` `intent.unanswered_no_show`
 (Jev's read of a reply scored by a tap, left unanswered by the call, and a no-show after one left unanswered: D55, D58).
 

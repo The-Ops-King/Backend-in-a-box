@@ -33,7 +33,7 @@ export type CallMedia = { recordingUrl?: string; transcript: { speaker: string; 
 export type WonOpportunity = { id: string; contactId: string; pipelineId: string; stageId: string; wonAt: string; createdAt: string; monetaryValue?: number; customFields: Record<string, unknown> };
 export type ObjectRecord = { id: string; createdAt: string; properties: Record<string, unknown> };
 /** A contact's card as the CRM shows it right now (D41: the CRM is the truth about cards). */
-export type LiveCard = { id: string; pipelineId: string; stageId: string; status: string; name: string; assignedUserId?: string; updatedAt: string };
+export type LiveCard = { id: string; pipelineId: string; stageId: string; status: string; name: string; assignedUserId?: string; updatedAt: string; contactId?: string; /** who last touched it, when the CRM says (it usually does not) */ updatedBy?: string };
 export type OppSnapshot = { id: string; contactId: string; pipelineId: string; stageId: string; status: string; monetaryValue?: number; updatedAt: string };
 /** `questions`: the booking form as the source defines it (name, type, position, choices), so settings can offer "this question means …" instead of asking for the text. `hosts`: who the calendar belongs to. */
 export type CalendarSnapshot = { id: string; name: string; teamMemberIds: string[]; bookingUrl?: string; note?: string; active?: boolean; questions?: { name: string; type?: string; position?: number; required?: boolean; choices?: string[] }[]; hosts?: { name: string; email: string }[]; pooling?: string };
@@ -52,6 +52,8 @@ export interface CrmRead {
   opportunitiesSince(c: Company, since: Date): Promise<OppSnapshot[]>;
   /** Every card the CRM holds for one contact, any status. */
   openCards(c: Company, ghlContactId: string): Promise<LiveCard[]>;
+  /** Every card on one board, any status, each with its contact (D61: the poll diffs them against the replica to see a hand on a card). */
+  pipelineCards(c: Company, pipelineId: string): Promise<LiveCard[]>;
   getContact(c: Company, id: string): Promise<ContactSnapshot | null>;
   listUsers(c: Company): Promise<UserSnapshot[]>;
 }

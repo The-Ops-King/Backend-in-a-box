@@ -33,7 +33,7 @@ const docSends: { templateId: string; contactId: string; userId?: string }[] = [
 const liveCards = new Map<string, import("@/adapters/types").LiveCard[]>();   // what the CRM "has" for a contact: cards the engine never made (D41)
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], openCards: async (_c, id) => liveCards.get(id) ?? [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
+    contactsChangedSince: async () => [], openCards: async (_c, id) => liveCards.get(id) ?? [], pipelineCards: async (_c, pipelineId) => [...liveCards.entries()].flatMap(([cid, cards]) => cards.filter((k) => k.pipelineId === pipelineId).map((k) => ({ ...k, contactId: cid }))), inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
     getContact: async (_c, id) => ({ id, firstName: id, email: `${id.toLowerCase()}@x.com`, phone: phoneFor(id), tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }),
     listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }],
   },
@@ -123,7 +123,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
         await c.query("delete from companies where id=$1", [co.id]); }
     });
     const r = await installCompany({ name: "Scenarios", slug: "scn", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true,
-      crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_setter_direct_booked: "STAGE-DIRECT", stage_setter_appointment_set: "STAGE-SET", stage_closer_scheduled: "STAGE-SCHED", stage_setter_cancelled: "STAGE-S-CANCEL", stage_closer_cancelled: "STAGE-C-CANCEL", field_contact_appointment_date: "CF-APPT-DATE", field_contact_setter: "CF-SETTER", field_opportunity_setter_owner: "CF-SETTER-OWNER", assoc_discovery_call_contact: "ASSOC-DC", agreement_template: "TPL-AGREE", agreement_sender: "U1", default_closer: "U1", stage_closer_agreement_sent: "STAGE-AGREE", stage_closer_closed_won: "STAGE-WON",
+      crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_setter_direct_booked: "STAGE-DIRECT", stage_setter_appointment_set: "STAGE-SET", stage_closer_scheduled: "STAGE-SCHED", stage_setter_cancelled: "STAGE-S-CANCEL", stage_closer_cancelled: "STAGE-C-CANCEL", field_contact_appointment_date: "CF-APPT-DATE", field_contact_setter: "CF-SETTER", field_opportunity_setter_owner: "CF-SETTER-OWNER", assoc_discovery_call_contact: "ASSOC-DC", agreement_template: "TPL-AGREE", agreement_sender: "U1", default_closer: "U1", stage_closer_agreement_sent: "STAGE-AGREE", stage_closer_closed_won: "STAGE-WON", stage_closer_follow_up: "STAGE-FOLLOWUP", stage_closer_lost: "STAGE-LOST", stage_closer_disqualified: "STAGE-DQ",
         field_contact_cash_collected: "CF-CASH", field_contact_revenue_generated: "CF-REV", assoc_payment_contact: "ASSOC-PC", assoc_payment_opportunity: "ASSOC-PO",
         stage_setter_showed: "STAGE-SHOWED", assoc_sales_call_contact: "ASSOC-SC", assoc_sales_call_opportunity: "ASSOC-SO" }, contractValueDefault: 2999, anthropicKey: "sk-ant-fake" }, fake);
     companyId = r.companyId;
@@ -304,6 +304,37 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await tick(fake, undefined, companyId);
     expect(oppWrites.slice(nOpps).map((w) => w.op)).toEqual(["create", "update"]);
     expect(await asOperator((c) => many(c, "select 1 from pipeline_cards where company_id=$1 and contact_id=$2", [companyId, withNum]))).toHaveLength(1);
+  });
+
+  it("D61: the filed outcome moves the cards: a no-show puts the setter card on No-Show / Cancel / Reschedule, lost, and the closer card on No Show / Cancelled, open; a showed / follow-up puts the setter card on Showed (won) and the closer card on Follow Up; a showed / disqualified marks the closer card lost at Disqualified; filing the same no-show again writes nothing (already there)", async () => {
+    const [noShow, followUp, dq] = await Promise.all([bookClosing("CO1"), bookClosing("CO2"), bookClosing("CO3")]);
+    await tick(fake, undefined, companyId);   // Call booked makes both cards for each
+    const apptOf = async (ghl: string) => (await asOperator((c) => one<{ id: string }>(c, "select id from appointments where company_id=$1 and external_id=$2", [companyId, `A${ghl}`])))!.id;
+    const term = (domain: string, category: string) => asOperator(async (c) => (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain=$2 and category=$3", [companyId, domain, category]))!.id);
+    const file = async (appointmentId: string, outcome: "showed" | "noshow", callOutcome?: "follow_up" | "unqualified") => asOperator(async (c) => recordDisposition(c, { companyId, appointmentId, outcomeTermId: await term("appointment_outcome", outcome), callOutcomeTermId: callOutcome ? await term("call_outcome", callOutcome) : null, notes: "filed", userId: null }));
+    const cardsOf = (contactId: string) => asOperator((c) => many<{ pipeline: string; stage: string; status: string }>(c, "select ghl_pipeline_id as pipeline, ghl_stage_id as stage, status from pipeline_cards where company_id=$1 and contact_id=$2 order by ghl_pipeline_id", [companyId, contactId]));
+    const runOf = async (contactId: string) => (await runsFor("call-outcome")).filter((r) => r.contact_id === contactId).at(-1)!;
+    let n = oppWrites.length;
+    await file(await apptOf("CO1"), "noshow"); await tick(fake, undefined, companyId);
+    expect(await runOf(noShow)).toMatchObject({ status: "completed", exit_reason: "noted" });
+    expect(oppWrites.slice(n)).toEqual([expect.objectContaining({ op: "update", pipelineId: "PIPE-SETTER", stageId: "STAGE-S-CANCEL", status: "lost" }), expect.objectContaining({ op: "update", pipelineId: "PIPE-CLOSER", stageId: "STAGE-C-CANCEL", status: "open" })]);
+    expect(await cardsOf(noShow)).toEqual([{ pipeline: "PIPE-CLOSER", stage: "STAGE-C-CANCEL", status: "open" }, { pipeline: "PIPE-SETTER", stage: "STAGE-S-CANCEL", status: "lost" }]);
+    n = oppWrites.length;
+    await file(await apptOf("CO1"), "noshow"); await tick(fake, undefined, companyId);   // filed again (a correction, a CRM no-show after the form): the cards are already there
+    expect(await runOf(noShow)).toMatchObject({ status: "completed", exit_reason: "noted" });
+    expect(oppWrites.length).toBe(n);
+    const again = (await runOf(noShow)).id;
+    expect((await asOperator((c) => many<{ node_id: string; result: Record<string, unknown> }>(c, "select node_id, result from run_steps where run_id=$1 and node_id in ('gn1','gn2') order by node_id", [again]))).map((s) => [s.node_id, s.result.why])).toEqual([["gn1", "no open card on this board to move; this step never creates one"], ["gn2", "already there"]]);   // the setter card is lost (closed), the closer card is already there
+    n = oppWrites.length;
+    await file(await apptOf("CO2"), "showed", "follow_up"); await tick(fake, undefined, companyId);
+    expect(await runOf(followUp)).toMatchObject({ status: "completed", exit_reason: "noted" });
+    expect(oppWrites.slice(n)).toEqual([expect.objectContaining({ op: "update", pipelineId: "PIPE-SETTER", stageId: "STAGE-SHOWED", status: "won" }), expect.objectContaining({ op: "update", pipelineId: "PIPE-CLOSER", stageId: "STAGE-FOLLOWUP", status: "open" })]);
+    expect(await cardsOf(followUp)).toEqual([{ pipeline: "PIPE-CLOSER", stage: "STAGE-FOLLOWUP", status: "open" }, { pipeline: "PIPE-SETTER", stage: "STAGE-SHOWED", status: "won" }]);
+    n = oppWrites.length;
+    await file(await apptOf("CO3"), "showed", "unqualified"); await tick(fake, undefined, companyId);
+    expect(await runOf(dq)).toMatchObject({ status: "completed", exit_reason: "noted" });
+    expect(oppWrites.slice(n)).toEqual([expect.objectContaining({ op: "update", pipelineId: "PIPE-SETTER", stageId: "STAGE-SHOWED", status: "won" }), expect.objectContaining({ op: "update", pipelineId: "PIPE-CLOSER", stageId: "STAGE-DQ", status: "lost" })]);
+    expect(await cardsOf(dq)).toEqual([{ pipeline: "PIPE-CLOSER", stage: "STAGE-DQ", status: "lost" }, { pipeline: "PIPE-SETTER", stage: "STAGE-SHOWED", status: "won" }]);
   });
 
   it("call-booked, self-booked: closer card created at Scheduled, setter card only moved if present, stat-booked + stat-self-booked, nurture tags off, contact gets date + owner, Slack skipped when unbound", async () => {

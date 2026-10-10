@@ -5,7 +5,7 @@
   "stage": "post_call",
   "sort": 4,
   "origin": "spec",
-  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, and the contact gets the outcome tags. No-show → 👻 and stat-no-show. Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one) and stat-showed, then the call outcome the closer confirmed: closed or deposit → stat-closed-won, follow-up → stat-follow-up, lost → stat-lost, disqualified → stat-disqualified. A reschedule changes nothing here: Call booked already reacted 🔁. The Sales Call record (created at booking) is updated with the outcome and, for a show, the disposition the closer confirmed. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54).",
+  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed or deposit → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A reschedule changes nothing here: Call booked already reacted 🔁. The Sales Call record (created at booking) is updated with the outcome and, for a show, the disposition the closer confirmed. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -60,6 +60,23 @@
         "tag": [
           "stat-no-show"
         ]
+      },
+      {
+        "id": "gn1",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_cancelled}}",
+        "if_missing": "skip",
+        "title": "Setter card → No-Show / Cancel / Reschedule, marked lost (the setter pipeline is won on a show, lost on a no-show; the next booking makes a fresh setter card)",
+        "status": "lost"
+      },
+      {
+        "id": "gn2",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_cancelled}}",
+        "if_missing": "skip",
+        "title": "Closer card → No Show / Cancelled (move only: they can rebook)"
       },
       {
         "id": "g3",
@@ -121,6 +138,15 @@
         ]
       },
       {
+        "id": "sc1",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_showed}}",
+        "if_missing": "skip",
+        "status": "won",
+        "title": "Setter card → Showed, won (as the recording path does; a no-op when it is already there)"
+      },
+      {
         "id": "b2",
         "type": "branch",
         "title": "How did the call go?"
@@ -140,6 +166,14 @@
         ]
       },
       {
+        "id": "k2",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_follow_up}}",
+        "if_missing": "skip",
+        "title": "Closer card → Follow Up"
+      },
+      {
         "id": "c3",
         "type": "set_tag",
         "tag": [
@@ -147,11 +181,29 @@
         ]
       },
       {
+        "id": "k3",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_lost}}",
+        "if_missing": "skip",
+        "status": "lost",
+        "title": "Closer card → Lost, marked lost"
+      },
+      {
         "id": "c4",
         "type": "set_tag",
         "tag": [
           "stat-disqualified"
         ]
+      },
+      {
+        "id": "k4",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_disqualified}}",
+        "if_missing": "skip",
+        "status": "lost",
+        "title": "Closer card → Disqualified, marked lost"
       },
       {
         "id": "x0",
@@ -312,19 +364,19 @@
       },
       {
         "from": "c2",
-        "to": "x1"
+        "to": "k2"
       },
       {
         "from": "c3",
-        "to": "x1"
+        "to": "k3"
       },
       {
         "from": "c4",
-        "to": "x1"
+        "to": "k4"
       },
       {
         "from": "g2",
-        "to": "g3"
+        "to": "gn1"
       },
       {
         "from": "g3",
@@ -336,7 +388,7 @@
       },
       {
         "from": "s2",
-        "to": "v_disp"
+        "to": "sc1"
       },
       {
         "from": "v_disp",
@@ -349,6 +401,30 @@
       {
         "from": "g4",
         "to": "r2"
+      },
+      {
+        "from": "gn1",
+        "to": "gn2"
+      },
+      {
+        "from": "gn2",
+        "to": "g3"
+      },
+      {
+        "from": "sc1",
+        "to": "v_disp"
+      },
+      {
+        "from": "k2",
+        "to": "x1"
+      },
+      {
+        "from": "k3",
+        "to": "x1"
+      },
+      {
+        "from": "k4",
+        "to": "x1"
       }
     ]
   }

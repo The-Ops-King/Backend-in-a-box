@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import { ghl, GhlError } from "./client";
-import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, MessageSnapshot, ObjectRecord, OppSnapshot, UserSnapshot, WonOpportunity } from "../types";
+import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, LiveCard, MessageSnapshot, ObjectRecord, OppSnapshot, UserSnapshot, WonOpportunity } from "../types";
 
 type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string | null; tags?: string[]; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string };
 const mapContact = (c: RawContact): ContactSnapshot => ({
@@ -10,6 +10,10 @@ const mapContact = (c: RawContact): ContactSnapshot => ({
 });
 type RawEvent = { id: string; calendarId: string; contactId: string; assignedUserId?: string; startTime: string; endTime: string; appointmentStatus: string; title?: string; dateUpdated?: string; dateAdded?: string };
 const mapAppt = (e: RawEvent): AppointmentSnapshot => ({ id: e.id, calendarId: e.calendarId, contactId: e.contactId, assignedUserId: e.assignedUserId, startTime: e.startTime, endTime: e.endTime, status: e.appointmentStatus, title: e.title, dateUpdated: e.dateUpdated, dateAdded: e.dateAdded, raw: e as unknown as Record<string, unknown> });
+
+type RawOpp = { id: string; contact?: { id: string }; contactId?: string; pipelineId: string; pipelineStageId: string; status: string; name?: string; assignedTo?: string | null; updatedAt: string; lastStageChangeAt?: string; updatedBy?: string; lastStageChangeBy?: string };
+// the stage-change stamp outranks updatedAt when the CRM gives both: a note or a field edit also bumps updatedAt
+const mapCard = (o: RawOpp): LiveCard => ({ id: o.id, pipelineId: o.pipelineId, stageId: o.pipelineStageId, status: o.status, name: o.name ?? "", assignedUserId: o.assignedTo ?? undefined, updatedAt: o.updatedAt, contactId: o.contact?.id ?? o.contactId, updatedBy: o.lastStageChangeBy ?? o.updatedBy });
 
 export const ghlRead: CrmRead = {
   async contactsChangedSince(c, sinceIso) {
@@ -142,8 +146,18 @@ export const ghlRead: CrmRead = {
   },
   async openCards(c, ghlContactId) {
     // snake_case params on this endpoint (ghl/02-api-facts.md); the index lags a few seconds behind a create, so callers never treat absence as deletion
-    const r = await ghl<{ opportunities: { id: string; pipelineId: string; pipelineStageId: string; status: string; name?: string; assignedTo?: string | null; updatedAt: string }[] }>(c.pit, "GET", `/opportunities/search?location_id=${c.locationId}&contact_id=${encodeURIComponent(ghlContactId)}&limit=100`);
-    return (r.opportunities ?? []).map((o) => ({ id: o.id, pipelineId: o.pipelineId, stageId: o.pipelineStageId, status: o.status, name: o.name ?? "", assignedUserId: o.assignedTo ?? undefined, updatedAt: o.updatedAt }));
+    const r = await ghl<{ opportunities: RawOpp[] }>(c.pit, "GET", `/opportunities/search?location_id=${c.locationId}&contact_id=${encodeURIComponent(ghlContactId)}&limit=100`);
+    return (r.opportunities ?? []).map(mapCard);
+  },
+  /** The whole board, newest page first is not promised, so every page is read (capped: ten pages, a thousand cards). The search has no updated-since filter, so the diff is the poll's. */
+  async pipelineCards(c, pipelineId) {
+    const out: LiveCard[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const r = await ghl<{ opportunities: RawOpp[] }>(c.pit, "GET", `/opportunities/search?location_id=${c.locationId}&pipeline_id=${encodeURIComponent(pipelineId)}&limit=100&page=${page}`);
+      const opps = r.opportunities ?? []; out.push(...opps.map(mapCard));
+      if (opps.length < 100) break;
+    }
+    return out;
   },
   async getContact(c, id) {
     try { const r = await ghl<{ contact: RawContact }>(c.pit, "GET", `/contacts/${id}`); return mapContact(r.contact); }
