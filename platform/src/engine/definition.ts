@@ -108,7 +108,8 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("record_outcome"), outcome: z.string(), call_outcome: z.string().optional(), notes: z.string().optional() }),
   // A record on a CRM custom object (payment, sales call, …), upserted by our own key so the CRM's lagging search is never consulted.
   // `properties` values are templates; an empty rendered value is left out. `relate` links the record to other records by association id.
-  z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string(), properties: z.record(z.string()), owner: z.string().optional(),
+  // `if_missing: skip` makes it an update of a record the CRM already holds (one we made, with its CRM id); it never creates one.
+  z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string(), properties: z.record(z.string()), owner: z.string().optional(), if_missing: z.enum(["create", "skip"]).default("create"),
     relate: z.array(z.object({ association: z.string(), first: z.string(), second: z.string() })).default([]) }),
   // with `when`: value if it holds, else_value otherwise. With `pick`: value is rendered and looked up in it ("{{reply.intent}}" → pick.cancelled), else_value when no key matches.
   z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown(), when: Predicate.optional(), pick: z.record(z.unknown()).optional(), else_value: z.unknown().optional() }),

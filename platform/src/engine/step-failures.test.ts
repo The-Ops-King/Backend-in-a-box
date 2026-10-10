@@ -105,7 +105,7 @@ const fake: Adapters = {
 const CRM = { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_closer_scheduled: "STAGE-SCHED", default_closer: "U1" };
 const TABLES = ["alerts", "slack_posts", "sends", "runs", "events", "slack_connections", "workflow_triggers", "workflows", "messages", "crm_records", "payments", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"];
 let companyId: string, closingTerm: string;
-let wfNewLead: string, wfS2L: string, wfTag: string, wfCard: string, wfCardSkip: string, wfCardStatus: string, wfNote: string, wfTask: string, wfRecord: string, wfContact: string, wfSlack: string, wfNotify: string, wfClassify: string, wfAnalyze: string, wfAnalyzeOpt: string, wfAppt: string, wfBranch: string, wfRecordEv: string, wfCheck: string;
+let wfNewLead: string, wfS2L: string, wfTag: string, wfCard: string, wfCardSkip: string, wfCardStatus: string, wfNote: string, wfTask: string, wfRecord: string, wfContact: string, wfSlack: string, wfNotify: string, wfClassify: string, wfAnalyze: string, wfAnalyzeOpt: string, wfAppt: string, wfBranch: string, wfRecordEv: string, wfCheck: string, wfRecordUpdate: string;
 
 const wipe = (slug: string) => asOperator(async (c) => {
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [slug]); if (!co) return;
@@ -186,6 +186,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
     wfNote = await probe("Probe: note", [{ id: "n1", type: "note", template: "Probe note for {{contact.name}}" }]);
     wfTask = await probe("Probe: task", [{ id: "n1", type: "create_task", title: "Call {{contact.name}}", due: "+1d" }]);
     wfRecord = await probe("Probe: record", [{ id: "n1", type: "crm_record", object: "custom_objects.probe", key: "{{event.key}}", properties: { amount: "100", note: "{{contact.name}}" } }]);
+    wfRecordUpdate = await probe("Probe: record, update only", [{ id: "n1", type: "crm_record", object: "custom_objects.probe", key: "{{event.key}}", if_missing: "skip", properties: { outcome: "showed" } }]);
     wfContact = await probe("Probe: update contact", [{ id: "n1", type: "update_contact", set: { first_name: "Probed" } }]);
     wfSlack = await probe("Probe: slack", [{ id: "n1", type: "slack_post", channel: "{{slack.channel.bookings}}", template: "Probe post for {{contact.name}}" }, { id: "n2", type: "slack_post", channel: "{{slack.channel.bookings}}", template: "Second post for {{contact.name}}" }]);
     wfNotify = await probe("Probe: notify owner", [{ id: "n1", type: "notify_owner", template: "Owner, look at {{contact.name}}", fallback_channel: "{{slack.channel.bookings}}", task: { title: "Follow up with {{contact.name}}", due: "+1d" } }]);
@@ -734,6 +735,31 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       await spin(second, 2);
       expect(await runRow(second)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/not found|404/) });
       expect(callsTo("updateRecord")).toBe(1); expect(callsTo("createRecord")).toBe(0);
+    });
+
+    it("a note for a contact with no CRM id yet pauses with the reason: the CRM is never asked about contact 'undefined', nobody is stamped gone (sweep 2026-10-10)", async () => {
+      const ct = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name) values ($1,'Note','Nobody') returning id", [companyId]))!.id);
+      const id = await start(wfNote, ct);
+      await tickOnce();
+      expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/no CRM id/) });
+      expect(callsTo("addNote")).toBe(0);
+      expect(await asOperator((c) => one<{ gone_at: Date | null }>(c, "select gone_at from contacts where id=$1", [ct]))).toMatchObject({ gone_at: null });
+    });
+
+    it("an update-only record step (if_missing: skip) never makes a record: none known, or one known only from a shadow run (no CRM id), is a skip; a known record is updated (sweep 2026-10-10)", async () => {
+      const ct = await person("RECUPD");
+      const none = await start(wfRecordUpdate, ct, { key: "upd-none" }); await tickOnce();
+      expect((await runRow(none)).status).toBe("completed");
+      expect((await steps(none)).find((s) => s.node_id === "n1")).toMatchObject({ status: "skipped", result: expect.objectContaining({ kind: "noop" }) });
+      // a booking made while the contact was shadowed left our row with no CRM id: updating it must not create a bare record
+      await asOperator((c) => c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,'custom_objects.probe','upd-shadow',null,$2,'{}')", [companyId, ct]));
+      const shadowBorn = await start(wfRecordUpdate, ct, { key: "upd-shadow" }); await tickOnce();
+      expect((await steps(shadowBorn)).find((s) => s.node_id === "n1")).toMatchObject({ status: "skipped" });
+      expect(callsTo("createRecord")).toBe(0); expect(callsTo("updateRecord")).toBe(0);
+      const made = await start(wfRecord, ct, { key: "upd-known" }); await tickOnce(); expect((await runRow(made)).status).toBe("completed");
+      const upd = await start(wfRecordUpdate, ct, { key: "upd-known" }); await tickOnce();
+      expect((await runRow(upd)).status).toBe("completed");
+      expect(callsTo("createRecord")).toBe(1); expect(callsTo("updateRecord")).toBe(1);
     });
 
     it("update_contact the CRM refuses with 503: retried in place, written once — today the run fails (executor.ts:480)", async () => {

@@ -100,7 +100,7 @@ const connected = (x: GhlCtx) => { if (!x.ac.pit || !x.ac.locationId) throw new 
 
 /**
  * D75: cash is GHL's Payment records (`crm.object_payment`, else `custom_objects.payment`), one per transaction. A succeeded
- * payment that is not a refund or chargeback is money in; a refund or chargeback that did not fail is money out; anything
+ * payment that is not a refund or chargeback is money in; a refund or chargeback (or a negative amount) that did not fail is money out; anything
  * else (failed, pending, or a payment whose own status says it was refunded) moves nothing. The day is `occurred_at`, else
  * when the record was made. A record with no contact_id is tied to its contact through GHL's association.
  */
@@ -113,8 +113,9 @@ export function paymentOf(r: GhlObjectRecord, tz: string): Payment {
   const raw = answerText(p.occurred_at);
   let at = /^\d{4}-\d{2}-\d{2}/.test(raw) ? DateTime.fromISO(raw, { zone: tz }) : Number.isFinite(Date.parse(raw)) ? DateTime.fromMillis(Date.parse(raw)).setZone(tz) : DateTime.invalid("none");
   if (!at.isValid) at = DateTime.fromISO(r.createdAt).setZone(tz);
-  const amount = Math.abs(Number(answerText(p.amount).replace(/[$,\s]/g, "")) || 0);
-  const out = type === "refund" || type === "chargeback";
+  const raw$ = Number(answerText(p.amount).replace(/[$,\s]/g, "")) || 0, amount = Math.abs(raw$);
+  // Payment recorded writes a refund as its own line with a negative amount (D57): the sign says money out even when the CRM's picklist dropped the type
+  const out = type === "refund" || type === "chargeback" || raw$ < 0;
   const flow = out ? (["failed", "pending"].includes(status) ? "none" : "out") : status === "succeeded" ? "in" : "none";
   return { id: r.id, ghl: answerText(p.contact_id), label: answerText(p.display_label), at, amount, flow, type, status, closer: answerText(p.closer), setter: answerText(p.setter), props: p };
 }

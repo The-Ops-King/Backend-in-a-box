@@ -10,11 +10,47 @@ deposit → agreement → signed → paid in full), one for a call booked five h
 texted cancel, a show the closer filed with no recording, a no-show who rebooks). Every Finding has an `it.fails` test
 there that states the right behaviour; the engine is not changed by this sweep.
 
+**Updated by the sweep of 2026-10-10 (§4, end of file):** the tables below describe what the templates do now, after
+D55–D75 and that sweep's fixes; the findings table (§2) keeps its history. Hair's installed set is in §0.
+
 `05-edge-cases.md` is the per-template edge-case catalogue; its Known gaps G1–G10 are cross-referenced here, not
 repeated. Bindings referred to as `crm.*` are the ones the templates render (`grep 'crm.stage_' templates/*.json`):
 setter board `stage_setter_new_lead / appointment_set / direct_booked / showed / cancelled`; closer board
 `stage_closer_scheduled / agreement_sent / closed_won / cancelled`. **No template knows a closer "Showed", "Lost" or
 "No-show" stage, or a setter "No-show" stage** — that absence drives several findings below.
+
+## 0. Hair's workflows, every path (as of the sweep of 2026-10-10)
+
+Hair: booking source Calendly (two round-robin closing event types, self-booked and setter-booked, D72), CRM GHL, calls
+from GHL's dialer and Fathom, payments from Whop, Slack connected, SMS on, quiet hours with transactional sends allowed,
+mode **test** (D52 addendum 2: a contact tagged `sys-test` or with an email on `test.domains` gets every effect for real;
+everyone else runs the same path as shadow: CRM writes, Payment / Sales Call records, documents, tasks, notes and sends
+are recorded as would-have, Slack posts go out prefixed 🧪 *shadow*; a run with no contact — end of day, wrap-ups,
+health, calendar watch — is real, prefixed 🧪 *test*). Template copies on Hair that were edited after install keep
+their own definition (D2) and are not covered by a template fix until re-installed.
+
+| Workflow (slug) | On | Starts on (once per) | Paths → what it writes |
+|---|---|---|---|
+| New lead (`new-lead`) | ✓ | `lead.created` (always) | phone? (waits up to 24h) → setter card New Lead, `stat-new` · no phone → exit `no_phone` |
+| Speed to lead (`speed-to-lead`) | ✓ | `lead.created` (contact) | email + text now → 2h reply wait → replied: exit · booked meanwhile: exit `booked` · else "Still want to talk?" email |
+| Setter call logged (`setter-call-logged`) | ✓ | `call.logged` connected phone call (always) | < 60 s / no transcript / Jev "other": exit · else 15 min after the call: digest, Discovery Call record, note, `setter_calls` post |
+| Call booked (`call-booked`) | ✓ | `appointment.booked` / `.rescheduled`, closing (always) | owner + appointment date → setter-booked: setter field, setter card Appointment Set, closer card Scheduled, `stat-set` · self-booked: Direct Booked, Scheduled, `stat-self-booked` · both: `stat-booked`, `meta booked call`, eight reset tags off, video task (not on a reschedule), Sales Call record, booking card (🔁 face + 🔁 on the old card on a reschedule) |
+| Pre-call sequence (`pre-call-sequence`) | ✓ | booked / rescheduled, closing (appointment + start time) | receipts (email, text) → reply wait (≤ call − 1h) → yes: confirmed · silent: ⏳ `stat-unconfirmed` · anything else: the question + listener (§1.4) → reminders 72h/48h/24h/morning-of/1h/10m (§1.5) |
+| Call cancelled (`call-cancelled`) | ✓ | status → cancelled, closing (appointment) | both cards → cancelled stage, date cleared, rebook task, `stat-cancelled` / booked tags off, ❌ + thread |
+| Cancellation rebook (`cancellation-rebook`) | ✓ | status → cancelled, any calendar (appointment) | rebook text + email |
+| Sales call recorded (`call-recorded`) | ✓ | `recording.received` (always) | Jev "not a sales call": exit · appointment matched: showed, `stat-showed`, setter card Showed/won, ✅ · no match: ⚠️ line · both: review in `calls` (+ scorecard thread), Sales Call record (Jev's disposition), note |
+| Call outcome filed (`call-outcome`) | ✓ | `appointment.outcome` from a closer (EOD, disposition form, a hand move), or the source's no-show (always) | no-show: 👻, `stat-no-show`, setter card lost, closer card No Show, possible-cancel bookkeeping, record `noshow` · showed: ✅, `stat-showed`, setter card won, record `showed` + disposition → closed/deposit `stat-closed-won` · follow-up `stat-follow-up` + Follow Up · lost `stat-lost` + Lost · DQ `stat-disqualified` + Disqualified · rescheduled: nothing |
+| End-of-day reminder (`eod-reminder`) | ✓ | schedule 18:00 / 09:00 per closer | unfiled days with calls → DM with the links · none → exit |
+| End-of-day report filed (`eod-filed`) | ✓ | `eod.filed` (always) | summary + corrections to `eod`, ✅ + reply under the reminder DM |
+| Deal closed (`deal-closed`) | ✓ | first payment or signature (contact; a gate stop does not spend it) | paid + signed + not yet a customer → `stat-customer`, closer card Closed - Won, setter card won, Sales Call record closed_won + cash, welcome email + text, NEW CLOSE post · else exit `not_yet` |
+| Send agreement manually (`agreement-send-manually`) | ✓ | tag `sys-send-agreement-manually` (always) | not signed → document, `stat-agreement-sent`, trigger tag off, note · signed → exit |
+| Agreement signed (`agreement-signed`) | ✓ | `agreement.signed` (always) | `stat-agreement-signed`, `stat-agreement-unsigned` off, note, `deals` post |
+| Unsigned agreement chase (`agreement-chase`) | ✓ | first payment (contact) | 24h × 3: still unsigned → owner DM + task · signed → exit · after the third: `stat-agreement-unsigned`, alerts post |
+| Payment recorded (`payment-recorded`) | ✓ | `payment.received` / `.refunded` (always) | cash collected, revenue stamp (first payment), paid-full / plan / refunded tags, Payment record, first unsigned payment → document + Agreement Sent, note, Sales Call cash, `payments` post, 💵/💸 on the booking post and review |
+| Calendar availability (`calendar-availability`) | ✓ | hourly + every booking change | < 3 open times in 7 days per calendar → alert with the per-closer table |
+| Health check (`health-check`) | ✓ | hourly | the sweep's checks (tokens, duplicates, ledger drift with repairs, …) → alerts |
+| Wrap-ups (`wrap-ups`) | ✓ | 19:00 daily, Mon 08:00, the 1st 08:00 | the period's report from the ledger rollups → `reports` |
+| No-show recovery, Payment failed, Post-call follow-up, Reactivation | off | — | not running on Hair; their rows below describe the template |
 
 ## 1. The journey, stage by stage
 
@@ -52,22 +88,27 @@ Setter vs self is decided per company (`booking.setter_rule`, D24): by calendar,
 | Self-booked | same, s3, s4, s5 | **Direct Booked Call**, "Name -- Direct", open, closer | **Scheduled**, "Name -- Direct", open, closer | `stat-booked`, `stat-self-booked`, `meta booked call` | same eight | — | same post, "self-booked" | same |
 | Either | **Pre-call sequence** (`once_per_appointment`, premise `appointment_in_future`) e1 email, s1 text, w1 | — | — | — | — | "You're booked: … reply to lock it in" email (valid while ≥ 5 m before the call), booking text (≥ 15 m) | — | then w1 `wait_for_reply 4h` (sms) |
 | Either | **Calendar availability** | — | — | — | — | — | alert when the calendar has < 3 slots in 7 days | — |
-| A reschedule (`appointment.rescheduled`, same appointment moved) | **Call booked** again (t2): n1, cards re-stamped, tags re-added (idempotent), k3 skipped (`only_if`), k4 record updated, n4 posts the card again | same stage | same stage | same tags again | same eight again | — | the booking card again with the new time under the 🔁 face, 🔁 on the old card (D71); later reactions go on the new one | Pre-call is **not** restarted: a parked run follows the new time (D20); a finished one does not (F4) |
+| A reschedule (`appointment.rescheduled`, same appointment moved; on Calendly the old event is cancelled and a new one made, and the poll moves our row onto the new event id) | **Call booked** again (t2): n1, cards re-stamped, tags re-added (idempotent), k3 skipped (`only_if`), k4 updates the **same** Sales Call record (on Calendly our record key follows the new event id, sweep 2026-10-10; it used to make a second record), n4 posts the card again | same stage | same stage | same tags again | same eight again | — | the booking card again with the new time under the 🔁 face, 🔁 on the old card (D71); later reactions go on the new one | Pre-call: a parked run follows the new time (D20); a finished one starts afresh for the new time (F4, D59) |
 
-Still running from §1.1: Speed to lead's 2h wait (F3). Both cards hang off one opportunity (the pursuit), opened at
+k4 writes `external_id` = the booking's id (the Calendly event uuid), `scheduled_at` = the start as an ISO stamp (`callTime` reads both that and the outside integration's display text), `call_date` in the company's zone, `outcome: scheduled`, and `opportunity_id` = the closer card the same run just made (sweep 2026-10-10: the context's `cards.*` is refreshed after a card step; before, a first booking's record had no closer card and no association to it).
+
+Still running from §1.1: Speed to lead's 2h wait (F3, now ended by a booking). Both cards hang off one opportunity (the pursuit), opened at
 first booking (`lifecycle.ts:8`).
 
 ### 1.4 Pre-call: reply, no reply, unclear, cancel, reschedule request
 
-All inside **Pre-call sequence**; everything lands on the booking post (D44).
+All inside **Pre-call sequence**; everything lands on the booking post (D44). Since D55/D58 only a clear yes is acted on
+alone; every other reading asks the closer and the reminders go on meanwhile.
 
 | Prospect does | Path | Tags on | Tags off | Messages | Slack | Then |
 |---|---|---|---|---|---|---|
-| Replies "yes" within 4h | w1 → c1 Jev → b1 → n_conf → n_conf_slack | `stat-confirmed` | `stat-unconfirmed` (a remove of a tag that is usually not there) | — | ✅ on the booking post, thread: "✅ <first name>'s call <relative> is confirmed. > <their words>" | reminders (§1.5) |
-| Silent for 4h | w1 timeout → n_unc → n_unc_slack | `stat-unconfirmed` | — | — | ⏳ on the post, thread: "No reply to the booking text in 4 hours…" | reminders |
-| Replies "can't make it" | b1 → n_cx `update_appointment status=cancelled` → n_cx_slack → exit `cancelled` | — | — | — | ❌ on the post, thread: "❌ <name>'s call is cancelled. > <words>" | **Nothing else.** Call cancelled and Cancellation rebook never run (F1). On Calendly the appointment is not even cancelled (F14) |
-| Asks to move it | b1 → n_rs text → n_rs_slack → exit `reschedule_sent` | — | — | "No problem — grab a new time here: <closer calendar>" | 🔁 on the post, thread: "🔁 <name> got the rebooking link" | the old appointment stays confirmed (F15) |
-| Unreadable ("hmm", 👎) | b1 else → n_unclear question (offers ✅ ❌ 🔁, `decision:<appt>`) → w_dec `wait_for_reaction 24h` → b_dec | as the tapped path | as the tapped path | 🔁 → the rebooking text | the question in the thread; the tapped path's reaction + "Decided by <name>"; the bot's ✅ ❌ 🔁 taken off the question | nobody taps in 24h → reminders. For a call < 24h away the tap wait outlives the call (§2 timing) |
+| Replies "yes" (w1 ends at min(4h, call − 1h), D58) | w1 → c1 Jev → b1 → n_conf → n_conf_slack → rs | `stat-confirmed` | `stat-unconfirmed` | — | ✅ on the booking post, thread: "✅ <first name>'s call <relative> is confirmed. > <their words>" | reminders (§1.5) |
+| Silent until w1 ends | w1 timeout → n_unc → n_unc_slack | `stat-unconfirmed` | — | — | ⏳ on the post, thread line | reminders |
+| Anything else: Jev reads cancel, reschedule, a question, or cannot tell | b1 else → v_read → n_ask (the question in `slack.channel.attention`, else bookings; @closer; Jev's read and confidence; offers ✅ ❌ 🔁; `decision:<appt>`) → n_pending (`appointments.pending_read`) → n_att_on → w_dec **listener** (until the call) → reminders | `stat-needs-attention` | — | — (nothing to the prospect until a person taps) | the question | the reminders go on; a tap pulls the run to the tap path, then back to the reminder it was on |
+| A closer taps ✅ | v_decided → v_agreed → rec (`intent.reviewed`) → n_clear → n_att_off → b_dec → n_conf → n_conf_slack → rs | `stat-confirmed` | `stat-needs-attention`, `stat-unconfirmed` | — | ✅ + "Decided by <name>", ✅ on the question, the bot's offers off | back to the reminder |
+| A closer taps ❌ | … → b_dec → n_cx `update_appointment status=cancelled` → n_cx_slack → exit `cancelled` | — | `stat-needs-attention` | — | ❌ + "Decided by" | GHL source: the cancel emits `appointment.status_changed`, so Call cancelled and Cancellation rebook run (F1, D59). **Calendly (Hair): the booking is read-only to the engine; nothing is cancelled, no event, Call cancelled does not run, but the thread says cancelled (F14, open — §4 decision D-2)** |
+| A closer taps 🔁 | … → b_dec → n_rs text (the `calendar.closer_call` link) → n_rs_slack → exit `reschedule_sent` | — | `stat-needs-attention` | "No problem — grab a new time here: <link>" | 🔁 + "Decided by" | the old appointment stays booked (F15, open — §4 D-2) |
+| Nobody taps by the call | the until edge → rec_un (`intent.unanswered`) → n_att_off → rs | — | `stat-needs-attention` | — | — | the reminders went on; the pending read stays, so a no-show filed later adds `stat-possible-cancel` |
 
 ### 1.5 Reminders (Pre-call sequence, after the reply step)
 
@@ -76,7 +117,7 @@ All inside **Pre-call sequence**; everything lands on the booking post (D44).
 | r72 → m72 | call − 72h, 08:00–21:00 their time | 3-day text | call < 60h away | goes |
 | r48 → m48 | call − 48h, 08:00–21:00 | 2-day text | < 36h | goes |
 | r24 → m24e, m24s | call − 24h, 08:00–21:00 | "Tomorrow: your call with <closer>" email + 24-hour text | < 18h | both go |
-| rm → bm → mm | the day of, 08:00 their time; only for calls at 11:00 or later | morning-of text | < 2h | **never goes: bm always takes its else edge (F10)** |
+| rm → bm → mm | the day of, 08:00 their time (rm only for calls at 09:00 or later); the text only for calls at 11:00 or later | morning-of text | < 2h | goes (F10 fixed, D59) |
 | r1 → m1 | call − 1h, from 07:00 | 1-hour text | < 15m | goes (a 7:00–7:14 call: r1 is clamped to 07:00 and m1 is then stale, F19) |
 | r10 → m10 | call − 10m | 10-minute text | never | goes |
 
@@ -93,6 +134,10 @@ Setter card: **Appointment Set / Direct Booked**, closer card: **Scheduled**, th
 
 ### 1.7 End of day filed (`appointment.outcome`, source `disposition`; D34, D54)
 
+Sales Call record (custom_objects.sales_call, keyed by the booking's id): Call outcome filed's r1 / r2 update it
+(`outcome` showed / noshow, the closer's disposition) only when the engine made it with a CRM id (`if_missing: skip`,
+sweep 2026-10-10); a booking the engine never wrote (before install, or shadowed) is left for the drift sweep to name.
+
 The reminder (**End-of-day reminder**, 18:00 and 09:00 per closer) DMs the standing link; **End-of-day report filed**
 posts the summary to `slack.channel.eod` and ✅ on the DM. Each call's answer goes through `recordDisposition` →
 `applyOutcome` (`disposition.ts:12`): the outcome is written on our appointment row, `appointment.outcome` fires and,
@@ -107,7 +152,8 @@ for a show, `call.held` with the call outcome.
 | Showed, disqualified | … → c4 → k4 | **Showed, won** (sc1) | **Disqualified**, status lost (k4) | `stat-showed`, `stat-disqualified` | — | ✅ + thread line | — |
 | A hand moves a card in the CRM between ticks | none: the `cards` poll (D61) | follows the CRM | follows the CRM | — | — | thread "🗂️ <who> moved the closer card to <stage>" on the booking post | `card.moved` on the contact; closer card into No Show / Cancelled, Lost or Disqualified, or setter card into No-Show / Cancel / Reschedule (call time passed) → the outcome filed through `recordDisposition`, so Call outcome filed runs as above and its card steps read `already there` |
 | Rescheduled | b1 else → exit `nothing_to_mark` | — | — | — | — | — (Call booked's 🔁) | — |
-| Refiled with a correction | runs again (`always`) | — | — | the new tag beside the old one (F9) | — | reacts again | — |
+| Refiled with a correction | runs again (`always`) for the calls whose answer changed | — | — | the new tag beside the old one (F9) | — | reacts again | — |
+| Refiled unchanged, or filed for a call the ledger already holds (filed before, a hand move filed it, the CRM's no-show) | **nothing**: `submitEod` skips a call whose answer is already on the appointment (sweep 2026-10-10; before, every refile re-ran Call outcome filed for every call and posted every ✅/👻 thread line again) | — | — | — | — | — | the report row and the eod.filed summary are still written |
 
 ### 1.8 Agreement sent, signed, chased (D30)
 
@@ -123,10 +169,10 @@ for a show, `call.held` with the call outcome.
 | Event | Workflow | Closer card | Setter card | Tags on | Tags off | Contact fields | Messages | Slack | Also |
 |---|---|---|---|---|---|---|---|---|---|
 | Deposit (first payment, total < contract) | **Payment recorded** (`always`) n1 → n2/r1 → n3 → p1 → n4 Payment record → a0 (§1.8) → m1 note → b2 → r2 → n5 → p_book → p_rev | **Agreement Sent** (if unsigned) | — | `pay-plan-active`, (`stat-agreement-sent`) | — | cash collected = running total; revenue generated stamped once with the program price | **nothing** (D54) | `slack.channel.payments` own message; 💵 on the latest booking post ("💵 Paid 1,500· deposit. Details in the payments channel.", F13) and on the latest call review | Sales Call record `cash_collected` updated; **Deal closed** starts and stops at its gate (`not_yet`, key released, D30); **the chase** starts |
-| Balance / paid in full | same, n3 → f1 | — | — | `pay-paid-full` | `pay-plan-active` | cash collected | — | same + 💵 again | `payment.paid_in_full` is emitted (`payments.ts:105`) and **never dispatched; nothing listens** (F11, F12). Deal closed: no new run (its once is spent) |
+| Balance / paid in full | same, n3 → f1 | — | — | `pay-paid-full` | `pay-plan-active` | cash collected | — | same + 💵 again | `payment.paid_in_full` is dispatched (F11, D59); nothing listens (F12). Deal closed: no new run (its once is spent) |
 | First payment **and** signed (either order) | **Deal closed** (`once_per_contact`) c1 gate → g1 → p1 → p2 → b1 → r1 → e1 → e2 → a1 → s1 | **Closed - Won, status won** (p1) | **won** without a stage change (p2; a no-op when the card is already won by the recording) | `stat-customer` | — | — | welcome email (transactional) + welcome text | `slack.channel.deals` "NEW CLOSE!" with cash, revenue, first booking, days to close, source, the AI cheer | Sales Call record `disposition closed_won / outcome showed / cash_collected`; the booking post hears nothing |
 | Failed charge | **Payment failed** (`always`) n1 | — | — | — | — | — | — | `slack.channel.payments` @closer "please follow up" | the ledger keeps a `failed` row that never counts |
-| Refund | — | — | — | — | — | — | — | — | the ledger lowers the running total (`payments.ts:34`); **no template listens to `payment.refunded`** (G10): cash collected, `pay-paid-full`, `stat-customer` and Closed - Won all stand |
+| Refund (`payment.refunded`; Whop `refund.created`, linked to the payer through the payment it reverses when the refund carries no identity, sweep 2026-10-10) | **Payment recorded** t2 (D57): v1 picks the refund words → n1 → n3 → g1 → n4 → m1 → b2/r2 → n5 → p_book → p_rev | — | — | `pay-refunded` | — (`pay-paid-full` / `pay-plan-active` stay) | cash collected = the lower running total | — | `*Refund:* −$X` in payments, 💸 on the booking post and the review | a **new** Payment record: negative `amount`, `type` refund, `status` refunded; the original keeps its succeeded line, so the bot's net cash subtracts it once (and still once if the CRM dropped the `refund` option: a negative amount is money out). `stat-customer` and Closed - Won stand |
 | Paid in full → fulfilment | — | — | — | — | — | — | — | — | **nothing marks the client fulfilled or onboarded** (F12); the journey ends at Closed - Won + `pay-paid-full` |
 
 ### 1.10 Cancel and rebook
@@ -134,7 +180,8 @@ for a show, `call.held` with the call outcome.
 | Event | Workflow | Setter card | Closer card | Tags on | Tags off | Messages | Slack | Then |
 |---|---|---|---|---|---|---|---|---|
 | The source marks it cancelled (`appointment.status_changed → cancelled`, from the poll's delta) | **Call cancelled** (`once_per_appointment`) n1 → n2 → n3 clear date → n4 task → n5 → n7 | **Cancelled**, "Name -- Cancelled", **still open** | **Cancelled**, "Name -- Cancelled", **still open** | `stat-cancelled` | `stat-booked`, `stat-self-booked`, `stat-set`, `stat-confirmed` | — | ❌ on the booking post, thread: who cancelled and why, rebook task due in 1 day | **Cancellation rebook**: text + email with the rebook link. A parked pre-call exits `moot`. A rebook (new booking) moves both cards back to Set/Direct + Scheduled and takes `stat-cancelled` off (D62). Never rebooks: both cards sit open at Cancelled (F16) |
-| The prospect cancels by text | pre-call n_cx only | — | — | — | — | — | ❌ | **none of the above runs** (F1) |
+| A closer taps ❌ on the pre-call question | pre-call n_cx | as the source cancel (GHL) | as the source cancel | | | | ❌ + "Decided by" | GHL: Call cancelled and Cancellation rebook run (F1, D59). Calendly: nothing is cancelled (F14, open) |
+| The host cancels a call **after** its start (Hair's closers clear a no-show's slot) | **Call cancelled** and **Cancellation rebook** run as for any cancel | the setter card, already **lost** at No-Show by the filed no-show, has no open card, so n1 **makes a new open one** at the same stage | moved (already there) | `stat-cancelled` beside `stat-no-show` | the booked tags | the rebook text + email | "Cancelled" line under the 👻 | open (§4 D-3) |
 | No-show, then rebooks | Call booked | Set/Direct | Scheduled | `stat-booked`… again | `stat-no-show` (D62), `seq-no-show` (nothing sets it) | the new pre-call | new booking post | No-show recovery exits `rebooked` (F8, D59); `stat-no-show` is off (F9, D62) |
 
 ### 1.11 Reactivation
@@ -214,8 +261,10 @@ outlive a short-notice call are the 4-hour reply wait and the 24-hour tap wait (
 | Showed (recording) | ✅ + "Showed · N min" | the review, own message in `calls`, scorecard in its thread |
 | Showed (EOD) | ✅ ensured + "Showed, per <closer>: <outcome>" | — |
 | No-show (EOD or CRM) | 👻 + thread line | — |
-| Payment (any) | 💵 + "Paid …" | own message in `payments`; 💵 on the latest review |
-| **Silent on the post:** agreement sent, agreement signed, deal closed, payment failed, refund, the setter card won, the chase nudges, a lost/DQ filing's consequence (only the ✅ line names the outcome) | — | agreement signed and the close are own messages in `deals`; failed payment in `payments`; the chase goes to the owner |
+| Payment (any) | 💵 + "Paid $X · kind." | own message in `payments`; 💵 on the latest review |
+| Refund | 💸 + "Refunded $X · refund." | `*Refund:* −$X` in `payments`; 💸 on the latest review |
+| A hand moves a card | "🗂️ <who> moved the closer card to <stage>" | — |
+| **Silent on the post:** agreement sent, agreement signed, deal closed, payment failed, the setter card won, the chase nudges, a lost/DQ filing's consequence (only the ✅ line names the outcome) | — | agreement signed and the close are own messages in `deals`; failed payment in `payments`; the chase goes to the owner |
 
 A 🎉 (or 💰) on the booking post at the close, and a line when the agreement goes out, would complete the story the
 owner described ("any updates to that event get emojis and threads"). Low priority; noted, not a finding.
@@ -249,3 +298,78 @@ src/engine/journey.test.ts` (company slug `journey`, wiped at start; fake adapte
 `liveCards` map for the CRM's cards and recorders for sends, tags, cards, records, posts and reactions; time is driven
 by waking a parked run and handing `tick` the clock the steps should believe, since due-ness is the database's `now()`
 and the premise check reads the booking source live).
+
+## 4. Sweep 2026-10-10: Hair before the hand test
+
+Tyler is about to test Hair by hand in test mode and asked for it "as close to flawless as possible". Every workflow
+Hair has installed (§0) was traced trigger → step → edge → exit against D44–D75, 05 and 07, with the data each step
+reads and writes, test mode on both kinds of contact, and the hand-offs (Call booked → Pre-call; EOD → Call outcome
+filed; payment → Payment recorded / Deal closed / the chase; signature → Agreement signed / Deal closed).
+
+**Checked:** trigger matches and reentry keys (one run per real-world event; the EOD refile was the exception, S3);
+every branch's cases (self vs setter, reschedule on Calendly, cancel before and after the start, no-show from the form
+and from the source, each filed outcome, DQ, refund, deposit vs paid in full); every wait's end (quiet hours with
+transactional receipts, a call already past via the premise, a call before 9am, a reschedule mid-wait); idempotency of
+every outward step (sends keyed per run + node, cards read live first, records keyed by our own key, notes/tasks/
+documents through the effects ledger); every template rendered against Hair-shaped data (unknown paths, empty
+placeholders, `[placeholder …]` copy); Slack channels, threads and the 🔁 card after a reschedule (the appointment tag
+moves to the newest card; later ✅ ❌ 👻 💵 land there); what Payment recorded writes against what `ghl-metrics.ts`
+reads; the Sales Call record Call booked writes against what `callTime` and the D73 match read; test-mode gating of
+every write path.
+
+### Defects found and fixed (each with a test)
+
+| # | Defect | Fix | Test |
+|---|---|---|---|
+| S1 | **A Calendly reschedule made a second Sales Call record.** Calendly cancels the old event and makes a new one; the poll moves our appointment onto the new event id, but `crm_records` stayed keyed by the old id, so Call booked's k4 (and every later record step) created a fresh record and left the old one `scheduled` forever — two calls booked in the bot's show rate, the old one "missing from EOD". | `poll.ts` `applyAppointment`: the records keyed by the old booking id follow it to the new one; k4 then updates the one record (new `external_id`, new `scheduled_at`). | `sweep.test.ts` |
+| S2 | **A first booking's Sales Call record had no closer card.** The run's `cards.*` was read once at claim, before s4/b5 made the closer card, so k4's `opportunity_id` rendered empty and the association to the card was skipped; only a later recording ever set it. | `executor.ts`: after a card step the run's `cards.<board>` is read again. | `sweep.test.ts` (opportunity id + association); same test pins `scheduled_at` as an ISO stamp that `callTime` reads back, `external_id` the event id |
+| S3 | **Refiling the end of day re-ran Call outcome filed for every call** (and filing a call the ledger already held — a hand move, the CRM's no-show): a second ✅/👻 thread line per call, tags and record rewritten. | `eod.ts` `submitEod`: a call whose answer is already on the appointment is not filed again; a changed answer still files (D54's "a corrected refiling must react again"). | `eod.test.ts › refiling the day` |
+| S4 | **An update of a Sales Call record could create a bare one.** Call outcome filed r1/r2, Payment recorded r2 and Deal closed r1 are updates, but `crm_record` creates when our row has no CRM id — e.g. a booking made while the contact was shadowed: a record with only `outcome` / cash and no contact or date. | `crm_record` gained `if_missing: skip` (update only; describe says "only if the record already exists"); the four steps carry it. | `step-failures.test.ts › an update-only record step…` |
+| S5 | **Cash read the refund line by its type alone.** Payment recorded writes a refund as its own line (negative `amount`, `type` refund, `status` refunded) and never edits the original, so reader and writer agree — net = gross − refunds, no double subtraction, no under-count (verified by feeding the written records back through `paymentOf`). But `paymentOf` dropped the sign, so a CRM picklist without `refund` (D57: no `oneof:` guard there) would have counted the refund as nothing. | `ghl-metrics.ts` `paymentOf`: a negative amount is money out. | `templates.scenarios.test.ts › payment-recorded (D57)` (round trip: 1,500 + 1,499 − 500 = 2,499, also with the type dropped) |
+| S6 | **A refund that carried no buyer identity went unlinked** (no Payment recorded run, no minus line, cash collected unchanged) although it names the payment it reverses. | `payments.ts`: a refund links to the person of the linked payment it reverses (`linked_by: refunded_payment`) before the email/phone ladder. | `payments.test.ts › a refund that carries no buyer identity…` |
+| S7 | **A note for a contact with no CRM id asked the CRM about contact `undefined`** (07's "not yet" row): a 404 stamped the person gone, or the note vanished. | `executor.ts` note: pauses "contact has no CRM id yet", like every other contact write. | `step-failures.test.ts › a note for a contact with no CRM id yet…` |
+| S8 | **`contact.cash_collected` in a run was gross** (succeeded payments only), so after a refund the chase DM, Deal closed's NEW CLOSE line and its Sales Call `cash_collected` disagreed with the contact's Total Cash Collected (the net running total); the chase also printed `$2999`. | `context.ts`: net of refund lines; the chase's amounts use `money`. | `templates.scenarios.test.ts › agreements (D30)` ("paid $2,499") |
+
+### Needs the owner's decision (recommendation first)
+
+| # | Question | What happens today | Recommendation |
+|---|---|---|---|
+| D-1 | The Sales Call `outcome` value for a no-show, and for "Rescheduled / cancelled on the call" | Call outcome filed writes `noshow`; Hair's live records use `no_show` (D73). If `outcome` is a picklist without `noshow`, GHL drops it silently and every filed no-show reads "missing from EOD". A filed "rescheduled" writes nothing, so that record stays `scheduled` and also reads missing. | Check the field's options; write the company's own values from `sales_call.outcomes` (as the drift repair does for cancelled): `no_show`, and `late_cancel` (or `cancelled`) for "rescheduled / cancelled on the call". |
+| D-2 | Calendly and the pre-call taps (F14, F15) | ❌ cancels nothing on Calendly (read-only): the thread says cancelled, Call cancelled never runs, cards and tags stay booked, the EOD later presumes a no-show. 🔁 texts the closer-call booking link: a second booking, the first slot still held. | 🔁 sends `appointment.reschedule_url` (Calendly's own link moves the same booking: the poll sees a reschedule, Call booked posts 🔁, Pre-call follows). ❌ cancels through Calendly (`POST /scheduled_events/{uuid}/cancellation`, a token with write scope), or at least the thread says "still on the calendar — cancel it here: <cancel_url>". |
+| D-3 | A host cancelling a call **after** its start (clearing a no-show's slot, which Hair's closers do) | Call cancelled and Cancellation rebook run: a second, open setter card at No-Show / Cancel / Reschedule (the no-show already marked the first lost), `stat-cancelled` beside `stat-no-show`, a "Cancelled" line under the 👻, a rebook task and the rebook text. | Treat it as D73 does: not a cancel. Both workflows match only a cancel before the start (a `cancelled_before_start` fact on the event); a rebook nudge after a no-show is No-show recovery's (off on Hair), so decide whether no-shows should get one. |
+| D-4 | A card or contact deleted in GHL (common while testing) | Replica cards are never dropped on absence (index lag); the next card step updates the deleted card, GHL answers 404, the run pauses for a person and Retry repeats it. | A 404 on a card update marks the replica card gone and the step makes a fresh card once. Until then: do not delete and re-create test contacts or cards mid-test; use a new email. |
+| D-5 | A Calendly booking polled before GHL has the person | Call booked's first CRM write and the pre-call receipts pause "contact has no CRM id yet" (05 / 07 "not yet"). | A check at the top of Call booked and Pre-call that waits for the CRM id (every 2 min for an hour), as New lead waits for a phone. For the test: create the contact in GHL and let one poll pass before booking. |
+| D-6 | Real clients during test mode | Their Payment records, Sales Call records, agreements (Payment recorded's send and the manual tag), tasks and tags are shadowed; go-live clears those runs and replays nothing. Unless the old GHL workflows still do it: no agreement goes to a client who pays, `/cash` reads "no Payment records" or short, the show rate loses the window's calls. | Payments and agreements go live first (D52's first section), or at go-live backfill Payment and Sales Call records for the shadowed window. Tell the team to send agreements by hand meanwhile. |
+| D-7 | Bookings the engine never wrote a record for (before install, or while shadowed) | The EOD filing does not reach their Sales Call record (now skipped, S4, rather than a bare duplicate); the drift sweep names them. | Let Call outcome filed find the record by D73's match (GHL contact + start minute) and update it. |
+| D-8 | Wrap-ups and test contacts | The ledger rollups have no test exclusion (D73 excluded test contacts from the bot only): the 19:00 wrap-up will include the test's leads, bookings and payments. | Exclude them in `rollupDay` too, as the bot does. |
+| D-9 | Cancellation rebook's scope | Matches any cancelled appointment; Call cancelled only closing ones. Hair maps only closing types, so no effect today. | Match closing, as Call cancelled does. |
+| D-10 | The old Zap that wrote Sales Call records | If it still runs, every booking has two records (the Zap's and Call booked's): calls booked double in the show rate. | Confirm it is off. |
+| D-11 | Whop refunds from the backfill | The webhook keys a refund by its refund id, the backfill by `<payment id>:refund`: a backfill window over a refund the webhook delivered counts it twice in the ledger's running total (→ Total Cash Collected). | Key both by the payment the refund reverses, or skip a backfill refund when the ledger has a refund row pointing at that payment. |
+| D-12 | Copy | e1's subject says "reply to lock it in" though only a text reply is read; m24e's subject reads "your call with " when the closer is not on the roster; Deal closed's welcome email carries Hair's own Calendly link and signature in the shared template. | Tyler's copy. |
+| D-13 | Smaller | A reschedule keeps an outcome filed for the old time (GHL source only; Calendly cannot reschedule a past event); Discovery Call `occurred_at` is display text, not a stamp; a fully refunded person who later signs is still a "NEW CLOSE" (D57 open). | Clear the outcome on a move to the future; write `occurred_at` as ISO; the D57 rule. |
+
+### Copy a real person would receive that is still a placeholder
+
+All in Pre-call sequence, to the prospect (in test mode, to test contacts only): e1 the booking email body
+`[placeholder — day-one email]` (its subject is real), s1 `[placeholder — immediate text]`, m72 `[placeholder — 3 days
+out]`, m48 `[placeholder — 2 days out]`, m24e `[placeholder — 24-hour email]` (subject real), m24s `[placeholder — 24-hour
+text]`, mm `[placeholder — morning-of text]`, m1 `[placeholder — 1-hour text]`, m10 `[placeholder — 10-minute text]`.
+Real copy already: Speed to lead (email, text, follow-up email), the 🔁 rebooking text, Cancellation rebook (text,
+email), Deal closed (welcome email, text), the agreement (GHL's document template). A Hair copy edited after install
+keeps its own words.
+
+### Not verifiable without the live systems
+
+Hair's install as it stands (which copies are edited and so not upgraded; every workflow's enabled flag); the bindings
+the posts need (`slack.channel.bookings/attention/calls/setter_calls/payments/deals/eod/reports/alerts`), `calendar.closer_call`
+and `calendar.booking` pointing at the self-booked Calendly type with its `booking_url` (otherwise the link falls back to
+a GHL widget URL built from a Calendly id, a dead link to a real person); `quiet_allow_transactional = true`;
+`PUBLIC_URL` set where the clock runs (the EOD link is relative without it); the closers' Calendly emails equal to their
+roster emails (else their calls never reach the EOD form); the setter-booked event type flagged `booking: setter`; GHL's
+options on Sales Call `outcome` / `disposition` and Payment `type` / `status`, and whether Payment `amount` takes a
+negative number; Whop's `refund.created` payload (identity, `payment_id`); Calendly's no-show mark reaching the poll; the
+old Sales Call Zap being off. The test contact itself: tag `sys-test` **and** an email on jtylerray.com (the domain is
+what lets a Calendly booking pass before GHL's tags reach the engine), created in GHL before booking.
+
+Suite after this sweep: 57 files, 483 tests passed, 4 todo (`tsc` clean). Rerun any single file alone to rule out the
+shared database.

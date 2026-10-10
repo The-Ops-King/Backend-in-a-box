@@ -220,6 +220,7 @@
         "type": "crm_record",
         "object": "custom_objects.sales_call",
         "key": "{{appointment.external_id}}",
+        "if_missing": "skip",
         "only_if": {
           "exists": "records.sales_call.key"
         },
@@ -249,6 +250,7 @@
         "type": "crm_record",
         "object": "custom_objects.sales_call",
         "key": "{{appointment.external_id}}",
+        "if_missing": "skip",
         "only_if": {
           "exists": "records.sales_call.key"
         },

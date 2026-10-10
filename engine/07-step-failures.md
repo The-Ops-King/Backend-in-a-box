@@ -249,7 +249,7 @@ from the create and remembered at `:456` (C5). `relateRecords` swallows 400 / 40
 | 503 | Retry in place; written once | Failed | `a note the CRM refuses with 503…` (`it.fails`) |
 | Written, then the call died | One note across retries | Failed; a retry writes a second | `a note whose call dies…` ×2 |
 | 401 / 400 / 404 | Per class | Failed | `not yet` |
-| Contact with no CRM id | `ghlId!` is undefined → the CRM is asked for `/contacts/undefined/notes` → 404 → failed. Should pause / wait | `:366` | `not yet` |
+| Contact with no CRM id | Pauses "note: contact has no CRM id yet"; the CRM is never asked (fixed in the sweep of 2026-10-10; was: asked for `/contacts/undefined/notes`) | `executor.ts` note | `a note for a contact with no CRM id yet…` |
 
 ## update_contact
 

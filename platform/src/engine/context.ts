@@ -94,7 +94,8 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   ctx.cards = cards;
   if (run.contact_id) {
     // D30 facts the agreement and close flows check: has this person paid, have they signed, who owns them in the CRM, and the latest CRM record of each object we wrote for them
-    const pay = await one<{ n: number; total: string; first_at: Date | null }>(c, "select count(*)::int as n, coalesce(sum(amount),0)::text as total, min(paid_at) as first_at from payments where company_id=$1 and contact_id=$2 and status='succeeded'", [company.id, run.contact_id]);
+    // cash collected is net of refund lines (D57), as the running total Payment recorded writes to the contact is
+    const pay = await one<{ n: number; total: string; first_at: Date | null }>(c, "select count(*) filter (where status='succeeded')::int as n, coalesce(sum(amount) filter (where status in ('succeeded','refunded')),0)::text as total, min(paid_at) filter (where status='succeeded') as first_at from payments where company_id=$1 and contact_id=$2", [company.id, run.contact_id]);
     const agr: AgreementRow | null = (await latestAgreement(c, company.id, run.contact_id)) ?? null;
     const ownerGhl = (contact?.assigned_ghl_user_id as string | null) ?? bindings["crm.default_closer"] ?? null;
     const owner = ownerGhl ? await one<{ id: string; name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select id, name, email, ghl_user_id, slack_user_id from users where company_id=$1 and ghl_user_id=$2", [company.id, ownerGhl]) : null;

@@ -395,9 +395,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "set_tag": return applyTags(d, node.type, next, { add: node.tag });
     case "remove_tag": return applyTags(d, node.type, next, { remove: node.tag });
     case "note": {
-      const ghlId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
+      const ghlId = (d.ctx.contact as { ghl_contact_id?: string | null } | undefined)?.ghl_contact_id;
       const noteText = render(node.template, d.ctx, env(d));
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_note: noteText.slice(0, 160) } };
+      if (!ghlId) return { status: "failed", error: "note: contact has no CRM id yet" };
       const cl = await claim(d, node, "note");
       if (!cl.fresh) return cl.done ? { status: "ok", next, result: { reused: true, why: "written on an earlier try" } } : { status: "skipped", next, result: { kind: "blocked", why: `note not written twice: ${PENDING_WHY}` } };
       await d.adapters.write.addNote(d.adapterCompany, ghlId, noteText);
@@ -489,6 +490,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       }
       if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
       d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
+      await refreshCardsCtx(d, pipelineId);
       return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card ? "moved" : "created", ...(card ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), fields: customFields } };
     }
     case "crm_record": {
@@ -500,6 +502,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const owner = node.owner ? render(node.owner, d.ctx, env(d)) || undefined : undefined;
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
       let ghlId = existing?.ghl_record_id ?? null;
+      // an update-only step: nothing to update when we never made the record, or made it only in shadow (no CRM id); a bare record keyed by an id alone would be a duplicate
+      if (node.if_missing === "skip" && !(shadow(d) ? existing : ghlId)) return { status: "skipped", next, result: { kind: "noop", why: `no ${objectKey} record in the CRM to update; this step never creates one` } };
       if (!shadow(d)) {
         // D66: a create the CRM answered but our row never recorded becomes an update of that record; one it never answered is not asked twice
         const cl = ghlId ? null : await claim(d, node, "record");
@@ -672,6 +676,15 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       return started ? { status: "exit", reason: `started:${node.workflow}`, result: { run_id: started } } : { status: "exit", reason: `handoff_suppressed:${node.workflow}`, result: { why: "target disabled or re-entry blocked" } };
     }
   }
+}
+
+/** `cards.<board>` as buildContext reads it, again after a card step, so a later step in the same tick (Call booked's Sales Call record) names the card this run just made or moved. */
+async function refreshCardsCtx(d: ExecDeps, pipelineId: string): Promise<void> {
+  const board = Object.entries(d.bindings).find(([k, v]) => k.startsWith("crm.pipeline_") && v === pipelineId)?.[0].slice("crm.pipeline_".length);
+  if (!board) return;
+  const card = await one<{ ghl_opportunity_id: string | null; ghl_stage_id: string; name: string; owner_name: string | null; owner_ghl: string | null }>(d.c, "select p.ghl_opportunity_id, p.ghl_stage_id, p.name, u.name as owner_name, u.ghl_user_id as owner_ghl from pipeline_cards p left join users u on u.id=p.assigned_user_id where p.company_id=$1 and p.contact_id=$2 and p.ghl_pipeline_id=$3 and p.status='open' order by p.created_at desc limit 1", [d.company.id, d.run.contact_id, pipelineId]);
+  const cards = (d.ctx.cards ??= {}) as Record<string, unknown>;
+  cards[board] = card ? { id: card.ghl_opportunity_id ?? "", stage: card.ghl_stage_id, name: card.name, owner: card.owner_name ? { name: card.owner_name, first_name: card.owner_name.split(" ")[0], ghl_user_id: card.owner_ghl } : undefined } : undefined;
 }
 
 export /** Every string inside a JSON body is a template; the shape stays. */

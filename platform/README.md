@@ -323,8 +323,11 @@ same pursuit. In shadow the card exists only in our table.
 Custom-object records (`crm_record` node) are upserted by our own key (the Whop payment id, the
 Calendly event uuid) through `crm_records`, so the CRM's lagging search is never consulted;
 `relate` links the new record to others by association id, and the record's CRM id is `{{record.id}}`
-for the rest of the run. The contact's open card on each bound board is `{{cards.<name>}}`
-(`id`, `stage`, `name`, `owner`), so a payment record can point at the closer card and its owner.
+for the rest of the run; `if_missing: skip` makes a step update-only (a record the engine never made with a CRM id is
+left alone, never re-made bare). A Calendly reschedule moves the records keyed by the old event id to the new one. The
+contact's open card on each bound board is `{{cards.<name>}}` (`id`, `stage`, `name`, `owner`), read again after every
+card step, so a payment record can point at the closer card and its owner and the booking's Sales Call record at the
+closer card the same run made.
 
 Contact custom fields are readable in templates by the name they were bound under:
 `crm.field_contact_hair_loss = <id>` → `{{contact.fields.hair_loss}}`. `update_contact` writes

@@ -206,4 +206,24 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     // the engine's own showed (a recording landing) is Sales call recorded's business, not this workflow's: no run
     expect(await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: theo, opportunity_id: null, appointment_id: apptTheo, event_type: "appointment.outcome", source: "engine", data: { outcome: "showed", label: "Showed", by: "workflow:o1" } }), { contact: { id: theo }, appointment: { id: apptTheo } }))).toEqual([]);
   });
+  it("refiling the day (sweep 2026-10-10): a call whose answer is already on the ledger is not filed again, so Call outcome filed does not post its thread line and reaction a second time; a changed answer files once", async () => {
+    const day = DateTime.now().setZone(TZ).minus({ days: 1 }).toFormat("yyyy-MM-dd");
+    const token = await asOperator((c) => tokenFor(c, allan));
+    const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, day));
+    // as the form opens: Mia and Noah as filed, Theo as the CRM marked him
+    expect(pre.calls.map((x) => [x.contact, x.outcome])).toEqual([["Mia Chen", "no_show"], ["Noah Reyes", "follow_up"], ["Theo Park", "no_show"]]);
+    const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "never joined either", next_date: x.next_date ?? (x.outcome === "follow_up" ? DateTime.now().plus({ days: 2 }).toISODate() : null), next_steps: x.next_steps || (x.outcome === "follow_up" ? "call back" : "") }));
+    const outcomeRuns = () => asOperator(async (c) => Number((await one<{ n: string }>(c, "select count(*)::text as n from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Call outcome filed'", [companyId]))!.n));
+    const before = await outcomeRuns(), n = posts.length;
+    expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });   // all three are on the ledger
+    expect(await outcomeRuns()).toBe(before);
+    await tick(fake, DateTime.now(), companyId);
+    expect(posts.slice(n).filter((p) => p.channel === "CBOOK")).toEqual([]);
+    // Noah turns out to be a loss: that one call is filed, once
+    const changed = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const } : x));
+    expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(changed), calls: changed, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });
+    expect(await outcomeRuns()).toBe(before + 1);
+    await tick(fake, DateTime.now(), companyId);
+    expect(posts.slice(n).filter((p) => p.channel === "CBOOK").map((p) => p.text)).toEqual(["✅ Showed, per Allan P: lost."]);
+  });
 });

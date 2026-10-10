@@ -249,7 +249,7 @@ create table payments (
   customer_phone   text,
   whop_member_id   text,                                 -- stable buyer id; a later payment with the same id resolves through an earlier linked one
   link_status      text not null default 'linked' check (link_status in ('linked','unlinked')),
-  linked_by        text,                                 -- email | phone | member_id | manual | heal
+  linked_by        text,                                 -- email | phone | member_id | manual | heal | refunded_payment
   paid_at          timestamptz not null,
   raw              jsonb not null default '{}',          -- the small, structured part of the webhook
   unique (company_id, provider, whop_payment_id)

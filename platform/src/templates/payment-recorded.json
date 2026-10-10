@@ -176,6 +176,7 @@
         "type": "crm_record",
         "object": "custom_objects.sales_call",
         "key": "{{records.sales_call.key}}",
+        "if_missing": "skip",
         "properties": {
           "cash_collected": "{{event.running_total}}"
         }

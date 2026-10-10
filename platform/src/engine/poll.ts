@@ -165,7 +165,12 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (!existing && s.rescheduledFrom) {
     // the source cancelled the old booking and created this one; to us it is the same appointment moved
     const prior = await find(s.rescheduledFrom);
-    if (prior) { await c.query("update appointments set external_id=$2, reschedule_url=coalesce($3, reschedule_url), cancel_url=coalesce($4, cancel_url) where id=$1", [prior.id, s.id, s.rescheduleUrl ?? null, s.cancelUrl ?? null]); existing = { ...prior, external_id: s.id }; }
+    if (prior) {
+      await c.query("update appointments set external_id=$2, reschedule_url=coalesce($3, reschedule_url), cancel_url=coalesce($4, cancel_url) where id=$1", [prior.id, s.id, s.rescheduleUrl ?? null, s.cancelUrl ?? null]);
+      // the CRM records keyed by the booking's id (the Sales Call) follow it, so the steps that write them update the one record rather than making a second
+      await c.query("update crm_records r set record_key=$3, updated_at=now() where r.company_id=$1 and r.record_key=$2 and not exists (select 1 from crm_records x where x.company_id=r.company_id and x.object_key=r.object_key and x.record_key=$3)", [co.id, s.rescheduledFrom, s.id]);
+      existing = { ...prior, external_id: s.id };
+    }
   }
   if (!existing) {
     const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at)
