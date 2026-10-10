@@ -104,7 +104,10 @@ export const Node = z.discriminatedUnion("type", [
   // `properties` values are templates; an empty rendered value is left out. `relate` links the record to other records by association id.
   z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string(), properties: z.record(z.string()), owner: z.string().optional(),
     relate: z.array(z.object({ association: z.string(), first: z.string(), second: z.string() })).default([]) }),
-  z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown(), when: Predicate.optional(), else_value: z.unknown().optional() }),   // with `when`: value if it holds, else_value otherwise
+  // with `when`: value if it holds, else_value otherwise. With `pick`: value is rendered and looked up in it ("{{reply.intent}}" → pick.cancelled), else_value when no key matches.
+  z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown(), when: Predicate.optional(), pick: z.record(z.unknown()).optional(), else_value: z.unknown().optional() }),
+  // A fact for the ledger: one event of type `event` with `data` rendered (a whole "{{path}}" keeps its type, so a boolean stays a boolean). Ours, never the CRM; runs in shadow too. Starts nothing by itself.
+  z.object({ ...base, type: z.literal("record"), event: z.string().min(1), data: z.record(z.string()).default({}) }),
   z.object({ ...base, type: z.literal("start_workflow"), workflow: z.string(), with: z.record(z.unknown()).optional() }),
   z.object({ ...base, type: z.literal("pause_runs"), scope: z.enum(["contact", "appointment"]).default("contact") }),
   z.object({ ...base, type: z.literal("exit"), reason: z.string() }),

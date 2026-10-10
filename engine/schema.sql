@@ -321,7 +321,7 @@ insert into event_types values
   ('appointment.booked','appointment'), ('appointment.rescheduled','appointment'),
   ('appointment.status_changed','appointment'), ('appointment.outcome','appointment'),
   ('call.held','call'),
-  ('message.sent','message'), ('message.received','message'), ('reply.classified','message'),
+  ('message.sent','message'), ('message.received','message'), ('reply.classified','message'), ('intent.reviewed','message'),
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
   ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'),
   ('agreement.sent','agreement'), ('agreement.signed','agreement'),

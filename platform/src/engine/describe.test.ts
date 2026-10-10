@@ -31,7 +31,15 @@ describe("plain-English descriptions", () => {
     const def = parseDefinition(templates.find((t) => t.slug === "call-booked")!.definition);
     expect(branchTitle(def, "n2")).toBe("Setter booked, or self booked?");
     const rem = parseDefinition(templates.find((t) => t.slug === "pre-call-sequence")!.definition);
-    expect(branchTitle(rem, "b1")).toBe("The reply is “confirmed”, or the reply is “cancelled”, or the reply is a reschedule request?");
+    expect(branchTitle(rem, "b1")).toBe("The reply is “confirmed”, or neither?");   // D55: only a clear yes acts on its own; everything else is put to the team
+    expect(branchTitle(rem, "b_dec")).toBe("✅ keep the call, or ❌ cancel it, or 🔁 reschedule, or nobody decided in time?");
+  });
+  it("a record step names the event in plain words; a picked set_var lists its choices", () => {
+    expect(describeNode({ id: "r", type: "record", event: "intent.reviewed", data: { predicted: "{{reply.intent}}", decided: "{{vars.decided}}", agreed: "{{vars.agreed}}" } }))
+      .toEqual({ title: "Record: A person reviewed Jev's read of a reply", detail: "An event in the ledger with predicted, decided, agreed; nothing leaves the engine" });
+    expect(kindOf({ id: "r", type: "record", event: "x.y", data: {} })).toBe("control");
+    expect(describeNode({ id: "v", type: "set_var", key: "jev_read", value: "{{reply.intent}}", pick: { cancelled: "they want to cancel.", reschedule_request: "they want to reschedule." }, else_value: "I couldn't tell what they meant." }))
+      .toEqual({ title: "Remember jev read, picked by [the reply]", detail: "cancelled → they want to cancel.; reschedule request → they want to reschedule.; otherwise I couldn't tell what they meant." });
   });
   it("predicates and edges", () => {
     expect(predicateWords({ eq: ["{{reply.intent}}", "reschedule_request"] })).toBe("the reply is a reschedule request");

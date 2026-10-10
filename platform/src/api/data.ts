@@ -195,7 +195,17 @@ export async function healthPage(c: PoolClient, co: CompanyHead) {
   return { company: co, open: open.map((a) => ({ id: a.id, level: a.level, text: a.text, source: a.source, first_seen: a.first_seen, announce_count: a.announce_count, link: (a.detail as { link?: string }).link ?? null, link_label: (a.detail as { link_label?: string }).link_label ?? null })),
     checks, resolved: recent.filter((a) => a.resolved_at).slice(0, 20).map((a) => ({ id: a.id, text: a.text, first_seen: a.first_seen, resolved_at: a.resolved_at })),
     sweep: wf ? { workflow_id: wf.id, name: wf.name, enabled: wf.enabled, when: wf.enabled && wf.schedule ? scheduleWords(wf.schedule) : null, last_run_at: h.last_run_at } : null,
-    starts: await startsCatalog(c, co.id) };
+    starts: await startsCatalog(c, co.id), jev: await jevScore(c, co.id, co.timezone) };
+}
+
+/** D55: how often a person agreed with Jev's read of a reply this month (company time), from the intent.reviewed events, and the same split by what Jev predicted. */
+async function jevScore(c: PoolClient, companyId: string, tz: string) {
+  const rows = await many<{ predicted: string; reviewed: number; agreed: number }>(c, `
+    select coalesce(data->>'predicted', '') as predicted, count(*)::int as reviewed, count(*) filter (where (data->>'agreed')::boolean)::int as agreed
+    from events where company_id=$1 and event_type='intent.reviewed' and occurred_at >= date_trunc('month', now() at time zone $2) at time zone $2
+    group by 1 order by 2 desc, 1`, [companyId, tz]);
+  const reviewed = rows.reduce((n, r) => n + r.reviewed, 0), agreed = rows.reduce((n, r) => n + r.agreed, 0);
+  return { reviewed, agreed, by_intent: rows };
 }
 
 /** Every event a workflow can start from, which of this company's workflows use it, and how often it was seen (30 days). */

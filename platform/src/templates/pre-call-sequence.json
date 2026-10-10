@@ -5,7 +5,7 @@
   "stage": "pre_call",
   "sort": 10,
   "origin": "spec",
-  "description": "Everything the prospect hears between booking and the call: the booking email and text (reply with an emoji to lock in; every reply and a 4-hour silence become a reaction and a thread reply on the booking post in Slack, never a new message and the closers told). A reply nobody can read is put to the team on the booking thread with ✅ ❌ 🔁 to tap; the run waits for the tap on that one message and takes the confirmed, cancelled or reschedule path as if the prospect had said so, noting who decided (a day of silence and the reminders go on). Then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
+  "description": "Everything the prospect hears between booking and the call: the booking email and text (reply with an emoji to lock in; every reply and a 4-hour silence become a reaction and a thread reply on the booking post in Slack, never a new message and the closers told). A clear yes confirms on its own. A reply Jev reads as a cancel or a reschedule, or cannot read at all, is put to the team on the booking thread with Jev's read and ✅ ❌ 🔁 to tap; nothing touches the appointment or texts the prospect until a person taps. The run waits for the tap on that one message and takes the confirmed, cancelled or reschedule path as the tap says, noting who decided and recording whether they agreed with Jev (a day of silence and the reminders go on). Then texts 3 days, 2 days, 24 hours (with an email), the morning of (calls at 11am or later), 1 hour and 10 minutes before. Each reminder is skipped when the call is already closer than it, and lands between 8am and 9pm their time (the 1-hour text from 7am; the 10-minute text always).",
   "definition": {
     "schema": 1,
     "reentry": "once_per_appointment",
@@ -178,15 +178,26 @@
         }
       },
       {
-        "id": "n_unclear",
+        "id": "v_read",
+        "type": "set_var",
+        "key": "jev_read",
+        "value": "{{reply.intent}}",
+        "pick": {
+          "cancelled": "they want to cancel.",
+          "reschedule_request": "they want to reschedule."
+        },
+        "else_value": "I couldn't tell what they meant."
+      },
+      {
+        "id": "n_ask",
         "type": "slack_post",
         "channel": "{{slack.channel.bookings}}",
         "as": {
-          "name": "Unclear reply, please confirm",
+          "name": "Keep, cancel or reschedule?",
           "icon": ":grey_question:"
         },
-        "template": "{{contact.first_name}} replied to the booking text and I couldn't tell what they meant.\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ confirmed, ❌ declined or 🔁 reschedule (they get the rebooking link).",
-        "title": "Ask the team: ✅ ❌ or 🔁",
+        "template": "{{contact.first_name}} replied to the booking text. Jev read this as: {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link).",
+        "title": "Ask the team: keep, cancel or reschedule?",
         "thread_of": "tag:appointment:{{appointment.id}}",
         "tag": "decision:{{appointment.id}}",
         "offer": [
@@ -205,6 +216,47 @@
           "repeat"
         ],
         "timeout": "24h"
+      },
+      {
+        "id": "v_decided",
+        "type": "set_var",
+        "key": "decided",
+        "value": "{{reaction.reaction | default:}}",
+        "pick": {
+          "white_check_mark": "confirmed",
+          "x": "cancelled",
+          "repeat": "reschedule_request"
+        },
+        "else_value": ""
+      },
+      {
+        "id": "v_agreed",
+        "type": "set_var",
+        "key": "agreed",
+        "value": true,
+        "when": {
+          "eq": [
+            "{{reply.intent}}",
+            "{{vars.decided}}"
+          ]
+        },
+        "else_value": false
+      },
+      {
+        "id": "rec",
+        "type": "record",
+        "event": "intent.reviewed",
+        "only_if": {
+          "exists": "reaction.reaction"
+        },
+        "data": {
+          "predicted": "{{reply.intent}}",
+          "decided": "{{vars.decided}}",
+          "agreed": "{{vars.agreed}}",
+          "decided_by": "{{reaction.user_name}}",
+          "appointment_id": "{{appointment.id}}"
+        },
+        "title": "Score Jev: did the person agree with the read?"
       },
       {
         "id": "b_dec",
@@ -395,26 +447,6 @@
         }
       },
       {
-        "from": "b1",
-        "to": "n_cx",
-        "when": {
-          "eq": [
-            "{{reply.intent}}",
-            "cancelled"
-          ]
-        }
-      },
-      {
-        "from": "b1",
-        "to": "n_rs",
-        "when": {
-          "eq": [
-            "{{reply.intent}}",
-            "reschedule_request"
-          ]
-        }
-      },
-      {
         "from": "n_conf_slack",
         "to": "r72"
       },
@@ -512,15 +544,31 @@
       },
       {
         "from": "b1",
-        "to": "n_unclear",
+        "to": "v_read",
         "else": true
       },
       {
-        "from": "n_unclear",
+        "from": "v_read",
+        "to": "n_ask"
+      },
+      {
+        "from": "n_ask",
         "to": "w_dec"
       },
       {
         "from": "w_dec",
+        "to": "v_decided"
+      },
+      {
+        "from": "v_decided",
+        "to": "v_agreed"
+      },
+      {
+        "from": "v_agreed",
+        "to": "rec"
+      },
+      {
+        "from": "rec",
         "to": "b_dec"
       },
       {
@@ -532,7 +580,7 @@
             "white_check_mark"
           ]
         },
-        "label": "✅ confirmed"
+        "label": "✅ keep the call"
       },
       {
         "from": "b_dec",
@@ -543,7 +591,7 @@
             "x"
           ]
         },
-        "label": "❌ declined"
+        "label": "❌ cancel it"
       },
       {
         "from": "b_dec",

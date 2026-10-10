@@ -243,7 +243,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
           case "custom_object": if (catalog && !objects.has(r.value)) miss(`step ${r.node} writes ${r.value}, which no longer exists in the CRM.`); else verified++; break;
           case "workflow": { const target = allWfs.find((w) => w.slug === r.value || w.name.toLowerCase() === r.value.toLowerCase()); if (!target) miss(`step ${r.node} hands off to "${r.value}", which is not installed.`); else if (!target.enabled) miss(`step ${r.node} hands off to "${r.value}", which is off.`, "warning"); else verified++; break; }
           case "classify_domain": if (!domains.has(r.value)) miss(`step ${r.node} classifies into "${r.value}", which has no options.`); else verified++; break;
-          case "event": if (!events.has(r.value)) miss(`trigger ${r.node} listens for "${r.value}", which the engine never emits.`); else verified++; break;
+          case "event": if (!events.has(r.value)) miss(r.what === "the event it records" ? `step ${r.node} records "${r.value}", which is not an event type the ledger accepts.` : `trigger ${r.node} listens for "${r.value}", which the engine never emits.`); else verified++; break;
           case "anthropic": if (!(bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY)) miss(`step ${r.node} needs an Anthropic key and none is set.`); else verified++; break;
           case "slack": if (!conn) miss(`step ${r.node} posts to Slack, which is not connected; those posts are skipped.`, "warning"); else verified++; break;
           case "url": verified++; break;   // checked once per unique link under "urls"

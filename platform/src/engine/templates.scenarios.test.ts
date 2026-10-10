@@ -85,6 +85,23 @@ const newContact = async (ghlId: string, email: string) => asOperator(async (c) 
 const withPhone = (contactId: string, phone: string) => asOperator((c) => c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'phone',$3)", [companyId, contactId, phone]));
 const inbound = (contactId: string, body: string) => asOperator((c) => c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,$3,'sms','inbound',$4,now())", [companyId, contactId, `m${Math.random()}`, body]));
 let companyId: string;
+/** A closing call five days out for a new contact, as the poll would record it. */
+const bookClosing = async (ghl: string) => {
+  const id = await newContact(ghl, `${ghl.toLowerCase()}@x.com`);
+  const start = DateTime.now().plus({ days: 5 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
+  const snap: AppointmentSnapshot = { id: `A${ghl}`, calendarId: "CAL", contactId: ghl, assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 30 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {} };
+  apptStore.set(snap.id, snap);
+  await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snap); });
+  return id;
+};
+const preCallRunOf = async (contactId: string) => (await asOperator((c) => many<{ id: string; status: string; current_node: string | null; exit_reason: string | null; next_run_at: Date | null; contact_id: string; appointment_id: string }>(c, "select r.id, r.status, r.current_node, r.exit_reason, r.next_run_at, r.contact_id, r.appointment_id from runs r join workflows w on w.id=r.workflow_id join workflow_templates t on t.id=w.template_id where r.company_id=$1 and t.slug='pre-call-sequence' and r.contact_id=$2 order by r.started_at", [companyId, contactId]))).at(-1)!;
+/** The question a run put to the team (its decision:<appointment> post). */
+const questionOf = async (runId: string) => (await asOperator((c) => one<{ tag: string; ts: string }>(c, "select tag, ts from slack_posts where company_id=$1 and run_id=$2 and tag like 'decision:%'", [companyId, runId])))!;
+/** Tyler taps a reaction on a Slack post, as the Slack door would deliver it. */
+const tap = (ts: string, reaction: string) => asOperator((c) => reactionArrived(c, companyId, { kind: "reaction", eventId: `Ev${ts}${reaction}`, user: "UTYLER", reaction, channel: "CBOOK", ts, removed: false }));
+const apptStatus = async (runId: string) => (await asOperator((c) => one<{ status: string }>(c, "select a.status from appointments a join runs r on r.appointment_id=a.id where r.id=$1", [runId])))!.status;
+/** What the person decided against what Jev read (D55), oldest first. */
+const reviewed = (contactId: string) => asOperator((c) => many<Record<string, unknown>>(c, "select data from events where company_id=$1 and contact_id=$2 and event_type='intent.reviewed' order by id", [companyId, contactId])).then((rows) => rows.map((r) => r.data));
 
 describe.skipIf(!HAS_DB)("template scenarios", () => {
   beforeAll(async () => {
@@ -662,50 +679,95 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       await c.query("update companies set sms_enabled=true where id=$1", [companyId]);   // the sms_enabled scenario above left it off
     });
     liveStatus = "confirmed"; replyIntent = "unclear";
-    const book = async (ghl: string) => {
-      const id = await newContact(ghl, `${ghl.toLowerCase()}@x.com`);
-      const start = DateTime.now().plus({ days: 5 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
-      const snap: AppointmentSnapshot = { id: `A${ghl}`, calendarId: "CAL", contactId: ghl, assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 30 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {} };
-      apptStore.set(snap.id, snap);
-      await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, snap); });
-      return id;
-    };
-    const jeremy = await book("CJEREMY"), kai = await book("CKAI");
-    const runOf = async (id: string) => (await runsFor("pre-call-sequence")).find((r) => r.contact_id === id)!;
+    const jeremy = await bookClosing("CJEREMY"), kai = await bookClosing("CKAI");
     await tick(fake, undefined, companyId);   // booking email + text; both park on the reply wait
-    for (const id of [jeremy, kai]) { await inbound(id, "hmm maybe idk"); await wake((await runOf(id)).id); }
+    for (const id of [jeremy, kai]) { await inbound(id, "hmm maybe idk"); await wake((await preCallRunOf(id)).id); }
     const nPosts = slackPosts.length;
     await tick(fake, DateTime.now().plus({ minutes: 2 }), companyId);   // settled → Jev cannot read it → the question goes to the team → the run waits for the tap
     const asked = slackPosts.slice(nPosts).filter((p) => /replied to the booking text/.test(p.text));
     expect(asked).toHaveLength(2);
-    expect(asked[0].text).not.toMatch(/Unclear reply, please confirm/);   // the persona carries that title; the body does not say it again (item 20)
-    expect(asked[0].text).toMatch(/Tap ✅ confirmed, ❌ declined or 🔁 reschedule/);
-    const [rj, rk] = [await runOf(jeremy), await runOf(kai)];
+    expect(asked[0].text).not.toMatch(/Unclear reply|Keep, cancel or reschedule\?/);   // the persona carries the title; the body does not say it again (item 20)
+    expect(asked[0].text).toMatch(/Jev read this as: I couldn't tell what they meant\./);
+    expect(asked[0].text).toMatch(/Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule/);
+    const [rj, rk] = [await preCallRunOf(jeremy), await preCallRunOf(kai)];
     expect([rj, rk].map((r) => [r.status, r.current_node])).toEqual([["waiting", "w_dec"], ["waiting", "w_dec"]]);
-    const q = await asOperator((c) => many<{ tag: string; ts: string; run_id: string }>(c, "select tag, ts, run_id from slack_posts where company_id=$1 and tag like 'decision:%'", [companyId]));
-    const qOf = (runId: string) => q.find((x) => x.run_id === runId)!;
-    expect((await asOperator((c) => one<{ wake_on_tag: string }>(c, "select wake_on_tag from runs where id=$1", [rj.id])))!.wake_on_tag).toBe(qOf(rj.id).tag);
-    const tap = (ts: string, reaction: string) => asOperator((c) => reactionArrived(c, companyId, { kind: "reaction", eventId: `Ev${ts}${reaction}`, user: "UTYLER", reaction, channel: "CBOOK", ts, removed: false }));
+    const qOf = (runId: string) => questionOf(runId);
+    expect((await asOperator((c) => one<{ wake_on_tag: string }>(c, "select wake_on_tag from runs where id=$1", [rj.id])))!.wake_on_tag).toBe((await qOf(rj.id)).tag);
     // Kai's ✅ is Kai's: Jeremy's run is not even woken (item 17)
     const parkedUntil = rj.next_run_at!.getTime();
-    expect(await tap(qOf(rk.id).ts, "white_check_mark")).toMatchObject({ runs_woken: 1, runs_started: 0 });
-    expect((await runOf(jeremy)).next_run_at!.getTime()).toBe(parkedUntil);
+    const kaiQ = await qOf(rk.id);
+    expect(await tap(kaiQ.ts, "white_check_mark")).toMatchObject({ runs_woken: 1, runs_started: 0 });
+    expect((await preCallRunOf(jeremy)).next_run_at!.getTime()).toBe(parkedUntil);
     // 👀 on Jeremy's question is not one of the three offered: the run wakes, finds no decision, and keeps waiting
-    expect(await tap(qOf(rj.id).ts, "eyes")).toMatchObject({ runs_woken: 1 });
+    expect(await tap((await qOf(rj.id)).ts, "eyes")).toMatchObject({ runs_woken: 1 });
     const nTags = tags.length, nSent = since(), nP2 = slackPosts.length, nUn = unreacted.length;
     await tick(fake, undefined, companyId);
-    expect(await runOf(jeremy)).toMatchObject({ status: "waiting", current_node: "w_dec" });
-    expect(await runOf(kai)).toMatchObject({ status: "waiting", current_node: "r72" });   // confirmed: on to the reminders, as if Kai had said yes
+    expect(await preCallRunOf(jeremy)).toMatchObject({ status: "waiting", current_node: "w_dec" });
+    expect(await preCallRunOf(kai)).toMatchObject({ status: "waiting", current_node: "r72" });   // confirmed: on to the reminders, as if Kai had said yes
     expect(tags.slice(nTags)).toEqual(["stat-confirmed"]); expect(removedTags.at(-1)).toBe("stat-unconfirmed");
     expect(slackPosts.slice(nP2).map((p) => p.text)).toEqual([expect.stringMatching(/^✅ CKAI's call .* is confirmed\.\n> hmm maybe idk\nDecided by Tyler$/)]);
-    expect(unreacted.slice(nUn)).toEqual(["white_check_mark", "x", "repeat"].map((e) => `${qOf(rk.id).ts}:${e}`));   // the bot's own three come off Kai's question, not Jeremy's
+    expect(unreacted.slice(nUn)).toEqual(["white_check_mark", "x", "repeat"].map((e) => `${kaiQ.ts}:${e}`));   // the bot's own three come off Kai's question, not Jeremy's
+    // D55: the tap scores Jev — unclear never agrees
+    expect(await reviewed(kai)).toEqual([{ predicted: "unclear", decided: "confirmed", agreed: false, decided_by: "Tyler", appointment_id: expect.any(String) }]);
+    expect(await reviewed(jeremy)).toEqual([]);
     // Jeremy's team taps 🔁: Jeremy gets the rebooking link and the run ends as a reschedule
-    expect(await tap(qOf(rj.id).ts, "repeat")).toMatchObject({ runs_woken: 1 });
+    expect(await tap((await qOf(rj.id)).ts, "repeat")).toMatchObject({ runs_woken: 1 });
     await tick(fake, undefined, companyId);
-    expect(await runOf(jeremy)).toMatchObject({ status: "completed", exit_reason: "reschedule_sent" });
+    expect(await preCallRunOf(jeremy)).toMatchObject({ status: "completed", exit_reason: "reschedule_sent" });
     expect(sent.slice(nSent).filter((x) => x.kind === "sms").map((x) => [x.to, x.body])).toEqual([["CJEREMY", expect.stringMatching(/^No problem — grab a new time here/)]]);
+    expect(await reviewed(jeremy)).toEqual([{ predicted: "unclear", decided: "reschedule_request", agreed: false, decided_by: "Tyler", appointment_id: expect.any(String) }]);
     const evs = await asOperator((c) => many<{ data: { kind: string; reaction: string; user_name: string; ref: string } }>(c, "select data from events where company_id=$1 and event_type='slack.reaction' order by id", [companyId]));
     expect(evs.map((e) => [e.data.kind, e.data.reaction, e.data.user_name])).toEqual([["decision", "white_check_mark", "Tyler"], ["decision", "eyes", "Tyler"], ["decision", "repeat", "Tyler"]]);
+    replyIntent = "confirmed";
+  });
+
+  it("D55: a reply Jev reads as a cancel cancels nothing: the team is asked with Jev's read and the run parks on the question; ❌ cancels the call, tells the thread who decided, and scores Jev as right", async () => {
+    replyIntent = "cancelled";
+    const maya = await bookClosing("CMAYA");
+    await tick(fake, undefined, companyId);
+    const run = await preCallRunOf(maya);
+    await inbound(maya, "I need to cancel my appointment"); await wake(run.id);
+    const nPosts = slackPosts.length, nSent = since();
+    await tick(fake, DateTime.now().plus({ minutes: 2 }), companyId);
+    const asked = slackPosts.slice(nPosts).filter((p) => /replied to the booking text/.test(p.text));
+    expect(asked.map((p) => p.text)).toEqual([expect.stringMatching(/^CMAYA replied to the booking text\. Jev read this as: they want to cancel\.\n\*We sent:\*\n> .*\n\*They wrote:\*\n> I need to cancel my appointment\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule/)]);
+    expect(await preCallRunOf(maya)).toMatchObject({ status: "waiting", current_node: "w_dec" });
+    expect(await apptStatus(run.id)).toBe("confirmed");   // nothing touched the appointment
+    expect(since()).toBe(nSent);                          // and nothing was texted
+    expect(await reviewed(maya)).toEqual([]);
+    const q = await questionOf(run.id);
+    expect(await tap(q.ts, "x")).toMatchObject({ runs_woken: 1 });
+    const nP2 = slackPosts.length;
+    await tick(fake, undefined, companyId);
+    expect(await preCallRunOf(maya)).toMatchObject({ status: "completed", exit_reason: "cancelled" });
+    expect(await apptStatus(run.id)).toBe("cancelled");
+    expect(slackPosts.slice(nP2).map((p) => [p.text, p.threadTs])).toEqual([["❌ CMAYA's call is cancelled.\n> I need to cancel my appointment\nDecided by Tyler", expect.any(String)]]);
+    expect(since()).toBe(nSent);
+    expect(await reviewed(maya)).toEqual([{ predicted: "cancelled", decided: "cancelled", agreed: true, decided_by: "Tyler", appointment_id: run.appointment_id }]);
+    replyIntent = "confirmed";
+  });
+
+  it("D55: a reply Jev reads as a reschedule sends no rebooking link on its own; ✅ keeps the call (confirmed tags, ✅ in the thread) and scores Jev as wrong", async () => {
+    replyIntent = "reschedule_request";
+    const noah = await bookClosing("CNOAH");
+    await tick(fake, undefined, companyId);
+    const run = await preCallRunOf(noah);
+    await inbound(noah, "can we do tuesday instead"); await wake(run.id);
+    const nPosts = slackPosts.length, nSent = since();
+    await tick(fake, DateTime.now().plus({ minutes: 2 }), companyId);
+    const asked = slackPosts.slice(nPosts).filter((p) => /replied to the booking text/.test(p.text));
+    expect(asked.map((p) => p.text)).toEqual([expect.stringMatching(/Jev read this as: they want to reschedule\./)]);
+    expect(await preCallRunOf(noah)).toMatchObject({ status: "waiting", current_node: "w_dec" });
+    expect(since()).toBe(nSent);   // no rebooking link until a person says so
+    expect(await tap((await questionOf(run.id)).ts, "white_check_mark")).toMatchObject({ runs_woken: 1 });
+    const nTags = tags.length, nP2 = slackPosts.length;
+    await tick(fake, undefined, companyId);
+    expect(await preCallRunOf(noah)).toMatchObject({ status: "waiting", current_node: "r72" });
+    expect(tags.slice(nTags)).toEqual(["stat-confirmed"]); expect(removedTags.at(-1)).toBe("stat-unconfirmed");
+    expect(slackPosts.slice(nP2).map((p) => p.text)).toEqual([expect.stringMatching(/^✅ CNOAH's call .* is confirmed\.\n> can we do tuesday instead\nDecided by Tyler$/)]);
+    expect(since()).toBe(nSent);
+    expect(await apptStatus(run.id)).toBe("confirmed");
+    expect(await reviewed(noah)).toEqual([{ predicted: "reschedule_request", decided: "confirmed", agreed: false, decided_by: "Tyler", appointment_id: run.appointment_id }]);
     replyIntent = "confirmed";
   });
 });

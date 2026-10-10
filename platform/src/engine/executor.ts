@@ -512,8 +512,19 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       return { status: "ok", next, result: { kind, period: b.period, report_id: b.id, ...(manual ? { to_date: true } : {}) } };
     }
     case "set_var": {
-      const raw = node.when && !evaluate(node.when, d.ctx) ? node.else_value : node.value;   // a value chosen by a condition: plumbing, not a fork on the chart
-      const v = typeof raw === "string" ? render(raw, d.ctx, env(d)) : raw; setPath(d.ctx, `vars.${node.key}`, v); return { status: "ok", next };
+      // a value chosen by a condition or picked by a fact: plumbing, not a fork on the chart
+      const chosen = (raw: unknown) => (typeof raw === "string" ? render(raw, d.ctx, env(d)) : raw);
+      let v: unknown;
+      if (node.pick) { const key = String(chosen(node.value) ?? ""); v = chosen(key in node.pick ? node.pick[key] : node.else_value); }
+      else v = chosen(node.when && !evaluate(node.when, d.ctx) ? node.else_value : node.value);
+      setPath(d.ctx, `vars.${node.key}`, v); return { status: "ok", next };
+    }
+    case "record": {
+      // bookkeeping never fails a run: a field whose path is not in this run's context lands as null
+      const data: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(node.data)) { try { data[k] = deepRender(v, d.ctx, env(d)); } catch (e) { if (e instanceof UnknownPathError) data[k] = null; else throw e; } }
+      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: node.event, source: "engine", data });
+      return { status: "ok", next, result: { event: node.event, ...data } };
     }
     case "pause_runs": {
       await d.c.query("update runs set status='paused', exit_reason='paused: human took over' where company_id=$1 and contact_id=$2 and id<>$3 and status in ('active','waiting')", [d.company.id, d.run.contact_id, d.run.id]);

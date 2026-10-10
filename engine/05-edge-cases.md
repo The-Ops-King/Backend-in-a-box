@@ -43,7 +43,9 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | A reply during the settle window that cancels the first ("yes… actually no") | Both pieces go to the classifier together; the last word is read in context | `not yet` (the fake classifier answers by regex) |
 | A reply after the reply wait ended (two days later: "can't make it") | `message.received` fires; a run parked on a timed reminder is not woken | `templates.scenarios.test.ts › an inbound text wakes a reply-wait but not a timed wait…` — and nothing acts on the reply: `it.todo` in `edge-cases.test.ts` |
 | No reply in 4 hours | Timeout edge: `stat-unconfirmed`, the closers told in the booking thread, the reminders go on | `engine.integration.test.ts › wait_for_reply timeout: no reply by the deadline…` |
-| An unclear reply (👎, "maybe") | Jev says unclear → the question post with ✅ ❌ offered, remembered as `decision:<appointment>` | `adapters/jev/classifier.test.ts › a confident answer that a careful person would still doubt is unclear`; the post itself: `not yet` |
+| An unclear reply (👎, "maybe") | Jev says unclear → the question on the booking thread with Jev's read ("I couldn't tell what they meant"), ✅ ❌ 🔁 offered, remembered as `decision:<appointment>`; the run waits on it | `adapters/jev/classifier.test.ts › a confident answer that a careful person would still doubt is unclear`; `templates.scenarios.test.ts › D53: an unclear reply asks the team on the booking thread…` |
+| A reply Jev reads as a cancel ("cancel my appointment") | Nothing is cancelled: the same question, with "they want to cancel."; ❌ cancels the call and scores Jev right (`intent.reviewed`, `agreed: true`), ✅ keeps it and scores Jev wrong (D55) | `templates.scenarios.test.ts › D55: a reply Jev reads as a cancel cancels nothing…` |
+| A reply Jev reads as a reschedule | No rebooking link goes out until a person taps 🔁; ✅ keeps the call, confirmed tags, Jev scored wrong | `templates.scenarios.test.ts › D55: a reply Jev reads as a reschedule sends no rebooking link on its own…` |
 | The appointment is rescheduled while a reminder is parked | The poll wakes runs on that appointment; the wait recomputes from the new start (D20) | `funnel.e2e.test.ts › reschedule → same appointment moves, the sequence stays with it, nothing else fires` |
 | The appointment is cancelled while a reminder is parked | Premise `appointment_in_future` fails → `moot: appointment cancelled`, no send | `engine.integration.test.ts › premise check: a cancelled appointment exits the run instead of sending`; `funnel.e2e.test.ts › cancel → rebook sequence sends, the pre-call sequence exits as moot…` |
 | The person books a second call (rebook as cancel + new booking) | The older run exits `superseded: a newer run for this person`; the new run carries on alone (D45) | `edge-cases.test.ts › D45: a second booking for the same person supersedes the pre-call run…` |
@@ -340,7 +342,7 @@ The workflow is gone: the question now waits for its own answer inside the pre-c
 | Edge case | What should happen | Covered by |
 |---|---|---|
 | ✅ on the question | `stat-confirmed`, ✅ on the booking post, the bot's ✅ ❌ taken off the question | `edge-cases.test.ts › the Slack door: … one real tap starts the booking decision` (the tag; the thread reply is `thread_only` and skipped without a booking post) |
-| ❌ on the question | The appointment is cancelled (Call cancelled does the rest) | `not yet` |
+| ❌ on the question | The appointment is cancelled, ❌ and "Decided by" in the thread (Call cancelled does the rest) | `templates.scenarios.test.ts › D55: a reply Jev reads as a cancel cancels nothing…` |
 | A reaction from the bot itself | Ignored | `edge-cases.test.ts › the Slack door: …` |
 | A reaction on a message the engine does not remember | Ignored | same test |
 | A reaction removed | Ignored | same test |

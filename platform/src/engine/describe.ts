@@ -17,7 +17,7 @@ export function kindOf(n: Node): NodeKind {
     case "check": case "branch": return "decision";
     case "wait": case "wait_for_reply": case "wait_for_reaction": return "wait";
     case "classify": case "analyze": return "ai";
-    case "set_var": case "start_workflow": case "pause_runs": return "control";
+    case "set_var": case "start_workflow": case "pause_runs": case "record": return "control";
     case "webhook": return "message";
     case "health_check": case "availability_check": case "report": return "control";
     case "exit": return "exit";
@@ -27,7 +27,7 @@ export function kindOf(n: Node): NodeKind {
 export const KIND_LABEL: Record<NodeKind, string> = { trigger: "Starts when", message: "Message out", crm: "CRM change", decision: "Decision", wait: "Wait", ai: "AI reads", control: "Flow control", exit: "Stops" };
 
 export const EVENT_LABELS: Record<string, string> = {
-  "lead.created": "New lead created", "contact.created": "New contact created", "schedule": "On a schedule", "eod.filed": "End-of-day report filed", "slack.reaction": "A team member reacted in Slack",
+  "lead.created": "New lead created", "contact.created": "New contact created", "schedule": "On a schedule", "eod.filed": "End-of-day report filed", "slack.reaction": "A team member reacted in Slack", "intent.reviewed": "A person reviewed Jev's read of a reply",
   "appointment.booked": "Appointment booked", "appointment.rescheduled": "Appointment rescheduled", "appointment.status_changed": "Appointment status changed", "appointment.outcome": "Call outcome recorded",
   "call.held": "Call held", "message.received": "Reply received", "tag.added": "Tag added", "tag.removed": "Tag removed",
   "payment.received": "Payment received", "payment.failed": "Payment failed", "payment.paid_in_full": "Paid in full",
@@ -105,7 +105,7 @@ export function predicateWords(p: Predicate, consts: Record<string, unknown> = {
   return JSON.stringify(p);
 }
 /** The literals a workflow's unconditional set_var steps hold, keyed vars.<key>: the numbers its gates compare against. */
-export const constsOf = (def: { nodes: Node[] }): Record<string, unknown> => Object.fromEntries(def.nodes.filter((n): n is Extract<Node, { type: "set_var" }> => n.type === "set_var" && !n.when).map((n) => [`vars.${n.key}`, n.value]));
+export const constsOf = (def: { nodes: Node[] }): Record<string, unknown> => Object.fromEntries(def.nodes.filter((n): n is Extract<Node, { type: "set_var" }> => n.type === "set_var" && !n.when && !n.pick).map((n) => [`vars.${n.key}`, n.value]));
 
 const clock = (hh: string, mm: string) => { const h = +hh; return `${h % 12 || 12}:${mm} ${h < 12 ? "AM" : "PM"}`; };
 export function durationWords(d: string): string {
@@ -167,7 +167,10 @@ export function describeNode(n: Node): NodeText {
       detail: `${n.stage ? `In the ${pathWords(n.pipeline)}, stage ${pathWords(n.stage)}` : "Card stays where it is"}${n.status ? `; marked ${n.status}` : ""}${n.assign_to ? `; owner → ${pathWords(n.assign_to)}` : ""}${n.fields.length ? `; set ${n.fields.map((f) => `${pathWords(f.id)} = ${templateWords(f.value)}`).join(", ")}` : ""}${n.if_missing === "skip" ? "; only if the card already exists" : ""}` };
     case "crm_record": return { title: `Write ${humanWords(n.object.replace(/^custom_objects\./, ""))} record`, detail: `Keyed by ${pathWords(n.key)}; ${Object.keys(n.properties).length} fields${n.relate.length ? `; linked to ${n.relate.length} related record${n.relate.length > 1 ? "s" : ""}` : ""}` };
     case "create_task": return { title: `Task for ${n.assign_to ? pathWords(n.assign_to) : "the team"}: “${templateWords(n.title)}”`, detail: `Due in ${durationWords(n.due)}`, quote: n.body ? templateWords(n.body) : undefined };
-    case "set_var": { const w = (v: unknown) => typeof v === "string" ? templateWords(v) : JSON.stringify(v); return { title: `Remember ${humanWords(n.key)} = ${w(n.value)}`, detail: n.when ? `When ${predicateWords(n.when)}; otherwise ${w(n.else_value)}` : undefined }; }
+    case "set_var": { const w = (v: unknown) => typeof v === "string" ? templateWords(v) : JSON.stringify(v);
+      if (n.pick) return { title: `Remember ${humanWords(n.key)}, picked by ${w(n.value)}`, detail: `${Object.entries(n.pick).map(([k, v]) => `${humanWords(k)} → ${w(v)}`).join("; ")}${n.else_value !== undefined ? `; otherwise ${w(n.else_value)}` : ""}` };
+      return { title: `Remember ${humanWords(n.key)} = ${w(n.value)}`, detail: n.when ? `When ${predicateWords(n.when)}; otherwise ${w(n.else_value)}` : undefined }; }
+    case "record": return { title: `Record: ${EVENT_LABELS[n.event] ?? humanWords(n.event)}`, detail: `An event in the ledger${Object.keys(n.data).length ? ` with ${Object.keys(n.data).map((k) => humanWords(k)).join(", ")}` : ""}; nothing leaves the engine` };
     case "start_workflow": return { title: `Hand off to “${humanWords(n.workflow)}”` };
     case "pause_runs": return { title: `Pause the ${n.scope === "contact" ? "contact's" : "appointment's"} other workflows` };
     case "exit": return { title: exitWords(n.reason) };

@@ -54,6 +54,7 @@ export const NODE_NEEDS: { [T in Node["type"]]: (n: Extract<Node, { type: T }>) 
   classify: (n) => [{ kind: "classify_domain", value: n.domain, node: n.id, what: "the options the AI picks from" }],
   analyze: (n) => [{ kind: "anthropic", value: "key", node: n.id, what: "the AI key" }],
   start_workflow: (n) => [{ kind: "workflow", value: n.workflow, node: n.id, what: "the workflow it hands off to" }],
+  record: (n) => [{ kind: "event", value: n.event, node: n.id, what: "the event it records" }],
 };
 
 /** Every outside dependency of a workflow, deduplicated by (kind, value). */

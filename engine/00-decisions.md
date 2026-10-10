@@ -1425,3 +1425,33 @@ is made *as* a persona named "Unclear reply, please confirm", so the body must n
 - Found on the way: the door's `source: 'slack'` was never in the events check constraint (the door had no DB
   test), and "our last message" for `reply.*` counted a Slack post about the contact as a message to them. Both fixed:
   `slack` is an event source; the last outbound is a text or an email only.
+
+## D55. The closer decides a cancel or a reschedule; Jev is scored (2026-10-10)
+
+Tyler: "I don't know if I trust Jev yet to catch 'canceled my appointment' or 'reschedule my appointment' each time.
+So if it's one of those two things, we should alert the closers and not actually cancel the meeting until there is a
+confirmation, so let's do a Slack that says essentially 'hey this person wants to cancel just FYI' and let us choose
+checkmark to keep, x to cancel, and reschedule to reschedule. Same with reschedule. Let the closer do it for now. And
+let's track how often it's actually correct, and eventually we can automate it if it's correct enough."
+
+- Pre-call's reply branch acts on its own for ONE reading only: a clear yes still takes the confirmed path (tags, ✅ in
+  the thread) with nobody asked. Everything else — Jev reading a cancel, a reschedule, a question or nothing it can
+  name — goes to the one question D53 built for unclear replies, now with Jev's read in the body ("Jev read this as:
+  they want to cancel." / "…they want to reschedule." / "…I couldn't tell what they meant."), the *We sent* / *They
+  wrote* quotes and "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link)". One question node,
+  one `wait_for_reaction`, one branch for all of them; the sentence is a `set_var` picked by `reply.intent`, hidden
+  plumbing like the rest. Nothing touches the appointment and nothing is texted to the prospect until a person taps:
+  ❌ is the only way the appointment is cancelled from a reply, 🔁 the only way the rebooking link goes out. The thread
+  replies keep "Decided by <name>".
+- Jev is scored on every tap. A new node, `record` `{ event, data }`, writes one event with rendered data to the
+  ledger and nothing else (ours, never the CRM; shadow too; a path the run does not have lands as null rather than
+  failing a run over bookkeeping). Pre-call derives `decided` from the tap (✅ confirmed, ❌ cancelled, 🔁
+  reschedule_request) and `agreed` = Jev's read equals it, then records `intent.reviewed` `{ predicted, decided,
+  agreed, decided_by, appointment_id }` — only when someone tapped; a day of silence records nothing. Unclear and
+  question never agree. `intent.reviewed` is an event type in the schema seed and the migration, so the sweep will
+  name a `record` step whose event the ledger does not accept.
+- The company Health page reads it back: "Jev's reads this month: N reviewed, K agreed (P%)" with the same split by
+  what Jev predicted in a fold. Read-only; the number that says when cancels and reschedules can be automated again.
+- `set_var` gained `pick`: `value` rendered and looked up in a map, `else_value` when nothing matches — a three-way
+  choice without two chained `when` steps. `constsOf` ignores a picked var the way it ignores a conditional one.
+

@@ -129,6 +129,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D46 column, unused since D54 (the end-of-day form presumes a no-show from the call time alone); left in place, nothing reads it
     await c.query(`alter table appointments add column if not exists presumed_outcome text`);
     await c.query(`insert into event_types values ('slack.reaction','slack') on conflict do nothing`);
+    // D55: a person's verdict on Jev's read of a reply (predicted vs decided), so Jev can be scored before cancels and reschedules are automated
+    await c.query(`insert into event_types values ('intent.reviewed','message') on conflict do nothing`);
     // D48: the three call decisions Jev makes (what kind of recording, what kind of setter call, how the sales call ended)
     await c.query(`insert into core_categories (domain, value, label, sort) values
       ('recording_kind','sales_call','Sales call',1), ('recording_kind','internal','Internal',2), ('recording_kind','other','Other',3),

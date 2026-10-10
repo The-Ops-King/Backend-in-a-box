@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import type { Definition, Node, Edge } from "@/engine/definition";
-import { branchTitle, collapsePlumbing, constsOf, describeNode, durationWords, edgeWords, exitWords, humanWords, pathWords, predicateWords, waitWords, templateWords, walkOrder } from "@/engine/describe";
+import { EVENT_LABELS, branchTitle, collapsePlumbing, constsOf, describeNode, durationWords, edgeWords, exitWords, humanWords, pathWords, predicateWords, waitWords, templateWords, walkOrder } from "@/engine/describe";
 import { exampleContext, nodeExamples } from "@/engine/example";
 import { scheduleWords } from "@/engine/when";
 import type { Projected } from "@/engine/project";
@@ -33,6 +33,7 @@ export function kindOf(n: Node): ChartKind {
     case "classify": case "analyze": return "ai";
     case "exit": return "end";
     case "update_contact": case "update_appointment": case "update_opportunity": case "pipeline_card": case "crm_record": case "create_task": case "record_outcome": case "note": return "crm";
+    case "record": return "other";
     default: return "other";
   }
 }
@@ -106,6 +107,7 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "report": return { title: "Build the wrap-up" };
     case "availability_check": return { title: "Check bookable slots", meta: `alert under ${n.min_slots} in ${n.days} day${n.days === 1 ? "" : "s"}` };
     case "health_check": return { title: "Run the health checks" };
+    case "record": return { title: "Record it", meta: EVENT_LABELS[n.event] ?? humanWords(n.event) };
     default: { const d = describeNode(n); return { title: d.title }; }
   }
 }
@@ -127,7 +129,7 @@ export function logoOf(n: Node, bookingSource: "ghl" | "calendly" = "ghl"): stri
     case "exit": return "end";
     case "webhook": return "webhook";
     case "send_document": return "doc";
-    case "health_check": case "availability_check": case "report": return "engine";
+    case "health_check": case "availability_check": case "report": case "record": return "engine";
     case "update_appointment": return bookingSource;
     default: return "ghl";
   }
