@@ -51,7 +51,8 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='bot'");
       if (co) {
         await c.query("update contacts set merged_into=null where company_id=$1", [co.id]);
-        for (const t of ["audit_log", "bot_threads", "webhook_deliveries", "events", "payments", "appointments", "opportunities", "calendars", "contact_identifiers", "contacts", "bindings", "slack_connections", "users", "company_terms"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+        await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
+        for (const t of ["audit_log", "bot_threads", "poll_cursors", "alerts", "sends", "runs", "workflow_triggers", "workflows", "webhook_deliveries", "events", "payments", "appointments", "opportunities", "calendars", "contact_identifiers", "contacts", "bindings", "slack_connections", "users", "company_terms"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
         await c.query("delete from companies where id=$1", [co.id]);
       }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('Bot Co','bot',$1) returning id", [TZ]))!.id;

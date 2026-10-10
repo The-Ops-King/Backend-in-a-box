@@ -79,6 +79,9 @@ export async function urlOk(url: string): Promise<{ ok: boolean; status?: number
   } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 120) }; }
   finally { clearTimeout(t); }
 }
+/** Wait between re-asks of a vendor that did not answer; 0 in tests. */
+export let PROBE_RETRY_MS = 3000;
+export const setProbeRetryMs = (ms: number) => { PROBE_RETRY_MS = ms; };
 export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, calendlyWhoAmI, calendlyAvailableTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk };
 
 const DAYS_AHEAD = 7;
@@ -163,7 +166,9 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
 
   // Fathom
   if (on("fathom_key") && bindings["secret.fathom_api_key"]) {
-    const r = await probes.fathomPing(bindings["secret.fathom_api_key"]);
+    // a vendor hiccup is not news: ask up to three times, a few seconds apart, before saying anything (D69: no alert on nothing)
+    let r = await probes.fathomPing(bindings["secret.fathom_api_key"]);
+    for (let i = 0; i < 2 && r !== true && !(r && typeof r === "object" && (r.status === 401 || r.status === 403)); i++) { await new Promise((ok) => setTimeout(ok, PROBE_RETRY_MS)); r = await probes.fathomPing(bindings["secret.fathom_api_key"]); }
     if (r === true) ok("fathom_key", "Key lists meetings.");
     // only a 401/403 means the key is wrong; anything else is Fathom not answering, and says so with its status (D69: no alert on a guess)
     else if (r && typeof r === "object" && (r.status === 401 || r.status === 403)) bad("fathom_key", "error", `Fathom API key rejected (${r.status}): ${r.detail || "no detail"}. Replace it in Setup.`);
