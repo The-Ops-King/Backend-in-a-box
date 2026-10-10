@@ -17,15 +17,15 @@ right answer is a template decision first). Ranked by how likely it is to bite i
 
 | # | Gap | Where | Shown by |
 |---|---|---|---|
-| G1 | The CRM refuses a text (no number on the sub-account, no phone on the contact) and the **whole run fails**: a pre-call sequence dies at its first text, so the reply wait and every later email never happen. The README already names this exact CRM error. Expected: the text is recorded `failed` and alerted (D33); the run continues. | `executor.ts:114` returns `failed` for a rejected send; `runner.ts:134` ends the run on it | `the CRM refuses the text…` |
-| G2 | A CRM outage (401 after a token rotation, a 5xx) **at the premise check fails the run for good**. D5 says a 20-minute outage means late, never lost; today it means every due reminder is lost at once. Expected: the run stays `waiting` and is looked at again next tick. | `runner.ts:76` calls `premiseAlive`, which reads the booking source live and throws; the catch at `runner.ts:140-142` marks the run `failed` | `the CRM is down (401, token rotated) at the premise check…` |
-| G3 | A workflow **turned off while runs are parked keeps running them**: the switch is read only when a run starts. Turning a workflow off in week one is the one-switch undo D52 promises; today the texts already in flight still go. Expected: a parked run of a disabled workflow does nothing when it wakes (exits, or waits for the switch). | `runner.ts:57-59` claims by status and due time only; `dispatch.ts` checks `w.enabled` at start | `a workflow turned off while a run is parked…` |
-| G4 | The D45 supersede rule ("a person is in a workflow once at a time") is applied to **`always` workflows whose runs are about distinct facts**: two payments in one minute, two recordings of one call, two dialer calls in one poll. The first run exits `superseded` before it ticks and its fact is never written (one Payment record missing from the CRM). Expected: the supersede applies to per-person sequences (once_per_contact / once_per_appointment), not to `always`. | `dispatch.ts:42-44` | `two payments for one person in the same minute…` |
+| G1 | **Fixed (D56).** The CRM refuses a text (no number on the sub-account, no phone on the contact) and the whole run failed. Now the send row is `failed` with the CRM's message, the step is `skipped` as blocked (the alert sweep's "step could not run", D33), and the run goes on to the reply wait and the emails. | `executor.ts` `doSend` | `the CRM refuses the text…` |
+| G2 | **Fixed (D56).** A CRM outage (401 after a token rotation, a 5xx) at the premise check failed the run for good. Now "the check could not run" is told apart from "the check said no": the run stays `waiting` with `next_run_at` `PREMISE_RETRY_MIN` (5 minutes) out, one `premise:booking-source-unreachable` alert per company is open while it lasts and resolves when a read succeeds. A real `ok:false` still exits the run. | `runner.ts` premise try/catch | `the CRM is down (401, token rotated) at the premise check…` |
+| G3 | **Fixed (D56).** A workflow turned off while runs were parked kept running them. Now every claimed run re-reads `workflows.enabled` before anything else: off → the run exits `workflow turned off` with a `run.exited` event, so turning the switch back on starts fresh runs from new events. | `runner.ts` per-run loop, before the premise check | `a workflow turned off while a run is parked…` |
+| G4 | **Fixed (D56).** The D45 supersede rule was applied to `always` workflows whose runs are about distinct facts (two payments in one minute, two recordings of one call). Now it applies only to reentry `once_per_contact`, `once_per_appointment` and `once_per_contact_per_window`; `always` (and `once_per_opportunity`) runs are never superseded. On the way: a `thread_of` tag the context cannot name (no recording yet) is "no post to reply to", not a failed run. | `dispatch.ts` `SUPERSEDES` | `two payments for one person in the same minute…` |
 | G5 | **Fixed (D53).** The Slack door wrote `slack.reaction` events with `source: 'slack'`, which the events table's check constraint did not allow; `slack` is now in the schema and in `migrate.ts` EVENT_SOURCES. | `app/api/webhooks/slack/[companyId]/route.ts:39`; `engine/schema.sql:341`; `src/db/migrate.ts:6` | `the Slack door's event source is one the events table accepts…` (pure) |
 | G6 | **A person rebooks, the old call is then cancelled** (how a GHL reschedule done as cancel + new booking arrives): Call cancelled moves the setter and closer cards to Cancelled with a live call days away, and Cancellation rebook texts "saw the call got cancelled, pick a new time" to someone who just did. Expected: both check for a newer confirmed closing call and stop. | `call-cancelled.json` n1/n2, `cancellation-rebook.json` n1; `poll.ts:135` only links a reschedule the source links itself (Calendly) | `a person rebooks and the old call is then cancelled…` |
 | G7 | **A call booked a few hours out gets no reminders**: the booking text's reply wait holds the run for its full 4-hour timeout, and nothing caps it at the call time. The 1-hour and 10-minute texts never run; the run exits moot when the call starts. Expected: the reply wait ends at the call (or the reminders run beside it). | `executor.ts:216-219` | `a call booked two hours out…` |
-| G8 | **Slack refusing the bot token fails the run** at the post, and every CRM step after the post is skipped. In Sales call recorded the post comes before the Sales Call record and the note on purpose ("Slack goes out first"), so a revoked token means the call is never written to the CRM. Expected: a Slack error is recorded on the send and alerted; the run continues. | `executor.ts:243` (`slack_post`), `executor.ts:194` (`notify_owner`) let `notifier.post` throw; `runner.ts:111` turns the throw into `failed` | `Slack refuses the bot token in the middle of Sales call recorded…` |
-| G9 | **Re-running install with `mode: "live"` flips the flag without Go live**: no readiness check, no clean slate (D51), so a shadow-born run parked for a real contact sends for real at its next wake. Expected: the only way to live is `goLive`. | `install.ts:100-103` | `re-running install with mode: live on a shadow company…` |
+| G8 | **Fixed (D56).** Slack refusing the bot token failed the run at the post, and every CRM step after it was skipped. Now `slack_post` and `notify_owner` catch the refusal: the send row is `failed` with Slack's error, the step is `skipped` as blocked (one open alert per workflow step, repeated at most hourly, D33), and the run continues to the CRM steps. | `executor.ts` `slackPostOrFail` | `Slack refuses the bot token in the middle of Sales call recorded…` |
+| G9 | **Fixed (D56).** Re-running install with `mode: "live"` flipped the flag without Go live. Now install never writes `live` itself: with `mode: "live"` it calls `goLive` after the install commits (the same readiness refusal, with the blockers listed; the same clean slate, D51) and reports what was cleared as `wentLive`. Any other mode value sets the flag as before. | `install.ts` after the install transaction | `re-running install with mode: live on a shadow company…` |
 | G10 | **A refund changes nothing downstream**: no template listens to `payment.refunded`, so cash collected on the contact and `pay-paid-full` stand after the money went back. A template decision before it is an engine bug. | `templates/*.json` (no trigger on `payment.refunded`) | `it.todo` |
 
 Observed in passing, no test (rows below say `not yet`): the order runs execute in one tick is the database's heap
@@ -59,11 +59,11 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | DST changes between the booking and the reminder | Luxon computes `day_of@08:00` in the contact's zone on that day; 8am stays 8am | `not yet` |
 | A contact with no timezone | Falls back to the company's zone | `not yet` (`context.ts` `timezone: contact.timezone ?? company.timezone`) |
 | A contact with a garbage timezone string from the CRM | Should fall back to the company's zone. **Suspected:** an invalid zone makes `deferIntoWindow` produce an invalid date and the run fails | `not yet` |
-| The contact has no phone | The text is refused by the CRM; the run should carry on to the reply wait and the emails. **Today:** G1 | `edge-cases.test.ts › the CRM refuses the text…` (`it.fails`) |
+| The contact has no phone | The text is refused by the CRM, recorded `failed`; the run carries on to the reply wait and the emails (G1, D56) | `edge-cases.test.ts › the CRM refuses the text…` |
 | The company has SMS off | Text steps are recorded `suppressed: sms_disabled`, the run continues | `templates.scenarios.test.ts › sms_enabled=false: SMS nodes are suppressed and the run continues` (on Speed to lead; same code path) |
 | Placeholder copy still in place | Sends go out as `[placeholder — …]`; readiness warns, does not block (D51) | `engine.integration.test.ts › a booked appointment…` (asserts the placeholder bodies); `edge-cases.test.ts › placeholder copy at go-live time is a warning, not a blocker…` |
 | A relative time rendered after the call ("in -30 minutes") | `relative` throws `StaleTemplateError`; `on_stale` decides; nothing stale ships | `template.test.ts › THROWS on a non-positive duration` |
-| The workflow is turned off mid-sequence | The parked run does nothing more. **Today:** G3 | `edge-cases.test.ts › a workflow turned off while a run is parked…` (`it.fails`) |
+| The workflow is turned off mid-sequence | The parked run exits `workflow turned off` at its next wake, nothing more goes out (G3, D56) | `edge-cases.test.ts › a workflow turned off while a run is parked…` |
 | The template is upgraded mid-sequence | The run finishes on the version it started with; new bookings start on the new one | `edge-cases.test.ts › a template upgraded while a run is parked…` |
 | The company moves from test to live while a run is parked | Go live clears every run not born live before flipping the flag | `golive.test.ts › refuses while a blocker stands, then clears shadow-born runs and goes live` |
 | The booking is from Calendly, not the CRM | `update_appointment` (cancel on ❌) records "read-only" and moves on | `not yet` |
@@ -76,7 +76,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | The same lead fires twice (form resubmitted) | `once_per_contact`: the second start is refused | `not yet` (the New lead sibling is asserted; Speed to lead is not) |
 | 480 existing contacts at install | The first poll is a silent baseline: no `lead.created`, no 480 emails | `poll.baseline.test.ts › baseline: 3 existing contacts → replica rows, zero events` |
 | A lead created at 2am | The email waits for the send window; a `transactional` one goes at once only when the company allows it | `templates.scenarios.test.ts › dark hours: a human-sounding send waits for the window…` |
-| A lead with no phone | Email goes; the text is refused by the CRM. **Today:** G1 kills the run | `edge-cases.test.ts › the CRM refuses the text…` (`it.fails`, on Pre-call; same code path) |
+| A lead with no phone | Email goes; the text is refused by the CRM and recorded `failed`; the run goes on (G1, D56) | `edge-cases.test.ts › the CRM refuses the text…` (on Pre-call; same code path) |
 | A lead the poll sees but who is not a test contact, in test mode | No run starts; a run in flight stops before any write | `mode.test.ts › test: a tagged contact and a test-domain contact start runs; a real one does not`; `mode.test.ts › test: a run in flight about a contact that stops passing exits…` |
 | In shadow | Sends recorded `shadow`, nothing delivered, the run parks for a reply as live would | `templates.scenarios.test.ts › shadow mode: the run completes, messages are recorded as would-send, nothing reaches the CRM` |
 | The contact is merged (duplicate cleaned up in the CRM) mid-sequence | Premise `contact_exists` (merged_into is null) exits the run | `not yet` |
@@ -169,7 +169,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | Setter-booked | Setter card → Set, closer card "-- Setter Booked", setter stamped | `templates.scenarios.test.ts › call-booked, setter booked: …` |
 | A setter card the CRM already has | Adopted and moved | `templates.scenarios.test.ts › D41: …` |
 | A reschedule | Second trigger; the task is not re-created; the booking post gets a 🔁 reply instead of a new card | `funnel.e2e.test.ts › reschedule → same appointment moves…` (one appointment); the `only_if` steps: `not yet` |
-| Two closing calls booked for one person in one poll | Both runs should complete (`always`). **Today:** G4, the first is superseded | `edge-cases.test.ts › two payments for one person in the same minute…` (`it.fails`, same rule) |
+| Two closing calls booked for one person in one poll | Both runs complete: `always` runs are never superseded (G4, D56) | `edge-cases.test.ts › two payments for one person in the same minute…` (same rule) |
 | A booking from a calendar not mapped to a call type | `applyAppointment` returns early: no appointment row, no event | `not yet` |
 | A booking with no phone (Calendly) | The run does not send texts; the card and tags still happen | `not yet` |
 | A booking by someone the CRM has not sent us yet | A local contact by identity; the CRM id attaches later | `poll.calendly.test.ts › a booking by someone the CRM has not sent us yet…` |
@@ -198,7 +198,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | The balance | `pay-paid-full` on, `pay-plan-active` off, revenue not stamped twice | same test |
 | A payment for a contact with no closer card | Record written without the card relation; the booking/recording thread replies skipped (`thread_only`) | `templates.scenarios.test.ts › payment-recorded: a payment is written to the CRM side only…` |
 | The same payment delivered twice | Duplicate: nothing new, nothing started | `templates.scenarios.test.ts › a redelivered payment webhook records nothing new and starts nothing` |
-| Two payments in one minute | Both recorded. **Today:** G4 | `edge-cases.test.ts › two payments for one person in the same minute…` (`it.fails`) |
+| Two payments in one minute | Both recorded (G4, D56) | `edge-cases.test.ts › two payments for one person in the same minute…` |
 | A payment before the contact exists | Unlinked + alert; a later payment from the same buyer heals it; a person can link it by hand | `payments.test.ts › a stranger's payment is unlinked; a later payment that resolves the same member heals it`; `payments.test.ts › a person links an orphan by hand…` |
 | The contact arrives through the CRM poll after the orphan payment | Stays unlinked until a later payment or a hand link (D21: nothing is guessed) | `not yet` |
 | A refund | The ledger lowers the running total; the CRM side should follow. **Today:** G10, nothing listens | `payments.test.ts › a refund is a negative row that lowers the running total`; `it.todo` |
@@ -219,7 +219,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | A recording with no matching appointment | Linked to the person, keyed by the recording, nothing marked showed, the Slack line says so | `templates.scenarios.test.ts › call-recorded, unmatched: a stranger's recording is unlinked…` |
 | A stranger's recording | Unlinked with a reason; linking by hand starts the workflow and remembers the email | same test |
 | The same recording delivered twice | Duplicate: nothing new | same test; `recordings.test.ts › records once: …` |
-| Two recordings of one call | Both link to the appointment; the second should also run (`always`). **Today:** if both land in one minute G4 drops the first; otherwise showed is recorded twice (idempotent on the row) and two review posts go | `not yet` (G4 shown on payments) |
+| Two recordings of one call | Both link to the appointment; both run (`always`, G4 fixed in D56): showed is recorded twice (idempotent on the row) and two review posts go | `not yet` (G4 shown on payments) |
 | Two different contacts on one recording | Ambiguous, not a guess: unlinked | `recordings.test.ts › two different contacts on one recording is ambiguous, not a guess; all-staff is named as such` |
 | Two contacts with the same name | Name alone never picks one | `recordings.test.ts › name matches only when exactly one contact has it` |
 | The closer's own recording with a guest email | The closer's calendar resolves the person when one appointment is near | `recordings.test.ts › the closer's calendar: one appointment within two hours…` |
@@ -227,7 +227,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | No AI key | `analyze` fails the run unless `optional`; readiness/health warn | `slack.post.test.ts › without the AI key the optional cheer is skipped…` (optional); the required case: `not yet` |
 | Jev unsure of the kind | `unclear` → the sales-call check fails → `not_a_sales_call` | `adapters/jev/classifier.test.ts › below the threshold, outside the options, a failed call, or no key: unclear`; the exit: `not yet` |
 | The disposition is a value the CRM's picklist does not have | `oneof:` leaves it blank rather than writing what the CRM would drop | `not yet` |
-| Slack refuses the token at the review post | The post is recorded failed; the Sales Call record still written. **Today:** G8 | `edge-cases.test.ts › Slack refuses the bot token in the middle of Sales call recorded…` (`it.fails`) |
+| Slack refuses the token at the review post | The post is recorded `failed`; the Sales Call record is still written (G8, D56) | `edge-cases.test.ts › Slack refuses the bot token in the middle of Sales call recorded…` |
 | The transcript is empty | `analyze`: "nothing to analyze" skip; Jev gets an empty input | `not yet` |
 
 ## Setter call logged
@@ -241,7 +241,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | A connected call whose transcript lands later | Pending until the transcript or 30 minutes | `poll.calls.test.ts › a connected call waits for its transcript; a missed call settles at once; neither is a reply`; `poll.calls.test.ts › a connected call nobody recorded settles without a transcript once the wait runs out` |
 | A call to a lead the contacts poll has not seen | The contact is fetched first | `poll.calls.test.ts › a call to a lead the contacts poll has not seen yet pulls the contact first` |
 | Calls before install | Baseline: kept, silent | `poll.calls.test.ts › baseline keeps the calls it finds and says nothing` |
-| Two calls to one lead in one poll | Both runs should complete (`always`). **Today:** G4 | `not yet` (G4 shown on payments) |
+| Two calls to one lead in one poll | Both runs complete (`always`, G4 fixed in D56) | `not yet` (G4 shown on payments) |
 | The booking made after the call is read live at the wait's end | `led_to_booking` is a live read | `templates.scenarios.test.ts › setter-call-logged…` (`["yes"]`) |
 
 ## Send agreement manually
@@ -359,19 +359,19 @@ The workflow is gone: the question now waits for its own answer inside the pre-c
 |---|---|---|
 | Every send is idempotent per run + step | The ledger refuses a duplicate; retries are safe | `engine.integration.test.ts › reply → classify…` (unique keys); `engine.integration.test.ts › a booked appointment…` (second tick sends nothing) |
 | A step throws (vendor error) | The run fails; the ledger rows already written stay | `alerts.test.ts › a failed step is announced the minute it fails, once…` |
-| A failed run is terminal | There is no retry; fixing the vendor does not resume it | `not yet` (and see G2, G8: the failures that should not have been terminal) |
+| A failed run is terminal | There is no retry; fixing the vendor does not resume it. Since D56 an unreachable booking source (G2), a refused send (G1) and a refused Slack post (G8) no longer fail the run at all | `not yet` |
 | A tick killed mid-flight | The lease expires in 5 minutes and another tick takes over | `lock.test.ts › an expired lease (tick killed mid-flight) is taken over`; `lock.test.ts › second acquirer is refused while the lease is held…` |
 | Two ticks at once | One runs, the other reports busy | `lock.test.ts › withTickLock reports busy instead of running twice…` |
 | A 20-minute outage | Recovery: premise first, stale exits, sends dripped (20 per company per tick) | `not yet` (the cap and the `stale_after_outage` reason are untested) |
 | A run exceeds 50 steps in one tick | Fails with that reason | `not yet` |
 | The order runs execute within one tick | Should be due order. **Today:** heap order (`runner.ts:57-59`, `returning *`) | `not yet` |
 | D45: the newest run for a person wins | Older parked runs exit `superseded`; one mid-step inside its lease is left to finish | `edge-cases.test.ts › D45: …` (parked); mid-step: `not yet` |
-| D45 on `always` workflows | Should not apply. **Today:** G4 | `edge-cases.test.ts › two payments…` (`it.fails`) |
+| D45 on `always` workflows | Does not apply: only `once_per_contact`, `once_per_appointment`, `once_per_contact_per_window` supersede (G4, D56) | `edge-cases.test.ts › two payments…` |
 | Reentry keys per policy | Contact, appointment, opportunity, window, event | `definition.test.ts › reentry keys (D4) › per policy`; `templates.scenarios.test.ts › reactivation…` (window) |
 | A gate exit releases the once (D30) | The key gets a `:gate:` suffix; queued triggers replay | `templates.scenarios.test.ts › deal-closed race…` |
 | A schedule period that ran stays run, gate or not | `reentry_key like 'schedule:…:gate:%'` counts | `eod.test.ts › the reminder…` (the morning trigger runs once) |
 | The premise check reads the booking source live | Deleted at the source → exit; cancelled → exit for `appointment_in_future`, not for `appointment_exists` | `engine.integration.test.ts › premise check…`; `templates.scenarios.test.ts › cancellation-rebook…` |
-| The premise check when the source is down | Stay waiting. **Today:** G2 | `edge-cases.test.ts › the CRM is down…` (`it.fails`) |
+| The premise check when the source is down | Stays waiting, retried in 5 minutes, one alert per company that resolves itself (G2, D56) | `edge-cases.test.ts › the CRM is down…` |
 | The company switched booking source while runs are parked | `appointment belongs to booking source X; company now uses Y` → exit | `not yet` |
 | Send window: 2am → 8am same day; 9pm → 8am tomorrow; never backward | As described | `waitrule.test.ts › 2am → 8am same day`; `waitrule.test.ts › 9pm → 8am tomorrow, never backward` |
 | Send window with end before start (an overnight window) | Should be refused at settings. **Suspected:** `deferIntoWindow` never finds the window open | `not yet` |
@@ -383,8 +383,8 @@ The workflow is gone: the question now waits for its own answer inside the pre-c
 | Shadow: nothing to the CRM or the contact, Slack posts labelled | As described (D31) | `templates.scenarios.test.ts › shadow mode…`; `slack.post.test.ts › the close post…` (the 🧪 prefix) |
 | Go live with a blocker | Refused; the mode stays | `golive.test.ts › refuses while a blocker stands, then clears shadow-born runs and goes live` |
 | Go live clears every run not born live and every synthetic appointment | As described (D51) | same test |
-| Go live by re-install | Should be the same as Go live. **Today:** G9 | `edge-cases.test.ts › re-running install with mode: live…` (`it.fails`) |
-| A disabled workflow's parked runs | Stop. **Today:** G3 | `edge-cases.test.ts › a workflow turned off while a run is parked…` (`it.fails`) |
+| Go live by re-install | Is Go live: refused with the blockers while readiness has one, clears the rehearsal otherwise (G9, D56) | `edge-cases.test.ts › re-running install with mode: live…` |
+| A disabled workflow's parked runs | Exit `workflow turned off` at their next wake (G3, D56) | `edge-cases.test.ts › a workflow turned off while a run is parked…` |
 | A stored definition the engine can no longer parse | Dispatch skips that one workflow and logs it; readiness blocks; re-install upgrades | `install.upgrade.test.ts › a stored copy on an old node vocabulary is flagged by readiness and skipped by dispatch instead of crashing the poll; re-install upgrades it` |
 | A template upgrade while runs are parked | Runs are pinned to their version; trigger rows survive | `edge-cases.test.ts › a template upgraded while a run is parked…`; `install.upgrade.test.ts › upgrading a workflow that already has runs keeps their trigger row…` |
 | An edited copy when the template moves on | Left alone | `install.upgrade.test.ts › an edited copy is left alone when the template moves on` |
@@ -394,7 +394,7 @@ The workflow is gone: the question now waits for its own answer inside the pre-c
 | Placeholder copy at go live | Warning, not blocker | `edge-cases.test.ts › placeholder copy at go-live time is a warning, not a blocker…` |
 | Slack not connected | Every post recorded `unbound: slack`, runs continue | `templates.scenarios.test.ts › payment-failed…`; `templates.scenarios.test.ts › call-booked, self-booked…` |
 | Slack connected, channel unbound | Recorded `slack channel not bound`, a warning alert | `alerts.test.ts › a step that could not run (Slack channel not bound) is a warning…` |
-| Slack refuses the token mid-run | The post fails, the run continues. **Today:** G8 | `edge-cases.test.ts › Slack refuses the bot token…` (`it.fails`) |
+| Slack refuses the token mid-run | The post fails, the run continues (G8, D56) | `edge-cases.test.ts › Slack refuses the bot token…` |
 | The owner not in Slack | DM falls back to the channel with an @mention | `templates.scenarios.test.ts › agreements (D30)…` (the nudge, suppressed: no channel) |
 | @mentions remembered | Slack ids looked up by email once and stored on the user | `slack.post.test.ts › the close post: …` |
 | Duplicate webhook deliveries (Whop, Fathom, Slack) | `webhook_deliveries` dedupes by delivery id; the ledgers dedupe by payment/recording id | `payments.test.ts › the same provider payment id twice…`; `recordings.test.ts › records once…`; `edge-cases.test.ts › the Slack door…` (`duplicate_delivery`) |

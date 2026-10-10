@@ -54,10 +54,11 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
         for (const t of ["sends", "runs", "events", "workflow_triggers", "workflows", "messages", "crm_records", "webhook_deliveries", "payments", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
         await c.query("delete from companies where id=$1", [co.id]); }
     });
-    const r = await installCompany({ name: "Funnel", slug: "fnl", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, mode: "live",
+    const r = await installCompany({ name: "Funnel", slug: "fnl", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true,
       crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-DATE" } }, fake);
     companyId = r.companyId;
-    await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
+    // the fixture sets the flag itself: the only real way to live is goLive (D56), which wants Slack connected, and these scenarios assert what happens while it is not
+    await asOperator((c) => c.query("update companies set mode='live', send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
     contactId = await asOperator(async (c) => {
       const id = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone) values ($1,'CF1','Jordan','Lee',$2) returning id", [companyId, TZ]))!.id;
       await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email','jordan@x.com'),($1,$2,'phone','+16025550100')", [companyId, id]);

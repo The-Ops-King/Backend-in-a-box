@@ -1455,3 +1455,43 @@ let's track how often it's actually correct, and eventually we can automate it i
 - `set_var` gained `pick`: `value` rendered and looked up in a map, `else_value` when nothing matches — a three-way
   choice without two chained `when` steps. `constsOf` ignores a picked var the way it ignores a conditional one.
 
+## D56. Six gaps closed before the first live week (2026-10-10)
+
+The edge-case catalogue (05-edge-cases.md, Known gaps) proved ten things the engine did that an operator would not
+expect; six were engine bugs with no template decision pending, and each had an `it.fails` test stating the right
+behaviour. Those six are fixed and the tests are plain `it(...)` now. The standing rules decided every one: late, never
+lost (D5); a failure is recorded and alerted (D33), never fixed by skipping; nothing hardcoded. G6, G7 and G10 wait on
+template decisions and stay as they were.
+
+- **G1, a text the CRM refuses.** A send the CRM turned down (no number on the sub-account, no phone on the contact) came
+  back as a failed step, which failed the run: a pre-call sequence died at its first text and no reminder ever went.
+  Now the send row is `failed` with the CRM's message, the step is `skipped` as blocked, the alert sweep raises "step
+  could not run … the run went on without it" (D33), and the run continues to the reply wait and the emails.
+- **G2, the booking source unreachable at the premise check.** `premiseAlive` reads the booking source live; a 401 after a
+  token rotation or a 5xx threw, and the runner's catch marked the run failed for good — every due reminder lost at once.
+  Now the runner tells "the check could not run" from "the check said no": a throw keeps the run `waiting`, its wake flags
+  intact, with `next_run_at` `PREMISE_RETRY_MIN` (5 minutes, one knob in `runner.ts`) out, and opens one alert per
+  company (`premise:booking-source-unreachable`) that is touched while the outage lasts and resolves when a premise read
+  succeeds again. A real `ok:false` (cancelled, already happened) still exits the run as before.
+- **G3, a workflow turned off while runs were parked.** The switch was read only when a run started, so turning a
+  workflow off in week one — the one-switch undo D52 promises — left the texts already in flight going. Now every claimed
+  run re-reads `workflows.enabled` before anything else; off means the run exits `workflow turned off` with a
+  `run.exited` event. Turning the workflow back on starts fresh runs from new events; nothing resumes half-done.
+- **G4, D45 on `always` workflows.** "A person is in a workflow once at a time; the newest run wins" was applied to every
+  workflow, so two payments in one minute, two recordings of one call or two dialer calls in one poll superseded the first
+  run before it ticked and its fact was never written. The rule now applies only to runs about one person-level fact:
+  reentry `once_per_contact`, `once_per_appointment`, `once_per_contact_per_window`. `always` (and `once_per_opportunity`)
+  runs are each about their own fact and are never superseded. D45 still holds for the pre-call sequence: a rebooking
+  replaces the old run. Found on the way and fixed: a `thread_of` tag the context cannot name (`contact.latest_recording_id`
+  for a contact never recorded) is "no post to reply to", not an unknown-path failure of the run.
+- **G8, Slack refusing the bot token mid-run.** `slack_post` and `notify_owner` let `notifier.post` throw, which failed
+  the run; in Sales call recorded the post comes before the Sales Call record on purpose, so a revoked token meant the call
+  was never written to the CRM. Now the refusal is caught: the send row is `failed` with Slack's error, the step is
+  `skipped` as blocked (one open alert per workflow step, repeated at most hourly through the existing dedupe), and the
+  run goes on to the CRM steps.
+- **G9, go live by re-install.** `installCompany` with `mode: "live"` wrote the flag directly: no readiness check, no clean
+  slate (D51), so a shadow-born run parked for a real contact would send for real at its next wake. Install never writes
+  `live` now. With `mode: "live"` it finishes the install, then calls `goLive`: refused with the blockers listed while
+  readiness has one (the company keeps its mode), otherwise the rehearsal is cleared and the result carries it as
+  `wentLive`. Any other mode value sets the flag as before. The test fixtures that installed straight to live without Slack
+  (funnel, scenarios) now set the flag themselves and say so: the scenarios assert what happens while Slack is not connected.

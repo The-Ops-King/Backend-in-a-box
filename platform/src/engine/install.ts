@@ -9,6 +9,7 @@ import { loadCompany } from "./context";
 import { defaultPrompts } from "@/prompts";
 import { fathomCreateWebhook } from "@/adapters/fathom/client";
 import { whopCreateWebhook } from "@/adapters/whop/client";
+import { goLive, type Cleared } from "./golive";
 
 /**
  * A calendar's mapping: the kind of call it books; optionally how setter-vs-self is decided on it (`booking`: self | setter |
@@ -65,7 +66,8 @@ const canon = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof 
 
 /** D16: upload info, pick templates, done. Idempotent. Workflows install OFF unless enable=true. A re-run upgrades untouched copies to the current template; edited copies are left alone. */
 export type Inbound = { secret: string; zapierPaymentUrl: string; zapierRecordingUrl: string; whopWebhookUrl: string; fathomWebhookUrl: string; fathomWebhook?: string };
-export async function installCompany(input: InstallInput, adapters: Adapters): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: Inbound }> {
+/** `wentLive`: what the go-live cleared, when `mode: "live"` moved the company there (D56). */
+export async function installCompany(input: InstallInput, adapters: Adapters): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: Inbound; wentLive?: Cleared }> {
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   const calMap: Record<string, { term: string; selfBooked?: boolean; booking?: "self" | "setter" | "question"; questions?: Record<string, string> }> = Object.fromEntries(Object.entries(input.calendars ?? {}).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
   // resolve the booking source outside the transaction: it talks to Calendly.
@@ -92,7 +94,9 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (!d.ok || !d.team_id) throw new Error(`Slack refused the token: ${d.error ?? "no team"}`);
     slackTeam = { team_id: d.team_id, bot_user_id: d.user_id ?? null };
   }
-  return asOperator(async (c) => {
+  // D56: live is never set by install itself; `mode: "live"` is a go-live after the install, with its readiness refusal and clean slate (D51)
+  const modeFlag = input.mode === "live" ? null : input.mode ?? null;
+  const out = await asOperator(async (c) => {
     const storedPit = input.pit ? null : await one<{ value: Buffer }>(c, "select b.value from bindings b join companies co on co.id=b.company_id where co.slug=$1 and b.key='secret.ghl_pit'", [input.slug]);
     const pit = input.pit ?? (storedPit ? decrypt(storedPit.value) : null);
     if (!pit) throw new Error("pit is required: this company has no CRM token stored yet");
@@ -100,7 +104,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     const co = await one<{ id: string }>(c, `insert into companies (name, slug, timezone, sms_enabled, mode) values ($1,$2,$3,coalesce($4,true),coalesce($5,'shadow'))
       on conflict (slug) do update set name=excluded.name, timezone=excluded.timezone,
         sms_enabled=case when $4::boolean is null then companies.sms_enabled else excluded.sms_enabled end,
-        mode=case when $5::text is null then companies.mode else excluded.mode end returning id`, [input.name, input.slug, input.timezone, input.smsEnabled ?? null, input.mode ?? null]);
+        mode=case when $5::text is null then companies.mode else excluded.mode end returning id`, [input.name, input.slug, input.timezone, input.smsEnabled ?? null, modeFlag]);
     const companyId = co!.id;
     await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories on conflict (company_id, domain, name) do nothing`, [companyId]);
     const bind = (key: string, kind: string, value: string) =>
@@ -222,4 +226,13 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     }
     return { companyId, calendars: calendarsOut, installed, inbound: { secret: inboundPlain, zapierPaymentUrl: `/api/webhooks/zapier/${companyId}/payment`, zapierRecordingUrl: `/api/webhooks/zapier/${companyId}/recording`, whopWebhookUrl: `/api/webhooks/whop/${companyId}`, fathomWebhookUrl: `/api/webhooks/fathom/${companyId}`, fathomWebhook } };
   });
+  if (input.mode === "live") {
+    const r = await asOperator(async (c) => {
+      const co = (await one<{ mode: string }>(c, "select mode from companies where id=$1", [out.companyId]))!;
+      return co.mode === "live" ? null : goLive(c, out.companyId, `/app/c/${input.slug}`, "install");
+    });
+    if (r && !r.ok) throw new Error(`Installed, but not ready to go live (the company stays in its current mode): ${r.blockers.map((b) => b.text).join(" ")}`);
+    if (r?.ok) return { ...out, wentLive: r.cleared };
+  }
+  return out;
 }
