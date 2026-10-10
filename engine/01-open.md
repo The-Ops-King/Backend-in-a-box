@@ -387,3 +387,15 @@ Shortcuts (`/mtd`, `/monthly`, `/show-rate`, `/close-rate`, …) and free questi
 this month's leads that showed, by source"; "what does our calendar availability look like?"). Answers must be
 correct before they are clever: named metrics with fixed definitions first, free queries only through the read-only
 door (D64), every answer says its period and definition. Design questions open with Tyler.
+
+### 38, Tyler's answers (2026-10-10)
+
+- Unsure what is asked, or no date range: ask once, then answer. Cannot answer or cannot get the data: say so, and ping
+  Tyler. "No answer beats a wrong answer."
+- Anyone may ask. "My close rate" filters to the asker (Slack user → engine user).
+- Reply in the thread of the question; 👀 on the question at once when the answer takes time.
+- This month = the calendar month (company time zone).
+- Lead = a person who entered their information. MQL = a qualified lead. DQL / marketing DQ = disqualified on financial
+  status. Sales DQ = a call taken where the person was not qualified.
+- Full output in Slack with the key numbers on top, formatted for Slack.
+- Leaning to one registered command per shortcut (`/mtd`) for the simplest experience; trade-offs set out before building.
