@@ -1872,3 +1872,45 @@ trying so many times just to fix one thing." Now an identity match is never a ne
 a person the engine has never seen by any id), and the record the CRM is delivering now becomes the person's primary
 id, since it is the one that exists; the older id stays as an identifier so the duplicates check (D63) can still name
 the pair. A write that the CRM refuses fails its run once and alerts; nothing restarts it.
+
+## D67. Every step, every error, written down before it bites (2026-10-10)
+
+Tyler: "We need to figure out how to test what would happen if there were all sorts of errors on each step. For
+example, if it came in with a phone number, without a phone number, with an email without an email; ok cool then what
+happens if it can't find the setter card, what happens if it finds the setter card but it's in another column already;
+what happened when it hit a 400 and just kept trying over and over; what happens if it's a 401, or a 503, how many
+times do we retry and what do we do to try to fix it automatically? That's the type of bug I want you to go through
+each step and try to find. A very bad bug is that it runs 20 times. A worse bug is that it creates 20 opportunity
+cards, a REALLY BAD WORSE bug is if it messages someone 20 times, even worse would be if they charged them 20 times."
+
+- **The catalogue** is `engine/07-step-failures.md`: one table per node type that touches the outside world or the
+  person's data (sends, Slack, tags, cards, records, tasks, notes, contact and appointment writes, classify, analyze,
+  the waits, check/branch, record, the sweeps, webhook), plus the inputs that shape every run (a contact with or
+  without a phone, an email, a name, a CRM id, deleted mid-run; a booking cancelled or moved mid-run; the company's
+  mode). Every row says what should happen under the policy below, what the code does today with the line, and
+  which test pins it. Its top is **Could duplicate**: the eight places where today's code, or a retry written
+  without a ledger, could make one of the four bad things — a second agreement sent (`send_document` has no sends
+  row), a second card (create then replica, inside the CRM's index lag), a second task, a second note, a second
+  custom-object record (the CRM id is learned after the create), a second `appointment.status_changed`, the
+  always-a-run-per-event door that D65 closed for the poll, and the charge that nothing can make.
+- **The policy the engine is being built to** (the retry work lands separately): every step error is classified.
+  Transient (network, timeout, 408/425/429/5xx) → the same step is retried in place at 1 min, 5 min, 15 min, 1 h,
+  the run waiting on that node between, then paused. Auth (401/403) → paused at once, one alert per vendor, woken
+  when the token is replaced. Permanent (400/404/422, a "not found" / "invalid" body) → paused at once with the
+  vendor's words. Unknown → one transient try, then permanent. A paused run shows the step and the error, with
+  "Retry this step" and "Skip this step" for a person. Nothing ever re-runs a workflow from the top because a step
+  failed. No side effect happens twice on a retry: sends keyed per run + node, cards read live first, records keyed
+  by external id, notes and tasks through an effects ledger, tags idempotent. The engine never charges anyone.
+- **The tests** are `platform/src/engine/step-failures.test.ts` (company `stepf`): fake vendors with a switch per
+  method (`fail("addTag", { status: 503, times: 2 })`, `fail("createOpportunity", { after: true })` for a crash
+  after the vendor did the thing) and a count of calls per method, so a test says "asked once", "one card", "one
+  message". Written to the policy, not to today: 31 pass today (the invariants that already hold — one run however
+  many ticks, one card and one message after a crash, zero charges, a card in another column adopted not re-created,
+  no phone / no email skipped cleanly, a deleted contact ending the run once, a hand retry resuming at the step), 31
+  are `it.fails` with today's behaviour in the title (every retry, every pause, one alert per vendor), one is
+  `it.todo` (a 400 on a send: the policy says pause, D56 says carry on — decide).
+- **Found on the way**, not duplicates but wrong: the send ledger row written before the CRM call (good) also blocks
+  a retry after a refused send (the row is `failed`, the retry is "already sent"); a contact with no CRM id reaches
+  the sender as `undefined`, the CRM says not found, and the person is stamped gone; the Jev adapter answers every
+  HTTP failure as "unclear, confidence 0", so a dead key reads as a stream of vague replies routed to humans with no
+  alert. Each has an `it.fails` test.
