@@ -384,7 +384,7 @@
         "key": "{{appointment.slot_key}}",
         "if_missing": "match",
         "properties": {
-          "external_id": "{{appointment.external_id}}",
+          "external_id": "{{appointment.slot_key}}",
           "outcome": "{{picklist.sales_call_outcome.noshow}}"
         },
         "title": "Sales Call record: no-show"
@@ -411,7 +411,7 @@
         "key": "{{appointment.slot_key}}",
         "if_missing": "match",
         "properties": {
-          "external_id": "{{appointment.external_id}}",
+          "external_id": "{{appointment.slot_key}}",
           "outcome": "{{picklist.sales_call_outcome.showed}}",
           "disposition": "{{vars.disposition | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}"
         },
@@ -424,7 +424,7 @@
         "key": "{{appointment.slot_key}}",
         "if_missing": "match",
         "properties": {
-          "external_id": "{{appointment.external_id}}",
+          "external_id": "{{appointment.slot_key}}",
           "outcome": "{{picklist.sales_call_outcome.on_call}}"
         },
         "title": "Sales Call record: rescheduled or cancelled on the call"

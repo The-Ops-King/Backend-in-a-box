@@ -229,7 +229,7 @@
         "key": "{{appointment.slot_key}}",
         "properties": {
           "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
-          "external_id": "{{appointment.external_id}}",
+          "external_id": "{{appointment.slot_key}}",
           "contact_id": "{{contact.ghl_contact_id | default:}}",
           "opportunity_id": "{{cards.closer.id | default:}}",
           "scheduled_at": "{{appointment.starts_at}}",

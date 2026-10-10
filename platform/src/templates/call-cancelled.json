@@ -89,7 +89,7 @@
         "key": "{{appointment.slot_key}}",
         "if_missing": "match",
         "properties": {
-          "external_id": "{{appointment.external_id}}",
+          "external_id": "{{appointment.slot_key}}",
           "outcome": "{{picklist.sales_call_outcome.cancelled}}"
         },
         "title": "Sales Call record: cancelled (logged, never deleted or reused)"

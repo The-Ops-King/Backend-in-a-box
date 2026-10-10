@@ -586,7 +586,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const moved = (await runsFor("call-booked")).filter((r) => r.contact_id === id).at(-1)!;
     const st = await asOperator((c) => many<{ node_id: string; status: string; result: { record?: string; properties?: Record<string, unknown> } }>(c, "select node_id, status, result from run_steps where run_id=$1 and node_id in ('k4','k5')", [moved.id]));
     expect(st.find((x) => x.node_id === "k5")).toMatchObject({ status: "ok", result: { properties: { outcome: "rescheduled" } } });
-    expect(st.find((x) => x.node_id === "k4")).toMatchObject({ status: "ok", result: { record: "created", properties: { booking_source: "setter_set" } } });   // how it was booked, in the company's own option key
+    expect(st.find((x) => x.node_id === "k4")).toMatchObject({ status: "ok", result: { record: "created", properties: { booking_source: "setter_set", external_id: expect.stringMatching(/@/) } } });   // how it was booked, in the company's own option key; its own slot id (GHL keeps External ID unique)
     const keys = await asOperator((c) => many<{ record_key: string }>(c, "select record_key from crm_records where company_id=$1 and contact_id=$2 and object_key='custom_objects.sales_call' order by created_at", [companyId, id]));
     expect(keys).toHaveLength(2);
     expect(keys[1].record_key).toMatch(/@/);
