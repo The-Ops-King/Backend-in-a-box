@@ -47,7 +47,7 @@
       {
         "id": "n2",
         "type": "send_sms",
-        "template": "Hey {{contact.first_name}}, looks like we missed each other. Here's the link to grab a new time with {{appointment.closer.first_name}}: {{calendar.closer_call.url}}",
+        "template": "Hey {{contact.first_name | default:there}}, looks like we missed each other. Here's the link to grab a new time with {{appointment.closer.first_name}}: {{calendar.closer_call.url}}",
         "validity": {
           "anchor": "after_event",
           "max_lag": "3d"
@@ -59,7 +59,7 @@
         "id": "n3",
         "type": "send_email",
         "subject": "We missed you",
-        "template": "<p>Hey {{contact.first_name}},</p><p>Looks like we missed each other for the call with {{appointment.closer.first_name}}. Things come up. If you still want to talk, pick a new time here: {{calendar.closer_call.url}}</p>",
+        "template": "<p>Hey {{contact.first_name | default:there}},</p><p>Looks like we missed each other for the call with {{appointment.closer.first_name}}. Things come up. If you still want to talk, pick a new time here: {{calendar.closer_call.url}}</p>",
         "validity": {
           "anchor": "after_event",
           "max_lag": "3d"
@@ -76,7 +76,7 @@
         "id": "n6",
         "type": "send_email",
         "subject": "Want to reschedule?",
-        "template": "<p>Hey {{contact.first_name}}, one more nudge on this. If you'd like to reschedule, the link is here: {{calendar.closer_call.url}}</p><p>If the timing isn't right anymore, that's fine too.</p>",
+        "template": "<p>Hey {{contact.first_name | default:there}}, one more nudge on this. If you'd like to reschedule, the link is here: {{calendar.closer_call.url}}</p><p>If the timing isn't right anymore, that's fine too.</p>",
         "validity": {
           "anchor": "after_event",
           "max_lag": "7d"

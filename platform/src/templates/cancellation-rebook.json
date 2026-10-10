@@ -27,7 +27,7 @@
       {
         "id": "n1",
         "type": "send_sms",
-        "template": "Hey {{contact.first_name}}, saw the call got cancelled. If you want to pick a new time, here you go: {{calendar.closer_call.url}}",
+        "template": "Hey {{contact.first_name | default:there}}, saw the call got cancelled. If you want to pick a new time, here you go: {{calendar.closer_call.url}}",
         "on_stale": "skip",
         "title": "Text the rebooking link"
       },
@@ -35,7 +35,7 @@
         "id": "n2",
         "type": "send_email",
         "subject": "Pick a new time?",
-        "template": "<p>Hey {{contact.first_name}},</p><p>Saw the call got cancelled. No problem at all. If you'd like to pick a new time, here's the link: {{calendar.closer_call.url}}</p>",
+        "template": "<p>Hey {{contact.first_name | default:there}},</p><p>Saw the call got cancelled. No problem at all. If you'd like to pick a new time, here's the link: {{calendar.closer_call.url}}</p>",
         "on_stale": "skip"
       },
       {

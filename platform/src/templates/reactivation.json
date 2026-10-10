@@ -29,7 +29,7 @@
         "id": "n1",
         "type": "send_email",
         "subject": "Checking in",
-        "template": "<p>Hey {{contact.first_name}},</p><p>It's been a bit since we talked. Still thinking about {{company.name}}? If the timing is better now, grab a time here: {{calendar.booking.url}}</p>",
+        "template": "<p>Hey {{contact.first_name | default:there}},</p><p>It's been a bit since we talked. Still thinking about {{company.name}}? If the timing is better now, grab a time here: {{calendar.booking.url}}</p>",
         "on_stale": "skip"
       },
       {
@@ -44,7 +44,7 @@
       {
         "id": "n3",
         "type": "send_sms",
-        "template": "Hey {{contact.first_name}}, {{company.name}} here. Still interested? Happy to pick things back up whenever. {{calendar.booking.url}}",
+        "template": "Hey {{contact.first_name | default:there}}, {{company.name}} here. Still interested? Happy to pick things back up whenever. {{calendar.booking.url}}",
         "on_stale": "skip",
         "title": "Check-in text"
       },
@@ -61,7 +61,7 @@
         "id": "n5",
         "type": "send_email",
         "subject": "Last one from me",
-        "template": "<p>Hey {{contact.first_name}}, last check-in from me. If now isn't the time, that's fine. If it is, the link's here: {{calendar.booking.url}}</p>",
+        "template": "<p>Hey {{contact.first_name | default:there}}, last check-in from me. If now isn't the time, that's fine. If it is, the link's here: {{calendar.booking.url}}</p>",
         "on_stale": "skip"
       },
       {

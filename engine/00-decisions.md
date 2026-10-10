@@ -1531,3 +1531,58 @@ related steps stay inside one workflow", so the refund lives in Payment recorded
 - Open, catalogued: a refund that brings the total to zero followed by a new first payment (`prior_total == 0` matches
   again); a refund of the whole deal leaves `pay-paid-full` on by this rule, which is the intended reading until the
   owner says otherwise.
+
+## D60. Who the person is: eleven small holes closed (2026-10-10)
+
+Tyler asked for the engine to be tried against the shapes a person arrives in: "test if a lead comes through without a
+phone number or email, or a multi part name, etc." The catalogue (05-edge-cases.md § Contacts) proved eleven holes,
+G11–G21, each with an `it.fails` test stating the right behaviour. Ten are fixed and their tests are plain `it(...)`;
+G17 (an orphan payment healed by the buyer's later arrival) waits on D21's "nothing is guessed" and stays as it was.
+The standing rules decided every one: the CRM is the source of truth; nothing is invented on the replica; a failure is
+recorded and alerted, never silently skipped; nothing hardcoded; names render as typed.
+
+- **G11, a send to a contact with no address for the channel.** `doSend` asked the CRM and the refusal was the only
+  record of why. Now, before anything is queued, it reads `contact.phone` / `contact.email` from the context (the
+  replica's current identifiers): no address → the send row is `suppressed` with `no phone on the contact` /
+  `no email on the contact`, the step is a `noop` with the same words, the CRM is never asked, and the run goes on to
+  its reply wait. G1 (D56) still covers the CRM's own refusals, such as a sub-account with no number; its test now gives
+  the contact a phone so that path is the one tested.
+- **G12, names stored with their spaces.** `upsertContact` and `resolveContactForBooking` trim and collapse inner runs
+  of whitespace on first and last name; case, hyphens and apostrophes stay as typed (`Jean-Luc`, `cher`, `李`). A blank
+  name is stored as null so the next rule can speak.
+- **G13, an empty name.** The context's `contact.first_name` is the CRM's first name, else the first word of whatever
+  name there is, else null. The five greeting templates (Speed to lead, No-show recovery, Cancellation rebook, Post-call
+  follow-up, Reactivation) say `{{contact.first_name | default:there}}`; everywhere else the context fallback is enough,
+  so no other template changed. `pipeline_card` names a nameless person's card by their email, then phone, then CRM id,
+  never " -- New".
+- **G14, a reply from a duplicate CRM record.** `pollInbound` resolves the sender through `contact_identifiers
+  kind='ghl_contact'` first (where a folded duplicate's id lives), then `contacts.ghl_contact_id`; the reply lands on the
+  one person and wakes the run parked on it.
+- **G15, a retired number.** When a CRM record's own phone or email changes, the identifier it replaced gets
+  `contact_identifiers.retired_at` (a new column): kept for history and shown on the contact, never matched again.
+  Identity resolution for contacts, bookings and inbound reads current identifiers only, and so does `{{contact.phone}}`.
+  A new CRM contact carrying a retired number takes it with them (the row moves) and is a separate person. Only the
+  primary record's update retires anything; a duplicate record folding in adds, as before.
+- **G16, a person who first appears as a CRM calendar booking.** `resolveContactForBooking` reports when its live read
+  made a new person, and `applyAppointment` emits and dispatches `lead.created` in the contacts poll's shape before
+  `appointment.booked`, so New lead and Speed to lead run; the later contacts poll sees an existing row and fires nothing.
+- **G18, a healed orphan never written to the CRM.** `settle`'s heal loop, per healed row oldest first, derives its
+  `kind` and emits + dispatches its own `payment.received` (`payment.refunded` for a negative) with `prior_total` and
+  `running_total` as of its day and `linked_by: heal`, so Payment recorded runs once for it; a row that already has such
+  an event is skipped; `payment.linked` is still written.
+- **G19, `1-602-555-0901`.** `normPhone` treats ten digits, or eleven with a leading 1, with or without the plus, as one
+  US/CA number (`+1` + ten digits); any other length stays as typed.
+- **G20, a garbage CRM time zone.** Validated with Luxon at upsert (CRM and booking): an unusable zone is stored as the
+  company's with `timezone_source='company_default'`, exactly as a missing one is (one convention, not two). The context,
+  `contactTz` and so the runner's window math also fall back to the company zone when a stored zone is unusable, so no
+  invalid `next_run_at` ever reaches Postgres.
+- **G21, a contact gone from the CRM.** A send that comes back with the CRM's "contact not found" (a 404, or its
+  `Contact with id … not found`) stamps `contacts.gone_at` (a new column), raises one alert per contact
+  (`contact:gone:<id>`, warning) and parks the run to be looked at again at once; the premise `contact_exists` reads
+  `gone_at` and exits it `moot: contact gone` at that next look, as it does every other run about them. The send that
+  met the refusal stays on the ledger as `failed` with the CRM's words. A CRM record that comes back, or the person
+  re-made under a new id with the same email or phone, clears `gone_at` and resumes as themselves. Not done: a sweep
+  that asks the CRM about contacts with live runs; the engine learns at the first write.
+- **G17, left.** Healing an orphan when the buyer's contact arrives through the CRM poll is a D21 question (an exact
+  email match is what `resolvePayer` already trusts, but the owner decided that nothing links without a payment or a
+  hand); the test stays `it.fails` until that is decided.

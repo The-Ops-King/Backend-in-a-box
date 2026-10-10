@@ -185,8 +185,8 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     expect(await asOperator((c) => many(c, "select 1 from alerts where company_id=$1 and key like 'premise:%' and resolved_at is null", [companyId]))).toHaveLength(0);
   });
 
-  it("the CRM refuses the text (no number on the sub-account, no phone on the contact): the text is recorded as failed and the run goes on to the reply wait and the email reminders", async () => {
-    const id = await newContact("CE4", "e4@x.com");   // no phone
+  it("the CRM refuses the text (no number on the sub-account): the text is recorded as failed and the run goes on to the reply wait and the email reminders", async () => {
+    const id = await newContact("CE4", "e4@x.com", "+16025550004");   // the contact has a phone; the sub-account has no number to send from (a contact with no phone is G11: suppressed before the CRM is asked)
     smsReject = true;
     try {
       await book(snap("AE5", "CE4", daysOut(3)));

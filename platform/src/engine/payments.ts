@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
-import { emitEvent, type EventRow } from "./dispatch";
+import { dispatchEvent, emitEvent, type EventRow } from "./dispatch";
 
 /**
  * The ledger (D21). Every payment the provider reports is recorded, linked to a person or not. Linking is a ladder,
@@ -81,10 +81,23 @@ async function priorTotal(c: PoolClient, opportunityId: string, excludePaymentId
 async function settle(c: PoolClient, companyId: string, contactId: string, payment: PaymentRow, linkedBy: string): Promise<{ event: EventRow; healed: number }> {
   const opp = await opportunityFor(c, companyId, contactId, payment);
   // heal: earlier unlinked rows with the same member id or email now belong to this person and this pursuit
-  const healed = await many<{ id: string }>(c, `update payments set contact_id=$2, opportunity_id=$3, link_status='linked', linked_by='heal'
-    where company_id=$1 and link_status='unlinked' and id<>$4 and ((whop_member_id is not null and whop_member_id=$5) or (customer_email is not null and customer_email=$6)) returning id`,
+  const healed = await many<PaymentRow>(c, `update payments set contact_id=$2, opportunity_id=$3, link_status='linked', linked_by='heal'
+    where company_id=$1 and link_status='unlinked' and id<>$4 and ((whop_member_id is not null and whop_member_id=$5) or (customer_email is not null and customer_email=$6)) returning *`,
     [companyId, contactId, opp.id, payment.id, payment.whop_member_id ?? "", payment.customer_email ?? ""]);
-  for (const h of healed) await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: "payment.linked", source: "engine", data: { payment_id: h.id, by: "heal", via: payment.id } });
+  for (const h of healed.sort((a, b) => a.paid_at.getTime() - b.paid_at.getTime())) {
+    await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: "payment.linked", source: "engine", data: { payment_id: h.id, by: "heal", via: payment.id } });
+    // G18: a healed row is a payment this person made and the CRM never heard of; it gets its own event, with its own totals as of its day, so Payment recorded runs once for it (never twice: an event already written for it ends this)
+    const already = await one(c, "select 1 from events where company_id=$1 and event_type in ('payment.received','payment.refunded','payment.failed') and data->>'payment_id'=$2", [companyId, h.id]);
+    if (already) continue;
+    const hPrior = money(Number((await one<{ t: string }>(c, "select coalesce(sum(amount),0) as t from payments where opportunity_id=$1 and status in ('succeeded','refunded') and id<>$2 and paid_at < $3", [opp.id, h.id, h.paid_at]))!.t));
+    const hAmount = Number(h.amount), hStatus = h.status as PaymentInput["status"];
+    const hKind = deriveKind(hAmount, hPrior, opp.contract_value, hStatus);
+    await c.query("update payments set kind=$2 where id=$1", [h.id, hKind]);
+    const hRunning = hStatus === "failed" ? hPrior : money(hPrior + hAmount);
+    const hev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: hStatus === "succeeded" ? "payment.received" : hStatus === "refunded" ? "payment.refunded" : "payment.failed", source: "whop", occurred_at: h.paid_at,
+      data: { payment_id: h.id, provider_payment_id: h.whop_payment_id, amount: hAmount, currency: h.currency, kind: hKind, paid_at: h.paid_at.toISOString(), prior_total: hPrior, running_total: hRunning, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - hRunning, 0)), cleared: cleared(hRunning, opp.contract_value), linked_by: "heal", healed_via: payment.id, customer_email: h.customer_email, whop_member_id: h.whop_member_id } });
+    await dispatchEvent(c, hev, { contact: { id: contactId } });
+  }
   const prior = await priorTotal(c, opp.id, payment.id);
   const amount = Number(payment.amount);
   const kind = deriveKind(amount, prior, opp.contract_value, payment.status as PaymentInput["status"]);
