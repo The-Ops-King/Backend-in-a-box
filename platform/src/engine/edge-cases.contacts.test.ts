@@ -401,24 +401,23 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
 
   // ---- 11: deleted in the CRM while parked ----
 
-  it("a contact deleted in the CRM while a run is parked: the CRM's 'not found' at the next send marks the replica and raises one alert; the run exits moot at its next look instead of failing (G21, fixed by D60)", async () => {
+  it("a contact deleted in the CRM while a run is parked: the run's next look reads the CRM first (D68), marks the replica, raises one alert and exits moot before sending anything (G21, fixed by D60; moved ahead of the send by D68)", async () => {
     inCrm("DEL1", { firstName: "Gone", lastName: "Soon", email: "del1@x.com", phone: "+16025551101" });
     await poll(); await tick(fake, undefined, companyId);
     const ct = (await contactByGhl("DEL1"))!;
     const stl = await runOf("speed-to-lead", ct.id); expect(stl).toMatchObject({ status: "waiting", current_node: "n3" });
     crm.delete("DEL1");   // merged away or deleted in the CRM; contactsChangedSince never reports it
     await expireReplyWait(stl.id, "n3"); await tick(fake, undefined, companyId);
-    // the send the CRM refused is on the ledger as failed with its words; the replica knows; the run was not failed
-    const mid = await runOf("speed-to-lead", ct.id);
-    expect(mid).toMatchObject({ status: "waiting", current_node: "n5" });
-    expect((await sends(stl.id)).find((s) => s.channel === "email" && s.status === "failed")).toMatchObject({ error: expect.stringMatching(/not found/) });
-    expect(await asOperator((c) => one<{ gone_at: Date | null }>(c, "select gone_at from contacts where id=$1", [ct.id]))).toMatchObject({ gone_at: expect.any(Date) });
-    const alerts = await asOperator((c) => many<{ key: string; level: string }>(c, "select key, level from alerts where company_id=$1 and key=$2 and resolved_at is null", [companyId, `contact:gone:${ct.id}`]));
-    expect(alerts).toEqual([{ key: `contact:gone:${ct.id}`, level: "warning" }]);
-    await tick(fake, undefined, companyId);   // its next look: the premise says the contact is gone
+    // the CRM was asked before the follow-up email was built: nothing was sent or refused, the replica knows, the run was not failed
     const after = await runOf("speed-to-lead", ct.id);
     expect(after.status).toBe("exited");
     expect(after.exit_reason).toBe("moot: contact gone");
+    expect((await sends(stl.id)).filter((s) => s.status === "failed")).toEqual([]);
+    expect(await asOperator((c) => one<{ gone_at: Date | null }>(c, "select gone_at from contacts where id=$1", [ct.id]))).toMatchObject({ gone_at: expect.any(Date) });
+    const alerts = await asOperator((c) => many<{ key: string; level: string }>(c, "select key, level from alerts where company_id=$1 and key=$2 and resolved_at is null", [companyId, `contact:gone:${ct.id}`]));
+    expect(alerts).toEqual([{ key: `contact:gone:${ct.id}`, level: "warning" }]);
+    await tick(fake, undefined, companyId);   // nothing left to look at
+    expect(await runOf("speed-to-lead", ct.id)).toMatchObject({ status: "exited", exit_reason: "moot: contact gone" });
     expect(sent.filter((s) => s.to === "DEL1" && s.kind === "email")).toHaveLength(1);   // the first email, before the deletion; nothing after
   });
 

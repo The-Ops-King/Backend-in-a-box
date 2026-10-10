@@ -1,4 +1,5 @@
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 let pool: Pool | undefined;
 /**
@@ -33,6 +34,10 @@ export function db(): Pool {
 
 export type Scope = { companyId: string; role?: string } | { role: "operator"; companyId?: undefined };
 
+const scopeStore = new AsyncLocalStorage<PoolClient>();
+/** The client of the scope this code is running inside, if any: a read that must not open a second connection mid-transaction (one that could queue behind a lock the open transaction itself holds) runs on it. */
+export const currentClient = (): PoolClient | undefined => scopeStore.getStore();
+
 /** Every query runs inside a scope. RLS reads app.company_id / app.role; FORCE RLS means the owner is not exempt. */
 export async function withScope<T>(scope: Scope, fn: (c: PoolClient) => Promise<T>): Promise<T> {
   const client = await db().connect();
@@ -42,7 +47,7 @@ export async function withScope<T>(scope: Scope, fn: (c: PoolClient) => Promise<
       scope.companyId ?? "",
       scope.role ?? (scope.companyId ? "company" : "operator"),
     ]);
-    const out = await fn(client);
+    const out = await scopeStore.run(client, () => fn(client));
     await client.query("commit");
     return out;
   } catch (e) {

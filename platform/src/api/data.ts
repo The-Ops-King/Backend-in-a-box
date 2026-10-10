@@ -144,10 +144,17 @@ export async function runPage(c: PoolClient, id: string) {
   const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source) : null;
   const states: Record<string, PathItem["state"]> = {}; for (const p of path) if (!(p.node_id in states) || p.state !== "next") states[p.node_id] = p.state;
   return { company: co, workflow: { id: r.workflow_id, name: r.workflow },
-    run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, co.mode, bindings)) === "shadow" },
+    run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, co.mode, bindings)) === "shadow",
+      // D68: when the CRM was last read for this person before the run acted, or why the engine's copy stood in (as the run's saved context carries it)
+      contact_truth: truthOf(r.context) },
     feed: path.filter((p) => p.state !== "next"), next: path.filter((p) => p.state === "next"), chart, states,
     raw: { steps: steps.map((s) => ({ node_id: s.node_id, node_type: s.node_type, status: s.status, started_at: s.started_at, result: s.result, error: s.error })), context: r.context } };
 }
+
+const truthOf = (context: Record<string, unknown>): { fetched_at: string | null; stale: string | null } | null => {
+  const ct = context?.contact as { fetched_at?: string; stale?: string } | undefined;
+  return ct && (ct.fetched_at || ct.stale) ? { fetched_at: ct.fetched_at ?? null, stale: ct.stale ?? null } : null;
+};
 
 /** The contact page: the CRM's facts, their workflows, what is next. No messages (D38). */
 export async function contactPage(c: PoolClient, id: string) {

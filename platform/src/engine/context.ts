@@ -6,6 +6,7 @@ import type { BookingConfig, Company } from "@/adapters/types";
 import { transcriptText, type RecordingRow } from "./recordings";
 import { latestAgreement, facts as agreementFacts, type AgreementRow } from "./agreements";
 import { eodFacts } from "./eod";
+import type { ContactTruth } from "./contact-truth";
 
 export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string | null; user_id?: string | null; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date; resume_node?: string | null; resume_at?: Date | null };
 export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; status: string; sms_enabled: boolean; mode: import("./mode").Mode; contract_value_default: string | null };
@@ -27,7 +28,8 @@ export async function loadCompany(c: PoolClient, companyId: string): Promise<{ r
 }
 
 /** Builds what `{{…}}` resolves against. Secrets are never placed in the context. */
-export async function buildContext(c: PoolClient, run: RunRow, company: CompanyRow, bindings: Record<string, string>): Promise<Record<string, unknown>> {
+/** `truth`: what the live read before this run acted found (D68): when the CRM was read, or why the engine's copy stood in. */
+export async function buildContext(c: PoolClient, run: RunRow, company: CompanyRow, bindings: Record<string, string>, truth?: ContactTruth): Promise<Record<string, unknown>> {
   // first_name is the CRM's own field as typed; when the CRM left it blank, the first word of whatever name there is; a wholly nameless person is null and the template's `default:` speaks
   const contact = await one<Record<string, unknown>>(c, `select ct.id, ct.ghl_contact_id, ct.last_name, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name,
       coalesce(nullif(trim(ct.first_name),''), split_part(nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),''), ' ', 1)) as first_name,
@@ -121,7 +123,9 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       closer: closer ? { ...person(closer), from: closerCard ? "closer card" : "contact owner" } : undefined,
       setter: setterName ? (setterUser ? person(setterUser) : { name: setterName, first_name: setterName.split(" ")[0], mention: setterName }) : undefined,
       first_booked_at: firstBookedAt?.toISOString() ?? undefined, days_to_close: daysToClose, revenue, latest_appointment_id: latestAppt?.id, latest_recording_id: latestRec?.id, has_upcoming_call: !!upcoming,
-      source: typeof fields.lead_source === "string" && fields.lead_source ? fields.lead_source : undefined };
+      source: typeof fields.lead_source === "string" && fields.lead_source ? fields.lead_source : undefined,
+      // D68: the CRM's copy as of this read; `stale` says why the engine's copy stood in instead (the CRM did not answer)
+      fetched_at: truth?.ok && truth.fresh ? truth.fetched_at : undefined, stale: truth?.ok && !truth.fresh ? truth.why : undefined };
     ctx.agreement = agr ? agreementFacts(agr) : {};
     ctx.records = Object.fromEntries(recs.map((r) => [r.object_key.replace(/^custom_objects\./, ""), { key: r.record_key, id: r.ghl_record_id ?? "" }]));
   }

@@ -17,7 +17,7 @@ export function Run() {
   return <>
     <Crumb items={[{ to: `/app/c/${slug}`, label: co.name }, { to: `/app/c/${slug}/w/${w.id}`, label: w.name }]} />
     <NameLine name={r.who} control={r.contact_id ? <Link className="btn" to={`/app/c/${slug}/contacts/${r.contact_id}`}>Open the contact</Link> : undefined} />
-    <div className="tagline">{pill}{r.shadow ? <Tag kind="shadow">shadow</Tag> : null}<span>started {when(r.started_at, co.timezone)}</span>{r.appointment ? <><span>·</span><span>call {callTime(r.appointment.starts_at, co.timezone)}{r.appointment.closer ? ` with ${r.appointment.closer}` : ""}{r.appointment.status !== "confirmed" && r.appointment.status !== "booked" ? ` (${r.appointment.status})` : ""}</span></> : null}</div>
+    <div className="tagline">{pill}{r.shadow ? <Tag kind="shadow">shadow</Tag> : null}<span>started {when(r.started_at, co.timezone)}</span>{r.appointment ? <><span>·</span><span>call {callTime(r.appointment.starts_at, co.timezone)}{r.appointment.closer ? ` with ${r.appointment.closer}` : ""}{r.appointment.status !== "confirmed" && r.appointment.status !== "booked" ? ` (${r.appointment.status})` : ""}</span></> : null}{r.contact_truth?.fetched_at ? <><span>·</span><span>CRM read {when(r.contact_truth.fetched_at, co.timezone)}</span></> : r.contact_truth?.stale ? <><span>·</span><span>acted on the engine's copy; GHL did not answer</span></> : null}</div>
     {r.state === "ok" && r.at !== "done" ? <p className="desc">{r.at.replace(/^done · /, "Done: ").replace(/^./, (c) => c.toUpperCase())}.</p> : null}
     <Sec>What happened</Sec>
     {feed.length ? <Steps items={feed} tz={co.timezone} /> : <Empty>Nothing yet.</Empty>}

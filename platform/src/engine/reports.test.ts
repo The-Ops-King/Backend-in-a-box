@@ -10,7 +10,7 @@ import { rollupDay, readMetrics } from "@/engine/metrics";
 import { buildReport, periodFor, renderReport } from "@/engine/reports";
 import { dispatchSchedules, periodOf, scheduleWords } from "@/engine/clock";
 import { tick } from "@/engine/runner";
-import { installTemplateForTest } from "@/engine/test-install";
+import { installTemplateForTest, replicaSnapshot } from "@/engine/test-install";
 import type { Adapters, BookingRead } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -96,7 +96,7 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
     const r = await asOperator(async (c) => buildReport(c, (await loadCompany(c, companyId)).row, "daily", { start: day, end: day }, { breakdowns: ["setter", "closer"] }));
     expect(r.body).toContain("67% connection rate"); expect(r.body).toContain("Lu Setter"); expect(r.body).toContain("Sam Closer"); expect(r.body).toContain("$1,000"); expect(r.body).toContain("$3,000");
     const fake: Adapters = {
-      read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async () => null, listUsers: async () => [] },
+      read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async (c, id) => replicaSnapshot(c.id, id), listUsers: async () => [] },
       booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }; return { ghl: b, calendly: b }; })(),
       write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "d" }) },
       sender: { sendSms: async () => ({ externalId: "s", accepted: true }), sendEmail: async () => ({ externalId: "e", accepted: true }), deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },

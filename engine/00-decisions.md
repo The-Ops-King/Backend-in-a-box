@@ -1691,8 +1691,9 @@ recorded and alerted, never silently skipped; nothing hardcoded; names render as
   (`contact:gone:<id>`, warning) and parks the run to be looked at again at once; the premise `contact_exists` reads
   `gone_at` and exits it `moot: contact gone` at that next look, as it does every other run about them. The send that
   met the refusal stays on the ledger as `failed` with the CRM's words. A CRM record that comes back, or the person
-  re-made under a new id with the same email or phone, clears `gone_at` and resumes as themselves. Not done: a sweep
-  that asks the CRM about contacts with live runs; the engine learns at the first write.
+  re-made under a new id with the same email or phone, clears `gone_at` and resumes as themselves. Not done then: a sweep
+  that asks the CRM about contacts with live runs; the engine learned at the first write. D68 moved the learning
+  ahead of the write: every run reads the contact live before it acts.
 - **G17, left.** Healing an orphan when the buyer's contact arrives through the CRM poll is a D21 question (an exact
   email match is what `resolvePayer` already trusts, but the owner decided that nothing links without a payment or a
   hand); the test stays `it.fails` until that is decided.
@@ -1883,3 +1884,40 @@ person the engine already knows. The record joins that person's history and beco
 older id stays as an identifier for the duplicates check (D63). What never happens again is the loop: the same id
 delivered again is the same lead, and starts nothing. "GHL is the source of truth; the engine is workflows plus
 statistics, not storage for everything" — the live contact read before a run acts (D68) follows from the same words.
+
+## D68. The live contact is read before a run acts; the engine's copy is a cache (2026-10-10)
+
+Tyler: "We always want to use the GHL contact NOT the engine contact. We can use the engine's storage as a quick way,
+but we need to actually poll GHL for the current contact. Things like variables of the person's name and all sorts need
+to come from GHL, not the engine. The engine is just that, NOT storage for everything. The engine should be basically
+workflows only, plus statistics. GHL is the source of truth." And: "Sometimes contacts get deleted, especially in
+testing. GHL could change the contact id, or the email gets updated."
+
+- **Before a run acts, the contact is read live** (`src/engine/contact-truth.ts`, called once per claimed run with a
+  contact, right before the context is built, after the cards sync). The snapshot is folded into the replica by the
+  same path the poll uses (`upsertContact`, bound custom fields only), so the name, email, phone, custom fields, time
+  zone, owner and primary CRM id a step renders are the CRM's as of now; a changed number or email retires the old
+  identifier (G15). The context carries `contact.fetched_at`. Shadow runs read too: a read is free.
+- **A 404 is the mark.** The CRM has no such record: `gone_at` is stamped, one alert per contact is raised
+  (`contact:gone:<id>`, as G21's send path does) and the run exits `moot: contact gone` now, before any send, rather
+  than at the refusal of its next send. If the person carries another current CRM id (a duplicate the poll folded,
+  D60/D63), that id is tried first; when it answers, it becomes the primary writes go to (D65) and the dead id is
+  retired, as the duplicates sweep does. Only when every id answers 404 is the person gone.
+- **A CRM that does not answer is what a cache is for.** On a thrown read (network, 5xx, 401) the run acts on the
+  replica and the context says why in `contact.stale`; the run page's contact line reads "acted on the engine's copy;
+  GHL did not answer". The run is never failed or held for it: the premise already decides when a run waits (D56).
+- **A refresh never emits an event.** `lead.created` and the tag deltas are the poll's; a refresh must never start a
+  workflow. For that reason the replica's `tags` are the one field a refresh leaves as the poll last saw them: the
+  poll's `tag.added` / `tag.removed` are a diff against the replica, and a refresh that wrote the CRM's tags first
+  would swallow it. `contact.tags` is therefore at most one poll old; everything else in `contact.*` is live.
+- **The price.** One GET per claimed run per wake. A wake is already a round of reads (the premise reads the booking
+  live, D5b; the cards are read live, D41), and a claimed run is about to write to the CRM or send to the person; a
+  read that keeps a text from greeting the wrong name or going to a dead record is the cheapest step of the wake. A
+  run with no contact (a closer's end-of-day) reads nothing.
+- **The same record, an older stamp, is skipped.** As D41 does for cards: a snapshot whose `dateUpdated` is older
+  than the one the poll already folded for the same id is the past, not the truth, and is not folded (the read still
+  counts as fresh). A primary that moved to another record is folded regardless.
+- Test fixtures: `fakeAdapters().read.getContact` now echoes the replica (a fake that answered null would mark every
+  test contact gone on its first run); a fixture with a CRM of its own passes `fakeAdapters({ crm })`, and an id that
+  CRM lacks is a 404. G21's test now sees the deletion at the run's next look, before the send, as D68 says.
+

@@ -14,7 +14,7 @@ import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from 
 import { applyAppointment } from "@/engine/poll";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { fakeProbes } from "@/engine/test-install";
+import { fakeProbes, replicaSnapshot } from "@/engine/test-install";
 import { recordDisposition } from "@/engine/disposition";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -31,7 +31,7 @@ const classified: string[] = [];
 const fake: Adapters = {
   read: {
     contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [],
-    getContact: async () => null, listUsers: async () => [{ id: "GHLU1", name: "Sam Closer", email: "sam@x.com" }],
+    getContact: async (c, id) => replicaSnapshot(c.id, id), listUsers: async () => [{ id: "GHLU1", name: "Sam Closer", email: "sam@x.com" }],
   },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], listCalendars: async () => [],
     getAppointment: async (_c, id) => ({ id, calendarId: "CAL1", contactId: "GHLC1", startTime: APPT_START.toISO()!, endTime: APPT_START.plus({ minutes: 30 }).toISO()!, status: liveStatus, raw: {} }) }; return { ghl: b, calendly: b }; })(),

@@ -42,7 +42,7 @@ let slackDown = false;    // Slack refuses the bot token mid-run
 const base = fakeAdapters();
 const fake: Adapters = {
   ...base,
-  read: { ...base.read, listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }], getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }) },
+  read: { ...base.read, listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }], getContact: async (c, id) => (await base.read.getContact(c, id)) ?? { id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() } },
   booking: (() => { const b = { appointmentsInWindow: async () => [], listCalendars: async () => [{ id: "CAL", name: "Closer Call", teamMemberIds: ["U1"] }],
     getAppointment: async (_c: unknown, id: string) => { if (ghlDown) throw new Error("401 Unauthorized: the CRM token was rotated"); return apptStore.get(id) ?? null; } }; return { ghl: b, calendly: b }; })(),
   write: { ...base.write, addTag: async (_c, _id, t) => { tags.push(t); }, updateContact: async (_c, id, patch) => { contactWrites.push({ id, ...patch }); }, createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; }, updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); },

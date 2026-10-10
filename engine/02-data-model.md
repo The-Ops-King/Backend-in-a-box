@@ -32,6 +32,14 @@ the JSONB attribute queries in `00-decisions.md` D9.
 - **Derived state is a cache, never a truth.** `contacts.attributes` is the merge of `intake`
   rows. `opportunities.status` is set by rules reading events. Both can be rebuilt from the
   stream.
+- **The CRM replica is a cache too (D68).** `contacts`, `contact_identifiers`, `pipeline_cards`
+  mirror GoHighLevel so the engine can match, diff and render without a round trip, but the CRM
+  is the record. Before a run acts, the contact is read live and folded into the replica
+  (`contact-truth.ts`); before a card step, the cards are (D41). The poll keeps the replica warm
+  and is the only thing that turns a change into an event (a new lead, a tag added); a live read
+  before a run folds everything but `tags`, which it leaves for the poll to diff. When the CRM
+  does not answer, the replica stands in and the run says so (`contact.stale`). The engine is
+  workflows plus statistics, not storage for everything.
 
 ---
 

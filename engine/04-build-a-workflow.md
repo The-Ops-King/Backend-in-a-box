@@ -107,7 +107,10 @@ Paths worth knowing (full list: `context.ts`, `describe.ts` PATHS):
   else the owner), `.setter.*` (the setter field matched to a team member; `.mention` is `<@U…>` when known),
   `.paid` `.payments_count` `.cash_collected` `.first_paid_at` `.agreement_signed` `.agreement_sent`
 `.first_booked_at` `.days_to_close` `.revenue` `.source`, `.has_upcoming_call` (a closing call for them, not cancelled
-  or no-showed, still ahead, other than the run's own appointment: what a nudge to book or rebook checks first, D59).
+  or no-showed, still ahead, other than the run's own appointment: what a nudge to book or rebook checks first, D59),
+  `.fetched_at` (when the CRM was read for this person before the run acted, D68: every `contact.*` value is the CRM's
+  as of then) and `.stale` (why the engine's copy stood in instead — the CRM did not answer; absent when it did, so
+  `{{contact.stale | line:Note}}` says nothing on a normal run).
 - `appointment.starts_at` `.ends_at` `.status` `.term.category` `.term.name` `.closer.{name,first_name,email,mention}`
   (`.mention` is `<@U…>` when the closer is known in Slack, else the name) `.self_booked` `.set_by`
   `.answers.<question name>` `.reschedule_url` `.cancel_url` `.cancelled_by` `.pending_read.{intent,confidence,at}` (D58:
