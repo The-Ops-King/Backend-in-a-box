@@ -2305,3 +2305,56 @@ match, then it could ask."
   question it needs answered. Repairs alone are logged, never announced. An open alert is updated in place, not posted
   again; it is posted again only after it resolved and something new appears.
 
+## D75. The bot joins GHL records live (2026-10-10)
+
+Was (D74): the bot could count one field (`field_breakdown`) or one contact field against showing up
+(`compare_with_shows`), but a question that crossed records ("close rate by objection", "show rate for setter-booked vs
+direct", "cash by source") had no tool, and cash came from the ledger. Tyler wants the bot "smart enough to connect all
+the data", and: **"I don't want to duplicate the GHL record in my engine; just pull the necessary data from GHL when
+necessary."** GHL is the source of truth.
+
+- **The record graph** (Hair, verified live): the contact (custom fields incl. the booking-form answers, tags, source,
+  Total Cash Collected) → at most one setter card (Setter pipeline, `crm.pipeline_setter`) → one Sales Call per booked call
+  (`crm.object_sales_call`; `contact_id`, `opportunity_id`, `call_date`, `scheduled_at`, outcome, disposition, closer,
+  setter, booking source, objections, score, cash; filed from the EOD form) → at most one closer card (Closer pipeline;
+  won = a close, D73) → Payment records (`crm.object_payment`, default `custom_objects.payment`; amount, `occurred_at`,
+  type, status, closer, setter: the per-transaction cash truth) and Discovery Calls (`crm.object_discovery_call`, default
+  `custom_objects.discovery_call`, setter calls; read when GHL has the object). An object record's contact is its
+  `contact_id`, else GHL's association (`GET /associations/relations/{id}`); a person's card is found by contact (two on
+  one board: the won one, else the latest).
+- **Joined live, in memory, for one answer; nothing stored** (`ghl-graph.ts`). Reads go through `GhlReads` (new:
+  `cards` = `GET /opportunities/search?location_id&pipeline_id` every status, `pipelines` = `GET
+  /opportunities/pipelines` for stage names, `users` = `GET /users/` for owners, the roster filling in), memoized per
+  answer (`memoReads`), five requests at a time, every list paginated to a cap that refuses rather than cuts short. A
+  contact is fetched one by one only when no search gives it (the people behind calls and closes). A 90-day question on
+  ~50 calls costs ~55 requests (the field catalogue 5, Sales Calls 1, closer board 1, payments 1, one GET per person);
+  on leads ~12, with no per-person GET.
+- **Units and measures.** `lead` = contacts GHL added in the period: booked (has a Sales Call), booked rate, calls due,
+  showed, show rate (shows ÷ booked calls), closed (a won closer card), close rate (closes ÷ shows), cash. `call` = Sales
+  Calls whose time fell in the period and has passed, classified by D73's code itself (cancel-wins, missing from EOD,
+  harness and test out): showed, no-show, cancelled, missing, show rate, closed, close rate, cash; a person's close and
+  cash count once, on their latest showed call. `close` = people with a won Closer-pipeline card in the period: cash,
+  card value, median days from first call to won. A lead's or a close's `call.*` is their latest Sales Call.
+- **`list_columns(unit)` and `analyze(unit, period, split_by, filter, list, rate)` replace `list_fields`,
+  `field_breakdown` and `compare_with_shows`** (each is now a split of one unit; an old field key still resolves).
+  Columns are namespaced by the record (`contact.<field name>`, `contact.source`, `contact.tags`, `setter_card.stage`,
+  `call.objection_primary`, `call.result`, `closer_card.status`, `payment.total`, `discovery.<prop>`…) with type and
+  options. Per answer: the counts, the rates, the share of the main outcome, and D74's permutation test on the rate the
+  question is about (lead: booked rate by default; call: show rate; `close_rate` when asked), with the same verdicts.
+  Multi-picks count under each pick; blanks are "(no answer)" and named.
+- **Gaps and mismatches are said, not hidden.** Link gaps: a call with no contact or no closer card, a lead with no
+  setter card, a close with no Sales Call, counted and named (`*Links:* 48 calls · 46 linked to a closer card · missing:
+  X (Oct 1), Y`). Mismatches, only once GHL holds Payment records: a won closer card with no payment, a payment with no
+  won closer card, a contact whose Total Cash Collected is not the sum of their payments (only when they have payments).
+- **Cash is GHL's.** `cash_collected`, `cash_gross`, `refunds` (and `/cash`, `/mtd`) read the Payment records by
+  `occurred_at`: a succeeded payment that is not a refund or chargeback is in, a refund or chargeback that did not fail is
+  out, anything else (failed, pending, a payment whose own status is refunded) moves nothing; closer and setter from the
+  record. When the object holds no records at all the answer says "GHL has no Payment records yet": never $0, never the
+  ledger's.
+- **The drift alert** (D73, D74) asks, once Payment records exist: a closer card won in the last 7 days with no payment
+  ("Did they pay, or should the card not be won?") and a payment in them with no won closer card ("Should their closer
+  card be won?"), one line each, test contacts out.
+- The model is taught the graph in three lines, sends cross-record questions to `analyze`, picks the column by meaning
+  (the header names it; asks only on a real tie or no fit), shows only the results that answer, and reasons in its note
+  (up to four sentences, numbers only from the results, a pattern only when the test says so).
+

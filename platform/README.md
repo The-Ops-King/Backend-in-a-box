@@ -377,11 +377,12 @@ setup, once per app: scopes `reactions:write` and `reactions:read`; Event Subscr
 `<PUBLIC_URL>/api/webhooks/slack/<companyId>` (the URL check is answered), bot event `reaction_added`; the signing
 secret from Basic Information goes to the install API as `slackSigningSecret`, the bot token as `slackToken`.
 
-## Slack bot (D70, D73)
+## Slack bot (D70, D73, D74, D75)
 
 Anyone in the workspace can ask the ledger a question in Slack. Every number in an answer comes from a tool result, never
 from the model: the metric registry (`src/engine/metric-registry.ts`, one definition per metric; people, won deals and
-calls read live from GHL by `src/engine/ghl-metrics.ts`, bookings made, cash and dials from the engine's ledger), the live calendar read (`get_availability`, the open times GHL free-slots / Calendly available-times offer,
+calls and cash read live from GHL by `src/engine/ghl-metrics.ts`, bookings made and dials from the engine's ledger), the
+joined GHL records (`analyze`, `src/engine/ghl-graph.ts`, D75), the live calendar read (`get_availability`, the open times GHL free-slots / Calendly available-times offer,
 split per closer, D72; the same read as the low-availability thread) or, as a last resort, the read-only query door (D64), whose answers are labelled *ad hoc, from
 the raw ledger*. Each key line says where its number came from (`from the engine's ledger`, `from GHL, read just now`).
 A live read that fails is named in the answer, never filled with an estimate. The message is rendered by our formatter
@@ -395,21 +396,43 @@ the bot is not in, only the asker sees it, with a note to invite the bot.
 
 | Command | Answers | Default period |
 |---|---|---|
-| `/mtd` | leads, MQLs, calls booked, show rate (shows ÷ calls booked), close rate (closes ÷ shows), cash collected, top source by cash, each vs the same days last month | this month so far |
+| `/mtd` | leads, MQLs, calls booked, show rate (shows ÷ calls booked), close rate (closes ÷ shows), cash collected (GHL Payment records; "GHL has no Payment records yet" when there are none), top source by cash, each vs the same days last month | this month so far |
 | `/weekly` | the same set, vs the week before (`/weekly this week` for the week so far) | last full week (Mon–Sun) |
 | `/monthly` | the same set, vs the month before (`/monthly this month`) | last full month |
 | `/show-rate` | show rate overall, by closer and by source, with `Calls booked · Showed · No-show · Cancelled · Missing from EOD disposition (names)` and any call GHL and the booking source disagree on | this month |
 | `/close-rate` | close rate overall, by closer and by source | this month |
-| `/cash` | payments, refunds and net cash, by closer | this month |
+| `/cash` | payments, refunds and net cash from GHL's Payment records, by the record's closer | this month |
 | `/availability` | open bookable slots in one table: a row per day, a column per closer, the day's total and a total row; `/availability 3` for three days | next 7 days |
 | `/leads` | leads, MQLs (with how many matched the employment standard and how many didn't answer) and marketing DQs by source | this month |
 | `/closes` | every close, newest first: the person, their closer, the day won, with the count on top | this month |
 | `/help` | every shortcut with a one-line description, and example questions (privately) | — |
 
-**Any GHL field** (D74): a question about something no metric covers ("hair loss stage this month", "most common
-objections last month", "who said they're between jobs") is answered from the field GHL holds for it. The bot reads the
-field list itself, picks the field that fits, counts its answers live from GHL and names the field on the first line; it
-asks only when two fields fit equally. **Preview** any answer without posting: `POST /api/admin/bot-preview` with
+**Any GHL field, joined across a person's records** (D74, D75): a question about something no metric covers, or one that
+crosses records ("show rate by hair-loss answer", "close rate by objection", "show rate for setter-booked vs direct",
+"cash by source", "who said they're between jobs"), is answered by joining each person's GHL records live, in memory,
+for that one answer; nothing is copied into the engine. A person's records link up: the contact (custom fields, tags,
+source) → their setter card (`crm.pipeline_setter`) → their Sales Calls (`crm.object_sales_call`) → their closer card
+(`crm.pipeline_closer`; won = a close) → their Payment records (`crm.object_payment`, default `custom_objects.payment`)
+and Discovery Calls (`crm.object_discovery_call`, default `custom_objects.discovery_call`). Two tools:
+`list_columns(unit)` names every column a row carries (`contact.<field name>`, `contact.source`, `contact.tags`,
+`setter_card.stage|status|assigned`, `call.<prop>` and `call.result`, `closer_card.stage|status|assigned|value`,
+`payment.total|count|first_date|types|<prop>`, `discovery.<prop>`), and `analyze(unit, period, split_by, filter, list,
+rate)` counts one unit per answer of a column:
+
+| Unit | Rows | Measures |
+|---|---|---|
+| `lead` | contacts GHL added in the period | booked (has a Sales Call), booked rate, calls due, showed, show rate (shows ÷ booked calls), closed (won closer card), close rate (closes ÷ shows), cash |
+| `call` | Sales Calls whose time fell in the period and has passed, classified as D73 | showed, no-show, cancelled, missing from EOD, show rate, closed, close rate, cash (a person's close and cash count once, on their latest showed call) |
+| `close` | people with a won Closer-pipeline card in the period | cash, card value, median days from first call to won |
+
+Each answer gets its share of the main outcome and a permutation test on the rate (too few → it says so); multi-picks
+count under each pick; a blank is "(no answer)" and the people with no answer are named. The answer also names **link
+gaps** (`*Links:* 48 calls · 46 linked to a closer card · missing: X (Oct 1), Y`) and, once GHL holds Payment records,
+**mismatches**: a won closer card with no payment, a payment with no won closer card, and a contact whose Total Cash
+Collected (`crm.field_contact_cash_collected`, else the field keyed `contact.cash_collected`) is not the sum of their
+payments. The bot picks the column by meaning and the header names it; it asks only on a real tie. Reads are memoized
+per answer, five at a time; boards and objects are read whole, and a read past its page cap refuses rather than cuts
+short. **Preview** any answer without posting: `POST /api/admin/bot-preview` with
 `{ "company": "hair", "command": "/mtd", "text": "" }` or `{ "company": "hair", "question": "…" }` (bearer `CRON_SECRET`).
 
 **Availability per closer (D72).** The times come only from what the booking source offers (Calendly available times,
@@ -446,9 +469,10 @@ with `qualify.unanswered_is_mql`; any other answer is "unrecognized" and never c
 included), `shows`, `no_shows`, `cancellations` (outcomes mapped by `sales_call.outcomes`; a booking the source
 cancelled before the call's start is cancelled whatever was filed), `show_rate` (shows ÷ calls booked), `sales_dqs` (a
 `sales_call.dq_dispositions` disposition), `closes` (distinct people with a won card on `crm.pipeline_closer`, by won
-time), `revenue`, `close_rate` (closes ÷ shows). From the ledger: `booked` (bookings made), `calls_due`,
-`leads_booked`, `leads_showed`, `reschedules`, `cash_collected` (net of refunds), `cash_gross`, `refunds`,
-`speed_to_lead` (median minutes, D64), `dials`, `connected`. Test contacts (`sys-test`, or an email on `test.domains`)
+time), `revenue`, `close_rate` (closes ÷ shows), `cash_collected`, `cash_gross`, `refunds` (GHL Payment records by
+`occurred_at`: succeeded payments in, refunds and chargebacks out; closer and setter from the record; none at all →
+"GHL has no Payment records yet", never $0, never the ledger's). From the ledger: `booked` (bookings made), `calls_due`,
+`leads_booked`, `leads_showed`, `reschedules`, `speed_to_lead` (median minutes, D64), `dials`, `connected`. Test contacts (`sys-test`, or an email on `test.domains`)
 count in none of them. GHL that cannot be read is an error with its status, never the ledger's number. Split by
 `source`, `closer`, `setter`, `day`, `week` or `month` where the metric has that side; filter by closer, setter, source
 or the asker. A person's source is the CRM lead-source field (`crm.field_contact_lead_source`), else the UTM source on

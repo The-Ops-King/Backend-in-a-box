@@ -10,7 +10,7 @@ import { GHL_SOURCE, closesFor, ghlRows, showBreakdown, type GhlCtx, type GhlEnt
 
 /**
  * The metric layer (D70): every number the Slack bot says has ONE definition here, written once in SQL against the
- * ledger or, for people, deals and calls, read live from GHL (D73), with the plain-words sentence the model and /help use.
+ * ledger or, for people, deals, calls (D73) and cash (D75), read live from GHL, with the plain-words sentence the model and /help use.
  * Test contacts (D52's rule) never count anywhere. Definitions follow what the wrap-ups (rollups, D29)
  * and setter metrics (D64) already count; nothing is re-invented. Counts and sums are computed per group; a rate is
  * always two of them divided where it is read (never an average of averages).
@@ -31,6 +31,8 @@ export type MetricResult = {
   qualification?: QualificationSummary;
   /** Show rate: every due call by outcome, who has none filed, and where GHL and the booking source disagree. */
   shows_breakdown?: ShowBreakdown;
+  /** Said instead of a number when GHL holds nothing to count yet (D75: no Payment records is never $0). */
+  unavailable?: string;
 };
 export const LEDGER = "the engine's ledger";
 export class MetricError extends Error {}
@@ -124,7 +126,7 @@ export function previousPeriod(p: Period, unit: "month" | "week", tz: string, no
 }
 
 // ---- the registry -----------------------------------------------------------------------------------------------------
-type Entity = "contact" | "appointment_booked" | "appointment_due" | "payment" | "reschedule";
+type Entity = "contact" | "appointment_booked" | "appointment_due" | "reschedule";
 type Q = { companyId: string; start: Date; end: Date; tz: string; sourceField: string; now: Date; domains: string[]; groupBy?: GroupBy; filters: { closer?: string; setter?: string; source?: string } };
 
 // a person's source: the CRM's lead-source field the company bound (crm.field_contact_lead_source), else the UTM source on their latest booking
@@ -139,10 +141,6 @@ const ENTITIES: Record<Entity, { from: string; where: string; time: string; clos
   appointment_due: { from: "appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term",
     where: `a.company_id=$1 and a.source<>'test' and ${NOT_TEST}`, time: "a.starts_at", closer: "a.assigned_user_id",
     setter: "(select su.id from users su where su.company_id=a.company_id and lower(su.name)=lower(a.set_by) limit 1)", source: SOURCE("ct") },
-  // money belongs to the closer of the person's latest call at or before the payment (any call when none came before)
-  payment: { from: "payments p left join contacts ct on ct.id=p.contact_id", where: `p.company_id=$1 and coalesce(p.raw->>'simulated','')='' and ${NOT_TEST}`, time: "p.paid_at",
-    closer: "(select pa.assigned_user_id from appointments pa where pa.company_id=p.company_id and pa.contact_id=p.contact_id and pa.source<>'test' order by (pa.starts_at<=p.paid_at) desc, pa.starts_at desc limit 1)",
-    source: `case when ct.id is null then 'unlinked payment' else ${SOURCE("ct")} end` },
   reschedule: { from: "events e join appointments a on a.id=e.appointment_id join contacts ct on ct.id=a.contact_id", where: `e.company_id=$1 and e.event_type='appointment.rescheduled' and e.source<>'test' and a.source<>'test' and ${NOT_TEST}`,
     time: "e.occurred_at", closer: "a.assigned_user_id", source: SOURCE("ct") },
 };
@@ -175,9 +173,9 @@ export const METRICS: Record<string, Def> = {
   closes: { kind: "ghl", label: "Closes", unit: "count", entity: "close", definition: "new people we collected cash from: distinct people with a won card on the Closer pipeline in GHL, by when it was won (the setter pipeline's won is a show, not a sale); credited to the closer of their latest call, else the card's owner" },
   close_rate: { kind: "rate", label: "Close rate", num: "closes", den: "shows", definition: "closes ÷ shows in the same period" },
   revenue: { kind: "ghl", label: "Revenue", unit: "money", entity: "close", definition: "value of the won Closer-pipeline cards in GHL in the period" },
-  cash_collected: { kind: "base", label: "Cash collected", unit: "money", entity: "payment", value: "coalesce(sum(p.amount),0)", where: "p.status in ('succeeded','refunded')", definition: "payments received in the period net of refunds issued in it (refunds are negative lines)" },
-  cash_gross: { kind: "base", label: "Payments", unit: "money", entity: "payment", value: "coalesce(sum(p.amount),0)", where: "p.status='succeeded'", definition: "successful payments in the period, before refunds" },
-  refunds: { kind: "base", label: "Refunds", unit: "money", entity: "payment", value: "coalesce(-sum(p.amount),0)", where: "p.status='refunded'", definition: "money refunded in the period" },
+  cash_collected: { kind: "ghl", label: "Cash collected", unit: "money", entity: "payment", definition: "GHL Payment records by when they occurred: succeeded payments in, refunds and chargebacks out; credited to the record's closer (and setter)" },
+  cash_gross: { kind: "ghl", label: "Payments", unit: "money", entity: "payment", definition: "succeeded GHL Payment records in the period, before refunds" },
+  refunds: { kind: "ghl", label: "Refunds", unit: "money", entity: "payment", definition: "refunds and chargebacks in GHL's Payment records in the period" },
   speed_to_lead: { kind: "setter", label: "Speed to lead", unit: "minutes", pick: (s) => s.stl_median_min, count: (s) => s.leads_dialled_first, definition: "median minutes from a lead arriving to the first outbound dial, credited to whoever dialled (leads never dialled are not counted)" },
   dials: { kind: "setter", label: "Dials", unit: "count", pick: (s) => s.dials, count: (s) => s.dials, definition: "outbound dialer calls made in the period" },
   connected: { kind: "setter", label: "Connected calls", unit: "count", pick: (s) => s.connected, count: (s) => s.connected, definition: "outbound dials the CRM marked connected and at least the company's reached-seconds long" },
@@ -190,7 +188,7 @@ export function dimsOf(name: string): GroupBy[] {
   const d = METRICS[name]; if (!d) return [];
   if (d.kind === "setter") return ["setter"];
   if (d.kind === "rate") { const a = dimsOf(d.num), b = dimsOf(d.den); return a.filter((x) => b.includes(x)); }
-  if (d.kind === "ghl") return GROUP_BYS.filter((g) => g !== "setter" && (g !== "closer" || d.entity !== "lead"));
+  if (d.kind === "ghl") return GROUP_BYS.filter((g) => (g !== "setter" || d.entity === "payment") && (g !== "closer" || d.entity !== "lead"));
   const e = ENTITIES[d.entity];
   return GROUP_BYS.filter((g) => (g === "closer" ? !!e.closer : g === "setter" ? !!e.setter : true));
 }
@@ -243,10 +241,10 @@ export async function getMetric(c: PoolClient, companyId: string, q: MetricQuery
     const rows = q.groupBy === "setter" ? m.setters.filter((s) => !filters.setter || s.id === filters.setter).map((s) => ({ key: s.id, label: s.name, value: def.pick(s), numerator: def.count(s) })) : undefined;
     return { ...head, value, rows };
   }
-  let qualification: QualificationSummary | undefined;
+  let qualification: QualificationSummary | undefined, unavailable: string | undefined;
   const runBase = async (name: string, groupBy?: GroupBy): Promise<Map<string, number>> => {
     const g = METRICS[name];
-    if (g.kind === "ghl") { const r = await ghlRows(ghl, name, g.entity, g.label, groupBy); qualification ??= r.qualification; return r.rows; }
+    if (g.kind === "ghl") { const r = await ghlRows(ghl, name, g.entity, g.label, groupBy); qualification ??= r.qualification; unavailable ??= r.unavailable; return r.rows; }
     const d = g as Base;
     const { sql, params } = buildBase(d, { ...base, groupBy });
     const r = await many<{ g: string | null; n: number }>(c, sql, params);
@@ -255,6 +253,7 @@ export async function getMetric(c: PoolClient, companyId: string, q: MetricQuery
   const extra = async () => ({ ...(qualification ? { qualification } : {}), ...(q.metric === "show_rate" ? { shows_breakdown: await showBreakdown(ghl) } : {}) });
   if (def.kind === "base" || def.kind === "ghl") {
     const total = (await runBase(q.metric)).get("") ?? 0;
+    if (unavailable) return { ...head, value: null, unavailable };
     const rows = q.groupBy ? [...(await runBase(q.metric, q.groupBy)).entries()].map(([k, v]) => ({ key: k, label: label(q.groupBy, k), value: v })) : undefined;
     return { ...head, value: total, rows: rows && sortRows(rows, q.groupBy), ...(await extra()) };
   }

@@ -11,7 +11,7 @@ import {
   type Availability, type ClosesList, type Filters, type GroupBy, type MetricResult, type Period,
 } from "./metric-registry";
 import { ESCALATE_PING, ESCALATE_UNSURE, fmt, formatAnswer, formatAvailability, formatCloses, formatCombined, formatSummary, helpText } from "./bot-format";
-import { fieldBreakdown, fieldCatalog, fieldVsCalls, type FieldBreakdown, type FieldVsCalls } from "./field-breakdown";
+import { RATES, UNITS, analyze, listColumns, memoReads, type Analysis, type GraphUnit, type Rate } from "./ghl-graph";
 
 /**
  * The Slack bot (D70). Shortcuts are slash commands answered from the metric registry with no model in the way; anything
@@ -137,17 +137,19 @@ export const BOT_TOOLS: BotToolDef[] = [
   { name: "list_closes", description: "List every close in a period, newest first: the person, the closer credited, the day it was won (read live from GHL's Closer pipeline, the same people the closes metric counts). Use it for \"who closed\" / \"which deals\" questions.",
     input_schema: { type: "object", additionalProperties: false, required: ["period", "closer"], properties: {
       period: { type: "string", description: "The asker's period in plain words, as for get_metric" }, closer: { type: "string", description: "A closer's name from the roster, or empty" } } } },
-  { name: "list_fields", description: "Every field GHL holds that a question can be about: contact fields (the forms' questions, UTM fields…) and each custom object's fields (e.g. Sales Call outcome, disposition, objections, score), with their answer options. Read it whenever the question names a thing no metric covers, then pick the field yourself.",
-    input_schema: { type: "object", additionalProperties: false, required: ["object"], properties: { object: { type: "string", description: "\"contact\", a custom object key such as \"custom_objects.sales_call\", or \"all\"" } } } },
-  { name: "field_breakdown", description: "Count (and optionally list) the answers to one GHL field over a period, read live from GHL: for a contact field, the leads GHL added in the period; for a custom object, its records dated in the period. Test contacts never count. Pass the field key exactly as list_fields gave it.",
-    input_schema: { type: "object", additionalProperties: false, required: ["object", "field", "period", "list"], properties: {
-      object: { type: "string", description: "\"contact\" or the custom object key from list_fields" }, field: { type: "string", description: "the field key from list_fields" },
-      period: { type: "string", description: "The asker's period in plain words, as for get_metric" }, list: { type: "boolean", description: "true to also list each person and their answer (\"who said…\", \"which leads…\")" } } } },
-  { name: "compare_with_shows", description: "Does a contact field's answer go with showing up? For the Sales Calls in a period (call time passed, live from GHL), each answer of one contact field: calls, shows, no-shows, cancels, unfiled, its show rate and its share of all shows, plus a permutation test saying whether the differences are bigger than chance. Use it for \"do people who said X show up more\", \"correlation between X and show rate\", \"show rate by X\".",
-    input_schema: { type: "object", additionalProperties: false, required: ["field", "period"], properties: { field: { type: "string", description: "a contact field key from list_fields" }, period: { type: "string", description: "The asker's period in plain words, as for get_metric" } } } },
+  { name: "list_columns", description: "Every column a row of one unit carries, read from GHL: the contact's fields by name (the booking form's questions, UTM fields…), contact.source and contact.tags; the setter card (stage, status, owner); the Sales Call (outcome, disposition, objections, booking source, closer, setter, score…, and call.result: how D73 counts it); the closer card (stage, status, owner, value); payments (total, types…); discovery calls. Each with its type and answer options. Read it whenever the question names a thing no metric covers, then pick the column yourself.",
+    input_schema: { type: "object", additionalProperties: false, required: ["unit"], properties: { unit: { type: "string", enum: UNITS } } } },
+  { name: "analyze", description: "Joins each person's GHL records live (nothing stored) and counts one unit over a period, split by one column and filtered. lead = contacts GHL added in the period: booked, booked rate, calls, showed, show rate (shows ÷ booked calls), closed, close rate (closes ÷ shows), cash. call = Sales Calls whose time fell in the period and has passed: showed, no-show, cancelled, missing from EOD, show rate (D73), closed, close rate, cash. close = people with a won Closer-pipeline card in the period: cash, card value, days from first call to won. Per answer: those numbers, its share of the main outcome, and a permutation test on the rate saying whether the differences are more than chance; also who has no answer, links that are missing, and records that disagree (won card with no payment, payment with no won card, Total Cash Collected not the payments' sum). Multi-picks count under each pick. Test contacts never count.",
+    input_schema: { type: "object", additionalProperties: false, required: ["unit", "period", "split_by", "filter", "list", "rate"], properties: {
+      unit: { type: "string", enum: UNITS },
+      period: { type: "string", description: "The asker's period in plain words, as for get_metric" },
+      split_by: { type: "string", description: "A column exactly as list_columns gave it, or empty for no split" },
+      filter: { type: "array", description: "Only rows whose column has this answer; [] for none", items: { type: "object", additionalProperties: false, required: ["column", "equals"], properties: { column: { type: "string" }, equals: { type: "string", description: "an answer as listed, or \"(no answer)\"" } } } },
+      list: { type: "boolean", description: "true to also name each row with its answer (\"who said…\", \"which calls…\")" },
+      rate: { type: "string", enum: ["", "booked_rate", "show_rate", "close_rate"], description: "The rate the test and the share follow; empty for the unit's main one (lead: booked rate, call: show rate). close_rate for close-rate questions." } } } },
   { name: "get_availability", description: "Open bookable calendar slots for the next days (at most 7), per day and per closer, read live from the booking calendars.",
     input_schema: { type: "object", additionalProperties: false, required: ["days"], properties: { days: { type: "integer", description: "1 to 7; 7 when not said" } } } },
-  { name: "run_readonly_query", description: "Last resort, only when no metric fits (for example a list of individual people): one read-only SELECT over the company's own tables. The answer is labelled ad hoc.",
+  { name: "run_readonly_query", description: "Last resort, only when no metric and no GHL column fits (for example a list of individual people): one read-only SELECT over the company's own tables. The answer is labelled ad hoc.",
     input_schema: { type: "object", additionalProperties: false, required: ["sql", "why"], properties: { sql: { type: "string" }, why: { type: "string", description: "What the query returns, in plain words, shown to the asker" } } } },
   { name: "ask_clarification", description: "Ask the asker one short question when the period, the person, or a term is missing or could mean more than one thing. Ends your turn.",
     input_schema: { type: "object", additionalProperties: false, required: ["question"], properties: { question: { type: "string" } } } },
@@ -160,21 +162,22 @@ export const BOT_TOOLS: BotToolDef[] = [
 export const BOT_SYSTEM = `You answer a sales team's questions about their own numbers in Slack. Correct before clever: no answer beats a wrong answer.
 
 How you work:
-- Numbers come only from your tools. You never write a number yourself: the message the asker sees is rendered from the tool results you pick with \`reply\`. Your optional note is one short sentence and may only repeat numbers that are in those results.
+- Numbers come only from your tools. You never write a number yourself: the message the asker sees is rendered from the tool results you pick with \`reply\`. Your optional note may only repeat numbers that are in those results.
 - Use get_metric for anything the metric list covers. Split with group_by when the asker wants a breakdown ("by closer", "by source", "per day"). Several calls are fine; then \`reply\` with the ids you want shown, most important first.
 - The period: pass the asker's own words. If the question has no period and the context gives no default, call ask_clarification for the period. Never assume one. "This month" means the calendar month so far in the company's time zone.
 - "My", "me", "I": set filters.me = true. If the context says the asker is not on the roster, ask who they are in the CRM.
 - A person named in the question must match the roster in the context; if the name is unclear or matches two people, ask.
 - GHL is the truth for people, deals and calls. Those numbers are read live from GHL; if GHL cannot be read the tool says so and you call cannot_answer with that reason. Never answer them from run_readonly_query over the ledger.
-- A term no metric covers (hair loss stage, goals, age, scalp condition, objections, a call's score…): call list_fields and pick the field yourself by meaning. One field clearly fits: use it with field_breakdown; the answer names the field, so do not ask. Ask (ask_clarification, naming the candidate fields) only when two fields fit about equally well and would give different answers, or when nothing fits. Prefer a field with fixed answer options over free text for the same question.
-- Comparing an answer with showing up (correlation, "do people who said X show more"): compare_with_shows. If the field you picked is mostly unanswered for those calls, try the other field that fits and use the one people actually answered, saying so.
+- GHL's records for one person link up: the contact (the booking form's answers, tags, source) → their setter card (Setter pipeline) → their Sales Calls (one per booked call, filed from the EOD form: outcome, disposition, objections, booking source, closer, setter, score) → their closer card (Closer pipeline; won = a close) → their Payment records (cash) and Discovery Calls. analyze joins them live for one answer: a row is a lead, a call or a close, and a column can come from any record of that person.
+- Questions that cross records go to analyze. Show rate by the hair-loss answer: unit call, split_by the contact's hair-loss column. Close rate by objection: call, split_by call.objection_primary, rate close_rate. Show rate for setter-booked vs direct: call, split_by call.booking_source. Cash by source: close (or lead), split_by contact.source. A single answer only ("show rate of people who said X"): filter on it.
+- A term no metric covers (hair loss stage, goals, age, objections, a call's score…): call list_columns for the unit and pick the column by meaning. One column clearly fits: use it; the answer's header names it, so do not ask. Ask (ask_clarification, naming the candidate columns) only on a real tie (two columns that would give different answers) or when nothing fits. Prefer a column with fixed options over free text. If the one you picked is mostly unanswered, try the other column that fits and show the one people answered, saying so in the note.
 - In \`reply\`, show only the results that answer the question: leave out one you tried that turned out empty or mostly unanswered (mention it in the note instead).
-- Explaining a result: your note may be up to four short sentences that reason through the results the way an analyst would ("Of the 10 who showed, 7 said noticeable thinning: 70% of shows…"), but every number in it must already be in the results, and a pattern is only called a pattern when the test in the results says so; otherwise say the numbers are too few or could be chance.
+- Your note may be up to four short sentences reasoning through the results the way an analyst would ("Of the 10 who showed, 7 said noticeable thinning: 70% of shows…"). Every number in it must already be in the results, and a pattern is only called a pattern when the test in the results says so; otherwise say the numbers are too few or could be chance.
 - There are exactly two kinds of DQ: a marketing DQ (marketing_dqs; also called a DQL: filtered out before a sales call on financial signals, from the work-situation answer) and a sales DQ (sales_dqs: got on the call and was disqualified for any reason). "DQ" alone: ask which, unless the asker made it clear.
-- Glossary: a lead is a person who entered their information (a GHL contact, by the date GHL added them). An MQL is a lead whose answer to the work-situation question ("What best describes your current work situation?") meets the employment standard; "Currently between jobs" or "Employed part-time" is a marketing DQ; a blank answer is not an MQL. A sales DQ is a Sales Call in GHL with a DQ disposition. Calls booked (for show rate) are the Sales Call records in GHL whose call time has passed in the period, cancellations included; show rate = shows ÷ those calls; a call with no outcome filed is "missing from EOD disposition". A close is a new person we collected cash from: a won card on the Closer pipeline (the setter pipeline's won is a show, not a sale); close rate = closes ÷ shows. Test contacts never count.
+- Glossary: a lead is a person who entered their information (a GHL contact, by the date GHL added them). An MQL is a lead whose answer to the work-situation question ("What best describes your current work situation?") meets the employment standard; "Currently between jobs" or "Employed part-time" is a marketing DQ; a blank answer is not an MQL. A sales DQ is a Sales Call in GHL with a DQ disposition. Calls booked (for show rate) are the Sales Call records in GHL whose call time has passed in the period, cancellations included; show rate = shows ÷ those calls; a call with no outcome filed is "missing from EOD disposition". A close is a new person we collected cash from: a won card on the Closer pipeline (the setter pipeline's won is a show, not a sale); close rate = closes ÷ shows. Cash is GHL's Payment records (succeeded payments in, refunds and chargebacks out, by when they occurred); when GHL has no Payment records yet the tool says so, and so do you: never $0. Test contacts never count.
 - Answers show numbers and the period, not definitions. When the asker asks what a number means, get the metric and reply with a one-sentence note restating its definition from the list below, with no number of your own.
 - Calendar availability: get_availability.
-- run_readonly_query only when no metric and no GHL field fits, e.g. a ledger-only detail. Write one SELECT against the tables described in the context; describe in \`why\` what it returns.
+- run_readonly_query only when no metric and no GHL column fits, e.g. a ledger-only detail. Write one SELECT against the tables described in the context; describe in \`why\` what it returns.
 - If the tools cannot answer — no metric or table holds it, a tool keeps failing, or you would have to guess — call cannot_answer with the reason.
 - End every turn with exactly one of reply, ask_clarification or cannot_answer.
 
@@ -190,7 +193,7 @@ opportunities(id, contact_id, status open|won|lost, won_at, contract_value)
 users(id, name, role closer|setter|owner|manager|staff)
 recordings(id, contact_id, provider, started_at, raw jsonb)`;
 
-type Held = { id: string; kind: "versus"; v: FieldVsCalls } | { id: string; kind: "breakdown"; b: FieldBreakdown } | { id: string; kind: "metric"; r: MetricResult } | { id: string; kind: "availability"; a: Availability } | { id: string; kind: "closes"; k: ClosesList } | { id: string; kind: "adhoc"; why: string; columns: string[]; rows: unknown[][]; truncated: boolean };
+type Held = { id: string; kind: "analysis"; a: Analysis } | { id: string; kind: "metric"; r: MetricResult } | { id: string; kind: "availability"; a: Availability } | { id: string; kind: "closes"; k: ClosesList } | { id: string; kind: "adhoc"; why: string; columns: string[]; rows: unknown[][]; truncated: boolean };
 
 async function contextText(ctx: Ctx, asker: Asker, slackUser: string, now: DateTime): Promise<string> {
   const roster = await asCompany(ctx.companyId, (c) => many<{ name: string; role: string }>(c, "select name, role from users where company_id=$1 and active and role in ('closer','setter','owner','manager') order by role, name", [ctx.companyId]));
@@ -216,7 +219,8 @@ export async function preview(deps: BotDeps, companyId: string, q: { command?: s
 }
 
 /** Runs the tool loop for one question. Never throws: any failure is an escalation. */
-export async function converse(deps: BotDeps, ctx: Ctx, q: { question: string; history: Turn[]; asker: Asker; slackUser: string }): Promise<Out> {
+export async function converse(deps0: BotDeps, ctx: Ctx, q: { question: string; history: Turn[]; asker: Asker; slackUser: string }): Promise<Out> {
+  const deps = { ...deps0, ghl: memoReads(deps0.ghl ?? liveGhlReads) };   // one answer reads each GHL record once
   const model = deps.adapters.bot;
   if (!model || !ctx.apiKey) return escalation(ctx, "no AI key for the bot");
   const now = deps.now ?? DateTime.now();
@@ -280,7 +284,7 @@ async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, inpu
       const groupBy = input.group_by && input.group_by !== "none" ? (String(input.group_by) as GroupBy) : undefined;
       const r = await asCompany(ctx.companyId, (c) => getMetric(c, ctx.companyId, { metric, period, groupBy, filters, now: now.toJSDate() }, deps.ghl ?? liveGhlReads));
       held.push({ id, kind: "metric", r });
-      return { content: JSON.stringify({ id, metric: r.metric, label: r.label, source: r.source, period: r.period_label, value: r.value, display: fmt(r.unit, r.value), numerator: r.numerator, denominator: r.denominator, filters: r.filters,
+      return { content: JSON.stringify({ id, metric: r.metric, label: r.label, source: r.source, period: r.period_label, value: r.value, display: r.unavailable ?? fmt(r.unit, r.value), numerator: r.numerator, denominator: r.denominator, filters: r.filters,
         qualification: r.qualification, shows_breakdown: r.shows_breakdown, rows: r.rows?.slice(0, 40).map((x) => ({ label: x.label, display: fmt(r.unit, x.value), numerator: x.numerator, denominator: x.denominator })) }) };
     }
     if (name === "list_closes") {
@@ -290,26 +294,22 @@ async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, inpu
       held.push({ id, kind: "closes", k });
       return { content: JSON.stringify({ id, period: k.period_label, count: k.count, closes: k.closes.slice(0, 50) }) };
     }
-    if (name === "list_fields") {
-      const all = await asCompany(ctx.companyId, (c) => fieldCatalog(c, ctx.companyId, deps.ghl ?? liveGhlReads)).catch((e) => { throw new MetricError(`GHL could not be read (field list: ${String((e as Error).message).slice(0, 160)})`); });
-      const want = String(input.object ?? "all").trim();
-      const pick = want === "all" || !want ? all : all.filter((f) => f.object === want);
-      return { content: JSON.stringify({ objects: [...new Set(all.map((f) => `${f.object} (${f.object_label})`))], fields: pick }) };
+    if (name === "list_columns") {
+      const unit = String(input.unit ?? "") as GraphUnit;
+      if (!UNITS.includes(unit)) return err(`unit is one of ${UNITS.join(", ")}`);
+      const columns = await asCompany(ctx.companyId, (c) => listColumns(c, ctx.companyId, unit, deps.ghl ?? liveGhlReads, now.toJSDate()));
+      return { content: JSON.stringify({ unit, columns }) };
     }
-    if (name === "field_breakdown") {
-      const period = parsePeriod(String(input.period ?? ""), ctx.tz, now);
-      if (!period) return err(`"${input.period}" is not a period I can read. Ask the asker for the period, or pass e.g. "this month", "last week", "Sep 1 to Sep 15".`);
-      const b = await asCompany(ctx.companyId, (c) => fieldBreakdown(c, ctx.companyId, { object: String(input.object ?? "contact"), field: String(input.field ?? ""), period, list: input.list === true }, deps.ghl ?? liveGhlReads));
-      held.push({ id, kind: "breakdown", b });
-      return { content: JSON.stringify({ id, field: b.field_name, basis: b.basis, period: b.period_label, total: b.total, answered: b.answered, unanswered: b.unanswered, rows: b.rows.slice(0, 40), list: b.list?.slice(0, 40) }) };
-    }
-    if (name === "compare_with_shows") {
+    if (name === "analyze") {
       const period = parsePeriod(String(input.period ?? ""), ctx.tz, now);
       if (!period) return err(`"${input.period}" is not a period I can read. Ask the asker for the period, or pass e.g. "this month", "last 90 days".`);
-      const v = await asCompany(ctx.companyId, (c) => fieldVsCalls(c, ctx.companyId, { field: String(input.field ?? ""), period, now: now.toJSDate() }, deps.ghl ?? liveGhlReads));
-      held.push({ id, kind: "versus", v });
-      return { content: JSON.stringify({ id, field: v.field_name, period: v.period_label, calls: v.calls, answered_calls: v.answered_calls, showed: v.showed, show_rate: pctStr(v.show_rate), unanswered: v.unanswered,
-        rows: v.rows.map((r) => ({ ...r, show_rate: pctStr(r.show_rate), share_of_shows: pctStr(r.share_of_shows) })), test: v.test }) };
+      const unit = String(input.unit ?? "") as GraphUnit, rate = String(input.rate ?? "") as Rate;
+      const filter = Array.isArray(input.filter) ? (input.filter as { column?: unknown; equals?: unknown }[]).map((f) => ({ column: String(f.column ?? ""), equals: String(f.equals ?? "") })) : [];
+      const a = await asCompany(ctx.companyId, (c) => analyze(c, ctx.companyId, { unit, period, split_by: str(input.split_by), filter, list: input.list === true, rate: RATES[unit]?.includes(rate) ? rate : undefined }, deps.ghl ?? liveGhlReads, now.toJSDate()));
+      held.push({ id, kind: "analysis", a });
+      const shown = (g: Analysis["total"]) => ({ ...g, cash: a.payments ? g.cash : null, booked_rate: pctStr(g.booked_rate), show_rate: pctStr(g.show_rate), close_rate: pctStr(g.close_rate), share: pctStr(g.share) });
+      return { content: JSON.stringify({ id, unit: a.unit, split: a.split, filters: a.filters, period: a.period_label, rate: a.rate, total: shown(a.total), answered: a.answered, rows: a.rows.slice(0, 40).map(shown), test: a.test,
+        no_answer: a.unanswered.length, links: a.links.map((k) => ({ what: k.what, linked: k.linked, of: k.of })), mismatches: a.mismatches.length, cash: a.payments ? "from GHL Payment records" : "GHL has no Payment records yet", list: a.list?.slice(0, 40) }) };
     }
     if (name === "get_availability") {
       const days = Math.min(7, Math.max(1, Math.round(Number(input.days) || 7)));
@@ -339,8 +339,7 @@ function bodyOf(held: Held[], ids: string[]): string {
   return formatAnswer(chosen.flatMap((h) => (h.kind === "metric" ? [h.r] : [])), {
     availability: chosen.flatMap((h) => (h.kind === "availability" ? [h.a] : [])),
     closes: chosen.flatMap((h) => (h.kind === "closes" ? [h.k] : [])),
-    breakdowns: chosen.flatMap((h) => (h.kind === "breakdown" ? [h.b] : [])),
-    versus: chosen.flatMap((h) => (h.kind === "versus" ? [h.v] : [])),
+    analyses: chosen.flatMap((h) => (h.kind === "analysis" ? [h.a] : [])),
     adhoc: chosen.flatMap((h) => (h.kind === "adhoc" ? [{ why: h.why, columns: h.columns, rows: h.rows, truncated: h.truncated }] : [])),
   });
 }
@@ -388,16 +387,17 @@ export function planCommand(cmd: SlashCommand, tz: string, now: DateTime = DateT
   return { plan: { shortcut: name, title: titles[name], period } };
 }
 
-// people, calls and deals from GHL (D73); only cash is the ledger's
+// people, calls, deals (D73) and cash (D75) from GHL
 const SUMMARY = ["leads", "mqls", "calls_booked_due", "show_rate", "close_rate", "cash_collected"];
 /** The body of a shortcut: deterministic, from the registry alone. */
 export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan): Promise<string> {
   const now = deps.now ?? DateTime.now();
   if (plan.shortcut === "availability") return formatAvailability(await asOperator((c) => getAvailability(c, companyId, deps.probes ?? liveProbes, plan.days ?? 7, now)));
+  const reads = memoReads(deps.ghl ?? liveGhlReads);
   return asCompany(companyId, async (c) => {
     const tz = (await one<{ timezone: string }>(c, "select timezone from companies where id=$1", [companyId]))!.timezone;
     const p = plan.period!, at = now.toJSDate();
-    const m = (metric: string, groupBy?: GroupBy, period: Period = p) => getMetric(c, companyId, { metric, period, groupBy, now: at }, deps.ghl ?? liveGhlReads);
+    const m = (metric: string, groupBy?: GroupBy, period: Period = p) => getMetric(c, companyId, { metric, period, groupBy, now: at }, reads);
     switch (plan.shortcut) {
       case "mtd": case "weekly": case "monthly": {
         const cur = []; for (const x of SUMMARY) cur.push(await m(x));
@@ -405,7 +405,7 @@ export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan)
         const prev = []; for (const x of SUMMARY) prev.push(await m(x, undefined, prevP));
         const bySource = await m("cash_collected", "source");
         const top = (bySource.rows ?? []).filter((r) => (r.value ?? 0) > 0).sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0];
-        return formatSummary(cur, prev, [top ? `*Top source by cash: ${top.label}* (${fmt("money", top.value)})` : "*Top source by cash:* none yet"]);
+        return formatSummary(cur, prev, bySource.unavailable ? [] : [top ? `*Top source by cash: ${top.label}* (${fmt("money", top.value)})` : "*Top source by cash:* none yet"]);
       }
       case "show-rate": case "close-rate": {
         const metric = plan.shortcut === "show-rate" ? "show_rate" : "close_rate";
@@ -420,7 +420,7 @@ export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan)
         const rs = [await m("leads", "source"), await m("mqls", "source"), await m("marketing_dqs", "source")];
         return formatCombined(rs);
       }
-      case "closes": return formatCloses(await getCloses(c, companyId, { period: p, now: at }, deps.ghl ?? liveGhlReads));
+      case "closes": return formatCloses(await getCloses(c, companyId, { period: p, now: at }, reads));
     }
     throw new Error(`no body for ${plan.shortcut}`);
   });

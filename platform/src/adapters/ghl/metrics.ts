@@ -104,6 +104,33 @@ export async function ghlRecordContact(c: Company, recordId: string): Promise<st
   return hit ? (hit.firstObjectKey === "contact" ? hit.firstRecordId : hit.secondRecordId) : null;
 }
 
+/** Every card on one pipeline, any status (`GET /opportunities/search?location_id&pipeline_id`, 100 a page): what the bot joins a person to (D75). */
+export type GhlCard = { id: string; pipelineId: string; stageId: string; status: string; monetaryValue?: number; assignedTo?: string; contactId: string; contactName?: string; contactEmail?: string; contactTags: string[]; createdAt?: string; updatedAt: string; statusChangedAt: string };
+export async function ghlCards(c: Company, pipelineId: string): Promise<GhlCard[]> {
+  const out = new Map<string, GhlCard>();
+  for (let page = 1; page <= OPP_PAGES; page++) {
+    const r = await ghl<{ opportunities?: (RawOpp & { pipelineStageId?: string; createdAt?: string })[] }>(c.pit, "GET", `/opportunities/search?location_id=${c.locationId}&pipeline_id=${encodeURIComponent(pipelineId)}&limit=${OPP_PAGE}&page=${page}`);
+    const opps = r.opportunities ?? [];
+    for (const o of opps) out.set(o.id, { id: o.id, pipelineId: o.pipelineId, stageId: o.pipelineStageId ?? "", status: o.status, monetaryValue: typeof o.monetaryValue === "number" ? o.monetaryValue : undefined, assignedTo: o.assignedTo ?? undefined,
+      contactId: o.contact?.id ?? o.contactId ?? "", contactName: o.contact?.name, contactEmail: o.contact?.email, contactTags: o.contact?.tags ?? [], createdAt: o.createdAt, updatedAt: o.updatedAt, statusChangedAt: o.lastStatusChangeAt ?? o.lastStageChangeAt ?? o.updatedAt });
+    if (opps.length < OPP_PAGE) return [...out.values()];
+  }
+  throw new Error(`more than ${OPP_PAGE * OPP_PAGES} cards on the pipeline; not read rather than cut short`);
+}
+
+/** Stage ids to names: `GET /opportunities/pipelines?locationId`. */
+export type GhlPipeline = { id: string; name: string; stages: { id: string; name: string }[] };
+export async function ghlPipelines(c: Company): Promise<GhlPipeline[]> {
+  const r = await ghl<{ pipelines?: { id: string; name: string; stages?: { id: string; name: string }[] }[] }>(c.pit, "GET", `/opportunities/pipelines?locationId=${c.locationId}`);
+  return (r.pipelines ?? []).map((p) => ({ id: p.id, name: p.name, stages: (p.stages ?? []).map((s) => ({ id: s.id, name: s.name })) }));
+}
+
+/** User ids to names: `GET /users/?locationId`. */
+export async function ghlUsers(c: Company): Promise<{ id: string; name: string }[]> {
+  const r = await ghl<{ users?: { id: string; name?: string; firstName?: string; lastName?: string; email?: string }[] }>(c.pit, "GET", `/users/?locationId=${c.locationId}`);
+  return (r.users ?? []).map((u) => ({ id: u.id, name: (u.name ?? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim()) || u.email || u.id }));
+}
+
 /** What the metric layer and the drift check read from the CRM, injectable so tests never touch the network. */
 export type GhlReads = {
   contactsAdded(c: Company, from: Date, to: Date): Promise<ContactSnapshot[]>;
@@ -113,5 +140,8 @@ export type GhlReads = {
   getContact(c: Company, id: string): Promise<ContactSnapshot | null>;
   fieldCatalog(c: Company): Promise<GhlFieldDef[]>;
   recordContact(c: Company, recordId: string): Promise<string | null>;
+  cards(c: Company, pipelineId: string): Promise<GhlCard[]>;
+  pipelines(c: Company): Promise<GhlPipeline[]>;
+  users(c: Company): Promise<{ id: string; name: string }[]>;
 };
-export const liveGhlReads: GhlReads = { contactsAdded: ghlContactsAdded, wonCards: ghlWonCards, objectRecords: ghlObjectRecords, getContact: (c, id) => ghlRead.getContact(c, id), fieldCatalog: ghlFieldCatalog, recordContact: ghlRecordContact };
+export const liveGhlReads: GhlReads = { contactsAdded: ghlContactsAdded, wonCards: ghlWonCards, objectRecords: ghlObjectRecords, getContact: (c, id) => ghlRead.getContact(c, id), fieldCatalog: ghlFieldCatalog, recordContact: ghlRecordContact, cards: ghlCards, pipelines: ghlPipelines, users: ghlUsers };

@@ -14,7 +14,7 @@ import { runHealthStep, type Finding, type HealthProbes } from "@/engine/health"
 import { openAlerts } from "@/engine/alerts";
 import { fakeAdapters, fakeProbes, installTemplateForTest } from "@/engine/test-install";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
-import type { GhlObjectRecord, GhlReads } from "@/adapters/ghl/metrics";
+import type { GhlObjectRecord, GhlReads, GhlWonCard } from "@/adapters/ghl/metrics";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const TZ = "America/Phoenix";
@@ -25,12 +25,14 @@ const ago = (o: Record<string, number>) => NOW.minus(o);
 const contacts: ContactSnapshot[] = [];
 const gone = new Set<string>(), flaky = new Set<string>();
 const records: GhlObjectRecord[] = [];
+const payments: GhlObjectRecord[] = [], won: GhlWonCard[] = [];
 let ghlDown = false;
 const gc = (id: string, added: DateTime, o: Partial<ContactSnapshot> = {}): ContactSnapshot => ({ id, firstName: id, tags: [], customFields: {}, dateAdded: added.toUTC().toISO()!, dateUpdated: added.toUTC().toISO()!, ...o });
 const reads: GhlReads = {
   contactsAdded: async (_c, from, to) => { if (ghlDown) throw Object.assign(new Error("GHL 503 on /contacts/search"), { status: 503 }); return contacts.filter((k) => { const t = Date.parse(k.dateAdded); return t >= from.getTime() && t <= to.getTime(); }); },
-  wonCards: async () => [],
-  objectRecords: async () => records,
+  wonCards: async () => won,
+  objectRecords: async (_c, key) => (key === "custom_objects.payment" ? payments : records),
+  cards: async () => [], pipelines: async () => [], users: async () => [],
   getContact: async (_c, id) => { if (flaky.has(id)) throw Object.assign(new Error("GHL 503 on /contacts"), { status: 503 }); return gone.has(id) ? null : contacts.find((k) => k.id === id) ?? gc(id, ago({ days: 30 })); },
   recordContact: async (_c, id) => (id === "S-LINKED" ? "C3" : null),
   fieldCatalog: async () => [],
@@ -164,5 +166,24 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     ghlDown = true; r = await sweep(); ghlDown = false;
     expect(drift(r.findings)).toEqual([expect.objectContaining({ ok: false, text: before.text })]);
     expect((await asOperator((c) => openAlerts(c, companyId))).find((a) => a.key === "health:ledger_drift")?.id).toBe(before.id);
+  });
+  it("D75: once GHL holds Payment records, a won closer card with no payment and a payment with no won closer card are asked about, one line each", async () => {
+    await asOperator((c) => c.query("insert into bindings (company_id, key, kind, value) values ($1,'crm.pipeline_closer','id',$2)", [companyId, Buffer.from("PIPE-CLOSER")]));
+    won.push({ id: "W-K1", pipelineId: "PIPE-CLOSER", status: "won", wonAt: ago({ days: 2 }).toUTC().toISO()!, contactId: "G-K1", contactName: "G-K1", contactTags: [] },
+      { id: "W-TEST", pipelineId: "PIPE-CLOSER", status: "won", wonAt: ago({ days: 2 }).toUTC().toISO()!, contactId: "G-TEST", contactName: "G-TEST", contactTags: [] });   // the team's test contact: never asked about
+    try {
+      expect(drift((await sweep()).findings).map((f) => f.text).join("\n")).not.toMatch(/closer card/);   // no Payment records at all: nothing to compare yet
+      payments.push({ id: "PAY-K2", createdAt: ago({ days: 1 }).toISO()!, properties: { contact_id: "G-K2", amount: 500, type: "deposit", status: "succeeded", occurred_at: ago({ days: 1 }).toUTC().toISO() } },
+        { id: "PAY-K2b", createdAt: ago({ days: 1 }).toISO()!, properties: { contact_id: "G-K2", amount: 250, type: "installment", status: "succeeded", occurred_at: ago({ hours: 5 }).toUTC().toISO() } });
+      const bad = drift((await sweep()).findings).find((f) => !f.ok)!;
+      expect(bad.text).toMatch(/which I have questions about:\n/);
+      expect(bad.text).toMatch(/\n• G-K1: their closer card was won \w{3} \w{3} \d{1,2}, but GHL has no payment for them\. Did they pay, or should the card not be won\?/);
+      expect(bad.text).toMatch(/\n• G-K2: GHL has a \$500 payment from \w{3} \w{3} \d{1,2} but no won closer card\. Should their closer card be won\?/);
+      expect(bad.text.match(/G-K2: GHL has/g)).toHaveLength(1);
+      expect(bad.text).not.toContain("G-TEST: their closer card");
+    } finally {
+      won.splice(0); payments.splice(0);
+      await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='crm.pipeline_closer'", [companyId]));
+    }
   });
 });

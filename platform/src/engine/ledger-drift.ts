@@ -5,9 +5,9 @@ import type { Adapters, Company, ContactSnapshot } from "@/adapters/types";
 import type { GhlReads } from "@/adapters/ghl/metrics";
 import type { CompanyRow } from "./context";
 import type { Finding } from "./health";
-import { effectiveMode, testDomains } from "./mode";
+import { effectiveMode, isTestContact, testContactSql, testDomains } from "./mode";
 import { claimEffect, markEffect, releasePending, PENDING_WHY } from "./effects";
-import { salesCallConfig, salesCallsFor, type SalesCall, type SalesCallConfig } from "./ghl-metrics";
+import { paymentRecords, salesCallConfig, salesCallsFor, type Payment, type SalesCall, type SalesCallConfig } from "./ghl-metrics";
 
 /**
  * D73. "Always GHL. It's the truth. If the two are different, that's an issue." And: "the engine is only the mirror of the
@@ -129,6 +129,32 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     }
     if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), (e) => cannot(`${label}: the engine couldn't copy GHL's outcome (${why(e)}). I'll try again next hour.`, { kind: "ledger_write", record_id: k.id })); continue; }
     if (!k.filed && a.outcome && k.cls === "missing") cannot(`${label}: the engine has ${WORDS[a.outcome] ?? a.outcome} but GHL's Sales Call has no outcome. Should GHL say ${WORDS[a.outcome] ?? a.outcome}?`, { kind: "ghl_unfiled", record_id: k.id });
+  }
+
+  // 4. D75: a won closer card and the money GHL holds for that person should agree; asked only once Payment records exist at all
+  if (bindings["crm.pipeline_closer"]) {
+    let pays: Payment[] = [], won: Awaited<ReturnType<GhlReads["wonCards"]>> = [];
+    try { pays = await paymentRecords(reads, ac, bindings, company.timezone); if (pays.length) won = (await reads.wonCards(ac, bindings["crm.pipeline_closer"])).filter((k) => k.status === "won" && k.pipelineId === bindings["crm.pipeline_closer"] && !!k.contactId); }
+    catch { pays = []; }   // a read that did not happen decides nothing
+    if (pays.length) {
+      const domains = testDomains(bindings);
+      const ids = [...new Set([...won.map((k) => k.contactId), ...pays.map((p) => p.ghl)].filter(Boolean))];
+      const ledger = new Map((await many<{ ghl: string; name: string | null; test: boolean }>(c, `select x.ghl, (select nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') from contacts ct where ct.company_id=$1 and ct.ghl_contact_id=x.ghl and ct.merged_into is null limit 1) as name,
+          exists (select 1 from contacts ct where ct.company_id=$1 and ct.ghl_contact_id=x.ghl and ${testContactSql("ct", "$3")}) as test from unnest($2::text[]) as x(ghl)`, [company.id, ids, domains])).map((r) => [r.ghl, r]));
+      const paid = new Set(pays.filter((p) => p.flow === "in" && p.ghl).map((p) => p.ghl)), wonBy = new Set(won.map((k) => k.contactId));
+      const inWindow = (t: number) => t >= from.getTime() && t <= now.toMillis();
+      const day = (t: DateTime) => t.setZone(company.timezone).toFormat("ccc LLL d");
+      for (const k of won) {
+        if (paid.has(k.contactId) || !inWindow(Date.parse(k.wonAt)) || ledger.get(k.contactId)?.test || isTestContact({ tags: k.contactTags, emails: [k.contactEmail] }, domains)) continue;
+        cannot(`${ledger.get(k.contactId)?.name ?? k.contactName ?? k.contactId}: their closer card was won ${day(DateTime.fromISO(k.wonAt))}, but GHL has no payment for them. Did they pay, or should the card not be won?`, { kind: "won_no_payment", ghl_contact_id: k.contactId, card: k.id });
+      }
+      const asked = new Set<string>();
+      for (const p of pays.filter((x) => x.flow === "in" && x.ghl && inWindow(x.at.toMillis())).sort((a, b) => a.at.toMillis() - b.at.toMillis())) {
+        if (wonBy.has(p.ghl) || asked.has(p.ghl) || ledger.get(p.ghl)?.test) continue;
+        asked.add(p.ghl);
+        cannot(`${ledger.get(p.ghl)?.name ?? (p.label || p.ghl)}: GHL has a $${Math.round(p.amount).toLocaleString("en-US")} payment from ${day(p.at)} but no won closer card. Should their closer card be won?`, { kind: "payment_no_won", ghl_contact_id: p.ghl, payment: p.id });
+      }
+    }
   }
 
   // repairs alone are logged, not announced; a person hears only when something needs them, with what was already fixed as context

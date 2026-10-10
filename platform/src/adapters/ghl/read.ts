@@ -2,10 +2,10 @@ import { DateTime } from "luxon";
 import { ghl, GhlError } from "./client";
 import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, LiveCard, MessageSnapshot, ObjectRecord, OppSnapshot, UserSnapshot, WonOpportunity } from "../types";
 
-export type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string | null; tags?: string[]; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string };
+export type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string | null; tags?: string[]; source?: string; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string };
 export const mapContact = (c: RawContact): ContactSnapshot => ({
   id: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, timezone: c.timezone, assignedTo: c.assignedTo ?? undefined,
-  tags: c.tags ?? [], customFields: Object.fromEntries((c.customFields ?? []).map((f) => [f.id, f.value])),
+  tags: c.tags ?? [], ...(c.source ? { source: c.source } : {}), customFields: Object.fromEntries((c.customFields ?? []).map((f) => [f.id, f.value])),
   dateUpdated: c.dateUpdated, dateAdded: c.dateAdded,
 });
 type RawEvent = { id: string; calendarId: string; contactId: string; assignedUserId?: string; startTime: string; endTime: string; appointmentStatus: string; title?: string; dateUpdated?: string; dateAdded?: string };

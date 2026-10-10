@@ -5,7 +5,7 @@ import { DateTime } from "luxon";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import type { Adapters, BotMessage, BotModel, BotTurn, ContactSnapshot } from "@/adapters/types";
-import type { GhlObjectRecord, GhlReads, GhlWonCard } from "@/adapters/ghl/metrics";
+import type { GhlCard, GhlObjectRecord, GhlReads, GhlWonCard } from "@/adapters/ghl/metrics";
 import { encrypt } from "./crypto";
 import { fakeAdapters, fakeProbes } from "./test-install";
 import type { HealthProbes } from "./health";
@@ -14,6 +14,7 @@ import { answerList, classifyCall, qualify, salesCallsFor, type QualifyConfig } 
 import { loadCompany } from "./context";
 import { formatAnswer, formatCombined, formatSummary, formatAvailability, availabilityBody, table, MAX_ROWS, helpText } from "./bot-format";
 import { handleMessage, planCommand, preview, runCommand, type SlackMessage } from "./bot";
+import { NO_ANSWER, analyze } from "./ghl-graph";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const pending: Promise<unknown>[] = [];
@@ -46,13 +47,13 @@ const adapters = (): Adapters => {
 };
 // GHL as the bot reads it live (D73): contacts by dateAdded, won cards, Sales Call records
 const WORK = "F-WORK";
-const gc = (id: string, added: string, o: { tags?: string[]; source?: string; work?: string; email?: string } = {}): ContactSnapshot => ({ id, firstName: id, tags: o.tags ?? [], email: o.email,
-  customFields: { ...(o.source ? { "F-SRC": o.source } : {}), ...(o.work !== undefined ? { [WORK]: o.work } : {}) }, dateAdded: DateTime.fromISO(added, { zone: TZ }).toUTC().toISO()!, dateUpdated: DateTime.fromISO(added, { zone: TZ }).toUTC().toISO()! });
+const gc = (id: string, added: string, o: { tags?: string[]; source?: string; work?: string; email?: string; hair?: string | string[]; cash?: string } = {}): ContactSnapshot => ({ id, firstName: id, tags: o.tags ?? [], email: o.email,
+  customFields: { ...(o.source ? { "F-SRC": o.source } : {}), ...(o.work !== undefined ? { [WORK]: o.work } : {}), ...(o.hair !== undefined ? { "F-HAIR": o.hair } : {}), ...(o.cash !== undefined ? { "CF-CASH": o.cash } : {}) }, dateAdded: DateTime.fromISO(added, { zone: TZ }).toUTC().toISO()!, dateUpdated: DateTime.fromISO(added, { zone: TZ }).toUTC().toISO()! });
 const ghlContacts: ContactSnapshot[] = [
-  gc("C1", "2026-10-02T09:00", { tags: ["mql"], source: "instagram", work: "Employed full-time" }),
-  gc("C2", "2026-10-03T09:00", { tags: ["dq-budget"], source: "facebook", work: "Currently between jobs" }),
+  gc("C1", "2026-10-02T09:00", { tags: ["mql"], source: "instagram", work: "Employed full-time", hair: ["thinning", "bald"], cash: "4,500" }),
+  gc("C2", "2026-10-03T09:00", { tags: ["dq-budget"], source: "facebook", work: "Currently between jobs", hair: ["thinning"] }),
   gc("C3", "2026-10-04T09:00", { tags: ["dq-age"], source: "instagram", work: "" }),                 // never answered
-  gc("C4", "2026-10-05T09:00", { work: " retired " }),                                                // not a form option: unrecognized; source from the booking's UTM
+  gc("C4", "2026-10-05T09:00", { work: " retired ", hair: "bald", cash: "0" }),                        // not a form option: unrecognized; source from the booking's UTM
   gc("C5", "2026-09-20T09:00", { tags: ["mql"], source: "instagram", work: "Investor" }),             // last month
   gc("CT1", "2026-10-06T09:00", { tags: ["sys-test"], work: "Investor" }),                          // the team's test contact: tagged
   gc("CT2", "2026-10-06T10:00", { email: "qa@Test.co", work: "Investor" }),                          // … or on a test domain
@@ -89,11 +90,38 @@ salesCalls.find((r) => r.id === "S1")!.properties.objections_raised = ["price", 
 salesCalls.find((r) => r.id === "S2")!.properties.objections_raised = ["price"];
 salesCalls.find((r) => r.id === "S9")!.properties.objections_raised = ["price"];   // a test contact's call: never counted
 salesCalls.find((r) => r.id === "S10")!.properties.disposition = "closed_won";
-let ghlDown = false;
+salesCalls.find((r) => r.id === "S1")!.properties.booking_source = "self_booked";
+salesCalls.find((r) => r.id === "S2")!.properties.booking_source = "setter_set";
+salesCalls.find((r) => r.id === "S10")!.properties.booking_source = "setter_set";
+// every card on both boards (D75): the won ones above, plus the open ones a person sits on
+const iso = (at: string) => DateTime.fromISO(at, { zone: TZ }).toUTC().toISO()!;
+const card = (id: string, contact: string, pipelineId: string, stageId: string, status: string, at: string, assignedTo?: string): GhlCard => ({ id, pipelineId, stageId, status, monetaryValue: 0, assignedTo, contactId: contact, contactName: contact, contactTags: [], updatedAt: iso(at), statusChangedAt: iso(at) });
+const pipeCards: GhlCard[] = [
+  ...ghlCards.map((w) => ({ ...w, stageId: w.pipelineId === "PIPE-CLOSER" ? "ST-WON" : "ST-SHOWED", updatedAt: w.wonAt, statusChangedAt: w.wonAt })),
+  card("O1", "C2", "PIPE-CLOSER", "ST-FOLLOW", "open", "2026-10-07T12:00", "G-CARA"),
+  card("SC1", "C1", "PIPE-SETTER", "ST-SHOWED", "open", "2026-10-06T11:00", "G-SAM"), card("SC3", "C3", "PIPE-SETTER", "ST-DIRECT", "open", "2026-10-05T11:00", "G-SAM"), card("SC4", "C4", "PIPE-SETTER", "ST-SET", "open", "2026-10-06T11:00"),
+];
+// GHL's Payment records: the per-transaction cash truth (D75)
+const pay = (id: string, contact: string, amount: number | string, type: string, status: string, at: string, closer: string, setter = ""): GhlObjectRecord =>
+  ({ id, createdAt: "2026-10-01T00:00:00Z", properties: { contact_id: contact, amount, type, status, occurred_at: iso(at), closer, setter, processor: "whop" } });
+const payRecs: GhlObjectRecord[] = [
+  pay("PAY1", "C1", 3000, "deposit", "succeeded", "2026-10-06T11:00", "Cara Closer", "Sam Setter"),
+  pay("PAY2", "C1", 500, "refund", "succeeded", "2026-10-08T11:00", "Cara Closer"),   // money out
+  pay("PAY3", "", "1,000.00", "paid_in_full", "succeeded", "2026-10-07T11:00", ""),    // no contact, no association: unlinked
+  pay("PAY4", "C2", 999, "deposit", "failed", "2026-10-07T11:00", "Cara Closer"),     // failed: moves nothing
+  pay("PAY5", "C1", 2000, "deposit", "succeeded", "2026-09-01T11:00", "Cara Closer"), // last month
+  pay("PAY6", "CT1", 700, "deposit", "succeeded", "2026-10-07T11:00", "Cara Closer"), // a test contact's
+  pay("PAY7", "C4", 400, "installment", "succeeded", "2026-10-09T11:00", "Dan Dealer"), // paid, but no won closer card
+];
+let ghlDown = false, noPayments = false;
 const ghlReads: GhlReads = {
   contactsAdded: async (_c, from, to) => { if (ghlDown) throw Object.assign(new Error("GHL 503 on /contacts/search: busy"), { status: 503 }); return ghlContacts.filter((k) => { const t = Date.parse(k.dateAdded); return t >= from.getTime() && t <= to.getTime(); }); },
   wonCards: async () => ghlCards,
-  objectRecords: async (_c, key) => (key === "custom_objects.sales_call" ? salesCalls : []),
+  objectRecords: async (_c, key) => (key === "custom_objects.sales_call" ? salesCalls : key === "custom_objects.payment" ? (noPayments ? [] : payRecs) : []),
+  cards: async (_c, pipe) => pipeCards.filter((k) => k.pipelineId === pipe),
+  pipelines: async () => [{ id: "PIPE-SETTER", name: "Setter", stages: [{ id: "ST-SET", name: "Appointment set" }, { id: "ST-DIRECT", name: "Direct booked" }, { id: "ST-SHOWED", name: "Showed" }] },
+    { id: "PIPE-CLOSER", name: "Closer", stages: [{ id: "ST-FOLLOW", name: "Follow up" }, { id: "ST-WON", name: "Closed won" }] }],
+  users: async () => [{ id: "G-CARA", name: "Cara Closer" }, { id: "G-DAN", name: "Dan Dealer" }, { id: "G-SAM", name: "Sam Setter" }],
   getContact: async (_c, id) => ghlContacts.find((k) => k.id === id) ?? null,
   recordContact: async (_c, id) => (id === "S-LINKED" ? "C3" : null),
   fieldCatalog: async () => [
@@ -102,6 +130,12 @@ const ghlReads: GhlReads = {
     { object: "custom_objects.sales_call", objectLabel: "Sales Call", id: "P1", key: "custom_objects.sales_call.call_date", prop: "call_date", name: "Call date", type: "DATE", options: [] },
     { object: "custom_objects.sales_call", objectLabel: "Sales Call", id: "P3", key: "custom_objects.sales_call.booking_source", prop: "booking_source", name: "Booking source", type: "SINGLE_OPTIONS", options: [{ key: "setter_set", label: "Setter booked" }, { key: "self_booked", label: "Direct booked" }] },
     { object: "custom_objects.sales_call", objectLabel: "Sales Call", id: "P2", key: "custom_objects.sales_call.objections_raised", prop: "objections_raised", name: "Objections raised", type: "MULTIPLE_OPTIONS", options: [{ key: "price", label: "Price" }, { key: "timing", label: "Timing" }] },
+    { object: "custom_objects.sales_call", objectLabel: "Sales Call", id: "P4", key: "custom_objects.sales_call.contact_id", prop: "contact_id", name: "Contact id", type: "TEXT", options: [] },
+    { object: "contact", objectLabel: "Contact", id: "F-HAIR", key: "contact.hair_loss", prop: "F-HAIR", name: "Hair loss", type: "MULTIPLE_OPTIONS", options: [{ key: "thinning", label: "Noticeable thinning" }, { key: "bald", label: "Bald spots" }] },
+    { object: "contact", objectLabel: "Contact", id: "CF-CASH", key: "contact.cash_collected", prop: "CF-CASH", name: "Total Cash Collected", type: "MONETORY", options: [] },
+    ...["amount", "occurred_at", "closer", "setter", "processor", "contact_id"].map((prop) => ({ object: "custom_objects.payment", objectLabel: "Payment", id: `PP-${prop}`, key: `custom_objects.payment.${prop}`, prop, name: prop, type: "TEXT", options: [] })),
+    { object: "custom_objects.payment", objectLabel: "Payment", id: "PP-type", key: "custom_objects.payment.type", prop: "type", name: "Type", type: "SINGLE_OPTIONS", options: [{ key: "deposit", label: "Deposit" }, { key: "refund", label: "Refund" }, { key: "installment", label: "Installment" }, { key: "paid_in_full", label: "Paid in full" }] },
+    { object: "custom_objects.discovery_call", objectLabel: "Discovery Call", id: "DC1", key: "custom_objects.discovery_call.outcome", prop: "outcome", name: "Outcome", type: "TEXT", options: [] },
   ],
 };
 const deps = () => ({ adapters: adapters(), probes, ghl: ghlReads, now: NOW });
@@ -131,7 +165,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id) values ($1,'T-BOT',$2,'UBOT')", [companyId, encrypt("xoxb-fake")]);
       for (const [k, kind, v] of [["secret.slack_signing", "secret", SECRET], ["secret.anthropic_key", "secret", "sk-fake"], ["secret.ghl_pit", "secret", "pit"], ["crm.location_id", "id", "LOC"], ["crm.field_contact_lead_source", "id", "F-SRC"], ["bot.escalate_to", "id", "U-TYLER"],
         ["crm.field_contact_work_situation", "id", WORK], ["qualify.mql_answers", "text", JSON.stringify(["Employed full-time", "Business owner or entrepreneur", "Investor"])], ["qualify.dq_answers", "text", JSON.stringify(["Currently between jobs", "Employed part-time"])],
-        ["crm.pipeline_closer", "id", "PIPE-CLOSER"], ["crm.object_sales_call", "id", "custom_objects.sales_call"], ["sales_call.outcomes", "text", JSON.stringify({ showed: "showed", no_show: "noshow", noshow: "noshow", cancelled: "cancelled", late_cancel: "cancelled" })], ["test.domains", "text", "test.co"], ["sales_call.dq_dispositions", "text", JSON.stringify(["dq"])]])
+        ["crm.pipeline_closer", "id", "PIPE-CLOSER"], ["crm.pipeline_setter", "id", "PIPE-SETTER"], ["crm.field_contact_cash_collected", "id", "CF-CASH"], ["crm.object_sales_call", "id", "custom_objects.sales_call"], ["sales_call.outcomes", "text", JSON.stringify({ showed: "showed", no_show: "noshow", noshow: "noshow", cancelled: "cancelled", late_cancel: "cancelled" })], ["test.domains", "text", "test.co"], ["sales_call.dq_dispositions", "text", JSON.stringify(["dq"])]])
         await c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,$3,$4)", [companyId, k, kind, kind === "secret" ? encrypt(v) : Buffer.from(v)]);
       const cal = async (ext: string, owner: string) => (await one<{ id: string }>(c, "insert into calendars (company_id, source, external_id, name, appointment_term, default_user_id) values ($1,'ghl',$2,$3,$4,$5) returning id", [companyId, ext, `Calendar ${ext}`, closing, owner]))!.id;
       await cal("CAL-CARA", ids.cara); await cal("CAL-DAN", ids.dan);
@@ -257,12 +291,21 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       try { await expect(metric("leads")).rejects.toThrow(/GHL could not be read \(contacts, 503\)/); await expect(metric("mql_rate")).rejects.toThrow(/GHL could not be read/); }
       finally { ghlDown = false; }
     });
-    it("cash is net of refunds; harness payments and test contacts never count; unlinked money is its own row", async () => {
-      expect((await metric("cash_gross")).value).toBe(4000);
+    it("D75: cash is GHL's Payment records, net of refunds; failed payments and test contacts never count; unlinked money is its own row; none at all is said, never $0", async () => {
+      expect(await metric("cash_gross")).toMatchObject({ value: 4400, source: "GHL, read just now" });
       expect((await metric("refunds")).value).toBe(500);
       const net = await metric("cash_collected", { groupBy: "closer" });
-      expect(net.value).toBe(3500);
-      expect(Object.fromEntries(net.rows!.map((x) => [x.label, x.value]))).toEqual({ "Cara Closer": 2500, unassigned: 1000 });
+      expect(net.value).toBe(3900);
+      expect(Object.fromEntries(net.rows!.map((x) => [x.label, x.value]))).toEqual({ "Cara Closer": 2500, unassigned: 1000, "Dan Dealer": 400 });
+      expect(Object.fromEntries((await metric("cash_collected", { groupBy: "source" })).rows!.map((x) => [x.label, x.value]))).toEqual({ instagram: 2500, "unlinked payment": 1000, google: 400 });
+      expect((await metric("cash_collected", { groupBy: "setter" })).rows!.find((x) => x.label === "Sam Setter")).toMatchObject({ value: 3000 });
+      expect((await metric("cash_collected", { period: parsePeriod("last month", TZ, NOW)! })).value).toBe(2000);
+      noPayments = true;
+      try {
+        const none = await metric("cash_collected", { groupBy: "closer" });
+        expect(none).toMatchObject({ value: null, unavailable: "GHL has no Payment records yet" });
+        expect(formatAnswer([none])).toBe("*Cash collected:* GHL has no Payment records yet  · _from GHL, read just now_\n\n_Period: Oct 1–10 (America/Phoenix)_");
+      } finally { noPayments = false; }
       await expect(metric("leads", { groupBy: "closer" })).rejects.toThrow(/cannot be split by closer/);
       expect((await metric("dials")).value).toBe(1); expect((await metric("connected")).value).toBe(1);
     });
@@ -343,7 +386,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(lines).toContain("Calls booked: 8 · Showed 3 · No-show 2 · Cancelled 2 · Missing from EOD disposition 1 (C4)");
       expect(lines.find((l) => l.startsWith("*Close rate"))).toMatch(/^\*Close rate: 66.7%\*  ·  2 closes ÷ 3 shows/);
       expect(posts[0].text).not.toMatch(/^_(?!Period).*: /m);   // no definition lines, only the period
-      expect(posts[0].text).toContain("*Cash collected: $3,500*"); expect(posts[0].text).toContain("*Top source by cash: instagram* ($2,500)");
+      expect(posts[0].text).toContain("*Cash collected: $3,900*  · _from GHL, read just now_  ·  same days last month $2,000 (▲ $1,900)"); expect(posts[0].text).toContain("*Top source by cash: instagram* ($2,500)");
       expect(lines[lines.length - 1]).toBe("_Period: Oct 1–10 (America/Phoenix) · compared with Sep 1–10_"); expect(lines[lines.length - 2]).toBe("");
       const row = await asOperator((c) => one<{ messages: unknown[] }>(c, "select messages from bot_threads where company_id=$1 and channel='C-SALES' and thread_ts=$2", [companyId, (out as { ts: string }).ts]));
       expect(row?.messages).toHaveLength(2);   // anyone follows up in the post's thread
@@ -355,6 +398,14 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       try { await runCommand(deps(), companyId, cmd, p.plan); } finally { ghlDown = false; }
       expect(posts[0].text).toContain("I couldn't get a live read (GHL could not be read (contacts, 503)"); expect(posts[0].text).not.toContain("*Leads");
       expect(posts[1].text).toBe("Hey <@U-TYLER>, can you help?");
+    });
+    it("D75: /mtd and /cash when GHL holds no Payment records yet: said plainly, the other numbers stand", async () => {
+      noPayments = true;
+      try {
+        for (const command of ["/mtd", "/cash"]) { const cmd = { command, text: "", userId: "U-CARA", channelId: "C-SALES" }; const p = planCommand(cmd, TZ, NOW); if (!("plan" in p)) throw new Error("no plan"); await runCommand(deps(), companyId, cmd, p.plan); }
+      } finally { noPayments = false; }
+      expect(posts[0].text).toContain("\n*Cash collected:* GHL has no Payment records yet  · _from GHL, read just now_\n"); expect(posts[0].text).not.toContain("Top source by cash"); expect(posts[0].text).toContain("*Leads: 4*");
+      expect(posts[1].text).toContain("*Cash collected:* GHL has no Payment records yet"); expect(posts[1].text).not.toContain("$0"); expect(posts[1].text).not.toContain("```");
     });
     it("a shortcut takes a period in words; one it cannot read is refused with examples; help is its own command", () => {
       expect(planCommand({ command: "/close-rate", text: "last month", userId: "U", channelId: "C" }, TZ, NOW)).toMatchObject({ plan: { period: { from: "2026-09-01", to: "2026-09-30" } } });
@@ -406,29 +457,102 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       await handleMessage(deps(), companyId, msg({ text: "<@UBOT> leads this month?" }));
       expect(posts[0].text).toContain("\n\nThat's this month so far.");   // the rewrite is kept, as its own paragraph
     });
-    it("D74: a term no metric covers is resolved to a GHL field by the model, counted live, and the answer names the field it used", async () => {
-      script = [() => call("list_fields", { object: "all" }),
-        () => call("field_breakdown", { object: "contact", field: "contact.what_best_describes_your_current_work_situation", period: "this month", list: true }),
+    it("D74/D75: a term no metric covers is resolved to a column by the model, counted live, and the header names the column it used", async () => {
+      script = [() => call("list_columns", { unit: "lead" }),
+        () => call("analyze", { unit: "lead", period: "this month", split_by: "contact.What best describes your current work situation?", filter: [], list: true, rate: "" }),
         () => call("reply", { result_ids: ["r1"], note: "" })];
       await handleMessage(deps(), companyId, msg({ text: "<@UBOT> how do this month's leads describe their jobs?" }));
-      const fields = JSON.parse((seen[1][seen[1].length - 1].content as { content: string }[])[0].content);
-      expect(fields.fields.map((f: { name: string }) => f.name)).toContain("Objections raised");
-      expect(fields.fields.find((f: { name: string }) => f.name === "Objections raised").options).toEqual(["Price", "Timing"]);
-      const text = posts[0].text;
+      const cols = JSON.parse((seen[1][seen[1].length - 1].content as { content: string }[])[0].content).columns as { column: string; name: string; options?: string[] }[];
+      expect(cols.map((x) => x.column)).toEqual(expect.arrayContaining(["contact.What best describes your current work situation?", "contact.Hair loss", "contact.source", "contact.tags", "setter_card.stage", "closer_card.status", "closer_card.value",
+        "call.booking_source", "call.objections_raised", "call.result", "call.count", "payment.total", "payment.types", "discovery.outcome"]));
+      expect(cols.map((x) => x.column)).not.toContain("call.contact_id");
+      expect(cols.find((x) => x.column === "setter_card.stage")!.options).toEqual(["Appointment set", "Direct booked", "Showed"]);
+      expect(cols.find((x) => x.column === "call.objections_raised")!.options).toEqual(["Price", "Timing"]);
+      const text = posts[0].text, lines = text.split("\n");
       // October's leads: C1–C4; the test contacts and September's lead are not in it
-      expect(text.split("\n")[0]).toBe("*What best describes your current work situation?*: 3 of 4 answered  · _leads GHL added in the period, from GHL, read just now_");
-      expect(text).toContain("\n*What best describes your current work situation?*\n```"); expect(text).toMatch(/Employed full-time\s+1\s+25%/); expect(text).toMatch(/Currently between jobs\s+1/); expect(text).toMatch(/retired\s+1/); expect(text).toMatch(/\(no answer\)\s+1/);
-      expect(text).toContain("• C3 — (no answer)"); expect(text).not.toContain("CT1");
+      expect(lines[0]).toBe('*Leads by "What best describes your current work situation?"*  · _leads GHL added in the period, from GHL, read just now_');
+      expect(lines[1]).toBe("4 leads · 3 answered the question · 4 booked (100%) · 3 showed of 7 calls (43%) · 2 closed · $4,900 cash");
+      expect(text).toMatch(/Employed full-time\s+1\s+1\s+100%\s+2\s+1\s+50%\s+1\s+100%\s+\$4,500/); expect(text).toMatch(/Currently between jobs\s+1/); expect(text).toMatch(/retired\s+1/); expect(text).toMatch(/\(no answer\)\s+1/);
+      expect(text).toContain("• C3 — (no answer) — booked, showed, closed"); expect(text).not.toContain("CT1"); expect(text).toContain("*No answer on 1 lead:* C3 (Oct 4)");
       expect(text.trim().split("\n").at(-1)).toMatch(/^_Period: /);
     });
-    it("D74: a custom object's multi-pick field counts each pick by its label, dated by the object's date field, test contacts left out", async () => {
-      script = [() => call("field_breakdown", { object: "custom_objects.sales_call", field: "custom_objects.sales_call.objections_raised", period: "this month", list: false }),
-        () => call("reply", { result_ids: ["r1"], note: "" })];
+    it("D75: a Sales Call's multi-pick counts each pick by its label; test contacts' calls are left out", async () => {
+      script = [() => call("analyze", { unit: "call", period: "this month", split_by: "call.objections_raised", filter: [], list: false, rate: "" }), () => call("reply", { result_ids: ["r1"], note: "" })];
       await handleMessage(deps(), companyId, msg({ text: "<@UBOT> most common objections this month?" }));
       const text = posts[0].text;
-      expect(text.split("\n")[0]).toMatch(/^\*Objections raised\*: 2 of \d+ answered  · _Sales Call records with call date in the period, from GHL, read just now_$/);
-      expect(text).toMatch(/Price\s+2\s/); expect(text).toMatch(/Timing\s+1\s/);
+      expect(text.split("\n")[0]).toBe('*Calls by "Sales Call: Objections raised"*  · _Sales Calls whose time fell in the period and has passed, from GHL, read just now_');
+      expect(text.split("\n")[1]).toBe("8 calls booked · 2 answered the question · 3 showed (38%) · 2 closed (67% of shows) · $4,900 cash");
+      expect(text).toMatch(/\nPrice\s+2\s+1\s+1\s/); expect(text).toMatch(/\nTiming\s+1\s+1\s+0\s/);
       expect(text).toContain("Several answers can be picked");
+    });
+    it("D75: show rate by an answer the contact gave: each answer's calls and how they went, its share of shows, and a verdict the numbers earn (too few here)", async () => {
+      script = [() => call("analyze", { unit: "call", period: "this month", split_by: "contact.what_best_describes_your_current_work_situation", filter: [], list: false, rate: "" }),
+        () => call("reply", { result_ids: ["r1"], note: "Too few calls to call it a pattern." })];
+      await handleMessage(deps(), companyId, msg({ text: "<@UBOT> do people's jobs line up with who shows?" }));
+      const text = posts[0].text;
+      expect(text.split("\n")[0]).toMatch(/^\*Calls by "What best describes your current work situation\?"\*/);   // the old field key still resolves to its column
+      expect(text.split("\n")[1]).toBe("8 calls booked · 5 answered the question · 3 showed (38%) · 2 closed (67% of shows) · $4,900 cash");
+      expect(text).toContain("\n\nToo few calls to call it a pattern.\n\n```");
+      expect(text).toMatch(/Answer\s+Calls\s+Showed\s+No-show\s+Cancelled\s+Missing EOD\s+Show rate\s+Closed\s+Close rate\s+Cash\s+Share of shows/);
+      expect(text).toMatch(/Employed full-time\s+2\s+1\s+1\s+0\s+0\s+50%\s+1\s+100%\s+\$4,500\s+33%/);
+      expect(text).toMatch(/\nTotal\s+8\s+3\s+2\s+2\s+1\s+38%\s+2\s+67%\s+\$4,900\s+100%/);
+      expect(text).toContain("_Only 5 calls have an answer to this question: too few to tell a pattern from chance._");
+      expect(text).toContain("*No answer on 3 calls:* C3 (Oct 8, setter booked), C9 (Oct 9), C3 (Oct 9, setter booked)");
+      const res = JSON.parse(lastToolResult().content);
+      expect(res.rows.reduce((a: number, r: { calls: number }) => a + r.calls, 0)).toBe(res.total.calls);
+    });
+    it("D75: show rate for setter-booked vs direct, a filter on one answer (by its option key or label), and the leads' multi-pick", async () => {
+      const a = (q: Record<string, unknown>) => asOperator((c) => analyze(c, companyId, { unit: "call", period: month(), ...q } as Parameters<typeof analyze>[2], ghlReads, NOW.toJSDate()));
+      const by = await a({ split_by: "call.booking_source" });
+      expect(by.rows.map((g) => [g.value, g.calls, g.showed, g.show_rate])).toEqual([["Setter booked", 3, 2, 2 / 3], ["Direct booked", 1, 1, 1], [NO_ANSWER, 4, 0, 0]]);
+      expect(by.test?.verdict).toMatch(/^Fewer than|^Only 4 calls/);
+      for (const equals of ["setter_set", "Setter booked"]) expect((await a({ filter: [{ column: "call.booking_source", equals }] })).total).toMatchObject({ calls: 3, showed: 2 });
+      expect((await a({ filter: [{ column: "call.booking_source", equals: NO_ANSWER }] })).total.calls).toBe(4);
+      const leads = await asOperator((c) => analyze(c, companyId, { unit: "lead", period: month(), split_by: "contact.Hair loss", rate: "show_rate" }, ghlReads, NOW.toJSDate()));
+      expect(leads.rows.map((g) => [g.value, g.count])).toEqual([["Noticeable thinning", 2], ["Bald spots", 2], [NO_ANSWER, 1]]);
+      expect(leads.total.count).toBe(4); expect(leads.split?.multi).toBe(true); expect(leads.rate).toBe("show_rate");
+      const stage = await asOperator((c) => analyze(c, companyId, { unit: "lead", period: month(), split_by: "setter_card.stage" }, ghlReads, NOW.toJSDate()));
+      expect(stage.rows.map((g) => [g.value, g.count])).toEqual([["Appointment set", 1], ["Direct booked", 1], ["Showed", 2]]);
+      expect(stage.links).toEqual([{ what: "a setter card", linked: 4, of: 4, missing: [] }]);
+      await expect(a({ split_by: "hair_severity" })).rejects.toThrow(/call list_columns/);
+    });
+    it("D75: closes joined to their payments and calls; missing links named; won cards with no payment, payments with no won card, and a contact's Total Cash Collected that is not its payments are flagged", async () => {
+      const close = await asOperator((c) => analyze(c, companyId, { unit: "close", period: month(), split_by: "contact.source", list: true }, ghlReads, NOW.toJSDate()));
+      expect(close.rows.map((g) => [g.value, g.count, g.cash, g.card_value])).toEqual([["instagram", 1, 4500, 3999], ["referral", 1, 0, 500]]);
+      expect(close.total).toMatchObject({ count: 2, cash: 4500, card_value: 4499 });
+      expect(close.total.days_to_close).toBeCloseTo(1.04, 1);   // C1: first call Oct 6 10:00, won Oct 7 11:00; C9's only call came after the win
+      expect(close.links).toEqual([{ what: "a Sales Call", linked: 2, of: 2, missing: [] }]);
+      expect(close.mismatches).toEqual([{ kind: "won_no_payment", name: "C9", date: "Oct 8" }]);
+      expect(close.list).toEqual([{ name: "C1", value: "instagram", outcome: "$4,500 paid" }, { name: "C9", value: "referral", outcome: "$0 paid" }]);
+      script = [() => call("analyze", { unit: "call", period: "this month", split_by: "", filter: [], list: false, rate: "" }), () => call("reply", { result_ids: ["r1"], note: "" })];
+      await handleMessage(deps(), companyId, msg({ text: "<@UBOT> calls this month, anything off?" }));
+      const lines = posts[0].text.split("\n");
+      expect(lines).toContain("*Links:* 8 calls · 7 linked to a closer card · missing: C4 (Oct 9)");
+      expect(lines).toContain("⚠️ Closer card won, no payment in GHL: C3 (won Sep 20), C9 (won Oct 8)");
+      expect(lines).toContain("⚠️ Payment in GHL, no won closer card: C4 ($400, Oct 9)");
+      expect(lines).toContain("⚠️ Total Cash Collected on the contact is not the sum of their payments: C4 (contact $0 · payments $400)");
+      expect(lines.at(-1)).toMatch(/^_Period: /); expect(posts[0].text).not.toContain("```");
+      noPayments = true;
+      try {
+        const none = await asOperator((c) => analyze(c, companyId, { unit: "call", period: month() }, ghlReads, NOW.toJSDate()));
+        expect(none.payments).toBe(false); expect(none.mismatches).toEqual([]);
+        expect(formatAnswer([], { analyses: [none] }).split("\n")[1]).toBe("8 calls booked · 3 showed (38%) · 2 closed (67% of shows) · GHL has no Payment records yet");
+      } finally { noPayments = false; }
+    });
+    it("D75: the model picks the column by meaning and the header names it; answering reads GHL and writes nothing to the database", async () => {
+      const counts = () => asOperator(async (c) => {
+        const tables = (await c.query<{ t: string }>("select table_name as t from information_schema.columns where table_schema='public' and column_name='company_id' order by 1")).rows.map((r) => r.t);
+        const out: Record<string, number> = {};
+        for (const t of tables) out[t] = Number((await c.query<{ n: string }>(`select count(*) as n from ${t} where company_id=$1`, [companyId])).rows[0].n);
+        return out;
+      });
+      const before = await counts();
+      script = [() => call("list_columns", { unit: "call" }), () => call("analyze", { unit: "call", period: "this month", split_by: "contact.Hair loss", filter: [], list: false, rate: "" }), () => call("reply", { result_ids: ["r1"], note: "" })];
+      const out = await preview(deps(), companyId, { question: "show rate by hair loss this month?" });
+      expect(out.kind).toBe("answer");
+      expect(out.text.split("\n")[0]).toBe('*Calls by "Hair loss"*  · _Sales Calls whose time fell in the period and has passed, from GHL, read just now_');
+      expect(out.text).toMatch(/Noticeable thinning\s+4\s/);   // C1's two calls and C2's two
+      expect(await counts()).toEqual(before);
     });
     it("preview: a shortcut or a question answered as Slack would get it, and nothing posted", async () => {
       const a = await preview(deps(), companyId, { command: "/closes", text: "this month" });
@@ -438,30 +562,15 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(await preview(deps(), companyId, { command: "/nope" })).toMatchObject({ kind: "error" });
       expect(posts).toEqual([]);
     });
-    it("D74: an answer against showing up: each answer's calls and show rate, its share of shows, and a verdict the numbers earn (too few here)", async () => {
-      script = [() => call("compare_with_shows", { field: "contact.what_best_describes_your_current_work_situation", period: "this month" }),
-        () => call("reply", { result_ids: ["r1"], note: "Too few calls to call it a pattern." })];
-      await handleMessage(deps(), companyId, msg({ text: "<@UBOT> do people's jobs line up with who shows?" }));
-      const text = posts[0].text;
-      expect(text.split("\n")[0]).toBe('*Show rate by "What best describes your current work situation?"*  · _from GHL, read just now_');
-      expect(text.split("\n")[1]).toMatch(/^\d+ calls booked · \d+ answered the question · \d+ showed \(\d+%\)$/);
-      expect(text).toMatch(/\*No answer on \d+ booked calls?:\* /); expect(text).toContain("C3 (Oct 8, setter booked)");
-      expect(text).toContain("Too few calls to call it a pattern.");
-      expect(text).toMatch(/Answer\s+Calls\s+Showed\s+No-show.*Show rate\s+Share of shows/);
-      expect(text).toMatch(/Employed full-time\s+\d+/);
-      expect(text).toMatch(/_Only \d+ calls have an answer to this question: too few to tell a pattern from chance\._/);
-      const res = JSON.parse(lastToolResult().content);
-      expect(res.rows.reduce((a: number, r: { calls: number }) => a + r.calls, 0)).toBe(res.calls);
-    });
     it("D74: a Sales Call linked to its contact only by GHL's association is read through that association", async () => {
       const calls = await asOperator(async (c) => { const { adapterCompany: ac, bindings } = await loadCompany(c, companyId);
         return salesCallsFor({ c, companyId, ac, bindings, reads: ghlReads, tz: TZ, start: DateTime.fromISO("2026-08-01", { zone: TZ }).toJSDate(), end: DateTime.fromISO("2026-09-01", { zone: TZ }).toJSDate(), now: NOW.toJSDate(), sourceField: "", domains: [] }); });
       expect(calls.map((k) => [k.id, k.ghl, k.cls])).toEqual([["S-LINKED", "C3", "showed"]]);
     });
-    it("D74: a field key the catalogue does not hold is an error back to the model, never a guess", async () => {
-      script = [() => call("field_breakdown", { object: "contact", field: "hair_severity", period: "this month", list: false }), () => call("ask_clarification", { question: "Which field?" })];
+    it("D74: a column the catalogue does not hold is an error back to the model, never a guess", async () => {
+      script = [() => call("analyze", { unit: "lead", period: "this month", split_by: "hair_severity", filter: [], list: false, rate: "" }), () => call("ask_clarification", { question: "Which field?" })];
       await handleMessage(deps(), companyId, msg({ text: "<@UBOT> hair severity this month" }));
-      expect(lastToolResult()).toMatchObject({ is_error: true }); expect(lastToolResult().content).toMatch(/call list_fields/);
+      expect(lastToolResult()).toMatchObject({ is_error: true }); expect(lastToolResult().content).toMatch(/call list_columns/);
     });
     it("no period: the bot asks, then the reply in the thread continues the conversation without a new mention", async () => {
       const ev = msg({ text: "<@UBOT> what's our show rate?" });

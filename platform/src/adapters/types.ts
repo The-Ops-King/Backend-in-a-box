@@ -7,7 +7,7 @@ export type BookingConfig =
   | { source: "calendly"; token: string; organization: string; user?: string; phoneQuestion?: string; setterQuestion?: string; calendars?: Record<string, CalendarConfig> };
 export type Company = { id: string; locationId: string; pit: string; timezone: string; booking: BookingConfig };
 
-export type ContactSnapshot = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string; tags: string[]; customFields: Record<string, unknown>; dateUpdated: string; dateAdded: string };
+export type ContactSnapshot = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string; tags: string[]; source?: string; customFields: Record<string, unknown>; dateUpdated: string; dateAdded: string };
 /** A Documents & Contracts document as the CRM lists it (D30). `contactId` is the primary signer. */
 export type DocumentSnapshot = { id: string; name?: string; status: string; contactId?: string; createdAt: string; updatedAt?: string; signedAt?: string; raw?: Record<string, unknown> };
 /** One booking as the source reports it. `contactId` when the source is the CRM; `invitee` identity when it is not. */

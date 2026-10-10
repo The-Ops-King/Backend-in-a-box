@@ -17,7 +17,7 @@ describe("a Sales Call's start (D73)", () => {
   });
 });
 
-import { permutationP } from "./field-breakdown";
+import { permutationP } from "./ghl-graph";
 describe("whether show rates differ by more than chance (D74)", () => {
   it("a stark difference on enough calls is not chance; an even split is", () => {
     expect(permutationP([{ n: 20, s: 18 }, { n: 20, s: 2 }])).toBeLessThan(0.01);

@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many } from "@/db/client";
 import type { Company } from "@/adapters/types";
-import type { GhlReads } from "@/adapters/ghl/metrics";
+import type { GhlObjectRecord, GhlReads } from "@/adapters/ghl/metrics";
 import { isTestContact, testContactSql } from "./mode";
 import { MetricError, type GroupBy } from "./metric-registry";
 
@@ -15,7 +15,7 @@ import { MetricError, type GroupBy } from "./metric-registry";
  * is shown as a mismatch to fix in GHL). A CRM that cannot be read is an error naming its status, never the replica's guess.
  */
 export const GHL_SOURCE = "GHL, read just now";
-export type GhlEntity = "lead" | "close" | "call";
+export type GhlEntity = "lead" | "close" | "call" | "payment";
 export type CallClass = "showed" | "noshow" | "cancelled" | "rescheduled";
 export const CALL_CLASSES: CallClass[] = ["showed", "noshow", "cancelled", "rescheduled"];
 export type SalesCallConfig = { object: string; outcomes: Record<string, CallClass>; cancelledValue: string | null; dqDispositions: string[] };
@@ -86,7 +86,7 @@ type Call = SalesCall;
 export type GhlCtx = {
   c: PoolClient; companyId: string; ac: Company; bindings: Record<string, string>; reads: GhlReads; tz: string; start: Date; end: Date; now: Date;
   sourceField: string; domains: string[]; filters: { closer?: string; setter?: string; source?: string };
-  memo: { leads?: Promise<{ people: Person[]; utm: Map<string, string | null> }>; closes?: Promise<Close[]>; calls?: Promise<Call[]>; sources: Map<string, string> };
+  memo: { leads?: Promise<{ people: Person[]; utm: Map<string, string | null> }>; closes?: Promise<Close[]>; calls?: Promise<Call[]>; payments?: Promise<Payment[]>; sources: Map<string, string> };
 };
 
 async function read<T>(what: string, f: () => Promise<T>): Promise<T> {
@@ -98,8 +98,43 @@ async function read<T>(what: string, f: () => Promise<T>): Promise<T> {
 }
 const connected = (x: GhlCtx) => { if (!x.ac.pit || !x.ac.locationId) throw new MetricError("GHL is not connected for this company (no token or location bound), so people and deals cannot be read"); };
 
+/**
+ * D75: cash is GHL's Payment records (`crm.object_payment`, else `custom_objects.payment`), one per transaction. A succeeded
+ * payment that is not a refund or chargeback is money in; a refund or chargeback that did not fail is money out; anything
+ * else (failed, pending, or a payment whose own status says it was refunded) moves nothing. The day is `occurred_at`, else
+ * when the record was made. A record with no contact_id is tied to its contact through GHL's association.
+ */
+export const NO_PAYMENTS = "GHL has no Payment records yet";
+export const paymentObject = (b: Record<string, string>) => b["crm.object_payment"] || "custom_objects.payment";
+export type Payment = { id: string; ghl: string; label: string; at: DateTime; amount: number; flow: "in" | "out" | "none"; type: string; status: string; closer: string; setter: string; props: Record<string, unknown> };
+const keyOf = (v: unknown) => norm(answerText(v)).replace(/[\s-]+/g, "_");
+export function paymentOf(r: GhlObjectRecord, tz: string): Payment {
+  const p = r.properties, type = keyOf(p.type), status = keyOf(p.status);
+  const raw = answerText(p.occurred_at);
+  let at = /^\d{4}-\d{2}-\d{2}/.test(raw) ? DateTime.fromISO(raw, { zone: tz }) : Number.isFinite(Date.parse(raw)) ? DateTime.fromMillis(Date.parse(raw)).setZone(tz) : DateTime.invalid("none");
+  if (!at.isValid) at = DateTime.fromISO(r.createdAt).setZone(tz);
+  const amount = Math.abs(Number(answerText(p.amount).replace(/[$,\s]/g, "")) || 0);
+  const out = type === "refund" || type === "chargeback";
+  const flow = out ? (["failed", "pending"].includes(status) ? "none" : "out") : status === "succeeded" ? "in" : "none";
+  return { id: r.id, ghl: answerText(p.contact_id), label: answerText(p.display_label), at, amount, flow, type, status, closer: answerText(p.closer), setter: answerText(p.setter), props: p };
+}
+export const signed = (p: Payment) => (p.flow === "in" ? p.amount : p.flow === "out" ? -p.amount : 0);
+/** Every Payment record, linked to its contact; an empty list means the object holds none (the answer says so, never $0). */
+export async function paymentRecords(reads: GhlReads, ac: Company, bindings: Record<string, string>, tz: string): Promise<Payment[]> {
+  const recs = await read("Payment records", () => reads.objectRecords(ac, paymentObject(bindings)));
+  for (const r of recs.filter((k) => !String(k.properties.contact_id ?? "").trim())) {
+    const id = await read("a Payment's contact", () => reads.recordContact(ac, r.id));
+    if (id) r.properties = { ...r.properties, contact_id: id };
+  }
+  return recs.map((r) => paymentOf(r, tz));
+}
+async function payments(x: GhlCtx): Promise<Payment[]> {
+  connected(x);
+  return (x.memo.payments ??= paymentRecords(x.reads, x.ac, x.bindings, x.tz));
+}
+
 /** What the ledger knows about CRM ids: the latest booking's UTM source, the closer of the latest call, and whether any engine record behind the id is a test contact. */
-async function ledgerFacts(x: GhlCtx, ids: string[]): Promise<Map<string, { utm: string | null; closer: string | null; test: boolean }>> {
+export async function ledgerFacts(x: GhlCtx, ids: string[]): Promise<Map<string, { utm: string | null; closer: string | null; test: boolean }>> {
   if (!ids.length) return new Map();
   const mine = "sa.contact_id in (select ct.id from contacts ct where ct.company_id=$1 and (ct.ghl_contact_id=x.ghl or ct.id in (select i.contact_id from contact_identifiers i where i.company_id=$1 and i.kind='ghl_contact' and i.value=x.ghl)))";
   const rows = await many<{ ghl: string; utm: string | null; closer: string | null; test: boolean }>(x.c, `select x.ghl,
@@ -149,7 +184,7 @@ async function closes(x: GhlCtx): Promise<Close[]> {
 }
 
 /** A person's source: the lead-source field on their GHL contact (read live), else their latest booking's UTM, else unknown. */
-async function sourcesOf(x: GhlCtx, list: { ghl: string; utm: string | null }[]): Promise<Map<string, string>> {
+export async function sourcesOf(x: GhlCtx, list: { ghl: string; utm: string | null }[]): Promise<Map<string, string>> {
   for (const k of list) {
     if (x.memo.sources.has(k.ghl)) continue;
     const own = x.sourceField && k.ghl ? await read("a contact's lead source", () => x.reads.getContact(x.ac, k.ghl)).then((ct) => (ct ? answerText(ct.customFields[x.sourceField]) : "")) : "";
@@ -254,8 +289,8 @@ export async function closesFor(x: GhlCtx): Promise<{ ghl: string; name: string;
 const timeKey = (g: GroupBy, at: DateTime) => (g === "day" ? at.toISODate()! : g === "week" ? at.startOf("week").toISODate()! : at.toFormat("yyyy-MM"));
 
 /** One GHL-read metric for the period, per group ("" when not split), with the work-situation summary for the MQL family. */
-export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, label: string, groupBy?: GroupBy): Promise<{ rows: Map<string, number>; qualification?: QualificationSummary }> {
-  if (x.filters.setter) throw new MetricError(`${label} cannot be filtered by setter`);
+export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, label: string, groupBy?: GroupBy): Promise<{ rows: Map<string, number>; qualification?: QualificationSummary; unavailable?: string }> {
+  if (x.filters.setter && entity !== "payment") throw new MetricError(`${label} cannot be filtered by setter`);
   if (x.filters.closer && entity === "lead") throw new MetricError(`${label} cannot be filtered by closer`);
   const rows = new Map<string, number>();
   const add = (k: string, v: number) => rows.set(k, (rows.get(k) ?? 0) + v);
@@ -273,6 +308,26 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
       mql: pool.filter((p) => p.q === "mql").length, dq: pool.filter((p) => p.q === "dq").length, unanswered: pool.filter((p) => p.q === "unanswered").length,
       unrecognized: pool.filter((p) => p.q === "unrecognized").length, unrecognized_answers: [...new Set(pool.filter((p) => p.q === "unrecognized").map((p) => p.answer))].slice(0, 5), unanswered_is_mql: cfg.unansweredIsMql } : undefined;
     return { rows, qualification };
+  }
+  if (entity === "payment") {
+    const all = await payments(x);
+    if (!all.length) return { rows, unavailable: NO_PAYMENTS };
+    const inWindow = all.filter((p) => p.at.toMillis() >= x.start.getTime() && p.at.toMillis() < x.end.getTime() && p.flow !== "none");
+    const facts = await ledgerFacts(x, [...new Set(inWindow.map((p) => p.ghl).filter(Boolean))]);
+    const pool = inWindow.filter((p) => !facts.get(p.ghl)?.test);
+    const roster = await many<{ id: string; name: string }>(x.c, "select id::text as id, name from users where company_id=$1", [x.companyId]);
+    const who = (n: string) => { const w = n.trim().toLowerCase(); if (!w) return ""; const hit = roster.filter((u) => u.name.toLowerCase() === w); return hit.length === 1 ? hit[0].id : n.trim(); };
+    const linked = pool.filter((p) => p.ghl).map((p) => ({ ghl: p.ghl, utm: facts.get(p.ghl)?.utm ?? null }));
+    const sources = groupBy === "source" || x.filters.source ? await sourcesOf(x, linked) : null;
+    const sourceOf = (p: Payment) => (p.ghl ? sources!.get(p.ghl) ?? "unknown" : "unlinked payment");
+    for (const p of pool) {
+      if (x.filters.closer && who(p.closer) !== x.filters.closer) continue;
+      if (x.filters.setter && who(p.setter) !== x.filters.setter) continue;
+      if (x.filters.source && src(sourceOf(p)) !== src(x.filters.source)) continue;
+      const v = metric === "cash_gross" ? (p.flow === "in" ? p.amount : 0) : metric === "refunds" ? (p.flow === "out" ? p.amount : 0) : signed(p);
+      add(!groupBy ? "" : groupBy === "source" ? sourceOf(p) : groupBy === "closer" ? who(p.closer) : groupBy === "setter" ? who(p.setter) : timeKey(groupBy, p.at), v);
+    }
+    return { rows };
   }
   if (entity === "call") {
     const list = await counted(x);

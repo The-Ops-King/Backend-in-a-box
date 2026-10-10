@@ -1,5 +1,6 @@
 import { METRICS, type Availability, type ClosesList, type MetricResult, type MetricRow, type Unit } from "./metric-registry";
-import type { FieldBreakdown, FieldVsCalls } from "./field-breakdown";
+import { NO_ANSWER, type Analysis, type Group } from "./ghl-graph";
+import { NO_PAYMENTS } from "./ghl-metrics";
 
 /**
  * Everything the Slack bot posts is rendered here from tool results, never written by the model (D70): key numbers first
@@ -31,13 +32,14 @@ export function table(head: string[], rows: string[][], total?: string[], firstW
 
 /** The bold line a number gets on top: "*Close rate: 32%*  ·  8 closes ÷ 25 shows". */
 export function keyLine(r: MetricResult): string {
+  if (r.unavailable) return `*${r.label}:* ${r.unavailable}  · _from ${r.source}_`;
   const who = r.filters && Object.keys(r.filters).length ? ` (${Object.values(r.filters).join(", ")})` : "";
   const ratio = r.unit === "rate" && r.denominator !== undefined ? `  ·  ${fmt("count", r.numerator)} ${r.numerator_label} ÷ ${fmt("count", r.denominator)} ${r.denominator_label}` : "";
   return `*${r.label}${who}: ${fmt(r.unit, r.value)}*${ratio}  · _from ${r.source}_`;
 }
 
 export function metricTable(r: MetricResult): string | null {
-  if (!r.rows?.length) return null;
+  if (!r.rows?.length || r.unavailable) return null;
   const by = r.group_by ?? "group";
   const rate = r.unit === "rate";
   const head = rate ? [cap(by), r.label, cap(r.numerator_label ?? ""), cap(r.denominator_label ?? "")] : [cap(by), r.label];
@@ -66,21 +68,19 @@ export function detailLines(r: MetricResult): string[] {
   return L;
 }
 
-/** A whole answer: every key number on top, the model's one sentence (if any), the tables, then definitions and the period. */
-export function formatAnswer(results: MetricResult[], opts: { note?: string; availability?: Availability[]; closes?: ClosesList[]; breakdowns?: FieldBreakdown[]; versus?: FieldVsCalls[]; adhoc?: { why: string; columns: string[]; rows: unknown[][]; truncated: boolean }[] } = {}): string {
+/** A whole answer: every key number on top, the model's note (if any), the tables, then the period. */
+export function formatAnswer(results: MetricResult[], opts: { note?: string; availability?: Availability[]; closes?: ClosesList[]; analyses?: Analysis[]; adhoc?: { why: string; columns: string[]; rows: unknown[][]; truncated: boolean }[] } = {}): string {
   const L: string[] = [...new Set(results.flatMap((r) => [keyLine(r), ...detailLines(r)]))];
   for (const k of opts.closes ?? []) L.push(closesKey(k));
   for (const a of opts.availability ?? []) L.push(availabilityKey(a));
-  for (const b of opts.breakdowns ?? []) L.push(breakdownKey(b));
-  for (const v of opts.versus ?? []) L.push(versusKey(v));
+  for (const a of opts.analyses ?? []) L.push(...analysisKey(a));
   if (opts.note) L.push(opts.note);
   for (const r of results) { const t = metricTable(r); if (t) L.push("", `*${r.label} by ${r.group_by}*`, t); }
   for (const a of opts.availability ?? []) L.push("", availabilityBody(a));
   for (const k of opts.closes ?? []) L.push("", ...closesBody(k));
-  for (const b of opts.breakdowns ?? []) L.push("", ...breakdownBody(b));
-  for (const v of opts.versus ?? []) L.push("", ...versusBody(v));
+  for (const a of opts.analyses ?? []) L.push("", ...analysisBody(a));
   for (const q of opts.adhoc ?? []) L.push("", `*Ad hoc, from the raw ledger:* ${q.why}`, adhocTable(q));
-  const periods = [...results, ...(opts.closes ?? []), ...(opts.breakdowns ?? []), ...(opts.versus ?? [])];
+  const periods = [...results, ...(opts.closes ?? []), ...(opts.analyses ?? [])];
   if (periods.length) L.push("", `_${[...new Set(periods.map((r) => periodLine(r)))].join(" · ")}_`);
   for (const a of opts.availability ?? []) L.push("", availabilityFooter(a));
   return L.join("\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -92,30 +92,56 @@ function adhocTable(q: { columns: string[]; rows: unknown[][]; truncated: boolea
   return table(q.columns, q.rows.map((r) => r.map(s))) + (q.truncated ? "\n_More rows than shown._" : "");
 }
 
-/** A GHL field's answers (D74): the field it used named on top, so the asker sees how their words were read. */
-const breakdownKey = (b: FieldBreakdown) => `*${b.field_name}*: ${b.answered.toLocaleString("en-US")} of ${b.total.toLocaleString("en-US")} answered  · _${b.basis}, from ${b.source}_`;
-function breakdownBody(b: FieldBreakdown): string[] {
-  if (!b.total) return ["_Nothing in this period._"];
-  const pct = (n: number) => `${Math.round((n / b.total) * 100)}%`;
-  // an answer is the whole point of the row, so it gets room a name column does not
-  const L = [`*${b.field_name}*`, table(["Answer", "Count", "Share"], b.rows.map((r) => [r.value, r.count.toLocaleString("en-US"), pct(r.count)]), undefined, 60)];
-  if (b.multi) L.push("_Several answers can be picked, so the shares add up to more than 100%._");
-  if (b.list?.length) L.push("", ...b.list.map((x) => `• ${x.name} — ${x.value}`), ...(b.list.length < b.total ? [`_First ${b.list.length} of ${b.total}._`] : []));
+/**
+ * A joined analysis (D75): a bold header naming the unit, the split and the source; the key line in booked terms; the
+ * table with a total row; the test's verdict; who has no answer, the links that are missing and the records that disagree,
+ * each on its own line. The owner reads these on a phone, so blocks are kept apart.
+ */
+const pc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
+const money = (v: number) => fmt("money", v);
+const UNIT_WORDS = { lead: ["lead", "leads"], call: ["call", "calls"], close: ["close", "closes"] } as const;
+const BASIS = { lead: "leads GHL added in the period", call: "Sales Calls whose time fell in the period and has passed", close: "won Closer-pipeline cards in the period" } as const;
+const plural = (n: number, u: keyof typeof UNIT_WORDS) => `${n.toLocaleString("en-US")} ${UNIT_WORDS[u][n === 1 ? 0 : 1]}`;
+export function analysisKey(a: Analysis): string[] {
+  const t = a.total;
+  const head = `*${cap(UNIT_WORDS[a.unit][1])}${a.split ? ` by "${a.split.name}"` : ""}${a.filters.length ? `, where ${a.filters.map((f) => `"${f.name}" is ${f.equals}`).join(" and ")}` : ""}*  · _${BASIS[a.unit]}, from ${a.source}_`;
+  const answered = a.split ? [`${a.answered.toLocaleString("en-US")} answered the question`] : [];
+  const cash = a.payments ? `${money(t.cash)} cash` : NO_PAYMENTS;
+  const key = a.unit === "lead" ? [plural(t.count, "lead"), ...answered, `${t.booked} booked (${pc(t.booked_rate)})`, `${t.showed} showed of ${plural(t.calls, "call")} (${pc(t.show_rate)})`, `${t.closed} closed`, cash]
+    : a.unit === "call" ? [`${plural(t.calls, "call")} booked`, ...answered, `${t.showed} showed (${pc(t.show_rate)})`, `${t.closed} closed (${pc(t.close_rate)} of shows)`, cash]
+    : [plural(t.count, "close"), ...answered, cash, `${money(t.card_value)} card value`];
+  return [head, key.join(" · ")];
+}
+export function analysisBody(a: Analysis): string[] {
+  const L: string[] = [];
+  if (!a.total.count) L.push(`_No ${UNIT_WORDS[a.unit][1]} in this period._`);
+  else if (a.split) {
+    const share = a.unit === "close" ? "Share of closes" : a.rate === "booked_rate" ? "Share of booked" : a.rate === "close_rate" ? "Share of closes" : "Share of shows";
+    const any = (k: "cancelled" | "missing") => a.rows.some((r) => r[k] > 0);
+    const cash = a.payments ? ["Cash"] : [];
+    const cols: [string, (g: Group) => string][] = a.unit === "lead"
+      ? [["Leads", (g) => String(g.count)], ["Booked", (g) => String(g.booked)], ["Booked %", (g) => pc(g.booked_rate)], ["Calls", (g) => String(g.calls)], ["Showed", (g) => String(g.showed)], ["Show rate", (g) => pc(g.show_rate)], ["Closed", (g) => String(g.closed)], ["Close rate", (g) => pc(g.close_rate)]]
+      : a.unit === "call"
+        ? [["Calls", (g) => String(g.calls)], ["Showed", (g) => String(g.showed)], ["No-show", (g) => String(g.noshow)], ...(any("cancelled") ? [["Cancelled", (g: Group) => String(g.cancelled)] as [string, (g: Group) => string]] : []),
+          ...(any("missing") ? [["Missing EOD", (g: Group) => String(g.missing)] as [string, (g: Group) => string]] : []), ["Show rate", (g) => pc(g.show_rate)], ["Closed", (g) => String(g.closed)], ["Close rate", (g) => pc(g.close_rate)]]
+        : [["Closes", (g) => String(g.count)], ["Card value", (g) => money(g.card_value)], ["Days to close", (g) => (g.days_to_close === null ? "—" : String(Math.round(g.days_to_close * 10) / 10))]];
+    const all: [string, (g: Group) => string][] = [...cols, ...cash.map((h) => [h, (g: Group) => money(g.cash)] as [string, (g: Group) => string]), [share, (g) => pc(g.share)]];
+    L.push(table(["Answer", ...all.map(([h]) => h)], a.rows.map((g) => [g.value, ...all.map(([, f]) => f(g))]), ["Total", ...all.map(([, f]) => f(a.total))], 50));
+    if (a.test) L.push(`_${a.test.verdict}${a.split.multi ? " Several answers can be picked, so a row can sit under more than one." : ""}_`);
+    else if (a.split.multi) L.push("_Several answers can be picked, so a row can sit under more than one._");
+    if (a.unanswered.length) L.push("", `*No answer on ${plural(a.unanswered.length, a.unit)}:* ${a.unanswered.slice(0, 15).map((u) => `${u.name} (${u.date}${u.booked ? `, ${u.booked.toLowerCase()}` : ""})`).join(", ")}${a.unanswered.length > 15 ? `, and ${a.unanswered.length - 15} more` : ""}`);
+  }
+  const gaps = a.links.filter((k) => k.linked < k.of);
+  if (gaps.length) L.push("", ...gaps.map((k) => `*Links:* ${plural(k.of, a.unit)} · ${k.linked} linked to ${k.what} · missing: ${k.missing.slice(0, 15).join(", ")}${k.of - k.linked > 15 ? `, and ${k.of - k.linked - 15} more` : ""}`));
+  const kinds = [
+    ["won_no_payment", "Closer card won, no payment in GHL"], ["payment_no_won", "Payment in GHL, no won closer card"], ["cash_field", "Total Cash Collected on the contact is not the sum of their payments"],
+  ] as const;
+  const mm = kinds.flatMap(([k, words]) => { const list = a.mismatches.filter((m) => m.kind === k); return list.length ? [`⚠️ ${words}: ${list.slice(0, 15).map((m) => k === "cash_field" ? `${m.name} (contact ${money(m.contact_cash ?? 0)} · payments ${money(m.payments ?? 0)})` : k === "payment_no_won" ? `${m.name} (${money(m.payments ?? 0)}, ${m.date})` : `${m.name} (won ${m.date})`).join(", ")}${list.length > 15 ? `, and ${list.length - 15} more` : ""}`] : []; });
+  if (mm.length) L.push("", ...mm);
+  if (a.list?.length) L.push("", ...a.list.map((x) => `• ${x.name}${x.value ? ` — ${x.value}` : ""} — ${x.outcome}`), ...(a.list.length < a.total.count ? [`_First ${a.list.length} of ${a.total.count}._`] : []));
   return L;
 }
-
-/** A field against showing up (D74): each answer's calls and how they went, its show rate and share of shows, then the test's verdict. */
-const pc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
-const versusKey = (v: FieldVsCalls) => `*Show rate by "${v.field_name}"*  · _from ${v.source}_\n${v.calls} calls booked · ${v.calls - v.unanswered.length} answered the question · ${v.showed} showed (${pc(v.show_rate)})`;
-function versusBody(v: FieldVsCalls): string[] {
-  if (!v.calls) return ["_No calls in this period._"];
-  const any = (k: "cancelled" | "missing") => v.rows.some((r) => r[k] > 0);
-  const head = ["Answer", "Calls", "Showed", "No-show", ...(any("cancelled") ? ["Cancelled"] : []), ...(any("missing") ? ["Unfiled"] : []), "Show rate", "Share of shows"];
-  const rows = v.rows.map((r) => [r.value, String(r.calls), String(r.showed), String(r.noshow), ...(any("cancelled") ? [String(r.cancelled)] : []), ...(any("missing") ? [String(r.missing)] : []), pc(r.show_rate), pc(r.share_of_shows)]);
-  const total = ["Total", String(v.calls), String(v.showed), String(v.rows.reduce((a, r) => a + r.noshow, 0)), ...(any("cancelled") ? [String(v.rows.reduce((a, r) => a + r.cancelled, 0))] : []), ...(any("missing") ? [String(v.rows.reduce((a, r) => a + r.missing, 0))] : []), pc(v.show_rate), v.showed ? "100%" : "—"];
-  const gap = v.unanswered.length ? [`*No answer on ${v.unanswered.length} booked ${v.unanswered.length === 1 ? "call" : "calls"}:* ${v.unanswered.slice(0, 15).map((u) => `${u.name} (${u.date}${u.booked ? `, ${u.booked.toLowerCase()}` : ""})`).join(", ")}${v.unanswered.length > 15 ? `, and ${v.unanswered.length - 15} more` : ""}`] : [];
-  return [table(head, rows, total, 50), `_${v.test.verdict}${v.multi ? " Several answers can be picked, so a call can sit under more than one." : ""}_`, ...gap];
-}
+export { NO_ANSWER };
 
 /** /closes: the count on top, then one line per close, newest first. */
 const closesKey = (k: ClosesList) => `*Closes${k.filters?.closer ? ` (${k.filters.closer})` : ""}: ${k.count}*  · _from ${k.source}_`;
@@ -146,7 +172,7 @@ export function formatSummary(cur: MetricResult[], prev: MetricResult[] | null, 
   const L: string[] = [];
   for (const r of cur) {
     const p = prev?.find((x) => x.metric === r.metric);
-    L.push(`${keyLine(r)}${p ? `  ·  ${p.period_name.toLowerCase()} ${fmt(p.unit, p.value)}${delta(r, p)}` : ""}`, ...detailLines(r));
+    L.push(`${keyLine(r)}${p && !r.unavailable ? `  ·  ${p.period_name.toLowerCase()} ${fmt(p.unit, p.value)}${delta(r, p)}` : ""}`, ...detailLines(r));
   }
   L.push(...extra, "");
   L.push(`_${periodLine(cur[0])}${prev?.[0] ? ` · compared with ${prev[0].period_label}` : ""}_`);
@@ -154,7 +180,7 @@ export function formatSummary(cur: MetricResult[], prev: MetricResult[] | null, 
 }
 /** Several metrics split the same way, side by side in one table: Source | Leads | MQLs | DQs. */
 export function formatCombined(results: MetricResult[]): string {
-  const by = results[0]?.group_by;
+  const by = results.every((r) => r.unavailable) ? undefined : results[0]?.group_by;
   const L: string[] = results.flatMap((r) => [keyLine(r), ...detailLines(r)]);
   if (by) {
     const keys = new Map<string, string>();
@@ -197,6 +223,7 @@ export function helpText(botMention = "@bot"): string {
     `*Or just ask me* (mention ${botMention}, or DM me). For example:`,
     `• ${botMention} what's our close rate this month by closer?`,
     `• ${botMention} build me a report of the leads this month that showed, sorted by source`,
+    `• ${botMention} what's our show rate by hair loss answer, last 90 days?`,
     `• ${botMention} what does our calendar availability look like?`,
     "",
     "*What the numbers mean*",
