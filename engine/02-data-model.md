@@ -641,6 +641,21 @@ create table slack_connections (
   connected_at timestamptz not null default now()
 );
 
+-- D70. A conversation with the Slack bot: one row per thread (a DM's top level is the channel's 'dm' row, forgotten
+-- after 30 quiet minutes). The thread's earlier questions and answers go back to the model so "and last month?" works;
+-- the last 20 turns are kept. A slash command's own post is a thread too, so anyone can follow up under it.
+create table bot_threads (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references companies(id) on delete cascade,
+  channel     text not null,
+  thread_ts   text not null,                               -- the thread's root ts; 'dm' for a DM's top level
+  asked_by    text,                                        -- Slack user id of whoever started it
+  messages    jsonb not null default '[]',                 -- [{role: user|bot, text, user?, kind?: answer|clarify|escalate, at}]
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (company_id, channel, thread_ts)
+);
+
 create table audit_log (
   id           bigserial primary key,
   company_id   uuid references companies(id),

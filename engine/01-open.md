@@ -381,7 +381,7 @@ source-to-cash ROI; live speed-to-lead SLA ping; follow-up hygiene nudges; cash 
 warning; capacity planning; commissions with refund clawbacks; post-call follow-up draft for one-tap approval; the
 owner's weekly digest. Most become answers the Slack bot gives (item 38) once the metric layer exists.
 
-## 38. Ask the ledger from Slack
+## 38. Ask the ledger from Slack — built 2026-10-10 (D70)
 
 Shortcuts (`/mtd`, `/monthly`, `/show-rate`, `/close-rate`, …) and free questions to the bot ("build me a report of
 this month's leads that showed, by source"; "what does our calendar availability look like?"). Answers must be
@@ -399,3 +399,16 @@ door (D64), every answer says its period and definition. Design questions open w
   status. Sales DQ = a call taken where the person was not qualified.
 - Full output in Slack with the key numbers on top, formatted for Slack.
 - Leaning to one registered command per shortcut (`/mtd`) for the simplest experience; trade-offs set out before building.
+
+### 38, built (2026-10-10, D70)
+
+One slash command per shortcut (`/mtd`, `/weekly`, `/monthly`, `/show-rate`, `/close-rate`, `/cash`, `/availability`,
+`/leads`, `/help`), each with an optional period in words; free questions by mention or DM, answered in the thread; the
+metric registry with one definition per number; clarification before an answer, escalation to Tyler when there is none.
+Setup and the Slack app changes are in `platform/README.md` › Slack bot. What is left:
+
+- Saving a report someone built in a thread as a new shortcut ("save this as /leads-by-source"), so a good question
+  becomes a command without a deploy.
+- Live reads beyond the calendars: the tools read the engine's ledger plus live calendar slots; a question only the CRM
+  can answer right now (open cards on a board, a contact's current tags) escalates until a live tool exists for it.
+- Lead source is the CRM's lead-source field, else the latest booking's UTM source; full attribution (D25) is not built.

@@ -103,7 +103,7 @@ export interface Classifier {
 export type SlackPersona = { name?: string; icon?: string | string[] };
 export interface Notifier {
   /** `threadTs` replies in that message's thread instead of posting to the channel. */
-  post(token: string, channelId: string, text: string, as?: SlackPersona, threadTs?: string): Promise<{ ts: string }>;
+  post(token: string, channelId: string, text: string, as?: SlackPersona, threadTs?: string): Promise<{ ts: string; channel?: string }>;
   /** Slack user id for an email (users.lookupByEmail; needs users:read.email), null when unknown. A DM is a post to that id. */
   lookupUserByEmail(token: string, email: string): Promise<string | null>;
   /** reactions.add on a message (needs reactions:write). Resolves false, never throws, when the scope is missing. */
@@ -114,6 +114,8 @@ export interface Notifier {
   authTest(token: string): Promise<{ ok: boolean; team?: string; user?: string; error?: string }>;
   /** conversations.info: does the channel exist and is the bot in it. */
   channelInfo(token: string, channelId: string): Promise<{ ok: boolean; name?: string; member?: boolean; error?: string }>;
+  /** users.info: a Slack user's email (needs users:read.email), null when Slack does not say. Optional: the bot falls back to asking who they are. */
+  userEmail?(token: string, userId: string): Promise<string | null>;
 }
 /** A long-form read of a document (a call transcript) against an instruction, answered as text or as JSON. */
 export type AnalysisRequest = { system: string; input: string; format: "json" | "text"; maxTokens?: number; model?: string };
@@ -121,5 +123,13 @@ export type AnalysisResult = { text: string; parsed?: unknown; parseError?: stri
 export interface Analyst {
   analyze(apiKey: string, req: AnalysisRequest): Promise<AnalysisResult>;
 }
-export type Adapters = { read: CrmRead; booking: Record<BookingSource, BookingRead>; write: CrmWrite; sender: Sender; classifier: Classifier; notifier: Notifier; analyst: Analyst };
+/** The Slack bot's model (D70): one turn of a tool-use conversation. `content` goes back verbatim as the assistant turn; tool results go back as a user turn. */
+export type BotToolCall = { id: string; name: string; input: Record<string, unknown> };
+export type BotTurn = { text: string; calls: BotToolCall[]; stop: string; content: unknown[] };
+export type BotMessage = { role: "user" | "assistant"; content: string | unknown[] };
+export type BotToolDef = { name: string; description: string; input_schema: Record<string, unknown> };
+export interface BotModel {
+  next(apiKey: string, req: { system: string; tools: BotToolDef[]; messages: BotMessage[] }): Promise<BotTurn>;
+}
+export type Adapters = { read: CrmRead; booking: Record<BookingSource, BookingRead>; write: CrmWrite; sender: Sender; classifier: Classifier; notifier: Notifier; analyst: Analyst; bot?: BotModel };
 export const bookingFor = (a: Adapters, c: Company): BookingRead => a.booking[c.booking.source];

@@ -377,6 +377,119 @@ setup, once per app: scopes `reactions:write` and `reactions:read`; Event Subscr
 `<PUBLIC_URL>/api/webhooks/slack/<companyId>` (the URL check is answered), bot event `reaction_added`; the signing
 secret from Basic Information goes to the install API as `slackSigningSecret`, the bot token as `slackToken`.
 
+## Slack bot (D70)
+
+Anyone in the workspace can ask the ledger a question in Slack. Every number in an answer comes from a tool result, never
+from the model: the metric registry (`src/engine/metric-registry.ts`, one definition per metric, read from the engine's
+ledger), the live calendar read (`get_availability`, the same GHL free-slots / Calendly available-times calls as the
+low-availability check) or, as a last resort, the read-only query door (D64), whose answers are labelled *ad hoc, from
+the raw ledger*. Each key line says where its number came from (`from the engine's ledger`, `from GHL, read just now`).
+A live read that fails is named in the answer, never filled with an estimate. The message is rendered by our formatter
+(`src/engine/bot-format.ts`): key numbers first in bold, tables as aligned monospace blocks (25 rows at most, totals
+row), then each metric's definition and the period in the company's time zone.
+
+**Shortcuts** (slash commands, answered from the registry with no model in the way; each takes an optional period in
+plain words). A slash command leaves no message to thread under, so it posts its own visible message (`📊 *Month to
+date* — asked by @who`) and anyone follows up in that message's thread; from a DM it answers in the DM; in a channel
+the bot is not in, only the asker sees it, with a note to invite the bot.
+
+| Command | Answers | Default period |
+|---|---|---|
+| `/mtd` | leads, MQLs, calls booked, show rate (shows ÷ calls due), close rate (closes ÷ shows), cash collected, top source by cash, each vs the same days last month | this month so far |
+| `/weekly` | the same set, vs the week before (`/weekly this week` for the week so far) | last full week (Mon–Sun) |
+| `/monthly` | the same set, vs the month before (`/monthly this month`) | last full month |
+| `/show-rate` | show rate overall, by closer and by source | this month |
+| `/close-rate` | close rate overall, by closer and by source | this month |
+| `/cash` | payments, refunds and net cash, by closer | this month |
+| `/availability` | open bookable slots per day (light days flagged) and per closer per day; `/availability 3` for three days | next 7 days |
+| `/leads` | leads, MQLs, marketing DQs and financial DQLs by source | this month |
+| `/help` | every shortcut with a one-line description, and example questions (privately) | — |
+
+Periods: `today`, `yesterday`, `this week`, `last week`, `this month` / `mtd`, `last month`, `last 30 days`, `this
+quarter`, `September`, `Sep 1 to Sep 15`, `2026-09-01..2026-09-30`, `since Sep 15`. "This month" is the calendar month
+so far in the company's zone. Words that are not a period are refused with examples, never guessed.
+
+**Free questions**: mention the bot in a channel, or DM it. "@bot what's our close rate this month by closer?", "@bot
+build me a report of the leads this month that showed, sorted by source", "@bot what does our calendar availability look
+like?". 👀 goes on the question at once (and comes off when the answer is in); the answer goes in the question's thread
+(in a DM, privately in the DM). A reply in a thread the bot is in continues the conversation without a new mention (the
+thread's earlier questions and answers are kept in `bot_threads`); a reply that @mentions someone else is left alone.
+"My", "me", "I" filter to the asker: their Slack id on the roster (`users.slack_user_id`), else the email Slack has for
+them matched to a roster email (then remembered); unknown → the bot asks who they are in the CRM. No period, an unclear
+person or an ambiguous term ("DQ") → the bot asks one question first. A question the tools cannot answer → "I'm not sure
+how to get that information. Let me ping Tyler real quick." and then "Hey @Tyler, can you help?" in the same thread
+(`audit_log` action `bot.escalated` keeps the reason); after that the thread is the team's and the bot stays out of it
+unless mentioned again.
+
+**Metrics** (`get_metric`): `leads`, `mqls` (tag `mql`), `mql_rate`, `dqls` (tag `dq` or any `dq-*`), `dqls_financial`
+(tag `dq-budget`), `leads_booked`, `leads_showed`, `booked`, `calls_due`, `shows`, `no_shows`, `show_rate`,
+`cancellations`, `reschedules`, `sales_dqs` (closer filed disqualified), `closes`, `close_rate`, `revenue`,
+`cash_collected` (net of refunds), `cash_gross`, `refunds`, `speed_to_lead` (median minutes, D64), `dials`, `connected`.
+Split by `source`, `closer`, `setter`, `day`, `week` or `month` where the metric has that side; filter by closer,
+setter, source or the asker. A person's source is the CRM lead-source field (`crm.field_contact_lead_source`), else the
+UTM source on their latest booking, else `unknown`.
+
+**Setup, once per Slack app** (then **reinstall the app to the workspace**: Slack asks for the new scopes; the bot token
+normally stays the same, and if Slack shows a new one, re-run install with it as `slackToken`). App manifest fragment, with the
+company's id in the URLs:
+
+```yaml
+features:
+  app_home:
+    messages_tab_enabled: true              # people can DM the bot
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: Ops
+    always_online: true
+  slash_commands:
+    - { command: /mtd, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Month to date: leads, shows, closes, cash vs last month", usage_hint: "", should_escape: false }
+    - { command: /weekly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Last week's numbers (or: this week)", usage_hint: "[this week]", should_escape: false }
+    - { command: /monthly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Last month's numbers (or: this month)", usage_hint: "[this month]", should_escape: false }
+    - { command: /show-rate, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Show rate by closer and source", usage_hint: "[last month]", should_escape: false }
+    - { command: /close-rate, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Close rate by closer and source", usage_hint: "[last month]", should_escape: false }
+    - { command: /cash, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Cash collected, refunds and net by closer", usage_hint: "[last week]", should_escape: false }
+    - { command: /availability, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Open calendar slots per day and per closer", usage_hint: "[days, up to 7]", should_escape: false }
+    - { command: /leads, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Leads, MQLs and DQs by source", usage_hint: "[yesterday]", should_escape: false }
+    - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "What the bot can answer", usage_hint: "", should_escape: false }
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - chat:write.customize      # existing: posts under a step's name and icon
+      - channels:read             # existing: the health sweep checks the bot is in its channels
+      - reactions:read            # existing (D45)
+      - reactions:write           # existing (D44): also the 👀
+      - users:read.email          # existing: mentions; now also "my …" and the escalation person
+      - users:read                # new
+      - commands                  # new
+      - app_mentions:read         # new
+      - im:history                # new: DMs
+      - channels:history          # new: replies in a thread the bot is in
+      - groups:history            # new: the same in private channels
+settings:
+  event_subscriptions:
+    request_url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>"
+    bot_events:
+      - reaction_added            # existing (D45)
+      - app_mention
+      - message.im
+      - message.channels
+      - message.groups
+```
+
+`/help` is not one of Slack's built-in commands (checked against Slack's list of built-in slash commands, 2026-10-10),
+so it is registered as is. Slack lets several apps register the same command and the most recently installed one wins;
+if another app in the workspace already owns `/help`, register `/ops-help` instead (the door treats `/help`,
+`/ops-help` and `/bot-help` the same). Slash commands do not run inside threads (Slack's rule), which is why follow-ups
+are plain replies.
+
+The model needs `secret.anthropic_key` (bound at install; env `ANTHROPIC_API_KEY` is the fallback); without it every
+free question escalates, and the shortcuts still work. The escalation person is the install's `bot: { escalateTo }`:
+a Slack user id, or an email the install resolves to one through Slack (bound as `bot.escalate_to`; the roster row
+with that email learns its Slack id so the bot can say their first name). The bot answers only for the company whose
+Slack connection matches the event's team id. Both doors acknowledge within Slack's three seconds and do the work
+after the response (`after()` from `next/server`); deliveries are deduplicated by event id as before.
+
 ## Alerts and the health sweep (D33)
 
 The engine says what broke the minute it breaks, and nothing while it works. A step that fails is retried in

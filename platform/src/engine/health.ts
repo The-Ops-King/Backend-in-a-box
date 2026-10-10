@@ -429,6 +429,28 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
   return out;
 }
 
+/**
+ * Bookable times per active calendar over the next `days` (at most 7), each with the closer it belongs to (the calendar's
+ * default user). The same vendor reads as readCalendars, so the bot's availability and the low-availability alert agree.
+ */
+export type CalendarSlots = { calendar: string; external_id: string; closer_id: string | null; closer: string | null } & ({ ok: true; times: string[] } | { ok: false; error: string });
+export async function calendarSlots(c: PoolClient, companyId: string, probes: HealthProbes, days: number, now: DateTime = DateTime.now()): Promise<{ days: number; from: DateTime; timezone: string; vendor: string; calendars: CalendarSlots[] }> {
+  const { row, adapterCompany: ac, bindings } = await loadCompany(c, companyId);
+  const n = Math.min(DAYS_AHEAD, Math.max(1, Math.round(days) || DAYS_AHEAD));
+  const cals = await many<{ external_id: string; name: string; closer_id: string | null; closer: string | null }>(c, `select cal.external_id, cal.name, u.id::text as closer_id, u.name as closer from calendars cal left join users u on u.id=cal.default_user_id
+    where cal.company_id=$1 and cal.active and cal.source=$2 order by cal.name`, [companyId, ac.booking.source]);
+  const out: CalendarSlots[] = [];
+  for (const k of cals) {
+    const base = { calendar: k.name, external_id: k.external_id, closer_id: k.closer_id, closer: k.closer };
+    const r = ac.booking.source === "ghl"
+      ? (ac.pit ? await probes.ghlFreeSlots(ac.pit, k.external_id, now.toJSDate(), now.plus({ days: n }).toJSDate(), row.timezone) : { ok: false as const, error: "no CRM token bound" })
+      // the API wants a start in the future and a window of at most 7 days (as readCalendars)
+      : await probes.calendlyAvailableTimes(bindings["secret.calendly_token"], `https://api.calendly.com/event_types/${k.external_id}`, now.plus({ minutes: 1 }).toJSDate(), now.plus({ days: n - 1, hours: 23 }).toJSDate());
+    out.push(r.ok ? { ...base, ok: true, times: r.times } : { ...base, ok: false, error: r.error });
+  }
+  return { days: n, from: now.setZone(row.timezone), timezone: row.timezone, vendor: ac.booking.source === "ghl" ? "GHL" : "Calendly", calendars: out };
+}
+
 /** The health_check step: run the checks (availability is its own step), remember the result, turn failures into alerts and clear the ones that passed. */
 export async function runHealthStep(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, cfg: HealthConfig & { as_name?: string | null; as_icon?: string | null }, now = DateTime.now()): Promise<{ findings: Finding[]; raised: number; resolved: number }> {
   await ensureHealth(c, company.id);

@@ -1,0 +1,314 @@
+import { DateTime } from "luxon";
+import type { PoolClient } from "pg";
+import { many, one } from "@/db/client";
+import { dayBounds, setterMetrics, type SetterStats } from "./metrics";
+import { calendarSlots, type HealthProbes } from "./health";
+
+/**
+ * The metric layer (D70): every number the Slack bot says has ONE definition here, written once in SQL against the
+ * ledger, with the plain-words sentence the answer carries under it. Definitions follow what the wrap-ups (rollups, D29)
+ * and setter metrics (D64) already count; nothing is re-invented. Counts and sums are computed per group; a rate is
+ * always two of them divided where it is read (never an average of averages).
+ */
+export type GroupBy = "source" | "closer" | "setter" | "day" | "week" | "month";
+export const GROUP_BYS: GroupBy[] = ["source", "closer", "setter", "day", "week", "month"];
+export type Filters = { closer?: string; setter?: string; source?: string; userId?: string };
+export type Unit = "count" | "money" | "rate" | "minutes";
+export type Period = { from: string; to: string; label: string; name: string };   // inclusive ISO dates in the company's zone
+export type MetricRow = { key: string; label: string; value: number | null; numerator?: number; denominator?: number };
+export type MetricResult = {
+  metric: string; label: string; definition: string; unit: Unit; period_label: string; period_name: string; from: string; to: string; timezone: string;
+  value: number | null; numerator?: number; denominator?: number; numerator_label?: string; denominator_label?: string;
+  group_by?: GroupBy; rows?: MetricRow[]; filters?: Record<string, string>;
+  /** Where the number was read: every metric here is the engine's ledger (the CRM, booking source, dialer and payments as polled and received). */
+  source: string;
+};
+export const LEDGER = "the engine's ledger";
+export class MetricError extends Error {}
+
+// ---- periods ----------------------------------------------------------------------------------------------------------
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const monthIndex = (s: string) => { const i = MONTHS.indexOf(s.slice(0, 3)); return i < 0 || !/^[a-z]+\.?$/.test(s) ? null : i + 1; };
+
+export function rangeLabel(from: string, to: string, tz: string, now: DateTime = DateTime.now()): string {
+  const a = DateTime.fromISO(from, { zone: tz }), b = DateTime.fromISO(to, { zone: tz }), cur = now.setZone(tz).year;
+  const yr = (d: DateTime) => (d.year !== cur ? `, ${d.year}` : "");
+  if (from === to) return `${a.toFormat("LLL d")}${yr(a)}`;
+  if (a.year === b.year && a.month === b.month) return `${a.toFormat("LLL d")}–${b.day}${yr(b)}`;
+  if (a.year === b.year) return `${a.toFormat("LLL d")} – ${b.toFormat("LLL d")}${yr(b)}`;
+  return `${a.toFormat("LLL d, yyyy")} – ${b.toFormat("LLL d, yyyy")}`;
+}
+
+/** One date the way people type it: 2026-10-03, 10/3, 10/3/2026, Oct 3, October 3 2026. A year-less date never lands in the future. */
+function parseDay(s: string, today: DateTime): DateTime | null {
+  s = s.trim().replace(/,/g, " ").replace(/\s+/g, " ").replace(/(\d)(st|nd|rd|th)\b/g, "$1");
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+  if (m) { const d = today.set({ year: +m[1], month: +m[2], day: +m[3] }); return d.isValid && d.month === +m[2] ? d : null; }
+  let month: number | null = null, day: number | null = null, year: number | null = null;
+  if ((m = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/.exec(s))) { month = +m[1]; day = +m[2]; year = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : null; }
+  else if ((m = /^([a-z]+)\.? (\d{1,2})(?: (\d{4}))?$/.exec(s)) && monthIndex(m[1])) { month = monthIndex(m[1]); day = +m[2]; year = m[3] ? +m[3] : null; }
+  else return null;
+  if (!month || !day || month > 12 || day > 31) return null;
+  let d = today.set({ year: year ?? today.year, month, day });
+  if (!d.isValid || d.month !== month) return null;
+  if (!year && d > today) d = d.minus({ years: 1 });
+  return d;
+}
+
+/**
+ * A period in plain words, in the company's zone, as inclusive local dates. "This month" is the calendar month so far
+ * (Tyler: "this month = this calendar month"). Null when the words are not a period this parser knows: the bot then asks
+ * rather than guessing.
+ */
+export function parsePeriod(text: string | null | undefined, tz: string, now: DateTime = DateTime.now()): Period | null {
+  const t = (text ?? "").toLowerCase().trim().replace(/[?.!]+$/, "").replace(/^(?:for|in|over|during|from)\s+/, "").replace(/^the\s+/, "").replace(/\s+/g, " ");
+  if (!t) return null;
+  const today = now.setZone(tz).startOf("day");
+  const mk = (a: DateTime, b: DateTime, name: string): Period | null => {
+    if (b > today) b = today;
+    if (a > b) return null;
+    const from = a.toISODate()!, to = b.toISODate()!;
+    return { from, to, name, label: rangeLabel(from, to, tz, now) };
+  };
+  if (t === "today") return mk(today, today, "Today");
+  if (t === "yesterday") return mk(today.minus({ days: 1 }), today.minus({ days: 1 }), "Yesterday");
+  if (/^(this week|wtd|week to date|week-to-date|so far this week|current week)$/.test(t)) return mk(today.startOf("week"), today, "This week");
+  if (/^(last week|previous week|prior week)$/.test(t)) { const w = today.startOf("week").minus({ weeks: 1 }); return mk(w, w.plus({ days: 6 }), "Last week"); }
+  if (/^(this month|mtd|month to date|month-to-date|this calendar month|so far this month|current month)$/.test(t)) return mk(today.startOf("month"), today, "This month");
+  if (/^(last month|previous month|prior month|last calendar month)$/.test(t)) { const m = today.startOf("month").minus({ months: 1 }); return mk(m, m.endOf("month").startOf("day"), "Last month"); }
+  if (/^(this quarter|qtd|quarter to date)$/.test(t)) return mk(today.startOf("quarter"), today, "This quarter");
+  if (/^(last quarter|previous quarter)$/.test(t)) { const q = today.startOf("quarter").minus({ quarters: 1 }); return mk(q, q.endOf("quarter").startOf("day"), "Last quarter"); }
+  if (/^(this year|ytd|year to date)$/.test(t)) return mk(today.startOf("year"), today, "This year");
+  if (/^(last year|previous year)$/.test(t)) { const y = today.startOf("year").minus({ years: 1 }); return mk(y, y.endOf("year").startOf("day"), "Last year"); }
+  let m = /^(?:last|past|previous|trailing) (\d{1,3}) days?$/.exec(t);
+  if (m && +m[1] >= 1) return mk(today.minus({ days: +m[1] - 1 }), today, `Last ${m[1]} days`);
+  if (/^(?:last|past) (?:7 days|seven days)$/.test(t)) return mk(today.minus({ days: 6 }), today, "Last 7 days");
+  m = /^([a-z]+)\.?(?: (\d{4}))?$/.exec(t);
+  if (m && monthIndex(m[1])) {
+    let start = today.set({ month: monthIndex(m[1])!, day: 1, year: m[2] ? +m[2] : today.year });
+    if (!m[2] && start > today) start = start.minus({ years: 1 });
+    return mk(start, start.endOf("month").startOf("day"), start.toFormat(start.year === today.year ? "LLLL" : "LLLL yyyy"));
+  }
+  m = /^since (.+)$/.exec(t);
+  if (m) { const a = parseDay(m[1], today); return a ? mk(a, today, `Since ${a.toFormat("LLL d")}`) : null; }
+  // "Sep 1-15", "oct 3 – 9"
+  m = /^([a-z]+)\.? (\d{1,2}) ?[-–—] ?(\d{1,2})(?: (\d{4}))?$/.exec(t);
+  if (m && monthIndex(m[1])) {
+    const a = parseDay(`${m[1]} ${m[2]}${m[4] ? ` ${m[4]}` : ""}`, today), b = a ? a.set({ day: +m[3] }) : null;
+    return a && b?.isValid && b.month === a.month ? mk(a, b, "Custom") : null;
+  }
+  const parts = t.split(/\s+(?:to|through|thru|until|till|and)\s+|\s+[-–—]\s+|\.\.|\s*[–—]\s*/).map((p) => p.replace(/^between\s+/, ""));
+  if (parts.length === 2) { const a = parseDay(parts[0], today), b = parseDay(parts[1], today); return a && b ? mk(a, b, "Custom") : null; }
+  const one = parseDay(t, today);
+  return one ? mk(one, one, one.toFormat("cccc")) : null;
+}
+
+/** The same days one step back, for "vs last month": the previous month (or week) clipped to as many days as this one has. */
+export function previousPeriod(p: Period, unit: "month" | "week", tz: string, now: DateTime = DateTime.now()): Period {
+  const a = DateTime.fromISO(p.from, { zone: tz }).minus(unit === "month" ? { months: 1 } : { weeks: 1 });
+  const len = DateTime.fromISO(p.to, { zone: tz }).diff(DateTime.fromISO(p.from, { zone: tz }), "days").days;
+  const whole = unit === "month" && p.from.endsWith("-01") && DateTime.fromISO(p.to, { zone: tz }).plus({ days: 1 }).day === 1;
+  let b = whole ? a.endOf("month").startOf("day") : a.plus({ days: len });
+  if (unit === "month" && b.month !== a.month) b = a.endOf("month").startOf("day");
+  const from = a.toISODate()!, to = b.toISODate()!;
+  return { from, to, name: whole ? "Month before" : unit === "month" ? "Same days last month" : "Week before", label: rangeLabel(from, to, tz, now) };
+}
+
+// ---- the registry -----------------------------------------------------------------------------------------------------
+type Entity = "contact" | "appointment_booked" | "appointment_due" | "opportunity" | "payment" | "reschedule";
+type Q = { companyId: string; start: Date; end: Date; tz: string; sourceField: string; now: Date; groupBy?: GroupBy; filters: { closer?: string; setter?: string; source?: string } };
+
+// a person's source: the CRM's lead-source field the company bound (crm.field_contact_lead_source), else the UTM source on their latest booking
+const SOURCE = (ct: string) => `coalesce(nullif(${ct}.ghl_fields->>$5::text,''), (select nullif(sa.tracking->>'utm_source','') from appointments sa where sa.company_id=${ct}.company_id and sa.contact_id=${ct}.id and sa.source<>'test' and coalesce(sa.tracking->>'utm_source','')<>'' order by sa.booked_at desc limit 1), 'unknown')`;
+const ENTITIES: Record<Entity, { from: string; where: string; time: string; closer?: string; setter?: string; source: string }> = {
+  contact: { from: "contacts ct", where: "ct.company_id=$1 and ct.merged_into is null", time: "ct.ghl_added_at", source: SOURCE("ct") },
+  appointment_booked: { from: "appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term",
+    where: "a.company_id=$1 and a.source<>'test'", time: "a.booked_at", closer: "a.assigned_user_id",
+    setter: "(select su.id from users su where su.company_id=a.company_id and lower(su.name)=lower(a.set_by) limit 1)", source: SOURCE("ct") },
+  appointment_due: { from: "appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term",
+    where: "a.company_id=$1 and a.source<>'test'", time: "a.starts_at", closer: "a.assigned_user_id",
+    setter: "(select su.id from users su where su.company_id=a.company_id and lower(su.name)=lower(a.set_by) limit 1)", source: SOURCE("ct") },
+  // a won deal belongs to the closer of the person's latest call (the rollups' rule, D29)
+  opportunity: { from: "opportunities o left join contacts ct on ct.id=o.contact_id", where: "o.company_id=$1 and o.status='won'", time: "o.won_at",
+    closer: "(select oa.assigned_user_id from appointments oa where oa.company_id=o.company_id and (oa.opportunity_id=o.id or oa.contact_id=o.contact_id) and oa.source<>'test' order by oa.starts_at desc limit 1)", source: SOURCE("ct") },
+  // money belongs to the closer of the person's latest call at or before the payment (any call when none came before)
+  payment: { from: "payments p left join contacts ct on ct.id=p.contact_id", where: "p.company_id=$1 and coalesce(p.raw->>'simulated','')=''", time: "p.paid_at",
+    closer: "(select pa.assigned_user_id from appointments pa where pa.company_id=p.company_id and pa.contact_id=p.contact_id and pa.source<>'test' order by (pa.starts_at<=p.paid_at) desc, pa.starts_at desc limit 1)",
+    source: `case when ct.id is null then 'unlinked payment' else ${SOURCE("ct")} end` },
+  reschedule: { from: "events e join appointments a on a.id=e.appointment_id join contacts ct on ct.id=a.contact_id", where: "e.company_id=$1 and e.event_type='appointment.rescheduled' and e.source<>'test' and a.source<>'test'",
+    time: "e.occurred_at", closer: "a.assigned_user_id", source: SOURCE("ct") },
+};
+
+type Base = { kind: "base"; label: string; unit: Unit; definition: string; entity: Entity; value: string; where?: string };
+type Rate = { kind: "rate"; label: string; definition: string; num: string; den: string };
+type Setter = { kind: "setter"; label: string; unit: Unit; definition: string; pick: (s: SetterStats) => number | null; count: (s: SetterStats) => number };
+type Def = Base | Rate | Setter;
+
+const DUE = "a.starts_at < $6 and a.status not in ('cancelled','invalid') and coalesce(ot.category,'') not in ('cancelled','rescheduled')";
+const SHOWED = "(ot.category='showed' or a.status='showed')";
+const TAG = (cond: string) => `exists (select 1 from unnest(ct.tags) tg where ${cond})`;
+
+export const METRICS: Record<string, Def> = {
+  leads: { kind: "base", label: "Leads", unit: "count", entity: "contact", value: "count(*)", definition: "people who entered their information: contacts by the date the CRM first saw them" },
+  mqls: { kind: "base", label: "MQLs", unit: "count", entity: "contact", value: "count(*)", where: TAG("lower(tg)='mql'"), definition: "qualified leads: leads that arrived in the period and carry the CRM tag mql" },
+  leads_booked: { kind: "base", label: "Leads who booked", unit: "count", entity: "contact", value: "count(*)", where: "exists (select 1 from appointments la where la.company_id=ct.company_id and la.contact_id=ct.id and la.source<>'test')", definition: "leads that arrived in the period and have booked a call (any time since)" },
+  leads_showed: { kind: "base", label: "Leads who showed", unit: "count", entity: "contact", value: "count(*)", where: "exists (select 1 from appointments la left join company_terms lt on lt.id=la.outcome_term where la.company_id=ct.company_id and la.contact_id=ct.id and la.source<>'test' and (lt.category='showed' or la.status='showed'))", definition: "leads that arrived in the period and have showed on a call (any time since)" },
+  mql_rate: { kind: "rate", label: "MQL rate", num: "mqls", den: "leads", definition: "MQLs ÷ leads, both by arrival date" },
+  dqls: { kind: "base", label: "Marketing DQs", unit: "count", entity: "contact", value: "count(*)", where: TAG("lower(tg)='dq' or lower(tg) like 'dq-%'"), definition: "leads that arrived in the period tagged dq or any dq-* tag (marketing disqualified)" },
+  dqls_financial: { kind: "base", label: "DQLs (financial)", unit: "count", entity: "contact", value: "count(*)", where: TAG("lower(tg)='dq-budget'"), definition: "leads that arrived in the period tagged dq-budget: disqualified on financial status" },
+  booked: { kind: "base", label: "Calls booked", unit: "count", entity: "appointment_booked", value: "count(*)", definition: "bookings made in the period (the act of booking), any call type, by the closer they were booked with" },
+  calls_due: { kind: "base", label: "Calls due", unit: "count", entity: "appointment_due", value: "count(*)", where: DUE, definition: "calls whose start time fell in the period and has passed, not cancelled or rescheduled" },
+  shows: { kind: "base", label: "Shows", unit: "count", entity: "appointment_due", value: "count(*)", where: `${DUE} and ${SHOWED}`, definition: "calls due in the period that showed (the closer's filed outcome, or the booking source's status)" },
+  no_shows: { kind: "base", label: "No-shows", unit: "count", entity: "appointment_due", value: "count(*)", where: `${DUE} and (ot.category='noshow' or a.status='noshow')`, definition: "calls due in the period marked no-show (filed by the closer or the booking source); unmarked calls are not counted here" },
+  show_rate: { kind: "rate", label: "Show rate", num: "shows", den: "calls_due", definition: "shows ÷ calls due (start time passed, not cancelled or rescheduled); a call with no outcome filed counts as not showed" },
+  cancellations: { kind: "base", label: "Cancellations", unit: "count", entity: "appointment_due", value: "count(*)", where: "(a.status='cancelled' or ot.category='cancelled')", definition: "calls scheduled for the period that were cancelled" },
+  reschedules: { kind: "base", label: "Reschedules", unit: "count", entity: "reschedule", value: "count(*)", definition: "times a booked call was moved to a new time, by when it was moved" },
+  sales_dqs: { kind: "base", label: "Sales DQs", unit: "count", entity: "appointment_due", value: "count(*)", where: `${DUE} and cot.category='unqualified'`, definition: "calls due in the period the closer filed as disqualified (took the call, not qualified)" },
+  closes: { kind: "base", label: "Closes", unit: "count", entity: "opportunity", value: "count(*)", definition: "deals won in the period (opportunity marked won), credited to the closer of the person's latest call" },
+  close_rate: { kind: "rate", label: "Close rate", num: "closes", den: "shows", definition: "closes ÷ shows in the same period" },
+  revenue: { kind: "base", label: "Revenue", unit: "money", entity: "opportunity", value: "coalesce(sum(o.contract_value),0)", definition: "contract value of the deals won in the period" },
+  cash_collected: { kind: "base", label: "Cash collected", unit: "money", entity: "payment", value: "coalesce(sum(p.amount),0)", where: "p.status in ('succeeded','refunded')", definition: "payments received in the period net of refunds issued in it (refunds are negative lines)" },
+  cash_gross: { kind: "base", label: "Payments", unit: "money", entity: "payment", value: "coalesce(sum(p.amount),0)", where: "p.status='succeeded'", definition: "successful payments in the period, before refunds" },
+  refunds: { kind: "base", label: "Refunds", unit: "money", entity: "payment", value: "coalesce(-sum(p.amount),0)", where: "p.status='refunded'", definition: "money refunded in the period" },
+  speed_to_lead: { kind: "setter", label: "Speed to lead", unit: "minutes", pick: (s) => s.stl_median_min, count: (s) => s.leads_dialled_first, definition: "median minutes from a lead arriving to the first outbound dial, credited to whoever dialled (leads never dialled are not counted)" },
+  dials: { kind: "setter", label: "Dials", unit: "count", pick: (s) => s.dials, count: (s) => s.dials, definition: "outbound dialer calls made in the period" },
+  connected: { kind: "setter", label: "Connected calls", unit: "count", pick: (s) => s.connected, count: (s) => s.connected, definition: "outbound dials the CRM marked connected and at least the company's reached-seconds long" },
+};
+export const METRIC_NAMES = Object.keys(METRICS);
+
+const unitOf = (d: Def): Unit => (d.kind === "rate" ? "rate" : d.unit);
+/** Which ways a metric can be split. */
+export function dimsOf(name: string): GroupBy[] {
+  const d = METRICS[name]; if (!d) return [];
+  if (d.kind === "setter") return ["setter"];
+  if (d.kind === "rate") { const a = dimsOf(d.num), b = dimsOf(d.den); return a.filter((x) => b.includes(x)); }
+  const e = ENTITIES[d.entity];
+  return GROUP_BYS.filter((g) => (g === "closer" ? !!e.closer : g === "setter" ? !!e.setter : true));
+}
+/** The one-line catalogue the model and /help read. */
+export const catalogue = () => METRIC_NAMES.map((n) => `${n}: ${METRICS[n].label} — ${METRICS[n].definition} (split by: ${dimsOf(n).join(", ") || "none"})`).join("\n");
+
+function buildBase(d: Base, q: Q): { sql: string; params: unknown[] } {
+  const e = ENTITIES[d.entity];
+  const params: unknown[] = [q.companyId, q.start, q.end, q.tz, q.sourceField, q.now];
+  const where = [e.where, `${e.time} >= $2 and ${e.time} < $3`, d.where ? `(${d.where})` : ""].filter(Boolean);
+  const bind = (v: unknown) => { params.push(v); return `$${params.length}`; };
+  if (q.filters.closer) { if (!e.closer) throw new MetricError(`${d.label} cannot be filtered by closer`); where.push(`${e.closer} = ${bind(q.filters.closer)}::uuid`); }
+  if (q.filters.setter) { if (!e.setter) throw new MetricError(`${d.label} cannot be filtered by setter`); where.push(`${e.setter} = ${bind(q.filters.setter)}::uuid`); }
+  if (q.filters.source) where.push(`lower(${e.source}) = lower(${bind(q.filters.source)})`);
+  const g = q.groupBy;
+  const key = !g ? "''" : g === "source" ? e.source : g === "closer" ? `${e.closer}::text` : g === "setter" ? `${e.setter}::text`
+    : `to_char(date_trunc('${g}', ${e.time} at time zone $4), '${g === "month" ? "YYYY-MM" : "YYYY-MM-DD"}')`;
+  // $4..$6 are bound on every statement; the trailing checks give each a type even where the metric does not read it
+  return { sql: `select ${key} as g, (${d.value})::float as n from ${e.from} where ${where.join(" and ")} and $4::text is not null and $5::text is not null and $6::timestamptz is not null group by 1`, params };
+}
+
+export type MetricQuery = { metric: string; period: Period; groupBy?: GroupBy; filters?: Filters; now?: Date };
+/** Runs one named metric for one company over a period, optionally split and filtered. Throws MetricError when the ask does not fit the metric. */
+export async function getMetric(c: PoolClient, companyId: string, q: MetricQuery): Promise<MetricResult> {
+  const def = METRICS[q.metric];
+  if (!def) throw new MetricError(`no metric named "${q.metric}"; known: ${METRIC_NAMES.join(", ")}`);
+  if (q.groupBy && !dimsOf(q.metric).includes(q.groupBy)) throw new MetricError(`${def.label} cannot be split by ${q.groupBy}; it can be split by: ${dimsOf(q.metric).join(", ") || "nothing"}`);
+  const co = await one<{ timezone: string }>(c, "select timezone from companies where id=$1", [companyId]);
+  if (!co) throw new MetricError("company not found");
+  const tz = co.timezone;
+  const roster = await many<{ id: string; name: string; role: string }>(c, "select id::text as id, name, role from users where company_id=$1", [companyId]);
+  const nameOf = (id: string) => roster.find((u) => u.id === id)?.name;
+  const filters = resolveFilters(q.metric, q.filters ?? {}, roster);
+  const sourceField = (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='crm.field_contact_lead_source'", [companyId]))?.v.toString("utf8") ?? "";
+  const start = dayBounds(q.period.from, tz).start, end = dayBounds(q.period.to, tz).end;
+  const base: Omit<Q, "groupBy"> = { companyId, start, end, tz, sourceField, now: q.now ?? new Date(), filters };
+  const head = { source: LEDGER, metric: q.metric, label: def.label, definition: def.definition, unit: unitOf(def), period_label: q.period.label, period_name: q.period.name, from: q.period.from, to: q.period.to, timezone: tz, group_by: q.groupBy,
+    filters: Object.fromEntries(Object.entries(filters).filter(([, v]) => v).map(([k, v]) => [k, k === "source" ? v! : nameOf(v!) ?? v!])) };
+  const label = (g: GroupBy | undefined, k: string) => (g === "closer" || g === "setter" ? (k ? nameOf(k) ?? k : "unassigned") : g === "day" ? DateTime.fromISO(k, { zone: tz }).toFormat("ccc LLL d") : g === "week" ? `week of ${DateTime.fromISO(k, { zone: tz }).toFormat("LLL d")}` : g === "month" ? DateTime.fromISO(`${k}-01`, { zone: tz }).toFormat("LLLL yyyy") : k);
+
+  if (def.kind === "setter") {
+    if (filters.closer || filters.source) throw new MetricError(`${def.label} can only be filtered by setter`);
+    const m = await setterMetrics(c, companyId, { from: q.period.from, to: q.period.to });
+    const only = filters.setter ? m.setters.find((s) => s.id === filters.setter) : null;
+    const value = filters.setter ? (only ? def.pick(only) : def.unit === "minutes" ? null : 0) : def.pick(m.totals);
+    const rows = q.groupBy === "setter" ? m.setters.filter((s) => !filters.setter || s.id === filters.setter).map((s) => ({ key: s.id, label: s.name, value: def.pick(s), numerator: def.count(s) })) : undefined;
+    return { ...head, value, rows };
+  }
+  const runBase = async (name: string, groupBy?: GroupBy): Promise<Map<string, number>> => {
+    const d = METRICS[name] as Base;
+    const { sql, params } = buildBase(d, { ...base, groupBy });
+    const r = await many<{ g: string | null; n: number }>(c, sql, params);
+    return new Map(r.map((x) => [x.g ?? "", Number(x.n) || 0]));
+  };
+  if (def.kind === "base") {
+    const total = (await runBase(q.metric)).get("") ?? 0;
+    const rows = q.groupBy ? [...(await runBase(q.metric, q.groupBy)).entries()].map(([k, v]) => ({ key: k, label: label(q.groupBy, k), value: v })) : undefined;
+    return { ...head, value: total, rows: rows && sortRows(rows, q.groupBy) };
+  }
+  const rate = (n: number, d: number) => (d > 0 ? n / d : null);
+  const n = (await runBase(def.num)).get("") ?? 0, d = (await runBase(def.den)).get("") ?? 0;
+  let rows: MetricRow[] | undefined;
+  if (q.groupBy) {
+    const ns = await runBase(def.num, q.groupBy), ds = await runBase(def.den, q.groupBy);
+    rows = sortRows([...new Set([...ns.keys(), ...ds.keys()])].map((k) => ({ key: k, label: label(q.groupBy, k), value: rate(ns.get(k) ?? 0, ds.get(k) ?? 0), numerator: ns.get(k) ?? 0, denominator: ds.get(k) ?? 0 })), q.groupBy);
+  }
+  return { ...head, value: rate(n, d), numerator: n, denominator: d, numerator_label: METRICS[def.num].label.toLowerCase(), denominator_label: METRICS[def.den].label.toLowerCase(), rows };
+}
+
+const sortRows = (rows: MetricRow[], g?: GroupBy) => (g === "day" || g === "week" || g === "month" ? rows.sort((a, b) => a.key.localeCompare(b.key)) : rows.sort((a, b) => (b.denominator ?? b.value ?? 0) - (a.denominator ?? a.value ?? 0) || a.label.localeCompare(b.label)));
+
+/**
+ * Names to engine user ids. `userId` (the asker, for "my …") lands on the person dimension the metric has: a setter's
+ * own on the setter side when the metric can be split by setter, everyone else on the closer side.
+ */
+function resolveFilters(metric: string, f: Filters, roster: { id: string; name: string; role: string }[]): { closer?: string; setter?: string; source?: string } {
+  const dims = dimsOf(metric);
+  const person = (who: string, side: "closer" | "setter") => {
+    const w = who.trim().toLowerCase();
+    if (/^[0-9a-f-]{36}$/.test(w) && roster.some((u) => u.id === w)) return w;
+    const hits = roster.filter((u) => u.name.toLowerCase() === w);
+    const loose = hits.length ? hits : roster.filter((u) => u.name.toLowerCase().split(/\s+/)[0] === w.split(/\s+/)[0] && (w.includes(" ") ? u.name.toLowerCase().startsWith(w) : true));
+    if (loose.length === 1) return loose[0].id;
+    const names = roster.filter((u) => side === "setter" ? ["setter", "staff", "owner", "manager"].includes(u.role) : ["closer", "owner", "manager"].includes(u.role)).map((u) => u.name);
+    throw new MetricError(loose.length > 1 ? `"${who}" matches ${loose.map((u) => u.name).join(" and ")}; which one?` : `no one on the roster is called "${who}"; ${side}s on the roster: ${names.join(", ") || "none"}`);
+  };
+  const out: { closer?: string; setter?: string; source?: string } = {};
+  if (f.closer) out.closer = person(f.closer, "closer");
+  if (f.setter) out.setter = person(f.setter, "setter");
+  if (f.source) out.source = f.source.trim();
+  if (f.userId) {
+    const me = roster.find((u) => u.id === f.userId);
+    if (!me) throw new MetricError("the asker is not on the roster");
+    const side = me.role === "setter" && dims.includes("setter") ? "setter" : dims.includes("closer") ? "closer" : dims.includes("setter") ? "setter" : null;
+    if (!side) throw new MetricError(`${METRICS[metric].label} is a company-wide number; it is not kept per person`);
+    out[side] = me.id;
+  }
+  return out;
+}
+
+// ---- availability ----------------------------------------------------------------------------------------------------
+export type Availability = {
+  metric: "availability"; label: string; definition: string; timezone: string; source: string; read_at: string; days: { date: string; label: string; total: number; light: boolean }[];
+  closers: { name: string; per_day: number[]; total: number }[]; total: number; unreadable: { calendar: string; error: string }[]; light_threshold: number;
+};
+/** Bookable slots per closer per day over the next days, from the same calendar reads as the low-availability check. A day is light under half the period's daily average. */
+export async function getAvailability(c: PoolClient, companyId: string, probes: HealthProbes, days = 7, now: DateTime = DateTime.now()): Promise<Availability> {
+  const r = await calendarSlots(c, companyId, probes, days, now);
+  // a live read that failed everywhere is not "zero slots": say the source failed rather than fill the gap
+  if (r.calendars.length && r.calendars.every((k) => !k.ok)) throw new MetricError(`${r.vendor} did not answer for any calendar: ${r.calendars.map((k) => `${k.calendar}: ${k.ok ? "" : k.error}`).join("; ")}`);
+  if (!r.calendars.length) throw new MetricError("no active booking calendars are mapped for this company");
+  const dates = Array.from({ length: r.days }, (_, i) => r.from.startOf("day").plus({ days: i }));
+  const keys = dates.map((d) => d.toISODate()!);
+  const by = new Map<string, number[]>();
+  for (const cal of r.calendars) {
+    if (!cal.ok) continue;
+    const who = cal.closer ?? cal.calendar;
+    const row = by.get(who) ?? keys.map(() => 0); by.set(who, row);
+    for (const t of cal.times) { const i = keys.indexOf(DateTime.fromISO(t).setZone(r.timezone).toISODate()!); if (i >= 0) row[i]++; }
+  }
+  const totals = keys.map((_, i) => [...by.values()].reduce((s, row) => s + row[i], 0));
+  const all = totals.reduce((a, b) => a + b, 0), avg = all / keys.length, threshold = Math.floor(avg / 2);
+  return {
+    metric: "availability", label: "Calendar availability", timezone: r.timezone, source: `${r.vendor}, read just now`, read_at: now.toISO()!, light_threshold: threshold, total: all,
+    definition: "open bookable slots on each active calendar, read live from the booking source, by the calendar's closer; a day is light when it has under half the period's daily average",
+    days: dates.map((d, i) => ({ date: keys[i], label: d.toFormat("ccc LLL d"), total: totals[i], light: totals[i] < threshold || totals[i] === 0 })),
+    closers: [...by.entries()].map(([name, per_day]) => ({ name, per_day, total: per_day.reduce((a, b) => a + b, 0) })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)),
+    unreadable: r.calendars.filter((k): k is Extract<typeof k, { ok: false }> => !k.ok).map((k) => ({ calendar: k.calendar, error: k.error })),
+  };
+}
