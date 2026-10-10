@@ -441,7 +441,9 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
         () => call("reply", { result_ids: ["r1"], note: "Too few calls to call it a pattern." })];
       await handleMessage(deps(), companyId, msg({ text: "<@UBOT> do people's jobs line up with who shows?" }));
       const text = posts[0].text;
-      expect(text.split("\n")[0]).toMatch(/^\*Show rate by "What best describes your current work situation\?"\*: \d+ of \d+ calls showed \(\d+%\)  · _Sales Calls in the period, from GHL, read just now_$/);
+      expect(text.split("\n")[0]).toBe('*Show rate by "What best describes your current work situation?"*  · _from GHL, read just now_');
+      expect(text.split("\n")[1]).toMatch(/^\d+ calls booked · \d+ answered the question · \d+ showed \(\d+%\)$/);
+      expect(text).toMatch(/\*No answer on \d+ booked calls?:\* /);
       expect(text).toContain("Too few calls to call it a pattern.");
       expect(text).toMatch(/Answer\s+Calls\s+Showed\s+No-show.*Show rate\s+Share of shows/);
       expect(text).toMatch(/Employed full-time\s+\d+/);

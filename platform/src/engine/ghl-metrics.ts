@@ -80,7 +80,8 @@ type Person = { ghl: string; name: string; at: DateTime; answer: string; q: Qual
 type Close = { ghl: string; name: string; at: DateTime; value: number; assignedTo?: string; closer: string; utm: string | null };
 /** A due Sales Call with the ledger appointment it matched one-to-one (by external id, else by the person and the start minute), if any. */
 export type SalesCall = { id: string; ext: string; ghl: string; name: string; test: boolean; at: DateTime; filed: CallClass | null; disposition: string; cls: CallClass | "missing"; flipped: boolean; cancelUnknown: boolean;
-  match: "one" | "none" | "many"; appt: { id: string; contact_id: string; status: string; source: string; outcome: string | null; starts_at: Date; cancelled_at: Date | null } | null; closer: string; utm: string | null; booking_source: string };
+  match: "one" | "none" | "many"; appt: { id: string; contact_id: string; status: string; source: string; outcome: string | null; starts_at: Date; cancelled_at: Date | null } | null; closer: string; utm: string | null; booking_source: string;
+  /** the record's own booking_source value (setter or direct), as GHL keeps it */ booked: string };
 type Call = SalesCall;
 export type GhlCtx = {
   c: PoolClient; companyId: string; ac: Company; bindings: Record<string, string>; reads: GhlReads; tz: string; start: Date; end: Date; now: Date;
@@ -222,7 +223,7 @@ async function calls(x: GhlCtx): Promise<Call[]> {
       const { cls, flipped, cancelUnknown } = classifyCall(filed, a ? { status: a.status, cancelledAt: a.cancelled_at, startsAt: a.starts_at } : null);
       out.push({ id: r.id, ext: String(p.external_id ?? ""), ghl: ghlId, test: cand.some((h) => h.test) || !!facts.get(ghlId)?.test, name: a?.name ?? (String(p.display_label ?? "").trim() || ghlId || r.id), at, filed, disposition: norm(answerText(p.disposition)), cls, flipped, cancelUnknown,
         match: cand.length === 1 ? "one" : cand.length ? "many" : "none", appt: a ? { id: a.id, contact_id: a.contact_id, status: a.status, source: a.source, outcome: a.outcome, starts_at: a.starts_at, cancelled_at: a.cancelled_at } : null,
-        closer: closerOf(String(p.closer ?? "")), utm: facts.get(ghlId)?.utm ?? null, booking_source: a?.source === "calendly" ? "Calendly" : "the GHL calendar" });
+        closer: closerOf(String(p.closer ?? "")), utm: facts.get(ghlId)?.utm ?? null, booking_source: a?.source === "calendly" ? "Calendly" : "the GHL calendar", booked: String(p.booking_source ?? "") });
     }
     return out.sort((a, b) => a.at.toMillis() - b.at.toMillis());
   })());

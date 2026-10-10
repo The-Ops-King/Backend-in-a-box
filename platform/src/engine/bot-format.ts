@@ -106,14 +106,15 @@ function breakdownBody(b: FieldBreakdown): string[] {
 
 /** A field against showing up (D74): each answer's calls and how they went, its show rate and share of shows, then the test's verdict. */
 const pc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
-const versusKey = (v: FieldVsCalls) => `*Show rate by "${v.field_name}"*: ${v.showed} of ${v.calls} calls showed (${pc(v.show_rate)})  · _Sales Calls in the period, from ${v.source}_`;
+const versusKey = (v: FieldVsCalls) => `*Show rate by "${v.field_name}"*  · _from ${v.source}_\n${v.calls} calls booked · ${v.calls - v.unanswered.length} answered the question · ${v.showed} showed (${pc(v.show_rate)})`;
 function versusBody(v: FieldVsCalls): string[] {
   if (!v.calls) return ["_No calls in this period._"];
   const any = (k: "cancelled" | "missing") => v.rows.some((r) => r[k] > 0);
   const head = ["Answer", "Calls", "Showed", "No-show", ...(any("cancelled") ? ["Cancelled"] : []), ...(any("missing") ? ["Unfiled"] : []), "Show rate", "Share of shows"];
   const rows = v.rows.map((r) => [r.value, String(r.calls), String(r.showed), String(r.noshow), ...(any("cancelled") ? [String(r.cancelled)] : []), ...(any("missing") ? [String(r.missing)] : []), pc(r.show_rate), pc(r.share_of_shows)]);
   const total = ["Total", String(v.calls), String(v.showed), String(v.rows.reduce((a, r) => a + r.noshow, 0)), ...(any("cancelled") ? [String(v.rows.reduce((a, r) => a + r.cancelled, 0))] : []), ...(any("missing") ? [String(v.rows.reduce((a, r) => a + r.missing, 0))] : []), pc(v.show_rate), v.showed ? "100%" : "—"];
-  return [table(head, rows, total, 50), `_${v.test.verdict}${v.multi ? " Several answers can be picked, so a call can sit under more than one." : ""}_`];
+  const gap = v.unanswered.length ? [`*No answer on ${v.unanswered.length} booked ${v.unanswered.length === 1 ? "call" : "calls"}:* ${v.unanswered.slice(0, 15).map((u) => `${u.name} (${u.date}${u.booked ? `, ${u.booked.toLowerCase()}` : ""})`).join(", ")}${v.unanswered.length > 15 ? `, and ${v.unanswered.length - 15} more` : ""}`] : [];
+  return [table(head, rows, total, 50), `_${v.test.verdict}${v.multi ? " Several answers can be picked, so a call can sit under more than one." : ""}_`, ...gap];
 }
 
 /** /closes: the count on top, then one line per close, newest first. */

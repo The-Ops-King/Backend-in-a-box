@@ -308,7 +308,7 @@ async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, inpu
       if (!period) return err(`"${input.period}" is not a period I can read. Ask the asker for the period, or pass e.g. "this month", "last 90 days".`);
       const v = await asCompany(ctx.companyId, (c) => fieldVsCalls(c, ctx.companyId, { field: String(input.field ?? ""), period, now: now.toJSDate() }, deps.ghl ?? liveGhlReads));
       held.push({ id, kind: "versus", v });
-      return { content: JSON.stringify({ id, field: v.field_name, period: v.period_label, calls: v.calls, answered_calls: v.answered_calls, showed: v.showed, show_rate: pctStr(v.show_rate),
+      return { content: JSON.stringify({ id, field: v.field_name, period: v.period_label, calls: v.calls, answered_calls: v.answered_calls, showed: v.showed, show_rate: pctStr(v.show_rate), unanswered: v.unanswered,
         rows: v.rows.map((r) => ({ ...r, show_rate: pctStr(r.show_rate), share_of_shows: pctStr(r.share_of_shows) })), test: v.test }) };
     }
     if (name === "get_availability") {
@@ -356,7 +356,7 @@ function render(held: Held[], ids: string[], note: string): Out {
   const body = bodyOf(held, ids), clean = cleanNote(note);
   if (!clean || strayNumbers(held, ids, clean).length) return { kind: "answer", text: body };
   const lines = body.split("\n");
-  const keyEnd = lines.findIndex((l) => !l.startsWith("*") || l === "");
+  const keyEnd = lines.findIndex((l) => l === "");   // the key lines end at the first blank line
   lines.splice(keyEnd < 0 ? lines.length : keyEnd, 0, "", clean);
   return { kind: "answer", text: lines.join("\n").replace(/\n{3,}/g, "\n\n") };
 }

@@ -91,6 +91,8 @@ export async function fieldBreakdown(c: PoolClient, companyId: string, q: { obje
 export type FieldVsCalls = {
   metric: "field_vs_calls"; source: string; period_label: string; period_name: string; timezone: string;
   field: string; field_name: string; multi: boolean; calls: number; answered_calls: number; showed: number; show_rate: number | null;
+  /** the booked calls whose person has no answer, by name and how they were booked: a gap to see, not to hide */
+  unanswered: { name: string; booked: string; date: string }[];
   rows: { value: string; calls: number; showed: number; noshow: number; cancelled: number; missing: number; show_rate: number | null; share_of_shows: number | null }[];
   test: { p: number | null; verdict: string };
 };
@@ -136,6 +138,9 @@ export async function fieldVsCalls(c: PoolClient, companyId: string, q: { field:
     people.set(id, k && !isTestContact({ tags: k.tags, emails: [k.email] }, domains) ? answers(k.customFields[def.prop], def) : []);
   }));
   const by = new Map<string, { calls: number; showed: number; noshow: number; cancelled: number; missing: number }>();
+  const bookedDef = defs.find((f) => f.object !== "contact" && f.prop === "booking_source");
+  const bookedAs = (v: string) => (v ? bookedDef?.options.find((o) => o.key === v)?.label ?? v : "");
+  const unanswered = calls.filter((k) => !(people.get(k.ghl) ?? []).length).map((k) => ({ name: k.name.split(" · ")[0].trim() || k.name, booked: bookedAs(k.booked), date: k.at.toFormat("LLL d") }));
   for (const k of calls) for (const v of (people.get(k.ghl) ?? []).length ? people.get(k.ghl)! : [NO_ANSWER]) {
     const r = by.get(v) ?? { calls: 0, showed: 0, noshow: 0, cancelled: 0, missing: 0 }; by.set(v, r);
     r.calls++; if (k.cls === "showed") r.showed++; else if (k.cls === "noshow") r.noshow++; else if (k.cls === "cancelled" || k.cls === "rescheduled") r.cancelled++; else r.missing++;
@@ -154,5 +159,5 @@ export async function fieldVsCalls(c: PoolClient, companyId: string, q: { field:
     test = { p, verdict: p < 0.05 ? `The show rates differ by more than chance would explain (p = ${p.toFixed(3)}).` : `A difference this size could easily be chance (p = ${p.toFixed(2)}); not enough to call it a pattern yet.` };
   }
   return { metric: "field_vs_calls", source: GHL_SOURCE, period_label: q.period.label, period_name: q.period.name, timezone: tz, field: def.key, field_name: def.name,
-    multi: def.type === "CHECKBOX" || def.type === "MULTIPLE_OPTIONS", calls: calls.length, answered_calls: answeredCalls, showed, show_rate: calls.length ? showed / calls.length : null, rows, test };
+    multi: def.type === "CHECKBOX" || def.type === "MULTIPLE_OPTIONS", calls: calls.length, answered_calls: answeredCalls, showed, show_rate: calls.length ? showed / calls.length : null, unanswered, rows, test };
 }
