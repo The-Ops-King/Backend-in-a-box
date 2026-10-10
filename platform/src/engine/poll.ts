@@ -8,8 +8,10 @@ import { ensureOpportunityForBooking, ensureUser, userIdByEmail } from "./lifecy
 import { simTag, simulate } from "./simulate";
 import { pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, TRANSCRIPT_WAIT_MIN, type RecordingRow } from "./recordings";
 import { applyDocument, facts as agreementFacts } from "./agreements";
+import { foldCard } from "./cards";
+import { handMoved } from "./card-moves";
 
-export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; agreements: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
+export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; agreements: number; cardsMoved: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
 // US/CA: ten digits, or eleven with a leading 1, with or without the plus, are one number; any other length stays as typed
 const normPhone = (p?: string) => p ? p.replace(/[^\d+]/g, "").replace(/^\+?1?(\d{10})$/, "+1$1") : undefined;
@@ -275,6 +277,32 @@ async function pollAgreements(c: PoolClient, co: CompanyRow, ac: Company, adapte
   await saveCursor(c, co.id, "agreements", DateTime.now().toISO()!, true);
 }
 
+/**
+ * D61: every card on the bound boards (setter, closer), any status, diffed against `pipeline_cards`. A stage or status
+ * the engine did not write, with a CRM stamp newer than our last write, is a hand on a card: `handMoved` records it
+ * (event, thread line, the outcome it names). Cards of people the engine does not know yet are left for the contacts
+ * poll to bring first. The first pass is a silent baseline: the replica takes the CRM's state and nothing is said.
+ * The CRM's search cannot filter by updated time, so each tick reads the boards whole (paged; see `pipelineCards`).
+ */
+export async function pollCards(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
+  const boards = ["crm.pipeline_setter", "crm.pipeline_closer"].map((k) => bindings[k]).filter((v): v is string => !!v);
+  if (!boards.length) return;
+  const { isBaseline } = await cursor(c, co.id, "cards", DateTime.now());
+  for (const pipelineId of boards) {
+    for (const card of await adapters.read.pipelineCards(ac, pipelineId)) {
+      if (!card.contactId) continue;
+      const contact = await one<{ id: string }>(c, `select contact_id as id from contact_identifiers where company_id=$1 and kind='ghl_contact' and value=$2 and retired_at is null
+        union all select id from contacts where company_id=$1 and ghl_contact_id=$2 limit 1`, [co.id, card.contactId]);
+      if (!contact) continue;
+      const move = await foldCard(c, co.id, contact.id, card);
+      if (!move) continue;
+      if (isBaseline) { rep.baselined++; continue; }
+      await handMoved(c, co.id, adapters, move); rep.cardsMoved++;
+    }
+  }
+  await saveCursor(c, co.id, "cards", DateTime.now().toISO()!, true);
+}
+
 type EntityPoll = (c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) => Promise<void>;
 
 /**
@@ -283,7 +311,7 @@ type EntityPoll = (c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapter
  * commits or rolls back on its own; the failure counter is written afterwards in a fresh transaction.
  */
 export async function pollAll(adapters: Adapters): Promise<PollReport> {
-  const rep: PollReport = { companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, calls: 0, agreements: 0, eventsDispatched: 0, baselined: 0, errors: [] };
+  const rep: PollReport = { companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, calls: 0, agreements: 0, cardsMoved: 0, eventsDispatched: 0, baselined: 0, errors: [] };
   const companies = await asOperator((c) => many<{ id: string }>(c, "select id from companies where status in ('active','hosted')"));
   for (const { id } of companies) {
     rep.companies++;
@@ -299,6 +327,7 @@ export async function pollAll(adapters: Adapters): Promise<PollReport> {
       ["conversations", pollInbound],
       ["calls", pollPendingCalls],
       ["agreements", pollAgreements],
+      ["cards", pollCards],
     ];
     for (const [entity, fn] of entities) {
       const before = { ...rep };

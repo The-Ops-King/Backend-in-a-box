@@ -34,7 +34,7 @@ Every template carries a `stage` on the customer's journey (`src/engine/stages.t
 | no-show-recovery | GHL marks no-show, or the disposition form does | 10 min, SMS + email with the rebook link, 24h for a reply, one more email |
 | cancellation-rebook | GHL marks cancelled | SMS + email with the rebook link |
 | post-call-follow-up | disposition says follow-up | next morning SMS |
-| call-outcome | a closer filed how a call went (end-of-day or disposition form), or the CRM marked a no-show | on the contact's own booking post: no-show → 👻 in the thread + `stat-no-show`; showed → ✅ (Sales call recorded already put one when the recording landed; a repeat is a no-op) + `stat-showed`, then the confirmed call outcome's tag: closed/deposit → `stat-closed-won`, follow-up → `stat-follow-up`, lost → `stat-lost`, disqualified → `stat-disqualified`; rescheduled → nothing (Call booked reacted 🔁). The engine's own showed (from a recording) does not start it; Jev's read only pre-fills the form (D50, D54). No workflow presumes a no-show any more: the end-of-day form opens with no-show for a call whose time has passed with no recording, no outcome and no money, and nothing is marked until the closer answers. `slack.channel.bookings` optional |
+| call-outcome | a closer filed how a call went (end-of-day or disposition form), or the CRM marked a no-show | on the contact's own booking post: no-show → 👻 in the thread + `stat-no-show`, the setter card → No-Show / Cancel / Reschedule, **lost** (the setter pipeline is won on a show, lost on a no-show; the next booking makes a fresh setter card) and the closer card → No Show / Cancelled, still open (a rebook reuses it); showed → ✅ (Sales call recorded already put one when the recording landed; a repeat is a no-op) + `stat-showed` + the setter card → Showed, won (a no-op when the recording moved it), then the confirmed call outcome's tag and closer-card move: closed/deposit → `stat-closed-won` (the closer card waits for Deal closed / Payment recorded), follow-up → `stat-follow-up` + Follow Up, lost → `stat-lost` + Lost (lost), disqualified → `stat-disqualified` + Disqualified (lost); rescheduled → nothing (Call booked reacted 🔁). Every card step moves a card that exists and never makes one (D61). The engine's own showed (from a recording) does not start it; Jev's read only pre-fills the form (D50, D54). No workflow presumes a no-show any more: the end-of-day form opens with no-show for a call whose time has passed with no recording, no outcome and no money, and nothing is marked until the closer answers. Needs `crm.pipeline_setter`, `crm.pipeline_closer`, `crm.stage_setter_showed`, `crm.stage_setter_cancelled`, `crm.stage_closer_cancelled`, `crm.stage_closer_follow_up`, `crm.stage_closer_lost`, `crm.stage_closer_disqualified`; `slack.channel.bookings` optional |
 | payment-failed | Whop failure | one post in `slack.channel.payments` tagging the closer; the client is not messaged |
 | reactivation | tag `reactivate` added | email, 3 days, SMS, 4 days, last email; once per 90 days |
 | call-booked | closing call booked or moved | contact gets appointment date + closer as owner; setter card → Direct Booked Call ("-- Direct") or Appointment Set ("-- Set", setter stamped); closer card created/moved to Scheduled ("-- Direct" / "-- Setter Booked"); tags `stat-booked` + `stat-self-booked`/`stat-set`, nurture tags off, and `stat-no-show` / `stat-cancelled` / `stat-possible-cancel` / `stat-needs-attention` off too (a fresh booking resets them so a filter on them never catches someone who rebooked, D62); Slack card with intake answers, reschedule link, UTM source. Needs the setter/closer pipeline + stage ids and the custom field ids as `crm.*`; `slack.channel.bookings` optional |
@@ -182,6 +182,26 @@ has), won opportunities (contract value from `crm.field_opportunity_contract_val
 opportunity's value), and payments from Whop's own API when `secret.whop_api_key` is bound (through the
 same ledger path as a webhook: linked by email / phone / member id, else unlinked for the dashboard to
 fix), then rolls every day up. Keyed on source ids, so re-running is safe.
+
+## Cards moved by hand (D61)
+
+The CRM is the truth about cards (D41), and a closer dragging one between runs used to be invisible until a run
+happened to read that contact. The poll now has a `cards` entity: each tick it reads the two bound boards whole
+(`GET /opportunities/search?pipeline_id=…`, 100 a page, ten pages at most; the search has no updated-since filter)
+and folds every card of a contact it knows into `pipeline_cards`. A known card whose stage or status differs from
+the replica, with a CRM stamp newer than our last write to it, was moved by a hand (or a CRM workflow): a
+`card.moved` event goes on the contact ({pipeline, from_stage, to_stage, from_name, to_name, from_status,
+to_status, by: crm, mover}), the replica follows, and the booking post's thread gets "🗂️ <who> moved the closer
+card to Follow Up" (the mover when the CRM says who, else "someone"). A move into the closer board's No Show /
+Cancelled, Lost or Disqualified, or the setter board's No-Show / Cancel / Reschedule, for a call whose time has
+passed files that outcome on the appointment through `recordDisposition`, exactly as the end-of-day form does, so
+Call outcome filed tags it and the Sales Call record says so; Follow Up and Financing Pending are the closer's own
+stages and file nothing. The handler never writes a card's status: the replica keeps the status the CRM returned, and
+the owner's rule (setter lost on a no-show) is Call outcome filed's step, which only ever marks an open card. The same detection runs
+inside every run's read of a contact's cards (`syncCards`), so whichever sees the move first records it, once. The
+first pass is a silent baseline. A card step that finds the card already where it would put it is a no-op
+(`already there`): no CRM write, no second line. Stage names in the line come from the binding keys
+(`crm.stage_closer_follow_up` → Follow Up), never from a CRM call. The contact page lists the moves under History.
 
 ## Agreements (D30)
 

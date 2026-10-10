@@ -418,6 +418,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (!card && !node.stage) return { status: "skipped", next, result: { kind: "noop", why: `no open card on this board to mark ${node.status ?? "updated"}` } };
       if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
       const write = { pipelineId, stageId, name, status: node.status ?? ("open" as const), assignedUserId, customFields };
+      // D61: a card already where this step would put it (a second filing, a hand that moved it first) is left alone: no CRM write, no replica bump
+      if (card && card.ghl_stage_id === stageId && card.name === name && (!node.status || node.status === card.status) && !customFields.length && !assignedUserId) return { status: "skipped", next, result: { kind: "noop", why: "already there", stage: stageId, crm_card: card.ghl_opportunity_id } };
       // the pursuit the card belongs to: the run's, else the contact's open one, else a new one
       let oppId = d.run.opportunity_id ?? card?.opportunity_id ?? (await one<{ id: string }>(d.c, "select id from opportunities where company_id=$1 and contact_id=$2 and status='open' order by opened_at desc limit 1", [d.company.id, d.run.contact_id]))?.id;
       if (!oppId) {

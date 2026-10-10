@@ -30,7 +30,7 @@ const relations: string[] = [];
 const classified: string[] = [];
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
+    contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [],
     getContact: async () => null, listUsers: async () => [{ id: "GHLU1", name: "Sam Closer", email: "sam@x.com" }],
   },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], listCalendars: async () => [],

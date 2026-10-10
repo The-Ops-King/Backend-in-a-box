@@ -166,7 +166,10 @@ export async function contactPage(c: PoolClient, id: string) {
     from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id left join company_terms o on o.id=a.outcome_term where a.contact_id=$1 order by a.starts_at desc limit 20`, [id]);
   const payments = await many<{ id: string; amount: string; currency: string; status: string; kind: string | null; paid_at: Date }>(c, "select id, amount::text, currency, status, kind, paid_at from payments where contact_id=$1 order by paid_at desc limit 20", [id]);
   const recordings = await many<{ id: string; title: string | null; started_at: Date; duration_min: number | null; share_url: string | null; provider: string }>(c, "select id, title, started_at, duration_min, share_url, provider from recordings where contact_id=$1 order by started_at desc limit 20", [id]);
+  // D61: hands on the contact's cards, as the poll saw them
+  const cardMoves = await many<{ id: string; occurred_at: Date; data: { pipeline?: string; from_name?: string; to_name?: string; to_status?: string; from_status?: string; mover?: string | null } }>(c, "select id::text, occurred_at, data from events where contact_id=$1 and event_type='card.moved' order by occurred_at desc limit 20", [id]);
   const history = {
+    cards: cardMoves.map((e) => ({ id: e.id, at: e.occurred_at, pipeline: e.data.pipeline ?? "pipeline", from: e.data.from_name ?? null, to: e.data.to_name ?? null, status: e.data.to_status !== e.data.from_status ? e.data.to_status ?? null : null, by: e.data.mover ?? "someone" })),
     appointments: appointments.map((a) => ({ id: a.id, at: a.starts_at, status: a.status, kind: a.term, closer: a.closer, outcome: a.outcome, booked_by: a.self_booked ? "self" : a.set_by })),
     payments: payments.map((p) => ({ id: p.id, at: p.paid_at, amount: p.amount, currency: p.currency, status: p.status, kind: p.kind })),
     recordings: recordings.map((r) => ({ id: r.id, at: r.started_at, title: r.title, minutes: r.duration_min, url: r.share_url, provider: r.provider })),

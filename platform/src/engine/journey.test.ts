@@ -4,8 +4,8 @@
  * operator worries about (a call booked five hours out, a texted cancel, a show the closer filed with no recording, a
  * no-show who rebooks). The catalogue is engine/06-journey-sweep.md; every `it.fails` here is a Finding there: the test
  * states the behaviour the operator expects, the engine does something else today, and the title says where. The
- * findings D59 fixed (F1, F3, F4, F7, F8's recovery half, F10, F11, F13) are plain `it` now and say so, as are F9 (the
- * tag half of F8) and F21, fixed by D62.
+ * findings D59 fixed (F1, F3, F4, F7, F8's recovery half, F10, F11, F13), D61 fixed (F2, F6: the cards follow the filed
+ * outcome, and a hand on a card in the CRM is seen) and D62 fixed (F9, F21) are plain `it` now and say so.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { DateTime } from "luxon";
@@ -14,7 +14,7 @@ import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { installCompany } from "@/engine/install";
 import { emitEvent, dispatchEvent } from "@/engine/dispatch";
-import { applyAppointment } from "@/engine/poll";
+import { applyAppointment, pollCards, type PollReport } from "@/engine/poll";
 import { applyPayment } from "@/engine/lifecycle";
 import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
@@ -47,7 +47,7 @@ let replyIntent = "confirmed";
 const base = fakeAdapters();
 const fake: Adapters = {
   ...base,
-  read: { ...base.read, openCards: async (_c, id) => liveCards.get(id) ?? [], listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }], getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }) },
+  read: { ...base.read, openCards: async (_c, id) => liveCards.get(id) ?? [], pipelineCards: async (_c, pipelineId) => [...liveCards.entries()].flatMap(([cid, cards]) => cards.filter((k) => k.pipelineId === pipelineId).map((k) => ({ ...k, contactId: cid }))), listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }], getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }) },
   booking: (() => { const b = { appointmentsInWindow: async () => [], listCalendars: async () => [{ id: "CAL", name: "Closer Call", teamMemberIds: ["U1"] }], getAppointment: async (_c: unknown, id: string) => apptStore.get(id) ?? null }; return { ghl: b, calendly: b }; })(),
   write: { ...base.write, addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async (_c, _id, t) => { removedTags.push(t); }, updateContact: async (_c, id, patch) => { contactWrites.push({ id, ...patch }); },
     createTask: async (_c, id, task) => { tasks.push({ contactId: id, ...task }); return { id: `task-${tasks.length}` }; },
@@ -63,7 +63,7 @@ const fake: Adapters = {
 };
 
 const CRM = { pipeline_setter: "PIPE-SETTER", pipeline_closer: "PIPE-CLOSER", stage_setter_new_lead: "STAGE-NEW", stage_setter_direct_booked: "STAGE-DIRECT", stage_setter_appointment_set: "STAGE-SET", stage_setter_showed: "STAGE-SHOWED", stage_setter_cancelled: "STAGE-S-CANCEL",
-  stage_closer_scheduled: "STAGE-SCHED", stage_closer_agreement_sent: "STAGE-AGREE", stage_closer_closed_won: "STAGE-WON", stage_closer_cancelled: "STAGE-C-CANCEL",
+  stage_closer_scheduled: "STAGE-SCHED", stage_closer_agreement_sent: "STAGE-AGREE", stage_closer_closed_won: "STAGE-WON", stage_closer_cancelled: "STAGE-C-CANCEL", stage_closer_follow_up: "STAGE-FOLLOWUP", stage_closer_lost: "STAGE-LOST", stage_closer_disqualified: "STAGE-DQ",
   field_opportunity_stage_entered: "CF-STAGE-DATE", field_opportunity_setter_owner: "CF-SETTER-OWNER", field_contact_appointment_date: "CF-APPT-DATE", field_contact_setter: "CF-SETTER", field_contact_cash_collected: "CF-CASH", field_contact_revenue_generated: "CF-REV",
   assoc_discovery_call_contact: "ASSOC-DC", assoc_sales_call_contact: "ASSOC-SC", assoc_sales_call_opportunity: "ASSOC-SO", assoc_payment_contact: "ASSOC-PC", assoc_payment_opportunity: "ASSOC-PO", agreement_template: "TPL-AGREE", agreement_sender: "U1", default_closer: "U1" };
 const SLACK = { bookings: "CBOOK", calls: "CCALLS", deals: "CDEALS", payments: "CPAY", alerts: "CALERTS", setter_calls: "CSET", eod: "CEOD", reports: "CREP" };
@@ -98,6 +98,9 @@ const leadCreated = (contactId: string) => asOperator(async (c) => dispatchEvent
 const snap = (id: string, ghlContact: string, start: DateTime, over: Partial<AppointmentSnapshot> = {}): AppointmentSnapshot => ({ id, calendarId: "CAL", contactId: ghlContact, assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 45 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {}, ...over });
 const book = async (s: AppointmentSnapshot) => { apptStore.set(s.id, s); await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, s); }); };
 const pay = (contactId: string, paymentId: string, amount: number) => asOperator(async (c) => { const ev = await applyPayment(c, companyId, contactId, { whopPaymentId: paymentId, amount, currency: "USD", status: "succeeded", paidAt: new Date(), raw: {} }); return dispatchEvent(c, ev, { contact: { id: contactId } }); });
+/** One pass of the cards poll for this company, as the tick would run it (D61). */
+const pollTheCards = () => asOperator(async (c) => { const { row, adapterCompany, bindings } = await loadCompany(c, companyId); const rep: PollReport = { companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, calls: 0, agreements: 0, cardsMoved: 0, eventsDispatched: 0, baselined: 0, errors: [] }; await pollCards(c, row, adapterCompany, fake, rep, bindings); return rep; });
+const cardMoves = (contactId: string) => asOperator((c) => many<{ data: Record<string, unknown> }>(c, "select data from events where company_id=$1 and contact_id=$2 and event_type='card.moved' order by id", [companyId, contactId])).then((r) => r.map((x) => x.data));
 const file = async (appointmentId: string, outcome: "showed" | "noshow", callOutcome?: "closed" | "follow_up" | "lost") =>
   asOperator(async (c) => recordDisposition(c, { companyId, appointmentId, outcomeTermId: await term("appointment_outcome", outcome), callOutcomeTermId: callOutcome ? await term("call_outcome", callOutcome) : null, notes: "filed on the end-of-day form", userId: await closerUser() }));
 const daysOut = (d: number, hour = 14) => DateTime.now().setZone(TZ).plus({ days: d }).set({ hour, minute: 0, second: 0, millisecond: 0 });
@@ -235,7 +238,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(tags.slice(nTags)).toEqual(["stat-showed"]);
       expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", stageId: "STAGE-SHOWED", status: "won" })]);
       expect(await cardOn(jordan, "PIPE-SETTER")).toMatchObject({ stage: "STAGE-SHOWED", status: "won" });
-      expect(await cardOn(jordan, "PIPE-CLOSER")).toMatchObject({ stage: "STAGE-SCHED", status: "open" });   // nothing in any template moves the closer card on a show
+      expect(await cardOn(jordan, "PIPE-CLOSER")).toMatchObject({ stage: "STAGE-SCHED", status: "open" });   // a show alone moves no closer card: the closer board has no Showed stage; the filed outcome or the money moves it (D61)
       expect(reactionsOn(bookingTs)).toEqual(["white_check_mark", "white_check_mark"]);   // the second is Slack's already_reacted in life
       expect(threadOf(bookingTs).at(-1)).toMatch(/^✅ Showed · 41 min with Sam Closer/);
       reviewTs = (await postTs(`recording:${r.recording.id}`))!; expect(reviewTs).toBeTruthy();
@@ -243,11 +246,12 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(recordWrites.at(-1)).toMatchObject({ op: "update", external_id: "A-JV", outcome: "showed", disposition: "closed_won" });
       expect(await runsFor("post-call-follow-up", jordan)).toHaveLength(0);   // the engine's call.held carries no call outcome
     });
-    it.fails("F6: the closer card should leave Scheduled when the call shows; the only closer stages any template knows are Scheduled, Agreement Sent, Closed - Won and Cancelled, so a show, a no-show, a loss or a follow-up leaves it where booking put it", async () => {
-      expect((await cardOn(jordan, "PIPE-CLOSER"))!.stage).not.toBe("STAGE-SCHED");
+    it("F6 (fixed, D61): the closer card leaves Scheduled on the filed outcome — Follow Up, Lost, Disqualified, No Show / Cancelled (Pat and Quinn below) — and on the money for a close; a recording alone leaves it, because the closer board has no Showed stage", async () => {
+      expect(await cardOn(jordan, "PIPE-CLOSER")).toMatchObject({ stage: "STAGE-SCHED", status: "open" });
+      expect((templates.find((t) => t.slug === "call-outcome")!.definition.nodes as unknown as Record<string, string>[]).filter((n) => n.type === "pipeline_card").map((n) => `${n.id}:${n.stage}`).sort()).toEqual(["gn1:{{crm.stage_setter_cancelled}}", "gn2:{{crm.stage_closer_cancelled}}", "k2:{{crm.stage_closer_follow_up}}", "k3:{{crm.stage_closer_lost}}", "k4:{{crm.stage_closer_disqualified}}", "sc1:{{crm.stage_setter_showed}}"]);
     });
 
-    it("end of day, the closer files 'showed, closed': Call outcome filed adds stat-closed-won, ✅ ensured, a second thread line, the Sales Call record says showed / closed_won (F7, D59); it writes no card", async () => {
+    it("end of day, the closer files 'showed, closed': Call outcome filed adds stat-closed-won, ✅ ensured, a second thread line, the Sales Call record says showed / closed_won (F7, D59); it writes no card: the setter card is already won by the recording, and a close leaves the closer card to the money (D61)", async () => {
       const nTags = tags.length, nOpp = oppWrites.length, nRec = recordWrites.length;
       await file(appt, "showed", "closed");
       await tickAt(A.plus({ hours: 5 }));
@@ -419,7 +423,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
   // ---- a show the closer filed with no recording ----
   describe("the call showed but nothing recorded it: the closer files 'showed, follow-up' on the end-of-day form", () => {
     let pat: string, appt: string;
-    it("Call outcome filed: stat-showed + stat-follow-up, ✅ and the thread line, the Sales Call record says showed / follow_up (F7, D59); Post-call follow-up parks for 9am; the setter card stays at Direct Booked (open), the closer card at Scheduled", async () => {
+    it("Call outcome filed: stat-showed + stat-follow-up, ✅ and the thread line, the Sales Call record says showed / follow_up (F7, D59); Post-call follow-up parks for 9am; the setter card → Showed (won), the closer card → Follow Up (D61)", async () => {
       pat = await newContact("PAT1", "Pat", "Lindqvist", "pat@x.com", "+16025550104");
       const A = daysOut(4, 14);
       await book(snap("A-PAT", "PAT1", A));
@@ -433,12 +437,35 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       const ts = (await postTs(`appointment:${appt}`))!;
       expect(reactionsOn(ts)).toEqual(["white_check_mark"]); expect(threadOf(ts).at(-1)).toBe("✅ Showed, per Sam Closer: follow up.");
       expect(await lastRun("post-call-follow-up", pat)).toMatchObject({ status: "waiting", current_node: "n1" });
-      expect(oppWrites.length).toBe(nOpp);
+      expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", stageId: "STAGE-SHOWED", status: "won" }), expect.objectContaining({ op: "update", stageId: "STAGE-FOLLOWUP", status: "open" })]);
       expect(recordWrites.slice(nRec)).toEqual([{ op: "update", id: expect.any(String), external_id: "A-PAT", outcome: "showed", disposition: "follow_up" }]);
-      expect(await cardsOf(pat)).toEqual([{ pipeline: "PIPE-CLOSER", stage: "STAGE-SCHED", name: "Pat Lindqvist -- Direct", status: "open" }, { pipeline: "PIPE-SETTER", stage: "STAGE-DIRECT", name: "Pat Lindqvist -- Direct", status: "open" }]);
+      expect(await cardsOf(pat)).toEqual([{ pipeline: "PIPE-CLOSER", stage: "STAGE-FOLLOWUP", name: "Pat Lindqvist -- Direct", status: "open" }, { pipeline: "PIPE-SETTER", stage: "STAGE-SHOWED", name: "Pat Lindqvist -- Direct", status: "won" }]);
     });
-    it.fails("F2: a show the closer confirmed should move the setter card to Showed and mark it won, as the recording path does (Sales call recorded o3); Call outcome filed only tags, so a setter card for an unrecorded show sits at Set / Direct Booked for good", async () => {
+    it("F2 (fixed, D61): a show the closer confirmed moves the setter card to Showed and marks it won, as the recording path does (Sales call recorded o3)", async () => {
       expect(await cardOn(pat, "PIPE-SETTER")).toMatchObject({ stage: "STAGE-SHOWED", status: "won" });
+    });
+    it("F6 (fixed, D61): a filed follow-up moves the closer card to Follow Up", async () => {
+      expect(await cardOn(pat, "PIPE-CLOSER")).toMatchObject({ stage: "STAGE-FOLLOWUP", status: "open" });
+    });
+    it("D61: the closer drags Pat's card to Lost in the CRM between ticks: the cards poll sees it — card.moved (by crm, Follow Up → Lost, who moved it), the replica follows, '🗂️ Sam Closer moved the closer card to Lost' under the booking post, the appointment filed showed / lost as the form would; Call outcome filed then tags stat-lost and marks the card lost; a second look says nothing new", async () => {
+      const closerCard = (await asOperator((c) => one<{ ghl_opportunity_id: string }>(c, "select ghl_opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id='PIPE-CLOSER'", [companyId, pat])))!.ghl_opportunity_id;
+      await asOperator((c) => c.query("update appointments set starts_at=now() - interval '1 hour', ends_at=now() - interval '15 minutes' where id=$1", [appt]));   // the call has happened; the follow-up died in the CRM
+      expect((await pollTheCards()).cardsMoved).toBe(0);   // the first pass is a silent baseline (nothing in the fake CRM yet, nothing said)
+      const ts = (await postTs(`appointment:${appt}`))!, nTags = tags.length, nOpp = oppWrites.length;
+      liveCards.set("PAT1", [{ id: closerCard, pipelineId: "PIPE-CLOSER", stageId: "STAGE-LOST", status: "open", name: "Pat Lindqvist -- Direct", assignedUserId: "U1", updatedAt: DateTime.now().plus({ minutes: 1 }).toISO()!, updatedBy: "U1" }]);
+      expect((await pollTheCards()).cardsMoved).toBe(1);
+      expect(await cardMoves(pat)).toEqual([expect.objectContaining({ pipeline: "closer", from_stage: "STAGE-FOLLOWUP", to_stage: "STAGE-LOST", from_name: "Follow Up", to_name: "Lost", from_status: "open", to_status: "open", by: "crm", mover: "Sam Closer", crm_card: closerCard })]);
+      expect(await cardOn(pat, "PIPE-CLOSER")).toMatchObject({ stage: "STAGE-LOST", status: "open" });
+      expect(threadOf(ts).at(-1)).toBe("🗂️ Sam Closer moved the closer card to Lost");
+      expect(await apptRow(pat)).toMatchObject({ outcome: "showed", call_outcome: "lost" });
+      expect((await pollTheCards()).cardsMoved).toBe(0);   // the replica already says Lost: a second look is not a second move
+      expect(await cardMoves(pat)).toHaveLength(1);
+      await tickAt(DateTime.now());
+      expect(await lastRun("call-outcome", pat)).toMatchObject({ status: "completed", exit_reason: "noted" });
+      expect(tags.slice(nTags)).toEqual(["stat-showed", "stat-lost"]);
+      expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", id: closerCard, stageId: "STAGE-LOST", status: "lost" })]);   // k3: already at Lost, so only the status is news; the won setter card is left alone
+      expect(threadOf(ts).at(-1)).toBe("✅ Showed, per Sam Closer: lost.");
+      liveCards.delete("PAT1");
     });
     it("F7 (fixed, D59): the Sales Call record says showed / follow_up once the closer filed it (Call outcome filed updates the record call-booked created, keyed by the appointment)", async () => {
       expect(recordWrites.some((w) => w.op === "update" && w.external_id === "A-PAT" && w.outcome === "showed" && w.disposition === "follow_up")).toBe(true);
@@ -449,14 +476,16 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
   describe("a no-show who rebooks a week later", () => {
     let quinn: string, first: string;
     const A = daysOut(4, 14);
-    it("the no-show: 👻 and stat-no-show, No-show recovery texts and emails the rebook link after 10 minutes and waits a day for a reply; the booked tags and both cards stay as booking left them", async () => {
+    it("the no-show: 👻 and stat-no-show, the setter card → No-Show / Cancel / Reschedule and lost (the setter pipeline is won on a show, lost on a no-show), the closer card → No Show / Cancelled, still open (a rebook reuses it) (D61 / F6), No-show recovery texts and emails the rebook link after 10 minutes and waits a day for a reply; the booked tags stay", async () => {
       quinn = await newContact("QUINN1", "Quinn", "Adebayo", "quinn@x.com", "+16025550105");
       await book(snap("A-Q1", "QUINN1", A));
       await tickAt(DateTime.now());
       first = (await apptRow(quinn))!.id;
+      const nOpp = oppWrites.length;
       await file(first, "noshow");
       await tickAt(A.plus({ hours: 5 }));
       expect(await lastRun("call-outcome", quinn)).toMatchObject({ status: "completed", exit_reason: "noted" });
+      expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", stageId: "STAGE-S-CANCEL", status: "lost" }), expect.objectContaining({ op: "update", stageId: "STAGE-C-CANCEL", status: "open" })]);
       expect(reactionsOn((await postTs(`appointment:${first}`))!)).toEqual(["ghost"]);
       let rec = await lastRun("no-show-recovery", quinn);
       expect(rec).toMatchObject({ status: "waiting", current_node: "n1" });
@@ -465,14 +494,14 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(sent.slice(n).filter((s) => s.to === "QUINN1").map((s) => s.kind)).toEqual(["sms", "email"]);
       rec = await lastRun("no-show-recovery", quinn); expect(rec).toMatchObject({ status: "waiting", current_node: "n4" });
       expect(await tagsOf(quinn)).toEqual(["meta booked call", "stat-booked", "stat-no-show", "stat-self-booked"]);
-      expect(await cardsOf(quinn)).toEqual([expect.objectContaining({ pipeline: "PIPE-CLOSER", stage: "STAGE-SCHED", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-DIRECT", status: "open" })]);
+      expect(await cardsOf(quinn)).toEqual([expect.objectContaining({ pipeline: "PIPE-CLOSER", stage: "STAGE-C-CANCEL", name: "Quinn Adebayo -- Direct", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-S-CANCEL", name: "Quinn Adebayo -- Direct", status: "lost" })]);
     });
-    it("they book again: Call booked moves the same two cards back to Scheduled / Direct Booked, re-adds stat-booked and takes stat-no-show off (F9, D62); the parked recovery run wakes a day later, sees the new call on the calendar and exits `rebooked` without the 'Want to reschedule?' email (F8, D59)", async () => {
+    it("they book again: Call booked moves the open closer card back to Scheduled and makes a fresh setter card at Direct Booked (the lost one is the last cycle's loss, D61), re-adds stat-booked and takes stat-no-show off (F9, D62); the parked recovery run wakes a day later, sees the new call on the calendar and exits `rebooked` without the 'Want to reschedule?' email (F8, D59)", async () => {
       await book(snap("A-Q2", "QUINN1", daysOut(11, 10)));
       await tickAt(DateTime.now());
       expect(await runsFor("call-booked", quinn)).toHaveLength(2);
-      expect(await cardsOf(quinn)).toHaveLength(2);
-      expect(await tagsOf(quinn)).toEqual(["meta booked call", "stat-booked", "stat-self-booked"]);
+      expect((await cardsOf(quinn)).sort((a, b) => `${a.pipeline}${a.stage}`.localeCompare(`${b.pipeline}${b.stage}`))).toEqual([expect.objectContaining({ pipeline: "PIPE-CLOSER", stage: "STAGE-SCHED", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-DIRECT", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-S-CANCEL", status: "lost" })]);
+      expect(await tagsOf(quinn)).toEqual(["meta booked call", "stat-booked", "stat-self-booked"]);   // stat-no-show comes off on the new booking (F9, D62)
       const rec = await lastRun("no-show-recovery", quinn);
       expect(rec).toMatchObject({ status: "waiting", current_node: "n4" });
       const n = sent.length;
@@ -481,6 +510,27 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(sent.slice(n).filter((s) => s.to === "QUINN1")).toEqual([]);
       expect(await lastRun("no-show-recovery", quinn)).toMatchObject({ status: "completed", exit_reason: "rebooked" });
       expect(await stepStatus(rec.id, ["c1", "c2", "n6"])).toEqual({ c1: "ok", c2: "ok" });   // both checks ran; n6 never did
+    });
+    it("D61: a setter drags Rae's setter card to No-Show / Cancel / Reschedule in the CRM (status left open) after the call time: the poll files the no-show as the form would (the handler writes no status), Call outcome filed then 👻, stat-no-show, marks that open setter card lost and moves the closer card to No Show / Cancelled", async () => {
+      const rae = await newContact("RAE1", "Rae", "Dunmore", "rae@x.com", "+16025550106");
+      await book(snap("A-RAE", "RAE1", daysOut(2, 10)));
+      await tickAt(DateTime.now());
+      const apptId = (await apptRow(rae))!.id;
+      await asOperator((c) => c.query("update appointments set starts_at=now() - interval '2 hours', ends_at=now() - interval '1 hour' where id=$1", [apptId]));
+      const setterCard = (await asOperator((c) => one<{ ghl_opportunity_id: string }>(c, "select ghl_opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id='PIPE-SETTER'", [companyId, rae])))!.ghl_opportunity_id;
+      const ts = (await postTs(`appointment:${apptId}`))!, nOpp = oppWrites.length;
+      liveCards.set("RAE1", [{ id: setterCard, pipelineId: "PIPE-SETTER", stageId: "STAGE-S-CANCEL", status: "open", name: "Rae Dunmore -- Direct", updatedAt: DateTime.now().plus({ minutes: 1 }).toISO()! }]);
+      expect((await pollTheCards()).cardsMoved).toBe(1);
+      expect(await cardMoves(rae)).toEqual([expect.objectContaining({ pipeline: "setter", to_stage: "STAGE-S-CANCEL", to_name: "Cancelled", to_status: "open", by: "crm", mover: null })]);
+      expect(threadOf(ts).at(-1)).toBe("🗂️ someone moved the setter card to Cancelled");
+      expect(await apptRow(rae)).toMatchObject({ outcome: "noshow" });
+      expect(oppWrites.length).toBe(nOpp);   // the handler itself writes nothing to the CRM
+      liveCards.delete("RAE1");
+      await tickAt(DateTime.now());
+      expect(await lastRun("call-outcome", rae)).toMatchObject({ status: "completed", exit_reason: "noted" });
+      expect(reactionsOn(ts)).toContain("ghost");
+      expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", id: setterCard, stageId: "STAGE-S-CANCEL", status: "lost" }), expect.objectContaining({ op: "update", stageId: "STAGE-C-CANCEL", status: "open" })]);
+      expect(await cardsOf(rae)).toEqual([expect.objectContaining({ pipeline: "PIPE-CLOSER", stage: "STAGE-C-CANCEL", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-S-CANCEL", status: "lost" })]);
     });
     it("F8 (fixed, D59): a new booking ends the no-show recovery; the check before each send reads the calendar", async () => {
       expect(sent.filter((s) => s.to === "QUINN1" && /^Want to reschedule\?/.test(s.body))).toHaveLength(0);
@@ -499,12 +549,12 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     beforeAll(() => asOperator((c) => c.query("update companies set send_window_start='08:00', send_window_end='20:00', quiet_allow_transactional=true where id=$1", [companyId])));
     afterAll(() => asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59', quiet_allow_transactional=false where id=$1", [companyId])));
     it("the booking email and text go at 23:00 (receipts, and the company lets transactional sends through); the 4-hour reply wait starts then, under its call − 1h cap (D58)", async () => {
-      rae = await newContact("RAE1", "Rae", "Lindqvist", "rae@x.com", "+16025550106");
+      rae = await newContact("NIGHT1", "Rae", "Lindqvist", "night@x.com", "+16025550109");
       const n = sent.length;
-      await book(snap("A-RAE", "RAE1", A));
+      await book(snap("A-NIGHT", "NIGHT1", A));
       await tickAt(B);
       expect(await lastRun("call-booked", rae)).toMatchObject({ status: "completed", exit_reason: "booked" });
-      expect(sent.slice(n).filter((s) => s.to === "RAE1").map((s) => s.kind)).toEqual(["email", "sms"]);
+      expect(sent.slice(n).filter((s) => s.to === "NIGHT1").map((s) => s.kind)).toEqual(["email", "sms"]);
       pre = await lastRun("pre-call-sequence", rae);
       expect(pre).toMatchObject({ status: "waiting", current_node: "w1" });
       const steps = await stepsOf(pre.id);
@@ -521,12 +571,12 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     it("08:00: the 3-day, 2-day and 24-hour reminders are stale and skipped, the 1-hour text goes at 08:00 (call − 1h) and the 10-minute text at 08:50 — the texts F21 lost", async () => {
       const n = sent.length;
       await wake(pre.id); await tickAt(A.minus({ hours: 1 }));
-      expect(sent.slice(n).filter((s) => s.to === "RAE1").map((s) => s.body)).toEqual([expect.stringContaining("1-hour text")]);
+      expect(sent.slice(n).filter((s) => s.to === "NIGHT1").map((s) => s.body)).toEqual([expect.stringContaining("1-hour text")]);
       pre = await lastRun("pre-call-sequence", rae);
       expect(pre).toMatchObject({ status: "waiting", current_node: "r10" });
       expect(await stepStatus(pre.id, ["m72", "m48", "m24e", "m24s", "m1"])).toEqual({ m72: "stale", m48: "stale", m24e: "stale", m24s: "stale", m1: "ok" });
       await wake(pre.id); await tickAt(A.minus({ minutes: 10 }));
-      expect(sent.slice(n).filter((s) => s.to === "RAE1").map((s) => s.body)).toEqual([expect.stringContaining("1-hour text"), expect.stringContaining("10-minute text")]);
+      expect(sent.slice(n).filter((s) => s.to === "NIGHT1").map((s) => s.body)).toEqual([expect.stringContaining("1-hour text"), expect.stringContaining("10-minute text")]);
       expect(await lastRun("pre-call-sequence", rae)).toMatchObject({ status: "completed", exit_reason: "done" });
     });
   });

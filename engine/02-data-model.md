@@ -361,7 +361,7 @@ insert into event_types values
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'),
   ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
   ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'),
-  ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'),
+  ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'), ('card.moved','crm'),
   ('run.started','engine'), ('run.exited','engine'), ('send.suppressed','engine');
 
 create table events (

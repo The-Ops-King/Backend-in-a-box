@@ -140,6 +140,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`insert into event_types values ('intent.reviewed','message') on conflict do nothing`);
     // D58: the question nobody answered before the call, and a no-show after one Jev had read as a cancel or a reschedule
     await c.query(`insert into event_types values ('intent.unanswered','message'), ('intent.unanswered_no_show','message') on conflict do nothing`);
+    await c.query(`insert into event_types values ('card.moved','crm') on conflict do nothing`);   // D61: a pipeline card moved by a hand in the CRM
     // D48: the three call decisions Jev makes (what kind of recording, what kind of setter call, how the sales call ended)
     await c.query(`insert into core_categories (domain, value, label, sort) values
       ('recording_kind','sales_call','Sales call',1), ('recording_kind','internal','Internal',2), ('recording_kind','other','Other',3),
