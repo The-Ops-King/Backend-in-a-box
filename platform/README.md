@@ -381,8 +381,8 @@ secret from Basic Information goes to the install API as `slackSigningSecret`, t
 
 Anyone in the workspace can ask the ledger a question in Slack. Every number in an answer comes from a tool result, never
 from the model: the metric registry (`src/engine/metric-registry.ts`, one definition per metric, read from the engine's
-ledger), the live calendar read (`get_availability`, the same GHL free-slots / Calendly available-times calls as the
-low-availability check) or, as a last resort, the read-only query door (D64), whose answers are labelled *ad hoc, from
+ledger), the live calendar read (`get_availability`, the open times GHL free-slots / Calendly available-times offer,
+split per closer, D72; the same read as the low-availability thread) or, as a last resort, the read-only query door (D64), whose answers are labelled *ad hoc, from
 the raw ledger*. Each key line says where its number came from (`from the engine's ledger`, `from GHL, read just now`).
 A live read that fails is named in the answer, never filled with an estimate. The message is rendered by our formatter
 (`src/engine/bot-format.ts`): key numbers first in bold, tables as aligned monospace blocks (25 rows at most, totals
@@ -401,9 +401,19 @@ the bot is not in, only the asker sees it, with a note to invite the bot.
 | `/show-rate` | show rate overall, by closer and by source | this month |
 | `/close-rate` | close rate overall, by closer and by source | this month |
 | `/cash` | payments, refunds and net cash, by closer | this month |
-| `/availability` | open bookable slots per day (light days flagged) and per closer per day; `/availability 3` for three days | next 7 days |
+| `/availability` | open bookable slots in one table: a row per day, a column per closer, the day's total and a total row; `/availability 3` for three days | next 7 days |
 | `/leads` | leads, MQLs, marketing DQs and financial DQLs by source | this month |
 | `/help` | every shortcut with a one-line description, and example questions (privately) | — |
+
+**Availability per closer (D72).** The times come only from what the booking source offers (Calendly available times,
+GHL free slots) on the active closing calendars. A round robin's offered times are pooled, so each one is given to every
+host free for the whole call then: on Calendly by the schedule the event type uses for that host
+(`/event_type_availability_schedules`) and the host's busy times (`/user_busy_times`, buffered), on GHL by each team
+member's own free slots. A closer's times are a union across calendars (a time two event types offer counts once for
+them); the day's total is the sum of the closers (two free at 2pm = 2 open). Headers are first names when unique on the
+roster. Self-check: an offered time no host is free for means the split is not trusted, so the closer columns are
+dropped, the totals are the distinct offered times, and the answer says *Could not split by closer: N offered times
+matched no host's schedule*.
 
 Periods: `today`, `yesterday`, `this week`, `last week`, `this month` / `mtd`, `last month`, `last 30 days`, `this
 quarter`, `September`, `Sep 1 to Sep 15`, `2026-09-01..2026-09-30`, `since Sep 15`. "This month" is the calendar month
@@ -545,7 +555,8 @@ plus triggers on `appointment.booked`, `appointment.rescheduled` and `appointmen
 bookable slots than the threshold over the window is a warning, so a full (or quietly closed) calendar is
 known before leads find it. In a run started by a booking only that booking's calendar is read, the minute
 it lands, so the hour is the backstop, not the latency. Every calendar finding and alert carries a link to
-the calendar's public scheduling page (`calendarLink`) and the day-by-day in its thread.
+the calendar's public scheduling page (`calendarLink`) and, in its thread, the same per-closer table `/availability`
+posts.
 
 **A skipped step says why.** Every skip carries a kind: `noop` (nothing to do, by design: no card to move,
 SMS off for the company, already sent) or `blocked` (something is missing: Slack not connected, a channel not

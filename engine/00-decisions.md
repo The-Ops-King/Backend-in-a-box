@@ -2148,3 +2148,47 @@ its thread (D44). Tyler: drop that step; a rebooked call shows as the booking ca
   The old card keeps what it had; a tap on it is no longer a fact the engine reads (only the newest post is remembered).
 - Engine: a persona icon written as one whole `{{expr}}` takes the value as is, so a var can hand over a list of faces.
 
+
+## D72. Availability per closer (2026-10-10)
+
+Was: `/availability`, the bot's `get_availability` and the low-availability thread read each active calendar's open
+times and grouped them by the calendar's default user, else by the calendar's name. Hair books through two Calendly
+round robins ("45 Min Strategy Call", self-booked, and "45 Min Strategy Call - S", setter-booked) that pool the same
+hosts (James, Josh). Calendly's available times for a round robin are pooled (a time shows when ANY host is free) and
+do not say which host, so the answer was per calendar, not per person, and the same open times were counted once per
+calendar (2, 4, 4 on each → 20 when there were 10 distinct times). The table also marked "light" days.
+
+Tyler: per person, in one table, and the alert's day-by-day the same table.
+
+- **Which times.** Only what the booking source offers: Calendly `GET /event_type_available_times` (which already
+  applies buffers, minimum notice, increments and daily limits), GHL `GET /calendars/{id}/free-slots`, on the active
+  closing calendars. No time the source does not offer is ever counted.
+- **Whose (Calendly).** The event type's hosts (`GET /event_type_memberships`, with its `duration` from
+  `GET /event_types/{uuid}`; when that endpoint refuses the token, the type is found under each member's own
+  `/event_types?user=` listing, as the calendar listing does). One host: every offered time is theirs, nothing more is
+  read. Several: each offered start time goes to every host free for the whole call then, by the schedule the event type
+  actually uses for that host (`GET /event_type_availability_schedules`: one rule per host when each host has their own,
+  one shared rule otherwise; weekday rules, date overrides first, in the schedule's own zone, touching intervals as one
+  stretch) and clear of the host's busy times (`GET /user_busy_times`, one read per host for the 7 days, shared by every
+  event type; a Calendly booking counts with its buffered start and end). The user's default schedule is never guessed.
+- **Whose (GHL).** The calendar's team (`GET /calendars/{id}` → `teamMembers`); one member (or none, with a default
+  user): every offered time is theirs; several: free slots read again per member (`userId`), kept only where the
+  calendar's own read offers the same time.
+- **Counting.** A closer's open times are the union across the calendars: a time both strategy calls offer for James
+  counts once for James. The day's total is the sum of the closers (two closers free at 2pm = 2 open). A host is shown by
+  the roster's name (email for Calendly, `ghl_user_id` for GHL, case-insensitive), else by the source's own name.
+- **Self-check.** No answer beats a wrong answer: every offered time must land on at least one host. If any offered time
+  matches no host (or a read the split needs fails), the per-closer columns are dropped, the day totals are the distinct
+  offered times, and the answer says "Could not split by closer: N offered times matched no host's schedule" (or which
+  read failed). A calendar that cannot be read at all is named and left out, as before; all of them failing is an error.
+- **Layout.** One table: the days down the side, a column per closer (`James Open`, the first name when it is unique on
+  the roster, else the full name), `Total Open`, and a total row. The headline stays (`*Open slots, next 7 days: 9*  ·
+  _from Calendly, read just now_`), the footer is only the period line. "Light" days are gone. The definition stays in
+  the data for `/help` and the model.
+- **The alert.** The low-availability check keeps its per-calendar threshold (`min_slots`); the thread under each
+  availability finding is the same message `/availability` posts (`readAvailability` + `formatAvailability`), reusing
+  the pooled reads the check already made. If the per-closer read fails, the thread says so.
+- Not covered: a Calendly per-host daily cap or the new event's own buffers against an external meeting are not in
+  the API, so a host can be counted at a time Calendly would not give them; the self-check only catches the opposite.
+  The new reads are implemented from Calendly's public API reference and exercised through fakes; the first live read
+  on Hair verifies them.

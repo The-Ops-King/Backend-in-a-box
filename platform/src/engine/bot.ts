@@ -243,7 +243,7 @@ async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, inpu
       const days = Math.min(7, Math.max(1, Math.round(Number(input.days) || 7)));
       const a = await asOperator((c) => getAvailability(c, ctx.companyId, deps.probes ?? liveProbes, days, now));
       held.push({ id, kind: "availability", a });
-      return { content: JSON.stringify({ id, total: a.total, days: a.days, closers: a.closers.map((x) => ({ name: x.name, total: x.total })), unreadable: a.unreadable }) };
+      return { content: JSON.stringify({ id, total: a.total, definition: a.definition, days: a.days, closers: a.closers.map((x) => ({ name: x.name, total: x.total, per_day: x.per_day })), split_error: a.split_error, unreadable: a.unreadable }) };
     }
     if (name === "run_readonly_query") {
       const chk = checkQuery(input.sql, 200);

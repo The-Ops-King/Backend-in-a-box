@@ -9,7 +9,7 @@ import { encrypt } from "./crypto";
 import { fakeAdapters, fakeProbes } from "./test-install";
 import type { HealthProbes } from "./health";
 import { getAvailability, getMetric, parsePeriod, previousPeriod } from "./metric-registry";
-import { formatAnswer, availabilityBody, table, MAX_ROWS } from "./bot-format";
+import { formatAnswer, formatAvailability, table, MAX_ROWS } from "./bot-format";
 import { handleMessage, planCommand, runCommand, type SlackMessage } from "./bot";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -31,7 +31,8 @@ let n = 0;
 const call = (name: string, input: Record<string, unknown>): BotTurn => { const id = `tu${++n}`; return { text: "", calls: [{ id, name, input }], stop: "tool_use", content: [{ type: "tool_use", id, name, input }] }; };
 const model: BotModel = { async next(_k, req) { seen.push(JSON.parse(JSON.stringify(req.messages))); const step = script.shift(); if (!step) throw new Error("script ran out"); return step(req); } };
 const slots: Record<string, string[]> = {};
-const probes: HealthProbes = { ...fakeProbes, ghlFreeSlots: async (_p, cal) => ({ ok: true, slots: (slots[cal] ?? []).length, times: slots[cal] ?? [] }) };
+const team: Record<string, string[]> = { "CAL-CARA": ["G-CARA"], "CAL-DAN": ["G-DAN"] };
+const probes: HealthProbes = { ...fakeProbes, ghlFreeSlots: async (_p, cal) => ({ ok: true, slots: (slots[cal] ?? []).length, times: slots[cal] ?? [] }), ghlCalendarTeam: async (_p, cal) => ({ ok: true, userIds: team[cal] ?? [] }) };
 const adapters = (): Adapters => {
   const a = fakeAdapters();
   let ts = 100;
@@ -62,6 +63,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       const user = async (name: string, email: string, role: string, slack: string | null) => (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, slack_user_id) values ($1,$2,$3,$4,$5) returning id", [companyId, email, name, role, slack]))!.id;
       ids.cara = await user("Cara Closer", "cara@bot.co", "closer", "U-CARA"); ids.dan = await user("Dan Dealer", "dan@bot.co", "closer", null);
       ids.tyler = await user("Tyler Ray", "owner@bot.co", "owner", "U-TYLER");
+      await c.query("update users set ghl_user_id='G-' || upper(split_part(name, ' ', 1)) where company_id=$1 and role='closer'", [companyId]);
       await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id) values ($1,'T-BOT',$2,'UBOT')", [companyId, encrypt("xoxb-fake")]);
       for (const [k, kind, v] of [["secret.slack_signing", "secret", SECRET], ["secret.anthropic_key", "secret", "sk-fake"], ["secret.ghl_pit", "secret", "pit"], ["crm.location_id", "id", "LOC"], ["crm.field_contact_lead_source", "id", "F-SRC"], ["bot.escalate_to", "id", "U-TYLER"]])
         await c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,$3,$4)", [companyId, k, kind, kind === "secret" ? encrypt(v) : Buffer.from(v)]);
@@ -156,14 +158,26 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(Object.fromEntries(net.rows!.map((x) => [x.label, x.value]))).toEqual({ "Cara Closer": 2500, unassigned: 1000 });
       await expect(metric("leads", { groupBy: "closer" })).rejects.toThrow(/cannot be split by closer/);
     });
-    it("availability: open slots per closer per day from the live calendar read, light days flagged; a source that fails everywhere is an error, not zero", async () => {
+    it("availability: open slots per closer per day from the live calendar read (the calendar's team, matched to the roster); a source that fails everywhere is an error, not zero", async () => {
       const a = await asOperator((c) => getAvailability(c, companyId, probes, 7, NOW));
       expect(a.source).toBe("GHL, read just now");
-      expect(a.days.map((d) => d.total)).toEqual([5, 1, 4, 0, 0, 0, 0]);
-      expect(a.closers).toEqual([{ name: "Dan Dealer", per_day: [2, 0, 4, 0, 0, 0, 0], total: 6 }, { name: "Cara Closer", per_day: [3, 1, 0, 0, 0, 0, 0], total: 4 }]);
-      expect(a.days.filter((d) => d.light).map((d) => d.label)).toEqual(["Tue Oct 13", "Wed Oct 14", "Thu Oct 15", "Fri Oct 16"]);
+      expect(a.days.map((d) => d.total)).toEqual([5, 1, 4, 0, 0, 0, 0]); expect(a.total).toBe(10); expect(a.split_error).toBeUndefined();
+      expect(a.closers).toEqual([{ name: "Cara Closer", short: "Cara", per_day: [3, 1, 0, 0, 0, 0, 0], total: 4 }, { name: "Dan Dealer", short: "Dan", per_day: [2, 0, 4, 0, 0, 0, 0], total: 6 }]);
       const down: HealthProbes = { ...probes, ghlFreeSlots: async () => ({ ok: false, error: "401 unauthorized" }) };
       await expect(asOperator((c) => getAvailability(c, companyId, down, 7, NOW))).rejects.toThrow(/GHL did not answer.*401/);
+    });
+    it("availability, GHL round robin: each team member's free slots are read on their own; a time two calendars offer counts once per closer; a time no member has fails the split", async () => {
+      // Dan's calendar is shared with Cara: she is free on it at 2pm Saturday (also offered on her own calendar: once) and 9am Monday
+      const shared: HealthProbes = { ...probes, ghlCalendarTeam: async (_p, cal) => ({ ok: true, userIds: cal === "CAL-DAN" ? ["G-DAN", "G-CARA"] : ["G-CARA"] }),
+        ghlFreeSlots: async (_p, cal, _f, _t, _z, user) => { const all = slots[cal] ?? []; const t = !user ? all : user === "G-CARA" ? all.filter((x) => /T1[4]:|2026-10-12T09/.test(x)) : all.filter((x) => !/2026-10-12T09/.test(x)); return { ok: true, slots: t.length, times: t }; } };
+      const a = await asOperator((c) => getAvailability(c, companyId, shared, 3, NOW));
+      expect(a.closers.map((x) => [x.short, x.per_day])).toEqual([["Cara", [3, 1, 1]], ["Dan", [2, 0, 3]]]);
+      expect(a.days.map((d) => d.total)).toEqual([5, 1, 4]); expect(a.total).toBe(10);
+      // Monday 9am is offered but neither member's own read has it: no split, the day totals are the distinct offered times
+      const gap: HealthProbes = { ...shared, ghlFreeSlots: async (p, cal, f, t, z, user) => { const r = await shared.ghlFreeSlots(p, cal, f, t, z, user); return user && r.ok ? { ...r, times: r.times.filter((x) => !/2026-10-12T09/.test(x)) } : r; } };
+      const b = await asOperator((c) => getAvailability(c, companyId, gap, 3, NOW));
+      expect(b.closers).toEqual([]); expect(b.split_error).toBe("Could not split by closer: 1 offered time matched no host's schedule");
+      expect(b.days.map((d) => d.total)).toEqual([4, 1, 4]); expect(b.total).toBe(9);   // Saturday 2pm is offered by both calendars: one distinct time
     });
   });
 
@@ -182,11 +196,13 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(text).toContain("Cara Closer        100%       1      1"); expect(text).toMatch(/_Close rate: closes ÷ shows in the same period_/);
       expect(lines[lines.length - 1]).toBe("_Period: Oct 1–10 (America/Phoenix)_");
     });
-    it("availability: total per day with light days, then each closer per day", async () => {
-      const body = availabilityBody(await asOperator((c) => getAvailability(c, companyId, probes, 3, NOW)));
-      expect(body).toContain("Sat Oct 10           5");
-      expect(body).toContain("Closer       Sat 10  Sun 11  Mon 12  Total");
-      expect(body).toContain("Dan Dealer        2       0       4      6");
+    it("availability: one table, a day per row, a column per closer (first names), the day's total, a total row; the period line under it and nothing else", async () => {
+      const text = formatAvailability(await asOperator((c) => getAvailability(c, companyId, probes, 3, NOW)));
+      expect(text).toBe([
+        "*Open slots, next 3 days: 10*  · _from GHL, read just now_", "",
+        "```", "Day         Cara Open  Dan Open  Total Open", "Sat Oct 10          3         2           5", "Sun Oct 11          1         0           1", "Mon Oct 12          0         4           4", "Total               4         6          10", "```", "",
+        "_Period: Sat Oct 10 to Mon Oct 12, read just now (America/Phoenix)_"].join("\n"));
+      expect(text).not.toMatch(/light/i);
     });
   });
 

@@ -10,13 +10,19 @@ export async function ghlLocationOk(pit: string, locationId: string): Promise<{ 
   catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 200) }; }
 }
 
-/** Bookable slots on a calendar between two instants (GET /calendars/{id}/free-slots, epoch ms). Returns the count, or an error. */
-export async function ghlFreeSlots(pit: string, calendarId: string, from: Date, to: Date, timezone: string): Promise<{ ok: true; slots: number; times: string[] } | { ok: false; error: string }> {
+/** Bookable slots on a calendar between two instants (GET /calendars/{id}/free-slots, epoch ms), or one team member's (`userId`). Returns the count, or an error. */
+export async function ghlFreeSlots(pit: string, calendarId: string, from: Date, to: Date, timezone: string, userId?: string): Promise<{ ok: true; slots: number; times: string[] } | { ok: false; error: string }> {
   try {
-    const r = await ghl<Record<string, unknown>>(pit, "GET", `/calendars/${calendarId}/free-slots?startDate=${from.getTime()}&endDate=${to.getTime()}&timezone=${encodeURIComponent(timezone)}`, { version: "2021-04-15" });
+    const r = await ghl<Record<string, unknown>>(pit, "GET", `/calendars/${calendarId}/free-slots?startDate=${from.getTime()}&endDate=${to.getTime()}&timezone=${encodeURIComponent(timezone)}${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`, { version: "2021-04-15" });
     // the answer is keyed by date: { "2026-10-09": { slots: ["2026-10-09T09:00:00-04:00", …] }, traceId }
     const times: string[] = [];
     for (const [k, v] of Object.entries(r)) { if (k === "traceId") continue; const s = (v as { slots?: unknown[] } | undefined)?.slots; if (Array.isArray(s)) times.push(...s.map(String)); }
     return { ok: true, slots: times.length, times };
   } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 200) }; }
+}
+
+/** The calendar's team (GET /calendars/{id} → calendar.teamMembers[].userId): whose free slots make up its pooled ones (D72). */
+export async function ghlCalendarTeam(pit: string, calendarId: string): Promise<{ ok: true; userIds: string[] } | { ok: false; error: string }> {
+  try { const r = await ghl<{ calendar?: { teamMembers?: { userId: string }[] } }>(pit, "GET", `/calendars/${calendarId}`, { version: "2021-04-15" }); return { ok: true, userIds: [...new Set((r.calendar?.teamMembers ?? []).map((t) => t.userId).filter(Boolean))] }; }
+  catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 200) }; }
 }

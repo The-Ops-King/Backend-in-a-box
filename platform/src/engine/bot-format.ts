@@ -74,16 +74,15 @@ function adhocTable(q: { columns: string[]; rows: unknown[][]; truncated: boolea
   return table(q.columns, q.rows.map((r) => r.map(s))) + (q.truncated ? "\n_More rows than shown._" : "");
 }
 
-/** Availability: the total per day (light days marked), then each closer per day, then where it came from. */
+/**
+ * Availability (D72): one table, the days down the side, a column per closer, then the day's total and a total row.
+ * When the split failed its self-check the closer columns are left out and the reason is said plainly.
+ */
 export function availabilityBody(a: Availability): string {
   const L: string[] = [];
-  const light = a.days.filter((d) => d.light);
-  if (light.length) L.push(`*Light days:* ${light.map((d) => `${d.label} (${d.total})`).join(", ")}`);
-  L.push(table(["Day", "Open slots", ""], a.days.map((d) => [d.label, String(d.total), d.light ? "light" : ""]), ["Total", String(a.total), ""]));
-  if (a.closers.length) {
-    const short = a.days.map((d) => d.label.split(" ").filter((_, i) => i !== 1).join(" "));   // "Fri 10"
-    L.push("*By closer*", table(["Closer", ...short, "Total"], a.closers.map((c) => [c.name, ...c.per_day.map(String), String(c.total)]), ["Total", ...a.days.map((d) => String(d.total)), String(a.total)]));
-  }
+  const total = ["Total", ...a.closers.map((c) => String(c.total)), String(a.total)];
+  L.push(table(["Day", ...a.closers.map((c) => `${c.short} Open`), "Total Open"], [...a.days.map((d, i) => [d.label, ...a.closers.map((c) => String(c.per_day[i])), String(d.total)]), total]));
+  if (a.split_error) L.push(a.split_error);
   if (a.unreadable.length) L.push(`_Could not read: ${a.unreadable.map((u) => `${u.calendar} (${u.error})`).join("; ")}. Those calendars are not in the numbers._`);
   return L.join("\n");
 }
@@ -92,7 +91,7 @@ export function formatAvailability(a: Availability): string {
   return [availabilityKey(a), "", availabilityBody(a), "", availabilityFooter(a)].join("\n");
 }
 export const availabilityKey = (a: Availability) => `*Open slots, next ${a.days.length} days: ${a.total.toLocaleString("en-US")}*  · _from ${a.source}_`;
-export const availabilityFooter = (a: Availability) => `_${a.label}: ${a.definition}_\n_Period: ${a.days[0]?.label ?? ""} to ${a.days[a.days.length - 1]?.label ?? ""}, read just now (${a.timezone})_`;
+export const availabilityFooter = (a: Availability) => `_Period: ${a.days[0]?.label ?? ""} to ${a.days[a.days.length - 1]?.label ?? ""}, read just now (${a.timezone})_`;
 
 /** The summary shortcuts (/mtd, /weekly, /monthly): the key numbers with the comparison beside each, then definitions. */
 export function formatSummary(cur: MetricResult[], prev: MetricResult[] | null, extra: string[] = []): string {
@@ -139,7 +138,7 @@ export const SHORTCUTS: { command: string; about: string; example: string }[] = 
   { command: "/show-rate", about: "show rate overall, by closer and by source (default this month)", example: "/show-rate last month" },
   { command: "/close-rate", about: "close rate overall, by closer and by source (default this month)", example: "/close-rate last 30 days" },
   { command: "/cash", about: "cash collected, refunds and net, by closer (default this month)", example: "/cash last week" },
-  { command: "/availability", about: "open bookable slots for the next 7 days, per day and per closer (or a number of days, up to 7)", example: "/availability 3" },
+  { command: "/availability", about: "open bookable slots for the next 7 days, per day and per closer in one table (or a number of days, up to 7)", example: "/availability 3" },
   { command: "/leads", about: "leads, MQLs and marketing DQs by source (default this month)", example: "/leads yesterday" },
 ];
 export function helpText(botMention = "@bot"): string {

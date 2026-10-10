@@ -6,9 +6,10 @@ import { loadCompany, type CompanyRow } from "./context";
 import { reconcile, type AlertInput, type Level } from "./alerts";
 import { companyReadiness } from "./readiness";
 import { ghlCatalog, type Catalog } from "@/adapters/ghl/catalog";
-import { ghlFreeSlots, ghlLocationOk } from "@/adapters/ghl/health";
+import { ghlCalendarTeam, ghlFreeSlots, ghlLocationOk } from "@/adapters/ghl/health";
 import { calendlyWhoAmI } from "@/adapters/calendly/read";
-import { calendlyAvailableTimes } from "@/adapters/calendly/health";
+import { calendlyAvailableTimes, calendlyBusyTimes, calendlyEventTypeHosts, calendlyEventTypeSchedules, type CalendlyHost, type CalendlySchedule } from "@/adapters/calendly/health";
+import { formatAvailability } from "./bot-format";
 import { whopGetWebhook, whopPing } from "@/adapters/whop/client";
 import { fathomListWebhooks, fathomPing } from "@/adapters/fathom/client";
 import { anthropicPing } from "@/adapters/anthropic/health";
@@ -25,13 +26,6 @@ export type Finding = { check: string; item?: string; ok: boolean; level: Level;
   /** The alert's key when it is not `health:<check>:<item>` (duplicates are `duplicate:<contact_id>`, D63), and the engine page its Open link goes to when it is not the health page. */
   key?: string; page?: string };
 
-/** The next days at a glance: "Thu Oct 9 · 2 (10:00am, 2:00pm)" per day, "none" where the calendar is closed or full. Posted in the alert's thread. */
-export function availabilityBreakdown(times: string[], from: DateTime, days: number, tz: string): string {
-  const byDay = new Map<string, string[]>();
-  for (let i = 0; i < days; i++) byDay.set(from.setZone(tz).plus({ days: i }).toISODate()!, []);
-  for (const t of times) { const d = DateTime.fromISO(t).setZone(tz); const k = d.toISODate()!; if (byDay.has(k)) byDay.get(k)!.push(d.toFormat("h:mma").toLowerCase()); }
-  return [...byDay.entries()].map(([k, list]) => `${DateTime.fromISO(k, { zone: tz }).toFormat("ccc LLL d")} · ${list.length ? `${list.length} (${list.slice(0, 8).join(", ")}${list.length > 8 ? ", …" : ""})` : "none"}`).join("\n");
-}
 export type HealthRow = { company_id: string; channel: string | null; as_name: string | null; as_icon: string | null; last_run_at: Date | null; last_result: Finding[] };
 /** What a sweep is told by the step that runs it: which checks, the availability threshold, the channel its alerts announce in. */
 export type HealthConfig = { checks: Record<string, boolean>; min_slots: number; slots_days: number; channel?: string | null };
@@ -64,8 +58,9 @@ export async function ensureHealth(c: PoolClient, companyId: string): Promise<He
 
 /** The outside calls the sweep makes, injectable so the engine's logic is tested without the vendors. */
 export type HealthProbes = {
-  ghlLocationOk: typeof ghlLocationOk; ghlFreeSlots: typeof ghlFreeSlots; ghlCatalog: typeof ghlCatalog;
+  ghlLocationOk: typeof ghlLocationOk; ghlFreeSlots: typeof ghlFreeSlots; ghlCatalog: typeof ghlCatalog; ghlCalendarTeam: typeof ghlCalendarTeam;
   calendlyWhoAmI: typeof calendlyWhoAmI; calendlyAvailableTimes: typeof calendlyAvailableTimes;
+  calendlyEventTypeHosts: typeof calendlyEventTypeHosts; calendlyEventTypeSchedules: typeof calendlyEventTypeSchedules; calendlyBusyTimes: typeof calendlyBusyTimes;
   whopPing: typeof whopPing; whopGetWebhook: typeof whopGetWebhook; fathomPing: typeof fathomPing; fathomListWebhooks: typeof fathomListWebhooks; anthropicPing: typeof anthropicPing; jevPing?: typeof jevPing;
   urlOk: (url: string) => Promise<{ ok: boolean; status?: number; error?: string }>;
 };
@@ -82,7 +77,7 @@ export async function urlOk(url: string): Promise<{ ok: boolean; status?: number
 /** Wait between re-asks of a vendor that did not answer; 0 in tests. */
 export let PROBE_RETRY_MS = 3000;
 export const setProbeRetryMs = (ms: number) => { PROBE_RETRY_MS = ms; };
-export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, calendlyWhoAmI, calendlyAvailableTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk };
+export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, ghlCalendarTeam, calendlyWhoAmI, calendlyAvailableTimes, calendlyEventTypeHosts, calendlyEventTypeSchedules, calendlyBusyTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk };
 
 const DAYS_AHEAD = 7;
 type SlotRead = { name: string; id: string; slots: number; href?: string; times: string[] };
@@ -394,6 +389,7 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
   const from = now.toJSDate(), to = now.plus({ days }).toJSDate();
   const connected = !!ac.pit && !!ac.locationId;
   const slotReads: SlotRead[] = [];
+  const known = new Map<string, string[]>();   // pooled reads made here, so the per-closer table does not ask again
   const cals = (await many<{ external_id: string; name: string; source: string; booking_url: string | null }>(c, "select external_id, name, source, booking_url from calendars where company_id=$1 and active and source=$2", [company.id, ac.booking.source])).filter((k) => !only || only.includes(k.external_id));
   const link = (k: { external_id: string; source: string; booking_url: string | null }) => calendarLink(k, ac.locationId);
   const ok = (check: string, text: string, item?: string, detail?: Record<string, unknown>, href?: string) => out.push({ check, item, ok: true, level: "warning", text, detail, href, hrefLabel: href ? "Open the calendar" : undefined });
@@ -401,6 +397,7 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
   if (ac.booking.source === "ghl" && on("ghl_calendars") && connected) {
     for (const cal of cals) {
       const r = await probes.ghlFreeSlots(ac.pit, cal.external_id, from, to, company.timezone);
+      if (r.ok) known.set(cal.external_id, r.times);
       if (!r.ok) bad("ghl_calendars", "error", `Calendar "${cal.name}" cannot be read: ${r.error}`, cal.external_id, undefined, link(cal));
       else if (r.slots === 0) bad("ghl_calendars", "warning", `Calendar "${cal.name}" has no bookable slot in the next ${days} days. A closer's connected calendar may have dropped, or availability is off.`, cal.external_id, undefined, link(cal));
       else { ok("ghl_calendars", `"${cal.name}": ${r.slots} bookable slots in the next ${days} days.`, cal.external_id, { slots: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots, href: link(cal), times: r.times }); }
@@ -417,43 +414,161 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
       if (t.active === false) { bad("calendly_calendars", "warning", `Event type "${cal.name}" is turned off in Calendly.`, cal.external_id, undefined, link(cal)); continue; }
       // the API wants a start in the future and a window of at most 7 days: a minute from now, (days - 1) days and 23 hours long
       const r = await probes.calendlyAvailableTimes(token, `https://api.calendly.com/event_types/${cal.external_id}`, now.plus({ minutes: 1 }).toJSDate(), now.plus({ days: days - 1, hours: 23 }).toJSDate());
+      if (r.ok) known.set(cal.external_id, r.times);
       if (!r.ok) bad("calendly_calendars", "error", `Event type "${cal.name}": availability cannot be read: ${r.error}`, cal.external_id, undefined, link(cal));
       else if (r.slots === 0) bad("calendly_calendars", "warning", `Event type "${cal.name}" has no available time in the next ${days} days. A host's connected calendar may have dropped, or availability is off.`, cal.external_id, undefined, link(cal));
       else { ok("calendly_calendars", `"${cal.name}": ${r.slots} available times in the next ${days} days.`, cal.external_id, { slots: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots, href: link(cal), times: r.times }); }
     }
     if (live && !cals.length && !only) ok("calendly_calendars", "No Calendly event types mapped.");
   }
-  // Low availability: the calendar is alive but nearly full (or nearly closed); the threshold is the company's own
+  // Low availability: the calendar is alive but nearly full (or nearly closed); the threshold is the company's own.
+  // The thread under it is the same per-closer table /availability answers with (D72), so the two never disagree.
   if (on("availability") && slotReads.length) {
     const low = slotReads.filter((s) => s.slots < row.min_slots);
-    for (const s of low) { bad("availability", "warning", `"${s.name}" has only ${s.slots} bookable ${s.slots === 1 ? "slot" : "slots"} in the next ${days} days (alert below ${row.min_slots}).`, s.id, { slots: s.slots, min: row.min_slots }, s.href); out[out.length - 1].thread = `*${s.name} · next ${days} days*\n${availabilityBreakdown(s.times, now, days, company.timezone)}`; }
+    for (const s of low) bad("availability", "warning", `"${s.name}" has only ${s.slots} bookable ${s.slots === 1 ? "slot" : "slots"} in the next ${days} days (alert below ${row.min_slots}).`, s.id, { slots: s.slots, min: row.min_slots }, s.href);
     if (!low.length && !only) ok("availability", `${slotReads.length} calendar${slotReads.length === 1 ? "" : "s"} at or above ${row.min_slots} bookable slots over ${days} days.`);
     for (const s of slotReads) if (s.slots >= row.min_slots && only) ok("availability", `"${s.name}": ${s.slots} bookable slots, at or above ${row.min_slots}.`, s.id, { slots: s.slots }, s.href);
-    for (const s of slotReads) { const f = out.find((x) => x.check === "availability" && x.item === s.id); if (f && !f.thread) f.thread = `*${s.name} · next ${days} days*\n${availabilityBreakdown(s.times, now, days, company.timezone)}`; }
+    const items = out.filter((x) => x.check === "availability" && x.item);
+    if (items.length) {
+      const thread = await readAvailability(c, company.id, probes, days, now, known).then(formatAvailability, (e) => `_Open slots by closer could not be read: ${String((e as Error).message).slice(0, 200)}_`);
+      for (const f of items) f.thread = thread;
+    }
   }
   return out;
 }
 
 /**
- * Bookable times per active calendar over the next `days` (at most 7), each with the closer it belongs to (the calendar's
- * default user). The same vendor reads as readCalendars, so the bot's availability and the low-availability alert agree.
+ * D72. Open slots per closer per day over the next `days` (at most 7), read live: what /availability, the bot's
+ * get_availability and the low-availability thread all show. Each offered time comes from the booking source's pooled
+ * read (Calendly available times, GHL free slots), which already applies buffers, notice, increments and limits; then it
+ * is given to every host free for the whole call then. A time offered by two calendars counts once per closer.
+ * Self-check: an offered time no host is free for means the split cannot be trusted, so the per-closer columns are
+ * dropped and the day totals are the distinct offered times (`split_error` says so). Nothing is counted that the source
+ * does not offer.
  */
-export type CalendarSlots = { calendar: string; external_id: string; closer_id: string | null; closer: string | null } & ({ ok: true; times: string[] } | { ok: false; error: string });
-export async function calendarSlots(c: PoolClient, companyId: string, probes: HealthProbes, days: number, now: DateTime = DateTime.now()): Promise<{ days: number; from: DateTime; timezone: string; vendor: string; calendars: CalendarSlots[] }> {
-  const { row, adapterCompany: ac, bindings } = await loadCompany(c, companyId);
-  const n = Math.min(DAYS_AHEAD, Math.max(1, Math.round(days) || DAYS_AHEAD));
-  const cals = await many<{ external_id: string; name: string; closer_id: string | null; closer: string | null }>(c, `select cal.external_id, cal.name, u.id::text as closer_id, u.name as closer from calendars cal left join users u on u.id=cal.default_user_id
-    where cal.company_id=$1 and cal.active and cal.source=$2 order by cal.name`, [companyId, ac.booking.source]);
-  const out: CalendarSlots[] = [];
-  for (const k of cals) {
-    const base = { calendar: k.name, external_id: k.external_id, closer_id: k.closer_id, closer: k.closer };
-    const r = ac.booking.source === "ghl"
-      ? (ac.pit ? await probes.ghlFreeSlots(ac.pit, k.external_id, now.toJSDate(), now.plus({ days: n }).toJSDate(), row.timezone) : { ok: false as const, error: "no CRM token bound" })
-      // the API wants a start in the future and a window of at most 7 days (as readCalendars)
-      : await probes.calendlyAvailableTimes(bindings["secret.calendly_token"], `https://api.calendly.com/event_types/${k.external_id}`, now.plus({ minutes: 1 }).toJSDate(), now.plus({ days: n - 1, hours: 23 }).toJSDate());
-    out.push(r.ok ? { ...base, ok: true, times: r.times } : { ...base, ok: false, error: r.error });
+export type Availability = {
+  metric: "availability"; label: string; definition: string; timezone: string; source: string; read_at: string;
+  days: { date: string; label: string; total: number }[];
+  /** `short`: the column header, the first name when it is unique on the roster. Empty when the split failed its self-check. */
+  closers: { name: string; short: string; per_day: number[]; total: number }[];
+  total: number; unreadable: { calendar: string; error: string }[]; split_error?: string;
+};
+export class AvailabilityUnreadable extends Error {}
+
+/** Is the host free for the whole call from `start`: inside the schedule the event type uses for them (date overrides first), clear of every busy time. */
+export function hostFree(start: number, minutes: number, schedule: CalendlySchedule | undefined, busy: { start: number; end: number }[]): boolean {
+  if (!schedule) return false;
+  const end = start + minutes * 60_000, zone = schedule.timezone;
+  const spans: [number, number][] = [];
+  for (let d = DateTime.fromMillis(start, { zone }).startOf("day").minus({ days: 1 }); d.toMillis() < end; d = d.plus({ days: 1 })) {
+    const date = d.toISODate()!, wday = d.setLocale("en-US").toFormat("cccc").toLowerCase();
+    const rule = schedule.rules.find((r) => r.type === "date" && r.date && DateTime.fromFormat(r.date, "yyyy-M-d").toISODate() === date) ?? schedule.rules.find((r) => r.type === "wday" && r.wday === wday);
+    for (const iv of rule?.intervals ?? []) spans.push([clock(d, iv.from), clock(d, iv.to)]);
   }
-  return { days: n, from: now.setZone(row.timezone), timezone: row.timezone, vendor: ac.booking.source === "ghl" ? "GHL" : "Calendly", calendars: out };
+  spans.sort((x, y) => x[0] - y[0]);
+  const merged: [number, number][] = [];   // 09:00–12:00 and 12:00–17:00 are one stretch
+  for (const sp of spans) { const last = merged[merged.length - 1]; if (last && sp[0] <= last[1]) last[1] = Math.max(last[1], sp[1]); else merged.push([sp[0], sp[1]]); }
+  return merged.some(([x, y]) => x <= start && end <= y) && !busy.some((b) => b.start < end && b.end > start);
+}
+const clock = (d: DateTime, hhmm: string) => { const [h, m] = hhmm.split(":").map(Number); return h >= 24 ? d.plus({ days: 1 }).startOf("day").toMillis() : d.set({ hour: h, minute: m || 0 }).toMillis(); };
+const ms = (iso: string) => DateTime.fromISO(iso).toMillis();
+
+export async function readAvailability(c: PoolClient, companyId: string, probes: HealthProbes, days: number, now: DateTime = DateTime.now(), known?: Map<string, string[]>): Promise<Availability> {
+  const { row, adapterCompany: ac, bindings } = await loadCompany(c, companyId);
+  const n = Math.min(DAYS_AHEAD, Math.max(1, Math.round(days) || DAYS_AHEAD)), tz = row.timezone, ghl = ac.booking.source === "ghl";
+  const vendor = ghl ? "GHL" : "Calendly";
+  const cals = await many<{ external_id: string; name: string; default_user_id: string | null }>(c, `select cal.external_id, cal.name, cal.default_user_id::text from calendars cal join company_terms t on t.id=cal.appointment_term
+    where cal.company_id=$1 and cal.active and cal.source=$2 and t.category='closing' order by cal.name`, [companyId, ac.booking.source]);
+  if (!cals.length) throw new AvailabilityUnreadable("no active closing calendars are mapped for this company");
+  const roster = await many<{ id: string; name: string; email: string; ghl_user_id: string | null; active: boolean }>(c, "select id::text, name, email, ghl_user_id, active from users where company_id=$1", [companyId]);
+  // the API wants a start in the future and a window of at most 7 days (as readCalendars)
+  const wFrom = ghl ? now.toJSDate() : now.plus({ minutes: 1 }).toJSDate(), wTo = ghl ? now.plus({ days: n }).toJSDate() : now.plus({ days: n - 1, hours: 23 }).toJSDate();
+  const token = bindings["secret.calendly_token"];
+
+  const reads: { cal: (typeof cals)[number]; times: string[] }[] = [], unreadable: { calendar: string; error: string }[] = [];
+  for (const k of cals) {
+    const hit = known?.get(k.external_id);
+    const r = hit ? { ok: true as const, times: hit }
+      : ghl ? (ac.pit ? await probes.ghlFreeSlots(ac.pit, k.external_id, wFrom, wTo, tz) : { ok: false as const, error: "no CRM token bound" })
+      : await probes.calendlyAvailableTimes(token, `https://api.calendly.com/event_types/${k.external_id}`, wFrom, wTo);
+    if (r.ok) reads.push({ cal: k, times: r.times }); else unreadable.push({ calendar: k.name, error: r.error });
+  }
+  // a live read that failed everywhere is not "zero slots": say the source failed rather than fill the gap
+  if (!reads.length) throw new AvailabilityUnreadable(`${vendor} did not answer for any calendar: ${unreadable.map((u) => `${u.calendar}: ${u.error}`).join("; ")}`);
+
+  const people = new Map<string, { name: string; times: Set<number> }>();
+  const person = (key: string, name: string) => { if (!people.has(key)) people.set(key, { name, times: new Set() }); return people.get(key)!; };
+  let unmatched = 0, why: string | undefined;
+  if (ghl) {
+    let names: Map<string, string> | undefined;
+    const ghlPerson = async (gid: string) => {
+      const u = roster.find((x) => x.ghl_user_id === gid);
+      if (u) return person(u.id, u.name);
+      names ??= new Map((await probes.ghlCatalog(ac.pit, ac.locationId)).users.map((x) => [x.id, x.name]));
+      return person(`ghl:${gid}`, names.get(gid) ?? gid);
+    };
+    for (const { cal, times } of reads) {
+      const team = await probes.ghlCalendarTeam(ac.pit, cal.external_id);
+      if (!team.ok) { why ??= `the team on "${cal.name}" could not be read (${team.error})`; continue; }
+      const owner = !team.userIds.length && cal.default_user_id ? roster.find((x) => x.id === cal.default_user_id) : undefined;
+      if (owner || team.userIds.length === 1) { const p = owner ? person(owner.id, owner.name) : await ghlPerson(team.userIds[0]); for (const t of times) p.times.add(ms(t)); continue; }
+      const hit = new Set<number>();
+      for (const gid of team.userIds) {
+        const p = await ghlPerson(gid);
+        if (!times.length) continue;
+        const r = await probes.ghlFreeSlots(ac.pit, cal.external_id, wFrom, wTo, tz, gid);
+        if (!r.ok) { why ??= `${p.name}'s slots on "${cal.name}" could not be read (${r.error})`; continue; }
+        const mine = new Set(r.times.map(ms));
+        for (const t of times.map(ms)) if (mine.has(t)) { p.times.add(t); hit.add(t); }
+      }
+      unmatched += new Set(times.map(ms)).size - hit.size;
+    }
+  } else {
+    const busyOf = new Map<string, Awaited<ReturnType<HealthProbes["calendlyBusyTimes"]>>>();   // one read per host, shared by every event type they host
+    const busyTo = DateTime.fromJSDate(wFrom).plus({ days: 7 }).minus({ minutes: 1 }).toJSDate();
+    const calendlyPerson = (h: CalendlyHost) => { const u = roster.find((x) => x.email.toLowerCase() === h.email.trim().toLowerCase()); return u ? person(u.id, u.name) : person(`calendly:${h.email.toLowerCase()}`, h.name); };
+    for (const { cal, times } of reads) {
+      const uri = `https://api.calendly.com/event_types/${cal.external_id}`;
+      const h = await probes.calendlyEventTypeHosts(token, uri, ac.booking.source === "calendly" ? ac.booking.organization || undefined : undefined);
+      if (!h.ok) { why ??= `the hosts of "${cal.name}" could not be read (${h.error})`; continue; }
+      const hosts = h.hosts.map((x) => ({ host: x, p: calendlyPerson(x) }));
+      if (hosts.length === 1) { for (const t of times) hosts[0].p.times.add(ms(t)); continue; }
+      if (!times.length) continue;
+      const sch = await probes.calendlyEventTypeSchedules(token, uri);
+      if (!sch.ok) { why ??= `the schedule of "${cal.name}" could not be read (${sch.error})`; continue; }
+      const shared = sch.schedules.find((x) => !x.user);
+      const ready: { p: { times: Set<number> }; schedule?: CalendlySchedule; busy: { start: number; end: number }[] }[] = [];
+      for (const { host, p } of hosts) {
+        if (!busyOf.has(host.uri)) busyOf.set(host.uri, await probes.calendlyBusyTimes(token, host.uri, wFrom, busyTo));
+        const b = busyOf.get(host.uri)!;
+        if (!b.ok) { why ??= `${p.name}'s busy times could not be read (${b.error})`; continue; }
+        ready.push({ p, schedule: sch.schedules.find((x) => x.user === host.uri) ?? shared, busy: b.busy.map((x) => ({ start: ms(x.start), end: ms(x.end) })) });
+      }
+      for (const t of new Set(times.map(ms))) {
+        let any = false;
+        for (const r of ready) if (hostFree(t, h.duration, r.schedule, r.busy)) { r.p.times.add(t); any = true; }
+        if (!any) unmatched++;
+      }
+    }
+  }
+  if (!why && unmatched) why = `${unmatched} offered ${unmatched === 1 ? "time" : "times"} matched no host's schedule`;
+
+  const start = now.setZone(tz).startOf("day");
+  const dates = Array.from({ length: n }, (_, i) => start.plus({ days: i })), keys = dates.map((d) => d.toISODate()!);
+  const perDay = (set: Iterable<number>) => { const r = keys.map(() => 0); for (const t of set) { const i = keys.indexOf(DateTime.fromMillis(t, { zone: tz }).toISODate()!); if (i >= 0) r[i]++; } return r; };
+  const first = (name: string) => name.trim().split(/\s+/)[0].toLowerCase();
+  const everyone = [...roster.filter((u) => u.active).map((u) => u.name), ...[...people.entries()].filter(([k]) => !roster.some((u) => u.active && u.id === k)).map(([, p]) => p.name)];
+  const closers = why ? [] : [...people.values()].map((p) => {
+    const per_day = perDay(p.times);
+    return { name: p.name, short: everyone.filter((x) => first(x) === first(p.name)).length === 1 ? p.name.trim().split(/\s+/)[0] : p.name, per_day, total: per_day.reduce((a, b) => a + b, 0) };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  const totals = why ? perDay(new Set(reads.flatMap((r) => r.times.map(ms)))) : keys.map((_, i) => closers.reduce((sum, x) => sum + x.per_day[i], 0));
+  return {
+    metric: "availability", label: "Calendar availability", timezone: tz, source: `${vendor}, read just now`, read_at: now.toISO()!,
+    definition: "open bookable start times on the active closing calendars, read live from the booking source, per closer: a time the calendar offers counts once for each closer free for the whole call then (two closers free at 2pm = 2 open), and once per closer however many calendars offer it",
+    days: dates.map((d, i) => ({ date: keys[i], label: d.toFormat("ccc LLL d"), total: totals[i] })), closers, total: totals.reduce((a, b) => a + b, 0), unreadable,
+    ...(why ? { split_error: `Could not split by closer: ${why}` } : {}),
+  };
 }
 
 /** The health_check step: run the checks (availability is its own step), remember the result, turn failures into alerts and clear the ones that passed. */

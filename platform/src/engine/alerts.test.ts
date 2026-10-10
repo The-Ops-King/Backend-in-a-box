@@ -111,7 +111,9 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     const probes: HealthProbes = {
       ghlLocationOk: async () => ({ ok: true, name: "Alert Co" }),
       ghlFreeSlots: async (_p, cal, from) => { const n = cal === "CAL2" ? slotsB : 12; const times = Array.from({ length: n }, (_, i) => new Date(from.getTime() + (i % 7) * 864e5 + (9 + Math.floor(i / 7)) * 36e5).toISOString()); return { ok: true, slots: n, times }; },
-      ghlCatalog: async () => ({ users: [], pipelines: [{ id: "PIPE1", name: "Closer", stages: [{ id: "STAGE_OK", name: "Won" }] }], contactFields: [{ id: "FLD1", name: "Setter" }], opportunityFields: [], associations: [], objects: [], tags: [], errors: [] }),
+      ghlCalendarTeam: async (_p, cal) => ({ ok: true, userIds: [cal === "CAL2" ? "GB" : "GA"] }),
+      calendlyEventTypeHosts: async () => { throw new Error("not used"); }, calendlyEventTypeSchedules: async () => { throw new Error("not used"); }, calendlyBusyTimes: async () => { throw new Error("not used"); },
+      ghlCatalog: async () => ({ users: [{ id: "GA", name: "Ann Able" }, { id: "GB", name: "Ben Baker" }], pipelines: [{ id: "PIPE1", name: "Closer", stages: [{ id: "STAGE_OK", name: "Won" }] }], contactFields: [{ id: "FLD1", name: "Setter" }], opportunityFields: [], associations: [], objects: [], tags: [], errors: [] }),
       calendlyWhoAmI: async () => { throw new Error("not used"); }, calendlyAvailableTimes: async () => ({ ok: true, slots: 1, times: [] }),
       whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }), urlOk: async () => ({ ok: true, status: 200 }),
     };
@@ -151,10 +153,12 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     // the low-availability alert carries a link to the calendar
     const lowPost = posts.find((p) => /has only 9 bookable slots/.test(p.text))!;
     expect(lowPost.text).toMatch(/<https:\/\/api\.leadconnectorhq\.com\/widget\/booking\/CAL2\|Open the calendar>/);
-    // and under it, in the thread, the next days at a glance
+    // and under it, in the thread, the same per-closer table /availability answers with (D72): a day per row, a column per closer, a total row
     const breakdown = posts.find((p) => p.threadTs === `ts${posts.indexOf(lowPost) + 1}` && /next 7 days/.test(p.text))!;
-    expect(breakdown.text).toMatch(/^\*Closer B · next 7 days\*\n/); expect(breakdown.text.split("\n")).toHaveLength(8);   // a title and seven days
-    expect(breakdown.text).toMatch(/· (1|2) \(/);
+    const bl = breakdown.text.split("\n");
+    expect(bl[0]).toMatch(/^\*Open slots, next 7 days: \d+\*  · _from GHL, read just now_$/);
+    expect(bl[3]).toMatch(/^Day +Ann Open +Ben Open +Total Open$/); expect(bl.slice(4, 11).every((l) => /^\w{3} \w{3} \d{1,2} +\d+ +\d+ +\d+$/.test(l))).toBe(true);
+    expect(bl[11]).toMatch(/^Total +\d+ +\d+ +\d+$/); expect(bl[bl.length - 1]).toMatch(/^_Period: .* read just now \(America\/New_York\)_$/);
     // a booking lands on Closer B: the availability workflow's booking trigger reads that calendar now, not at the next hour; availability moved above the threshold → resolved now
     slotsB = 20;
     const bookedAt = DateTime.now();

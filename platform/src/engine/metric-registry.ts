@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { dayBounds, setterMetrics, type SetterStats } from "./metrics";
-import { calendarSlots, type HealthProbes } from "./health";
+import { AvailabilityUnreadable, readAvailability, type Availability, type HealthProbes } from "./health";
 
 /**
  * The metric layer (D70): every number the Slack bot says has ONE definition here, written once in SQL against the
@@ -283,32 +283,9 @@ function resolveFilters(metric: string, f: Filters, roster: { id: string; name: 
 }
 
 // ---- availability ----------------------------------------------------------------------------------------------------
-export type Availability = {
-  metric: "availability"; label: string; definition: string; timezone: string; source: string; read_at: string; days: { date: string; label: string; total: number; light: boolean }[];
-  closers: { name: string; per_day: number[]; total: number }[]; total: number; unreadable: { calendar: string; error: string }[]; light_threshold: number;
-};
-/** Bookable slots per closer per day over the next days, from the same calendar reads as the low-availability check. A day is light under half the period's daily average. */
+export type { Availability } from "./health";
+/** Open slots per closer per day over the next days (D72), the same read as the low-availability thread. A source that cannot be read is an error, never zero. */
 export async function getAvailability(c: PoolClient, companyId: string, probes: HealthProbes, days = 7, now: DateTime = DateTime.now()): Promise<Availability> {
-  const r = await calendarSlots(c, companyId, probes, days, now);
-  // a live read that failed everywhere is not "zero slots": say the source failed rather than fill the gap
-  if (r.calendars.length && r.calendars.every((k) => !k.ok)) throw new MetricError(`${r.vendor} did not answer for any calendar: ${r.calendars.map((k) => `${k.calendar}: ${k.ok ? "" : k.error}`).join("; ")}`);
-  if (!r.calendars.length) throw new MetricError("no active booking calendars are mapped for this company");
-  const dates = Array.from({ length: r.days }, (_, i) => r.from.startOf("day").plus({ days: i }));
-  const keys = dates.map((d) => d.toISODate()!);
-  const by = new Map<string, number[]>();
-  for (const cal of r.calendars) {
-    if (!cal.ok) continue;
-    const who = cal.closer ?? cal.calendar;
-    const row = by.get(who) ?? keys.map(() => 0); by.set(who, row);
-    for (const t of cal.times) { const i = keys.indexOf(DateTime.fromISO(t).setZone(r.timezone).toISODate()!); if (i >= 0) row[i]++; }
-  }
-  const totals = keys.map((_, i) => [...by.values()].reduce((s, row) => s + row[i], 0));
-  const all = totals.reduce((a, b) => a + b, 0), avg = all / keys.length, threshold = Math.floor(avg / 2);
-  return {
-    metric: "availability", label: "Calendar availability", timezone: r.timezone, source: `${r.vendor}, read just now`, read_at: now.toISO()!, light_threshold: threshold, total: all,
-    definition: "open bookable slots on each active calendar, read live from the booking source, by the calendar's closer; a day is light when it has under half the period's daily average",
-    days: dates.map((d, i) => ({ date: keys[i], label: d.toFormat("ccc LLL d"), total: totals[i], light: totals[i] < threshold || totals[i] === 0 })),
-    closers: [...by.entries()].map(([name, per_day]) => ({ name, per_day, total: per_day.reduce((a, b) => a + b, 0) })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)),
-    unreadable: r.calendars.filter((k): k is Extract<typeof k, { ok: false }> => !k.ok).map((k) => ({ calendar: k.calendar, error: k.error })),
-  };
+  try { return await readAvailability(c, companyId, probes, days, now); }
+  catch (e) { if (e instanceof AvailabilityUnreadable) throw new MetricError(e.message); throw e; }
 }

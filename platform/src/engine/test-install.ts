@@ -22,7 +22,9 @@ export const fakeProbes: import("./health").HealthProbes = {
   ghlLocationOk: async () => ({ ok: true, name: "Test Co" }),
   ghlFreeSlots: async (_p, _cal, from) => ({ ok: true, slots: 12, times: Array.from({ length: 12 }, (_, i) => new Date(from.getTime() + (i % 6) * 864e5 + (9 + Math.floor(i / 6)) * 36e5).toISOString()) }),
   ghlCatalog: async () => ({ users: [], pipelines: [], contactFields: [], opportunityFields: [], associations: [], objects: [], tags: [], errors: [] }),
+  ghlCalendarTeam: async () => ({ ok: true, userIds: ["U-HOST"] }),
   calendlyWhoAmI: async () => ({ user: "u", organization: "o", email: "host@test", name: "Host" }), calendlyAvailableTimes: async () => ({ ok: true, slots: 12, times: [] }),
+  calendlyEventTypeHosts: async () => ({ ok: true, duration: 45, hosts: [{ uri: "u", email: "host@test", name: "Host" }] }), calendlyEventTypeSchedules: async () => ({ ok: true, schedules: [] }), calendlyBusyTimes: async () => ({ ok: true, busy: [] }),
   whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }), urlOk: async () => ({ ok: true, status: 200 }),
 };
 
