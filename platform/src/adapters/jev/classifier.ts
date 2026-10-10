@@ -1,4 +1,5 @@
 import type { Classifier, Classification, ChoiceOptions } from "../types";
+import { classOfStatus, VendorError } from "@/engine/failures";
 
 /**
  * Jev (TypeSafe AI, model jev-latest): a state plus typed questions in, probability distributions out. Shape verified
@@ -33,6 +34,8 @@ export const jevClassifier: Classifier = {
       ambiguous: { type: "noul", instructions: AMBIGUOUS },
     } };
     const r = await jevAsk(key, body);
+    // D66 (F3): a dead key (401/403) or an outage (429/5xx) is the failure policy's, never read as a vague reply; any other refusal stays unclear (a human decides)
+    if (!r.ok && (classOfStatus(r.status) === "auth" || classOfStatus(r.status) === "transient")) throw new VendorError("jev", r.status, "/systemone", r.error ?? "");
     if (!r.ok) return unclear(zeros);
     const answers = (r.data?.answers ?? {}) as Record<string, Record<string, unknown>>;
     const a = answers.answer ?? {}; const dist = (a.probabilities ?? {}) as Record<string, number>;

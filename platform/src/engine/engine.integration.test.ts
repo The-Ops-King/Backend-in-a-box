@@ -88,8 +88,8 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
     expect(auto?.claimed_at).toBeNull();  // unclaimed user auto-created from roster
 
     const r1 = await tick(fake, undefined, companyId, fakeProbes);
-    // three: the pre-call sequence (waits for the reply), call-booked (fails: no pipeline bindings) and the calendar availability watch the booking started
-    expect(r1.claimed).toBe(3); expect(r1.completed).toBe(1); expect(r1.waiting).toBe(1); expect(r1.failed).toBe(1);
+    // three: the pre-call sequence (waits for the reply), call-booked (pauses for a person: no pipeline bindings, D66) and the calendar availability watch the booking started
+    expect(r1.claimed).toBe(3); expect(r1.completed).toBe(1); expect(r1.waiting).toBe(1); expect(r1.paused).toBe(1); expect(r1.failed).toBe(0);
     expect(sent.filter((s) => s.kind === "email")).toHaveLength(1); expect(sent.filter((s) => s.kind === "sms")).toHaveLength(1);
     expect(sent.find((s) => s.kind === "email")!.body).toMatch(/\[placeholder — day-one email\]/);   // the copy is a marker until Tyler pastes the real texts (D51)
     expect(sent.find((s) => s.kind === "sms")!.body).toMatch(/\[placeholder — immediate text\]/);

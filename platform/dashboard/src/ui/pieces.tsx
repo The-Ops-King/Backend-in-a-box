@@ -32,10 +32,10 @@ export function Strip({ path, note }: { path: { state: string }[]; note?: string
 }
 
 /** Counts on a row: people / in flight / failed, folding into a short note on a phone. */
-export function Counts({ people, in_flight, failed }: { people: number; in_flight: number; failed: number }) {
-  const bits: ReactNode[] = []; if (in_flight) bits.push(<span key="h"><b>{in_flight}</b> in flight</span>); if (failed) bits.push(<span key="f"><i>{failed}</i> failed</span>); if (!bits.length && people) bits.push(<span key="p">{people} people</span>);
+export function Counts({ people, in_flight, needs_hand }: { people: number; in_flight: number; needs_hand: number }) {
+  const bits: ReactNode[] = []; if (in_flight) bits.push(<span key="h"><b>{in_flight}</b> in flight</span>); if (needs_hand) bits.push(<span key="f"><i>{needs_hand}</i> need a hand</span>); if (!bits.length && people) bits.push(<span key="p">{people} people</span>);
   return <>
-    <span className="cnt tnum"><span className={people ? "" : "z"}><b>{people}</b> people</span><span className={`h ${in_flight ? "" : "z"}`}><b>{in_flight}</b> in flight</span><span className={`f ${failed ? "" : "z"}`}><b>{failed}</b> failed</span></span>
+    <span className="cnt tnum"><span className={people ? "" : "z"}><b>{people}</b> people</span><span className={`h ${in_flight ? "" : "z"}`}><b>{in_flight}</b> in flight</span><span className={`f ${needs_hand ? "" : "z"}`}><b>{needs_hand}</b> {needs_hand === 1 ? "needs" : "need"} a hand</span></span>
     {bits.length ? <span className="mini tnum">{bits.map((b, i) => <span key={i}>{i ? " · " : ""}{b}</span>)}</span> : null}
   </>;
 }

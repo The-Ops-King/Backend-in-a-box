@@ -1924,3 +1924,105 @@ cards, a REALLY BAD WORSE bug is if it messages someone 20 times, even worse wou
   the sender as `undefined`, the CRM says not found, and the person is stamped gone; the Jev adapter answers every
   HTTP failure as "unclear, confidence 0", so a dead key reads as a stream of vague replies routed to humans with no
   alert. Each has an `it.fails` test.
+
+## D66. A failed step is retried in place, never the run, and never a side effect twice (2026-10-10)
+
+Tyler, on what a retry must never do: "A very bad bug is that it runs 20 times. A worse bug is that it creates 20
+opportunity cards, a REALLY BAD WORSE bug is if it messages someone 20 times, even worse would be if they charged
+them 20 times. So we need to figure out how to redo ONLY the step that failed, and when to actually re-test that
+step, and when to just alert. What happens if it's a 401, or a 503, how many times do we retry and what do we do to
+try to fix it automatically? How often do we retry these things?" And the bar: "This should be 10000x better than
+GHL." Until now a step outcome `failed` meant `finish("failed")`: the run was dead, nothing retried it, and fixing
+the vendor resumed nothing (05-edge-cases "A failed run is terminal"). D56 had carved out the premise check (an
+unreachable booking source keeps the run waiting) and the refusals of a send and a Slack post (recorded, the run
+goes on); every other vendor blink killed the run.
+
+- **One policy, in the runner, not per node.** Every step error, thrown or returned, goes through
+  `failures.ts › classifyError` once. *transient* (a network error, a timeout, HTTP 408/425/429/5xx from any vendor,
+  a Postgres connection error) → the same node is re-run at 1, 5, 15 and 60 minutes (`RETRY_SCHEDULE`, five tries over
+  81 minutes), the run `waiting` on that node with `next_run_at`, its wake flags kept, nothing else moving, each try a
+  new `run_steps` row with `result.attempt`; after the last try the run pauses. *auth* (401/403) → no retry, paused at
+  once. *permanent* (400/404/422, a "not found" / "invalid" body, an unbound binding, a term the company lacks) → paused
+  at once with the vendor's words. *unknown* → one retry as if transient, then permanent. A failure the step returned
+  itself (its verdict on config or data, `{ status: "failed" }`) is permanent at once: a retry fixes nothing there.
+  `runs.step_attempt` / `runs.step_error` carry the count and the last error; the counter is for that step only and
+  resets when it passes. The GHL client throws a typed `VendorError` (`GhlError` extends it, the message shape
+  `GHL <status> on <path>: <body>` unchanged); everything else is parsed from the adapters' message shapes, an SDK
+  error's `status` property (Anthropic) included. Jev's classifier keeps returning `unclear` on a refusal (D47: an
+  unclear read goes to a human by design), so it never enters the policy.
+- **Paused is a status, and a person's.** `runs.status = 'paused'` (in the schema check since the start, used by
+  `pause_runs` and a stale escalation), `exit_reason` = `<class>[:<vendor>]: <error>` so the wake can find runs by
+  vendor, the step row `failed`, one alert `run:<id>:paused` (source `step`, headline "Run needs a hand", the step,
+  the contact, the error, the Open link). The run page's two buttons, `POST /api/v1/runs/<id>/retry` (attempt counter
+  reset, due now) and `/skip` (a `run_steps` row `skipped` with `{ kind: "skipped_by", by }`, `current_node` moved
+  along the step's plain edge; a branch or a gate has none and answers 409), both close the alert and write
+  `audit_log` (`run.retried`, `run.step_skipped`). Both also take an engine-bug `failed` run, so nothing is stuck for
+  good. The company and workflow pages' "failed" tile is "needs a hand" and counts paused runs (and engine failures).
+  `failed` itself is now only the engine's own fault: a graph with no way on, a node the pinned version lacks, an
+  exception inside the runner.
+- **A dead token is one message, and a new token is the fix.** Auth pauses raise one `auth:<vendor>` alert per company
+  ("Token rejected"), touched by every further run that hits it, never doubled. `setBinding` and install's `bind`
+  compare the new value with the stored one; a *different* token for that vendor (`vendorOfBinding`: `secret.ghl_pit`,
+  `secret.calendly_token`, `secret.jev_key`, `secret.anthropic_key`, `secret.whop_api_key`, `secret.fathom_api_key`,
+  `secret.resend_key`) wakes every run paused on `auth:<vendor>:%` for one more try of its step and resolves the alert;
+  a token that is still wrong re-raises it at the first step that fails. The same value saved again wakes nothing.
+  Slack is not on the list on purpose: a refused post never pauses a run (D56).
+- **Never a side effect twice: the audit, node by node.** Sends keep the `sends` key written before the vendor call;
+  on retry a row that is queued, sent, suppressed or shadow means do not send again, and only a row the vendor refused
+  (`failed`) is reclaimed and sent once (`recordSend`'s upsert). A send the CRM answered with a 5xx or a 401 now goes
+  to the policy (retried in place / paused) instead of being skipped for good; a refusal the CRM means (no number, a
+  400) keeps the D56 path. Slack posts: the same key, refusals recorded, the run goes on (D56). Tags, `update_contact`,
+  `update_appointment`, `record`, `set_var`: idempotent as they are. `classify` / `analyze`: reads, retried freely.
+  `note`, `create_task`, `notify_owner`'s task, `send_document`, a `pipeline_card` create and a `crm_record` create
+  write a `step_effects` row `{ run_id, node_id, kind, external_id, done_at }` BEFORE the vendor call and mark it done
+  after: a retry that finds a done claim reuses the vendor's id (a record becomes an update; a card the CRM read
+  missed is reused, never made twice; `pipeline_cards.created_by_run` names the run); one that finds a pending claim
+  (the vendor never answered: a timeout, a dropped socket) does not ask twice and says so as a blocked step (the alert
+  sweep's "step could not run", so a person checks the CRM), except a card step, where the CRM read first (D41) is the
+  truth and decides. A vendor that answered with an error wrote nothing, so the runner releases the pending claim and
+  the next try starts clean. Payments: the engine records what Whop did (`applyPayment` from webhooks and polls) and
+  calls nothing that charges; there is no step that can take money, so "charged 20 times" is not a failure mode the
+  engine has.
+- **No duplicate runs from retries or re-deliveries**, checked once more at every door: a webhook delivered twice
+  (`webhook_deliveries`, kept), a poll re-delivering an appointment (`applyAppointment`'s no-delta path emits
+  nothing), the same recording twice (`recordings` unique on the external id: `duplicate`, no event), `startRun`
+  twice for one event (`runs (workflow_id, reentry_key)`). D65's re-delivered contact stays fixed.
+- Tests: `retry.test.ts` (the classes; a 503 on a tag retried on the schedule and passing on the third try with one tag
+  write; the pause after the last try, Retry, the alert closing; a 401 paused at once, `auth:ghl`, a new token waking
+  two runs, the same token waking nothing; a 400 on a card create paused with no card, Retry making exactly one, Skip
+  moving on; a dropped socket after the CRM wrote a note, the retry writing no second note; a text the CRM could not
+  take sent once, and the key refusing a second; an engine bug still `failed`; the three re-delivery doors).
+  `alerts.test.ts`'s first case is now the auth story (one post, a second run quiet, the hourly thread line, a new
+  token closing it with a ✅). `engine.integration.test.ts`'s call-booked, which has no pipeline bindings on that
+  fixture, pauses instead of failing. Known limit, stated: the ledger rows live in the same transaction as the step,
+  so a process killed between the vendor's answer and the commit loses the claim as it always lost the send row;
+  the window is milliseconds and the CRM read (cards) or the key (sends) still covers the common cases.
+
+### D66 addendum. The failure matrix (D67) closed against the policy (2026-10-10)
+
+The 31 `it.fails` tests D67 wrote to this policy are plain `it` now; two were adjusted to the policy's own shape
+(the fake classifier throws when its plan carries a status, as the adapter now does; the deleted-record test counts
+its calls from the second run). What the matrix added beyond the first cut:
+
+- **F1** a `failed` send row is reclaimed by the retry (`recordSend`'s upsert), and a Slack `ratelimited` / 5xx is
+  transient: the post is retried in place from the reclaimed row; `invalid_auth` and `channel_not_found` stay D56.
+- **F2** a contact with no CRM id reaching a send pauses as "contact has no CRM id yet (nothing to send to)"; the
+  CRM is never asked about contact `undefined`, nobody is stamped gone.
+- **F3** Jev's classifier throws a `VendorError` on 401/403 and 429/5xx (paused / retried); other refusals and an
+  unsure answer stay `unclear`, a human's; an empty input is a noop and Jev is not asked.
+- **F4** the card read at claim time no longer swallows an outage: its error is carried to the first card step of the
+  tick, which fails on it (retried in place) instead of asking again; a run resuming on a card step reads once, in the
+  step.
+- **C6** `update_appointment` emits `appointment.status_changed` once per (run, step, appointment, status): a crash
+  before the emit still emits on the retry, a crash after it emits nothing more.
+- **A 404 on a write to the contact** (tags, note, task, contact update, send) whose body names the contact is the
+  person gone from the CRM: `gone_at`, one alert, the run exits moot at its next look (G21's path); a 404 on a card or
+  a record is that card or record and pauses the run with the CRM's words.
+- **A hand wins**: a retried card step re-reads live and, finding a `card.moved` by the CRM since its first try,
+  skips with "moved by hand since".
+- **One alert per vendor for blocked steps too**: a Slack token refusal across any number of posts is one
+  `auth:slack` alert, not one `blocked:` alert per step.
+- `run_steps.status` admits `paused`: a step that itself asked for a person (a stale message escalated) is written
+  so, not `ok`.
+- Decided as the matrix left open: a 400 on a send, and a `channel_not_found` on a post, stay D56 (recorded, skipped
+  as blocked, alerted, the run carries on: a bad number must not hold the reminders).

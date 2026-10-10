@@ -6,20 +6,24 @@ import { parseDefinition, indexDefinition, onwardEdge, type Definition } from ".
 import { buildContext, loadCompany, type RunRow } from "./context";
 import { syncCards } from "./cards";
 import { effectiveMode } from "./mode";
-import { executeNode, listenerOf, setPath, type ExecDeps, type Listener } from "./executor";
+import { executeNode, listenerOf, markGone, setPath, type ExecDeps, type Listener } from "./executor";
+import type { Node } from "./definition";
 import type { HealthProbes } from "./health";
 import { deferIntoWindow } from "./waitrule";
 import { emitEvent, startRun, type EventRow } from "./dispatch";
 import { raise, resolve } from "./alerts";
+import { classifyError, pauseReason, RETRY_SCHEDULE, type Classified } from "./failures";
+import { releasePending } from "./effects";
 
 const LEASE_MIN = 5, MAX_STEPS = 50, BATCH = 100;
 export const RECOVERY_AFTER_MIN = 10;          // D5b: a gap longer than this means we were down
 export const PREMISE_RETRY_MIN = 5;            // D56: the booking source could not be read; look at the run again this much later
 const PREMISE_ALERT_KEY = "premise:booking-source-unreachable";
+const CONTACT_WRITES = new Set(["set_tag", "remove_tag", "tags", "note", "update_contact", "create_task", "notify_owner", "send_document", "send_sms", "send_email"]);   // D66: a 404 here is the person gone from the CRM; on a card or a record it is that card or record
 const RECOVERY_SEND_CAP = 20;                  // per company per tick while catching up: never burst one client's inbox, never let one client's backlog starve another's
 
 type PendingTrigger = { event_id: number; trigger_id: string | null; trigger_node_id: string; contact_id: string; appointment_id: string | null; opportunity_id: string | null };
-export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number; replayed?: number; deferred?: number };
+export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number; replayed?: number; deferred?: number; retries?: number };
 
 /** D5b premise check — reads the booking source live, never the replica. */
 async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ctx" | "now" | "effective">): Promise<{ ok: true } | { ok: false; why: string }> {
@@ -117,12 +121,54 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
 
         // D52 addendum 2: decided once per claim, so a contact whose tag comes off mid-run shadows from its next step (and a run keeps going when the mode moves)
         const effective = await effectiveMode(c, run.company_id, run.contact_id, company.mode, bindings);
-        if (run.contact_id) {   // D41: the CRM is the truth about cards; `cards.*` in the context reflects it as of now
+        // D66: a card step reads the CRM itself under the failure policy; reading here too would double the call and swallow the outage it is about to meet
+        const startsOnCard = nodes.get(run.current_node ?? "")?.type === "pipeline_card";
+        let cardsReadError: string | undefined;   // the read failed: `cards.*` is the replica's last word, and the first card step this tick fails on it instead of asking again
+        if (run.contact_id && !startsOnCard) {   // D41: the CRM is the truth about cards; `cards.*` in the context reflects it as of now
           const ghlId = (await one<{ ghl_contact_id: string | null }>(c, "select ghl_contact_id from contacts where id=$1", [run.contact_id]))?.ghl_contact_id;
-          await syncCards(c, company, adapterCompany, adapters, run.contact_id, ghlId).catch((e: Error) => { console.warn(`run ${run.id}: cards not read from the CRM: ${e.message}`); });
+          await syncCards(c, company, adapterCompany, adapters, run.contact_id, ghlId).catch((e: Error) => { cardsReadError = String(e.message).slice(0, 300); console.warn(`run ${run.id}: cards not read from the CRM: ${e.message}`); });
         }
         const ctx = await buildContext(c, run, company, bindings);
-        const deps: ExecDeps = { c, adapters, company, adapterCompany, bindings, run, ctx, edgesFrom, now, probes, effective };
+        const deps: ExecDeps = { c, adapters, company, adapterCompany, bindings, run, ctx, edgesFrom, now, probes, effective, cardsReadError };
+        const wakeFlags = { reply: !!(run as RunRow & { wake_on_reply?: boolean }).wake_on_reply, tag: (run as RunRow & { wake_on_tag?: string | null }).wake_on_tag ?? undefined };
+        /**
+         * D66: a step that failed is retried in place, never the run from the top, and never past a side effect twice.
+         * transient (or the first unknown): wait RETRY_SCHEDULE[attempt] minutes on this very node, wake flags kept, nothing else moves;
+         * after the last try, or at once for auth and permanent: the run pauses for a person (Retry / Skip on the run page), one alert.
+         */
+        const failStep = async (node: Node, stepId: string, f: Classified, thrown: boolean) => {
+          const attempt = run.current_node === node.id ? run.step_attempt ?? 0 : 0;
+          // a 404 that names the contact, from a write to the contact, is the sends' path (G21): the replica learns it, one alert, and the premise exits the run moot at its next look
+          if (f.status === 404 && f.vendor === "ghl" && run.contact_id && CONTACT_WRITES.has(node.type) && /\bcontact (with id \S+ )?not found\b/i.test(f.message) && (await markGone(c, company, run, ctx, f.message, now))) {
+            await c.query("update run_steps set status='failed', result=$2, error=$3, finished_at=now() where id=$1", [stepId, { class: f.cls, vendor: f.vendor, contact_gone: true }, f.message]);
+            await finish("waiting", undefined, now.toJSDate(), node.id, ctx, wakeFlags); report.waiting++; return;
+          }
+          const retryable = f.cls === "transient" || (f.cls === "unknown" && attempt === 0);
+          // the vendor answered (a status, a refusal): nothing was written, so a pending create claim comes off and the next try starts clean
+          if (f.answered || !thrown) await releasePending(c, run.id, node.id);
+          if (retryable && attempt < RETRY_SCHEDULE.length) {
+            const at = now.plus({ minutes: RETRY_SCHEDULE[attempt] });
+            await c.query("update run_steps set status='failed', result=$2, error=$3, finished_at=now() where id=$1", [stepId, { attempt: attempt + 1, of: RETRY_SCHEDULE.length + 1, class: f.cls, vendor: f.vendor, retry_at: at.toISO() }, f.message]);
+            await c.query("update runs set step_attempt=$2, step_error=$3 where id=$1", [run.id, attempt + 1, f.message]);
+            await finish("waiting", undefined, at.toJSDate(), node.id, ctx, wakeFlags);
+            report.waiting++; report.retries = (report.retries ?? 0) + 1; return;
+          }
+          const tries = attempt + 1;
+          const reason = pauseReason(f, retryable ? `(${tries} tries over ${RETRY_SCHEDULE.slice(0, attempt).reduce((a, b) => a + b, 0)} minutes)` : undefined);
+          await c.query("update run_steps set status='failed', result=$2, error=$3, finished_at=now() where id=$1", [stepId, { attempt: tries, class: f.cls, vendor: f.vendor, paused: true }, f.message]);
+          await c.query("update runs set step_attempt=$2, step_error=$3 where id=$1", [run.id, tries, f.message]);
+          await finish("paused", reason, null, node.id, ctx, wakeFlags);
+          const who = (ctx.contact as { name?: string } | undefined)?.name;
+          const wfName = (await one<{ name: string }>(c, "select name from workflows where id=$1", [run.workflow_id]))?.name ?? "workflow";
+          const href = `/app/c/${company.slug}/r/${run.id}`;
+          if (f.cls === "auth") {
+            // one alert per company per vendor: twenty runs stopped by one dead token are one message, and a new token wakes them all
+            await raise(c, { companyId: run.company_id, key: `auth:${f.vendor ?? "vendor"}`, level: "error", source: "step", href, text: `${(f.vendor ?? "a vendor").toUpperCase()} rejected the company's token (${f.status ?? "auth"}): runs that reach it pause until the token is replaced in settings. First seen on "${wfName}" at step ${node.id}${who ? ` for ${who}` : ""}: ${f.message.slice(0, 200)}`, detail: { run_id: run.id, node: node.id, vendor: f.vendor, error: f.message } }, now.toJSDate());
+          } else {
+            await raise(c, { companyId: run.company_id, key: `run:${run.id}:paused`, level: "error", source: "step", href, text: `"${wfName}" needs a hand at step ${node.id}${who ? ` for ${who}` : ""}: ${f.message.slice(0, 300)}${retryable ? ` (gave up after ${tries} tries)` : ""}. Retry or skip the step on the run page.`, detail: { run_id: run.id, node: node.id, class: f.cls, vendor: f.vendor, error: f.message, tries } }, now.toJSDate());
+          }
+          report.paused++;
+        };
         let nodeId: string | null = run.current_node ?? def.nodes.find((n) => n.type === "trigger")!.id;
         // D58: a listener armed on this run fires wherever the run is parked: the run jumps to its "tap" (or "until") edge, remembering where it was for `resume`
         const jump = async (lis: Listener, fired: NonNullable<Awaited<ReturnType<typeof listenerFired>>>, from: string | null, at: Date | null) => {
@@ -150,12 +196,18 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           }
 
           const step = await one<{ id: string }>(c, "insert into run_steps (run_id,node_id,node_type,status) values ($1,$2,$3,'waiting') returning id", [run.id, node.id, node.type]);
-          // a node that throws (vendor error, bad template) must fail the run WITHOUT rolling back this tick's ledger rows:
-          // sends that already went out stay recorded, which is what makes a retry safe
-          let out: Awaited<ReturnType<typeof executeNode>>;
-          try { out = await executeNode(deps, node); } catch (e) { out = { status: "failed", error: String((e as Error).message).slice(0, 500) }; }
+          // a node that throws (vendor error, bad template) is caught here, never aborting this tick's transaction:
+          // the ledger rows already written (a send, a create claim) stay, which is what makes the retry safe
+          let out: Awaited<ReturnType<typeof executeNode>>, thrown: unknown;
+          try { out = await executeNode(deps, node); } catch (e) { thrown = e; out = { status: "failed", error: String((e as Error).message).slice(0, 500) }; }
+          if (out.status === "failed") {
+            // a failure the step itself returned is its verdict on its config or data (an unbound binding, a term that does not exist): a person's, not a retry's, unless its words carry a vendor's status
+            const f = classifyError(thrown ?? out.error); if (thrown === undefined && f.cls === "unknown") f.cls = "permanent";
+            await failStep(node, step!.id, f, thrown !== undefined); return;
+          }
+          if (run.step_attempt) { await c.query("update runs set step_attempt=0, step_error=null where id=$1", [run.id]); run.step_attempt = 0; }   // the step passed on a retry: the counter is for that step only
           await c.query("update run_steps set status=$2, result=$3, error=$4, finished_at=now() where id=$1",
-            [step!.id, out.status === "exit" || out.status === "paused" || out.status === "resume" ? "ok" : out.status === "waiting" ? "waiting" : out.status, "result" in out ? out.result ?? {} : {}, "error" in out ? out.error : null]);
+            [step!.id, out.status === "exit" || out.status === "resume" ? "ok" : out.status === "waiting" ? "waiting" : out.status, "result" in out ? out.result ?? {} : {}, "error" in out ? out.error : null]);
           if (out.status === "ok" && (node.type === "send_sms" || node.type === "send_email")) { sendsThisTick.set(run.company_id, (sendsThisTick.get(run.company_id) ?? 0) + 1); report.sends++; }
 
           if (out.status === "waiting") { await finish("waiting", undefined, out.until?.toJSDate() ?? null, out.stay ? node.id : onwardEdge(edgesFrom(node.id))?.to ?? null, ctx, { reply: out.wakeOnReply, tag: out.wakeOnTag }); report.waiting++; return; }
@@ -180,7 +232,7 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
             await finish("completed", out.reason, null, node.id, ctx); report.completed++; return;
           }
           if (out.status === "paused") { await finish("paused", out.reason, null, node.id, ctx); report.paused++; return; }
-          if (out.status === "failed") { await finish("failed", out.error, null, node.id, ctx); report.failed++; return; }
+          // `failed` from here on is the engine's own fault (a graph with no way on, a node the pinned version lacks): no retry can fix it, so the old terminal status stays for those
           if (out.next === null) { await finish("failed", `node ${node.id} (${node.type}) has no outgoing edge`, null, node.id, ctx); report.failed++; return; }
           nodeId = out.next;
         }

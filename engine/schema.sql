@@ -483,12 +483,16 @@ create table runs (
   claimed_at          timestamptz,                         -- scheduler lease
   claimed_by          text,
   born_in             text not null default 'live' check (born_in in ('shadow','test','live')),   -- the company's mode when the run started; runs not born live are cleared at Go live (D51)
+  step_attempt        int not null default 0,              -- D66: tries of the current step so far (a transient failure retries in place; reset when the step passes or a person retries)
+  step_error          text,                                 -- D66: the last error of the current step, as the vendor said it
   started_at          timestamptz not null default now(),
   finished_at         timestamptz,
   unique (workflow_id, reentry_key)
 );
 create index on runs (status, next_run_at) where status in ('active','waiting');
 create index on runs (company_id, contact_id);
+-- D66: the run whose card step made the card, so a retry of that step finds its own card (runs is declared after pipeline_cards)
+alter table pipeline_cards add column created_by_run uuid references runs(id) on delete set null;
 
 -- One row per node execution. This is the flow view and the debugger.
 create table run_steps (
@@ -496,13 +500,27 @@ create table run_steps (
   run_id      uuid not null references runs(id),
   node_id     text not null,
   node_type   text not null,
-  status      text not null check (status in ('ok','skipped','stale','failed','waiting')),
+  status      text not null check (status in ('ok','skipped','stale','failed','waiting','paused')),   -- paused: the step itself asked for a person (a stale message escalated), D66
   started_at  timestamptz not null default now(),
   finished_at timestamptz,
   result      jsonb not null default '{}',
   error       text
 );
 create index on run_steps (run_id, started_at);
+
+-- D66: the create ledger for steps whose vendor write has no key of its own (a note, a task, a document, a card, a record).
+-- Claimed BEFORE the vendor is called, marked done after; a retry that finds the claim knows the write may already be there.
+create table step_effects (
+  id           uuid primary key default gen_random_uuid(),
+  company_id   uuid not null references companies(id) on delete cascade,
+  run_id       uuid not null references runs(id) on delete cascade,
+  node_id      text not null,
+  kind         text not null,                            -- note | task | document | card | record
+  external_id  text,                                     -- what the vendor gave back, once it answered
+  created_at   timestamptz not null default now(),
+  done_at      timestamptz,
+  unique (run_id, node_id, kind)
+);
 
 -- The idempotent send ledger. A retry can't double-send because the key already exists.
 create table sends (

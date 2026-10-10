@@ -5,6 +5,7 @@ import type { PollReport } from "./poll";
 import type { TickReport } from "./runner";
 import { decrypt } from "./crypto";
 import { resendSend } from "@/adapters/email/resend";
+import { classifyError } from "./failures";
 
 /**
  * D33. The engine tells the operator the minute something fails, and says so once.
@@ -88,13 +89,18 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
      where s.status='skipped' and s.result->>'kind'='blocked' and s.finished_at > $1 and s.finished_at <= $2 order by s.finished_at`, [since, now]);
   for (const b of blocked) {
     const step = await stepWords(c, b.workflow_id, b.node_id);
-    const r = await raise(c, { companyId: b.company_id, key: `blocked:${b.workflow_id}:${b.node_id}`, level: "warning", source: "step", text: `"${b.workflow}" could not run ${step}${b.contact ? ` for ${b.contact}` : ""}: ${(b.why ?? "blocked").slice(0, 200)}. The run went on without it.`, detail: { run_id: b.run_id, node: b.node_id, why: b.why }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now);
+    // D66: a vendor rejecting its token is one alert per vendor, however many steps it blocks (a Slack post is never the point of a run, so the run went on)
+    const f = classifyError(b.why ?? "");
+    const r = f.cls === "auth" && f.vendor
+      ? await raise(c, { companyId: b.company_id, key: `auth:${f.vendor}`, level: "error", source: "step", text: `${f.vendor.toUpperCase()} rejected the company's token: its steps are recorded as blocked and runs go on without them until the token is replaced. First seen on "${b.workflow}" at ${step}${b.contact ? ` for ${b.contact}` : ""}: ${(b.why ?? "").slice(0, 200)}`, detail: { run_id: b.run_id, node: b.node_id, vendor: f.vendor, why: b.why }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now)
+      : await raise(c, { companyId: b.company_id, key: `blocked:${b.workflow_id}:${b.node_id}`, level: "warning", source: "step", text: `"${b.workflow}" could not run ${step}${b.contact ? ` for ${b.contact}` : ""}: ${(b.why ?? "blocked").slice(0, 200)}. The run went on without it.`, detail: { run_id: b.run_id, node: b.node_id, why: b.why }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now);
     if (r.isNew) raised++;
   }
   await c.query("insert into engine_state (key, value, updated_at) values ('alerts_cursor', $1, now()) on conflict (key) do update set value=$1, updated_at=now()", [{ since: now.toISOString() }]);
   // a step alert (failed or blocked) is over once a later run of that workflow gets past that step
   const openSteps = await many<AlertRow>(c, "select * from alerts where source='step' and resolved_at is null");
   for (const a of openSteps) {
+    if (!a.key.startsWith("step:") && !a.key.startsWith("blocked:")) continue;   // D66: `run:<id>:paused` closes on Retry/Skip, `auth:<vendor>` when the token is replaced
     const [, wf, node] = a.key.split(":");
     const passed = await one(c, "select 1 from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_id=$2 and s.status='ok' and s.started_at > $3 limit 1", [wf, node, a.last_seen]);
     if (passed && (await resolve(c, a.company_id, a.key, now))) resolved++;
@@ -150,7 +156,7 @@ export async function announceDue(c: PoolClient, adapters: Adapters, now = new D
       if (repeat && a.slack_ts) { const thread = (a.detail as { thread?: string }).thread; said = !!(await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} Still open after ${hoursOpen(a.first_seen, now)}h: ${a.text.slice(0, 300)}${thread ? `\n${thread}` : ""}`, as, a.slack_ts).catch(() => null)); }   // the hourly repeat carries the fresh breakdown
       else {
         const fix = (a.detail as { fix?: { label: string } }).fix; const extra = (a.detail as { link?: string; link_label?: string });
-        const r = await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} *${where}${a.source === "step" ? (a.key.startsWith("blocked:") ? "Step could not run" : "Run failed") : a.source === "health" ? "Health check" : a.source === "poll" ? "Polling" : "Engine"}*\n${a.text}${link ? `\n<${link}|Open>${fix ? ` · <${link}#fix|${fix.label}>` : ""}` : ""}${extra.link ? `${link ? " · " : "\n"}<${extra.link}|${extra.link_label ?? "Open"}>` : ""}`, as).catch(() => null);
+        const r = await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} *${where}${a.source === "step" ? (a.key.startsWith("blocked:") ? "Step could not run" : a.key.startsWith("run:") ? "Run needs a hand" : a.key.startsWith("auth:") ? "Token rejected" : "Run failed") : a.source === "health" ? "Health check" : a.source === "poll" ? "Polling" : "Engine"}*\n${a.text}${link ? `\n<${link}|Open>${fix ? ` · <${link}#fix|${fix.label}>` : ""}` : ""}${extra.link ? `${link ? " · " : "\n"}<${extra.link}|${extra.link_label ?? "Open"}>` : ""}`, as).catch(() => null);
         if (r) {
           said = true; await c.query("update alerts set slack_channel=$2, slack_ts=$3 where id=$1", [a.id, channel, r.ts]);
           // the detail that belongs under the post, not in it: the next days' availability at a glance

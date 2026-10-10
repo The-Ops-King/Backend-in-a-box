@@ -95,8 +95,8 @@ const fake: Adapters = {
     updateOpportunity: async (_c, id, patch) => vendor("updateOpportunity", () => { const k = cards.get(id); if (!k) throw gone("Opportunity", id); Object.assign(k, { stageId: patch.stageId ?? k.stageId, name: patch.name ?? k.name, status: patch.status ?? k.status, updatedAt: new Date().toISOString() }); }),
   },
   sender: { ...base.sender, sendSms: (_c, to, body) => send("sms", "sendSms", to, body), sendEmail: (_c, to, subject, html) => send("email", "sendEmail", to, `${subject}|${html}`) },
-  // the real classifier turns every HTTP failure (401, 5xx, a timeout) into "unclear, confidence 0" (classifier.ts:36): the engine cannot tell a dead key from a vague reply
-  classifier: { choice: async (): Promise<Classification> => { calls.set("classify", callsTo("classify") + 1); const p = plans.get("classify"); if (p && p.times > 0) { p.times--; return { value: "unclear", confidence: 0, distribution: {}, unclear: true }; } return { value: "confirmed", confidence: 0.97, distribution: { confirmed: 0.97 }, unclear: false }; } },
+  // like the real classifier since D66: a plan with a status (401, 5xx) throws a VendorError; one without is a vague reply, "unclear, confidence 0"
+  classifier: { choice: async (): Promise<Classification> => { calls.set("classify", callsTo("classify") + 1); const p = plans.get("classify"); if (p && p.times > 0) { p.times--; if (p.status !== undefined) throw errorFor("classify", p); return { value: "unclear", confidence: 0, distribution: {}, unclear: true }; } return { value: "confirmed", confidence: 0.97, distribution: { confirmed: 0.97 }, unclear: false }; } },
   notifier: { ...base.notifier, post: async (_t, channel, text) => vendor("slackPost", () => { posts.push({ channel, text }); return { ts: `${posts.length}.000100` }; }) },
   analyst: { analyze: async () => vendor("analyze", () => ({ text: '{"summary":"fine"}', parsed: { summary: "fine" }, model: "fake", usage: { input: 1, output: 1, cacheRead: 0 } })) },
 };
@@ -201,7 +201,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
 
   // ================================================================================================================
   describe("the four bad bugs: one run, one card, one message, zero charges", () => {
-    it.fails("20 cards (503 twice, then ok): the card step is retried in place at 1 min then 5 min, one card is made, the run completes — today the run fails on the first 503 and no card is made", async () => {
+    it("20 cards (503 twice, then ok): the card step is retried in place at 1 min then 5 min, one card is made, the run completes — today the run fails on the first 503 and no card is made", async () => {
       fail("createOpportunity", { status: 503, times: 2 });
       const ct = await person("CARD503");
       const id = await start(wfNewLead, ct);
@@ -238,7 +238,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(await runsOf(wfNewLead, ct)).toHaveLength(1);
     });
 
-    it.fails("20 cards (crash after the CRM made the card): the retry reads the CRM first (D41), adopts the card the crashed attempt made, and the run completes with one card on both sides — today the run is failed for good and the replica never learns of the card", async () => {
+    it("20 cards (crash after the CRM made the card): the retry reads the CRM first (D41), adopts the card the crashed attempt made, and the run completes with one card on both sides — today the run is failed for good and the replica never learns of the card", async () => {
       fail("createOpportunity", { after: true, message: "connection terminated after the CRM answered" });
       const ct = await person("CARDADOPT");
       const id = await start(wfNewLead, ct);
@@ -249,7 +249,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("createOpportunity")).toBe(1);
     });
 
-    it.fails("20 messages (503 twice, then ok): the text is retried in place and goes out once; one sent row for that step — today the refusal is written as failed and the step is skipped, so the text never goes", async () => {
+    it("20 messages (503 twice, then ok): the text is retried in place and goes out once; one sent row for that step — today the refusal is written as failed and the step is skipped, so the text never goes", async () => {
       fail("sendSms", { status: 503, times: 2 });
       const ct = await person("SMS503");
       const id = await start(wfS2L, ct);
@@ -284,7 +284,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(await runsOf(wfS2L, ct)).toHaveLength(1);
     });
 
-    it.fails("20 messages (crash after the CRM accepted the text): the retry finds the send row and skips the step as already sent; the run goes on to the reply wait with one text out — today the run is failed for good", async () => {
+    it("20 messages (crash after the CRM accepted the text): the retry finds the send row and skips the step as already sent; the run goes on to the reply wait with one text out — today the run is failed for good", async () => {
       fail("sendSms", { after: true, message: "connection terminated after the CRM accepted" });
       const ct = await person("SMSRESUME");
       const id = await start(wfS2L, ct);
@@ -321,7 +321,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
 
   // ================================================================================================================
   describe("how an error is classified (a tag write, the simplest CRM step)", () => {
-    it.fails("401: the run pauses at the step with the vendor's words, the CRM is asked once per run, and two runs that hit it are one alert for the vendor — today both runs fail and each workflow is its own alert", async () => {
+    it("401: the run pauses at the step with the vendor's words, the CRM is asked once per run, and two runs that hit it are one alert for the vendor — today both runs fail and each workflow is its own alert", async () => {
       await resetAlerts();
       fail("addTag", { status: 401, times: 99 });
       const a = await person("AUTH1"), b = await person("AUTH2");
@@ -343,7 +343,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(await runsOf(wfTag, ct)).toHaveLength(1);
     });
 
-    it.fails("400: the run pauses at the step with the vendor's words, never fails — today it is failed", async () => {
+    it("400: the run pauses at the step with the vendor's words, never fails — today it is failed", async () => {
       fail("addTag", { status: 400, times: 99 });
       const ct = await person("BAD400P");
       const id = await start(wfTag, ct);
@@ -352,7 +352,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("addTag")).toBe(1);
     });
 
-    it.fails("404 on a tag write (the CRM has no such contact): the run stops at once, is not failed, and the CRM is asked once — today the run is failed", async () => {
+    it("404 on a tag write (the CRM has no such contact): the run stops at once, is not failed, and the CRM is asked once — today the run is failed", async () => {
       fail("addTag", { status: 404, times: 99 });
       const ct = await person("GONE404");
       const id = await start(wfTag, ct);
@@ -361,7 +361,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("addTag")).toBe(1);
     });
 
-    it.fails("503 that never clears: retried at 1 min, 5 min, 15 min and 1 h on the same step, then paused; five calls, one run — today the first 503 fails the run", async () => {
+    it("503 that never clears: retried at 1 min, 5 min, 15 min and 1 h on the same step, then paused; five calls, one run — today the first 503 fails the run", async () => {
       fail("addTag", { status: 503, times: 99 });
       const ct = await person("DOWN503");
       const id = await start(wfTag, ct);
@@ -377,7 +377,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(await runsOf(wfTag, ct)).toHaveLength(1);
     });
 
-    it.fails("429 (the client already waited 1.5 s and 3 s, client.ts:19): transient, retried a minute later, the run completes when the CRM answers — today the run fails", async () => {
+    it("429 (the client already waited 1.5 s and 3 s, client.ts:19): transient, retried a minute later, the run completes when the CRM answers — today the run fails", async () => {
       fail("addTag", { status: 429 });
       const ct = await person("RATE429");
       const id = await start(wfTag, ct);
@@ -388,7 +388,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("addTag")).toBe(2); expect(tagsOn.get("RATE429")).toEqual(["stat-probe"]);
     });
 
-    it.fails("a network error (ECONNRESET, no status): transient, retried a minute later — today the run fails", async () => {
+    it("a network error (ECONNRESET, no status): transient, retried a minute later — today the run fails", async () => {
       fail("addTag", { message: "fetch failed: ECONNRESET" });
       const ct = await person("NET1");
       const id = await start(wfTag, ct);
@@ -399,7 +399,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("addTag")).toBe(2);
     });
 
-    it.fails("an error nobody classified (no status, not a network word): one retry a minute later, then the run pauses — today the run fails at once", async () => {
+    it("an error nobody classified (no status, not a network word): one retry a minute later, then the run pauses — today the run fails at once", async () => {
       fail("addTag", { message: "TypeError: Cannot read properties of undefined (reading 'id')", times: 99 });
       const ct = await person("UNK1");
       const id = await start(wfTag, ct);
@@ -423,7 +423,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(tagsOn.get("HAND1")).toEqual(["stat-probe"]);
     });
 
-    it.fails("a contact with no CRM id yet: a tag step pauses with the reason (nothing to write to), never fails — today the run is failed", async () => {
+    it("a contact with no CRM id yet: a tag step pauses with the reason (nothing to write to), never fails — today the run is failed", async () => {
       const ct = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name) values ($1,'Form','Only') returning id", [companyId]))!.id);
       const id = await start(wfTag, ct);
       await tickOnce();
@@ -507,7 +507,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("createOpportunity")).toBe(1); expect(cardsIn("HAND2")).toHaveLength(1);
     });
 
-    it.fails("the CRM cannot be read for the contact's cards (503): the step is retried, not failed; one card when the CRM answers — today the step fails the run (executor.ts:404)", async () => {
+    it("the CRM cannot be read for the contact's cards (503): the step is retried, not failed; one card when the CRM answers — today the step fails the run (executor.ts:404)", async () => {
       fail("openCards", { status: 503 });
       const ct = await person("READ503");
       const id = await start(wfCard, ct);
@@ -518,7 +518,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("createOpportunity")).toBe(1); expect(cardsIn("READ503")).toHaveLength(1);
     });
 
-    it.fails("the card was deleted in the CRM between the read and the write (updateOpportunity 404): the run pauses with the CRM's words, asked once — today the run is failed", async () => {
+    it("the card was deleted in the CRM between the read and the write (updateOpportunity 404): the run pauses with the CRM's words, asked once — today the run is failed", async () => {
       const ct = await person("DEL404");
       handCard("DEL404");
       fail("updateOpportunity", { status: 404, times: 99 });
@@ -590,7 +590,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(await runsOf(wfS2L, ct)).toHaveLength(1);
     });
 
-    it.fails("401 on a send (the token was rotated): the run pauses at the step, one call, no message — today the refusal is written and the run walks on, failing every CRM step after it", async () => {
+    it("401 on a send (the token was rotated): the run pauses at the step, one call, no message — today the refusal is written and the run walks on, failing every CRM step after it", async () => {
       fail("sendEmail", { status: 401, times: 99 });
       const ct = await person("SEND401");
       const id = await start(wfS2L, ct);
@@ -601,7 +601,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
 
     it.todo("400 on a send (the CRM says the number is invalid): the policy says pause with the vendor's words; D56/G1 says write the refusal, skip the step as blocked and carry on — decide which, then pin it");
 
-    it.fails("a contact with no CRM id yet is not a contact the CRM has lost: the send is skipped with the reason, the CRM is never asked, nothing is stamped gone — today the CRM is asked for contact 'undefined', answers not found, and the person is marked gone (executor.ts:116,124)", async () => {
+    it("a contact with no CRM id yet is not a contact the CRM has lost: the send is skipped with the reason, the CRM is never asked, nothing is stamped gone — today the CRM is asked for contact 'undefined', answers not found, and the person is marked gone (executor.ts:116,124)", async () => {
       const ct = await asOperator(async (c) => { const id = (await one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name) values ($1,'Form','Lead') returning id", [companyId]))!.id; await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'phone','+16025559999'),($1,$2,'email','formlead@x.com')", [companyId, id]); return id; });
       const id = await start(wfS2L, ct);
       await tickOnce(); await tickOnce();
@@ -624,7 +624,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(posts.filter((p) => p.text.includes("SLACKAUTH"))).toHaveLength(0);
     });
 
-    it.fails("Slack refuses the token: two steps in one run are one alert for Slack, not one per step — today each blocked step is its own alert (alerts.ts:91)", async () => {
+    it("Slack refuses the token: two steps in one run are one alert for Slack, not one per step — today each blocked step is its own alert (alerts.ts:91)", async () => {
       await resetAlerts();
       fail("slackPost", { message: "slack: invalid_auth", times: 99 });
       const ct = await person("SLACKONE");
@@ -634,7 +634,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(await openAlerts()).toHaveLength(1);
     });
 
-    it.fails("Slack says ratelimited (transient): the post is retried in place and goes out once — today it is written as refused and never retried", async () => {
+    it("Slack says ratelimited (transient): the post is retried in place and goes out once — today it is written as refused and never retried", async () => {
       fail("slackPost", { message: "slack: ratelimited" });
       const ct = await person("SLACKRATE");
       const id = await start(wfSlack, ct);
@@ -655,7 +655,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("createTask")).toBe(1);
     });
 
-    it.fails("notify_owner whose task is made and then the call dies: the retry does not make a second task (an effects ledger keys it), the post goes once, the run completes — today the run is failed, and a naive retry would make two tasks (executor.ts:226 has no ledger)", async () => {
+    it("notify_owner whose task is made and then the call dies: the retry does not make a second task (an effects ledger keys it), the post goes once, the run completes — today the run is failed, and a naive retry would make two tasks (executor.ts:226 has no ledger)", async () => {
       fail("createTask", { after: true, message: "connection terminated after the CRM answered" });
       const ct = await person("TASKONCE");
       const id = await start(wfNotify, ct);
@@ -676,7 +676,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(notes.filter((n) => n.to === "NOTECRASH")).toHaveLength(1);
     });
 
-    it.fails("a note the CRM refuses with 503: retried in place, written once — today the step fails the run (executor.ts:369)", async () => {
+    it("a note the CRM refuses with 503: retried in place, written once — today the step fails the run (executor.ts:369)", async () => {
       fail("addNote", { status: 503 });
       const ct = await person("NOTE503");
       const id = await start(wfNote, ct);
@@ -687,7 +687,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(notes.filter((n) => n.to === "NOTE503")).toHaveLength(1);
     });
 
-    it.fails("a note whose call dies after the CRM wrote it: the retry does not write it twice (effects ledger) and the run completes — today the run is failed, and a naive retry would write two notes", async () => {
+    it("a note whose call dies after the CRM wrote it: the retry does not write it twice (effects ledger) and the run completes — today the run is failed, and a naive retry would write two notes", async () => {
       fail("addNote", { after: true, message: "connection terminated after the CRM answered" });
       const ct = await person("NOTEONCE");
       const id = await start(wfNote, ct);
@@ -704,7 +704,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(tasks.filter((t) => t.to === "TASK2")).toHaveLength(1);
     });
 
-    it.fails("a custom-object record the CRM refuses with 503 twice: retried in place, created once, our row carries its id — today the run fails on the first 503 (executor.ts:454)", async () => {
+    it("a custom-object record the CRM refuses with 503 twice: retried in place, created once, our row carries its id — today the run fails on the first 503 (executor.ts:454)", async () => {
       fail("createRecord", { status: 503, times: 2 });
       const ct = await person("REC503");
       const id = await start(wfRecord, ct, { key: "rec-503" });
@@ -724,10 +724,10 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("createRecord")).toBe(1);
     });
 
-    it.fails("the record our row points at was deleted in the CRM (updateRecord 404): the run pauses with the CRM's words, asked once — today the run is failed", async () => {
+    it("the record our row points at was deleted in the CRM (updateRecord 404): the run pauses with the CRM's words, asked once — today the run is failed", async () => {
       const ct = await person("RECGONE");
       const first = await start(wfRecord, ct, { key: "rec-gone" }); await tickOnce();
-      expect((await runRow(first)).status).toBe("completed");
+      expect((await runRow(first)).status).toBe("completed"); calls.clear();   // the create is the first run's; the second must not make one
       const ours = (await asOperator((c) => one<{ ghl_record_id: string }>(c, "select ghl_record_id from crm_records where company_id=$1 and record_key='rec-gone'", [companyId])))!;
       records.delete(ours.ghl_record_id);
       const second = await start(wfRecord, ct, { key: "rec-gone" });
@@ -736,7 +736,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("updateRecord")).toBe(1); expect(callsTo("createRecord")).toBe(0);
     });
 
-    it.fails("update_contact the CRM refuses with 503: retried in place, written once — today the run fails (executor.ts:480)", async () => {
+    it("update_contact the CRM refuses with 503: retried in place, written once — today the run fails (executor.ts:480)", async () => {
       fail("updateContact", { status: 503 });
       const ct = await person("UPD503");
       const id = await start(wfContact, ct);
@@ -760,8 +760,8 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect((await runRow(id)).context).toMatchObject({ vars: { intent: "unclear" } });
     });
 
-    it.fails("Jev is down (5xx) or refuses the key (401): the step is retried (or paused for the key), not answered 'unclear' — today the adapter hides every HTTP failure as unclear with confidence 0 (classifier.ts:36), so a dead key reads as a stream of vague replies routed to humans", async () => {
-      fail("classify", { times: 99 });
+    it("Jev is down (5xx) or refuses the key (401): the step is retried (or paused for the key), not answered 'unclear' — today the adapter hides every HTTP failure as unclear with confidence 0 (classifier.ts:36), so a dead key reads as a stream of vague replies routed to humans", async () => {
+      fail("classify", { status: 503, times: 99 });
       const ct = await person("JEVDOWN");
       const id = await start(wfClassify, ct, { text: "yes see you then" });
       await tickOnce();
@@ -769,7 +769,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect((await runRow(id)).current_node).toBe("n1");
     });
 
-    it.fails("an empty transcript / reply: nothing to classify, the step is a noop and Jev is never asked — today Jev is asked about an empty text", async () => {
+    it("an empty transcript / reply: nothing to classify, the step is a noop and Jev is never asked — today Jev is asked about an empty text", async () => {
       const ct = await person("EMPTYCL");
       const id = await start(wfClassify, ct, { text: "" });
       await tickOnce();
@@ -795,7 +795,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect((await runRow(id)).status).toBe("completed");
     });
 
-    it.fails("analyze when the model is down (529 / 503): retried in place, read once — today the run fails (executor.ts:513 rethrows)", async () => {
+    it("analyze when the model is down (529 / 503): retried in place, read once — today the run fails (executor.ts:513 rethrows)", async () => {
       fail("analyze", { status: 529 });
       const ct = await person("AN529");
       const id = await start(wfAnalyze, ct, { text: "a long transcript" });
@@ -806,7 +806,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("analyze")).toBe(2);
     });
 
-    it.fails("analyze when the key is refused (401): the run pauses at once, asked once — today the run fails", async () => {
+    it("analyze when the key is refused (401): the run pauses at once, asked once — today the run fails", async () => {
       fail("analyze", { status: 401, times: 99 });
       const ct = await person("AN401");
       const id = await start(wfAnalyze, ct, { text: "a long transcript" });
@@ -828,7 +828,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect((await runRow(id)).status).toBe("completed");
     });
 
-    it.fails("a GHL appointment write the CRM refuses with 503: retried in place, written once — today the run fails (executor.ts:388)", async () => {
+    it("a GHL appointment write the CRM refuses with 503: retried in place, written once — today the run fails (executor.ts:388)", async () => {
       fail("updateAppointment", { status: 503 });
       const ct = await person("APPT503");
       const appt = await appointment(ct, "APPT503", "ghl");
@@ -840,7 +840,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("updateAppointment")).toBe(2);
     });
 
-    it.fails("update_appointment on a run with no appointment: a definition problem, so the run pauses with the reason, never fails — today it is failed", async () => {
+    it("update_appointment on a run with no appointment: a definition problem, so the run pauses with the reason, never fails — today it is failed", async () => {
       const ct = await person("NOAPPT");
       const id = await start(wfAppt, ct);
       await tickOnce();
@@ -850,7 +850,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
 
   // ================================================================================================================
   describe("branch / check / record", () => {
-    it.fails("a branch with no matching edge and no else: a definition problem, so the run pauses with the reason — today it is failed (executor.ts:348)", async () => {
+    it("a branch with no matching edge and no else: a definition problem, so the run pauses with the reason — today it is failed (executor.ts:348)", async () => {
       const ct = await person("BRANCH1");
       const id = await start(wfBranch, ct, { never: "no" });
       await tickOnce();

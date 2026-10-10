@@ -15,7 +15,7 @@ export function Companies() {
     <Sec>Every company</Sec>
     {companies.length === 0 ? <Empty>No companies yet. Install one with the admin API.</Empty> : <div className="rows">{companies.map((c) => <Link key={c.id} to={`/app/c/${c.slug}`} className="row noicon">
       <span className="mid"><span className="nm">{c.name}</span><span className="sub"><Tag kind={c.mode}>{c.mode}</Tag>{c.alerts ? <Tag kind="warn">{c.alerts} open</Tag> : null}<span>{c.on} of {c.workflows} on</span><span>last poll {c.last_poll ? ago(c.last_poll) : "never"}</span></span></span>
-      <Counts people={c.contacts} in_flight={c.in_flight} failed={c.failed_24h} />
+      <Counts people={c.contacts} in_flight={c.in_flight} needs_hand={c.needs_hand} />
     </Link>)}</div>}
   </>;
 }

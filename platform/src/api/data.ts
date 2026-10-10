@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
-import { parseDefinition, type Definition } from "@/engine/definition";
+import { indexDefinition, onwardEdge, parseDefinition, type Definition } from "@/engine/definition";
 import { buildContext, loadCompany, type RunRow } from "@/engine/context";
 import { projectRun, type Projected } from "@/engine/project";
 import { companyReadiness, type Readiness } from "@/engine/readiness";
@@ -23,13 +23,13 @@ export const companyById = (c: PoolClient, id: string) => one<CompanyHead>(c, "s
 
 /** The companies page: every company with its counts, and the engine's own state. */
 export async function companiesPage(c: PoolClient) {
-  const companies = await many<{ id: string; name: string; slug: string; status: string; mode: string; timezone: string; contacts: number; workflows: number; on: number; in_flight: number; failed_24h: number; last_poll: Date | null; alerts: number }>(c, `
+  const companies = await many<{ id: string; name: string; slug: string; status: string; mode: string; timezone: string; contacts: number; workflows: number; on: number; in_flight: number; needs_hand: number; last_poll: Date | null; alerts: number }>(c, `
     select co.id, co.name, co.slug, co.status, co.mode, co.timezone,
       (select count(*)::int from contacts where company_id=co.id and merged_into is null) as contacts,
       (select count(*)::int from workflows where company_id=co.id) as workflows,
       (select count(*)::int from workflows where company_id=co.id and enabled) as "on",
       (select count(*)::int from runs where company_id=co.id and status in ('active','waiting')) as in_flight,
-      (select count(*)::int from runs where company_id=co.id and status='failed' and started_at > now()-interval '24h') as failed_24h,
+      (select count(*)::int from runs where company_id=co.id and (status='paused' or (status='failed' and started_at > now()-interval '24h'))) as needs_hand,
       (select max(last_success_at) from poll_cursors where company_id=co.id) as last_poll,
       (select count(*)::int from alerts where company_id=co.id and resolved_at is null) as alerts
     from companies co order by co.created_at`);
@@ -38,15 +38,15 @@ export async function companiesPage(c: PoolClient) {
   return { engine: { last_tick: state?.value.last_tick ?? null, recovery: !!state?.value.recovery, problems: probs.value.problems }, companies };
 }
 
-export type WorkflowRow = { id: string; name: string; enabled: boolean; stage: string | null; sort: number; origin: string | null; description: string | null; people: number; in_flight: number; failed: number; last_ran: Date | null; schedule: string | null; ready: boolean; missing: string[]; gaps: string[]; parse_error?: string };
+export type WorkflowRow = { id: string; name: string; enabled: boolean; stage: string | null; sort: number; origin: string | null; description: string | null; people: number; in_flight: number; needs_hand: number; last_ran: Date | null; schedule: string | null; ready: boolean; missing: string[]; gaps: string[]; parse_error?: string };
 
 /** The company page: the workflows on the rail with their counts and readiness. */
 export async function companyPage(c: PoolClient, co: CompanyHead) {
-  const rows = await many<{ id: string; name: string; enabled: boolean; stage: string | null; sort: number; origin: string | null; description: string | null; definition: unknown; people: number; in_flight: number; failed: number; last_ran: Date | null }>(c, `
+  const rows = await many<{ id: string; name: string; enabled: boolean; stage: string | null; sort: number; origin: string | null; description: string | null; definition: unknown; people: number; in_flight: number; needs_hand: number; last_ran: Date | null }>(c, `
     select w.id, w.name, w.enabled, w.stage, w.sort, w.origin, t.description, v.definition,
       (select count(*)::int from runs where workflow_id=w.id) as people,
       (select count(*)::int from runs where workflow_id=w.id and status in ('active','waiting')) as in_flight,
-      (select count(*)::int from runs where workflow_id=w.id and status='failed') as failed,
+      (select count(*)::int from runs where workflow_id=w.id and status in ('paused','failed')) as needs_hand,
       (select max(started_at) from runs where workflow_id=w.id) as last_ran
     from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version left join workflow_templates t on t.id=w.template_id
     where w.company_id=$1`, [co.id]);
@@ -56,7 +56,7 @@ export async function companyPage(c: PoolClient, co: CompanyHead) {
     let schedule: string | null = null;
     try { const def = parseDefinition(w.definition); const trigs = def.nodes.filter((n) => n.type === "trigger" && n.schedule); if (trigs.length) schedule = trigs.map((t) => (t.type === "trigger" && t.schedule ? scheduleWords(t.schedule) : "")).join("; "); } catch { /* readiness says so */ }
     const r = readyOf.get(w.id);
-    return { id: w.id, name: w.name, enabled: w.enabled, stage: w.stage, sort: w.sort, origin: w.origin, description: w.description, people: w.people, in_flight: w.in_flight, failed: w.failed, last_ran: w.last_ran, schedule, ready: !!r?.ready, missing: r?.missing ?? [], gaps: r?.gaps ?? [], parse_error: r?.parseError };
+    return { id: w.id, name: w.name, enabled: w.enabled, stage: w.stage, sort: w.sort, origin: w.origin, description: w.description, people: w.people, in_flight: w.in_flight, needs_hand: w.needs_hand, last_ran: w.last_ran, schedule, ready: !!r?.ready, missing: r?.missing ?? [], gaps: r?.gaps ?? [], parse_error: r?.parseError };
   }).sort((a, b) => stageIndex(a.stage) - stageIndex(b.stage) || a.sort - b.sort || a.name.localeCompare(b.name));
   const alerts = await one<{ n: number }>(c, "select count(*)::int as n from alerts where company_id=$1 and resolved_at is null", [co.id]);
   return { company: co, stages: STAGES, workflows, issues: ready.issues, alerts_open: alerts?.n ?? 0 };
@@ -111,7 +111,7 @@ async function runRows(c: PoolClient, co: CompanyHead, runs: RunFull[]): Promise
 export async function workflowPage(c: PoolClient, co: CompanyHead, id: string) {
   const w = await one<{ id: string; company_id: string; name: string; enabled: boolean; stage: string | null; origin: string | null; current_version: number; template_version: number | null; diverged: boolean; description: string | null; definition: unknown }>(c, "select w.*, t.description, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version left join workflow_templates t on t.id=w.template_id where w.id=$1", [id]);
   if (!w || w.company_id !== co.id) return null;
-  const stats = await one<{ people: number; in_flight: number; finished: number; failed: number; last_ran: Date | null }>(c, "select count(*)::int as people, count(*) filter (where status in ('active','waiting'))::int as in_flight, count(*) filter (where status in ('completed','exited'))::int as finished, count(*) filter (where status='failed')::int as failed, max(started_at) as last_ran from runs where workflow_id=$1", [id]);
+  const stats = await one<{ people: number; in_flight: number; finished: number; needs_hand: number; last_ran: Date | null }>(c, "select count(*)::int as people, count(*) filter (where status in ('active','waiting'))::int as in_flight, count(*) filter (where status in ('completed','exited'))::int as finished, count(*) filter (where status in ('paused','failed'))::int as needs_hand, max(started_at) as last_ran from runs where workflow_id=$1", [id]);
   let def: Definition | null = null, parse_error: string | null = null;
   try { def = parseDefinition(w.definition); } catch (e) { parse_error = String((e as Error).message).slice(0, 300); }
   const { bindings, adapterCompany } = await loadCompany(c, co.id);
@@ -122,7 +122,7 @@ export async function workflowPage(c: PoolClient, co: CompanyHead, id: string) {
   const rows = await runRows(c, co, runs);
   const schedule = def ? def.nodes.filter((n) => n.type === "trigger" && n.schedule).map((t) => (t.type === "trigger" && t.schedule ? scheduleWords(t.schedule) : "")).join("; ") : "";
   return { company: co, workflow: { id: w.id, name: w.name, enabled: w.enabled, stage: w.stage, origin: w.origin, description: w.description, version: w.current_version, diverged: w.diverged, last_ran: stats?.last_ran ?? null, schedule: schedule || null, parse_error },
-    tiles: { people: stats?.people ?? 0, in_flight: stats?.in_flight ?? 0, finished: stats?.finished ?? 0, failed: stats?.failed ?? 0 }, chart, runs: rows,
+    tiles: { people: stats?.people ?? 0, in_flight: stats?.in_flight ?? 0, finished: stats?.finished ?? 0, needs_hand: stats?.needs_hand ?? 0 }, chart, runs: rows,
     ready: { ready: !!mine?.ready, missing: mine?.missing ?? [], gaps: mine?.gaps ?? [], issues: ready.issues.filter((i) => !i.href || i.href.endsWith(`/w/${id}`)) } };
 }
 
@@ -144,7 +144,9 @@ export async function runPage(c: PoolClient, id: string) {
   const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source) : null;
   const states: Record<string, PathItem["state"]> = {}; for (const p of path) if (!(p.node_id in states) || p.state !== "next") states[p.node_id] = p.state;
   return { company: co, workflow: { id: r.workflow_id, name: r.workflow },
-    run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, co.mode, bindings)) === "shadow" },
+    run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, co.mode, bindings)) === "shadow",
+      // D66: where it stopped and why, and whether a person can retry or skip that step (a step with no plain way on can only be retried)
+      current_node: r.current_node, step_error: r.step_error ?? null, step_attempt: r.step_attempt ?? 0, can_skip: !!(r.current_node && def && onwardEdge(indexDefinition(def).edgesFrom(r.current_node))) },
     feed: path.filter((p) => p.state !== "next"), next: path.filter((p) => p.state === "next"), chart, states,
     raw: { steps: steps.map((s) => ({ node_id: s.node_id, node_type: s.node_type, status: s.status, started_at: s.started_at, result: s.result, error: s.error })), context: r.context } };
 }

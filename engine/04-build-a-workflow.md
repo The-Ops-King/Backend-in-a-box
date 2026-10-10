@@ -145,7 +145,39 @@ the open questions to the team, installed as `slack.attention`, falling back to 
 channel bindings are optional (an unbound one skips the post and says so, unless the step names a `fallback_channel`
 that is bound — then nothing is said); everything else is required and the workflow cannot be turned on without it.
 
-## 5. The conventions a new workflow follows
+## 5. When a step fails (D66)
+
+A workflow never says what to do when a step fails; the engine has one answer for every step, so a template
+author only decides what the step *is*. Tyler: "we need to figure out how to redo ONLY the step that failed, and
+when to actually re-test that step, and when to just alert."
+
+- **Only the step is retried, never the run.** A run parks on the failed node (`waiting`, `next_run_at`, wake flags
+  kept); nothing before it runs again, nothing after it moves. Each try is its own `run_steps` row (`result.attempt`).
+- **Four classes, one place** (`platform/src/engine/failures.ts`): *transient* (a network error, a timeout, 408/425/429/5xx
+  from any vendor, a database connection) retries at 1, 5, 15 and 60 minutes (`RETRY_SCHEDULE`: five tries over 81
+  minutes), then pauses; *auth* (401/403) pauses at once; *permanent* (400/404/422, "not found" / "invalid", an unbound
+  binding, a term the company does not have, a step's own config) pauses at once; *unknown* gets one retry, then is
+  permanent. A failure the step returned itself (its verdict on its config or data) is permanent.
+- **Paused means a person.** `runs.status = 'paused'`, `exit_reason` = `<class>[:<vendor>]: <what the vendor said>`,
+  the step row `failed`, one alert `run:<id>:paused` (the step, the contact, the error, the Open link). The run page
+  offers **Retry this step** (fresh tries, due now) and **Skip this step** (a `skipped by <who>` row, on along the
+  step's plain edge; a question or a gate has none). The company and workflow pages count paused runs as "needs a hand".
+- **A dead token is one message.** Auth pauses raise one `auth:<vendor>` alert per company; replacing the token in
+  settings (or a re-install carrying a new one) wakes every run paused on that vendor for one more try and closes
+  the alert. Slack refusals never pause a run (D56): a post is recorded `failed` and the run goes on.
+- **Never a side effect twice.** Sends and Slack posts have the `sends` key (a row the vendor refused is reclaimed;
+  one that went out is not sent again). `note`, `create_task`, `notify_owner`'s task, `send_document`, a `pipeline_card`
+  create and a `crm_record` create claim a `step_effects` row before the vendor is called and mark it done after: a
+  retry reuses what the vendor gave back, or, when the vendor never answered, does not ask twice (a card step lets the
+  CRM read decide, D41). Tags, contact and appointment updates are idempotent (`update_appointment` emits its event
+  once per run and step); `classify` and `analyze` are reads, and a dead Jev or Anthropic key, or an outage there, is
+  an error for the policy, never a vague answer. A 404 that names the contact on a write to the contact is the person
+  gone from the CRM (the run exits moot, G21); a contact the poll has not matched to the CRM yet pauses as "no CRM id".
+  Nothing in the engine charges anyone; payments are what Whop reports.
+- **`failed` is the engine's own fault** (a graph with no way on, a node the pinned version lacks, an exception in the
+  runner): no retry schedule can fix it, the old status stays for those, and the same two buttons apply.
+
+## 6. The conventions a new workflow follows
 
 - **Shadow first.** It ships installed OFF, the company stays in shadow, the team reads the "would have" trail on the
   contact and run pages, then Go live and turn it on. Never the other way round.
@@ -171,7 +203,7 @@ that is bound — then nothing is said); everything else is required and the wor
 - **Copy lives in the template, prompts in bindings.** A company may edit its copy (versions kept); a template
   upgrade leaves an edited copy alone.
 
-## 6. The questions to ask before building (and the edge cases to raise)
+## 7. The questions to ask before building (and the edge cases to raise)
 
 When a workflow is described in a sentence, these are the blanks. Ask the ones the description left open, five at a
 time, each with a recommended answer. Do not ask what the codebase or the company's settings already answer.
@@ -193,9 +225,9 @@ time, each with a recommended answer. Do not ask what the codebase or the compan
 Edge cases to raise unprompted, because the description usually forgets them: night-time sends; the appointment
 moved after the wait was set; the contact replies while a wait is parked; the same contact books twice; the setter
 field empty; the closer not in Slack; a channel the bot is not in; a payment before the agreement (either order);
-a refund; a run started on a contact with no phone; a vendor outage mid-sequence (the alert and the resume).
+a refund; a run started on a contact with no phone; a vendor outage mid-sequence (the step is retried in place, then the run pauses for a person, §5).
 
-## 7. Build, prove, install
+## 8. Build, prove, install
 
 1. Write the template; `pnpm exec vitest run src/engine/templates.test.ts` proves it parses and every path is known.
 2. Add a scenario in `templates.scenarios.test.ts` (fire the trigger, tick, assert the ledger) and a describe check
@@ -205,7 +237,7 @@ a refund; a run started on a contact with no phone; a vendor outage mid-sequence
    leave it OFF, stage it with the harness (`/api/admin/simulate` actions: create, book, book-self, reschedule,
    cancel, pay, record, call, agreement, sign, reset), read the run page, then turn it on.
 
-## 8. Where the intelligence lives, and where it is going
+## 9. Where the intelligence lives, and where it is going
 
 Today: `classify` picks intents, `analyze` writes notes, scorecards and lines of copy from a prompt the company
 owns, and `relative` keeps every time accurate at the moment of sending. Planned: an `analyze` step whose output is

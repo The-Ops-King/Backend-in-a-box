@@ -15,6 +15,8 @@ import { raise } from "./alerts";
 import { applyOutcome, outcomeTermFor } from "./disposition";
 import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } from "./health";
 import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports";
+import { classifyError } from "./failures";
+import { claimEffect, markEffect, PENDING_WHY, type EffectKind } from "./effects";
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
@@ -52,7 +54,7 @@ export type StepOutcome =
 export type Listener = { node: string; tag: string; channel: string; ts: string; emojis: string[]; into: string; until: string | null; armed_at: string };
 export const listenerOf = (ctx: Record<string, unknown>): Listener | undefined => resolvePath(ctx, "vars.__listen") as Listener | undefined;
 
-export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes; effective: Effective };
+export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes; effective: Effective; cardsReadError?: string };
 
 const contactTz = (d: ExecDeps) => { const tz = (d.ctx.contact as { timezone?: string } | undefined)?.timezone; return tz && DateTime.now().setZone(tz).isValid ? tz : d.company.timezone; };
 /** A shadowed run (shadow mode, or test with a contact that does not pass) proceeds exactly as it would live, but nothing is written to the CRM; sends are recorded as "would have sent". */
@@ -73,11 +75,16 @@ function validityOk(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "send_
 
 async function recordSend(d: ExecDeps, node: Node, channel: "sms" | "email" | "slack" | "webhook", body: string, status: "queued" | "suppressed", reason?: string): Promise<{ id: string } | null> {
   const key = `${d.run.id}:${node.id}`;
+  // D66: a row the vendor refused (`failed`) is reclaimed by the retry; queued, sent, suppressed and shadow rows stay as they are, so nothing goes out twice
   const row = await one<{ id: string }>(d.c, `insert into sends (company_id, run_id, contact_id, channel, idempotency_key, rendered_body, status, suppressed_reason, scheduled_for)
-    values ($1,$2,$3,$4,$5,$6,$7,$8,now()) on conflict (idempotency_key) do nothing returning id`,
+    values ($1,$2,$3,$4,$5,$6,$7,$8,now()) on conflict (idempotency_key) do update set status=excluded.status, suppressed_reason=excluded.suppressed_reason, rendered_body=excluded.rendered_body, error=null, scheduled_for=now() where sends.status='failed' returning id`,
     [d.company.id, d.run.id, d.run.contact_id, channel, key, body, status, reason ?? null]);
   return row ?? null;
 }
+
+/** D66: the create ledger, claimed before a vendor write that has no key of its own and marked done after (effects.ts). */
+const claim = (d: ExecDeps, node: Node, kind: EffectKind) => claimEffect(d.c, d.company.id, d.run.id, node.id, kind);
+const done = (d: ExecDeps, node: Node, kind: EffectKind, externalId?: string | null) => markEffect(d.c, d.run.id, node.id, kind, externalId);
 
 async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "send_email" }>): Promise<StepOutcome> {
   const next = single(d, node.id);
@@ -106,6 +113,8 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   // G11: no address for the channel on the replica (the CRM's own phone/email fields): nothing to send to, so nothing is asked of the CRM; the ledger says why and the run goes on
   const who = d.ctx.contact as { phone?: string | null; email?: string | null } | undefined;
   if (who && !(channel === "sms" ? who.phone : who.email)) { const why = `no ${channel === "sms" ? "phone" : "email"} on the contact`; await recordSend(d, node, channel, body, "suppressed", why); return { status: "skipped", next, result: { kind: "noop", why } }; }
+  // D66 (F2): a person the poll has not matched to the CRM yet has nothing to send to; the CRM is never asked about contact "undefined", so nobody is stamped gone
+  if (!shadow(d) && !(d.ctx.contact as { ghl_contact_id?: string | null } | undefined)?.ghl_contact_id) return { status: "failed", error: `${node.type}: contact has no CRM id yet (nothing to send to)` };
   const send = await recordSend(d, node, channel, body, "queued");
   if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already sent (idempotency)" } };
   if (shadow(d)) {
@@ -122,6 +131,9 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   if (r.accepted) return { status: "ok", next, result: { external_id: r.externalId, substituted } };
   // G21: the CRM has no such contact (deleted or merged there): the replica learns it, one alert says so, and the run is looked at again at once so the premise exits it `moot: contact gone`
   if (contactGone(r.error)) { await markContactGone(d, r.error!); return { status: "waiting", until: d.now, stay: true, result: { why: "the CRM has no such contact; the run exits at its next look" } }; }
+  // D66: an outage or a dead token is the failure policy's (retried in place, or paused until the token is replaced); the send row is `failed` and the retry reclaims it
+  const f = classifyError(r.error ?? "");
+  if (f.cls === "transient" || f.cls === "auth") return { status: "failed", error: r.error ?? "send rejected" };
   // D56: the refusal is on the send row and raises a "step could not run" alert; the rest of the sequence still runs
   return { status: "skipped", next, result: { kind: "blocked", why: `the CRM refused the ${channel}: ${r.error ?? "send rejected"}`, would_send: body.slice(0, 120) } };
 }
@@ -129,14 +141,17 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
 /** The CRM's way of saying the contact is gone: a 404 from the client, or its "Contact with id … not found" body. */
 export const contactGone = (error?: string) => !!error && (/^GHL 404 /.test(error) || /\bcontact (with id \S+ )?not found\b/i.test(error));
 /** Marks the replica once and raises one alert per contact; the premise `contact_exists` does the exiting. */
-async function markContactGone(d: ExecDeps, error: string): Promise<void> {
-  if (!d.run.contact_id) return;
-  const r = await d.c.query("update contacts set gone_at=now(), updated_at=now() where id=$1 and gone_at is null", [d.run.contact_id]);
-  if (!r.rowCount) return;
-  const who = d.ctx.contact as { name?: string | null; ghl_contact_id?: string | null } | undefined;
-  await raise(d.c, { companyId: d.company.id, key: `contact:gone:${d.run.contact_id}`, level: "warning", source: "engine", href: `/app/c/${d.company.slug}`,
+const markContactGone = (d: ExecDeps, error: string) => markGone(d.c, d.company, d.run, d.ctx, error, d.now);
+/** The same, callable by the runner when any contact write comes back 404 (D66): true when this is the first time the person is found gone. */
+export async function markGone(c: PoolClient, company: Pick<CompanyRow, "id" | "slug">, run: Pick<RunRow, "id" | "contact_id">, ctx: Record<string, unknown>, error: string, now: DateTime): Promise<boolean> {
+  if (!run.contact_id) return false;
+  const r = await c.query("update contacts set gone_at=now(), updated_at=now() where id=$1 and gone_at is null", [run.contact_id]);
+  if (!r.rowCount) return false;
+  const who = ctx.contact as { name?: string | null; ghl_contact_id?: string | null } | undefined;
+  await raise(c, { companyId: company.id, key: `contact:gone:${run.contact_id}`, level: "warning", source: "engine", href: `/app/c/${company.slug}`,
     text: `${who?.name ?? who?.ghl_contact_id ?? "A contact"} is gone from the CRM (deleted or merged there); the runs about them exit instead of sending. The CRM said: ${error.slice(0, 160)}`,
-    detail: { contact_id: d.run.contact_id, ghl_contact_id: who?.ghl_contact_id ?? null, run_id: d.run.id, error: error.slice(0, 300) } }, d.now.toJSDate());
+    detail: { contact_id: run.contact_id, ghl_contact_id: who?.ghl_contact_id ?? null, run_id: run.id, error: error.slice(0, 300) } }, now.toJSDate());
+  return true;
 }
 
 /** D56: Slack refusing a post (bad token, channel gone) fails that send and alerts; the run goes on (the CRM steps after a post are the point of the run). */
@@ -145,6 +160,8 @@ async function slackPostOrFail(d: ExecDeps, sendId: string, post: () => Promise<
   catch (e) {
     const refused = String((e as Error).message).slice(0, 500);
     await d.c.query("update sends set status='failed', error=$2 where id=$1", [sendId, refused]);
+    // D66: Slack blinking (ratelimited, a 5xx) is the failure policy's: the send row is failed so the retry reclaims it, and the same post is tried again in a minute
+    if (classifyError(e).cls === "transient") throw e;
     return { refused };
   }
 }
@@ -202,7 +219,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (!templateId) return { status: "failed", error: `send_document ${node.id}: template rendered empty (bind crm.agreement_template)` };
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_send_document: { template: templateId, sender, to: contact?.ghl_contact_id } } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "send_document: contact has no CRM id yet" };
+      const cl = await claim(d, node, "document");
+      if (!cl.fresh) return cl.done ? { status: "ok", next, result: { document: cl.external_id, template: templateId, sender, reused: true } } : { status: "skipped", next, result: { kind: "blocked", why: `document not sent twice: ${PENDING_WHY}` } };
       const sent = await d.adapters.write.sendDocumentTemplate(d.adapterCompany, { templateId, contactId: contact.ghl_contact_id, userId: sender });
+      await done(d, node, "document", sent.id || null);
       const { recordSentByEngine } = await import("./agreements");
       if (sent.id && d.run.contact_id) await recordSentByEngine(d.c, d.company.id, d.run.contact_id, sent.id, name);
       return { status: "ok", next, result: { document: sent.id, template: templateId, sender } };
@@ -218,7 +238,11 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (node.task) {
         const dueAt = d.now.plus(parseDuration(node.task.due)).toJSDate(), title = render(node.task.title, d.ctx, env(d));
         if (shadow(d)) out.would_create_task = { title, due: dueAt.toISOString(), assignedUserId: owner?.ghl_user_id };
-        else if (contact?.ghl_contact_id) out.task = (await d.adapters.write.createTask(d.adapterCompany, contact.ghl_contact_id, { title, body: text, dueAt, assignedUserId: owner?.ghl_user_id })).id;
+        else if (contact?.ghl_contact_id) {
+          const cl = await claim(d, node, "task");
+          if (!cl.fresh) { out.task = cl.external_id; out.task_reused = cl.done; if (!cl.done) out.task_why = PENDING_WHY; }
+          else { out.task = (await d.adapters.write.createTask(d.adapterCompany, contact.ghl_contact_id, { title, body: text, dueAt, assignedUserId: owner?.ghl_user_id })).id; await done(d, node, "task", String(out.task)); }
+        }
       }
       const fallback = node.fallback_channel ? (/^\{\{/.test(node.fallback_channel) ? (resolvePath(d.ctx, node.fallback_channel.replace(/[{}\s]/g, "")) as string | undefined) : node.fallback_channel) : undefined;
       const slackUser = owner?.slack_user_id ?? null;   // resolveMentions already looked the owner up
@@ -331,6 +355,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
 
     case "classify": {
       const input = render(node.input, d.ctx, env(d)); const state = node.state ? render(node.state, d.ctx, env(d)) : undefined;
+      if (!input.trim()) return { status: "skipped", next, result: { kind: "noop", why: "nothing to classify: input rendered empty" } };
       const options = (await many<{ value: string }>(d.c, "select value from core_categories where domain=$1 order by sort", [node.domain])).map((r) => r.value);
       const r = await d.adapters.classifier.choice(state, input, options, node.threshold, { apiKey: d.bindings["secret.jev_key"] || process.env.JEV_API_KEY, criteria: node.criteria, ambiguityMax: node.ambiguity_max, question: node.question });
       const top = Object.entries(r.distribution).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, p]) => `${k} ${(p * 100).toFixed(0)}%`).join(", ");
@@ -366,7 +391,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const ghlId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
       const noteText = render(node.template, d.ctx, env(d));
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_note: noteText.slice(0, 160) } };
+      const cl = await claim(d, node, "note");
+      if (!cl.fresh) return cl.done ? { status: "ok", next, result: { reused: true, why: "written on an earlier try" } } : { status: "skipped", next, result: { kind: "blocked", why: `note not written twice: ${PENDING_WHY}` } };
       await d.adapters.write.addNote(d.adapterCompany, ghlId, noteText);
+      await done(d, node, "note");
       return { status: "ok", next };
     }
     case "update_appointment": {
@@ -386,12 +414,17 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (a!.source !== "ghl") return { status: "ok", next, result: { skipped: true, reason: `appointments from ${a!.source} are read-only`, would_update: patch } };
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch } };
       await d.adapters.write.updateAppointment(d.adapterCompany, a!.external_id, patch);
-      if (typeof patch.status !== "string" || patch.status === a!.status) return { status: "ok", next, result: patch };
-      await d.c.query("update appointments set status=$2, source_updated_at=now() where id=$1", [d.run.appointment_id, patch.status]);
+      if (typeof patch.status !== "string") return { status: "ok", next, result: patch };
+      // D66 (C6): one event per (run, step, appointment, status), so a retry after a crash between our row and the emit emits once, and a crash before it still emits
+      const emitted = await one<{ id: number }>(d.c, "select id from events where run_id=$1 and event_type='appointment.status_changed' and appointment_id=$2 and data->>'node'=$3 and data->'status'->>'to'=$4 limit 1", [d.run.id, d.run.appointment_id, node.id, patch.status]);
+      const unchanged = patch.status === a!.status;
+      if (unchanged && (emitted || !(d.run.step_attempt ?? 0))) return { status: "ok", next, result: { ...patch, ...(emitted ? { already_emitted: true } : {}) } };
+      if (!unchanged) await d.c.query("update appointments set status=$2, source_updated_at=now() where id=$1", [d.run.appointment_id, patch.status]);
+      if (emitted) return { status: "ok", next, result: { ...patch, status_changed: { from: a!.status, to: patch.status }, already_emitted: true } };
       // the same event the poll would emit had the source changed first; the poll then sees no delta, so this is its one emission. Runs parked on the call wake to re-check their premise.
       await d.c.query("update runs set next_run_at=now() where company_id=$1 and appointment_id=$2 and status='waiting'", [d.company.id, d.run.appointment_id]);
       const ev = await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "appointment.status_changed", source: "engine",
-        data: { source: a!.source, status: { from: a!.status, to: patch.status }, by: "workflow", node: node.id } });
+        data: { source: a!.source, status: { from: unchanged ? null : a!.status, to: patch.status }, by: "workflow", node: node.id } });
       const started = await dispatchEvent(d.c, ev, { contact: { id: d.run.contact_id }, appointment: { id: d.run.appointment_id, starts_at: a!.starts_at.toISOString(), status: patch.status, term: a!.term, self_booked: a!.self_booked } });
       return { status: "ok", next, result: { ...patch, status_changed: { from: a!.status, to: patch.status }, started } };
     }
@@ -400,9 +433,17 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const pipelineId = render(node.pipeline, d.ctx, env(d));
       if (!d.run.contact_id) return { status: "failed", error: `pipeline_card ${node.id}: the run is not about a contact` };
       // D41: read the CRM first. A card made by anything else (a CRM workflow, a person) is adopted and moved, never duplicated; a CRM that cannot be read fails the step rather than guessing.
+      // D66: the read at claim time already failed this tick: that is this step's failure (retried in place), not a second ask of a CRM that just said no
+      if (d.cardsReadError) return { status: "failed", error: `pipeline_card ${node.id}: could not read the contact's cards in the CRM: ${d.cardsReadError}` };
       try { await syncCards(d.c, d.company, d.adapterCompany, d.adapters, d.run.contact_id, contact?.ghl_contact_id); }
       catch (e) { return { status: "failed", error: `pipeline_card ${node.id}: could not read the contact's cards in the CRM: ${(e as Error).message}` }; }
       const card = await pickCard(d.c, d.company.id, d.run.contact_id, pipelineId);
+      // D66: on a retry, a hand that moved this board's card since the step first tried wins; the step does not move it back
+      if (card && (d.run.step_attempt ?? 0) > 0) {
+        const hand = await one<{ to_name: string | null; mover: string | null }>(d.c, `select data->>'to_name' as to_name, data->>'mover' as mover from events where company_id=$1 and contact_id=$2 and event_type='card.moved' and data->>'pipeline_id'=$3 and data->>'by'='crm'
+          and occurred_at > (select min(started_at) from run_steps where run_id=$4 and node_id=$5) order by occurred_at desc limit 1`, [d.company.id, d.run.contact_id, pipelineId, d.run.id, node.id]);
+        if (hand) return { status: "skipped", next, result: { kind: "noop", why: `moved by hand since this step first tried${hand.mover ? ` (${hand.mover}` : " ("}${hand.to_name ? `to ${hand.to_name})` : ")"}; a hand wins`, crm_card: card.ghl_opportunity_id } };
+      }
       // stage and name are optional on an update: a step that only stamps fields leaves the card where it is
       const stageId = node.stage ? render(node.stage, d.ctx, env(d)) : card?.ghl_stage_id ?? "";
       // G13: a person with no name in the CRM is named on the card by an address they do have, never " -- New"
@@ -432,9 +473,12 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
         let ghlId: string | null = null;
         if (!shadow(d)) {
           if (!contact?.ghl_contact_id) return { status: "failed", error: "pipeline_card: contact has no CRM id yet" };
-          ghlId = (await d.adapters.write.createOpportunity(d.adapterCompany, { ...write, contactId: contact.ghl_contact_id })).id;
+          // D66: the CRM was read first (D41) and has no card, so a pending claim means the earlier try never reached it; a done claim is a card the read missed (index lag) and is reused
+          const cl = await claim(d, node, "card");
+          if (!cl.fresh && cl.done && cl.external_id) ghlId = cl.external_id;
+          else { ghlId = (await d.adapters.write.createOpportunity(d.adapterCompany, { ...write, contactId: contact.ghl_contact_id })).id; await done(d, node, "card", ghlId); }
         }
-        await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, assigned_user_id, status) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name, ownerRow?.id ?? null, node.status ?? "open"]);
+        await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, assigned_user_id, status, created_by_run) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (company_id, ghl_opportunity_id) do update set ghl_stage_id=excluded.ghl_stage_id, name=excluded.name, status=excluded.status, updated_at=now()", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name, ownerRow?.id ?? null, node.status ?? "open", d.run.id]);
       }
       if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
       d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
@@ -450,8 +494,11 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
       let ghlId = existing?.ghl_record_id ?? null;
       if (!shadow(d)) {
+        // D66: a create the CRM answered but our row never recorded becomes an update of that record; one it never answered is not asked twice
+        const cl = ghlId ? null : await claim(d, node, "record");
+        if (cl && !cl.fresh) { if (cl.done && cl.external_id) ghlId = cl.external_id; else return { status: "skipped", next, result: { kind: "blocked", why: `${objectKey} record not created twice: ${PENDING_WHY}` } }; }
         if (ghlId) await d.adapters.write.updateRecord(d.adapterCompany, objectKey, ghlId, properties, owner);
-        else ghlId = (await d.adapters.write.createRecord(d.adapterCompany, objectKey, properties, owner)).id;
+        else { ghlId = (await d.adapters.write.createRecord(d.adapterCompany, objectKey, properties, owner)).id; await done(d, node, "record", ghlId); }
       }
       const row = await one<{ id: string }>(d.c, `insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,$5,$6)
         on conflict (company_id, object_key, record_key) do update set ghl_record_id=coalesce(excluded.ghl_record_id, crm_records.ghl_record_id), properties=crm_records.properties || excluded.properties, updated_at=now() returning id`,
@@ -490,7 +537,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_create_task: { title, body, due: dueAt.toISOString(), assignedUserId } } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "create_task: contact has no CRM id yet" };
+      const cl = await claim(d, node, "task");
+      if (!cl.fresh) return cl.done ? { status: "ok", next, result: { task_id: cl.external_id, title, due: dueAt.toISOString(), assignedUserId, reused: true } } : { status: "skipped", next, result: { kind: "blocked", why: `task not created twice: ${PENDING_WHY}` } };
       const t = await d.adapters.write.createTask(d.adapterCompany, contact.ghl_contact_id, { title, body, dueAt, assignedUserId });
+      await done(d, node, "task", t.id);
       return { status: "ok", next, result: { task_id: t.id, title, due: dueAt.toISOString(), assignedUserId } };
     }
     case "update_opportunity": {

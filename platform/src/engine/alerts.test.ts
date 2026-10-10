@@ -12,6 +12,7 @@ import { type HealthProbes, CHECKS, type Finding } from "@/engine/health";
 import { fireNow } from "@/engine/clock";
 import { installTemplateForTest } from "@/engine/test-install";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
+import { setBinding } from "@/engine/settings";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const posts: { channel: string; text: string; as?: SlackPersona; threadTs?: string }[] = [];
@@ -56,28 +57,33 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     });
   });
 
-  it("a failed step is announced the minute it fails, once, with the step and the reason; a second failure stays in the thread; passing later resolves it with a ✅", async () => {
-    await fire(); await tick(fake, undefined, companyId);
+  it("a dead token pauses the run at once and is announced the minute it happens, once per vendor, with the step and the reason; a second run pauses quietly; an hour on, one line in the thread; a new token wakes the runs, the step passes and the thread closes with a ✅ (D33, D66)", async () => {
+    await fire(); const t = await tick(fake, undefined, companyId);
+    expect(t).toMatchObject({ paused: 1, failed: 0 });
     let a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));
     // counts are engine-wide and other suites run alongside, so the assertions are on this company's posts and open alerts
     expect(a.posted, JSON.stringify({ a, posts })).toBe(1); expect(a.repeated).toBe(0);
     expect(posts).toHaveLength(1);
     expect(posts[0].channel).toBe("CALERTS"); expect(posts[0].as).toMatchObject({ name: "Engine alerts", icon: ":rotating_light:" });
-    expect(posts[0].text).toMatch(/🔴 \*Alert Co · Run failed\*\n"Tag it" failed at step g1 \(Add tag “stat-x”\) for Leo Ortiz: .*Invalid Private Integration token/);
+    expect(posts[0].text).toMatch(/🔴 \*Alert Co · Token rejected\*\nGHL rejected the company's token \(401\): runs that reach it pause until the token is replaced in settings\. First seen on "Tag it" at step g1 for Leo Ortiz: .*Invalid Private Integration token/);
     expect(posts[0].text).toMatch(/\/c\/alrt\/r\//);
-    // minutes later it fails again for the same reason: nothing new is said
+    // minutes later a second run hits the same dead token: it pauses too, and nothing new is said
     await fire(); await tick(fake, undefined, companyId);
     a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));
     expect(a.posted).toBe(0); expect(a.repeated).toBe(0); expect(posts).toHaveLength(1);
     expect(await asOperator((c) => openAlerts(c, companyId))).toHaveLength(1);
+    expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and status='paused'", [companyId]))).toHaveLength(2);
     // an hour on, still broken: one line in the thread
     await asOperator((c) => c.query("update alerts set announced_at = now() - interval '61 minutes', first_seen = first_seen - interval '61 minutes' where company_id=$1 and resolved_at is null", [companyId]));
     a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));
     expect(a.repeated).toBe(1); expect(posts).toHaveLength(2); expect(posts[1].threadTs).toBe("ts1"); expect(posts[1].text).toMatch(/Still open after 1h/);
-    // fixed: the next run gets past the step → resolved in the thread, ✅ on the first post
-    tagFails = false; await fire(); await tick(fake, undefined, companyId);
+    // fixed: a new token in settings wakes both paused runs for one more try of their step; the alert closes in the thread, ✅ on the first post
+    tagFails = false; await asOperator((c) => setBinding(c, companyId, "secret.ghl_pit", "secret", "p-new", "test"));
+    expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and status='waiting'", [companyId]))).toHaveLength(2);
+    await tick(fake, undefined, companyId);
+    expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and status='completed'", [companyId]))).toHaveLength(2);
     a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));
-    expect(a.resolved).toBeGreaterThanOrEqual(1);
+    expect(a.closed).toBeGreaterThanOrEqual(1);
     expect(posts).toHaveLength(3); expect(posts[2].threadTs).toBe("ts1"); expect(posts[2].text).toMatch(/^✅ Resolved after 1h/);
     expect(reactions).toEqual([{ channel: "CALERTS", ts: "ts1", emoji: "white_check_mark" }]);
     expect(await asOperator((c) => openAlerts(c, companyId))).toHaveLength(0);

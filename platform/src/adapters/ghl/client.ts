@@ -1,7 +1,10 @@
+import { VendorError } from "@/engine/failures";
+
 const BASE = "https://services.leadconnectorhq.com";
 
-export class GhlError extends Error {
-  constructor(public status: number, public body: string, public path: string) { super(`GHL ${status} on ${path}: ${body.slice(0, 300)}`); this.name = "GhlError"; }
+/** The message keeps its shape (`GHL <status> on <path>: <body>`): the engine's failure policy reads the status off the class, the logs off the words. */
+export class GhlError extends VendorError {
+  constructor(status: number, body: string, path: string) { super("ghl", status, path, body, `GHL ${status} on ${path}: ${body.slice(0, 300)}`); this.name = "GhlError"; }
 }
 
 /** Version header differs by endpoint family (verified in ghl/02-api-facts.md). */

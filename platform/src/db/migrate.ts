@@ -98,6 +98,14 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table contacts add column if not exists gone_at timestamptz`);
     await c.query(`alter table contact_identifiers add column if not exists retired_at timestamptz`);
     await c.query(`alter table runs add column if not exists pending_events jsonb not null default '[]'`);
+    // D66: a failed step is retried in place; the create ledger keeps a retry from making a second note, task, document, card or record
+    await c.query(`alter table runs add column if not exists step_attempt int not null default 0`);
+    await c.query(`alter table runs add column if not exists step_error text`);
+    await c.query(`alter table pipeline_cards add column if not exists created_by_run uuid references runs(id) on delete set null`);
+    await c.query(`alter table run_steps drop constraint if exists run_steps_status_check`);
+    await c.query(`alter table run_steps add constraint run_steps_status_check check (status in ('ok','skipped','stale','failed','waiting','paused'))`);
+    await ownsOrAbsent(c, "step_effects", "done_at");
+    await c.query(`create table if not exists step_effects (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, run_id uuid not null references runs(id) on delete cascade, node_id text not null, kind text not null, external_id text, created_at timestamptz not null default now(), done_at timestamptz, unique (run_id, node_id, kind))`);
     // runs.trigger_id is history: a template upgrade that drops a trigger node must not be blocked by the runs it once started
     await c.query(`alter table runs drop constraint if exists runs_trigger_id_fkey`);
     await c.query(`alter table runs add constraint runs_trigger_id_fkey foreign key (trigger_id) references workflow_triggers(id) on delete set null`);

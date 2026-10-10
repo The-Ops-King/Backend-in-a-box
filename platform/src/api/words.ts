@@ -164,7 +164,7 @@ type RunLike = { id: string; status: string; current_node: string | null; next_r
 /** A step's one-line fact, in words: why it was skipped, what failed, when they replied. */
 function noteOf(s: StepRow, tz: string): string | undefined {
   const r = s.result ?? {};
-  if (s.error) return s.error;
+  if (s.error) return typeof r.retry_at === "string" ? `${s.error} · trying again ${stamp(r.retry_at, tz)} (try ${r.attempt ?? 1} of ${r.of ?? "?"})` : r.paused ? `${s.error} · needs a hand: retry or skip this step` : s.error;
   if (s.status === "stale" || s.status === "skipped") {
     if (typeof r.why === "string") return `Didn't go out: ${r.why}`;
     if (r.kind === "noop") return "Nothing to do here";
@@ -229,9 +229,9 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
       const n = byId.get(p.node_id); const t = n ? shortTitle(def, n) : { title: p.title };
       out.push({ node_id: p.node_id, title: t.title, meta: t.meta, kind: n ? kindOf(n) : "other", state: "next", at: p.at, note: p.note, channel: n ? channelOf(n) : undefined });
     }
-  } else if (run.status === "failed" && !out.some((x) => x.state === "warn")) {
+  } else if ((run.status === "failed" || run.status === "paused") && !out.some((x) => x.state === "warn")) {
     const cur = run.current_node; const n = cur ? byId.get(cur) : undefined;
-    out.push({ node_id: cur ?? "?", title: n ? shortTitle(def, n).title : "Failed", kind: n ? kindOf(n) : "other", state: "warn", at: null, note: run.exit_reason ?? undefined });
+    out.push({ node_id: cur ?? "?", title: n ? shortTitle(def, n).title : run.status === "paused" ? "Paused" : "Failed", kind: n ? kindOf(n) : "other", state: "warn", at: null, note: run.exit_reason ?? undefined });
   } else if (run.status === "exited" && !out.some((x) => x.kind === "end")) {
     out.push({ node_id: "exit", title: "Done", note: (run.exit_reason ?? "").replace(/^moot: /, "").replace(/_/g, " ") || undefined, kind: "end", state: "ok", at: run.started_at.toISOString() });
   }
@@ -243,7 +243,7 @@ export function runState(run: RunLike, path: PathItem[], tz: string): { state: "
   if (run.status === "completed") { const words = exitWords(run.exit_reason ?? "done"); return { state: "ok", at: words.startsWith("Stop: ") ? `done · ${words.replace(/^Stop: /, "").toLowerCase()}` : "done", done: true }; }
   if (run.status === "failed") { const w = path.find((x) => x.state === "warn"); return { state: "warn", at: `failed: ${w ? w.title : run.exit_reason ?? "a step"}`, done: true }; }
   if (run.status === "exited") return { state: "ok", at: `done · ${(run.exit_reason ?? "").replace(/^moot: /, "").replace(/_/g, " ")}`, done: true };
-  if (run.status === "paused") return { state: "stop", at: "paused", done: true };
+  if (run.status === "paused") { const w = path.find((x) => x.state === "warn"); return { state: "warn", at: `paused: ${w ? w.title : run.exit_reason ?? "a step"}`, done: true }; }
   const here = path.find((x) => x.state === "here");
   return { state: "here", at: here ? `${here.title}${here.meta ? ` · ${here.meta}` : ""}` : "in flight", done: false };
 }

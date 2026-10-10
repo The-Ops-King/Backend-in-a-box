@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { decrypt, encrypt } from "./crypto";
 import type { ManifestEntry } from "./definition";
+import { vendorOfBinding, wakePausedOnAuth } from "./failures";
 
 /**
  * The settings screen is driven by what the company's installed workflows need: the union of their manifests, grouped
@@ -35,6 +36,9 @@ export async function setBinding(c: PoolClient, companyId: string, key: string, 
   const prior = await one<{ kind: string; value: Buffer }>(c, "select kind, value from bindings where company_id=$1 and key=$2", [companyId, key]);
   await c.query(`insert into bindings (company_id, key, kind, value) values ($1,$2,$3,$4) on conflict (company_id, key) do update set kind=excluded.kind, value=excluded.value, updated_at=now()`, [companyId, key, kind, kind === "secret" ? encrypt(value) : Buffer.from(value)]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'binding.set','binding',$2,$3,$4)", [companyId, key, { set: !!prior }, { kind, value: kind === "secret" ? mask("secret", value) : value, by }]);
+  // D66: a NEW token gives every run paused on that vendor's auth one more try of its step; the same value again wakes nothing
+  const vendor = vendorOfBinding(key);
+  if (vendor && prior && (prior.kind === "secret" ? decrypt(prior.value) : prior.value.toString("utf8")) !== value) await wakePausedOnAuth(c, companyId, vendor);
 }
 export async function clearBinding(c: PoolClient, companyId: string, key: string): Promise<void> {
   const r = await c.query("delete from bindings where company_id=$1 and key=$2", [companyId, key]);

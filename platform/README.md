@@ -371,9 +371,13 @@ secret from Basic Information goes to the install API as `slackSigningSecret`, t
 
 ## Alerts and the health sweep (D33)
 
-The engine says what broke the minute it breaks, and nothing while it works. Every tick, a run that failed
-becomes an alert with the workflow, the step in words, the contact and the error; a poll cursor that has
-failed twice in a row becomes one; a workflow copy the engine cannot parse becomes one. One open alert per
+The engine says what broke the minute it breaks, and nothing while it works. A step that fails is retried in
+place (never the run from the top, never a side effect twice: a transient error at 1, 5, 15 and 60 minutes; a dead
+token or a refusal pauses at once, D66), and a run that pauses becomes an alert with the workflow, the step in
+words, the contact, the error and the link to its page, where **Retry this step** / **Skip this step** are the two
+hands; a dead token is one `auth:<vendor>` alert per company that a new token in settings closes while waking the
+runs it stopped; a poll cursor that has failed twice in a row becomes one; a workflow copy the engine cannot parse
+becomes one; a run the engine itself broke (`failed`) becomes one. One open alert per
 (company, key): the first time it is posted to the company's destinations (`alerts.slack_channel`,
 `alerts.email` via Resend with `secret.resend_key` and `alerts.email_from`, `alerts.webhook` for a Zap), and
 remembered with its Slack ts. Still open an hour later → a line in that thread, never a new post. Cleared
@@ -631,7 +635,8 @@ edge per step: green ran, blue waiting here, red failed, amber skipped. The word
 Read-only except one button. `/` engine health and companies · `/c/<slug>` workflows, poll
 health, runs, latest events, contacts · `/c/<slug>/w/<id>` a workflow as an outline with
 examples on hover, bindings, versions, definition (audit), **Turn on / Turn off** · `/c/<slug>/r/<id>` a run
-on the same outline with every step colored · `/c/<slug>/appointments` last 7 and next 14 days, flags calls needing a
+on the same outline with every step colored, with **Retry this step / Skip this step** when it paused (the company and
+workflow pages count those as "needs a hand") · `/c/<slug>/appointments` last 7 and next 14 days, flags calls needing a
 disposition · `/c/<slug>/appointments/<id>` the **disposition form** (did they show, how it
 went, notes) · `/c/<slug>/contacts/<id>` the journey · `/c/<slug>/sends` every message sent, suppressed, failed, or (in shadow) would-have-sent · **Go live / Switch to shadow** on the company page.
 

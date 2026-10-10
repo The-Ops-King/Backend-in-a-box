@@ -1,5 +1,6 @@
 import { asOperator, one, many } from "@/db/client";
 import { encrypt, decrypt } from "./crypto";
+import { vendorOfBinding, wakePausedOnAuth } from "./failures";
 import { randomBytes } from "node:crypto";
 import { extractManifest, parseDefinition, indexDefinition } from "./definition";
 import { templates } from "@/templates";
@@ -107,8 +108,13 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
         mode=case when $5::text is null then companies.mode else excluded.mode end returning id`, [input.name, input.slug, input.timezone, input.smsEnabled ?? null, modeFlag]);
     const companyId = co!.id;
     await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories on conflict (company_id, domain, name) do nothing`, [companyId]);
-    const bind = (key: string, kind: string, value: string) =>
-      c.query(`insert into bindings (company_id, key, kind, value) values ($1,$2,$3,$4) on conflict (company_id, key) do update set value=excluded.value, updated_at=now()`, [companyId, key, kind, kind === "secret" ? encrypt(value) : Buffer.from(value)]);
+    const bind = async (key: string, kind: string, value: string) => {
+      const vendor = vendorOfBinding(key);
+      const prior = vendor ? await one<{ kind: string; value: Buffer }>(c, "select kind, value from bindings where company_id=$1 and key=$2", [companyId, key]) : null;
+      await c.query(`insert into bindings (company_id, key, kind, value) values ($1,$2,$3,$4) on conflict (company_id, key) do update set value=excluded.value, updated_at=now()`, [companyId, key, kind, kind === "secret" ? encrypt(value) : Buffer.from(value)]);
+      // D66: a re-install with a NEW token wakes the runs paused on that vendor's auth; the same token again wakes nothing
+      if (vendor && prior && (prior.kind === "secret" ? decrypt(prior.value) : prior.value.toString("utf8")) !== value) await wakePausedOnAuth(c, companyId, vendor);
+    };
     await bind("crm.location_id", "id", input.locationId); await bind("secret.ghl_pit", "secret", pit);
     if (input.testDomains) await bind("test.domains", "text", input.testDomains.map((d) => d.trim().toLowerCase().replace(/^@/, "")).filter(Boolean).join(","));
     if (booking.source === "calendly") {

@@ -24,9 +24,15 @@ describe("Jev classifier (D47)", () => {
     expect((await jevClassifier.choice(undefined, "🙏", OPTS, 0.8, { apiKey: "k" })).unclear).toBe(true);
     vi.stubGlobal("fetch", vi.fn(async () => reply("maybe", 0.99, 0.1)));
     expect((await jevClassifier.choice(undefined, "?", OPTS, 0.8, { apiKey: "k" })).unclear).toBe(true);
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500, text: async () => "boom" })));
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 400, text: async () => "bad request" })));
     expect((await jevClassifier.choice(undefined, "yes", OPTS, 0.8, { apiKey: "k" })).unclear).toBe(true);
     const f = vi.fn(); vi.stubGlobal("fetch", f); delete process.env.JEV_API_KEY;
     expect((await jevClassifier.choice(undefined, "yes", OPTS, 0.8, {})).unclear).toBe(true); expect(f).not.toHaveBeenCalled();
+  });
+  it("a dead key or an outage is an error for the failure policy (D66), never a vague reply", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500, text: async () => "boom" })));
+    await expect(jevClassifier.choice(undefined, "yes", OPTS, 0.8, { apiKey: "k" })).rejects.toMatchObject({ vendor: "jev", status: 500 });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 401, text: async () => "no" })));
+    await expect(jevClassifier.choice(undefined, "yes", OPTS, 0.8, { apiKey: "k" })).rejects.toMatchObject({ vendor: "jev", status: 401 });
   });
 });

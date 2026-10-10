@@ -14,7 +14,7 @@ export function Company() {
   const mode = useAction<{ mode: Mode }, { cleared?: { runs: number } }>((v) => api(`/api/v1/companies/${slug}/mode`, { method: "POST", json: v }), [key, ["companies"]]);
   if (!q.data) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton lines={8} />;
   const { company: co, stages, workflows, alerts_open } = q.data;
-  const looks = (w: WorkflowRow) => w.failed > 0 || !w.ready;
+  const looks = (w: WorkflowRow) => w.needs_hand > 0 || !w.ready;
   const shown = workflows.filter((w) => filter === "all" ? true : filter === "on" ? w.enabled : filter === "off" ? !w.enabled : looks(w));
   const groups = [...stages.map((s) => ({ id: s.id, label: s.label, items: shown.filter((w) => w.stage === s.id) })), { id: "other", label: "Other", items: shown.filter((w) => !stages.some((s) => s.id === w.stage)) }].filter((g) => g.items.length);
   const setMode = async (next: Mode) => {
@@ -30,7 +30,7 @@ export function Company() {
     <div className="filt">{([["all", "All", workflows.length], ["on", "On", workflows.filter((w) => w.enabled).length], ["off", "Off", workflows.filter((w) => !w.enabled).length], ["look", "Needs a look", workflows.filter(looks).length]] as [Filter, string, number][]).map(([id, label, n]) => <button key={id} type="button" className="fb" aria-pressed={filter === id} onClick={() => setFilter(id)}>{label} · {n}</button>)}</div>
     {groups.length === 0 ? <Empty>Nothing here.</Empty> : <div className="rail">{groups.map((g) => <div key={g.id} className={`grp ${g.items.some((w) => w.enabled) ? "live" : ""}`}><span className="stg">{g.label}</span><div className="rows">{g.items.map((w) => <Link key={w.id} to={`/app/c/${slug}/w/${w.id}`} className={`row ctl ${w.enabled ? "" : "off"}`}>
       <span className="mid"><span className="nm">{w.name}</span><span className="sub">{w.origin === "spec" ? <Tag kind="spec">your spec</Tag> : <Tag kind="def">default</Tag>}{!w.ready ? <Tag kind="warn">{w.parse_error ? "needs reinstall" : w.missing.length ? `missing ${w.missing.length} setting${w.missing.length === 1 ? "" : "s"}` : "not built yet"}</Tag> : null}<span>{w.enabled ? (w.last_ran ? `last ran ${ago(w.last_ran)}` : "never ran") : "off"}</span>{w.schedule ? <span>· {w.schedule}</span> : null}</span></span>
-      <Counts people={w.people} in_flight={w.in_flight} failed={w.failed} />
+      <Counts people={w.people} in_flight={w.in_flight} needs_hand={w.needs_hand} />
       <Switch on={w.enabled} label={`${w.name} on or off`} onChange={async (next) => { try { await flip.mutateAsync({ id: w.id, enabled: next }); } catch (e) { toast((e as Error).message, true); throw e; } }} />
     </Link>)}</div></div>)}</div>}
     <div className="tagline more"><Link to={`/app/c/${slug}/setup`}>Setup</Link><span>·</span><Link to={`/app/c/${slug}/wrap-ups`}>Wrap-ups</Link><span>·</span><Link to={`/app/c/${slug}/eod`}>End of day</Link></div>

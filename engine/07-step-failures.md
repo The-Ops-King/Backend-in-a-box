@@ -43,6 +43,13 @@ premise.
 
 ## Could duplicate
 
+**Closed by D66** (the retry work; `engine/00-decisions.md`): C1 `send_document` claims a `step_effects` row before the
+send; C2 the card create claims one and `pipeline_cards.created_by_run` names the run, with the D41 read first and a
+hand's later move winning; C3/C4 tasks and notes claim one; C5 the record create claims one and a done claim becomes
+an update; C6 `update_appointment` emits once per (run, step, appointment, status); F1 a `failed` send row is reclaimed
+by the retry; F2 a contact with no CRM id pauses as such, never gone; F3 Jev throws on 401/403/429/5xx. The `it.fails`
+tests below are plain `it` now. The **What happens** column is kept as the record of what the code did before.
+
 Where today's code, or a retry written without a ledger, could produce one of the owner's four bugs. Ranked by how
 bad the duplicate is.
 
