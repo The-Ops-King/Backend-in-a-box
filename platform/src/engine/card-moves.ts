@@ -6,6 +6,7 @@ import { loadCompany } from "./context";
 import { decrypt } from "./crypto";
 import { dispatchEvent, emitEvent, type EventRow } from "./dispatch";
 import { outcomeTermFor, recordDisposition } from "./disposition";
+import { effectiveMode } from "./mode";
 
 /**
  * D61: a card moved by a hand in the CRM (a closer dragging it, a CRM workflow), seen by the poll or by a run's read
@@ -46,7 +47,7 @@ export async function handMoved(c: PoolClient, companyId: string, adapters: Adap
   // the line goes under the booking post when there is one (booked before the engine, or Slack unbound: nothing to reply to); recorded in sends like every other message
   const post = appt ? await one<{ channel: string; ts: string }>(c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [companyId, `appointment:${appt.id}`]) : null;
   const conn = post ? await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [companyId]) : null;
-  const status = conn && post ? (company.mode === "shadow" ? "shadow" : "sent") : "suppressed";
+  const status = conn && post ? ((await effectiveMode(c, companyId, m.contactId, company.mode, bindings)) === "shadow" ? "shadow" : "sent") : "suppressed";
   await c.query(`insert into sends (company_id, contact_id, run_id, channel, idempotency_key, rendered_body, status, suppressed_reason, scheduled_for, sent_at) values ($1,$2,null,'slack',$3,$4,$5,$6,now(),case when $5 in ('sent','shadow') then now() end)`,
     [companyId, m.contactId, `card-moved:${event.id}:${randomUUID()}`, text, status, status === "suppressed" ? (post ? "unbound: slack" : "no post to reply to") : null]);
   let posted = false;

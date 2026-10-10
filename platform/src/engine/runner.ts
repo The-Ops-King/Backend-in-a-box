@@ -5,7 +5,7 @@ import { bookingFor } from "@/adapters/types";
 import { parseDefinition, indexDefinition, onwardEdge, type Definition } from "./definition";
 import { buildContext, loadCompany, type RunRow } from "./context";
 import { syncCards } from "./cards";
-import { contactPasses } from "./mode";
+import { effectiveMode } from "./mode";
 import { executeNode, listenerOf, setPath, type ExecDeps, type Listener } from "./executor";
 import type { HealthProbes } from "./health";
 import { deferIntoWindow } from "./waitrule";
@@ -22,7 +22,7 @@ type PendingTrigger = { event_id: number; trigger_id: string | null; trigger_nod
 export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number; replayed?: number; deferred?: number };
 
 /** D5b premise check — reads the booking source live, never the replica. */
-async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ctx" | "now">): Promise<{ ok: true } | { ok: false; why: string }> {
+async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ctx" | "now" | "effective">): Promise<{ ok: true } | { ok: false; why: string }> {
   const chk = def.premise.check;
   if (chk === "none") return { ok: true };
   if (chk === "contact_exists") return (await one(d.c, "select 1 from contacts where id=$1 and merged_into is null and gone_at is null", [d.run.contact_id])) ? { ok: true } : { ok: false, why: "contact gone" };
@@ -115,16 +115,14 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           report.exited++; if (report.recovery) report.staleExits++; return;
         }
 
-        if (run.contact_id) {   // D52: a run in flight about a contact that no longer passes the mode (the mode moved, the tag came off) stops here, before any write
-          const pass = await contactPasses(c, run.company_id, run.contact_id, company.mode, bindings);
-          if (!pass.ok) { await finish("exited", `not a test contact: ${pass.why}`); await emitEvent(c, { company_id: run.company_id, contact_id: run.contact_id, opportunity_id: run.opportunity_id, appointment_id: run.appointment_id, run_id: run.id, event_type: "run.exited", source: "engine", data: { reason: pass.why } }); report.exited++; return; }
-        }
+        // D52 addendum 2: decided once per claim, so a contact whose tag comes off mid-run shadows from its next step (and a run keeps going when the mode moves)
+        const effective = await effectiveMode(c, run.company_id, run.contact_id, company.mode, bindings);
         if (run.contact_id) {   // D41: the CRM is the truth about cards; `cards.*` in the context reflects it as of now
           const ghlId = (await one<{ ghl_contact_id: string | null }>(c, "select ghl_contact_id from contacts where id=$1", [run.contact_id]))?.ghl_contact_id;
           await syncCards(c, company, adapterCompany, adapters, run.contact_id, ghlId).catch((e: Error) => { console.warn(`run ${run.id}: cards not read from the CRM: ${e.message}`); });
         }
         const ctx = await buildContext(c, run, company, bindings);
-        const deps: ExecDeps = { c, adapters, company, adapterCompany, bindings, run, ctx, edgesFrom, now, probes };
+        const deps: ExecDeps = { c, adapters, company, adapterCompany, bindings, run, ctx, edgesFrom, now, probes, effective };
         let nodeId: string | null = run.current_node ?? def.nodes.find((n) => n.type === "trigger")!.id;
         // D58: a listener armed on this run fires wherever the run is parked: the run jumps to its "tap" (or "until") edge, remembering where it was for `resume`
         const jump = async (lis: Listener, fired: NonNullable<Awaited<ReturnType<typeof listenerFired>>>, from: string | null, at: Date | null) => {

@@ -3,17 +3,17 @@ import { many } from "@/db/client";
 
 /**
  * The ladder a company climbs before anyone real hears from it (D52): shadow (everyone runs, nothing is written or
- * sent, the record says what would have happened), test (only the team's own test contacts, tagged sys-test or with
- * an email on a test domain, and for them everything is real: CRM writes, emails, texts), live (everyone). Two gates
- * carry the ladder: a run about a contact does not start unless the contact passes, and a send to a contact that
- * does not pass is suppressed even if a run reached it.
+ * sent, the record says what would have happened), test (the team's own test contacts, tagged sys-test or with an
+ * email on a test domain, get everything for real: CRM writes, emails, texts; everyone else runs exactly as in
+ * shadow, so the team still sees what would have happened), live (everyone). One rule carries the ladder,
+ * `contactPasses`; `effectiveMode` turns it into what a run about a contact does: shadow or real.
  */
 export const MODES = ["shadow", "test", "live"] as const;
 export type Mode = (typeof MODES)[number];
 export const isMode = (v: unknown): v is Mode => typeof v === "string" && (MODES as readonly string[]).includes(v);
 export const MODE_WORDS: Record<Mode, { label: string; about: string }> = {
   shadow: { label: "shadow", about: "sends are written down, not delivered; nothing is written to the CRM" },
-  test: { label: "test", about: "only contacts tagged sys-test or on a test email domain; for them the CRM is written and messages go out" },
+  test: { label: "test", about: "test contacts get everything for real; everyone else runs as in shadow, nothing written or sent" },
   live: { label: "live", about: "sends go out and the CRM is written, for everyone" },
 };
 export const TEST_TAG = "sys-test";
@@ -32,9 +32,10 @@ export async function contactPasses(c: PoolClient, companyId: string, contactId:
   return { ok: false, why: `test mode: not tagged ${TEST_TAG} and no email on a test domain` };
 }
 
-/** The mode and test domains of a company, in one read (dispatch asks for every event). */
-export async function modeOf(c: PoolClient, companyId: string): Promise<{ mode: Mode; bindings: Record<string, string> }> {
-  const rows = await many<{ mode: string; value: Buffer | null }>(c, "select co.mode, b.value from companies co left join bindings b on b.company_id=co.id and b.key=$2 where co.id=$1", [companyId, TEST_DOMAINS_KEY]);
-  const mode = isMode(rows[0]?.mode) ? rows[0].mode : "shadow";
-  return { mode, bindings: rows[0]?.value ? { [TEST_DOMAINS_KEY]: rows[0].value.toString("utf8") } : {} };
+/** What a run does, decided once per claim (D52 addendum 2): shadow when the company is in shadow, or in test and the contact does not pass; real otherwise. A run with no contact (end of day, wrap-ups, health) is team-facing: real outside shadow. */
+export type Effective = "shadow" | "real";
+export async function effectiveMode(c: PoolClient, companyId: string, contactId: string | null, mode: Mode, bindings: Record<string, string>): Promise<Effective> {
+  if (mode === "shadow") return "shadow";
+  if (mode === "live" || !contactId) return "real";
+  return (await contactPasses(c, companyId, contactId, mode, bindings)).ok ? "real" : "shadow";
 }

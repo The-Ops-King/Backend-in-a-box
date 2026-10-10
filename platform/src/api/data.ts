@@ -12,9 +12,10 @@ import { STAGES, stageIndex } from "@/engine/stages";
 import { chartOf, pathOf, runState, type PathItem } from "./words";
 import { companyReports } from "@/engine/reports";
 import { EVENT_LABELS } from "@/engine/describe";
+import { effectiveMode, type Mode } from "@/engine/mode";
 
 /** The company header every page under a company carries. */
-export type CompanyHead = { id: string; name: string; slug: string; mode: "shadow" | "live"; timezone: string; status: string };
+export type CompanyHead = { id: string; name: string; slug: string; mode: Mode; timezone: string; status: string };
 export const companyBySlug = (c: PoolClient, slug: string) => one<CompanyHead & { sms_enabled: boolean; send_window_start: string; send_window_end: string }>(c, "select id, name, slug, mode, timezone, status, sms_enabled, send_window_start::text, send_window_end::text from companies where slug=$1", [slug]);
 export const companyById = (c: PoolClient, id: string) => one<CompanyHead>(c, "select id, name, slug, mode, timezone, status from companies where id=$1", [id]);
 
@@ -141,7 +142,7 @@ export async function runPage(c: PoolClient, id: string) {
   const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source) : null;
   const states: Record<string, PathItem["state"]> = {}; for (const p of path) if (!(p.node_id in states) || p.state !== "next") states[p.node_id] = p.state;
   return { company: co, workflow: { id: r.workflow_id, name: r.workflow },
-    run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: co.mode === "shadow" },
+    run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, co.mode, bindings)) === "shadow" },
     feed: path.filter((p) => p.state !== "next"), next: path.filter((p) => p.state === "next"), chart, states,
     raw: { steps: steps.map((s) => ({ node_id: s.node_id, node_type: s.node_type, status: s.status, started_at: s.started_at, result: s.result, error: s.error })), context: r.context } };
 }

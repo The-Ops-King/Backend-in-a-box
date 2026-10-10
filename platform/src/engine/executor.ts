@@ -9,7 +9,7 @@ import { predicateWords, durationWords } from "./describe";
 import { syncCards, pickCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
-import { contactPasses } from "./mode";
+import type { Effective } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { raise } from "./alerts";
 import { applyOutcome, outcomeTermFor } from "./disposition";
@@ -18,8 +18,8 @@ import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
-/** A post made before live says which rung it came from, so the team never reads a rehearsal as a real client. */
-const modePrefix = (d: ExecDeps) => (d.company.mode === "live" ? "" : d.company.mode === "shadow" ? SHADOW_PREFIX : `🧪 *${d.company.mode}* — `);
+/** A post made before live says which rung it came from, so the team never reads a rehearsal as a real client; a run shadowed in test says shadow. */
+const modePrefix = (d: ExecDeps) => (d.company.mode === "live" ? "" : d.effective === "shadow" ? SHADOW_PREFIX : `🧪 *${d.company.mode}* — `);
 /** The step's own name/icon, else the company's defaults (bindings slack.name / slack.icon), else the app. A list of icons is handed on whole; the notifier picks one per post. */
 const persona = (d: ExecDeps, as?: { name?: string; icon?: string | string[] }) => ({ name: as?.name ? render(as.name, d.ctx, env(d)) : d.bindings["slack.name"], icon: as?.icon ? (Array.isArray(as.icon) ? as.icon.map((i) => render(i, d.ctx, env(d))) : render(as.icon, d.ctx, env(d))) : d.bindings["slack.icon"] });
 type Person = { name: string; email?: string | null; ghl_user_id?: string | null; slack_user_id?: string | null; mention?: string };
@@ -52,11 +52,11 @@ export type StepOutcome =
 export type Listener = { node: string; tag: string; channel: string; ts: string; emojis: string[]; into: string; until: string | null; armed_at: string };
 export const listenerOf = (ctx: Record<string, unknown>): Listener | undefined => resolvePath(ctx, "vars.__listen") as Listener | undefined;
 
-export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes };
+export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes; effective: Effective };
 
 const contactTz = (d: ExecDeps) => { const tz = (d.ctx.contact as { timezone?: string } | undefined)?.timezone; return tz && DateTime.now().setZone(tz).isValid ? tz : d.company.timezone; };
-/** Shadow mode: the run proceeds exactly as it would live, but nothing is written to the CRM; sends are recorded as "would have sent". */
-const shadow = (d: ExecDeps) => d.company.mode === "shadow";
+/** A shadowed run (shadow mode, or test with a contact that does not pass) proceeds exactly as it would live, but nothing is written to the CRM; sends are recorded as "would have sent". */
+const shadow = (d: ExecDeps) => d.effective === "shadow";
 const single = (d: ExecDeps, id: string): string | null => onwardEdge(d.edgesFrom(id))?.to ?? null;
 const env = (d: ExecDeps) => ({ now: d.now, tz: contactTz(d), companyTz: d.company.timezone });
 
@@ -103,8 +103,6 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
     throw e;
   }
   const channel = node.type === "send_sms" ? "sms" : "email";
-  // D52: the second gate — before live, a message reaches only a contact that passes the mode, whatever run brought us here
-  if (d.run.contact_id) { const pass = await contactPasses(d.c, d.company.id, d.run.contact_id, d.company.mode, d.bindings); if (!pass.ok) { await recordSend(d, node, channel, body, "suppressed", `not a test contact: ${pass.why}`); return { status: "skipped", next, result: { kind: "blocked", why: pass.why, would_send: body.slice(0, 120) } }; } }
   // G11: no address for the channel on the replica (the CRM's own phone/email fields): nothing to send to, so nothing is asked of the CRM; the ledger says why and the run goes on
   const who = d.ctx.contact as { phone?: string | null; email?: string | null } | undefined;
   if (who && !(channel === "sms" ? who.phone : who.email)) { const why = `no ${channel === "sms" ? "phone" : "email"} on the contact`; await recordSend(d, node, channel, body, "suppressed", why); return { status: "skipped", next, result: { kind: "noop", why } }; }

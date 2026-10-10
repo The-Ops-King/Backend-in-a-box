@@ -1364,6 +1364,19 @@ effects for test contacts alone. Live arrives by workflow switch in three sectio
 proves (payments, agreements), then the ones that only note things (call outcome, end of day, wrap-ups, health,
 calendar watch), then one system at a time (booking, cancellation, recordings, setter calls, the chase; pre-call
 last of all), so a break is one switch away from being undone.
+
+### D52 addendum 2. Test mode shows everyone, touches only the test contacts (2026-10-10)
+
+Tyler: "Right now I still want to see what would happen on contacts and stuff but only actually send to me." Test is
+now the hybrid of its two neighbours. A contact that passes (`sys-test`, or an email on a test domain) gets everything
+for real: CRM writes, texts, emails, Slack posts prefixed 🧪 *test*. A contact that does not pass is handled exactly as
+in shadow: the run starts and goes all the way through, every CRM write recorded as would-have, every send recorded
+`shadow` (would-send), Slack posts prefixed 🧪 *shadow*. Nothing changes for shadow (everything shadowed) or live
+(everything real). The two gates of D52 (dispatch refusing the run, the runner exiting a run in flight, `doSend`
+suppressing "not a test contact") are gone; `contactPasses` is the one rule, and the runner turns it into a per-run
+effective mode (`effectiveMode`, on `ExecDeps.effective`) once per claim, so a contact whose tag comes off mid-run
+shadows from its next step instead of exiting, and a run with no contact (end of day, wrap-ups, health, the board
+poll) stays real in test, as before. Every run in test is still born in test; Go live still clears it (D51).
 ## D54. One workflow per call outcome (2026-10-09)
 
 Tyler, on the three small post-call workflows: "Remove 'No recording, presumed no-show' workflow; EOD form defaults to

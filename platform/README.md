@@ -534,11 +534,12 @@ the CRM or the contact, and seeing the posts is the point of the run. The send i
 
 Every company climbs a ladder (D52): **shadow** → **test** → **live**, the control at the top of its page.
 Shadow is below: everyone runs, nothing is written or sent, the record says what would have happened (which
-card, which stage, which tag). **Test** is the dress rehearsal: only the team's own test contacts, tagged
+card, which stage, which tag). **Test** is the dress rehearsal: the team's own test contacts, tagged
 `sys-test` in the CRM or with an email on a test domain (`test.domains`, set at install as `testDomains`),
-and for them everything is real: CRM writes, emails, texts (when SMS is on). A run about anyone else never
-starts, and a send to anyone else is suppressed even if a run reached it. Posts to Slack before live carry a
-🧪 *mode* prefix. Live is then taken in sections with the workflows' own switches: the simple ones first,
+get everything for real: CRM writes, emails, texts (when SMS is on). Everyone else runs as in shadow, nothing
+written or sent: their runs start and go all the way through, every write and send recorded as would-have, so
+the team still sees what the engine would do for real leads. Posts to Slack before live carry a 🧪 *mode*
+prefix (🧪 *shadow* for a run shadowed in test). Live is then taken in sections with the workflows' own switches: the simple ones first,
 then the ones that only note things, then one system at a time.
 
 Every company is in **shadow** until someone presses **Go live**. In shadow the engine polls,
