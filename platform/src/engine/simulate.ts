@@ -29,8 +29,8 @@ async function closerCalendar(c: PoolClient, companyId: string) {
   return (ext && (await one<{ id: string; appointment_term: string; term_category: string; default_user_id: string | null }>(c, "select cal.id, cal.appointment_term, t.category as term_category, cal.default_user_id from calendars cal join company_terms t on t.id=cal.appointment_term where cal.company_id=$1 and cal.external_id=$2", [companyId, ext])))
     ?? (await one<{ id: string; appointment_term: string; term_category: string; default_user_id: string | null }>(c, "select cal.id, cal.appointment_term, t.category as term_category, cal.default_user_id from calendars cal join company_terms t on t.id=cal.appointment_term where cal.company_id=$1 and cal.active and t.category='closing' order by cal.self_booked desc nulls last limit 1", [companyId]));
 }
-const openTestAppointment = (c: PoolClient, companyId: string, contactId: string) => one<{ id: string; starts_at: Date; status: string; external_id: string; assigned_user_id: string | null; appointment_term: string; term_category: string; self_booked: boolean | null }>(c,
-  "select a.id, a.starts_at, a.status, a.external_id, a.assigned_user_id, a.appointment_term, t.category as term_category, a.self_booked from appointments a join company_terms t on t.id=a.appointment_term where a.company_id=$1 and a.contact_id=$2 and a.source='test' and a.status<>'cancelled' order by a.booked_at desc limit 1", [companyId, contactId]);
+const openTestAppointment = (c: PoolClient, companyId: string, contactId: string) => one<{ id: string; starts_at: Date; status: string; external_id: string; slot_key: string | null; assigned_user_id: string | null; appointment_term: string; term_category: string; self_booked: boolean | null }>(c,
+  "select a.id, a.starts_at, a.status, a.external_id, a.slot_key, a.assigned_user_id, a.appointment_term, t.category as term_category, a.self_booked from appointments a join company_terms t on t.id=a.appointment_term where a.company_id=$1 and a.contact_id=$2 and a.source='test' and a.status<>'cancelled' order by a.booked_at desc limit 1", [companyId, contactId]);
 
 export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
   const { c, company, contactId } = x;
@@ -75,7 +75,10 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
       const status = action === "cancel" ? "cancelled" : a.status;
       await c.query("update appointments set status=$2, starts_at=coalesce($3, starts_at), ends_at=coalesce($4, ends_at), source_updated_at=now(), cancelled_by=case when $2='cancelled' then $5 else cancelled_by end, cancel_reason=case when $2='cancelled' then 'simulated cancel' else cancel_reason end where id=$1", [a.id, status, moved?.toJSDate() ?? null, moved?.plus({ minutes: 45 }).toJSDate() ?? null, name]);
       await c.query("update runs set next_run_at=now() where company_id=$1 and appointment_id=$2 and status='waiting'", [company.id, a.id]);
-      const changes = moved ? { starts_at: { from: a.starts_at.toISOString(), to: moved.toISO() } } : { status: { from: a.status, to: "cancelled" }, cancelled_by: name, cancel_reason: "simulated cancel" };
+      // the same slot bookkeeping the poll does for a move that keeps the booking's id: the slot left keeps its Sales Call (logged rescheduled), the new slot gets its own (D76)
+      const slot = moved ? { from: a.slot_key ?? a.external_id, to: `${a.external_id}@${moved.toUTC().toISO()}` } : null;
+      if (slot) await c.query("update appointments set slot_key=$2 where id=$1", [a.id, slot.to]);
+      const changes = moved ? { starts_at: { from: a.starts_at.toISOString(), to: moved.toISO() }, slot } : { status: { from: a.status, to: "cancelled" }, cancelled_by: name, cancel_reason: "simulated cancel", before_start: true };
       const ev = await emitEvent(c, { company_id: company.id, contact_id: contact.id, opportunity_id: null, appointment_id: a.id, event_type: moved ? "appointment.rescheduled" : "appointment.status_changed", source: "test", data: { source: "test", ...changes, simulated: true } });
       const started = await dispatchEvent(c, ev, { ...ctx, appointment: { id: a.id, starts_at: (moved ?? DateTime.fromJSDate(a.starts_at)).toISO(), status, term: { category: a.term_category }, self_booked: a.self_booked } });
       return { ok: true, action, detail: { appointment: a.id, ...changes }, runsStarted: started.length };

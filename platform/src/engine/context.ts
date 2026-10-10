@@ -7,7 +7,7 @@ import { transcriptText, type RecordingRow } from "./recordings";
 import { latestAgreement, facts as agreementFacts, type AgreementRow } from "./agreements";
 import { eodFacts } from "./eod";
 import type { ContactTruth } from "./contact-truth";
-import { salesCallValues } from "./sales-call";
+import { salesCallValues, bookingSourceValues } from "./sales-call";
 
 export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string | null; user_id?: string | null; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date; resume_node?: string | null; resume_at?: Date | null; step_attempt?: number; step_error?: string | null };
 export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; status: string; sms_enabled: boolean; mode: import("./mode").Mode; contract_value_default: string | null };
@@ -62,7 +62,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     reaction: run.context.reaction,   // what a wait_for_reaction stored (D53); carried so the steps after it can say who decided even across a park
     calendar: {}, slack: { channel: {} }, crm: {}, prompt: {},
     // the company's own option keys for what the engine writes on a picklist (a Sales Call's outcome)
-    picklist: { sales_call_outcome: salesCallValues(bindings) },
+    picklist: { sales_call_outcome: salesCallValues(bindings), sales_call_booking_source: bookingSourceValues(bindings) },
   };
   // the recording a run was started by (recording.received) — read from the ledger every tick, never copied into the run's context
   const recId = (run.context.event as { recording_id?: string } | undefined)?.recording_id;

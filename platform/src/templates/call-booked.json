@@ -79,6 +79,12 @@
         "value": "self-booked"
       },
       {
+        "id": "s2b",
+        "type": "set_var",
+        "key": "booking_source",
+        "value": "{{picklist.sales_call_booking_source.self}}"
+      },
+      {
         "id": "s3",
         "type": "pipeline_card",
         "pipeline": "{{crm.pipeline_setter}}",
@@ -124,6 +130,12 @@
         "type": "set_var",
         "key": "booking_kind",
         "value": "setter booked"
+      },
+      {
+        "id": "b2b",
+        "type": "set_var",
+        "key": "booking_source",
+        "value": "{{picklist.sales_call_booking_source.setter}}"
       },
       {
         "id": "b3",
@@ -224,7 +236,8 @@
           "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
           "closer": "{{appointment.closer.name | default:}}",
           "setter": "{{appointment.set_by | default:}}",
-          "outcome": "{{picklist.sales_call_outcome.scheduled}}"
+          "outcome": "{{picklist.sales_call_outcome.scheduled}}",
+          "booking_source": "{{vars.booking_source | default:}}"
         },
         "relate": [
           {
@@ -331,7 +344,7 @@
       },
       {
         "from": "s2",
-        "to": "s3"
+        "to": "s2b"
       },
       {
         "from": "s3",
@@ -347,7 +360,7 @@
       },
       {
         "from": "b2",
-        "to": "b3"
+        "to": "b2b"
       },
       {
         "from": "b3",
@@ -388,6 +401,14 @@
       {
         "from": "k5",
         "to": "k4"
+      },
+      {
+        "from": "s2b",
+        "to": "s3"
+      },
+      {
+        "from": "b2b",
+        "to": "b3"
       }
     ]
   }

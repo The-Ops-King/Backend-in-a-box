@@ -38,6 +38,12 @@ export function salesCallValues(bindings: Record<string, string>): SalesCallValu
   return { scheduled: keys("scheduled")[0] ?? "", showed: own("showed"), noshow: own("noshow"), cancelled: plain, late_cancel: late, rescheduled: moved, on_call: moved || late };
 }
 
+/** The company's option keys for how a call was booked (`sales_call.booking_sources`, e.g. {"setter":"setter_set","self":"self_booked"}); empty when unbound, so nothing is written. */
+export function bookingSourceValues(bindings: Record<string, string>): { setter: string; self: string } {
+  try { const j = JSON.parse(bindings["sales_call.booking_sources"] ?? "{}") as Record<string, unknown>; return { setter: typeof j.setter === "string" ? j.setter : "", self: typeof j.self === "string" ? j.self : "" }; }
+  catch { return { setter: "", self: "" }; }
+}
+
 /** The meaning a Sales Call's own outcome value carries by the company's map (`sales_call.outcomes`): null when blank or unmapped ("scheduled"), i.e. nobody filed it. */
 export function filedMeaning(outcome: unknown, bindings: Record<string, string>): string | null {
   const v = String(Array.isArray(outcome) ? outcome.join(", ") : outcome ?? "").trim().replace(/\s+/g, " ").toLowerCase();

@@ -572,13 +572,24 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(await sim("create")).toMatchObject({ ok: true, runsStarted: 2 });   // new-lead + speed-to-lead
     await tick(fake, undefined, companyId);
     expect((await runsFor("new-lead")).find((r) => r.contact_id === id)).toMatchObject({ status: "completed", exit_reason: "done" });
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'sales_call.booking_sources','text',$2) on conflict (company_id,key) do update set value=excluded.value", [companyId, Buffer.from(JSON.stringify({ setter: "setter_set", self: "self_booked" }))]));
     const b = await sim("book"); expect(b).toMatchObject({ ok: true }); if (!b.ok) return;
-    const appt = await asOperator((c) => one<{ source: string; status: string; set_by: string; self_booked: boolean }>(c, "select source, status, set_by, self_booked from appointments where id=$1", [b.detail.appointment as string]));
+    const appt = await asOperator((c) => one<{ source: string; status: string; set_by: string; self_booked: boolean; external_id?: string }>(c, "select source, status, set_by, self_booked from appointments where id=$1", [b.detail.appointment as string]));
     expect(appt).toEqual({ source: "test", status: "confirmed", set_by: "Test Setter", self_booked: false });
     await tick(fake, undefined, companyId);
     const booked = (await runsFor("call-booked")).find((r) => r.contact_id === id)!; expect(booked).toMatchObject({ status: "completed", exit_reason: "booked" });   // premise appointment_exists held on a 'test' source
     const cards = await asOperator((c) => many<{ ghl_pipeline_id: string; ghl_stage_id: string; name: string }>(c, "select ghl_pipeline_id, ghl_stage_id, name from pipeline_cards where company_id=$1 and contact_id=$2 order by ghl_pipeline_id", [companyId, id]));
     expect(cards).toEqual([{ ghl_pipeline_id: "PIPE-CLOSER", ghl_stage_id: "STAGE-SCHED", name: "Sim Person -- Setter Booked" }, { ghl_pipeline_id: "PIPE-SETTER", ghl_stage_id: "STAGE-SET", name: "Sim Person -- Set" }]);
+    // a staged reschedule behaves like the poll's: the slot left keeps its Sales Call, logged rescheduled; the new slot gets its own (D76)
+    expect(await sim("reschedule")).toMatchObject({ ok: true });
+    await tick(fake, undefined, companyId);
+    const moved = (await runsFor("call-booked")).filter((r) => r.contact_id === id).at(-1)!;
+    const st = await asOperator((c) => many<{ node_id: string; status: string; result: { record?: string; properties?: Record<string, unknown> } }>(c, "select node_id, status, result from run_steps where run_id=$1 and node_id in ('k4','k5')", [moved.id]));
+    expect(st.find((x) => x.node_id === "k5")).toMatchObject({ status: "ok", result: { properties: { outcome: "rescheduled" } } });
+    expect(st.find((x) => x.node_id === "k4")).toMatchObject({ status: "ok", result: { record: "created", properties: { booking_source: "setter_set" } } });   // how it was booked, in the company's own option key
+    const keys = await asOperator((c) => many<{ record_key: string }>(c, "select record_key from crm_records where company_id=$1 and contact_id=$2 and object_key='custom_objects.sales_call' order by created_at", [companyId, id]));
+    expect(keys).toHaveLength(2);
+    expect(keys[1].record_key).toMatch(/@/);
     expect(await sim("cancel")).toMatchObject({ ok: true });
     await tick(fake, undefined, companyId);
     expect((await runsFor("call-cancelled")).find((r) => r.contact_id === id)).toMatchObject({ status: "completed", exit_reason: "cancelled_recorded" });
