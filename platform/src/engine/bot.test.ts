@@ -387,12 +387,19 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(await handleMessage(deps(), companyId, ev)).toMatchObject({ answered: "answer", thread: ev.ts });
       expect(reacts).toEqual([`C-SALES:${ev.ts}:eyes`]); expect(unreacts).toEqual([`C-SALES:${ev.ts}:eyes`]);
       expect(posts).toHaveLength(1); expect(posts[0].thread).toBe(ev.ts);
-      expect(posts[0].text.split("\n").slice(0, 2)).toEqual(["*Close rate: 66.7%*  ·  2 closes ÷ 3 shows  · _from GHL, read just now_", "Cara closed 100% of her shows."]);
+      expect(posts[0].text.split("\n").slice(0, 3)).toEqual(["*Close rate: 66.7%*  ·  2 closes ÷ 3 shows  · _from GHL, read just now_", "", "Cara closed 100% of her shows."]);
       script = [() => call("get_metric", { metric: "leads", period: "this month", group_by: "none", filters: { closer: "", setter: "", source: "", me: false } }),
-        () => call("reply", { result_ids: ["r1"], note: "Up 37% on last month." })];   // a number no tool produced: the note is dropped
+        () => call("reply", { result_ids: ["r1"], note: "Up 37% on last month." }),   // a number no tool produced: sent back once to be rewritten
+        () => call("reply", { result_ids: ["r1"], note: "Still 17%, sure." })];         // made up again: dropped this time
       posts = [];
       await handleMessage(deps(), companyId, msg({ text: "<@UBOT> leads this month?" }));
-      expect(posts[0].text).not.toContain("37%");
+      expect(lastToolResult()).toMatchObject({ is_error: true }); expect(lastToolResult().content).toMatch(/^Your note uses numbers the answer does not show: 37\./);
+      expect(posts[0].text).not.toContain("37%"); expect(posts[0].text).not.toContain("17%");
+      script = [() => call("get_metric", { metric: "leads", period: "this month", group_by: "none", filters: { closer: "", setter: "", source: "", me: false } }),
+        () => call("reply", { result_ids: ["r1"], note: "Up 37% on last month." }), () => call("reply", { result_ids: ["r1"], note: "That's this month so far." })];
+      posts = [];
+      await handleMessage(deps(), companyId, msg({ text: "<@UBOT> leads this month?" }));
+      expect(posts[0].text).toContain("\n\nThat's this month so far.");   // the rewrite is kept, as its own paragraph
     });
     it("D74: a term no metric covers is resolved to a GHL field by the model, counted live, and the answer names the field it used", async () => {
       script = [() => call("list_fields", { object: "all" }),

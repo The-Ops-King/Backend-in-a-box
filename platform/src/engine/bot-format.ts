@@ -113,7 +113,7 @@ function versusBody(v: FieldVsCalls): string[] {
   const head = ["Answer", "Calls", "Showed", "No-show", ...(any("cancelled") ? ["Cancelled"] : []), ...(any("missing") ? ["Unfiled"] : []), "Show rate", "Share of shows"];
   const rows = v.rows.map((r) => [r.value, String(r.calls), String(r.showed), String(r.noshow), ...(any("cancelled") ? [String(r.cancelled)] : []), ...(any("missing") ? [String(r.missing)] : []), pc(r.show_rate), pc(r.share_of_shows)]);
   const total = ["Total", String(v.calls), String(v.showed), String(v.rows.reduce((a, r) => a + r.noshow, 0)), ...(any("cancelled") ? [String(v.rows.reduce((a, r) => a + r.cancelled, 0))] : []), ...(any("missing") ? [String(v.rows.reduce((a, r) => a + r.missing, 0))] : []), pc(v.show_rate), v.showed ? "100%" : "—"];
-  return [table(head, rows, total, 40), `_${v.test.verdict}${v.multi ? " Several answers can be picked, so a call can sit under more than one." : ""}_`];
+  return [table(head, rows, total, 50), `_${v.test.verdict}${v.multi ? " Several answers can be picked, so a call can sit under more than one." : ""}_`];
 }
 
 /** /closes: the count on top, then one line per close, newest first. */

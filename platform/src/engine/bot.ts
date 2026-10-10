@@ -168,6 +168,7 @@ How you work:
 - GHL is the truth for people, deals and calls. Those numbers are read live from GHL; if GHL cannot be read the tool says so and you call cannot_answer with that reason. Never answer them from run_readonly_query over the ledger.
 - A term no metric covers (hair loss stage, goals, age, scalp condition, objections, a call's score…): call list_fields and pick the field yourself by meaning. One field clearly fits: use it with field_breakdown; the answer names the field, so do not ask. Ask (ask_clarification, naming the candidate fields) only when two fields fit about equally well and would give different answers, or when nothing fits. Prefer a field with fixed answer options over free text for the same question.
 - Comparing an answer with showing up (correlation, "do people who said X show more"): compare_with_shows. If the field you picked is mostly unanswered for those calls, try the other field that fits and use the one people actually answered, saying so.
+- In \`reply\`, show only the results that answer the question: leave out one you tried that turned out empty or mostly unanswered (mention it in the note instead).
 - Explaining a result: your note may be up to four short sentences that reason through the results the way an analyst would ("Of the 10 who showed, 7 said noticeable thinning: 70% of shows…"), but every number in it must already be in the results, and a pattern is only called a pattern when the test in the results says so; otherwise say the numbers are too few or could be chance.
 - There are exactly two kinds of DQ: a marketing DQ (marketing_dqs; also called a DQL: filtered out before a sales call on financial signals, from the work-situation answer) and a sales DQ (sales_dqs: got on the call and was disqualified for any reason). "DQ" alone: ask which, unless the asker made it clear.
 - Glossary: a lead is a person who entered their information (a GHL contact, by the date GHL added them). An MQL is a lead whose answer to the work-situation question ("What best describes your current work situation?") meets the employment standard; "Currently between jobs" or "Employed part-time" is a marketing DQ; a blank answer is not an MQL. A sales DQ is a Sales Call in GHL with a DQ disposition. Calls booked (for show rate) are the Sales Call records in GHL whose call time has passed in the period, cancellations included; show rate = shows ÷ those calls; a call with no outcome filed is "missing from EOD disposition". A close is a new person we collected cash from: a won card on the Closer pipeline (the setter pipeline's won is a show, not a sale); close rate = closes ÷ shows. Test contacts never count.
@@ -221,6 +222,7 @@ export async function converse(deps: BotDeps, ctx: Ctx, q: { question: string; h
   const now = deps.now ?? DateTime.now();
   const held: Held[] = [];
   const failed: string[] = [];
+  let noteRetried = false;
   const up = (reason: string) => escalation(ctx, reason, failed);
   try {
     const messages: BotMessage[] = [];
@@ -244,7 +246,17 @@ export async function converse(deps: BotDeps, ctx: Ctx, q: { question: string; h
       if (end?.name === "cannot_answer") return up(String(end.input.reason ?? ""));
       if (end?.name === "reply") {
         const ids = Array.isArray(end.input.result_ids) ? end.input.result_ids.map(String) : [];
-        return held.length ? render(held, ids.length ? ids : held.map((h) => h.id), String(end.input.note ?? "")) : up("replied with no results");
+        if (!held.length) return up("replied with no results");
+        const pickIds = ids.length ? ids : held.map((h) => h.id), note = String(end.input.note ?? "");
+        // a note with a number the answer does not show goes back once to be rewritten, rather than vanishing
+        const stray = strayNumbers(held, pickIds, note);
+        if (stray.length && !noteRetried && turn < MAX_TURNS - 1) {
+          noteRetried = true;
+          results.push({ type: "tool_result", tool_use_id: end.id, is_error: true, content: `Your note uses numbers the answer does not show: ${stray.join(", ")}. Call reply again with the note rewritten using only numbers that appear in the chosen results (or none).` });
+          messages.push({ role: "user", content: results });
+          continue;
+        }
+        return render(held, pickIds, stray.length ? "" : note);
       }
       messages.push({ role: "user", content: results });
     }
@@ -321,24 +333,32 @@ const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : unde
 const pctStr = (x: number | null) => (x === null ? null : `${Math.round(x * 100)}%`);
 
 /** Our rendering of the chosen results. The note survives only if every number in it is already in the message. */
-function render(held: Held[], ids: string[], note: string): Out {
+function bodyOf(held: Held[], ids: string[]): string {
   const pick = ids.map((i) => held.find((h) => h.id === i)).filter((h): h is Held => !!h);
   const chosen = pick.length ? pick : held;
-  const body = formatAnswer(chosen.flatMap((h) => (h.kind === "metric" ? [h.r] : [])), {
+  return formatAnswer(chosen.flatMap((h) => (h.kind === "metric" ? [h.r] : [])), {
     availability: chosen.flatMap((h) => (h.kind === "availability" ? [h.a] : [])),
     closes: chosen.flatMap((h) => (h.kind === "closes" ? [h.k] : [])),
     breakdowns: chosen.flatMap((h) => (h.kind === "breakdown" ? [h.b] : [])),
     versus: chosen.flatMap((h) => (h.kind === "versus" ? [h.v] : [])),
     adhoc: chosen.flatMap((h) => (h.kind === "adhoc" ? [{ why: h.why, columns: h.columns, rows: h.rows, truncated: h.truncated }] : [])),
   });
-  const clean = note.trim().replace(/\s*\n+\s*/g, " ").slice(0, 700);
-  const flat = body.replace(/,/g, "");
-  const ok = clean && (clean.match(/\d[\d,.]*/g) ?? []).every((n) => flat.includes(n.replace(/,/g, "").replace(/\.$/, "")));
-  if (!ok || !clean) return { kind: "answer", text: body };
+}
+const cleanNote = (note: string) => note.trim().replace(/\s*\n+\s*/g, " ").slice(0, 700);
+/** The numbers in the note that the rendered answer does not show: the model may only repeat numbers, never make them. */
+export function strayNumbers(held: Held[], ids: string[], note: string): string[] {
+  const flat = bodyOf(held, ids).replace(/,/g, "");
+  return [...new Set((cleanNote(note).match(/\d[\d,.]*/g) ?? []).map((n) => n.replace(/,/g, "").replace(/\.$/, "")).filter((n) => !flat.includes(n)))];
+}
+
+/** Our rendering of the chosen results; the note, already checked, as its own paragraph under the key lines. */
+function render(held: Held[], ids: string[], note: string): Out {
+  const body = bodyOf(held, ids), clean = cleanNote(note);
+  if (!clean || strayNumbers(held, ids, clean).length) return { kind: "answer", text: body };
   const lines = body.split("\n");
   const keyEnd = lines.findIndex((l) => !l.startsWith("*") || l === "");
-  lines.splice(keyEnd < 0 ? lines.length : keyEnd, 0, clean);
-  return { kind: "answer", text: lines.join("\n") };
+  lines.splice(keyEnd < 0 ? lines.length : keyEnd, 0, "", clean);
+  return { kind: "answer", text: lines.join("\n").replace(/\n{3,}/g, "\n\n") };
 }
 
 // ---- slash commands ----------------------------------------------------------------------------------------------------
