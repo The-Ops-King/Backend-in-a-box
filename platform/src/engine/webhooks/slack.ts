@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { PoolClient } from "pg";
 import { one } from "@/db/client";
 import { dispatchEvent, emitEvent } from "../dispatch";
+import type { SlackMessage } from "../bot";
 
 /** Slack signs every request: v0=HMAC-SHA256(signing secret, "v0:<timestamp>:<body>"); five minutes of clock drift allowed. */
 export function verifySlackSignature(secret: string, h: { timestamp: string | null; signature: string | null }, raw: string, now = Date.now()): { ok: true } | { ok: false; why: string } {
@@ -13,9 +14,10 @@ export function verifySlackSignature(secret: string, h: { timestamp: string | nu
 }
 
 export type SlackReaction = { kind: "reaction"; eventId: string; user: string; reaction: string; channel: string; ts: string; removed: boolean };
-export type SlackInbound = { kind: "challenge"; challenge: string } | SlackReaction | { kind: "ignored"; type: string };
+export type SlackQuestion = { kind: "message" } & SlackMessage;
+export type SlackInbound = { kind: "challenge"; challenge: string } | SlackReaction | SlackQuestion | { kind: "ignored"; type: string };
 
-/** The two shapes the door understands: Slack's URL check, and a reaction added or removed on a message. */
+/** The shapes the door understands: Slack's URL check, a reaction added or removed on a message, and a message for the bot (a mention, a DM, a reply in a thread; D70). */
 export function parseSlackEvent(body: unknown): SlackInbound {
   const b = (body ?? {}) as Record<string, unknown>;
   if (b.type === "url_verification" && typeof b.challenge === "string") return { kind: "challenge", challenge: b.challenge };
@@ -23,6 +25,10 @@ export function parseSlackEvent(body: unknown): SlackInbound {
   const e = (b.event ?? {}) as Record<string, unknown>; const item = (e.item ?? {}) as Record<string, unknown>;
   if ((e.type === "reaction_added" || e.type === "reaction_removed") && item.type === "message" && typeof item.channel === "string" && typeof item.ts === "string" && typeof e.user === "string" && typeof e.reaction === "string")
     return { kind: "reaction", eventId: String(b.event_id ?? `${e.event_ts}`), user: e.user, reaction: e.reaction.replace(/::skin-tone-\d$/, ""), channel: item.channel, ts: item.ts, removed: e.type === "reaction_removed" };
+  if ((e.type === "app_mention" || e.type === "message") && typeof e.channel === "string" && typeof e.ts === "string" && (typeof e.user === "string" || typeof e.bot_id === "string"))
+    return { kind: "message", eventId: String(b.event_id ?? `${e.channel}:${e.ts}:${e.type}`), teamId: typeof b.team_id === "string" ? b.team_id : undefined, type: e.type, channel: e.channel,
+      channelType: typeof e.channel_type === "string" ? e.channel_type : undefined, user: typeof e.user === "string" ? e.user : undefined, botId: typeof e.bot_id === "string" ? e.bot_id : undefined,
+      subtype: typeof e.subtype === "string" ? e.subtype : undefined, text: typeof e.text === "string" ? e.text : "", ts: e.ts, threadTs: typeof e.thread_ts === "string" ? e.thread_ts : undefined };
   return { kind: "ignored", type: String(e.type ?? b.type ?? "?") };
 }
 

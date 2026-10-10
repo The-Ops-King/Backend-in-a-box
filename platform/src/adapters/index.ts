@@ -6,4 +6,5 @@ import { ghlSender } from "./ghl/sender";
 import { jevClassifier } from "./jev/classifier";
 import { slackNotifier } from "./slack/notifier";
 import { anthropicAnalyst } from "./anthropic/analyst";
-export const liveAdapters: Adapters = { read: ghlRead, booking: { ghl: ghlBooking, calendly: calendlyBooking }, write: ghlWrite, sender: ghlSender, classifier: jevClassifier, notifier: slackNotifier, analyst: anthropicAnalyst };
+import { anthropicBot } from "./anthropic/bot";
+export const liveAdapters: Adapters = { read: ghlRead, booking: { ghl: ghlBooking, calendly: calendlyBooking }, write: ghlWrite, sender: ghlSender, classifier: jevClassifier, notifier: slackNotifier, analyst: anthropicAnalyst, bot: anthropicBot };

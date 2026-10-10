@@ -2073,3 +2073,56 @@ check did ask the CRM, but read a 400 "Contact not found" as "could not read" an
 "not found" is gone whatever the status (the read adapter and the check agree), and a record the CRM cannot confirm
 either way is "unknown": an unconfirmed pair is never alerted, it is looked at again next sweep. The rule for every
 check that names a person: the CRM is asked first; the engine's copy is never the grounds for an alert.
+
+## D70. The ledger answers in Slack (2026-10-10)
+
+Tyler: "I want to build out the bot to be able to answer questions simply through Slack. Ideally they'd be able to ask
+any question possible. But I also want shortcuts: /monthly or /mtd would be the monthly report or the month-to-date
+stats, /show-rate, /close-rate." "No answer beats a wrong answer. If it doesn't know what the person is asking or
+doesn't know the answer it should ask for clarification, or the date range or whatever, then give the answer, and if it
+can't figure it out or can't get the info it should say so and ping me." And, while it was being built: "Numbers come
+only from the ledger and the API and such. We can pull data from the API when possible. But it's only real data, no
+made-up data."
+
+- **One definition per number** (`metric-registry.ts`). Every metric the bot can say is a named entry with a SQL builder
+  over the ledger and the sentence that defines it, which is printed under every answer with the period and the
+  company's zone. The definitions are the ones the wrap-ups (D29) and setter metrics (D64) already use, not new ones:
+  a lead is a contact by the CRM's arrival time; calls booked by when the booking was made; a show is the closer's
+  filed outcome or the booking source's status; a close is a won opportunity credited to the closer of the person's
+  latest call; cash is payments net of refund lines (D57); speed to lead, dials and connected calls are D64's own
+  numbers. Two choices made here: **show rate is shows ÷ calls due** (start time passed, not cancelled or rescheduled),
+  so a call nobody filed counts as not showed — D54's end-of-day presumption, applied to the rate, and the reason the
+  wrap-up's "shows ÷ scheduled" and the bot's show rate can differ; **close rate is closes ÷ shows** in the same period.
+  Tyler's words become metrics: MQL = tag `mql`; marketing DQ = tag `dq` or any `dq-*`; the financial DQL is `dq-budget`
+  alone (both exposed); a sales DQ is a call the closer filed as disqualified. A person's source is the CRM's lead-source
+  field, else the UTM source of their latest booking. Rates are always two counts divided where they are read; a rate
+  with no denominator is "—", never 0%.
+- **Shortcuts are commands, not prompts.** `/mtd`, `/weekly`, `/monthly`, `/show-rate`, `/close-rate`, `/cash`,
+  `/availability`, `/leads` and `/help` are registered slash commands answered from the registry with no model in the
+  way, so they are the same every time and work without an AI key. Each takes a period in words (`/close-rate last
+  month`); words that are not a period are refused with examples. A slash command leaves no message to thread under, so
+  it posts its own (`📊 Month to date — asked by @who`) and the conversation continues in that post's thread; from a DM
+  it answers in the DM. `/help` is not a Slack built-in, so it is registered under its own name; `/ops-help` is accepted
+  too in case another app in the workspace owns `/help`.
+- **Free questions go to a model whose only powers are tools**: `get_metric` (the registry), `get_availability` (the
+  live calendar read the low-availability check makes), `run_readonly_query` (the D64 door, last resort, answer labelled
+  "ad hoc, from the raw ledger" with what the query returns), `ask_clarification`, `cannot_answer`, and `reply`, which
+  names the results to show. The model chooses; it does not write the answer. Our formatter renders the chosen results
+  (key numbers first, aligned tables, definition and period, and on every key line the source: "from the engine's
+  ledger" or "from GHL, read just now"); the model may add one sentence, which is dropped if it holds a number not
+  already in the message. A live read that fails is named in the answer ("I couldn't get a live read (GHL …)"), never
+  filled: a calendar read that fails everywhere is an error, not zero slots.
+- **Ask, then answer; otherwise say so and ping.** No period, a person who is not on the roster or matches two people,
+  or a term with two meanings ("DQ") → one question in the thread, and the reply continues the conversation without a
+  new mention (`bot_threads` keeps the thread's turns). "My" is the asker: Slack id → roster, else Slack's email for
+  them → roster email (remembered), else the bot asks who they are. A question the tools cannot answer, a model that
+  declines, a failure → "I'm not sure how to get that information. Let me ping Tyler real quick." then "Hey @Tyler, can
+  you help?" in the same thread, the reason in `audit_log` (`bot.escalated`); after that the bot leaves the thread to
+  people unless mentioned again. The person pinged is the company's `bot.escalate_to`, set at install from an email.
+- **Where answers go.** A mention: 👀 on the question at once, the answer in its thread, the 👀 off when it lands. A DM:
+  answered privately in the DM. A reply in a thread the bot is in counts as a question unless it @mentions someone
+  else. The bot's own messages, other bots, edits and retried deliveries are ignored; the company is the one whose
+  Slack connection matches the event's team. Both doors acknowledge inside Slack's three seconds and work after the
+  response.
+- Not built: saving a thread's report as a new shortcut; live tools beyond the calendars (a question only the CRM can
+  answer right now escalates); full lead attribution (D25). Open item 38.

@@ -42,6 +42,8 @@ export type InstallInput = {
   prompts?: Record<string, string>;      // prompt.<name> overrides; defaults from src/prompts fill the rest
   slackToken?: string;                   // the Slack app's bot token (xoxb-…); verified with Slack, stored encrypted; "disconnect" removes it
   slackSigningSecret?: string;           // the Slack app's signing secret, so the reactions door can trust what Slack sends (D45)
+  /** The Slack bot (D70): who it pings when it cannot answer — a Slack user id, or an email resolved to one through Slack (needs users:read.email). */
+  bot?: { escalateTo?: string };
   contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
   /** Who takes calls: emails (or CRM user ids) from the roster. Only closers get the end-of-day link and DM (D34); everyone else on the roster is staff. Omitted: roles stay as they are. */
   closers?: string[];
@@ -95,6 +97,22 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (!d.ok || !d.team_id) throw new Error(`Slack refused the token: ${d.error ?? "no team"}`);
     slackTeam = { team_id: d.team_id, bot_user_id: d.user_id ?? null };
   }
+  // D70: the bot's escalation person, resolved to a Slack id outside the transaction (it asks Slack)
+  let escalate: { id: string; email?: string } | null = null;
+  if (input.bot?.escalateTo) {
+    const want = input.bot.escalateTo.trim();
+    if (!want.includes("@")) escalate = { id: want };
+    else {
+      const token = input.slackToken && input.slackToken !== "disconnect" ? input.slackToken : await asOperator(async (c) => {
+        const conn = await one<{ bot_token: Buffer }>(c, "select sc.bot_token from slack_connections sc join companies co on co.id=sc.company_id where co.slug=$1", [input.slug]);
+        return conn ? decrypt(conn.bot_token) : null;
+      });
+      if (!token) throw new Error("bot.escalateTo is an email but no Slack token is connected to look it up");
+      const id = await adapters.notifier.lookupUserByEmail(token, want);
+      if (!id) throw new Error(`no one in the Slack workspace has the email ${want}`);
+      escalate = { id, email: want.toLowerCase() };
+    }
+  }
   // D56: live is never set by install itself; `mode: "live"` is a go-live after the install, with its readiness refusal and clean slate (D51)
   const modeFlag = input.mode === "live" ? null : input.mode ?? null;
   const out = await asOperator(async (c) => {
@@ -131,6 +149,9 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (input.slackToken === "disconnect") await c.query("delete from slack_connections where company_id=$1", [companyId]);
     else if (slackTeam) await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id) values ($1,$2,$3,$4) on conflict (company_id) do update set team_id=excluded.team_id, bot_token=excluded.bot_token, bot_user_id=excluded.bot_user_id, connected_at=now()", [companyId, slackTeam.team_id, encrypt(input.slackToken!), slackTeam.bot_user_id]);
     if (input.slackSigningSecret) await bind("secret.slack_signing", "secret", input.slackSigningSecret);
+    if (escalate) {
+      await bind("bot.escalate_to", "id", escalate.id);
+    }
     if (input.recording?.webhookSecret) await bind("secret.fathom_webhook", "secret", input.recording.webhookSecret);
     if (input.recording?.apiKey) await bind("secret.fathom_api_key", "secret", input.recording.apiKey);
     if (input.anthropicKey) await bind("secret.anthropic_key", "secret", input.anthropicKey);
@@ -155,6 +176,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     const ac: Company = { id: companyId, locationId: input.locationId, pit, timezone: input.timezone, booking };
     for (const u of await adapters.read.listUsers(ac))
       await c.query(`insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'staff',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name`, [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);
+    // the bot names whoever it pings ("Let me ping Tyler"): their roster row learns their Slack id
+    if (escalate?.email) await c.query("update users set slack_user_id=$3 where company_id=$1 and lower(email)=$2", [companyId, escalate.email, escalate.id]);
     if (input.closers) {
       const who = input.closers.map((x) => x.toLowerCase());
       await c.query("update users set role='staff' where company_id=$1 and role='closer' and not (lower(email)=any($2) or ghl_user_id=any($2))", [companyId, who]);

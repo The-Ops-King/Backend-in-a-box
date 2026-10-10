@@ -12,9 +12,9 @@ export const slackNotifier: Notifier = {
       method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ channel: channelId, text, unfurl_links: false, unfurl_media: false, ...persona, ...(threadTs ? { thread_ts: threadTs } : {}) }),
     });
-    const data = (await res.json()) as { ok: boolean; ts?: string; error?: string };
+    const data = (await res.json()) as { ok: boolean; ts?: string; channel?: string; error?: string };
     if (!data.ok) throw new Error(`slack: ${data.error}`);
-    return { ts: data.ts! };
+    return { ts: data.ts!, channel: data.channel };
   },
   async react(token, channelId, ts, emoji) {
     const res = await fetch("https://slack.com/api/reactions.add", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ channel: channelId, timestamp: ts, name: emoji.replace(/:/g, "") }) });
@@ -41,5 +41,10 @@ export const slackNotifier: Notifier = {
     const data = (await res.json()) as { ok: boolean; user?: { id: string }; error?: string };
     if (!data.ok) { if (data.error === "users_not_found") return null; throw new Error(`slack: ${data.error}`); }
     return data.user?.id ?? null;
+  },
+  async userEmail(token, userId) {
+    const res = await fetch(`https://slack.com/api/users.info?user=${encodeURIComponent(userId)}`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = (await res.json()) as { ok: boolean; user?: { profile?: { email?: string } }; error?: string };
+    return data.ok ? data.user?.profile?.email?.toLowerCase() ?? null : null;
   },
 };

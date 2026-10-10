@@ -177,6 +177,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
       unique (company_id, provider, external_id))`);
     await c.query(`create index if not exists recordings_company_id_link_status_idx on recordings (company_id, link_status)`);
     await c.query(`create index if not exists recordings_company_id_contact_id_idx on recordings (company_id, contact_id)`);
+    // D70: the Slack bot's conversations
+    await ownsOrAbsent(c, "bot_threads", "thread_ts");
+    await c.query(`create table if not exists bot_threads (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, channel text not null, thread_ts text not null, asked_by text, messages jsonb not null default '[]', created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (company_id, channel, thread_ts))`);
     // simulation harness (D23): synthetic appointments and events carry source 'test'; dark-hours policy per company
     await c.query(`alter table companies add column if not exists quiet_allow_transactional boolean not null default false`);
     await c.query(`alter table calendars add column if not exists config jsonb not null default '{}'`);

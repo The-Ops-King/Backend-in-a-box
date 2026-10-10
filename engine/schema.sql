@@ -704,3 +704,17 @@ create table eod_reports (
   unique (company_id, user_id, day)
 );
 
+
+-- D70. A conversation with the Slack bot: one row per thread (a DM without a thread is the channel's "dm" row). The
+-- previous questions and answers ride along to the model so a follow-up ("and last month?") continues the thread.
+create table bot_threads (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references companies(id) on delete cascade,
+  channel     text not null,
+  thread_ts   text not null,                               -- the thread's root ts; 'dm' for a DM's top level
+  asked_by    text,                                        -- Slack user id of whoever started it
+  messages    jsonb not null default '[]',                 -- [{role: user|bot, text, user?, kind?: answer|clarify|escalate, at}]
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (company_id, channel, thread_ts)
+);
