@@ -19,7 +19,8 @@ export const SIM_ACTIONS = ["create", "book", "book-self", "reschedule", "cancel
 export type SimAction = (typeof SIM_ACTIONS)[number];
 export const simTag = (tag: string): SimAction | null => { const m = /^sys-test-([a-z-]+)$/.exec(tag.trim().toLowerCase()); return m && (SIM_ACTIONS as readonly string[]).includes(m[1]) ? (m[1] as SimAction) : null; };
 
-type Ctx = { c: PoolClient; company: CompanyRow; contactId: string; force?: boolean; daysOut?: number };
+/** `closer`: the roster name or email to book with (else the calendar's host, the bound default, the first closer); `startsAt`: an exact start, e.g. earlier today so the call is already due for the end-of-day form. */
+type Ctx = { c: PoolClient; company: CompanyRow; contactId: string; force?: boolean; daysOut?: number; closer?: string; startsAt?: string };
 export type SimResult = { ok: true; action: SimAction; detail: Record<string, unknown>; runsStarted: number } | { ok: false; why: string };
 
 async function closerCalendar(c: PoolClient, companyId: string) {
@@ -47,10 +48,15 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
     case "book": case "book-self": {
       const cal = await closerCalendar(c, company.id);
       if (!cal) return { ok: false, why: "no closing calendar is mapped for this company" };
-      const start = DateTime.now().setZone(tz).plus({ days: x.daysOut ?? 3 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
+      const at = x.startsAt ? DateTime.fromISO(x.startsAt, { zone: company.timezone }) : null;
+      if (at && !at.isValid) return { ok: false, why: `startsAt "${x.startsAt}" is not a time` };
+      const start = at ?? DateTime.now().setZone(tz).plus({ days: x.daysOut ?? 3 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
+      const asked = x.closer?.trim().toLowerCase();
+      const named = asked ? await one<{ id: string }>(c, "select id from users where company_id=$1 and active and (lower(name)=$2 or lower(email)=$2 or lower(split_part(name,' ',1))=$2) order by (role='closer') desc limit 1", [company.id, asked]) : null;
+      if (asked && !named) return { ok: false, why: `no one on the roster is "${x.closer}"` };
       const selfBooked = action === "book-self";   // the harness states the fact outright; the company's setter rule is what the poll applies to a real booking
       // the closer: the calendar's own host when we know it (GHL calendars), else the company's bound default closer, else the first closer on the roster — the poll learns it from the booking source, which a staged booking never touches
-      const closerId = cal.default_user_id
+      const closerId = named?.id ?? cal.default_user_id
         ?? (await one<{ id: string }>(c, "select u.id from bindings b join users u on u.company_id=b.company_id and u.ghl_user_id=convert_from(b.value,'utf8') where b.company_id=$1 and b.key='crm.default_closer'", [company.id]))?.id
         ?? (await one<{ id: string }>(c, "select id from users where company_id=$1 and role='closer' and active order by created_at, name limit 1", [company.id]))?.id ?? null;
       const closerName = closerId ? (await one<{ name: string }>(c, "select name from users where id=$1", [closerId]))?.name : undefined;

@@ -579,6 +579,14 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and contact_id=$2", [companyId, id]))).toHaveLength(0);
     expect(await asOperator((c) => many(c, "select 1 from appointments where company_id=$1 and contact_id=$2", [companyId, id]))).toHaveLength(0);
     expect(await asOperator((c) => one(c, "select 1 from contacts where id=$1", [id]))).toBeTruthy();   // the person stays; only what the engine did is gone
+    // booked with a named closer at an exact time (earlier today, so the call is already due for that closer's end-of-day form)
+    const closer = (await asOperator((c) => one<{ name: string }>(c, "insert into users (company_id, email, name, role) values ($1,'zara.harness@x.com','Zara Harness','closer') on conflict do nothing returning name", [companyId]))) ?? { name: "Zara Harness" };
+    const at = DateTime.now().setZone(TZ).startOf("day").plus({ hours: 10 }).toISO()!;
+    const simX = (o: { closer?: string; startsAt?: string }) => asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return simulate({ c, company: row, contactId: id, ...o }, "book"); });
+    expect(await simX({ closer: "Nobody Here" })).toMatchObject({ ok: false, why: expect.stringMatching(/no one on the roster/) });
+    const b2 = await simX({ closer: closer.name.split(" ")[0], startsAt: at }); expect(b2).toMatchObject({ ok: true, detail: { closer: closer.name } }); if (!b2.ok) return;
+    expect(Date.parse(b2.detail.starts_at as string)).toBe(Date.parse(at));
+    expect(await sim("reset")).toMatchObject({ ok: true });
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
   });
 
