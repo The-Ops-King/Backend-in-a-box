@@ -1810,3 +1810,42 @@ missing is the second half: the CRM still holds two records, a closer working in
   announces, deletes the second record from the fake CRM, sweeps again; the same for an email in two cases where the
   merge kept the second record (the primary moves), and for the two-person non-US shape.
 
+## D64. The ledger answers questions: setter metrics and a read-only query door (2026-10-10)
+
+Tyler: "If I want to ask right now 'what is Luis's speed to lead, and how many calls has he actually connected
+with' theoretically you should be able to answer that. You should be able to find the calls that he's made, find
+when the contacts were created and then find the time it took him to call." And: he is "the data king, I want
+all the data."
+
+- **The ledger already holds it** (D28, D29): every dialer call is a `recordings` row with the caller's GHL user
+  id, the direction, the CRM's status and the seconds; every contact carries the CRM's own arrival time
+  (`ghl_added_at`) and owner (`assigned_ghl_user_id`); every booking carries `set_by` when the source names the
+  setter. What was missing was the question asked of it. The rollups keep sums (D29: "rates are computed where
+  they are read"), and a median cannot be summed, so the answer is computed from the ledger directly.
+- **`setterMetrics(c, companyId, { from, to })`** (`metrics.ts`), per setter plus a company-wide line, over
+  inclusive local dates: leads assigned, never dialled, dials, answered, connected (at least `reached_seconds`,
+  the per-company number D29 set), talk seconds, people reached, speed to lead as median and average minutes
+  from arrival to the lead's FIRST outbound dial credited to whoever made it (a lead with no dial is counted as
+  never dialled, not as zero), and bookings that followed (`set_by` names them, or the person booked within a
+  day after one of their dials). Calls with no caller stamped are an `unassigned` row, never dropped. Read-only;
+  `GET /api/v1/companies/<slug>/metrics?from=&to=`; the wrap-ups page shows it with a date range defaulting to
+  this week. The Slack wrap-up is unchanged: the template has no setter section (`sections: {}`), so there was
+  nothing to add a line to; when it gets one, the headline goes there.
+- **A door for the next question**, `POST /api/admin/query { company, sql, limit? }`, Bearer `$CRON_SECRET`.
+  One SELECT or WITH, no semicolons, inside `withScope` for that company, in a read-only transaction
+  (`set local transaction_read_only`) with a 5 s statement timeout, the statement wrapped as a subquery with the
+  row cap bound as a parameter (200 default, 2000 max; the extended protocol cannot carry a second statement).
+  The statement runs as `query_door` (`set local role`): a NOLOGIN, NOBYPASSRLS role with SELECT on our tables and
+  nothing on `bindings` or `slack_connections`, created on first use. The tenant policy (02-data-model §12) only
+  binds a role that is under it, and the login user often is not: locally it is a superuser, and a bypass there
+  would have made "the company's rows only" a sentence rather than a fact — the first run of the test proved it.
+  A short deny-list by name in front of that: the two ciphertext tables (a decrypt never happens here, the key is
+  not in scope), `set_config` (could flip the scope mid-statement), file and connection functions. `report_token`, `bot_token`, `token_jti` are dropped from any
+  result: a value that opens a door is not data. `audit_log` is readable, and every run is written to it
+  (`query.ran` with the SQL and row count; `query.failed` with the error) — §12's "cross-tenant access is a
+  record, not a habit", applied to the operator's own reads. Tables without `company_id` (`companies`, the
+  catalogue) are global and seen whole; nothing in them is a secret.
+- Tests: `metrics.test.ts` (company `metrics`: two setters, four leads, dials at known offsets, an inbound and a
+  simulated call that must not count, a booking by dial and one by name) and `query.test.ts` (the guard, then the
+  door: scope, read-only, timeout, cap, hidden columns, the audit rows).
+

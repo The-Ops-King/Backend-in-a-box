@@ -306,6 +306,8 @@ create index on payments (company_id, opportunity_id);
 ```sql
 -- Daily rollups, report schedules and generated wrap-ups (D29) are in schema.sql after recordings: rollups_daily (counts and sums per
 -- company/day/dimension/metric, recomputed from the ledger), wrapups (as sent; the clock, channel and breakdowns are the wrap-ups workflow's steps, D35).
+-- Setter metrics (D64: leads assigned, dials, connected, speed to lead median/average, bookings that followed) are computed live from the ledger by
+-- `setterMetrics` — no table, a median needs every lead's own number. The operator's read-only query door (`POST /api/admin/query`) runs one SELECT under this policy.
 -- Agreements (D30) are in schema.sql after the rollups: one row per Documents & Contracts document (signer contact, status, sent_at, signed_at set once).
 -- Call recordings (D22). Same shape as payments: a row per recording the provider reports, linked or not.
 -- Phone calls the CRM's dialer logs live here too (D28): provider 'ghl', external_id = the TYPE_CALL message id, linked_by 'contact',

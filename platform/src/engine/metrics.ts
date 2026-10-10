@@ -123,3 +123,94 @@ export async function readMetrics(c: PoolClient, companyId: string, from: string
   const pick = (dim: string) => [...by.entries()].filter(([k]) => k.startsWith(`${dim}:`)).map(([, v]) => v).sort((a, b) => a.name.localeCompare(b.name));
   return { totals, setters: pick("setter"), closers: pick("closer") };
 }
+
+// ---- setter metrics (D64) ---------------------------------------------------------------------------------------------
+/**
+ * "What is Luis's speed to lead, and how many calls has he actually connected?" — answered from the ledger directly, not
+ * the rollups: a median needs every lead's own number, and the rollups keep sums. Per setter (the user whose GHL id the
+ * dialer stamped on the call; 'unassigned' when it stamped none), over [from, to] inclusive local dates.
+ */
+export type SetterStats = {
+  id: string; name: string;
+  leads_assigned: number;        // contacts assigned to them in the CRM, arrived in the period (for totals: every lead that arrived)
+  never_dialled: number;         // of those, with no outbound dial by anyone yet
+  dials: number;                 // outbound dialer calls they made in the period
+  answered: number;              // dials the CRM marked connected, any length
+  connected: number;             // answered and at least companies.reached_seconds long
+  talk_sec: number;              // seconds on connected calls
+  contacts_reached: number;      // distinct people behind the connected calls
+  leads_dialled_first: number;   // period leads whose first outbound dial was theirs (speed to lead is measured on these)
+  stl_median_min: number | null; // minutes from contacts.ghl_added_at to that first dial, median
+  stl_avg_min: number | null;    // the same, mean
+  bookings: number;              // appointments booked in the period stamped set_by with their name, or within a day after one of their dials to that person
+};
+export type SetterMetrics = { from: string; to: string; timezone: string; reached_seconds: number; totals: SetterStats; setters: SetterStats[] };
+
+const UNASSIGNED = "unassigned";
+const OUTBOUND_DIAL = "r.provider='ghl' and r.raw->>'kind'='phone' and r.raw->>'direction'='outbound' and coalesce(r.raw->>'simulated','')=''";
+const blank = (id: string, name: string): SetterStats => ({ id, name, leads_assigned: 0, never_dialled: 0, dials: 0, answered: 0, connected: 0, talk_sec: 0, contacts_reached: 0, leads_dialled_first: 0, stl_median_min: null, stl_avg_min: null, bookings: 0 });
+
+export async function setterMetrics(c: PoolClient, companyId: string, period: { from: string; to: string }): Promise<SetterMetrics> {
+  const co = await one<{ timezone: string; reached_seconds: number }>(c, "select timezone, reached_seconds from companies where id=$1", [companyId]);
+  if (!co) throw new Error("company not found");
+  const start = dayBounds(period.from, co.timezone).start, end = dayBounds(period.to, co.timezone).end;
+  const p = [companyId, start, end];
+  const setters = new Map<string, SetterStats>();
+  const totals = blank("total", "everyone");
+  const row = (id: string | null, name: string | null) => { const k = id ?? UNASSIGNED; if (!setters.has(k)) setters.set(k, blank(k, name ?? UNASSIGNED)); return setters.get(k)!; };
+  const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+
+  // dials they made, and how many of them were a real conversation
+  for (const r of await many<{ id: string | null; name: string | null; dials: number; answered: number; connected: number; talk_sec: number; contacts_reached: number }>(c, `
+    select u.id::text as id, u.name, count(*)::int as dials,
+           count(*) filter (where r.raw->>'call_status'='connected')::int as answered,
+           count(*) filter (where r.raw->>'call_status'='connected' and coalesce((r.raw->>'duration_sec')::int,0) >= $4)::int as connected,
+           coalesce(sum((r.raw->>'duration_sec')::int) filter (where r.raw->>'call_status'='connected' and coalesce((r.raw->>'duration_sec')::int,0) >= $4),0)::int as talk_sec,
+           count(distinct r.contact_id) filter (where r.raw->>'call_status'='connected' and coalesce((r.raw->>'duration_sec')::int,0) >= $4)::int as contacts_reached
+    from recordings r left join users u on u.company_id=r.company_id and u.ghl_user_id=r.raw->>'caller_ghl_user_id'
+    where r.company_id=$1 and ${OUTBOUND_DIAL} and r.started_at>=$2 and r.started_at<$3 group by u.id, u.name`, [...p, co.reached_seconds])) {
+    const s = row(r.id, r.name);
+    for (const m of ["dials", "answered", "connected", "talk_sec", "contacts_reached"] as const) { s[m] = Number(r[m]); totals[m] += Number(r[m]); }
+  }
+  totals.contacts_reached = Number((await one<{ n: number }>(c, `select count(distinct r.contact_id)::int as n from recordings r where r.company_id=$1 and ${OUTBOUND_DIAL} and r.started_at>=$2 and r.started_at<$3 and r.raw->>'call_status'='connected' and coalesce((r.raw->>'duration_sec')::int,0) >= $4`, [...p, co.reached_seconds]))?.n ?? 0);
+
+  // leads the CRM assigned to them, and the ones nobody has dialled
+  for (const r of await many<{ id: string | null; name: string | null; n: number; never: number }>(c, `
+    select u.id::text as id, u.name, count(*)::int as n,
+           count(*) filter (where not exists (select 1 from recordings r where r.company_id=ct.company_id and r.contact_id=ct.id and ${OUTBOUND_DIAL} and r.started_at>=ct.ghl_added_at))::int as never
+    from contacts ct left join users u on u.company_id=ct.company_id and u.ghl_user_id=ct.assigned_ghl_user_id
+    where ct.company_id=$1 and ct.merged_into is null and ct.ghl_added_at>=$2 and ct.ghl_added_at<$3 group by u.id, u.name`, p)) {
+    const s = row(r.id, r.name); s.leads_assigned = Number(r.n); s.never_dialled = Number(r.never);
+    totals.leads_assigned += Number(r.n); totals.never_dialled += Number(r.never);
+  }
+
+  // speed to lead: arrival → the first outbound dial to that person, credited to whoever made it; grouping sets give the company-wide line in the same pass
+  for (const r of await many<{ id: string | null; name: string | null; is_total: number; n: number; median: string | null; avg: string | null }>(c, `
+    with lead as (select ct.id, ct.ghl_added_at, d.started_at, d.caller from contacts ct
+      join lateral (select r.started_at, r.raw->>'caller_ghl_user_id' as caller from recordings r where r.company_id=ct.company_id and r.contact_id=ct.id and ${OUTBOUND_DIAL} and r.started_at>=ct.ghl_added_at order by r.started_at limit 1) d on true
+      where ct.company_id=$1 and ct.merged_into is null and ct.ghl_added_at>=$2 and ct.ghl_added_at<$3)
+    select u.id::text as id, u.name, grouping(u.id, u.name) as is_total, count(*)::int as n,
+           percentile_cont(0.5) within group (order by extract(epoch from (lead.started_at - lead.ghl_added_at))/60)::text as median,
+           avg(extract(epoch from (lead.started_at - lead.ghl_added_at))/60)::text as avg
+    from lead left join users u on u.company_id=$1 and u.ghl_user_id=lead.caller group by grouping sets ((u.id, u.name), ())`, p)) {
+    const s = Number(r.is_total) ? totals : row(r.id, r.name);
+    s.leads_dialled_first = Number(r.n); s.stl_median_min = num(r.median); s.stl_avg_min = num(r.avg);
+  }
+
+  // bookings that followed: the booking source named them (set_by), or the person booked within a day of one of their dials
+  for (const r of await many<{ id: string | null; name: string | null; is_total: number; n: number }>(c, `
+    with mine as (
+      select a.id as appt, u.id as uid, u.name from appointments a
+        join recordings r on r.company_id=a.company_id and r.contact_id=a.contact_id and ${OUTBOUND_DIAL} and r.started_at<=a.booked_at and a.booked_at<r.started_at+interval '1 day'
+        left join users u on u.company_id=a.company_id and u.ghl_user_id=r.raw->>'caller_ghl_user_id'
+        where a.company_id=$1 and a.source<>'test' and a.booked_at>=$2 and a.booked_at<$3
+      union
+      select a.id, u.id, u.name from appointments a join users u on u.company_id=a.company_id and lower(u.name)=lower(a.set_by)
+        where a.company_id=$1 and a.source<>'test' and a.booked_at>=$2 and a.booked_at<$3)
+    select uid::text as id, name, grouping(uid, name) as is_total, count(distinct appt)::int as n from mine group by grouping sets ((uid, name), ())`, p)) {
+    if (Number(r.is_total)) totals.bookings = Number(r.n); else row(r.id, r.name).bookings = Number(r.n);
+  }
+
+  const list = [...setters.values()].filter((s) => s.dials || s.leads_assigned || s.bookings).sort((a, b) => b.dials - a.dials || a.name.localeCompare(b.name));
+  return { from: period.from, to: period.to, timezone: co.timezone, reached_seconds: co.reached_seconds, totals, setters: list };
+}
