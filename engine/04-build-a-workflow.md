@@ -16,6 +16,7 @@ installed on a company (copied, versioned), turned on deliberately. It is a grap
   "definition": {
     "schema": 1,
     "reentry": "once_per_appointment",              // once_per_contact | once_per_appointment | once_per_opportunity | once_per_contact_per_window (+ reentry_window "90d") | always
+    "reentry_key": "{{appointment.starts_at}}",     // optional: appended to the policy's key, so the same appointment at a new time is a new run once the old one finished (a run still in flight keeps the appointment, D20/D59)
     "premise": { "check": "appointment_in_future" }, // none | appointment_in_future | appointment_exists | opportunity_open | contact_exists — re-checked at every wait; a dead premise exits the run
     "nodes": [ { "id": "t1", "type": "trigger", "event": "appointment.booked", "match": { "eq": ["{{appointment.term.category}}", "closing"] } }, … , { "id": "x1", "type": "exit", "reason": "done" } ],
     "edges": [ { "from": "t1", "to": "n1" }, { "from": "b1", "to": "n2", "when": { "eq": ["{{appointment.self_booked}}", true] }, "label": "self booked" }, { "from": "b1", "to": "n3", "else": true, "label": "setter booked" } ]
@@ -103,7 +104,8 @@ Paths worth knowing (full list: `context.ts`, `describe.ts` PATHS):
   `crm.field_contact_<name>`), `.owner.{name,first_name,email,mention}`, `.closer.*` (the open closer card's owner,
   else the owner), `.setter.*` (the setter field matched to a team member; `.mention` is `<@U…>` when known),
   `.paid` `.payments_count` `.cash_collected` `.first_paid_at` `.agreement_signed` `.agreement_sent`
-  `.first_booked_at` `.days_to_close` `.revenue` `.source`.
+  `.first_booked_at` `.days_to_close` `.revenue` `.source`, `.has_upcoming_call` (a closing call for them, not cancelled
+  or no-showed, still ahead, other than the run's own appointment: what a nudge to book or rebook checks first, D59).
 - `appointment.starts_at` `.ends_at` `.status` `.term.category` `.term.name` `.closer.{name,first_name}`
   `.self_booked` `.set_by` `.answers.<question name>` `.reschedule_url` `.cancel_url` `.cancelled_by`.
 - `event.*`: what the trigger carried (`event.amount`, `event.kind`, `event.status.to`, `event.tag`, …).
@@ -120,7 +122,9 @@ throws on a past target so a stale message never ships, which `on_stale` then ha
 
 Predicates (triggers, checks, branch edges): `{ "eq": [a, b] }` `neq` `gt` `gte` `lt` `lte` `{ "in": [a, [..]] }`
 `{ "has": [list, item] }` `{ "exists": "path" }` `{ "and": [...] }` `{ "or": [...] }` `{ "not": p }`. Left sides are
-`{{paths}}`; right sides are literals (strings, numbers, booleans).
+`{{paths}}`; right sides are literals (strings, numbers, booleans) or paths. A bare `{{path}}` keeps its type (a boolean
+compares as a boolean); a side with a filter, `{{appointment.starts_at | date:HH}}`, is rendered to text first and
+compares as that text (a number for `gt`/`gte`/`lt`/`lte`); an unknown path compares as absent either way (D59).
 
 ## 4. Bindings: what the company fills in
 
@@ -142,7 +146,11 @@ is required and the workflow cannot be turned on without it.
   and rendered at send time: a reschedule or a late tick changes the words, never a wrong number. A wait anchored on
   the appointment moves with it. `validity.min_lead` + `on_stale` say what to do when the call is now too close.
 - **Re-entry is a decision.** once per contact, per appointment, per opportunity, or within a window; `always` for
-  pure notifications. A gate exit does not spend the once.
+  pure notifications. A gate exit does not spend the once. `reentry_key` refines the once: pre-call's is the start time,
+  so a reschedule after the sequence finished starts it again for the new time, while a run still parked keeps the
+  appointment and follows the move (D20).
+- **A nudge to book reads the calendar first.** A `check` on `contact.has_upcoming_call` before "still want to talk?"
+  or "want to reschedule?" (`else_exit` `booked` / `rebooked`): someone who booked is never asked to.
 - **One open card per contact per board, and the CRM is the truth about it (D41).** Before a card step the engine
   reads the contact's cards from the CRM and adopts any it did not make; a step with a stage moves that card or
   makes one when none is open; a status-only step (no stage) marks the open card and does nothing when there is none.

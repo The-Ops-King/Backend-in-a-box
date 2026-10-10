@@ -125,6 +125,8 @@ export const Definition = z.object({
   schema: z.literal(1),
   reentry: z.enum(["once_per_contact", "once_per_appointment", "once_per_opportunity", "once_per_contact_per_window", "always"]),
   reentry_window: z.string().optional(),
+  // a template appended to the reentry key ("{{appointment.starts_at}}"): the same appointment at a new time is a new run once the old one has finished; one still in flight keeps the appointment (D20)
+  reentry_key: z.string().optional(),
   premise: Premise.default({ check: "none" }),
   nodes: z.array(Node).min(1),
   edges: z.array(Edge),

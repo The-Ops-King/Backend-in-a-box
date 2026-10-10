@@ -1,9 +1,21 @@
+import { DateTime } from "luxon";
 import type { Predicate } from "./definition";
-import { resolvePath } from "./template";
+import { render, resolvePath, UnknownPathError, type RenderEnv } from "./template";
 
 const isRef = (v: unknown): v is string => typeof v === "string" && /^\{\{\s*[a-zA-Z0-9_.]+\s*\}\}$/.test(v);
+const hasRef = (v: unknown): v is string => typeof v === "string" && /\{\{[^}]*\}\}/.test(v);
+// the zones the date filters need: a predicate reads the same context a message is rendered against
+const envOf = (ctx: Record<string, unknown>): RenderEnv => {
+  const companyTz = (ctx.company as { timezone?: string } | undefined)?.timezone;
+  const now = typeof ctx.now === "string" ? DateTime.fromISO(ctx.now) : undefined;
+  return { tz: (ctx.contact as { timezone?: string } | undefined)?.timezone ?? companyTz ?? "UTC", companyTz, now: now?.isValid ? now : undefined };
+};
+/** A bare `{{path}}` keeps its type (a boolean stays a boolean); anything else with `{{…}}` in it is rendered, so `{{appointment.starts_at | date:HH}}` compares as "14", not as the literal string. */
 export function operand(v: unknown, ctx: Record<string, unknown>): unknown {
-  return isRef(v) ? resolvePath(ctx, v.replace(/[{}\s]/g, "")) : v;
+  if (isRef(v)) return resolvePath(ctx, v.replace(/[{}\s]/g, ""));
+  if (!hasRef(v)) return v;
+  try { return render(v, ctx, envOf(ctx)); }
+  catch (e) { if (e instanceof UnknownPathError) return undefined; throw e; }   // an absent value compares the way a bare path's undefined does
 }
 const num = (v: unknown) => (typeof v === "number" ? v : typeof v === "string" && v !== "" && !isNaN(+v) ? +v : NaN);
 

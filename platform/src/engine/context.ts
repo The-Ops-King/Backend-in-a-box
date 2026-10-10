@@ -103,6 +103,9 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     // D44: a payment or a no-show lands as a reaction on the person's booking post and call review; these name which
     const latestAppt = await one<{ id: string }>(c, "select id from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled' order by starts_at desc limit 1", [company.id, run.contact_id]);
     const latestRec = await one<{ id: string }>(c, "select id from recordings where company_id=$1 and contact_id=$2 order by started_at desc limit 1", [company.id, run.contact_id]);
+    // a live closing call still ahead of them, other than the one this run is about: what a nudge to book (or rebook) checks before it goes
+    const upcoming = await one(c, `select 1 from appointments a join company_terms t on t.id=a.appointment_term where a.company_id=$1 and a.contact_id=$2 and t.category='closing'
+      and a.status not in ('cancelled','noshow') and a.starts_at > now() and ($3::uuid is null or a.id <> $3) limit 1`, [company.id, run.contact_id, run.appointment_id ?? null]);
     const daysToClose = firstBookedAt && firstPaidAt ? Math.max(0, Math.round((firstPaidAt.getTime() - firstBookedAt.getTime()) / 86_400_000)) : undefined;
     // what the deal is worth: the contact's opportunity (open first, else won), falling back to the program price
     const opp = await one<{ v: string | null }>(c, "select coalesce(o.contract_value, co.contract_value_default)::text as v from opportunities o join companies co on co.id=o.company_id where o.company_id=$1 and o.contact_id=$2 and o.status in ('open','won') order by (o.status='open') desc, o.opened_at desc limit 1", [company.id, run.contact_id]);
@@ -112,7 +115,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       agreement_signed: !!agr?.signed_at, agreement_sent: !!agr, owner: owner ? { ...person(owner), inherited: !contact?.assigned_ghl_user_id } : undefined,
       closer: closer ? { ...person(closer), from: closerCard ? "closer card" : "contact owner" } : undefined,
       setter: setterName ? (setterUser ? person(setterUser) : { name: setterName, first_name: setterName.split(" ")[0], mention: setterName }) : undefined,
-      first_booked_at: firstBookedAt?.toISOString() ?? undefined, days_to_close: daysToClose, revenue, latest_appointment_id: latestAppt?.id, latest_recording_id: latestRec?.id,
+      first_booked_at: firstBookedAt?.toISOString() ?? undefined, days_to_close: daysToClose, revenue, latest_appointment_id: latestAppt?.id, latest_recording_id: latestRec?.id, has_upcoming_call: !!upcoming,
       source: typeof fields.lead_source === "string" && fields.lead_source ? fields.lead_source : undefined };
     ctx.agreement = agr ? agreementFacts(agr) : {};
     ctx.records = Object.fromEntries(recs.map((r) => [r.object_key.replace(/^custom_objects\./, ""), { key: r.record_key, id: r.ghl_record_id ?? "" }]));

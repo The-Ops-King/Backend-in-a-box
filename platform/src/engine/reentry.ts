@@ -1,11 +1,15 @@
 import type { Definition } from "./definition";
 
-export type ReentryInput = { contactId: string | null; userId?: string | null; appointmentId?: string | null; opportunityId?: string | null; eventId: string | number; now: Date; schedule?: string };
+export type ReentryInput = { contactId: string | null; userId?: string | null; appointmentId?: string | null; opportunityId?: string | null; eventId: string | number; now: Date; schedule?: string; suffix?: string };
 
 /** D4: the unique (workflow_id, reentry_key) constraint on runs is what prevents double-texting off two triggers. */
 export function reentryKey(def: Pick<Definition, "reentry" | "reentry_window">, i: ReentryInput): string {
   // a schedule fires once per period per subject whatever the policy says: the period is the key
   if (i.schedule) return `schedule:${i.schedule}${i.userId ? `:${i.userId}` : ""}`;
+  const base = baseKey(def, i);
+  return i.suffix ? `${base}@${i.suffix}` : base;
+}
+function baseKey(def: Pick<Definition, "reentry" | "reentry_window">, i: ReentryInput): string {
   // a run about a person, not a contact (eod.filed): the policy's "contact" is that person
   const who = i.contactId ? `contact:${i.contactId}` : i.userId ? `user:${i.userId}` : `event:${i.eventId}`;
   switch (def.reentry) {

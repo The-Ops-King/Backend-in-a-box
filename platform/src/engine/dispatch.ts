@@ -4,6 +4,7 @@ import { parseDefinition, indexDefinition, type Definition } from "./definition"
 import { evaluate } from "./predicate";
 import { reentryKey, windowInterval } from "./reentry";
 import { contactPasses, modeOf } from "./mode";
+import { render } from "./template";
 
 const SUPERSEDES: ReadonlySet<Definition["reentry"]> = new Set(["once_per_contact", "once_per_appointment", "once_per_contact_per_window"]);
 
@@ -22,10 +23,20 @@ export async function startRun(c: PoolClient, args: { companyId: string; workflo
   if (!wf?.enabled) return null;
   const ver = await one<{ definition: unknown }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [args.workflowId, wf.current_version]);
   const def = parseDefinition(ver!.definition);
-  const key = reentryKey(def, { contactId: args.contactId, userId: args.userId, appointmentId: args.appointmentId, opportunityId: args.opportunityId, eventId: args.event.id, now: new Date(), schedule: args.schedule });
+  const suffix = def.reentry_key ? await keySuffix(c, def.reentry_key, args) : undefined;
+  const key = reentryKey(def, { contactId: args.contactId, userId: args.userId, appointmentId: args.appointmentId, opportunityId: args.opportunityId, eventId: args.event.id, now: new Date(), schedule: args.schedule, suffix });
   if (def.reentry === "once_per_contact_per_window" && args.contactId && !args.schedule) {   // sliding window, not epoch buckets: any run for this contact inside the window blocks a new one
     const recent = await one(c, `select 1 from runs where workflow_id=$1 and contact_id=$2 and started_at > now() - $3::interval limit 1`, [args.workflowId, args.contactId, windowInterval(def.reentry_window ?? "90d")]);
     if (recent) return null;
+  }
+  // D20 over D45 inside one appointment: a run still in flight for this appointment owns it (a parked wait follows the moved time); the event is remembered on it. A finished run does not block the new key.
+  if (suffix && args.appointmentId) {
+    const inflight = await one<{ id: string }>(c, "select id from runs where workflow_id=$1 and appointment_id=$2 and status in ('active','waiting') limit 1", [args.workflowId, args.appointmentId]);
+    if (inflight) {
+      await c.query(`update runs set pending_events = pending_events || $2::jsonb where id=$1`,
+        [inflight.id, JSON.stringify([{ event_id: args.event.id, trigger_id: args.triggerId ?? null, trigger_node_id: args.triggerNodeId, contact_id: args.contactId, appointment_id: args.appointmentId, opportunity_id: args.opportunityId ?? null }])]);
+      return null;
+    }
   }
   const row = await one<{ id: string }>(c, `insert into runs (company_id, workflow_id, workflow_version, contact_id, user_id, opportunity_id, appointment_id, trigger_id, triggered_by_event, status, current_node, next_run_at, context, reentry_key, born_in)
     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'active',$10,now(),$11,$12,(select mode from companies where id=$1))
@@ -48,6 +59,13 @@ export async function startRun(c: PoolClient, args: { companyId: string; workflo
   }
   await emitEvent(c, { company_id: args.companyId, contact_id: args.contactId, opportunity_id: args.opportunityId ?? null, appointment_id: args.appointmentId ?? null, run_id: row.id, event_type: "run.started", source: "engine", data: { workflow_id: args.workflowId, trigger_node: args.triggerNodeId } });
   return row.id;
+}
+
+/** `reentry_key` rendered against what the engine knows at start: our appointment row and the event. Rendered empty → no suffix (the plain policy key). */
+async function keySuffix(c: PoolClient, template: string, args: { event: EventRow; contactId: string | null; appointmentId?: string | null }): Promise<string | undefined> {
+  const a = args.appointmentId ? await one<{ id: string; external_id: string; starts_at: Date; status: string }>(c, "select id, external_id, starts_at, status from appointments where id=$1", [args.appointmentId]) : null;
+  const ctx = { event: { ...args.event.data, _type: args.event.event_type, _source: args.event.source }, contact: { id: args.contactId }, appointment: a ? { ...a, starts_at: a.starts_at.toISOString() } : undefined };
+  try { return render(template, ctx, { tz: "UTC" }) || undefined; } catch { return undefined; }
 }
 
 /** Event in → every enabled trigger that matches → a run each (subject to reentry). */

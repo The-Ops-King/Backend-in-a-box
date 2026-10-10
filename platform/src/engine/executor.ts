@@ -10,7 +10,7 @@ import { syncCards, pickCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
 import { contactPasses } from "./mode";
-import { emitEvent } from "./dispatch";
+import { dispatchEvent, emitEvent } from "./dispatch";
 import { applyOutcome, outcomeTermFor } from "./disposition";
 import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } from "./health";
 import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports";
@@ -336,14 +336,21 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     }
     case "update_appointment": {
       if (!d.run.appointment_id) return { status: "failed", error: "update_appointment with no appointment on run" };
-      const a = await one<{ external_id: string; source: string }>(d.c, "select external_id, source from appointments where id=$1", [d.run.appointment_id]);
+      const a = await one<{ external_id: string; source: string; status: string; starts_at: Date; self_booked: boolean | null; term: { name: string; category: string } | null }>(d.c,
+        "select a.external_id, a.source, a.status, a.starts_at, a.self_booked, json_build_object('name', t.name, 'category', t.category) as term from appointments a left join company_terms t on t.id=a.appointment_term where a.id=$1", [d.run.appointment_id]);
       const patch = Object.fromEntries(Object.entries(node.set).map(([k, v]) => [k, typeof v === "string" ? render(v, d.ctx, env(d)) : v]));
       // only the CRM's own calendars accept writes; a Calendly booking is read-only to us, so the node records that and moves on
       if (a!.source !== "ghl") return { status: "ok", next, result: { skipped: true, reason: `appointments from ${a!.source} are read-only`, would_update: patch } };
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch } };
       await d.adapters.write.updateAppointment(d.adapterCompany, a!.external_id, patch);
-      if (typeof patch.status === "string") await d.c.query("update appointments set status=$2, source_updated_at=now() where id=$1", [d.run.appointment_id, patch.status]);
-      return { status: "ok", next, result: patch };
+      if (typeof patch.status !== "string" || patch.status === a!.status) return { status: "ok", next, result: patch };
+      await d.c.query("update appointments set status=$2, source_updated_at=now() where id=$1", [d.run.appointment_id, patch.status]);
+      // the same event the poll would emit had the source changed first; the poll then sees no delta, so this is its one emission. Runs parked on the call wake to re-check their premise.
+      await d.c.query("update runs set next_run_at=now() where company_id=$1 and appointment_id=$2 and status='waiting'", [d.company.id, d.run.appointment_id]);
+      const ev = await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "appointment.status_changed", source: "engine",
+        data: { source: a!.source, status: { from: a!.status, to: patch.status }, by: "workflow", node: node.id } });
+      const started = await dispatchEvent(d.c, ev, { contact: { id: d.run.contact_id }, appointment: { id: d.run.appointment_id, starts_at: a!.starts_at.toISOString(), status: patch.status, term: a!.term, self_booked: a!.self_booked } });
+      return { status: "ok", next, result: { ...patch, status_changed: { from: a!.status, to: patch.status }, started } };
     }
     case "pipeline_card": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;

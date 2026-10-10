@@ -634,6 +634,7 @@ editor reads and writes, and what the engine executes.
 {
   "schema": 1,
   "reentry": "once_per_appointment",
+  "reentry_key": "{{appointment.starts_at}}",   // optional (D59): appended to the policy's key; a finished run does not block the same appointment at a new time
   "premise": { "check": "appointment_in_future", "of": "appointment" },   // always-on moot check
 
   "nodes": [

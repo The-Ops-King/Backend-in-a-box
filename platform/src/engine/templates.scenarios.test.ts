@@ -446,7 +446,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const ours = await asOperator((c) => many<{ record_key: string }>(c, "select record_key from crm_records where company_id=$1 and contact_id=$2 and object_key='custom_objects.payment' order by created_at", [companyId, id]));
     expect(ours.map((x) => x.record_key)).toEqual(["pay_leo_1", "pay_leo_2", "pay_leo_r1"]);   // a new line, never an edit of the old one
     const slack = await asOperator((c) => many<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack' order by id", [r.id]));
-    expect(slack.map((s) => s.rendered_body.split("\n")[0]).sort()).toEqual(["*Refund:* −$500", "💸 Refunded 500· refund.", "💸 Refunded 500· refund. Details in the payments channel."]);   // the three Slack lines of the run (payments channel, booking thread, review thread)
+    expect(slack.map((s) => s.rendered_body.split("\n")[0]).sort()).toEqual(["*Refund:* −$500", "💸 Refunded $500 · refund.", "💸 Refunded $500 · refund. Details in the payments channel."]);   // the three Slack lines of the run (payments channel, booking thread, review thread)
   });
 
   it("call-recorded: a Fathom recording matched by invitee email → AI classifies, notes, scores; appointment marked showed (call.held fires), stat-showed, setter card to Showed + won, Sales Call record linked, note, Slack; an internal meeting stops at the check", async () => {
