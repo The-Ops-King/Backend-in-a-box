@@ -34,7 +34,7 @@ const liveCards = new Map<string, import("@/adapters/types").LiveCard[]>();   //
 const fake: Adapters = {
   read: {
     contactsChangedSince: async () => [], openCards: async (_c, id) => liveCards.get(id) ?? [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
-    getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }),
+    getContact: async (_c, id) => ({ id, firstName: id, email: `${id.toLowerCase()}@x.com`, phone: phoneFor(id), tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }),
     listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }],
   },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [],
@@ -78,9 +78,12 @@ const expireWait = (runId: string, nodeId: string) => asOperator((c) => c.query(
 /** Make a wait_for_reply deadline already past, as a real ISO string (what the engine itself stores). */
 const expireReplyWait = (runId: string, nodeId: string) => asOperator((c) => c.query("update runs set next_run_at=now(), context = jsonb_set(context, $2::text[], to_jsonb($3::text), true) where id=$1",
   [runId, `{vars,__wait_for_reply,${nodeId},deadline}`, new Date(Date.now() - 60e3).toISOString()]));
-const newContact = async (ghlId: string, email: string) => asOperator(async (c) => {
+/** A fixture contact has a phone unless a scenario says `null`: a text goes only to a number the replica knows (G11, D60). Derived from the id so the number is stable and never collides with the explicit +1602… ones. */
+const phoneFor = (ghlId: string) => `+1480${String([...ghlId].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 10_000_000, 7)).padStart(7, "0")}`;
+const newContact = async (ghlId: string, email: string, phone: string | null = phoneFor(ghlId)) => asOperator(async (c) => {
   const id = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, timezone) values ($1,$2,$3,$4) returning id", [companyId, ghlId, ghlId, TZ]))!.id;
   await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3)", [companyId, id, email]);
+  if (phone) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'phone',$3)", [companyId, id, phone]);
   return id;
 });
 const withPhone = (contactId: string, phone: string) => asOperator((c) => c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'phone',$3)", [companyId, contactId, phone]));
@@ -275,7 +278,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
   it("new-lead: a lead with a phone gets a setter-pipeline card named 'Name -- New' with today's stage date, and the tag stat-new; without a phone, the run exits no_phone", async () => {
     const withNum = await newContact("CNL1", "nl1@x.com"); await withPhone(withNum, "+16025550101");
     await asOperator((c) => c.query("update contacts set first_name='Edwin', last_name='Ruh' where id=$1", [withNum]));
-    const noNum = await newContact("CNL2", "nl2@x.com");
+    const noNum = await newContact("CNL2", "nl2@x.com", null);
     for (const id of [withNum, noNum]) await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: {} }), { contact: { id } }));
     const nTags = tags.length, nOpps = oppWrites.length;
     await tick(fake, undefined, companyId);

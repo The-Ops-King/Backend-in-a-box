@@ -2,7 +2,8 @@
  * Contact-shaped edge cases: who the person is when a lead has no phone or email, a many-part name, a duplicate in
  * the CRM, a changed number, a garbage time zone. Driven through the real engine (the poll, the dispatcher, the
  * runner) against Postgres with a fake CRM that refuses what the real one refuses. The catalogue is
- * engine/05-edge-cases.md § "Contacts: who the person is"; every `it.fails` here is a row under its "Known gaps".
+ * engine/05-edge-cases.md § "Contacts: who the person is"; every `it.fails` here is a row under its "Known gaps" (D60 fixed
+ * all but G17, which waits on a decision).
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { DateTime } from "luxon";
@@ -136,32 +137,33 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     expect(whys.map((w) => w.why).join(" | ")).toMatch(/no email|no phone|refused/);   // the run does say why, if only as the CRM's refusal
   });
 
-  it.fails("a lead with no phone and no email: Speed to lead records the email and the text as suppressed (no address) and goes on to its reply wait (doSend never looks at contact.email / contact.phone; it asks the CRM and the refusal fails the run, G1 / G11)", async () => {
+  it("a lead with no phone and no email: Speed to lead records the email and the text as suppressed (no address) and goes on to its reply wait; the CRM is never asked (G11, fixed by D60)", async () => {
     const ct = (await contactByGhl("NP1"))!;
     const stl = await runOf("speed-to-lead", ct.id);
-    expect(stl.status).not.toBe("failed");                         // today: failed at n1, "contact NP1 has no email address"
+    expect(stl.status).not.toBe("failed");
+    expect(refused.filter((r) => r.to === "NP1")).toEqual([]);
     expect(stl).toMatchObject({ status: "waiting", current_node: "n3" });
     const s = await sends(stl.id);
     expect(s.map((x) => [x.channel, x.status])).toEqual([["email", "suppressed"], ["sms", "suppressed"]]);
     expect(s.map((x) => x.suppressed_reason)).toEqual([expect.stringMatching(/no email/), expect.stringMatching(/no phone/)]);
   });
 
-  it.fails("a lead with an email but no phone: the email goes, the text is skipped for want of a number, the run waits for a reply (G1: the refused text ends the run)", async () => {
+  it("a lead with an email but no phone: the email goes, the text is skipped for want of a number, the run waits for a reply (G11, fixed by D60)", async () => {
     inCrm("EO1", { firstName: "Mail", lastName: "Only", email: "eo1@x.com" });
     await poll(); const n = sent.length; await tick(fake, undefined, companyId);
     const ct = (await contactByGhl("EO1"))!;
-    expect(sent.slice(n).filter((s) => s.to === "EO1").map((s) => s.kind)).toEqual(["email"]);   // true today
+    expect(sent.slice(n).filter((s) => s.to === "EO1").map((s) => s.kind)).toEqual(["email"]);
     const stl = await runOf("speed-to-lead", ct.id);
-    expect((await sends(stl.id)).map((x) => [x.channel, x.status])).toEqual([["email", "sent"], ["sms", "suppressed"]]);   // today: ["sms", "failed"]
-    expect(stl).toMatchObject({ status: "waiting", current_node: "n3" });                                                   // today: failed
+    expect((await sends(stl.id)).map((x) => [x.channel, x.status, x.suppressed_reason])).toEqual([["email", "sent", null], ["sms", "suppressed", "no phone on the contact"]]);
+    expect(stl).toMatchObject({ status: "waiting", current_node: "n3" });
   });
 
-  it.fails("a lead with a phone but no email: the email is skipped and the text still goes (G1 / G11: the refused email is the first step, so the text never runs)", async () => {
+  it("a lead with a phone but no email: the email is skipped and the text still goes (G11, fixed by D60)", async () => {
     inCrm("PO1", { firstName: "Phone", lastName: "Only", phone: "+16025550301" });
     await poll(); const n = sent.length; await tick(fake, undefined, companyId);
     const ct = (await contactByGhl("PO1"))!;
     const stl = await runOf("speed-to-lead", ct.id);
-    expect(sent.slice(n).filter((s) => s.to === "PO1").map((s) => s.kind)).toEqual(["sms"]);   // today: [] — the email failed first
+    expect(sent.slice(n).filter((s) => s.to === "PO1").map((s) => s.kind)).toEqual(["sms"]);
     expect((await sends(stl.id)).map((x) => [x.channel, x.status])).toEqual([["email", "suppressed"], ["sms", "sent"]]);
     expect(stl).toMatchObject({ status: "waiting", current_node: "n3" });
   });
@@ -212,22 +214,23 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     }
   });
 
-  it.fails("a name with leading/trailing spaces renders trimmed: 'Hey Zed,' and 'Zed Zee -- New' (upsertContact stores first_name/last_name as the CRM sends them; only the joined name is trimmed, G12)", async () => {
+  it("a name with leading/trailing spaces renders trimmed: 'Hey Zed,' and 'Zed Zee -- New' (G12, fixed by D60)", async () => {
     inCrm("NS1", { firstName: "  Zed  ", lastName: " Zee ", email: "ns1@x.com", phone: "+16025550411" });
     await poll(); const n = sent.length; await tick(fake, undefined, companyId);
     const ct = (await contactByGhl("NS1"))!;
-    expect(sent.slice(n).find((s) => s.to === "NS1" && s.kind === "sms")!.body.startsWith("Hey Zed, it's")).toBe(true);   // today: "Hey   Zed  , it's"
-    expect(await cardNames(ct.id)).toEqual([{ name: "Zed Zee -- New" }]);                                                  // today: "  Zed    Zee  -- New"
+    expect(ct).toMatchObject({ first_name: "Zed", last_name: "Zee" });
+    expect(sent.slice(n).find((s) => s.to === "NS1" && s.kind === "sms")!.body.startsWith("Hey Zed, it's")).toBe(true);
+    expect(await cardNames(ct.id)).toEqual([{ name: "Zed Zee -- New" }]);
   });
 
-  it.fails("an empty name: the text does not say 'Hey ,' and the card is not named ' -- New' (no fallback anywhere: first_name renders '' and the card step accepts a blank name, G13)", async () => {
+  it("an empty name: the text says 'Hey there,' and the card is named by the contact's email, never ' -- New' (G13, fixed by D60)", async () => {
     inCrm("NE1", { firstName: "", lastName: "", email: "ne1@x.com", phone: "+16025550412" });
     await poll(); const n = sent.length; await tick(fake, undefined, companyId);
     const ct = (await contactByGhl("NE1"))!;
     const text = sent.slice(n).find((s) => s.to === "NE1" && s.kind === "sms")!;
-    expect(text.body).not.toMatch(/^Hey ,/);                                 // today: "Hey , it's Edges Contacts…"
+    expect(text.body.startsWith("Hey there, it's")).toBe(true);
     const cards = await cardNames(ct.id); expect(cards).toHaveLength(1);
-    expect(cards[0].name).not.toMatch(/^\s*-- New$/);                         // today: " -- New"
+    expect(cards[0].name).toBe("ne1@x.com -- New");
   });
 
   // ---- 5: the same person twice in the CRM ----
@@ -252,12 +255,12 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     expect(await asOperator((c) => one<{ contact_id: string }>(c, "select contact_id from appointments where company_id=$1 and external_id='AP-DUP-B'", [companyId]))).toMatchObject({ contact_id: a.id });
   });
 
-  it.fails("a reply from the duplicate CRM record's thread counts as the person's reply and wakes the run parked on it (pollInbound matches contacts.ghl_contact_id only, never the ghl_contact identifiers, G14)", async () => {
+  it("a reply from the duplicate CRM record's thread counts as the person's reply and wakes the run parked on it (G14, fixed by D60)", async () => {
     const a = (await contactByGhl("DUP-A"))!;
     const stl = await runOf("speed-to-lead", a.id); expect(stl).toMatchObject({ status: "waiting", current_node: "n3" });
     const before = Number((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from messages where contact_id=$1", [a.id])))!.n);
     await reply("DUP-B", "yes let's talk");
-    expect(Number((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from messages where contact_id=$1", [a.id])))!.n)).toBe(before + 1);   // today: dropped, no contact has ghl_contact_id DUP-B
+    expect(Number((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from messages where contact_id=$1", [a.id])))!.n)).toBe(before + 1);
     expect((await runOf("speed-to-lead", a.id)).next_run_at!.getTime()).toBeLessThanOrEqual(Date.now());
   });
 
@@ -269,7 +272,8 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     inCrm("PC1", { firstName: "Two", lastName: "Phones", email: "pc1@x.com", phone: "+16025550602", dateUpdated: new Date(Date.now() + 1000).toISOString() });
     await poll();
     const ct = (await contactByGhl("PC1"))!;
-    expect((await identifiers(ct.id)).filter((i) => i.kind === "phone").map((i) => i.value)).toEqual(["+16025550601", "+16025550602"]);   // the old one is never retired
+    expect((await identifiers(ct.id)).filter((i) => i.kind === "phone").map((i) => i.value)).toEqual(["+16025550601", "+16025550602"]);   // the old one stays on the person's history, retired (D60)
+    expect((await asOperator((c) => many<{ value: string }>(c, "select value from contact_identifiers where contact_id=$1 and kind='phone' and retired_at is null", [ct.id]))).map((r) => r.value)).toEqual(["+16025550602"]);
     const stl = await runOf("speed-to-lead", ct.id); expect(stl).toMatchObject({ status: "waiting", current_node: "n3" });
     await reply("PC1", "yes");
     expect((await runOf("speed-to-lead", ct.id)).next_run_at!.getTime()).toBeLessThanOrEqual(Date.now());
@@ -281,12 +285,14 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     expect(await runOf("speed-to-lead", ct.id)).toMatchObject({ status: "completed", exit_reason: "replied" });
   });
 
-  it.fails("a number that moved to a different CRM contact belongs to the new person: a new CRM contact carrying the old number is a separate contact (the retired identifier still points at the old person, so upsertContact folds the stranger into them, G15)", async () => {
+  it("a number that moved to a different CRM contact belongs to the new person: a new CRM contact carrying the old number is a separate contact and takes the number with them (G15, fixed by D60)", async () => {
     inCrm("PC2", { firstName: "Newt", lastName: "Owner", email: "pc2@x.com", phone: "+16025550601" });   // the number PC1 gave up
     await poll();
     const pc2 = await contactByGhl("PC2");
-    expect(pc2).toBeTruthy();                                             // today: undefined — folded into PC1
+    expect(pc2).toBeTruthy();
     expect(pc2!.id).not.toBe((await contactByGhl("PC1"))!.id);
+    expect((await identifiers(pc2!.id)).filter((i) => i.kind === "phone").map((i) => i.value)).toEqual(["+16025550601"]);
+    expect((await identifiers((await contactByGhl("PC1"))!.id)).filter((i) => i.kind === "phone").map((i) => i.value)).toEqual(["+16025550602"]);
   });
 
   // ---- 7: bookings by strangers ----
@@ -306,13 +312,14 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     expect(await runOf("new-lead", ct.id)).toMatchObject({ status: "completed", exit_reason: "done" });
   });
 
-  it.fails("a CRM calendar booking by a person the contacts poll has not seen: lead.created fires once (resolveContactForBooking upserts them from the live read without an event; the later contacts poll sees an existing row, so New lead and Speed to lead never run for them, G16)", async () => {
+  it("a CRM calendar booking by a person the contacts poll has not seen: lead.created fires once, before the booking (G16, fixed by D60)", async () => {
     crm.set("GB1", { id: "GB1", firstName: "Book", lastName: "First", email: "gb1@x.com", phone: "+16025550702", tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() });
     await book(snap("AP-GB1", { contactId: "GB1" }));
     const ct = (await contactByGhl("GB1"))!; expect(ct).toMatchObject({ first_name: "Book", last_name: "First" });
     changed.push(crm.get("GB1")!); await poll();   // the contacts poll now delivers them too
-    expect((await slugsFor(ct.id)).map((r) => r.slug)).toContain("new-lead");   // today: ["call-booked", "pre-call-sequence"] only
+    expect((await slugsFor(ct.id)).map((r) => r.slug)).toEqual(["call-booked", "new-lead", "pre-call-sequence", "speed-to-lead"]);
     expect(await asOperator((c) => many(c, "select 1 from events where company_id=$1 and contact_id=$2 and event_type='lead.created'", [companyId, ct.id]))).toHaveLength(1);
+    expect((await asOperator((c) => many<{ event_type: string }>(c, "select event_type from events where company_id=$1 and contact_id=$2 and event_type in ('lead.created','appointment.booked') order by id", [companyId, ct.id]))).map((e) => e.event_type)).toEqual(["lead.created", "appointment.booked"]);
   });
 
   // ---- 8: payments by strangers ----
@@ -327,7 +334,7 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     expect((await runsFor("payment-recorded")).filter((x) => x.contact_id === ct.id)).toHaveLength(1);
   });
 
-  it.fails("an orphan healed by a later payment from the same buyer is written to the CRM too: Payment recorded runs once per payment (settle heals the row and emits payment.linked, which no template listens to; only the later payment's payment.received starts a run, G18)", async () => {
+  it("an orphan healed by a later payment from the same buyer is written to the CRM too: Payment recorded runs once per payment (G18, fixed by D60)", async () => {
     const r1 = await asOperator((c) => recordPayment(c, companyId, { providerPaymentId: "P-ORP-2", amount: 1000, status: "succeeded", paidAt: new Date(), email: "orphan2@x.com" }));
     expect(r1.outcome).toBe("unlinked");
     inCrm("ORP2", { firstName: "Orphan", lastName: "Two", email: "orphan2@x.com", phone: "+16025550802" });
@@ -335,10 +342,13 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     const ct = (await contactByGhl("ORP2"))!;
     const r2 = await asOperator(async (c) => { const r = await recordPayment(c, companyId, { providerPaymentId: "P-ORP-3", amount: 1000, status: "succeeded", paidAt: new Date(), email: "orphan2@x.com" }); if (r.outcome === "linked") await dispatchEvent(c, r.event, { contact: { id: ct.id } }); return r; });
     expect(r2.outcome).toBe("linked"); if (r2.outcome === "linked") { expect(r2.contactId).toBe(ct.id); expect(r2.healed).toBe(1); }
-    expect(await asOperator((c) => one<{ link_status: string; linked_by: string }>(c, "select link_status, linked_by from payments where company_id=$1 and whop_payment_id='P-ORP-2'", [companyId]))).toMatchObject({ link_status: "linked", linked_by: "heal" });   // true today
+    expect(await asOperator((c) => one<{ link_status: string; linked_by: string; kind: string }>(c, "select link_status, linked_by, kind from payments where company_id=$1 and whop_payment_id='P-ORP-2'", [companyId]))).toMatchObject({ link_status: "linked", linked_by: "heal", kind: "deposit" });
     await tick(fake, undefined, companyId);
     const runs = (await runsFor("payment-recorded")).filter((x) => x.contact_id === ct.id);
-    expect(runs).toHaveLength(2);   // today: 1 — the healed P-ORP-2 never gets a Payment record in the CRM
+    expect(runs).toHaveLength(2);
+    // both runs start in one transaction and share started_at, so never rely on their order: sort by what each one knows
+    const facts = runs.map((r) => r.context.event as { prior_total: number; running_total: number; linked_by: string; kind: string }).sort((a, b) => a.prior_total - b.prior_total);
+    expect(facts).toEqual([expect.objectContaining({ prior_total: 0, running_total: 1000, linked_by: "heal", kind: "deposit" }), expect.objectContaining({ prior_total: 1000, running_total: 2000, linked_by: "email", kind: "installment" })]);
   });
 
   // ---- 9: phone formats ----
@@ -357,7 +367,7 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     expect(p.outcome).toBe("linked"); if (p.outcome === "linked") expect(p.contactId).toBe(ct.id);
   });
 
-  it.fails("a phone written with a leading 1 and no plus ('1-602-555-0901') is the same number (normPhone adds +1 only to exactly ten digits; eleven digits starting with 1 stay as typed and match nothing, so a second contact is invented, G19)", async () => {
+  it("a phone written with a leading 1 and no plus ('1-602-555-0901') is the same number (G19, fixed by D60)", async () => {
     const ct = (await contactByGhl("FM1"))!;
     await book(snap("AP-FM1-11", { contactId: undefined, assignedUserId: undefined, assignedUserEmail: "sam@x.com", invitee: { phone: "1-602-555-0901", firstName: "Form" } }));
     expect(await asOperator((c) => one<{ contact_id: string }>(c, "select contact_id from appointments where company_id=$1 and external_id='AP-FM1-11'", [companyId]))).toMatchObject({ contact_id: ct.id });
@@ -375,11 +385,11 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     expect(await runOf("speed-to-lead", ct.id)).toMatchObject({ status: "waiting", current_node: "n3" });
   });
 
-  it.fails("a contact whose CRM time zone is garbage falls back to the company's zone; the sends go out and nothing throws (deferIntoWindow on an invalid zone yields an invalid date, the runner writes it as next_run_at and the run fails, G20)", async () => {
+  it("a contact whose CRM time zone is garbage takes the company's zone, as a contact with none does; the sends go out and nothing throws (G20, fixed by D60)", async () => {
     inCrm("TZ2", { firstName: "Bad", lastName: "Zone", email: "tz2@x.com", phone: "+16025551002", timezone: "Mars/Olympus_Mons" });
     await poll(); const n = sent.length; await tick(fake, undefined, companyId);
     const ct = (await contactByGhl("TZ2"))!;
-    expect(ct.timezone).toBe("Mars/Olympus_Mons");   // stored as the CRM sent it (true today)
+    expect(ct).toMatchObject({ timezone: TZ, timezone_source: "company_default" });
     const stl = await runOf("speed-to-lead", ct.id);
     expect(stl.status).not.toBe("failed");
     expect(sent.slice(n).filter((s) => s.to === "TZ2").map((s) => s.kind).sort()).toEqual(["email", "sms"]);
@@ -388,16 +398,25 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
 
   // ---- 11: deleted in the CRM while parked ----
 
-  it.fails("a contact deleted in the CRM while a run is parked: the run exits moot at its next step instead of failing (the poll never learns of a deletion, merged_into is never written, the premise reads the replica, and the CRM's refusal fails the run, G21)", async () => {
+  it("a contact deleted in the CRM while a run is parked: the CRM's 'not found' at the next send marks the replica and raises one alert; the run exits moot at its next look instead of failing (G21, fixed by D60)", async () => {
     inCrm("DEL1", { firstName: "Gone", lastName: "Soon", email: "del1@x.com", phone: "+16025551101" });
     await poll(); await tick(fake, undefined, companyId);
     const ct = (await contactByGhl("DEL1"))!;
     const stl = await runOf("speed-to-lead", ct.id); expect(stl).toMatchObject({ status: "waiting", current_node: "n3" });
     crm.delete("DEL1");   // merged away or deleted in the CRM; contactsChangedSince never reports it
     await expireReplyWait(stl.id, "n3"); await tick(fake, undefined, companyId);
+    // the send the CRM refused is on the ledger as failed with its words; the replica knows; the run was not failed
+    const mid = await runOf("speed-to-lead", ct.id);
+    expect(mid).toMatchObject({ status: "waiting", current_node: "n5" });
+    expect((await sends(stl.id)).find((s) => s.channel === "email" && s.status === "failed")).toMatchObject({ error: expect.stringMatching(/not found/) });
+    expect(await asOperator((c) => one<{ gone_at: Date | null }>(c, "select gone_at from contacts where id=$1", [ct.id]))).toMatchObject({ gone_at: expect.any(Date) });
+    const alerts = await asOperator((c) => many<{ key: string; level: string }>(c, "select key, level from alerts where company_id=$1 and key=$2 and resolved_at is null", [companyId, `contact:gone:${ct.id}`]));
+    expect(alerts).toEqual([{ key: `contact:gone:${ct.id}`, level: "warning" }]);
+    await tick(fake, undefined, companyId);   // its next look: the premise says the contact is gone
     const after = await runOf("speed-to-lead", ct.id);
-    expect(after.status).toBe("exited");                      // today: failed, "Contact with id DEL1 not found"
-    expect(after.exit_reason ?? "").toMatch(/contact/);
+    expect(after.status).toBe("exited");
+    expect(after.exit_reason).toBe("moot: contact gone");
+    expect(sent.filter((s) => s.to === "DEL1" && s.kind === "email")).toHaveLength(1);   // the first email, before the deletion; nothing after
   });
 
   // ---- 12: a team member's own test contact ----

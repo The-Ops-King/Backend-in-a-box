@@ -11,8 +11,13 @@ import { applyDocument, facts as agreementFacts } from "./agreements";
 
 export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; agreements: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
-const normPhone = (p?: string) => p ? p.replace(/[^\d+]/g, "").replace(/^(\d{10})$/, "+1$1") : undefined;
+// US/CA: ten digits, or eleven with a leading 1, with or without the plus, are one number; any other length stays as typed
+const normPhone = (p?: string) => p ? p.replace(/[^\d+]/g, "").replace(/^\+?1?(\d{10})$/, "+1$1") : undefined;
 const normEmail = (e?: string) => e?.trim().toLowerCase() || undefined;
+/** As typed (case, hyphens, apostrophes), minus surrounding and doubled spaces; blank is null so a template's `default:` can speak. */
+const normName = (n?: string | null) => n?.trim().replace(/\s+/g, " ") || null;
+/** A zone the CRM or a booking sent that Luxon cannot use is no zone at all (the company's stands in). */
+const validZone = (tz?: string | null) => (tz && DateTime.now().setZone(tz).isValid ? tz : undefined);
 
 /**
  * The FIRST poll of an entity is a silent baseline: it fills the replica and emits NOTHING. Otherwise installing a
@@ -38,23 +43,36 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
   // D29: the replica keeps only the custom fields a binding names (crm.field_contact_*); a sub-account can carry hundreds, and form answers live as one JSON on the contact instead
   if (keepFields) s = { ...s, customFields: Object.fromEntries(Object.entries(s.customFields).filter(([id]) => keepFields.has(id))) };
   const existing = await one<{ id: string; tags: string[] }>(c, "select id, tags from contacts where company_id=$1 and ghl_contact_id=$2", [companyId, s.id]);
+  const email = normEmail(s.email), phone = normPhone(s.phone), zone = validZone(s.timezone);
+  const firstName = normName(s.firstName), lastName = normName(s.lastName);
   let id = existing?.id;
   if (!id) {
-    // identity resolution: an email/phone we've already seen means this is the same person
-    const match = await one<{ contact_id: string }>(c, `select contact_id from contact_identifiers where company_id=$1 and ((kind='email' and value=$2) or (kind='phone' and value=$3)) limit 1`, [companyId, normEmail(s.email) ?? "", normPhone(s.phone) ?? ""]);
-    if (match) { id = match.contact_id; await c.query("update contacts set ghl_contact_id=$2 where id=$1 and ghl_contact_id is null", [id, s.id]); }
+    // identity resolution: an email/phone we've already seen (and still current, G15) means this is the same person;
+    // a person the CRM had deleted and made again under a new id resumes as themselves, with the new id
+    const match = await one<{ contact_id: string }>(c, `select contact_id from contact_identifiers where company_id=$1 and retired_at is null and ((kind='email' and value=$2) or (kind='phone' and value=$3)) limit 1`, [companyId, email ?? "", phone ?? ""]);
+    if (match) { id = match.contact_id; await c.query("update contacts set ghl_contact_id=$2, gone_at=null where id=$1 and (ghl_contact_id is null or gone_at is not null)", [id, s.id]); }
   }
-  const tz = s.timezone ?? companyTz;
+  const tz = zone ?? companyTz;
   if (!id) {
     const row = await one<{ id: string }>(c, `insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone, timezone_source, tags, ghl_fields, ghl_updated_at, ghl_added_at, assigned_ghl_user_id)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`, [companyId, s.id, s.firstName ?? null, s.lastName ?? null, tz, s.timezone ? "ghl" : "company_default", s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.assignedTo ?? null]);
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`, [companyId, s.id, firstName, lastName, tz, zone ? "ghl" : "company_default", s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.assignedTo ?? null]);
     id = row!.id;
   } else {
-    await c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), tags=$5, ghl_fields=$6, ghl_updated_at=$7, ghl_added_at=coalesce(ghl_added_at,$8), ghl_contact_id=coalesce(ghl_contact_id,$9), assigned_ghl_user_id=$10, updated_at=now() where id=$1", [id, s.firstName ?? null, s.lastName ?? null, s.timezone ?? null, s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.id, s.assignedTo ?? null]);
+    await c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), tags=$5, ghl_fields=$6, ghl_updated_at=$7, ghl_added_at=coalesce(ghl_added_at,$8), ghl_contact_id=coalesce(ghl_contact_id,$9), assigned_ghl_user_id=$10, gone_at=null, updated_at=now() where id=$1", [id, firstName, lastName, zone ?? null, s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.id, s.assignedTo ?? null]);
+    // G15: this CRM record's own number or email changed; the old one no longer names this person. Retired, not deleted (the
+    // history stays readable), and never matched again, so a recycled number is a stranger, not this person
+    for (const [kind, value] of [["email", email], ["phone", phone]] as const)
+      if (value) await c.query("update contact_identifiers set retired_at=now() where company_id=$1 and contact_id=$2 and kind=$3 and value<>$4 and retired_at is null", [companyId, id, kind, value]);
   }
-  for (const [kind, value] of [["ghl_contact", s.id], ["email", normEmail(s.email)], ["phone", normPhone(s.phone)]] as const)
-    if (value) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,$3,$4) on conflict (company_id, kind, value) do nothing", [companyId, id, kind, value]);
+  for (const [kind, value] of [["ghl_contact", s.id], ["email", email], ["phone", phone]] as const)
+    if (value) await attachIdentifier(c, companyId, id, kind, value);
   return { id, isNew: !existing, prevTags: existing?.tags ?? [] };
+}
+
+/** Attaches an identifier; one the CRM had retired from someone (a recycled number) moves to the person who carries it now. A current identifier of another person is left alone. */
+async function attachIdentifier(c: PoolClient, companyId: string, contactId: string, kind: "ghl_contact" | "email" | "phone", value: string) {
+  await c.query(`insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,$3,$4)
+    on conflict (company_id, kind, value) do update set contact_id=excluded.contact_id, retired_at=null, created_at=now() where contact_identifiers.retired_at is not null`, [companyId, contactId, kind, value]);
 }
 
 /** The custom-field ids the company's bindings name: the only ones the replica keeps. */
@@ -84,25 +102,28 @@ async function pollContacts(c: PoolClient, co: CompanyRow, ac: Company, adapters
 }
 
 /** A booking whose source is not the CRM names the person, not a CRM id. Find them by email/phone; otherwise hold a local replica until the CRM poll sees them and attaches the ghl_contact_id (identity resolution in upsertContact). */
-async function resolveContactForBooking(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot): Promise<{ id: string } | null> {
+async function resolveContactForBooking(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot): Promise<{ id: string; lead?: { ghlContactId: string; tags: string[] } } | null> {
   if (s.contactId) {
     const byId = await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id=$2", [co.id, s.contactId]);
     if (byId) return byId;
     const live = await adapters.read.getContact(ac, s.contactId);
-    return live ? { id: (await upsertContact(c, co.id, co.timezone, live)).id } : null;
+    if (!live) return null;
+    // G16: a person whose first appearance is their booking is a new lead here and now; the contacts poll will see an existing row
+    const up = await upsertContact(c, co.id, co.timezone, live);
+    return { id: up.id, lead: up.isNew ? { ghlContactId: live.id, tags: live.tags } : undefined };
   }
   const inv = s.invitee; if (!inv) return null;
-  const email = normEmail(inv.email), phone = normPhone(inv.phone);
+  const email = normEmail(inv.email), phone = normPhone(inv.phone), zone = validZone(inv.timezone);
   if (!email && !phone) return null;
-  const match = await one<{ contact_id: string }>(c, `select contact_id from contact_identifiers where company_id=$1 and ((kind='email' and value=$2) or (kind='phone' and value=$3)) limit 1`, [co.id, email ?? "", phone ?? ""]);
+  const match = await one<{ contact_id: string }>(c, `select contact_id from contact_identifiers where company_id=$1 and retired_at is null and ((kind='email' and value=$2) or (kind='phone' and value=$3)) limit 1`, [co.id, email ?? "", phone ?? ""]);
   if (match) {
-    if (inv.timezone) await c.query("update contacts set timezone=$2, timezone_source='booking', updated_at=now() where id=$1 and timezone_source is distinct from 'ghl'", [match.contact_id, inv.timezone]);
+    if (zone) await c.query("update contacts set timezone=$2, timezone_source='booking', updated_at=now() where id=$1 and timezone_source is distinct from 'ghl'", [match.contact_id, zone]);
     return { id: match.contact_id };
   }
   const row = await one<{ id: string }>(c, `insert into contacts (company_id, first_name, last_name, timezone, timezone_source) values ($1,$2,$3,$4,$5) returning id`,
-    [co.id, inv.firstName ?? null, inv.lastName ?? null, inv.timezone ?? co.timezone, inv.timezone ? "booking" : "company_default"]);
+    [co.id, normName(inv.firstName), normName(inv.lastName), zone ?? co.timezone, zone ? "booking" : "company_default"]);
   for (const [kind, value] of [["email", email], ["phone", phone]] as const)
-    if (value) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,$3,$4) on conflict (company_id, kind, value) do nothing", [co.id, row!.id, kind, value]);
+    if (value) await attachIdentifier(c, co.id, row!.id, kind, value);
   return { id: row!.id };
 }
 
@@ -147,6 +168,10 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
     const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.setBy ?? null, JSON.stringify(s.answers ?? {}), s.rescheduleUrl ?? null, s.cancelUrl ?? null, s.tracking ?? {}, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null]);
     if (baseline) { if (rep) rep.baselined++; return; }   // replica only; an appointment that existed before install is not a new booking
+    if (contact.lead) {   // the booking brought a new person: lead.created first (New lead, Speed to lead), the same shape the contacts poll emits, then the booking
+      const started = await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: contact.lead.ghlContactId } }), { contact: { id: contact.id, ghl_contact_id: contact.lead.ghlContactId, tags: contact.lead.tags } });
+      if (rep) rep.eventsDispatched += started.length;
+    }
     const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: row!.id, event_type: "appointment.booked", source: "ghl_poll", data: { source, calendar_id: s.calendarId, status: s.status, starts_at: s.startTime, self_booked: cal.self_booked } });
     const oppId = await ensureOpportunityForBooking(c, co.id, contact.id, row!.id, ev);
     const term = await one<{ name: string; category: string }>(c, "select name, category from company_terms where id=$1", [cal.appointment_term]);
@@ -185,7 +210,9 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
   const msgs = await adapters.read.inboundSince(ac, since.toISO()!);
   let max = since;
   for (const m of msgs) {
-    let contact = await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id=$2", [co.id, m.contactId]);
+    // G14: the sender may be a duplicate CRM record folded into one person; those ids live as ghl_contact identifiers, the primary on the row
+    let contact = await one<{ id: string }>(c, `select contact_id as id from contact_identifiers where company_id=$1 and kind='ghl_contact' and value=$2 and retired_at is null
+      union all select id from contacts where company_id=$1 and ghl_contact_id=$2 limit 1`, [co.id, m.contactId]);
     if (!contact && m.channel === "call") {   // a call to a brand-new lead can land before the contacts poll has them; the call is a fact worth keeping, so fetch the person now
       const live = await adapters.read.getContact(ac, m.contactId);
       if (live) contact = { id: (await upsertContact(c, co.id, co.timezone, live)).id };

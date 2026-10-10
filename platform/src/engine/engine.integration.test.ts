@@ -66,6 +66,7 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
       const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
       await c.query("insert into calendars (company_id, external_id, name, appointment_term) values ($1,'CAL1','Closer Call',$2)", [companyId, term]);
       contactId = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, timezone) values ($1,'GHLC1','Jamie','America/Phoenix') returning id", [companyId]))!.id;
+      await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email','jamie@x.com'), ($1,$2,'phone','+16025550001')", [companyId, contactId]);   // a send needs an address on the replica (G11)
       for (const t of templates) {
         const def = parseDefinition(t.definition), manifest = extractManifest(def);
         const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,$2,$3,true) returning id", [companyId, t.name, def.reentry]))!;

@@ -99,6 +99,7 @@ create table contacts (
   ghl_fields      jsonb not null default '{}',            -- human-entered GHL custom fields (replica)
   attributes      jsonb not null default '{}',            -- DERIVED: merge of intake rows, ours
   merged_into     uuid references contacts(id),           -- set when this record was folded into another
+  gone_at         timestamptz,                            -- the CRM said "contact not found" at a send or write: deleted or merged there; runs about them exit moot
   ghl_updated_at  timestamptz,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now(),
@@ -116,6 +117,7 @@ create table contact_identifiers (
   kind        text not null check (kind in ('email','phone','ghl_contact','whop_customer')),
   value       text not null,                              -- normalized: lowercase email, E.164 phone
   created_at  timestamptz not null default now(),
+  retired_at  timestamptz,                                -- the CRM record moved to another number/email: kept for history, never matched again
   unique (company_id, kind, value)
 );
 ```

@@ -11,6 +11,7 @@ import { computeWaitUntil, deferIntoWindow } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
 import { contactPasses } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
+import { raise } from "./alerts";
 import { applyOutcome, outcomeTermFor } from "./disposition";
 import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } from "./health";
 import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports";
@@ -53,7 +54,7 @@ export const listenerOf = (ctx: Record<string, unknown>): Listener | undefined =
 
 export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes };
 
-const contactTz = (d: ExecDeps) => ((d.ctx.contact as { timezone?: string } | undefined)?.timezone) ?? d.company.timezone;
+const contactTz = (d: ExecDeps) => { const tz = (d.ctx.contact as { timezone?: string } | undefined)?.timezone; return tz && DateTime.now().setZone(tz).isValid ? tz : d.company.timezone; };
 /** Shadow mode: the run proceeds exactly as it would live, but nothing is written to the CRM; sends are recorded as "would have sent". */
 const shadow = (d: ExecDeps) => d.company.mode === "shadow";
 const single = (d: ExecDeps, id: string): string | null => onwardEdge(d.edgesFrom(id))?.to ?? null;
@@ -104,6 +105,9 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   const channel = node.type === "send_sms" ? "sms" : "email";
   // D52: the second gate — before live, a message reaches only a contact that passes the mode, whatever run brought us here
   if (d.run.contact_id) { const pass = await contactPasses(d.c, d.company.id, d.run.contact_id, d.company.mode, d.bindings); if (!pass.ok) { await recordSend(d, node, channel, body, "suppressed", `not a test contact: ${pass.why}`); return { status: "skipped", next, result: { kind: "blocked", why: pass.why, would_send: body.slice(0, 120) } }; } }
+  // G11: no address for the channel on the replica (the CRM's own phone/email fields): nothing to send to, so nothing is asked of the CRM; the ledger says why and the run goes on
+  const who = d.ctx.contact as { phone?: string | null; email?: string | null } | undefined;
+  if (who && !(channel === "sms" ? who.phone : who.email)) { const why = `no ${channel === "sms" ? "phone" : "email"} on the contact`; await recordSend(d, node, channel, body, "suppressed", why); return { status: "skipped", next, result: { kind: "noop", why } }; }
   const send = await recordSend(d, node, channel, body, "queued");
   if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already sent (idempotency)" } };
   if (shadow(d)) {
@@ -118,8 +122,23 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   await d.c.query("update sends set status=$2, external_id=$3, error=$4, sent_at=case when $2='sent' then now() end where id=$1", [send.id, r.accepted ? "sent" : "failed", r.externalId || null, r.error ?? null]);
   await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: r.accepted ? "message.sent" : "send.suppressed", source: "engine", data: { channel, node: node.id, external_id: r.externalId, error: r.error, substituted } });
   if (r.accepted) return { status: "ok", next, result: { external_id: r.externalId, substituted } };
+  // G21: the CRM has no such contact (deleted or merged there): the replica learns it, one alert says so, and the run is looked at again at once so the premise exits it `moot: contact gone`
+  if (contactGone(r.error)) { await markContactGone(d, r.error!); return { status: "waiting", until: d.now, stay: true, result: { why: "the CRM has no such contact; the run exits at its next look" } }; }
   // D56: the refusal is on the send row and raises a "step could not run" alert; the rest of the sequence still runs
   return { status: "skipped", next, result: { kind: "blocked", why: `the CRM refused the ${channel}: ${r.error ?? "send rejected"}`, would_send: body.slice(0, 120) } };
+}
+
+/** The CRM's way of saying the contact is gone: a 404 from the client, or its "Contact with id … not found" body. */
+export const contactGone = (error?: string) => !!error && (/^GHL 404 /.test(error) || /\bcontact (with id \S+ )?not found\b/i.test(error));
+/** Marks the replica once and raises one alert per contact; the premise `contact_exists` does the exiting. */
+async function markContactGone(d: ExecDeps, error: string): Promise<void> {
+  if (!d.run.contact_id) return;
+  const r = await d.c.query("update contacts set gone_at=now(), updated_at=now() where id=$1 and gone_at is null", [d.run.contact_id]);
+  if (!r.rowCount) return;
+  const who = d.ctx.contact as { name?: string | null; ghl_contact_id?: string | null } | undefined;
+  await raise(d.c, { companyId: d.company.id, key: `contact:gone:${d.run.contact_id}`, level: "warning", source: "engine", href: `/app/c/${d.company.slug}`,
+    text: `${who?.name ?? who?.ghl_contact_id ?? "A contact"} is gone from the CRM (deleted or merged there); the runs about them exit instead of sending. The CRM said: ${error.slice(0, 160)}`,
+    detail: { contact_id: d.run.contact_id, ghl_contact_id: who?.ghl_contact_id ?? null, run_id: d.run.id, error: error.slice(0, 300) } }, d.now.toJSDate());
 }
 
 /** D56: Slack refusing a post (bad token, channel gone) fails that send and alerts; the run goes on (the CRM steps after a post are the point of the run). */
@@ -388,7 +407,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const card = await pickCard(d.c, d.company.id, d.run.contact_id, pipelineId);
       // stage and name are optional on an update: a step that only stamps fields leaves the card where it is
       const stageId = node.stage ? render(node.stage, d.ctx, env(d)) : card?.ghl_stage_id ?? "";
-      const name = node.name ? render(node.name, d.ctx, env(d)) : card?.name ?? render("{{contact.name}}", d.ctx, env(d));   // a card made without a name carries the person's
+      // G13: a person with no name in the CRM is named on the card by an address they do have, never " -- New"
+      const who = d.ctx.contact as { name?: string | null; email?: string | null; phone?: string | null; ghl_contact_id?: string | null } | undefined;
+      const nameCtx = who && !who.name ? { ...d.ctx, contact: { ...who, name: who.email ?? who.phone ?? who.ghl_contact_id ?? null } } : d.ctx;
+      const name = node.name ? render(node.name, nameCtx, env(d)) : card?.name ?? render("{{contact.name}}", nameCtx, env(d));   // a card made without a name carries the person's
       const customFields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== "");
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
       // no open card: a step with a stage makes one there (D41: a contact always has their cards); a status-only step has no stage to make one in, so there is nothing to mark

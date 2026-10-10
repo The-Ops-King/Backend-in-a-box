@@ -94,6 +94,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`insert into event_types values ('call.logged','call') on conflict do nothing`);   // D28: phone calls the CRM's dialer logged
     await c.query(`insert into event_types values ('agreement.sent','agreement'), ('agreement.signed','agreement') on conflict do nothing`);   // D30
     await c.query(`alter table contacts add column if not exists assigned_ghl_user_id text`);
+    // D60: a contact the CRM no longer has (G21) and an identifier a CRM record moved away from (G15)
+    await c.query(`alter table contacts add column if not exists gone_at timestamptz`);
+    await c.query(`alter table contact_identifiers add column if not exists retired_at timestamptz`);
     await c.query(`alter table runs add column if not exists pending_events jsonb not null default '[]'`);
     // runs.trigger_id is history: a template upgrade that drops a trigger node must not be blocked by the runs it once started
     await c.query(`alter table runs drop constraint if exists runs_trigger_id_fkey`);

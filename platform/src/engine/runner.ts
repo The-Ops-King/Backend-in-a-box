@@ -25,7 +25,7 @@ export type TickReport = { claimed: number; completed: number; waiting: number; 
 async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ctx" | "now">): Promise<{ ok: true } | { ok: false; why: string }> {
   const chk = def.premise.check;
   if (chk === "none") return { ok: true };
-  if (chk === "contact_exists") return (await one(d.c, "select 1 from contacts where id=$1 and merged_into is null", [d.run.contact_id])) ? { ok: true } : { ok: false, why: "contact gone" };
+  if (chk === "contact_exists") return (await one(d.c, "select 1 from contacts where id=$1 and merged_into is null and gone_at is null", [d.run.contact_id])) ? { ok: true } : { ok: false, why: "contact gone" };
   if (chk === "opportunity_open") return (await one(d.c, "select 1 from opportunities where id=$1 and status='open'", [d.run.opportunity_id])) ? { ok: true } : { ok: false, why: "opportunity not open" };
   const a = await one<{ external_id: string; source: string; status: string; starts_at: Date }>(d.c, "select external_id, source, status, starts_at from appointments where id=$1", [d.run.appointment_id]);
   if (!a) return { ok: false, why: "appointment missing" };
