@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { DateTime } from "luxon";
 import { many, one } from "@/db/client";
-import type { Adapters } from "@/adapters/types";
+import type { Adapters, Company } from "@/adapters/types";
 import { loadCompany, type CompanyRow } from "./context";
 import { reconcile, type AlertInput, type Level } from "./alerts";
 import { companyReadiness } from "./readiness";
@@ -21,7 +21,9 @@ import { parseDefinition } from "./definition";
  * clock, channel, face and list of checks. It says nothing while everything works; a check that fails becomes an alert
  * (source `health`) and clears itself when the next sweep finds it fine.
  */
-export type Finding = { check: string; item?: string; ok: boolean; level: Level; text: string; detail?: Record<string, unknown>; fix?: { label: string; action: "reregister_whop" | "reregister_fathom" }; href?: string; hrefLabel?: string; thread?: string };
+export type Finding = { check: string; item?: string; ok: boolean; level: Level; text: string; detail?: Record<string, unknown>; fix?: { label: string; action: "reregister_whop" | "reregister_fathom" }; href?: string; hrefLabel?: string; thread?: string;
+  /** The alert's key when it is not `health:<check>:<item>` (duplicates are `duplicate:<contact_id>`, D63), and the engine page its Open link goes to when it is not the health page. */
+  key?: string; page?: string };
 
 /** The next days at a glance: "Thu Oct 9 · 2 (10:00am, 2:00pm)" per day, "none" where the calendar is closed or full. Posted in the alert's thread. */
 export function availabilityBreakdown(times: string[], from: DateTime, days: number, tz: string): string {
@@ -41,6 +43,7 @@ export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "ghl_pipelines", label: "Pipelines and stages", about: "every bound pipeline and stage still exists in the CRM" },
   { id: "ghl_fields", label: "Custom fields", about: "every bound contact and opportunity field still exists" },
   { id: "ghl_users", label: "Team", about: "closers on calendars and cards are still users in the location" },
+  { id: "duplicates", label: "Duplicate contacts", about: "no person is held twice by the CRM: two records the engine already folded into one person (same phone or email, spelled two ways), or two engine persons whose phone or email differ only in spelling. The engine never merges — GoHighLevel is the source of truth, so a person merges the records there; the finding and its alert clear once the dropped record is gone from the CRM" },
   { id: "calendly_token", label: "Calendly token", about: "the token still answers (companies that book through Calendly)" },
   { id: "calendly_calendars", label: "Calendly event types bookable", about: "every mapped event type is active and has available times over the next 7 days; a host's calendar disconnecting shows up here" },
   { id: "whop_key", label: "Whop key", about: "the API key still reads payments" },
@@ -134,6 +137,9 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
     const dc = bindings["crm.default_closer"]; if (dc && !live.has(dc)) bad("ghl_users", "error", `The default closer (${dc}) is no longer a user in the location.`, "default_closer");
     if (!gone.length && (!dc || live.has(dc))) ok("ghl_users", `${catalog.users.length} users in the location; everyone the engine relies on is still there.`);
   }
+
+  // Duplicates: one person the CRM holds twice (D63). Replica reads plus one CRM read per suspect record; nothing is merged here
+  if (on("duplicates")) out.push(...(await findDuplicates(c, company, ac, adapters, connected)));
 
   // Calendly
   if (ac.booking.source === "calendly") {
@@ -278,6 +284,75 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
   return out;
 }
 
+/**
+ * D63. "The 2 phone numbers should register as the same person ideally and we should be alerted if there are 2 contacts
+ * with phone numbers in different formats." D60 folds the two CRM records into one engine person; this says so, once per
+ * person, until the CRM merge lands. Two shapes: one engine person with two current `ghl_contact` identifiers (the poll
+ * matched them by phone or email), and two engine persons whose current phones or emails differ only in spelling (a
+ * non-US number with and without its plus, an email in two cases). GHL is the source of truth: nobody merges here. When
+ * the CRM no longer has one of the records (the merge happened), that id is retired on the replica (or the lone person
+ * stamped `gone_at`, as G21 does), so the finding clears and its alert resolves on this sweep.
+ */
+async function findDuplicates(c: PoolClient, company: CompanyRow, ac: Company, adapters: Adapters, connected: boolean): Promise<Finding[]> {
+  const out: Finding[] = [];
+  const crmUrl = (ghlId: string | null) => (ac.locationId && ghlId ? `https://app.gohighlevel.com/v2/location/${ac.locationId}/contacts/detail/${ghlId}` : undefined);
+  const page = (id: string) => `/app/c/${company.slug}/contacts/${id}`;
+  const nameOf = (r: { first_name: string | null; last_name: string | null; email?: string | null; phone?: string | null }) => `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || r.email || r.phone || "a contact";
+  // a record the CRM answers 404 for is the one the merge dropped; a CRM that cannot be read is the token check's finding, not a merge
+  const vanished = async (ghlId: string) => { if (!connected) return false; try { return !(await adapters.read.getContact(ac, ghlId)); } catch { return false; } };
+  const push = (item: string, text: string, ghlId: string | null, contactId: string, detail: Record<string, unknown>) =>
+    out.push({ check: "duplicates", item, key: `duplicate:${item}`, ok: false, level: "warning", text, detail, href: crmUrl(ghlId) ?? page(contactId), hrefLabel: crmUrl(ghlId) ? "Open in the CRM" : "Open the contact", page: page(contactId) });
+
+  // 1. one engine person, two current CRM ids
+  type Folded = { id: string; first_name: string | null; last_name: string | null; ghl_contact_id: string | null; ids: string[]; phones: string[]; emails: string[] };
+  const folded = await many<Folded>(c, `
+    select ct.id, ct.first_name, ct.last_name, ct.ghl_contact_id,
+      array(select value from contact_identifiers where contact_id=ct.id and kind='ghl_contact' and retired_at is null order by created_at, value) as ids,
+      array(select value from contact_identifiers where contact_id=ct.id and kind='phone' and retired_at is null order by created_at) as phones,
+      array(select value from contact_identifiers where contact_id=ct.id and kind='email' and retired_at is null order by created_at) as emails
+    from contacts ct where ct.company_id=$1 and ct.gone_at is null
+      and (select count(*) from contact_identifiers where contact_id=ct.id and kind='ghl_contact' and retired_at is null) > 1
+    order by ct.created_at`, [company.id]);
+  for (const f of folded) {
+    let ids = f.ids;
+    for (const id of f.ids) {
+      if (!(await vanished(id))) continue;
+      await c.query("update contact_identifiers set retired_at=now() where company_id=$1 and contact_id=$2 and kind='ghl_contact' and value=$3 and retired_at is null", [company.id, f.id, id]);
+      ids = ids.filter((x) => x !== id);
+      if (f.ghl_contact_id === id && ids.length) { await c.query("update contacts set ghl_contact_id=$2, updated_at=now() where id=$1", [f.id, ids[0]]); f.ghl_contact_id = ids[0]; }   // sends follow the survivor
+    }
+    if (ids.length < 2) continue;
+    const shared = [...(f.phones.length === 1 ? [`phone ${f.phones[0]}`] : []), ...(f.emails.length === 1 ? [`email ${f.emails[0]}`] : [])];
+    const primary = f.ghl_contact_id && ids.includes(f.ghl_contact_id) ? f.ghl_contact_id : ids[0];
+    push(f.id, `${ids.length === 2 ? "Two" : ids.length} CRM records for one person: ${nameOf({ ...f, phone: f.phones[0], email: f.emails[0] })} — ${ids.join(", ")}${shared.length ? ` (same ${shared.join(", ")})` : ""}`, primary, f.id, { contact_id: f.id, ghl_contact_ids: ids, phones: f.phones, emails: f.emails });
+  }
+
+  // 2. two engine persons whose current phone or email differ only in spelling (should not happen after D60; proven here)
+  type Pair = { kind: string; a_id: string; a_value: string; a_ghl: string | null; a_first: string | null; a_last: string | null; b_id: string; b_value: string; b_ghl: string | null; b_first: string | null; b_last: string | null };
+  const pairs = await many<Pair>(c, `
+    with cur as (
+      select i.contact_id, i.kind, i.value, ct.ghl_contact_id, ct.first_name, ct.last_name, ct.created_at,
+        case when i.kind='phone' then regexp_replace(regexp_replace(i.value, '\\D', '', 'g'), '^1(\\d{10})$', '\\1') else lower(regexp_replace(i.value, '\\s', '', 'g')) end as canon
+      from contact_identifiers i join contacts ct on ct.id=i.contact_id
+      where i.company_id=$1 and i.retired_at is null and i.kind in ('phone','email') and ct.gone_at is null)
+    select a.kind, a.contact_id as a_id, a.value as a_value, a.ghl_contact_id as a_ghl, a.first_name as a_first, a.last_name as a_last,
+           b.contact_id as b_id, b.value as b_value, b.ghl_contact_id as b_ghl, b.first_name as b_first, b.last_name as b_last
+    from cur a join cur b on b.kind=a.kind and b.canon=a.canon and b.contact_id<>a.contact_id and (b.created_at, coalesce(b.ghl_contact_id,''), b.contact_id) > (a.created_at, coalesce(a.ghl_contact_id,''), a.contact_id)
+    where a.canon<>'' order by a.created_at, a.ghl_contact_id, a.contact_id, b.created_at, b.ghl_contact_id, b.contact_id`, [company.id]);
+  const gone = new Set<string>();
+  for (const p of pairs) {
+    for (const [id, ghl] of [[p.a_id, p.a_ghl], [p.b_id, p.b_ghl]] as const) {
+      if (gone.has(id) || !ghl || !(await vanished(ghl))) continue;
+      await c.query("update contacts set gone_at=now(), updated_at=now() where id=$1 and gone_at is null", [id]); gone.add(id);
+    }
+    if (gone.has(p.a_id) || gone.has(p.b_id)) continue;
+    const a = nameOf({ first_name: p.a_first, last_name: p.a_last }), b = nameOf({ first_name: p.b_first, last_name: p.b_last });
+    push(`${p.a_id}:${p.b_id}`, `Two CRM records for one person: ${a}${b !== a ? ` / ${b}` : ""} — ${p.a_ghl ?? p.a_id}, ${p.b_ghl ?? p.b_id} (same ${p.kind} ${p.a_value} / ${p.b_value})`, p.a_ghl, p.a_id, { contact_ids: [p.a_id, p.b_id], ghl_contact_ids: [p.a_ghl, p.b_ghl], kind: p.kind, values: [p.a_value, p.b_value] });
+  }
+  if (!out.length) { const n = (await one<{ n: number }>(c, "select count(*)::int as n from contacts where company_id=$1 and gone_at is null", [company.id]))!.n; out.push({ check: "duplicates", ok: true, level: "warning", text: `${n} contact${n === 1 ? "" : "s"}, none held twice by the CRM.` }); }
+  return out;
+}
+
 /** The calendar link a person opens to see availability: the public scheduling page (what a lead sees), else the provider's booking widget. */
 export function calendarLink(cal: { external_id: string; source: string; booking_url: string | null }, locationId?: string): string {
   if (cal.booking_url) return cal.booking_url;
@@ -360,4 +435,4 @@ export async function runAvailabilityStep(c: PoolClient, company: CompanyRow, ad
   for (const prefix of only?.length ? only.map((id) => `health:availability:${id}`) : ["health:availability"]) { const r = await reconcile(c, company.id, "health", present.filter((p) => p.key.startsWith(prefix)), now.toJSDate(), prefix); raised += r.raised; resolved += r.resolved; }
   return { findings, raised, resolved };
 }
-const toAlert = (company: CompanyRow, f: Finding): AlertInput => ({ companyId: company.id, key: `health:${f.check}${f.item ? `:${f.item}` : ""}`, level: f.level, source: "health", text: f.text, detail: { ...(f.detail ?? {}), ...(f.fix ? { fix: f.fix } : {}), ...(f.href ? { link: f.href, link_label: f.hrefLabel } : {}), ...(f.thread ? { thread: f.thread } : {}) }, href: `/app/c/${company.slug}/health` });
+const toAlert = (company: CompanyRow, f: Finding): AlertInput => ({ companyId: company.id, key: f.key ?? `health:${f.check}${f.item ? `:${f.item}` : ""}`, level: f.level, source: "health", text: f.text, detail: { ...(f.detail ?? {}), ...(f.fix ? { fix: f.fix } : {}), ...(f.href ? { link: f.href, link_label: f.hrefLabel } : {}), ...(f.thread ? { thread: f.thread } : {}) }, href: f.page ?? `/app/c/${company.slug}/health` });
