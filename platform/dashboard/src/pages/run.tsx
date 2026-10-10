@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, useAction, usePage, type RunPage } from "~/api";
 import { Crumb, Empty, Fold, NameLine, Sec, Sheet, Skeleton, Tag, toast } from "~/ui/pieces";
-import { FlowChart, Legend, NodeWords } from "~/ui/chart";
+import { FlowChart, Legend, RunNodeWords } from "~/ui/chart";
 import { Steps } from "~/ui/steps";
 import { callTime, when } from "~/fmt";
 import { Check, Clock, Stop, Warn } from "~/ui/icons";
@@ -31,8 +31,8 @@ export function Run() {
     <Sec>What happens next</Sec>
     {next.length ? <Steps items={next} tz={co.timezone} /> : <p className="note">{r.state === "ok" ? "Nothing more: this run is finished." : r.state === "warn" ? (stuck ? "Nothing until a person retries or skips the step it stopped at." : "Nothing more: the run stopped at the failed step.") : r.state === "here" ? "It moves the moment something arrives." : "Nothing more."}</p>}
     <Sec small="tap a step for its words, or open the workflow">On the chart</Sec>
-    {chart ? <><FlowChart chart={chart} states={states} pathOnly={typeof window !== "undefined" && window.innerWidth < 700} onOpen={(nid, el) => setPop({ id: nid, el })} /><Legend run /><div style={{ marginTop: 10 }}><Link className="btn" to={`/app/c/${slug}/w/${w.id}`}>Open the workflow</Link></div></> : <Empty>The chart cannot be drawn: this workflow needs a reinstall.</Empty>}
+    {chart ? <><FlowChart chart={chart} states={states} pathOnly={typeof window !== "undefined" && window.innerWidth < 700} onOpen={(nid, el) => setPop({ id: nid, el })} /><Legend run states={Object.values(states)} /><div style={{ marginTop: 10 }}><Link className="btn" to={`/app/c/${slug}/w/${w.id}`}>Open the workflow</Link></div></> : <Empty>The chart cannot be drawn: this workflow needs a reinstall.</Empty>}
     <Fold title="Advanced · raw steps and context"><pre className="raw">{JSON.stringify(q.data.raw, null, 2)}</pre></Fold>
-    {pop && chart ? <Sheet anchor={pop.el} onClose={() => setPop(null)}><NodeWords chart={chart} id={pop.id} state={states[pop.id] ?? "next"} extra={<>{feed.find((f) => f.node_id === pop.id)?.note ? <p className="m" style={{ marginTop: 8 }}>{feed.find((f) => f.node_id === pop.id)!.note}</p> : null}{feed.find((f) => f.node_id === pop.id)?.words ? <div className="q">{feed.find((f) => f.node_id === pop.id)!.words}</div> : null}</>} /></Sheet> : null}
+    {pop && chart ? <Sheet anchor={pop.el} onClose={() => setPop(null)}><RunNodeWords chart={chart} id={pop.id} states={states} feed={feed} /></Sheet> : null}
   </>;
 }

@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import type { Chart, PathItem } from "@/api/words";
 import type { SetupPage } from "@/api/setup";
 
@@ -13,8 +13,8 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
 }
 
 /** A page's data: fetched once, kept fresh by polling while the page is open (live pages every 15 s). */
-export function usePage<T>(key: QueryKey, path: string, opts: { every?: number; enabled?: boolean } = {}) {
-  return useQuery<T, ApiError>({ queryKey: key, queryFn: () => api<T>(path), refetchInterval: opts.every ?? 15_000, refetchOnWindowFocus: true, enabled: opts.enabled ?? true, retry: (n, e) => e.status >= 500 && n < 2 });
+export function usePage<T>(key: QueryKey, path: string, opts: { every?: number; enabled?: boolean; keep?: boolean } = {}) {
+  return useQuery<T, ApiError>({ queryKey: key, queryFn: () => api<T>(path), refetchInterval: opts.every ?? 15_000, refetchOnWindowFocus: true, enabled: opts.enabled ?? true, retry: (n, e) => e.status >= 500 && n < 2, placeholderData: opts.keep ? keepPreviousData : undefined });
 }
 export function useAction<TVars, TOut = unknown>(fn: (v: TVars) => Promise<TOut>, invalidate: QueryKey[] = []) {
   const qc = useQueryClient();
@@ -29,7 +29,7 @@ export type CompanyHead = { id: string; name: string; slug: string; mode: Mode; 
 export type CompaniesPage = { engine: { last_tick: string | null; recovery: boolean; problems: { key: string; level: string; text: string; company?: string | null; href?: string | null }[] }; companies: { id: string; name: string; slug: string; status: string; mode: string; timezone: string; contacts: number; workflows: number; on: number; in_flight: number; needs_hand: number; last_poll: string | null; alerts: number }[] };
 export type WorkflowRow = { id: string; name: string; enabled: boolean; stage: string | null; sort: number; origin: string | null; description: string | null; people: number; in_flight: number; needs_hand: number; last_ran: string | null; schedule: string | null; ready: boolean; missing: string[]; gaps: string[]; parse_error?: string };
 export type CompanyPage = { company: CompanyHead; stages: { id: string; label: string; about: string }[]; workflows: WorkflowRow[]; issues: { level: string; text: string; href?: string }[]; alerts_open: number };
-export type RunListRow = { id: string; who: string; contact_id: string | null; workflow: string; workflow_id: string; state: "ok" | "here" | "warn" | "stop"; at: string; started_at: string; finished_at: string | null; next_run_at: string | null; path: { node_id: string; state: PathItem["state"] }[] };
+export type RunListRow = { id: string; who: string; contact_id: string | null; workflow: string; workflow_id: string; state: "ok" | "here" | "warn" | "stop"; at: string; started_at: string; finished_at: string | null; next_run_at: string | null; path: { node_id: string; state: PathItem["state"]; title: string; meta?: string; note?: string }[] };
 export type WorkflowPage = { company: CompanyHead; workflow: { id: string; name: string; enabled: boolean; stage: string | null; origin: string | null; description: string | null; version: number; diverged: boolean; last_ran: string | null; schedule: string | null; parse_error: string | null }; tiles: { people: number; in_flight: number; finished: number; needs_hand: number }; chart: Chart | null; runs: RunListRow[]; ready: { ready: boolean; missing: string[]; gaps: string[]; issues: { level: string; text: string }[] } };
 export type RunPage = { company: CompanyHead; workflow: { id: string; name: string }; run: { id: string; who: string; contact_id: string | null; user_id: string | null; status: string; state: "ok" | "here" | "warn" | "stop"; at: string; exit_reason: string | null; started_at: string; finished_at: string | null; next_run_at: string | null; appointment: { starts_at: string; status: string; term: string; closer: string | null } | null; shadow: boolean; current_node: string | null; step_error: string | null; step_attempt: number; can_skip: boolean; contact_truth: { fetched_at: string | null; stale: string | null } }; feed: PathItem[]; next: PathItem[]; chart: Chart | null; states: Record<string, PathItem["state"]>; raw: { steps: unknown[]; context: unknown } };
 export type ContactPage = { company: CompanyHead; contact: { id: string; name: string; phone: string | null; email: string | null; timezone: string; tags: string[]; since: string; crm_url: string | null }; facts: [string, string][]; identifiers: [string, string][]; runs: RunListRow[]; next: { workflow: string; run_id: string; title: string; at: string | null; note?: string }[]; harness: { allowed: boolean };

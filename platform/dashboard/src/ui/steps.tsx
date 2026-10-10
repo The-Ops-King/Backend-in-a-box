@@ -17,14 +17,14 @@ export function Title({ text }: { text: string }) {
 export function Steps({ items, tz, who }: { items: PathItem[]; tz: string; who?: string }) {
   const [open, setOpen] = useState<Record<number, boolean>>({});
   return <div className="steps">{items.map((s, i) => {
-    const why = (s.state === "skip" || s.state === "ghost") && s.note; const words = !!s.words; const has = !!(why || words);
+    const why = (s.state === "skip" || s.state === "blocked" || s.state === "ghost") && s.note; const words = !!s.words; const has = !!(why || words);
     const o = !!open[i];
     const title = s.title + (s.meta ? ` · ${s.meta}` : "");
-    const sub = s.state !== "skip" && s.state !== "ghost" && s.note ? s.note : null;
+    const sub = s.state !== "skip" && s.state !== "blocked" && s.state !== "ghost" && s.note ? s.note : null;
     const at = s.at ? (s.state === "next" || s.state === "here" ? when(s.at, tz) : when(s.at, tz)) : s.state === "next" ? "when it is due" : "";
     return <div key={`${s.node_id}-${i}`} className={`s ${s.state} ${has ? "has" : ""} ${o ? "open" : ""}`} onClick={has ? () => setOpen((x) => ({ ...x, [i]: !x[i] })) : undefined} role={has ? "button" : undefined} tabIndex={has ? 0 : undefined} onKeyDown={has ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((x) => ({ ...x, [i]: !x[i] })); } } : undefined}>
       <Ic state={s.state} />
-      <span className="t"><Title text={title} />{at ? <span className="d">{at}</span> : null}{has ? <span className="pk"><Chev />{s.state === "skip" ? "why" : words ? "the words" : "shadow"}</span> : null}
+      <span className="t"><Title text={title} />{at ? <span className="d">{at}</span> : null}{has ? <span className="pk"><Chev />{s.state === "skip" || s.state === "blocked" ? "why" : words ? "the words" : "shadow"}</span> : null}
         {sub ? <small>{sub}</small> : null}
         {why ? <small className="why" hidden={!o}>{s.note}</small> : null}
         {words ? <span className={`b ${s.channel ?? ""}`} hidden={!o}>{s.send_state === "failed" || s.send_state === "suppressed" ? <span style={{ display: "block", color: "var(--warn)", fontWeight: 600, marginBottom: 4 }}>{s.send_state === "failed" ? "Did not go out" : "Held back"}{s.note && !why ? `: ${s.note}` : ""}</span> : null}

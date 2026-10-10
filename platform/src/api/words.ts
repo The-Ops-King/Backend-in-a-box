@@ -17,7 +17,8 @@ export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: str
 export type ChartEdge = { from: string; to: string; label: string; else?: boolean };
 export type Chart = { nodes: ChartNode[]; edges: ChartEdge[] };
 
-export type StepState = "ok" | "ghost" | "skip" | "warn" | "here" | "next" | "stop";
+/** skip: the step's condition said no, or there was nothing to do; blocked: it meant to act but could not (not connected, refused). */
+export type StepState = "ok" | "ghost" | "skip" | "blocked" | "warn" | "here" | "next" | "stop";
 export type PathItem = { node_id: string; title: string; meta?: string; kind: ChartKind; state: StepState; at: string | null; note?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string | string[]; offer?: string[]; words?: string | null; send_state?: string };
 
 export function kindOf(n: Node): ChartKind {
@@ -177,6 +178,20 @@ function noteOf(s: StepRow, tz: string): string | undefined {
   if (typeof r.quiet_hours_until === "string") bits.push(`Held for the send window until ${stamp(r.quiet_hours_until, tz)}`);
   return bits.join(" · ") || undefined;
 }
+/** What a step done in shadow would have done, from the would_* its result carries. */
+function shadowWords(r: Record<string, unknown>): string {
+  const list = (v: unknown) => (Array.isArray(v) ? v : [v]).map((t) => `“${String(t)}”`).join(", ");
+  if (typeof r.ts === "string") return "Done in shadow: posted to the team, marked shadow; nothing went to the contact or the CRM.";
+  const bits: string[] = [];
+  if (r.would_tag) bits.push(`would have tagged ${list(r.would_tag)}`);
+  if (r.would_untag) bits.push(`would have removed ${list(r.would_untag)}`);
+  if (r.would_send) bits.push("would have sent it");
+  if (r.would_send_document) bits.push("would have sent the document");
+  if (r.would_note) bits.push("would have left the note");
+  if (r.would_update) bits.push("would have updated the CRM");
+  const task = r.would_create_task as { title?: string } | undefined; if (task) bits.push(task.title ? `would have made the task “${task.title}”` : "would have made the task");
+  return `Done in shadow: ${bits.length ? bits.join("; ") : "this is what it would have done"}. Nothing was written to the CRM or sent to anyone.`;
+}
 const stamp = (iso: string, tz: string) => DateTime.fromISO(iso).setZone(tz).toFormat("ccc LLL d · h:mm a");
 
 /**
@@ -202,13 +217,14 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
     const last = i === steps.length - 1;
     let state: StepState = s.status === "ok" ? "ok" : s.status === "skipped" || s.status === "stale" ? "skip" : s.status === "failed" ? "warn" : s.status === "waiting" ? (live && run.current_node === s.node_id && !steps.slice(i + 1).some((x) => x.node_id === s.node_id) ? "here" : "ok") : s.status === "paused" ? "stop" : "ok";
     if (s.node_type === "wait" && state === "ok" && last && live && run.current_node === s.node_id) state = "here";
+    if (state === "skip" && s.result?.kind === "blocked") state = "blocked";
     if (state === "ok" && s.result?.shadow) state = "ghost";
     void last;
     // a wait row that already fired reads as done; a wait row the run still sits on reads as "here" with when it moves
     const send = sendFor(s.node_id);
     const item: PathItem = { node_id: s.node_id, title: t.title, meta: t.meta, kind: n ? kindOf(n) : "other", state, at: (state === "here" ? run.next_run_at?.toISOString() : null) ?? s.started_at.toISOString(), note: noteOf(s, tz) };
     if (n) { item.channel = channelOf(n); item.face = faceOf(n); Object.assign(item, threadOf(n)); }
-    if (state === "ghost") item.note = [item.note, "Done in shadow: nothing was written to the CRM or sent to anyone; this is what it would have done."].filter(Boolean).join(" · ");
+    if (state === "ghost") item.note = [item.note, shadowWords(s.result ?? {})].filter(Boolean).join(" · ");
     if (send && send.rendered_body) { item.words = send.channel === "slack" ? send.rendered_body : strip(send.rendered_body) ?? null; item.send_state = send.status; if (send.status === "failed" && send.error) item.note = send.error; }
     if (s.node_type === "exit" && state === "ok") { const w = exitWords(run.exit_reason ?? "done"); item.title = "Done"; item.note = w.startsWith("Stop: ") ? w.replace(/^Stop: /, "") : undefined; }
     // the runner writes a second row for the same node when it parks and resumes (dark hours, a wait): one row, the later state

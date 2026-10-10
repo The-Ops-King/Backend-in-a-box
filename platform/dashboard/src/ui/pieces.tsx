@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Back, stateIcon } from "./icons";
 
@@ -26,9 +26,20 @@ export function Tiles({ items }: { items: { n: number; word: string; kind?: "h" 
   return <div className="tiles tnum">{items.map((t) => <div key={t.word} className={t.n ? t.kind ?? "" : "z"}><b>{t.n}</b><small>{t.word}</small></div>)}</div>;
 }
 
-/** The strip: one segment per step on the path, full width. */
-export function Strip({ path, note }: { path: { state: string }[]; note?: string }) {
-  return <span className="prog"><span className="bars">{path.map((p, i) => <i key={i} className={p.state === "next" ? "" : p.state} />)}</span>{note ? <small>{note}</small> : null}</span>;
+/** What each step state means, in the words the legend and the tooltips use; one colour each, the same on the bars and the chart. */
+export const STATE_WORDS: Record<string, string> = { ok: "ran", ghost: "ran in shadow", skip: "skipped: condition not met", blocked: "blocked: did not go out", here: "waiting here", warn: "failed or needs a hand", stop: "stopped", next: "not reached yet" };
+export const STATE_ORDER = ["ok", "ghost", "skip", "blocked", "here", "warn", "stop", "next"];
+type StripStep = { state: string; title?: string; meta?: string; note?: string };
+/** One segment's tooltip: "Add “stat-new” tag — done in shadow: would have tagged “stat-new”". */
+export function stepLine(p: StripStep): string {
+  const name = `${(p.title ?? "A step").replace(/[‹›]/g, "")}${p.meta ? ` · ${p.meta.replace(/[‹›]/g, "")}` : ""}`;
+  const note = (p.note ?? "").replace(/Didn't go out: /, "").replace(/Done in shadow: /, "").trim();
+  const said = { ok: "ran", ghost: "done in shadow", skip: "skipped", blocked: "blocked, did not go out", here: "waiting here", warn: "failed", stop: "stopped", next: "not reached yet" }[p.state] ?? p.state;
+  return `${name} — ${said}${note && p.state !== "next" ? `: ${note}` : p.state === "skip" ? ": its condition was not met" : ""}`;
+}
+/** The strip: one segment per step on the path, full width; each segment says what its step did when hovered. */
+export function Strip({ path, note }: { path: StripStep[]; note?: string }) {
+  return <span className="prog"><span className="bars">{path.map((p, i) => { const t = p.title ? stepLine(p) : undefined; return <i key={i} className={p.state} title={t} aria-label={t} />; })}</span>{note ? <small>{note}</small> : null}</span>;
 }
 
 /** Counts on a row: people / in flight / failed, folding into a short note on a phone. */
@@ -59,18 +70,41 @@ export function Toasts() {
   return <div className="toasts" aria-live="polite">{list.map((t) => <div key={t.id} className={`toast ${t.warn ? "warn" : ""}`}>{t.text}</div>)}</div>;
 }
 
-/** A floating panel on a laptop, a bottom sheet on a phone; flips upward when it would fall off the bottom; closes on scroll. */
+/**
+ * A floating panel on a laptop, a bottom sheet on a phone. On a laptop it opens below its anchor, or above when that fits
+ * better, never past the window's edges; past its room it scrolls inside, with a fade at the bottom while more is below.
+ * Closes on a tap outside, Escape, or a real scroll of the page.
+ */
 export function Sheet({ anchor, onClose, children }: { anchor: Element | null; onClose: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const ref = useRef<HTMLDivElement>(null); const sc = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
+  const [more, setMore] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current, inner = sc.current; if (!el || !inner) return;
+    const M = 12, G = 8;
+    const place = () => {
+      if (window.innerWidth >= 700 && anchor) {
+        const r = anchor.getBoundingClientRect(); const w = el.offsetWidth, h = inner.scrollHeight, vh = window.innerHeight;
+        const left = Math.min(Math.max(M, r.left + r.width / 2 - w / 2), window.innerWidth - w - M);
+        const below = vh - r.bottom - G - M, above = r.top - G - M;
+        if (h <= below) setPos({ left, top: r.bottom + G, maxHeight: below });
+        else if (h <= above) setPos({ left, top: r.top - G - h, maxHeight: above });
+        else if (Math.max(below, above) >= 240) setPos(below >= above ? { left, top: r.bottom + G, maxHeight: below } : { left, top: M, maxHeight: above });
+        else setPos({ left, top: M, maxHeight: vh - 2 * M });
+      } else setPos(null);
+      setMore(inner.scrollHeight - inner.scrollTop - inner.clientHeight > 4);
+    };
+    place();
+    const ro = new ResizeObserver(place); ro.observe(inner); window.addEventListener("resize", place);
+    return () => { ro.disconnect(); window.removeEventListener("resize", place); };
+  }, [anchor]);
   useEffect(() => {
-    const el = ref.current; if (!el) return;
-    if (window.innerWidth >= 700 && anchor) { const r = anchor.getBoundingClientRect(); const h = el.offsetHeight, w = el.offsetWidth; const left = Math.min(Math.max(16, r.left + r.width / 2 - w / 2), window.innerWidth - w - 16); const below = r.bottom + 8, above = r.top - 8 - h; setPos({ left, top: Math.max(12, below + h > window.innerHeight - 12 && above > 12 ? above : below) }); } else setPos(null);
     // closes on a real scroll, not on the small settle that follows the tap itself
     const born = Date.now(); const y0 = window.scrollY; const close = () => { if (Date.now() - born > 400 && Math.abs(window.scrollY - y0) > 24) onClose(); }; window.addEventListener("scroll", close, { passive: true }); const key = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", key);
     return () => { window.removeEventListener("scroll", close); window.removeEventListener("keydown", key); };
-  }, [anchor, onClose]);
-  return <><div className="scrim" onClick={onClose} /><div ref={ref} className="sheet" role="dialog" style={pos ? { left: pos.left, top: pos.top } : undefined}><button type="button" className="x" aria-label="Close" onClick={onClose}>×</button>{children}</div></>;
+  }, [onClose]);
+  const onScroll = () => { const i = sc.current; if (i) setMore(i.scrollHeight - i.scrollTop - i.clientHeight > 4); };
+  return <><div className="scrim" onClick={onClose} /><div ref={ref} className="sheet" role="dialog" style={pos ? { left: pos.left, top: pos.top, maxHeight: pos.maxHeight } : undefined}><button type="button" className="x" aria-label="Close" onClick={onClose}>×</button><div ref={sc} className={`sc ${more ? "more" : ""}`} onScroll={onScroll}>{children}</div></div></>;
 }
 
 export const Skeleton = ({ lines = 4 }: { lines?: number }) => <div>{Array.from({ length: lines }, (_, i) => <div key={i} className="skel" style={{ width: `${[60, 90, 75, 40, 85][i % 5]}%` }} />)}</div>;

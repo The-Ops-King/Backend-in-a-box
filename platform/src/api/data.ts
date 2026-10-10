@@ -90,7 +90,7 @@ async function defsFor(c: PoolClient, runs: { workflow_id: string; workflow_vers
   return defs;
 }
 
-export type RunListRow = { id: string; who: string; contact_id: string | null; workflow: string; workflow_id: string; state: "ok" | "here" | "warn" | "stop"; at: string; started_at: Date; finished_at: Date | null; next_run_at: Date | null; path: { node_id: string; state: PathItem["state"] }[] };
+export type RunListRow = { id: string; who: string; contact_id: string | null; workflow: string; workflow_id: string; state: "ok" | "here" | "warn" | "stop"; at: string; started_at: Date; finished_at: Date | null; next_run_at: Date | null; path: { node_id: string; state: PathItem["state"]; title: string; meta?: string; note?: string }[] };
 
 /** Rows for "who went through it" and a contact's workflows: each with its strip. */
 async function runRows(c: PoolClient, co: CompanyHead, runs: RunFull[]): Promise<RunListRow[]> {
@@ -102,13 +102,13 @@ async function runRows(c: PoolClient, co: CompanyHead, runs: RunFull[]): Promise
     const steps = await many<Parameters<typeof pathOf>[2][number]>(c, "select node_id, node_type, status, started_at, finished_at, result, error from run_steps where run_id=$1 order by started_at, id", [r.id]);
     const path = def ? pathOf(def, r, steps, [], plans.get(r.id) ?? [], co.timezone) : [];
     const st = runState(r, path, co.timezone);
-    out.push({ id: r.id, who: r.who, contact_id: r.contact_id, workflow: r.workflow, workflow_id: r.workflow_id, state: st.state, at: st.at, started_at: r.started_at!, finished_at: r.finished_at ?? null, next_run_at: r.next_run_at ?? null, path: path.map((p) => ({ node_id: p.node_id, state: p.state })) });
+    out.push({ id: r.id, who: r.who, contact_id: r.contact_id, workflow: r.workflow, workflow_id: r.workflow_id, state: st.state, at: st.at, started_at: r.started_at!, finished_at: r.finished_at ?? null, next_run_at: r.next_run_at ?? null, path: path.map((p) => ({ node_id: p.node_id, state: p.state, title: p.title, meta: p.meta, note: p.note })) });
   }
   return out;
 }
 
 /** The workflow page: header, tiles, the chart, who went through it. */
-export async function workflowPage(c: PoolClient, co: CompanyHead, id: string) {
+export async function workflowPage(c: PoolClient, co: CompanyHead, id: string, limit = 100) {
   const w = await one<{ id: string; company_id: string; name: string; enabled: boolean; stage: string | null; origin: string | null; current_version: number; template_version: number | null; diverged: boolean; description: string | null; definition: unknown }>(c, "select w.*, t.description, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version left join workflow_templates t on t.id=w.template_id where w.id=$1", [id]);
   if (!w || w.company_id !== co.id) return null;
   const stats = await one<{ people: number; in_flight: number; finished: number; needs_hand: number; last_ran: Date | null }>(c, "select count(*)::int as people, count(*) filter (where status in ('active','waiting'))::int as in_flight, count(*) filter (where status in ('completed','exited'))::int as finished, count(*) filter (where status in ('paused','failed'))::int as needs_hand, max(started_at) as last_ran from runs where workflow_id=$1", [id]);
@@ -118,7 +118,7 @@ export async function workflowPage(c: PoolClient, co: CompanyHead, id: string) {
   const safe = Object.fromEntries(Object.entries(bindings).filter(([k]) => !k.startsWith("secret.")));
   const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source) : null;
   const ready = await companyReadiness(c, co.id, `/app/c/${co.slug}`); const mine = ready.workflows.find((x) => x.id === id);
-  const runs = await many<RunFull>(c, `${runSelect} where r.workflow_id=$1 order by (r.status in ('active','waiting')) desc, r.started_at desc limit 100`, [id]);
+  const runs = await many<RunFull>(c, `${runSelect} where r.workflow_id=$1 order by (r.status in ('active','waiting')) desc, r.started_at desc limit $2`, [id, Math.min(Math.max(1, Math.floor(limit) || 100), 1000)]);
   const rows = await runRows(c, co, runs);
   const schedule = def ? def.nodes.filter((n) => n.type === "trigger" && n.schedule).map((t) => (t.type === "trigger" && t.schedule ? scheduleWords(t.schedule) : "")).join("; ") : "";
   return { company: co, workflow: { id: w.id, name: w.name, enabled: w.enabled, stage: w.stage, origin: w.origin, description: w.description, version: w.current_version, diverged: w.diverged, last_ran: stats?.last_ran ?? null, schedule: schedule || null, parse_error },

@@ -1,22 +1,43 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { api, usePage, useAction, type WorkflowPage, type RunListRow } from "~/api";
+import { useEffect, useRef, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { api, usePage, useAction, type WorkflowPage, type RunListRow, type RunPage } from "~/api";
 import { Crumb, Empty, Ic, NameLine, Sec, Sheet, Skeleton, Strip, Switch, Tag, Tiles, toast } from "~/ui/pieces";
-import { FlowChart, Legend, NodeWords } from "~/ui/chart";
-import { Steps } from "~/ui/steps";
-import { ago, shortDate } from "~/fmt";
+import { FlowChart, Legend, NodeWords, RunNodeWords } from "~/ui/chart";
+import { Ghost } from "~/ui/icons";
+import { Title } from "~/ui/steps";
+import { ago, callTime, shortDate, when } from "~/fmt";
 
 export function Workflow() {
   const { slug = "", id = "" } = useParams();
+  const [params, setParams] = useSearchParams();
+  const sel = params.get("run");
+  const [limit, setLimit] = useState(100);
   const key = ["workflow", id];
-  const q = usePage<WorkflowPage>(key, `/api/v1/workflows/${id}`);
+  const q = usePage<WorkflowPage>([...key, limit], `/api/v1/workflows/${id}${limit > 100 ? `?runs=${limit}` : ""}`, { keep: true });
+  // the chosen person's run: the run page's own payload, so the chart wears exactly the states the run page draws
+  const picked = usePage<RunPage>(["run", sel ?? ""], `/api/v1/runs/${sel}`, { enabled: !!sel, every: 30_000 });
   const flip = useAction<boolean>((enabled) => api(`/api/v1/workflows/${id}/enabled`, { method: "POST", json: { enabled } }), [key, ["company", slug]]);
   const fire = useAction<void, { note: string }>(() => api(`/api/v1/workflows/${id}/fire`, { method: "POST" }), [key]);
   const [pop, setPop] = useState<{ id: string; el: Element } | null>(null);
-  const [row, setRow] = useState<{ r: RunListRow; el: HTMLElement } | null>(null);
+  const popOpen = useRef(false); popOpen.current = !!pop;
+  const flow = useRef<HTMLDivElement>(null);
+  const choose = (rid: string | null) => {
+    setPop(null);
+    setParams((p) => { const n = new URLSearchParams(p); if (rid) n.set("run", rid); else n.delete("run"); return n; }, { replace: true });
+    if (rid) requestAnimationFrame(() => flow.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  useEffect(() => {
+    if (!sel) return;
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !popOpen.current) choose(null); };
+    window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
+  }, [sel]);   // eslint-disable-line react-hooks/exhaustive-deps
   if (!q.data) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton lines={8} />;
   const { company: co, workflow: w, tiles, chart, runs, ready } = q.data;
   const control = <Switch big word on={w.enabled} label="On or off" onChange={async (next) => { try { await flip.mutateAsync(next); } catch (e) { toast((e as Error).message, true); throw e; } }} />;
+  const run = sel && picked.data && picked.data.run.id === sel ? picked.data : null;
+  const shown = run?.chart ?? chart;
+  const narrow = typeof window !== "undefined" && window.innerWidth < 700;
+  const listStates = new Set(runs.flatMap((r) => r.path.map((p) => p.state)));
   return <>
     <Crumb items={[{ to: `/app/c/${slug}`, label: co.name }]} />
     <NameLine name={w.name} control={control} />
@@ -24,26 +45,49 @@ export function Workflow() {
     {w.description ? <p className="desc">{w.description}</p> : null}
     {ready.gaps.length || ready.issues.length ? <div style={{ marginTop: 10 }}>{[...ready.gaps.map((g) => ({ level: "warning", text: g })), ...ready.issues].map((i, k) => <div key={k} className="issue"><Tag kind={i.level === "blocker" ? "warn" : ""}>{i.level === "blocker" ? "blocks" : "note"}</Tag><span>{i.text}</span></div>)}</div> : null}
     <Tiles items={[{ n: tiles.people, word: "people" }, { n: tiles.in_flight, word: "in flight", kind: "h" }, { n: tiles.finished, word: "finished" }, { n: tiles.needs_hand, word: tiles.needs_hand === 1 ? "needs a hand" : "need a hand", kind: "f" }]} />
-    <Sec small="tap a step for what it does and the words it sends">The flow</Sec>
-    {chart ? <><FlowChart chart={chart} onOpen={(nid, el) => setPop({ id: nid, el })} /><Legend /></> : <div className="issue"><Tag kind="warn">needs reinstall</Tag><span>This workflow's stored definition no longer runs on the current engine. {w.parse_error}</span></div>}
-    <Sec small={runs.length === 100 ? "the latest 100" : undefined}>Who went through it</Sec>
-    {runs.length === 0 ? <Empty>Nobody yet.</Empty> : <div className="rows">{runs.map((r) => <button key={r.id} type="button" className="row" onClick={(e) => setRow({ r, el: e.currentTarget })}>
-      <Ic state={r.state} />
-      <span className="mid"><span className="nm">{r.who}</span><Strip path={r.path} note={r.at} /></span>
-      <span className="d tnum">{shortDate(r.started_at, co.timezone)}</span>
-    </button>)}</div>}
-    {pop && chart ? <Sheet anchor={pop.el} onClose={() => setPop(null)}><NodeWords chart={chart} id={pop.id} /></Sheet> : null}
-    {row ? <Sheet anchor={row.el} onClose={() => setRow(null)}><RunSheet r={row.r} tz={co.timezone} slug={slug} /></Sheet> : null}
+    <div ref={flow} className="flowtop">
+      <Sec small={sel ? "tap a step for what happened there" : "tap a step for what it does and the words it sends"}>The flow</Sec>
+      {sel ? <Picked sel={sel} row={runs.find((r) => r.id === sel) ?? null} page={run} error={picked.error?.message ?? null} tz={co.timezone} slug={slug} onClear={() => choose(null)} /> : null}
+    </div>
+    {shown ? <><FlowChart chart={shown} states={run?.states} pathOnly={!!run && narrow} onOpen={(nid, el) => setPop({ id: nid, el })} /><Legend run={!!run} states={run ? Object.values(run.states) : listStates} /></> : <div className="issue"><Tag kind="warn">needs reinstall</Tag><span>This workflow's stored definition no longer runs on the current engine. {w.parse_error}</span></div>}
+    <Sec small={runs.length ? "latest first · tap someone to see their path on the chart" : undefined}>Who went through it</Sec>
+    {runs.length === 0 ? <Empty>Nobody yet.</Empty> : <>
+      <div className="rows">{runs.map((r) => <RunRow key={r.id} r={r} tz={co.timezone} on={r.id === sel} onPick={() => choose(r.id)} />)}</div>
+      <p className="listend tnum">Showing {runs.length} of {Math.max(tiles.people, runs.length)}{runs.length < tiles.people ? <> · <button type="button" className="lnk" disabled={q.isFetching} onClick={() => setLimit((l) => Math.min(1000, l + 100))}>{q.isFetching && q.isPlaceholderData ? "loading…" : "load more"}</button></> : null}</p>
+    </>}
+    {pop && shown ? <Sheet anchor={pop.el} onClose={() => setPop(null)}>{run ? <RunNodeWords chart={shown} id={pop.id} states={run.states} feed={run.feed} /> : <NodeWords chart={shown} id={pop.id} />}</Sheet> : null}
   </>;
 }
 
-/** A person's run, in brief: the steps as a list, then the way to the run and the contact. The full feed with words is the run page. */
-function RunSheet({ r, tz, slug }: { r: RunListRow; tz: string; slug: string }) {
-  const q = usePage<import("~/api").RunPage>(["run", r.id], `/api/v1/runs/${r.id}`, { every: 30_000 });
-  return <>
-    <h4>{r.who}</h4>
-    <p className="m">{r.at} · started {shortDate(r.started_at, tz)}{q.data?.run.appointment ? ` · call ${shortDate(q.data.run.appointment.starts_at, tz)}` : ""}</p>
-    {q.data ? <Steps items={[...q.data.feed, ...q.data.next]} tz={tz} /> : <Skeleton />}
-    <div className="foot"><Link className="btn" to={`/app/c/${slug}/r/${r.id}`}>Open this run</Link>{r.contact_id ? <Link className="btn" to={`/app/c/${slug}/contacts/${r.contact_id}`}>Open the contact</Link> : null}</div>
-  </>;
+const inShadow = (path: { state: string }[]) => path.some((p) => p.state === "ghost");
+
+function RunRow({ r, tz, on, onPick }: { r: RunListRow; tz: string; on: boolean; onPick: () => void }) {
+  return <button type="button" className={`row ${on ? "sel" : ""}`} aria-pressed={on} onClick={onPick}>
+    <Ic state={r.state} />
+    <span className="mid"><span className="nm">{r.who}</span><Strip path={r.path} note={r.at} /></span>
+    <span className="d tnum">{shortDate(r.started_at, tz)}{inShadow(r.path) ? <small className="sh"><Ghost />in shadow</small> : null}</span>
+  </button>;
+}
+
+/**
+ * The bar above the chart while a person's run is shown: whose run, when, how it ended, the steps that did not fire and
+ * why, and the ways out (the full run, the contact, back to the plain chart).
+ */
+function Picked({ sel, row, page, error, tz, slug, onClear }: { sel: string; row: RunListRow | null; page: RunPage | null; error: string | null; tz: string; slug: string; onClear: () => void }) {
+  const who = page?.run.who ?? row?.who;
+  const steps: { state: string; title: string; meta?: string; note?: string }[] = page?.feed ?? row?.path ?? [];
+  const ghost = inShadow(steps);
+  const at = page?.run.at ?? row?.at ?? "";
+  const status = ghost ? (at.startsWith("done") ? at.replace(/^done/, "done in shadow") : `${at} · in shadow`) : at;
+  const missed = steps.filter((s) => s.state === "skip" || s.state === "blocked" || s.state === "warn" || s.state === "stop");
+  const appt = page?.run.appointment;
+  const contact = page?.run.contact_id ?? row?.contact_id;
+  return <div className={`picked ${ghost ? "ghost" : ""}`} role="status">
+    <div className="ph">
+      <span className="what">{who ? <><b>Showing {who}'s run</b>{page || row ? <> · {when(page?.run.started_at ?? row?.started_at, tz)}</> : null}{status ? <> · <span className="stt">{ghost ? <Ghost /> : null}{status}</span></> : null}</> : error ? <b>That run could not be loaded: {error}</b> : <b>Loading the run…</b>}</span>
+      <span className="acts"><Link className="btn" to={`/app/c/${slug}/r/${sel}`}>Open the full run</Link>{contact ? <Link className="btn" to={`/app/c/${slug}/contacts/${contact}`}>Open the contact</Link> : null}<button type="button" className="btn" onClick={onClear} title="Back to the plain chart (Esc)">Clear</button></span>
+    </div>
+    {appt ? <p className="m">Call {callTime(appt.starts_at, tz)}{appt.closer ? ` with ${appt.closer}` : ""}{appt.status !== "confirmed" && appt.status !== "booked" ? ` (${appt.status})` : ""}</p> : null}
+    {missed.length ? <ul className="missed">{missed.slice(0, 6).map((s, i) => <li key={i}><Ic state={s.state} /><span><b><Title text={s.title + (s.meta ? ` · ${s.meta}` : "")} /></b> <span className={`w ${s.state}`}>{s.state === "skip" ? "skipped" : s.state === "blocked" ? "did not go out" : s.state === "warn" ? "failed" : "stopped"}</span>{s.note ? `: ${s.note.replace(/^Didn't go out: /, "")}` : ""}</span></li>)}{missed.length > 6 ? <li className="m">and {missed.length - 6} more on the full run</li> : null}</ul> : page || row ? <p className="m">Every step it reached ran{ghost ? ", in shadow" : ""}.</p> : null}
+  </div>;
 }
