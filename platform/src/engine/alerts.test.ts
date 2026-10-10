@@ -10,7 +10,7 @@ import { tick } from "@/engine/runner";
 import { tickAlerts, openAlerts, raise, resolve, announceDue } from "@/engine/alerts";
 import { type HealthProbes, CHECKS, type Finding } from "@/engine/health";
 import { fireNow } from "@/engine/clock";
-import { installTemplateForTest } from "@/engine/test-install";
+import { installTemplateForTest, replicaSnapshot } from "@/engine/test-install";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
 import { setBinding } from "@/engine/settings";
 
@@ -19,7 +19,7 @@ const posts: { channel: string; text: string; as?: SlackPersona; threadTs?: stri
 const reactions: { channel: string; ts: string; emoji: string }[] = [];
 let tagFails = true;
 const fake: Adapters = {
-  read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async () => null, listUsers: async () => [] },
+  read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async (c, id) => replicaSnapshot(c.id, id), listUsers: async () => [] },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }; return { ghl: b, calendly: b }; })(),
   write: { createContact: async () => ({ id: "x" }), addTag: async () => { if (tagFails) throw new Error("GHL 401 on /contacts/GC1/tags: Invalid Private Integration token"); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "d" }) },
   sender: { sendSms: async () => ({ externalId: "s", accepted: true }), sendEmail: async () => ({ externalId: "e", accepted: true }), deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },

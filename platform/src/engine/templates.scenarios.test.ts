@@ -11,6 +11,7 @@ import { applyPayment } from "@/engine/lifecycle";
 import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
+import { replicaSnapshot } from "@/engine/test-install";
 import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from "@/adapters/types";
 import { recordRecording, linkRecording, recordPhoneCall, settlePhoneCall, phoneFacts, type RecordingInput } from "@/engine/recordings";
 import { simulate } from "@/engine/simulate";
@@ -34,7 +35,7 @@ const liveCards = new Map<string, import("@/adapters/types").LiveCard[]>();   //
 const fake: Adapters = {
   read: {
     contactsChangedSince: async () => [], openCards: async (_c, id) => liveCards.get(id) ?? [], pipelineCards: async (_c, pipelineId) => [...liveCards.entries()].flatMap(([cid, cards]) => cards.filter((k) => k.pipelineId === pipelineId).map((k) => ({ ...k, contactId: cid }))), inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
-    getContact: async (_c, id) => ({ id, firstName: id, email: `${id.toLowerCase()}@x.com`, phone: phoneFor(id), tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }),
+    getContact: async (c, id) => (await replicaSnapshot(c.id, id)) ?? { id, firstName: id, email: `${id.toLowerCase()}@x.com`, phone: phoneFor(id), tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() },
     listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }],
   },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [],

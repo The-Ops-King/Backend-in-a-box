@@ -5,6 +5,7 @@ import { bookingFor } from "@/adapters/types";
 import { parseDefinition, indexDefinition, onwardEdge, type Definition } from "./definition";
 import { buildContext, loadCompany, type RunRow } from "./context";
 import { syncCards } from "./cards";
+import { refreshContact } from "./contact-truth";
 import { effectiveMode } from "./mode";
 import { executeNode, listenerOf, markGone, setPath, type ExecDeps, type Listener } from "./executor";
 import type { Node } from "./definition";
@@ -128,7 +129,14 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           const ghlId = (await one<{ ghl_contact_id: string | null }>(c, "select ghl_contact_id from contacts where id=$1", [run.contact_id]))?.ghl_contact_id;
           await syncCards(c, company, adapterCompany, adapters, run.contact_id, ghlId).catch((e: Error) => { cardsReadError = String(e.message).slice(0, 300); console.warn(`run ${run.id}: cards not read from the CRM: ${e.message}`); });
         }
-        const ctx = await buildContext(c, run, company, bindings);
+        // D68: the live contact is read before the run acts; the replica is a cache. Gone from the CRM → moot now, not at the next send.
+        const truth = run.contact_id ? await refreshContact(c, company, adapterCompany, adapters, bindings, run.contact_id, now) : undefined;
+        if (truth && !truth.ok) {
+          await finish("exited", report.recovery ? `stale_after_outage: ${truth.why}` : `moot: ${truth.why}`);
+          await emitEvent(c, { company_id: run.company_id, contact_id: run.contact_id, opportunity_id: run.opportunity_id, appointment_id: run.appointment_id, run_id: run.id, event_type: "run.exited", source: "engine", data: { reason: truth.why, recovery: report.recovery } });
+          report.exited++; if (report.recovery) report.staleExits++; return;
+        }
+        const ctx = await buildContext(c, run, company, bindings, truth);
         const deps: ExecDeps = { c, adapters, company, adapterCompany, bindings, run, ctx, edgesFrom, now, probes, effective, cardsReadError };
         const wakeFlags = { reply: !!(run as RunRow & { wake_on_reply?: boolean }).wake_on_reply, tag: (run as RunRow & { wake_on_tag?: string | null }).wake_on_tag ?? undefined };
         /**

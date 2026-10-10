@@ -28,7 +28,7 @@ export function exampleContext(company: { name: string; timezone: string }, bind
       fields: { setter: "Luis", setter_owner: "Luis", lead_source: "instagram", utm_source: "instagram", hair_loss: "thinning at the crown", appointment_date: call.toISODate() },
       paid: true, payments_count: 1, cash_collected: 1500, first_paid_at: n.toISO(), agreement_signed: true, agreement_sent: true,
       owner: { ...allan, inherited: false }, closer: { ...allan, from: "closer card" }, setter: luis,
-      first_booked_at: firstBooked.toISO(), days_to_close: 3, revenue: 4000, source: "instagram",
+      first_booked_at: firstBooked.toISO(), days_to_close: 3, revenue: 4000, source: "instagram", fetched_at: n.toISO(), stale: undefined,
     },
     appointment: {
       id: "appointment-id", external_id: "appt123", source: "ghl", starts_at: call.toISO(), ends_at: call.plus({ minutes: 45 }).toISO(), status: "confirmed", self_booked: false, set_by: "Luis",

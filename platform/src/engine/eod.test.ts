@@ -7,7 +7,7 @@ import { encrypt } from "@/engine/crypto";
 import { prefill, submitEod, tokenFor, closerByToken, diffAnswers, todayFor, loadEodForm, saveEodForm, eodFacts } from "@/engine/eod";
 import { dispatchSchedules } from "@/engine/clock";
 import { tick } from "@/engine/runner";
-import { installTemplateForTest } from "@/engine/test-install";
+import { installTemplateForTest, replicaSnapshot } from "@/engine/test-install";
 import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { totalsOf, DQ_REASONS } from "@/engine/eod-form";
 import { loadCompany } from "@/engine/context";
@@ -18,7 +18,7 @@ process.env.PUBLIC_URL = "https://engine.test";
 const posts: { channel: string; text: string; as?: SlackPersona; threadTs?: string }[] = [];
 const reactions: { channel: string; ts: string; emoji: string }[] = [];
 const fake: Adapters = {
-  read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async () => null, listUsers: async () => [] },
+  read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async (c, id) => replicaSnapshot(c.id, id), listUsers: async () => [] },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }; return { ghl: b, calendly: b }; })(),
   write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "d" }) },
   sender: { sendSms: async () => ({ externalId: "s", accepted: true }), sendEmail: async () => ({ externalId: "e", accepted: true }), deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },

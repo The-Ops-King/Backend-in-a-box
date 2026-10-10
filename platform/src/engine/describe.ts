@@ -35,7 +35,7 @@ export const EVENT_LABELS: Record<string, string> = {
   "opportunity.opened": "Opportunity opened", "opportunity.won": "Deal won", "opportunity.lost": "Opportunity lost", "form.submitted": "Form submitted",
 };
 const PATHS: Record<string, string> = {
-  "contact.phone": "phone number", "contact.email": "email address", "contact.first_name": "first name", "contact.last_name": "last name", "contact.name": "full name", "contact.tags": "tags", "contact.timezone": "time zone",
+  "contact.phone": "phone number", "contact.email": "email address", "contact.first_name": "first name", "contact.last_name": "last name", "contact.name": "full name", "contact.tags": "tags", "contact.timezone": "time zone", "contact.fetched_at": "when the CRM was last read for them", "contact.stale": "why the engine's copy stood in",
   "appointment.term.category": "call type", "appointment.status": "appointment status", "appointment.starts_at": "call time", "appointment.closer.first_name": "closer's first name", "appointment.closer.name": "closer", "appointment.closer.ghl_user_id": "the closer", "appointment.self_booked": "self-booked", "appointment.set_by": "setter", "appointment.reschedule_url": "reschedule link", "appointment.tracking.utm_source": "UTM source", "appointment.cancelled_by": "who cancelled", "appointment.cancel_reason": "cancel reason",
   "event.amount": "amount", "event.kind": "payment kind", "event.running_total": "running total", "event.contract_value": "program price", "event.outstanding": "outstanding", "event.cleared": "paid in full", "event.provider_payment_id": "transaction id", "event.paid_at": "paid at",
   "contact.ghl_contact_id": "contact id", "vars.setter_line": "setter line", "vars.booking_kind": "booking kind", "crm.location_id": "location id",

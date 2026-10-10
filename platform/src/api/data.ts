@@ -146,10 +146,17 @@ export async function runPage(c: PoolClient, id: string) {
   return { company: co, workflow: { id: r.workflow_id, name: r.workflow },
     run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, co.mode, bindings)) === "shadow",
       // D66: where it stopped and why, and whether a person can retry or skip that step (a step with no plain way on can only be retried)
-      current_node: r.current_node, step_error: r.step_error ?? null, step_attempt: r.step_attempt ?? 0, can_skip: !!(r.current_node && def && onwardEdge(indexDefinition(def).edgesFrom(r.current_node))) },
+      current_node: r.current_node, step_error: r.step_error ?? null, step_attempt: r.step_attempt ?? 0, can_skip: !!(r.current_node && def && onwardEdge(indexDefinition(def).edgesFrom(r.current_node))) ,
+      // D68: when the CRM was last read for this person before the run acted, or why the engine's copy stood in (as the run's saved context carries it)
+      contact_truth: truthOf(r.context) },
     feed: path.filter((p) => p.state !== "next"), next: path.filter((p) => p.state === "next"), chart, states,
     raw: { steps: steps.map((s) => ({ node_id: s.node_id, node_type: s.node_type, status: s.status, started_at: s.started_at, result: s.result, error: s.error })), context: r.context } };
 }
+
+const truthOf = (context: Record<string, unknown>): { fetched_at: string | null; stale: string | null } | null => {
+  const ct = context?.contact as { fetched_at?: string; stale?: string } | undefined;
+  return ct && (ct.fetched_at || ct.stale) ? { fetched_at: ct.fetched_at ?? null, stale: ct.stale ?? null } : null;
+};
 
 /** The contact page: the CRM's facts, their workflows, what is next. No messages (D38). */
 export async function contactPage(c: PoolClient, id: string) {

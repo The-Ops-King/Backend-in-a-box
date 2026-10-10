@@ -13,7 +13,7 @@ import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { applyAppointment } from "@/engine/poll";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { fakeProbes } from "@/engine/test-install";
+import { fakeProbes, replicaSnapshot } from "@/engine/test-install";
 import type { Adapters, AppointmentSnapshot, BookingRead, Classification } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -27,7 +27,7 @@ const booking: BookingRead = { appointmentsInWindow: async () => [], listCalenda
 const recordWrites: Record<string, unknown>[] = [];
 const relations: string[] = [];
 const fake: Adapters = {
-  read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async (_c, id) => ({ id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }), listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }] },
+  read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async (c, id) => (await replicaSnapshot(c.id, id)) ?? { id, firstName: id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() }, listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }] },
   booking: { ghl: booking, calendly: booking },
   write: { createContact: async () => ({ id: "x" }), addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createRecord: async (_c, _o, props) => { recordWrites.push({ op: "create", ...props }); return { id: `rec-${recordWrites.length}` }; }, updateRecord: async (_c, _o, id, props) => { recordWrites.push({ op: "update", id, ...props }); }, relateRecords: async (_c, a, f, s) => { relations.push(`${a}:${f}>${s}`); },
     createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; }, updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); }, sendDocumentTemplate: async () => ({ id: "doc-x" }) },

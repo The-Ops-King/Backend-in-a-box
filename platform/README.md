@@ -19,6 +19,14 @@ cron. Design is in `../engine/`; this is what runs.
 - **Lifecycle**: first booking opens an opportunity; payment (Whop webhook) wins it; paid-in-full
   is detected from the payments sum.
 
+**GHL is the truth; the engine's copy is a cache (D68).** The `contacts` table and its identifiers are a replica the
+poll keeps warm, not the record. Before a run acts, the engine reads the person live from the CRM (one GET per claimed
+run per wake, the same price cards already pay under D41) and folds the answer into the replica by the poll's own path,
+so a name, number, email, custom field, time zone, owner or CRM id changed since the last poll is what the step sees.
+A deleted contact (404) is marked gone and the run exits moot before anything is sent; a CRM that does not answer
+leaves the run on the copy and the run page says so. A refresh never starts a workflow: new leads and tag changes
+stay the poll's job.
+
 Live proof: a real appointment booked in GHL was detected, both workflows started, the
 confirmation email went out through GHL into the contact's thread, the reminder is waiting for
 8am the morning of. 47 tests pass (`pnpm test`), including the end-to-end suite against Postgres.
