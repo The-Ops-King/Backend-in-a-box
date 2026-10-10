@@ -1724,3 +1724,36 @@ human-sounding reminder parked on the window, 1-hour text at 08:00, 10-minute te
 Noted for later, not built (01-open.md #35): Deal closed fires on the first dollar plus a signature, and the owner
 confirmed it should — "Correct, not paid in full. However NOT if it's a deposit, which we don't have set up right now,
 but that's something we need to remember."
+
+## D63. Two records, one person: the team is told (2026-10-10)
+
+Tyler, on the two spellings of one number: "the 2 phone numbers should register as the same person ideally and we should
+be alerted if there are 2 contacts with phone numbers in different formats." The first half is D60: `normPhone` folds
+`1-602-555-0901` and `+16025550901` into one identifier, and a second CRM record carrying it attaches to the one engine
+person as a second `ghl_contact` identifier, so runs, replies, payments and bookings already treat them as one. What was
+missing is the second half: the CRM still holds two records, a closer working in GHL sees two people, and nobody was told.
+
+- **A Health check, `duplicates`** (`health.ts` `findDuplicates`, in the hourly sweep like every other check, off with
+  `checks: {"duplicates": false}`). Two shapes. One engine person with more than one current `ghl_contact` identifier —
+  the case D60 makes. And two engine persons whose current phones or emails differ only in spelling (digits-only, a
+  leading 1 dropped from eleven; email lower-cased and de-spaced): that should not exist for US numbers after D60 and
+  the check proves it, and it does exist for a non-US number written with and without its `+`, which `normPhone` leaves
+  as typed. Each finding reads `Two CRM records for one person: <name> — <ghl id 1>, <ghl id 2> (same phone +1602…)`,
+  links to the CRM contact ("Open in the CRM": where the merge happens) and its alert's Open goes to the contact page.
+  State `warn` while any, `ok` with the contact count when none.
+- **One alert per pair**, `duplicate:<contact_id>` (`duplicate:<a>:<b>` for two persons), warning, source `health`,
+  through the sweep's own `reconcile`: posted once in the sweep's channel with the CRM link, repeated in its thread
+  hourly while open, "Resolved" in the thread with a ✅ when gone. A `Finding` may now name its alert `key` and the
+  engine `page` its Open goes to; everything else keeps `health:<check>:<item>` and the health page.
+- **No automatic merge.** GHL is the source of truth; a person merges the records there, and the check's `about` says
+  so. The sweep does one CRM read per suspect id (`getContact`, read-only, as the whole sweep is): a record that
+  answers 404 is the one the merge dropped, so its `ghl_contact` identifier is retired on the replica (`retired_at`,
+  G15's mark) and `contacts.ghl_contact_id` moves to the survivor when the dropped one was primary, so sends keep
+  going; for two persons, the one whose record is gone is stamped `gone_at` (G21's mark), which the premise
+  `contact_exists` already honours. A CRM that cannot be read (anything but a 404) changes nothing: that is the token
+  check's finding. Either way the pair is gone on that sweep, the finding clears and the alert resolves itself; before
+  this nothing retired a folded id, so the alert would have outlived the merge.
+- Tests: `health.duplicates.test.ts` (company `dupes`) drives two spellings of one number through the real poll, sweeps,
+  announces, deletes the second record from the fake CRM, sweeps again; the same for an email in two cases where the
+  merge kept the second record (the primary moves), and for the two-person non-US shape.
+

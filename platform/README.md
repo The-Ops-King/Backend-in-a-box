@@ -311,9 +311,12 @@ available times over 7 days (same idea: a host's calendar disconnecting empties 
 reads payments and the engine's Whop webhook still exists and is enabled; the Fathom key lists meetings and
 the Fathom webhook is still registered (Fathom's listing endpoint is unverified: when there is none, the sweep
 falls back to delivery age); the Slack bot token is alive and the bot is in every channel the workflows post
-to; the Anthropic key answers; no enabled workflow is missing a binding. A failed check is an alert like any
-other and clears itself on the next clean sweep. `Sweep now` on the health page starts the workflow now
-(`fireNow`), as does `POST /api/admin/health { company }`.
+to; the Anthropic key answers; no enabled workflow is missing a binding; no person is held twice by the CRM
+(D63: two records the poll folded into one person by phone or email, or two persons whose phone or email differ
+only in spelling — one finding and one alert per person, `duplicate:<contact_id>`, with the CRM contact to merge
+at; the engine never merges, and the finding clears when the CRM no longer has the dropped record). A failed
+check is an alert like any other and clears itself on the next clean sweep. `Sweep now` on the health page
+starts the workflow now (`fireNow`), as does `POST /api/admin/health { company }`.
 Probes live in `src/adapters/*/health.ts` and are injectable (`HealthProbes`), so `src/engine/health.ts`
 is tested without the vendors (`alerts.test.ts`).
 
