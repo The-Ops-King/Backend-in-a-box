@@ -204,7 +204,7 @@ and moved, never duplicated. "Already there" is no write (`:420`, D61). Create a
 | `createOpportunity` 503 twice then ok | Retry at 1 then 5 min; one card; run completes | Failed on the first; no card | `20 cards (503 twice, then ok)…` (`it.fails`); invariant passes |
 | `createOpportunity` succeeded, then the call died | The retry reads the CRM, adopts the card, completes; one card both sides | Failed; one card in the CRM, none in the replica; a retry inside the CRM's index lag could create a second (C2) | `20 cards (crash after…)…` ×2 |
 | `createOpportunity` 400 / 422 (a stage id that is not on that pipeline, a bad custom field id) | Pause with the vendor's words | Failed | `not yet` (same path as the tag 400) |
-| `updateOpportunity` 404 (the card was deleted between the read and the write) | Pause with the words; asked once | Failed | `the card was deleted in the CRM between the read and the write…` (`it.fails`) |
+| `updateOpportunity` 404 (the card was deleted between the read and the write) | The replica card is marked `gone` and the step makes one fresh card, once (effects ledger); a move-only step skips | Done (sweep 2026-10-10, S12) | `the card was deleted in the CRM between the read and the write…`; `a card deleted in the CRM since an earlier run…` |
 | Pipeline / stage binding unresolved | Pause (configuration) | `failed: pipeline, stage or name unresolved` (`:417`) | `not yet` |
 | Run not about a contact | Pause (definition) | `failed` (`:401`) | `not yet` |
 | Contact with no CRM id | Pause / wait | `failed` (`:434`) | `not yet` (same words as the tag step) |

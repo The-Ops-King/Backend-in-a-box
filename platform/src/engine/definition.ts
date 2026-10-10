@@ -85,7 +85,8 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string(),
     question: z.string().optional(), criteria: z.record(z.string()).optional(), ambiguity_max: z.number().min(0).max(1).default(0.8) }),   // question: what Jev is asked about `input`; `state` is context (what we sent)   // criteria: what each option means, in words; ambiguity_max: a reply a careful person would doubt this much goes to a human (D47)
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),
-  z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string(), retry: z.object({ every: z.string(), for: z.string() }).optional() }),   // retry: park and look again every `every` for up to `for` before taking else_exit
+  // else_pause: once the retry window has run out, the run pauses for a person with this reason instead of taking else_exit
+  z.object({ ...base, type: z.literal("check"), when: Predicate, else_exit: z.string(), else_pause: z.string().optional(), retry: z.object({ every: z.string(), for: z.string() }).optional() }),   // retry: park and look again every `every` for up to `for` before taking else_exit
   // The contact's tags in one step: `add` goes on, then `remove` comes off. set_tag / remove_tag are the older one-direction forms; installed copies still carry them.
   z.object({ ...base, type: z.literal("tags"), add: TagList.optional(), remove: TagList.optional() }),
   z.object({ ...base, type: z.literal("set_tag"), tag: TagList }),
@@ -109,7 +110,8 @@ export const Node = z.discriminatedUnion("type", [
   // A record on a CRM custom object (payment, sales call, …), upserted by our own key so the CRM's lagging search is never consulted.
   // `properties` values are templates; an empty rendered value is left out. `relate` links the record to other records by association id.
   // `if_missing: skip` makes it an update of a record the CRM already holds (one we made, with its CRM id); it never creates one.
-  z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string(), properties: z.record(z.string()), owner: z.string().optional(), if_missing: z.enum(["create", "skip"]).default("create"),
+  // `match`: the same, but a booking's record the engine never wrote is first looked for in the CRM by the booking's id, else the person and start minute.
+  z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string(), properties: z.record(z.string()), owner: z.string().optional(), if_missing: z.enum(["create", "skip", "match"]).default("create"),
     relate: z.array(z.object({ association: z.string(), first: z.string(), second: z.string() })).default([]) }),
   // with `when`: value if it holds, else_value otherwise. With `pick`: value is rendered and looked up in it ("{{reply.intent}}" → pick.cancelled), else_value when no key matches.
   z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown(), when: Predicate.optional(), pick: z.record(z.unknown()).optional(), else_value: z.unknown().optional() }),

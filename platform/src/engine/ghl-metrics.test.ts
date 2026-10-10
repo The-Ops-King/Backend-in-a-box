@@ -28,3 +28,14 @@ describe("whether show rates differ by more than chance (D74)", () => {
     expect(permutationP(g)).toBe(permutationP(g));
   });
 });
+
+import { salesCallValues } from "./sales-call";
+describe("what the engine writes on a Sales Call's outcome (sweep 2026-10-10, D-1)", () => {
+  const hair = { "sales_call.outcomes": JSON.stringify({ showed: "showed", no_show: "noshow", noshow: "noshow", cancelled: "cancelled", late_cancel: "cancelled" }) };
+  it("the company's own keys: the inverse of its outcome map, its own spelling over the engine's alias", () =>
+    expect(salesCallValues(hair)).toEqual({ scheduled: "", showed: "showed", noshow: "no_show", cancelled: "cancelled", late_cancel: "late_cancel", rescheduled: "late_cancel" }));
+  it("an alias first in the map does not win, and a map that names scheduled and rescheduled gives those", () =>
+    expect(salesCallValues({ "sales_call.outcomes": JSON.stringify({ noshow: "noshow", no_show: "noshow", scheduled: "scheduled", rescheduled: "rescheduled", cancelled: "cancelled" }) }))
+      .toEqual({ scheduled: "scheduled", showed: "", noshow: "no_show", cancelled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" }));
+  it("no map: the engine's own words", () => expect(salesCallValues({}).noshow).toBe("noshow"));
+});

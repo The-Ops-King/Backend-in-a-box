@@ -148,7 +148,7 @@
           "opportunity_id": "{{cards.closer.id | default:}}",
           "scheduled_at": "{{appointment.starts_at | default:}}",
           "call_date": "{{recording.started_at | date_company:yyyy-MM-dd}}",
-          "outcome": "showed",
+          "outcome": "{{picklist.sales_call_outcome.showed}}",
           "recording_url": "{{recording.share_url | default:}}",
           "transcript_ref": "{{recording.url | default:}}",
           "closer": "{{recording.closer.name | default:}}",

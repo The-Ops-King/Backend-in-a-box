@@ -36,6 +36,20 @@
         }
       },
       {
+        "id": "c0",
+        "type": "check",
+        "title": "Wait for GHL to have the person (a booking can land first)",
+        "when": {
+          "exists": "contact.ghl_contact_id"
+        },
+        "retry": {
+          "every": "2m",
+          "for": "1h"
+        },
+        "else_exit": "no_crm_id",
+        "else_pause": "contact has no CRM id yet: GHL did not have the person an hour after the booking"
+      },
+      {
         "id": "n1",
         "type": "update_contact",
         "set": {
@@ -196,7 +210,7 @@
           "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
           "closer": "{{appointment.closer.name | default:}}",
           "setter": "{{appointment.set_by | default:}}",
-          "outcome": "scheduled"
+          "outcome": "{{picklist.sales_call_outcome.scheduled}}"
         },
         "relate": [
           {
@@ -266,10 +280,14 @@
     "edges": [
       {
         "from": "t1",
-        "to": "n1"
+        "to": "c0"
       },
       {
         "from": "t2",
+        "to": "c0"
+      },
+      {
+        "from": "c0",
         "to": "n1"
       },
       {

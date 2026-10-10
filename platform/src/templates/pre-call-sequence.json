@@ -37,6 +37,20 @@
         }
       },
       {
+        "id": "c0",
+        "type": "check",
+        "title": "Wait for GHL to have the person before the receipts",
+        "when": {
+          "exists": "contact.ghl_contact_id"
+        },
+        "retry": {
+          "every": "2m",
+          "for": "1h"
+        },
+        "else_exit": "no_crm_id",
+        "else_pause": "contact has no CRM id yet: GHL did not have the person an hour after the booking"
+      },
+      {
         "id": "e1",
         "type": "send_email",
         "kind": "transactional",
@@ -512,10 +526,14 @@
     "edges": [
       {
         "from": "t1",
-        "to": "e1"
+        "to": "c0"
       },
       {
         "from": "t2",
+        "to": "c0"
+      },
+      {
+        "from": "c0",
         "to": "e1"
       },
       {

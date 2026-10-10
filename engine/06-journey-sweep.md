@@ -34,12 +34,12 @@ their own definition (D2) and are not covered by a template fix until re-install
 | New lead (`new-lead`) | ✓ | `lead.created` (always) | phone? (waits up to 24h) → setter card New Lead, `stat-new` · no phone → exit `no_phone` |
 | Speed to lead (`speed-to-lead`) | ✓ | `lead.created` (contact) | email + text now → 2h reply wait → replied: exit · booked meanwhile: exit `booked` · else "Still want to talk?" email |
 | Setter call logged (`setter-call-logged`) | ✓ | `call.logged` connected phone call (always) | < 60 s / no transcript / Jev "other": exit · else 15 min after the call: digest, Discovery Call record, note, `setter_calls` post |
-| Call booked (`call-booked`) | ✓ | `appointment.booked` / `.rescheduled`, closing (always) | owner + appointment date → setter-booked: setter field, setter card Appointment Set, closer card Scheduled, `stat-set` · self-booked: Direct Booked, Scheduled, `stat-self-booked` · both: `stat-booked`, `meta booked call`, eight reset tags off, video task (not on a reschedule), Sales Call record, booking card (🔁 face + 🔁 on the old card on a reschedule) |
-| Pre-call sequence (`pre-call-sequence`) | ✓ | booked / rescheduled, closing (appointment + start time) | receipts (email, text) → reply wait (≤ call − 1h) → yes: confirmed · silent: ⏳ `stat-unconfirmed` · anything else: the question + listener (§1.4) → reminders 72h/48h/24h/morning-of/1h/10m (§1.5) |
-| Call cancelled (`call-cancelled`) | ✓ | status → cancelled, closing (appointment) | both cards → cancelled stage, date cleared, rebook task, `stat-cancelled` / booked tags off, ❌ + thread |
-| Cancellation rebook (`cancellation-rebook`) | ✓ | status → cancelled, any calendar (appointment) | rebook text + email |
+| Call booked (`call-booked`) | ✓ | `appointment.booked` / `.rescheduled`, closing (always) | waits (≤ 1h) for GHL to have the person, else pauses → owner + appointment date → setter-booked: setter field, setter card Appointment Set, closer card Scheduled, `stat-set` · self-booked: Direct Booked, Scheduled, `stat-self-booked` · both: `stat-booked`, `meta booked call`, eight reset tags off, video task (not on a reschedule), Sales Call record, booking card (🔁 face + 🔁 on the old card on a reschedule) |
+| Pre-call sequence (`pre-call-sequence`) | ✓ | booked / rescheduled, closing (appointment + start time) | waits (≤ 1h) for the CRM id → receipts (email, text) → reply wait (≤ call − 1h) → yes: confirmed · silent: ⏳ `stat-unconfirmed` · anything else: the question + listener (§1.4) → reminders 72h/48h/24h/morning-of/1h/10m (§1.5) |
+| Call cancelled (`call-cancelled`) | ✓ | status → cancelled before the start, closing (appointment) | both cards → cancelled stage, date cleared, rebook task, `stat-cancelled` / booked tags off, ❌ + thread |
+| Cancellation rebook (`cancellation-rebook`) | ✓ | status → cancelled before the start, closing (appointment) | rebook text + email |
 | Sales call recorded (`call-recorded`) | ✓ | `recording.received` (always) | Jev "not a sales call": exit · appointment matched: showed, `stat-showed`, setter card Showed/won, ✅ · no match: ⚠️ line · both: review in `calls` (+ scorecard thread), Sales Call record (Jev's disposition), note |
-| Call outcome filed (`call-outcome`) | ✓ | `appointment.outcome` from a closer (EOD, disposition form, a hand move), or the source's no-show (always) | no-show: 👻, `stat-no-show`, setter card lost, closer card No Show, possible-cancel bookkeeping, record `noshow` · showed: ✅, `stat-showed`, setter card won, record `showed` + disposition → closed/deposit `stat-closed-won` · follow-up `stat-follow-up` + Follow Up · lost `stat-lost` + Lost · DQ `stat-disqualified` + Disqualified · rescheduled: nothing |
+| Call outcome filed (`call-outcome`) | ✓ | `appointment.outcome` from a closer (EOD, disposition form, a hand move), or the source's no-show (always) | no-show: 👻, `stat-no-show`, setter card lost, closer card No Show, possible-cancel bookkeeping, record `no_show` · showed: ✅, `stat-showed`, setter card won, record `showed` + disposition → closed/deposit `stat-closed-won` · follow-up `stat-follow-up` + Follow Up · lost `stat-lost` + Lost · DQ `stat-disqualified` + Disqualified · rescheduled / cancelled on the call: the record's rescheduled (else late-cancel) key |
 | End-of-day reminder (`eod-reminder`) | ✓ | schedule 18:00 / 09:00 per closer | unfiled days with calls → DM with the links · none → exit |
 | End-of-day report filed (`eod-filed`) | ✓ | `eod.filed` (always) | summary + corrections to `eod`, ✅ + reply under the reminder DM |
 | Deal closed (`deal-closed`) | ✓ | first payment or signature (contact; a gate stop does not spend it) | paid + signed + not yet a customer → `stat-customer`, closer card Closed - Won, setter card won, Sales Call record closed_won + cash, welcome email + text, NEW CLOSE post · else exit `not_yet` |
@@ -135,8 +135,10 @@ Setter card: **Appointment Set / Direct Booked**, closer card: **Scheduled**, th
 ### 1.7 End of day filed (`appointment.outcome`, source `disposition`; D34, D54)
 
 Sales Call record (custom_objects.sales_call, keyed by the booking's id): Call outcome filed's r1 / r2 update it
-(`outcome` showed / noshow, the closer's disposition) only when the engine made it with a CRM id (`if_missing: skip`,
-sweep 2026-10-10); a booking the engine never wrote (before install, or shadowed) is left for the drift sweep to name.
+(`outcome` in the company's own keys — `showed`, `no_show`, the rescheduled / late-cancel key for "rescheduled or
+cancelled on the call" — and the closer's disposition; S9). A record the engine never wrote (before install, or
+shadowed) is found in GHL by the booking's id, else the person and the start minute, never by name (S13); none or
+several found: nothing is written and the drift sweep names it.
 
 The reminder (**End-of-day reminder**, 18:00 and 09:00 per closer) DMs the standing link; **End-of-day report filed**
 posts the summary to `slack.channel.eod` and ✅ on the DM. Each call's answer goes through `recordDisposition` →
@@ -181,7 +183,7 @@ for a show, `call.held` with the call outcome.
 |---|---|---|---|---|---|---|---|---|
 | The source marks it cancelled (`appointment.status_changed → cancelled`, from the poll's delta) | **Call cancelled** (`once_per_appointment`) n1 → n2 → n3 clear date → n4 task → n5 → n7 | **Cancelled**, "Name -- Cancelled", **still open** | **Cancelled**, "Name -- Cancelled", **still open** | `stat-cancelled` | `stat-booked`, `stat-self-booked`, `stat-set`, `stat-confirmed` | — | ❌ on the booking post, thread: who cancelled and why, rebook task due in 1 day | **Cancellation rebook**: text + email with the rebook link. A parked pre-call exits `moot`. A rebook (new booking) moves both cards back to Set/Direct + Scheduled and takes `stat-cancelled` off (D62). Never rebooks: both cards sit open at Cancelled (F16) |
 | A closer taps ❌ on the pre-call question | pre-call n_cx | as the source cancel (GHL) | as the source cancel | | | | ❌ + "Decided by" | GHL: Call cancelled and Cancellation rebook run (F1, D59). Calendly: nothing is cancelled (F14, open) |
-| The host cancels a call **after** its start (Hair's closers clear a no-show's slot) | **Call cancelled** and **Cancellation rebook** run as for any cancel | the setter card, already **lost** at No-Show by the filed no-show, has no open card, so n1 **makes a new open one** at the same stage | moved (already there) | `stat-cancelled` beside `stat-no-show` | the booked tags | the rebook text + email | "Cancelled" line under the 👻 | open (§4 D-3) |
+| The host cancels a call **after** its start (Hair's closers clear a no-show's slot) | **nothing**: not a cancel (D73; the event carries `before_start: false`, and both cancel workflows match only `before_start` not false, S11) | — | — | — | — | — | — | the call stays on the closer's end-of-day form; the filed outcome stands |
 | No-show, then rebooks | Call booked | Set/Direct | Scheduled | `stat-booked`… again | `stat-no-show` (D62), `seq-no-show` (nothing sets it) | the new pre-call | new booking post | No-show recovery exits `rebooked` (F8, D59); `stat-no-show` is off (F9, D62) |
 
 ### 1.11 Reactivation
@@ -334,19 +336,35 @@ every write path.
 
 | # | Question | What happens today | Recommendation |
 |---|---|---|---|
-| D-1 | The Sales Call `outcome` value for a no-show, and for "Rescheduled / cancelled on the call" | Call outcome filed writes `noshow`; Hair's live records use `no_show` (D73). If `outcome` is a picklist without `noshow`, GHL drops it silently and every filed no-show reads "missing from EOD". A filed "rescheduled" writes nothing, so that record stays `scheduled` and also reads missing. | Check the field's options; write the company's own values from `sales_call.outcomes` (as the drift repair does for cancelled): `no_show`, and `late_cancel` (or `cancelled`) for "rescheduled / cancelled on the call". |
+| D-1 | **Fixed (S9).** | | |
 | D-2 | Calendly and the pre-call taps (F14, F15) | ❌ cancels nothing on Calendly (read-only): the thread says cancelled, Call cancelled never runs, cards and tags stay booked, the EOD later presumes a no-show. 🔁 texts the closer-call booking link: a second booking, the first slot still held. | 🔁 sends `appointment.reschedule_url` (Calendly's own link moves the same booking: the poll sees a reschedule, Call booked posts 🔁, Pre-call follows). ❌ cancels through Calendly (`POST /scheduled_events/{uuid}/cancellation`, a token with write scope), or at least the thread says "still on the calendar — cancel it here: <cancel_url>". |
-| D-3 | A host cancelling a call **after** its start (clearing a no-show's slot, which Hair's closers do) | Call cancelled and Cancellation rebook run: a second, open setter card at No-Show / Cancel / Reschedule (the no-show already marked the first lost), `stat-cancelled` beside `stat-no-show`, a "Cancelled" line under the 👻, a rebook task and the rebook text. | Treat it as D73 does: not a cancel. Both workflows match only a cancel before the start (a `cancelled_before_start` fact on the event); a rebook nudge after a no-show is No-show recovery's (off on Hair), so decide whether no-shows should get one. |
-| D-4 | A card or contact deleted in GHL (common while testing) | Replica cards are never dropped on absence (index lag); the next card step updates the deleted card, GHL answers 404, the run pauses for a person and Retry repeats it. | A 404 on a card update marks the replica card gone and the step makes a fresh card once. Until then: do not delete and re-create test contacts or cards mid-test; use a new email. |
-| D-5 | A Calendly booking polled before GHL has the person | Call booked's first CRM write and the pre-call receipts pause "contact has no CRM id yet" (05 / 07 "not yet"). | A check at the top of Call booked and Pre-call that waits for the CRM id (every 2 min for an hour), as New lead waits for a phone. For the test: create the contact in GHL and let one poll pass before booking. |
+| D-3 | **Fixed (S11).** | | |
+| D-4 | **Fixed (S12).** | | |
+| D-5 | **Fixed (S14).** | | |
 | D-6 | Real clients during test mode | Their Payment records, Sales Call records, agreements (Payment recorded's send and the manual tag), tasks and tags are shadowed; go-live clears those runs and replays nothing. Unless the old GHL workflows still do it: no agreement goes to a client who pays, `/cash` reads "no Payment records" or short, the show rate loses the window's calls. | Payments and agreements go live first (D52's first section), or at go-live backfill Payment and Sales Call records for the shadowed window. Tell the team to send agreements by hand meanwhile. |
-| D-7 | Bookings the engine never wrote a record for (before install, or while shadowed) | The EOD filing does not reach their Sales Call record (now skipped, S4, rather than a bare duplicate); the drift sweep names them. | Let Call outcome filed find the record by D73's match (GHL contact + start minute) and update it. |
-| D-8 | Wrap-ups and test contacts | The ledger rollups have no test exclusion (D73 excluded test contacts from the bot only): the 19:00 wrap-up will include the test's leads, bookings and payments. | Exclude them in `rollupDay` too, as the bot does. |
-| D-9 | Cancellation rebook's scope | Matches any cancelled appointment; Call cancelled only closing ones. Hair maps only closing types, so no effect today. | Match closing, as Call cancelled does. |
+| D-7 | **Fixed (S13).** | | |
+| D-8 | **Fixed (S15).** | | |
+| D-9 | **Fixed (S11).** | | |
 | D-10 | The old Zap that wrote Sales Call records | If it still runs, every booking has two records (the Zap's and Call booked's): calls booked double in the show rate. | Confirm it is off. |
 | D-11 | Whop refunds from the backfill | The webhook keys a refund by its refund id, the backfill by `<payment id>:refund`: a backfill window over a refund the webhook delivered counts it twice in the ledger's running total (→ Total Cash Collected). | Key both by the payment the refund reverses, or skip a backfill refund when the ledger has a refund row pointing at that payment. |
 | D-12 | Copy | e1's subject says "reply to lock it in" though only a text reply is read; m24e's subject reads "your call with " when the closer is not on the roster; Deal closed's welcome email carries Hair's own Calendly link and signature in the shared template. | Tyler's copy. |
 | D-13 | Smaller | A reschedule keeps an outcome filed for the old time (GHL source only; Calendly cannot reschedule a past event); Discovery Call `occurred_at` is display text, not a stamp; a fully refunded person who later signs is still a "NEW CLOSE" (D57 open). | Clear the outcome on a move to the future; write `occurred_at` as ISO; the D57 rule. |
+
+### Owner's calls applied the same day (S9–S15)
+
+The coordinator relayed the owner's rules on D-1, D-3, D-4, D-5, D-7, D-8 and D-9 (Hair's picklists verified live:
+Sales Call `outcome` showed, no_show, cancelled, rescheduled, late_cancel, scheduled; `disposition` closed_won,
+follow_up, lost, dq, financing_denied, close_pending; Payment `type` deposit, balance, installment, paid_in_full, refund,
+chargeback; `status` succeeded, failed, refunded, disputed, pending). D-2, D-6, D-10–D-13 stay open.
+
+| # | Rule | Built | Test |
+|---|---|---|---|
+| S9 | Every Sales Call / Payment write uses the company's own option keys; none sends a value the picklist lacks | `sales-call.ts` `salesCallValues`: the inverse of `sales_call.outcomes` (the company's spelling over the engine's alias; of the cancel keys, "cancelled" before the call, the other — `late_cancel` — on it; "rescheduled / cancelled on the call" = the rescheduled key, else the late cancel; a meaning with no key is not written), in the run context as `{{picklist.sales_call_outcome.*}}`. Call booked (`scheduled`), Call outcome filed (r1 showed, r2 no-show, new r3 for a filed "rescheduled"), Sales call recorded, Deal closed write it; Payment recorded's `type` / `status` pass a `oneof:` of the picklist. Hair's binding needs `scheduled` and `rescheduled` added (README's install JSON) for those two to be written. | `ghl-metrics.test.ts › what the engine writes…`; `sweep.test.ts › D-1` |
+| S11 | A cancel the source records after the call's start is not a cancel; Cancellation rebook is for closing calls | The poll (and `update_appointment`) put `before_start` on a cancel's `appointment.status_changed` (cancel time = the source's update stamp, at most now); Call cancelled and Cancellation rebook match only when it is not false, and Cancellation rebook only closing calls. The end-of-day form keeps a call cancelled after its start. | `sweep.test.ts › D-3 and D-9`; journey F1 pins `before_start: true` |
+| S12 | A card the CRM says is gone is replaced once | `pipeline_card`: an update the CRM answers 404 (or "not found" with no status) marks the replica card `gone` and makes a fresh card under the effects ledger; an outage is never "gone"; a move-only step skips. | `step-failures.test.ts › the card was deleted…`, `› a card deleted in the CRM since an earlier run…` |
+| S13 | A filing for a booking the engine never wrote finds GHL's record one-to-one | `crm_record` `if_missing: match`: the record with the booking's id, else the one of this person (any of their GHL ids) at the same start minute (no readable time: the same day), not already tied to another booking; never by name. | `sweep.test.ts › D-7` |
+| S14 | Call booked and the pre-call receipts wait for the CRM id | A first `check` (c0) on `contact.ghl_contact_id`, every 2 minutes for an hour; `check` gained `else_pause`, so when the hour runs out the run pauses with "contact has no CRM id yet" instead of exiting. | `sweep.test.ts › D-5` |
+| S15 | Wrap-ups leave test contacts out | `rollupDay`: every statement leaves out contacts that pass `testContactSql` with the company's `test.domains`. | `sweep.test.ts › D-8` |
 
 ### Copy a real person would receive that is still a placeholder
 
@@ -371,5 +389,5 @@ negative number; Whop's `refund.created` payload (identity, `payment_id`); Calen
 old Sales Call Zap being off. The test contact itself: tag `sys-test` **and** an email on jtylerray.com (the domain is
 what lets a Calendly booking pass before GHL's tags reach the engine), created in GHL before booking.
 
-Suite after this sweep: 57 files, 483 tests passed, 4 todo (`tsc` clean). Rerun any single file alone to rule out the
+Suite after this sweep (with S9–S15): 57 files, 492 tests passed, 4 todo (`tsc` clean). Rerun any single file alone to rule out the
 shared database.

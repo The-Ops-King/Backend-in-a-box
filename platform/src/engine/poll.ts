@@ -199,7 +199,10 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   // runs parked on this appointment wake now: a wait anchored to it recomputes from the new start, and a run whose premise
   // no longer holds (reminder for a cancelled call) exits moot immediately instead of at its old wake time
   await c.query("update runs set next_run_at=now() where company_id=$1 and appointment_id=$2 and status='waiting'", [co.id, existing.id]);
-  const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: existing.id, event_type: type, source: "ghl_poll", data: { source, ...changes, ...(s.cancellation ? { cancelled_by: s.cancellation.by, cancel_reason: s.cancellation.reason } : {}) } });
+  // D73: a cancel the source made after the call's start (a host clearing a no-show's slot) is not a cancel; the workflows that answer a cancel read this
+  const cancelAt = Math.min(Date.now(), Date.parse(s.dateUpdated ?? "") || Date.now());
+  const beforeStart = changes.status && s.status === "cancelled" ? { before_start: cancelAt < new Date(s.startTime).getTime() } : {};
+  const ev = await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: existing.id, event_type: type, source: "ghl_poll", data: { source, ...changes, ...beforeStart, ...(s.cancellation ? { cancelled_by: s.cancellation.by, cancel_reason: s.cancellation.reason } : {}) } });
   const term = await one<{ name: string; category: string }>(c, "select name, category from company_terms where id=$1", [cal.appointment_term]);
   const started = await dispatchEvent(c, ev, { contact: { id: contact.id }, appointment: { id: existing.id, starts_at: s.startTime, status: s.status, term, self_booked: cal.self_booked } });
   if (rep) { rep.appointmentsChanged++; rep.eventsDispatched += started.length; }

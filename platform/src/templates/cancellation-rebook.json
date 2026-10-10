@@ -5,7 +5,7 @@
   "stage": "booking",
   "sort": 30,
   "origin": "default",
-  "description": "When a call is cancelled, send the rebook link by text and email.",
+  "description": "When a closing call is cancelled before its start, send the rebook link by text and email (a cancel after the start, a host clearing a no-show's slot, is not a cancel, D73).",
   "definition": {
     "schema": 1,
     "reentry": "once_per_appointment",
@@ -18,9 +18,25 @@
         "type": "trigger",
         "event": "appointment.status_changed",
         "match": {
-          "eq": [
-            "{{event.status.to}}",
-            "cancelled"
+          "and": [
+            {
+              "eq": [
+                "{{event.status.to}}",
+                "cancelled"
+              ]
+            },
+            {
+              "eq": [
+                "{{appointment.term.category}}",
+                "closing"
+              ]
+            },
+            {
+              "neq": [
+                "{{event.before_start}}",
+                false
+              ]
+            }
           ]
         }
       },

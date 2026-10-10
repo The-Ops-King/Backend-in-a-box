@@ -489,9 +489,14 @@ Install input for the GHL config (Hair's values):
   "qualify": { "mqlAnswers": ["Employed full-time", "Business owner or entrepreneur", "Investor"],
                "dqAnswers": ["Currently between jobs", "Employed part-time"], "unansweredIsMql": false },
   "salesCall": { "object": "custom_objects.sales_call",
-                 "outcomes": { "showed": "showed", "no_show": "noshow", "noshow": "noshow", "cancelled": "cancelled", "late_cancel": "cancelled" },
+                 "outcomes": { "scheduled": "scheduled", "showed": "showed", "no_show": "noshow", "noshow": "noshow", "cancelled": "cancelled", "late_cancel": "cancelled", "rescheduled": "rescheduled" },
                  "dqDispositions": ["dq"] } }
 ```
+
+The same map, inverted, is what the engine writes on a Sales Call's `outcome` (`{{picklist.sales_call_outcome.*}}`), so
+every write is one of the company's own option keys: `scheduled` at booking, `showed`, a no-show as the company's own
+spelling (`no_show`; the engine's `noshow` is only an alias to read old writes), and "rescheduled / cancelled on the call"
+as the key meaning rescheduled, else the late cancel (`late_cancel`). A meaning the map lacks is not written at all.
 
 **Setup, once per Slack app** (then **reinstall the app to the workspace**: Slack asks for the new scopes; the bot token
 normally stays the same, and if Slack shows a new one, re-run install with it as `slackToken`). App manifest fragment, with the

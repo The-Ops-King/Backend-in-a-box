@@ -33,6 +33,8 @@ export async function saveEodForm(c: PoolClient, companyId: string, fields: EodF
 }
 
 export const DAY_FMT = "yyyy-MM-dd";
+/** A call on the closer's day: not cancelled, or cancelled only after its start (a host clearing a no-show's slot is not a cancel, D73), so its outcome is still theirs to file. */
+const HELD_CALL = "(a.status not in ('cancelled','invalid') or (a.status='cancelled' and a.source_updated_at >= a.starts_at))";
 export const todayFor = (tz: string, now = DateTime.now()) => now.setZone(tz).toFormat(DAY_FMT);
 
 /** The closer's standing link id: made once, kept. */
@@ -57,7 +59,7 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
            ot.category as outcome_cat, cot.category as call_outcome_cat,
            (select fs.answers->>'notes' from form_submissions fs where fs.appointment_id=a.id order by fs.submitted_at desc limit 1) as notes
     from appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
-    where a.company_id=$1 and a.assigned_user_id=$2 and a.starts_at >= $3 and a.starts_at <= $4 and a.status not in ('cancelled','invalid') order by a.starts_at`, [company.id, closer.id, from.toJSDate(), to.toJSDate()]);
+    where a.company_id=$1 and a.assigned_user_id=$2 and a.starts_at >= $3 and a.starts_at <= $4 and ${HELD_CALL} order by a.starts_at`, [company.id, closer.id, from.toJSDate(), to.toJSDate()]);
   const calls: CallEntry[] = [];
   const loc = (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='crm.location_id'", [company.id]))?.v.toString("utf8");
   const price = num(company.contract_value_default);
@@ -92,7 +94,7 @@ export async function eodFacts(c: PoolClient, company: CompanyRow, userId: strin
   const rows = await many<{ day: string; calls: number; filed: boolean }>(c, `
     select d.day::text as day, count(a.id)::int as calls, exists (select 1 from eod_reports r where r.company_id=$1 and r.user_id=$2 and r.day=d.day and r.submitted_at is not null) as filed
     from (select generate_series(($3::date - interval '7 days')::date, $3::date, interval '1 day')::date as day) d
-    left join appointments a on a.company_id=$1 and a.assigned_user_id=$2 and a.status not in ('cancelled','invalid') and (a.starts_at at time zone $4)::date = d.day
+    left join appointments a on a.company_id=$1 and a.assigned_user_id=$2 and ${HELD_CALL} and (a.starts_at at time zone $4)::date = d.day
     group by d.day order by d.day`, [company.id, userId, day, tz]);
   const label = (d: string) => DateTime.fromFormat(d, DAY_FMT, { zone: tz }).toFormat("ccc LLL d");
   const today = rows.find((r) => r.day === day) ?? { day, calls: 0, filed: false };

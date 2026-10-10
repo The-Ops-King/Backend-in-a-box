@@ -5,6 +5,8 @@ import type { Company } from "@/adapters/types";
 import type { GhlObjectRecord, GhlReads } from "@/adapters/ghl/metrics";
 import { isTestContact, testContactSql } from "./mode";
 import { MetricError, type GroupBy } from "./metric-registry";
+import { callTime } from "./sales-call";
+export { callTime } from "./sales-call";
 
 /**
  * D73: people and deals are read from GHL at answer time ("Always GHL. It's the truth."). Leads are contacts by the CRM's
@@ -200,22 +202,6 @@ export async function sourcesOf(x: GhlCtx, list: { ghl: string; utm: string | nu
  * the same external id, else the same person (GHL contact id) starting the same minute; none or several, it stands on its
  * own outcome. Closer: the record's closer name on the roster, else the name as written.
  */
-/**
- * A Sales Call's start: an ISO stamp, or the display text an outside integration writes ("Mon Oct 5 · 10:00 AM EDT") read
- * on the record's call_date in the company's zone, trusted only when its zone abbreviation is the company zone's on that
- * day. Null when neither holds: the record then matches by person and day.
- */
-export function callTime(v: unknown, day: DateTime | null, tz: string): DateTime | null {
-  const s = String(v ?? "").trim();
-  if (!s) return null;
-  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) { const d = DateTime.fromISO(s); return d.isValid ? d.setZone(tz) : null; }
-  const m = /(\d{1,2}):(\d{2})\s*([AP]M)\s*([A-Z]{2,5})?\s*$/i.exec(s);
-  if (!m || !day) return null;
-  const h = (Number(m[1]) % 12) + (m[3].toUpperCase() === "PM" ? 12 : 0);
-  const at = day.set({ hour: h, minute: Number(m[2]), second: 0, millisecond: 0 });
-  return !m[4] || at.toFormat("ZZZZ").toUpperCase() === m[4].toUpperCase() ? at : null;
-}
-
 async function calls(x: GhlCtx): Promise<Call[]> {
   connected(x);
   return (x.memo.calls ??= (async () => {

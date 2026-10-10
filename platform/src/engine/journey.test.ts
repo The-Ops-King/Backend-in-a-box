@@ -408,7 +408,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       const ts = (await postTs(`appointment:${run.appointment_id}`))!;
       expect(reactionsOn(ts)).toEqual(["x"]); expect(threadOf(ts).at(-1)).toMatch(/^❌ Mina's call is cancelled\.\n> sorry, I need to cancel\nDecided by /);   // D55: a person decided
       const cx = await asOperator((c) => many<{ source: string; data: Record<string, unknown> }>(c, "select source, data from events where company_id=$1 and appointment_id=$2 and event_type='appointment.status_changed' order by id", [companyId, run.appointment_id]));
-      expect(cx).toEqual([{ source: "engine", data: { source: "ghl", status: { from: "confirmed", to: "cancelled" }, by: "workflow", node: "n_cx" } }]);
+      expect(cx).toEqual([{ source: "engine", data: { source: "ghl", status: { from: "confirmed", to: "cancelled" }, before_start: true, by: "workflow", node: "n_cx" } }]);   // a cancel before the call is a cancel (D73)
       // the next poll sees the source agree: cancelled → cancelled is no change, so the step's event stays the only one
       await book({ ...apptStore.get("A-MINA")!, status: "cancelled" });
       await tickAt(DateTime.now());

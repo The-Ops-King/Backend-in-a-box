@@ -5,7 +5,7 @@
   "stage": "post_call",
   "sort": 4,
   "origin": "spec",
-  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed or deposit → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A reschedule changes nothing here: Call booked already reacted 🔁. The Sales Call record (created at booking) is updated with the outcome and, for a show, the disposition the closer confirmed. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54).",
+  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed or deposit → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A call filed as rescheduled or cancelled on the call only updates its Sales Call record (Call booked reacts 🔁 to a real reschedule). The Sales Call record is updated with the outcome in the company's own option keys and, for a show, the disposition the closer confirmed; a booking whose record the engine never wrote is found in GHL by the booking's id, else the person and the start minute, never made. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -220,13 +220,10 @@
         "type": "crm_record",
         "object": "custom_objects.sales_call",
         "key": "{{appointment.external_id}}",
-        "if_missing": "skip",
-        "only_if": {
-          "exists": "records.sales_call.key"
-        },
+        "if_missing": "match",
         "properties": {
           "external_id": "{{appointment.external_id}}",
-          "outcome": "noshow"
+          "outcome": "{{picklist.sales_call_outcome.noshow}}"
         },
         "title": "Sales Call record: no-show"
       },
@@ -250,16 +247,25 @@
         "type": "crm_record",
         "object": "custom_objects.sales_call",
         "key": "{{appointment.external_id}}",
-        "if_missing": "skip",
-        "only_if": {
-          "exists": "records.sales_call.key"
-        },
+        "if_missing": "match",
         "properties": {
           "external_id": "{{appointment.external_id}}",
-          "outcome": "showed",
+          "outcome": "{{picklist.sales_call_outcome.showed}}",
           "disposition": "{{vars.disposition | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}"
         },
         "title": "Sales Call record: showed, with the disposition"
+      },
+      {
+        "id": "r3",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{appointment.external_id}}",
+        "if_missing": "match",
+        "properties": {
+          "external_id": "{{appointment.external_id}}",
+          "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
+        },
+        "title": "Sales Call record: rescheduled or cancelled on the call"
       }
     ],
     "edges": [
@@ -295,9 +301,20 @@
       },
       {
         "from": "b1",
+        "to": "r3",
+        "when": {
+          "eq": [
+            "{{event.outcome}}",
+            "rescheduled"
+          ]
+        },
+        "label": "rescheduled or cancelled on the call"
+      },
+      {
+        "from": "b1",
         "to": "x0",
         "else": true,
-        "label": "rescheduled: the booking post already has the 🔁"
+        "label": "anything else: nothing to mark"
       },
       {
         "from": "g1",
@@ -426,6 +443,10 @@
       },
       {
         "from": "k4",
+        "to": "x1"
+      },
+      {
+        "from": "r3",
         "to": "x1"
       }
     ]

@@ -105,7 +105,7 @@ const fake: Adapters = {
 const CRM = { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_closer_scheduled: "STAGE-SCHED", default_closer: "U1" };
 const TABLES = ["alerts", "slack_posts", "sends", "runs", "events", "slack_connections", "workflow_triggers", "workflows", "messages", "crm_records", "payments", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"];
 let companyId: string, closingTerm: string;
-let wfNewLead: string, wfS2L: string, wfTag: string, wfCard: string, wfCardSkip: string, wfCardStatus: string, wfNote: string, wfTask: string, wfRecord: string, wfContact: string, wfSlack: string, wfNotify: string, wfClassify: string, wfAnalyze: string, wfAnalyzeOpt: string, wfAppt: string, wfBranch: string, wfRecordEv: string, wfCheck: string, wfRecordUpdate: string;
+let wfNewLead: string, wfS2L: string, wfTag: string, wfCard: string, wfCardSkip: string, wfCardStatus: string, wfNote: string, wfTask: string, wfRecord: string, wfContact: string, wfSlack: string, wfNotify: string, wfClassify: string, wfAnalyze: string, wfAnalyzeOpt: string, wfAppt: string, wfBranch: string, wfRecordEv: string, wfCheck: string, wfRecordUpdate: string, wfCardMove: string;
 
 const wipe = (slug: string) => asOperator(async (c) => {
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [slug]); if (!co) return;
@@ -181,6 +181,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
     wfNewLead = await templateWf("new-lead"); wfS2L = await templateWf("speed-to-lead");
     wfTag = await probe("Probe: tag", [{ id: "n1", type: "set_tag", tag: "stat-probe" }]);
     wfCard = await probe("Probe: card", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", name: "{{contact.name}} -- New" }]);
+    wfCardMove = await probe("Probe: card to another stage", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "STAGE-ELSEWHERE", name: "{{contact.name}} -- Moved" }]);
     wfCardSkip = await probe("Probe: card, skip when missing", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", if_missing: "skip" }]);
     wfCardStatus = await probe("Probe: card status only", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", status: "lost" }]);
     wfNote = await probe("Probe: note", [{ id: "n1", type: "note", template: "Probe note for {{contact.name}}" }]);
@@ -519,14 +520,34 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("createOpportunity")).toBe(1); expect(cardsIn("READ503")).toHaveLength(1);
     });
 
-    it("the card was deleted in the CRM between the read and the write (updateOpportunity 404): the run pauses with the CRM's words, asked once — today the run is failed", async () => {
+    it("the card was deleted in the CRM between the read and the write (updateOpportunity 404): the CRM said it is gone, so the replica marks it gone and the step makes one fresh card; asked once, no Retry loop (sweep 2026-10-10, D-4)", async () => {
       const ct = await person("DEL404");
-      handCard("DEL404");
-      fail("updateOpportunity", { status: 404, times: 99 });
+      const hand = handCard("DEL404");
+      fail("updateOpportunity", { status: 404, message: `{"message":"Opportunity with id ${hand.id} not found"}`, times: 99 });
       const id = await start(wfCard, ct);
-      await spin(id, 2);
-      expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/not found|404/) });
-      expect(callsTo("updateOpportunity")).toBe(1); expect(callsTo("createOpportunity")).toBe(0);
+      await spin(id, 3);
+      expect((await runRow(id)).status).toBe("completed");
+      expect(callsTo("updateOpportunity")).toBe(1); expect(callsTo("createOpportunity")).toBe(1);
+      expect((await replicaCards(ct)).map((k) => [k.ghl_opportunity_id === hand.id ? "hand" : "fresh", k.status])).toEqual([["hand", "gone"], ["fresh", "open"]]);
+      // the next run moves the fresh card; the gone one is never asked about again
+      calls.clear(); plans.clear();
+      const again = await start(wfCard, ct); await spin(again, 2);
+      expect((await runRow(again)).status).toBe("completed"); expect(callsTo("createOpportunity")).toBe(0);
+    });
+
+    it("a card deleted in the CRM since an earlier run (a test contact re-made): the stale replica card is found gone on the write and replaced once; a card the CRM cannot be asked about (503) is never called gone (sweep 2026-10-10, D-4)", async () => {
+      const ct = await person("STALE1");
+      const first = await start(wfCard, ct); await tickOnce(); expect((await runRow(first)).status).toBe("completed");
+      const made = (await replicaCards(ct))[0].ghl_opportunity_id!;
+      cards.delete(made); calls.clear();
+      fail("updateOpportunity", { status: 503, times: 1 });
+      const second = await start(wfCardMove, ct); await tickOnce();
+      expect(await runRow(second)).toMatchObject({ status: "waiting", current_node: "n1" });   // an outage: retried in place, nothing marked
+      expect((await replicaCards(ct))[0].status).toBe("open");
+      await wake(second); await tickOnce();
+      expect((await runRow(second)).status).toBe("completed");
+      expect(callsTo("createOpportunity")).toBe(1);
+      expect((await replicaCards(ct)).map((k) => k.status)).toEqual(["gone", "open"]);
     });
 
     it("shadow: the CRM is read (cards first, D41) but never written; a replica card with no CRM id, the run completes", async () => {
