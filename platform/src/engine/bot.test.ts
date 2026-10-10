@@ -84,6 +84,7 @@ const salesCalls: GhlObjectRecord[] = [
 ];
 salesCalls.push({ id: "S-LINKED", createdAt: "2026-08-01T00:00:00Z", properties: { external_id: "X-LINKED", call_date: "2026-08-14", outcome: "showed", closer: "Cara Closer" } });   // August, linked to its contact only by GHL's association
 salesCalls.find((r) => r.id === "S3")!.properties.disposition = "dq";
+salesCalls.find((r) => r.id === "S3")!.properties.booking_source = "setter_set";
 salesCalls.find((r) => r.id === "S1")!.properties.objections_raised = ["price", "timing"];
 salesCalls.find((r) => r.id === "S2")!.properties.objections_raised = ["price"];
 salesCalls.find((r) => r.id === "S9")!.properties.objections_raised = ["price"];   // a test contact's call: never counted
@@ -99,6 +100,7 @@ const ghlReads: GhlReads = {
     { object: "contact", objectLabel: "Contact", id: WORK, key: "contact.what_best_describes_your_current_work_situation", prop: WORK, name: "What best describes your current work situation?", type: "TEXT", options: [] },
     { object: "contact", objectLabel: "Contact", id: "F-SRC", key: "contact.utm_source", prop: "F-SRC", name: "UTM Source", type: "TEXT", options: [] },
     { object: "custom_objects.sales_call", objectLabel: "Sales Call", id: "P1", key: "custom_objects.sales_call.call_date", prop: "call_date", name: "Call date", type: "DATE", options: [] },
+    { object: "custom_objects.sales_call", objectLabel: "Sales Call", id: "P3", key: "custom_objects.sales_call.booking_source", prop: "booking_source", name: "Booking source", type: "SINGLE_OPTIONS", options: [{ key: "setter_set", label: "Setter booked" }, { key: "self_booked", label: "Direct booked" }] },
     { object: "custom_objects.sales_call", objectLabel: "Sales Call", id: "P2", key: "custom_objects.sales_call.objections_raised", prop: "objections_raised", name: "Objections raised", type: "MULTIPLE_OPTIONS", options: [{ key: "price", label: "Price" }, { key: "timing", label: "Timing" }] },
   ],
 };
@@ -443,7 +445,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       const text = posts[0].text;
       expect(text.split("\n")[0]).toBe('*Show rate by "What best describes your current work situation?"*  · _from GHL, read just now_');
       expect(text.split("\n")[1]).toMatch(/^\d+ calls booked · \d+ answered the question · \d+ showed \(\d+%\)$/);
-      expect(text).toMatch(/\*No answer on \d+ booked calls?:\* /);
+      expect(text).toMatch(/\*No answer on \d+ booked calls?:\* /); expect(text).toContain("C3 (Oct 8, setter booked)");
       expect(text).toContain("Too few calls to call it a pattern.");
       expect(text).toMatch(/Answer\s+Calls\s+Showed\s+No-show.*Show rate\s+Share of shows/);
       expect(text).toMatch(/Employed full-time\s+\d+/);

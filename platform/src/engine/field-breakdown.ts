@@ -138,7 +138,8 @@ export async function fieldVsCalls(c: PoolClient, companyId: string, q: { field:
     people.set(id, k && !isTestContact({ tags: k.tags, emails: [k.email] }, domains) ? answers(k.customFields[def.prop], def) : []);
   }));
   const by = new Map<string, { calls: number; showed: number; noshow: number; cancelled: number; missing: number }>();
-  const bookedDef = defs.find((f) => f.object !== "contact" && f.prop === "booking_source");
+  const scObject = bindings["crm.object_sales_call"];   // the Sales Call's own field: other objects (Discovery Call) have a booking_source with other options
+  const bookedDef = defs.find((f) => f.object === scObject && f.prop === "booking_source");
   const bookedAs = (v: string) => (v ? bookedDef?.options.find((o) => o.key === v)?.label ?? v : "");
   const unanswered = calls.filter((k) => !(people.get(k.ghl) ?? []).length).map((k) => ({ name: k.name.split(" · ")[0].trim() || k.name, booked: bookedAs(k.booked), date: k.at.toFormat("LLL d") }));
   for (const k of calls) for (const v of (people.get(k.ghl) ?? []).length ? people.get(k.ghl)! : [NO_ANSWER]) {
