@@ -565,7 +565,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
     });
     it("D74: a Sales Call linked to its contact only by GHL's association is read through that association", async () => {
       const calls = await asOperator(async (c) => { const { adapterCompany: ac, bindings } = await loadCompany(c, companyId);
-        return salesCallsFor({ c, companyId, ac, bindings, reads: ghlReads, tz: TZ, start: DateTime.fromISO("2026-08-01", { zone: TZ }).toJSDate(), end: DateTime.fromISO("2026-09-01", { zone: TZ }).toJSDate(), now: NOW.toJSDate(), sourceField: "", domains: [] }); });
+        return salesCallsFor({ c, companyId, ac, bindings, reads: ghlReads, tz: TZ, start: DateTime.fromISO("2026-08-01", { zone: TZ }).toJSDate(), end: DateTime.fromISO("2026-09-01", { zone: TZ }).toJSDate(), now: NOW.toJSDate(), domains: [] }); });
       expect(calls.map((k) => [k.id, k.ghl, k.cls])).toEqual([["S-LINKED", "C3", "showed"]]);
     });
     it("D74: a column the catalogue does not hold is an error back to the model, never a guess", async () => {

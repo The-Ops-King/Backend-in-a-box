@@ -285,3 +285,15 @@ the poll interval.
 | Contacts added in a window | `POST /contacts/search` (Version 2021-07-28) `{locationId, pageLimit ≤ 500, filters:[{field:"dateAdded",operator:"range",value:{gte,lte}}], sort:[{field:"dateAdded",direction:"asc"}]}` | each contact carries `searchAfter`; send the last one back as `searchAfter` (not capped at 10,000 like `page`). `customFields: [{id, value}]`. |
 | Won cards on one board | `GET /opportunities/search?location_id&pipeline_id&status=won&limit=100&page=N` | status enum open, won, lost, abandoned, all. Won time = `lastStatusChangeAt` (fallback `lastStageChangeAt`, then `updatedAt`). The card embeds `contact {id, name, email, tags}`, `monetaryValue`, `assignedTo`. |
 | Custom object records | `POST /objects/{key}/records/search` `{locationId, page, pageLimit, query:""}` | records carry `searchAfter` and `properties`; no property filter in the spec, so all records are read and filtered here. Hair's `custom_objects.sales_call` records (object 6a8d189363abc358ea394676) were made by an outside integration: their `external_id` is not the ledger's Calendly event uuid, so they are matched by GHL contact id and start minute. |
+
+## Contact attribution (D78; keys from the published API v2 spec, checked against Hair's live contacts 2026-10-10)
+
+`GET /contacts/{id}` and `POST /contacts/search` return two objects on each contact: `attributionSource` (the first touch)
+and `lastAttributionSource` (the latest). The spec's `AttributionSource` keys: `url`, `campaign`, `utmSource`, `utmMedium`,
+`utmContent`, `referrer`, `campaignId`, `fbclid`, `gclid`, `msclikid`, `dclid`, `fbc`, `fbp`, `fbEventId`, `userAgent`,
+`ip`, `medium`, `mediumId`. Live contacts also carry `sessionSource` ("Social media", "Third Party", "CRM UI"…), `utmTerm`,
+`utmKeyword` and `gaClientId`. The campaign is `campaign`, not `utmCampaign`. `medium` is how the record came in (`form`,
+`zapier`, `manual`/`Manual`), not the UTM medium. The spec's search schema documents an `attributions` array instead; the
+adapter reads that form too (`isFirst` / `isLast`, else first and last). Hair, October's 60 leads: `utmSource` fb 38, ig 17;
+the rest have only `medium` (zapier 4, manual 1). The top-level `source` is the record's origin label ("Optin Form").
+

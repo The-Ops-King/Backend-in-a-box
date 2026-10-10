@@ -1,13 +1,33 @@
 import { DateTime } from "luxon";
 import { ghl, GhlError } from "./client";
-import type { AppointmentSnapshot, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, LiveCard, MessageSnapshot, ObjectRecord, OppSnapshot, UserSnapshot, WonOpportunity } from "../types";
+import type { AppointmentSnapshot, Attribution, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, LiveCard, MessageSnapshot, ObjectRecord, OppSnapshot, Touch, UserSnapshot, WonOpportunity } from "../types";
 
-export type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string | null; tags?: string[]; source?: string; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string };
-export const mapContact = (c: RawContact): ContactSnapshot => ({
-  id: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, timezone: c.timezone, assignedTo: c.assignedTo ?? undefined,
-  tags: c.tags ?? [], ...(c.source ? { source: c.source } : {}), customFields: Object.fromEntries((c.customFields ?? []).map((f) => [f.id, f.value])),
-  dateUpdated: c.dateUpdated, dateAdded: c.dateAdded,
-});
+type RawTouch = Record<string, unknown> & { isFirst?: boolean; isLast?: boolean };
+export type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string | null; tags?: string[]; source?: string; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string;
+  attributionSource?: RawTouch | null; lastAttributionSource?: RawTouch | null; attributions?: RawTouch[] | null };
+const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+function mapTouch(t: RawTouch | null | undefined): Touch | undefined {
+  if (!t || typeof t !== "object") return undefined;
+  const out: Touch = { utmSource: str(t.utmSource), utmMedium: str(t.utmMedium), utmCampaign: str(t.campaign) ?? str(t.utmCampaign), utmContent: str(t.utmContent), utmTerm: str(t.utmTerm) ?? str(t.utmKeyword),
+    fbclid: str(t.fbclid), medium: str(t.medium), sessionSource: str(t.sessionSource), url: str(t.url), referrer: str(t.referrer) };
+  const kept = Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined)) as Touch;
+  return Object.keys(kept).length ? kept : undefined;
+}
+/** GHL's first touch (`attributionSource`) and latest touch (`lastAttributionSource`); the list form (`attributions`, flagged isFirst / isLast) when only that is sent. Keys verified in ghl/02-api-facts.md. */
+export function mapAttribution(c: Pick<RawContact, "attributionSource" | "lastAttributionSource" | "attributions">): Attribution | undefined {
+  const list = Array.isArray(c.attributions) ? c.attributions.filter((t) => t && typeof t === "object") : [];
+  const first = mapTouch(c.attributionSource ?? list.find((t) => t.isFirst) ?? list[0]);
+  const last = mapTouch(c.lastAttributionSource ?? list.find((t) => t.isLast) ?? (list.length > 1 ? list[list.length - 1] : undefined));
+  return first || last ? { ...(first ? { first } : {}), ...(last ? { last } : {}) } : undefined;
+}
+export const mapContact = (c: RawContact): ContactSnapshot => {
+  const attribution = mapAttribution(c);
+  return {
+    id: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, timezone: c.timezone, assignedTo: c.assignedTo ?? undefined,
+    tags: c.tags ?? [], ...(c.source ? { source: c.source } : {}), customFields: Object.fromEntries((c.customFields ?? []).map((f) => [f.id, f.value])),
+    dateUpdated: c.dateUpdated, dateAdded: c.dateAdded, ...(attribution ? { attribution } : {}),
+  };
+};
 type RawEvent = { id: string; calendarId: string; contactId: string; assignedUserId?: string; startTime: string; endTime: string; appointmentStatus: string; title?: string; dateUpdated?: string; dateAdded?: string };
 const mapAppt = (e: RawEvent): AppointmentSnapshot => ({ id: e.id, calendarId: e.calendarId, contactId: e.contactId, assignedUserId: e.assignedUserId, startTime: e.startTime, endTime: e.endTime, status: e.appointmentStatus, title: e.title, dateUpdated: e.dateUpdated, dateAdded: e.dateAdded, raw: e as unknown as Record<string, unknown> });
 

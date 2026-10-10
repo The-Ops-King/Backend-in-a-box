@@ -95,7 +95,8 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("set_tag"), tag: TagList }),
   z.object({ ...base, type: z.literal("remove_tag"), tag: TagList }),
   // Writes to the CRM contact: a few native fields plus custom fields by id. A field whose rendered value is empty is left alone, never blanked.
-  z.object({ ...base, type: z.literal("update_contact"), set: z.object({ first_name: z.string().optional(), last_name: z.string().optional(), phone: z.string().optional(), timezone: z.string().optional(), assign_to: z.string().optional() }).default({}), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]), clear: z.array(z.string()).default([]) }),
+  // `if_empty`: written only where the CRM's field is empty right now (read live): a first touch is never overwritten (D78).
+  z.object({ ...base, type: z.literal("update_contact"), set: z.object({ first_name: z.string().optional(), last_name: z.string().optional(), phone: z.string().optional(), timezone: z.string().optional(), assign_to: z.string().optional() }).default({}), fields: z.array(z.object({ id: z.string(), value: z.string(), if_empty: z.boolean().optional() })).default([]), clear: z.array(z.string()).default([]) }),
   // A to-do on the CRM contact for a human (rebook this person, call them back). `due` is a duration from now.
   z.object({ ...base, type: z.literal("create_task"), title: z.string(), body: z.string().optional(), due: z.string().default("+1d"), assign_to: z.string().optional() }),
   z.object({ ...base, type: z.literal("note"), template: z.string() }),
@@ -169,15 +170,16 @@ export type ManifestEntry = { key: string; kind: "secret" | "id" | "text" | "cha
 const BINDING_PREFIXES: Record<string, ManifestEntry["kind"]> = { "crm.": "id", "calendar.": "id", "slack.channel.": "channel", "secret.": "secret", "prompt.": "text" };
 
 export function extractManifest(def: Definition): { bindings: ManifestEntry[] } {
-  const refs = new Set<string>();
+  const refs = new Set<string>(), bare = new Set<string>();
+  // a binding every reference of which carries a `default` may be left unbound: what it feeds is skipped (an unbound field is not written)
   const walk = (v: unknown) => {
-    if (typeof v === "string") for (const m of v.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)/g)) refs.add(m[1]);
+    if (typeof v === "string") for (const m of v.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)([^}]*)\}\}/g)) { refs.add(m[1]); if (!/\|\s*default\b/.test(m[2])) bare.add(m[1]); }
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === "object") Object.values(v).forEach(walk);
   };
   walk(def.nodes); walk(def.edges);
   // an analyze node needs the company's Anthropic key even though no template mentions it
-  if (def.nodes.some((n) => n.type === "analyze")) refs.add("secret.anthropic_key");
+  if (def.nodes.some((n) => n.type === "analyze")) { refs.add("secret.anthropic_key"); bare.add("secret.anthropic_key"); }
   // a notify_owner node posts to Slack even without a channel binding (it DMs), so slack.channel.alerts is only the fallback; nothing to add
   const out = new Map<string, ManifestEntry>();
   for (const ref of refs) {
@@ -185,7 +187,7 @@ export function extractManifest(def: Definition): { bindings: ManifestEntry[] } 
       if (!ref.startsWith(prefix)) continue;
       // calendar.closer_call.url → binding key calendar.closer_call
       const key = prefix === "calendar." || prefix === "prompt." ? ref.split(".").slice(0, 2).join(".") : prefix === "slack.channel." ? ref.split(".").slice(0, 3).join(".") : ref;
-      const required = kind !== "channel";
+      const required = kind !== "channel" && (bare.has(ref) || !!out.get(key)?.required);
       out.set(key, { key, kind, required, ...(prefix === "calendar." ? { resolves: "calendars" } : {}) });
     }
   }

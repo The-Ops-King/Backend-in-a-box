@@ -6,6 +6,7 @@ import { dayBounds, setterMetrics, type SetterStats } from "./metrics";
 import { AvailabilityUnreadable, readAvailability, type Availability, type HealthProbes } from "./health";
 import { loadCompany } from "./context";
 import { testContactSql, testDomains } from "./mode";
+import { leadSourceSql, sourceFields, sourceFieldsParam } from "./lead-source";
 import { GHL_SOURCE, closesFor, ghlRows, showBreakdown, type GhlCtx, type GhlEntity, type QualificationSummary, type ShowBreakdown } from "./ghl-metrics";
 
 /**
@@ -127,10 +128,10 @@ export function previousPeriod(p: Period, unit: "month" | "week", tz: string, no
 
 // ---- the registry -----------------------------------------------------------------------------------------------------
 type Entity = "contact" | "appointment_booked" | "appointment_due" | "reschedule";
-type Q = { companyId: string; start: Date; end: Date; tz: string; sourceField: string; now: Date; domains: string[]; groupBy?: GroupBy; filters: { closer?: string; setter?: string; source?: string } };
+type Q = { companyId: string; start: Date; end: Date; tz: string; sourceFields: (string | null)[]; now: Date; domains: string[]; groupBy?: GroupBy; filters: { closer?: string; setter?: string; source?: string } };
 
-// a person's source: the CRM's lead-source field the company bound (crm.field_contact_lead_source), else the UTM source on their latest booking
-const SOURCE = (ct: string) => `coalesce(nullif(${ct}.ghl_fields->>$5::text,''), (select nullif(sa.tracking->>'utm_source','') from appointments sa where sa.company_id=${ct}.company_id and sa.contact_id=${ct}.id and sa.source<>'test' and coalesce(sa.tracking->>'utm_source','')<>'' order by sa.booked_at desc limit 1), 'unknown')`;
+// a person's source (D78): $5 is [lead-source field id, UTM Source field id]
+const SOURCE = (ct: string) => leadSourceSql(ct, "$5");
 // $7: the company's test domains; every entity leaves test contacts out (D73)
 const NOT_TEST = `not ${testContactSql("ct", "$7")}`;
 const ENTITIES: Record<Entity, { from: string; where: string; time: string; closer?: string; setter?: string; source: string }> = {
@@ -199,7 +200,7 @@ export const catalogue = () => METRIC_NAMES.map((n) => `${n}: ${METRICS[n].label
 
 function buildBase(d: Base, q: Q): { sql: string; params: unknown[] } {
   const e = ENTITIES[d.entity];
-  const params: unknown[] = [q.companyId, q.start, q.end, q.tz, q.sourceField, q.now, q.domains];
+  const params: unknown[] = [q.companyId, q.start, q.end, q.tz, q.sourceFields, q.now, q.domains];
   const where = [e.where, `${e.time} >= $2 and ${e.time} < $3`, d.where ? `(${d.where})` : ""].filter(Boolean);
   const bind = (v: unknown) => { params.push(v); return `$${params.length}`; };
   if (q.filters.closer) { if (!e.closer) throw new MetricError(`${d.label} cannot be filtered by closer`); where.push(`${e.closer} = ${bind(q.filters.closer)}::uuid`); }
@@ -209,7 +210,7 @@ function buildBase(d: Base, q: Q): { sql: string; params: unknown[] } {
   const key = !g ? "''" : g === "source" ? e.source : g === "closer" ? `${e.closer}::text` : g === "setter" ? `${e.setter}::text`
     : `to_char(date_trunc('${g}', ${e.time} at time zone $4), '${g === "month" ? "YYYY-MM" : "YYYY-MM-DD"}')`;
   // $4..$6 are bound on every statement; the trailing checks give each a type even where the metric does not read it
-  return { sql: `select ${key} as g, (${d.value})::float as n from ${e.from} where ${where.join(" and ")} and $4::text is not null and $5::text is not null and $6::timestamptz is not null group by 1`, params };
+  return { sql: `select ${key} as g, (${d.value})::float as n from ${e.from} where ${where.join(" and ")} and $4::text is not null and $5::text[] is not null and $6::timestamptz is not null group by 1`, params };
 }
 
 export type MetricQuery = { metric: string; period: Period; groupBy?: GroupBy; filters?: Filters; now?: Date };
@@ -225,10 +226,10 @@ export async function getMetric(c: PoolClient, companyId: string, q: MetricQuery
   const roster = await many<{ id: string; name: string; role: string }>(c, "select id::text as id, name, role from users where company_id=$1", [companyId]);
   const nameOf = (id: string) => roster.find((u) => u.id === id)?.name;
   const filters = resolveFilters(q.metric, q.filters ?? {}, roster);
-  const sourceField = bindings["crm.field_contact_lead_source"] ?? "", domains = testDomains(bindings);
+  const domains = testDomains(bindings);
   const start = dayBounds(q.period.from, tz).start, end = dayBounds(q.period.to, tz).end, now = q.now ?? new Date();
-  const base: Omit<Q, "groupBy"> = { companyId, start, end, tz, sourceField, now, domains, filters };
-  const ghl: GhlCtx = { c, companyId, ac, bindings, reads, tz, start, end, now, sourceField, domains, filters, memo: { sources: new Map() } };
+  const base: Omit<Q, "groupBy"> = { companyId, start, end, tz, sourceFields: sourceFieldsParam(sourceFields(bindings)), now, domains, filters };
+  const ghl: GhlCtx = { c, companyId, ac, bindings, reads, tz, start, end, now, domains, filters, memo: { sources: new Map() } };
   const isGhl = (name: string): boolean => { const d = METRICS[name]; return d.kind === "ghl" || (d.kind === "rate" && isGhl(d.num) && isGhl(d.den)); };
   const fromGhl = (name: string): boolean => { const d = METRICS[name]; return d.kind === "ghl" || (d.kind === "rate" && (fromGhl(d.num) || fromGhl(d.den))); };
   const head = { source: isGhl(q.metric) ? GHL_SOURCE : fromGhl(q.metric) ? `${GHL_SOURCE} and ${LEDGER}` : LEDGER, metric: q.metric, label: def.label, definition: def.definition, unit: unitOf(def), period_label: q.period.label, period_name: q.period.name, from: q.period.from, to: q.period.to, timezone: tz, group_by: q.groupBy,
@@ -278,7 +279,7 @@ export async function getCloses(c: PoolClient, companyId: string, q: { period: P
   const roster = await many<{ id: string; name: string; role: string }>(c, "select id::text as id, name, role from users where company_id=$1", [companyId]);
   const filters = resolveFilters("closes", q.filters ?? {}, roster);
   const start = dayBounds(q.period.from, tz).start, end = dayBounds(q.period.to, tz).end;
-  const x: GhlCtx = { c, companyId, ac, bindings, reads, tz, start, end, now: q.now ?? new Date(), sourceField: bindings["crm.field_contact_lead_source"] ?? "", domains: testDomains(bindings), filters, memo: { sources: new Map() } };
+  const x: GhlCtx = { c, companyId, ac, bindings, reads, tz, start, end, now: q.now ?? new Date(), domains: testDomains(bindings), filters, memo: { sources: new Map() } };
   const list = await closesFor(x);
   const nameOf = (id: string) => (id ? roster.find((u) => u.id === id)?.name ?? id : "unassigned");
   return { metric: "closes_list", label: "Closes", source: GHL_SOURCE, period_label: q.period.label, period_name: q.period.name, timezone: tz, count: list.length,

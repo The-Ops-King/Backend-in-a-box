@@ -33,7 +33,8 @@ export function mapEvent(e: RawEvent, inv: RawInvitee | undefined, phoneQuestion
     assignedUserEmail: host?.user_email?.toLowerCase(), assignedUserId: undefined, setBy, answers: Object.keys(answers).length ? answers : undefined,
     rescheduleUrl: inv?.reschedule_url ?? undefined, cancelUrl: inv?.cancel_url ?? undefined,
     cancellation: inv?.cancellation ? { by: inv.cancellation.canceled_by, reason: inv.cancellation.reason ?? undefined, byType: inv.cancellation.canceler_type } : undefined,
-    tracking: inv?.tracking ? Object.fromEntries(Object.entries(inv.tracking).filter((kv): kv is [string, string] => !!kv[1])) : undefined,
+    // utm_source, utm_medium, utm_campaign, utm_content, utm_term (and any other key Calendly passes, fbclid included), blanks dropped; captured onto the contact by Call booked (D78)
+    tracking: inv?.tracking ? Object.fromEntries(Object.entries(inv.tracking).map(([k, v]) => [k, typeof v === "string" ? v.trim() : ""]).filter(([, v]) => v)) : undefined,
     startTime: e.start_time, endTime: e.end_time, status, title: e.name,
     dateUpdated: inv && inv.updated_at > e.updated_at ? inv.updated_at : e.updated_at, dateAdded: e.created_at,
     rescheduledFrom: inv?.old_invitee ? eventUuidOfInvitee(inv.old_invitee) : undefined,

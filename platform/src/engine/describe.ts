@@ -161,7 +161,7 @@ export function describeNode(n: Node): NodeText {
     case "set_tag": { const t = Array.isArray(n.tag) ? n.tag : [n.tag]; return { title: `Add tag${t.length > 1 ? "s" : ""} ${t.map((x) => `“${x}”`).join(", ")}` }; }
     case "remove_tag": { const t = Array.isArray(n.tag) ? n.tag : [n.tag]; return { title: `Remove tag${t.length > 1 ? "s" : ""} ${t.map((x) => `“${x}”`).join(", ")}` }; }
     case "update_contact": {
-      const bits = [n.set.assign_to ? `owner → ${pathWords(n.set.assign_to)}` : "", n.set.phone ? "phone" : "", n.set.timezone ? "time zone" : "", n.set.first_name || n.set.last_name ? "name" : "", ...n.fields.map((f) => `${pathWords(f.id)} = ${templateWords(f.value)}`), ...n.clear.map((id) => `clear ${pathWords(id)}`)].filter(Boolean);
+      const bits = [n.set.assign_to ? `owner → ${pathWords(n.set.assign_to)}` : "", n.set.phone ? "phone" : "", n.set.timezone ? "time zone" : "", n.set.first_name || n.set.last_name ? "name" : "", ...n.fields.map((f) => `${pathWords(f.id)} = ${templateWords(f.value)}${f.if_empty ? " (only if empty)" : ""}`), ...n.clear.map((id) => `clear ${pathWords(id)}`)].filter(Boolean);
       return { title: "Update the contact in the CRM", detail: bits.join("; ") || undefined };
     }
     case "note": return { title: "Leave an internal note", quote: templateWords(n.template) };

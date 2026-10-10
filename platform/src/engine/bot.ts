@@ -12,6 +12,7 @@ import {
 } from "./metric-registry";
 import { ESCALATE_PING, ESCALATE_UNSURE, fmt, formatAnswer, formatAvailability, formatCloses, formatCombined, formatSummary, helpText } from "./bot-format";
 import { RATES, UNITS, analyze, listColumns, memoReads, type Analysis, type GraphUnit, type Rate } from "./ghl-graph";
+import { sourceFields, sourceOrderWords, type SourceFields } from "./lead-source";
 
 /**
  * The Slack bot (D70). Shortcuts are slash commands answered from the metric registry with no model in the way; anything
@@ -25,7 +26,7 @@ export type BotDeps = { adapters: Adapters; probes?: HealthProbes; ghl?: GhlRead
 export type SlackMessage = { eventId: string; teamId?: string; type: "app_mention" | "message"; channel: string; channelType?: string; user?: string; botId?: string; subtype?: string; text: string; ts: string; threadTs?: string };
 export type Turn = { role: "user" | "bot"; text: string; user?: string; kind?: "answer" | "clarify" | "escalate"; at: string };
 type Asker = { id: string; name: string; role: string } | null;
-type Ctx = { companyId: string; name: string; tz: string; token: string; teamId: string; botUserId: string | null; escalateTo: string | null; escalateName: string; apiKey: string | null; sourceField: string | null };
+type Ctx = { companyId: string; name: string; tz: string; token: string; teamId: string; botUserId: string | null; escalateTo: string | null; escalateName: string; apiKey: string | null; sources: SourceFields };
 
 const DM_MEMORY_MIN = 30;
 const MAX_TURNS = 6;
@@ -35,12 +36,12 @@ async function loadCtx(c: PoolClient, companyId: string): Promise<Ctx | null> {
   const co = await one<{ name: string; timezone: string }>(c, "select name, timezone from companies where id=$1", [companyId]);
   const conn = await one<{ team_id: string; bot_token: Buffer; bot_user_id: string | null }>(c, "select team_id, bot_token, bot_user_id from slack_connections where company_id=$1", [companyId]);
   if (!co || !conn) return null;
-  const b = new Map((await many<{ key: string; kind: string; value: Buffer }>(c, "select key, kind, value from bindings where company_id=$1 and key in ('bot.escalate_to','bot.escalate_name','secret.anthropic_key','crm.field_contact_lead_source')", [companyId]))
+  const b = new Map((await many<{ key: string; kind: string; value: Buffer }>(c, "select key, kind, value from bindings where company_id=$1 and key in ('bot.escalate_to','bot.escalate_name','secret.anthropic_key','crm.field_contact_lead_source','crm.field_contact_utm_source')", [companyId]))
     .map((r) => [r.key, r.kind === "secret" ? decrypt(r.value) : r.value.toString("utf8")]));
   const escalateTo = b.get("bot.escalate_to") || null;
   const who = escalateTo ? await one<{ name: string }>(c, "select name from users where company_id=$1 and slack_user_id=$2 limit 1", [companyId, escalateTo]) : null;
   return { companyId, name: co.name, tz: co.timezone, token: decrypt(conn.bot_token), teamId: conn.team_id, botUserId: conn.bot_user_id, escalateTo,
-    escalateName: who?.name.split(" ")[0] ?? b.get("bot.escalate_name") ?? "the team", apiKey: b.get("secret.anthropic_key") ?? process.env.ANTHROPIC_API_KEY ?? null, sourceField: b.get("crm.field_contact_lead_source") ?? null };
+    escalateName: who?.name.split(" ")[0] ?? b.get("bot.escalate_name") ?? "the team", apiKey: b.get("secret.anthropic_key") ?? process.env.ANTHROPIC_API_KEY ?? null, sources: sourceFields(Object.fromEntries(b)) };
 }
 
 /** The asker as an engine user: by Slack id, else by the email Slack has for them (remembered once found). */
@@ -185,7 +186,7 @@ Metrics (name: label — definition (split by)):
 ${catalogue()}`;
 
 const SCHEMA_HINT = `Tables for run_readonly_query (rows are already limited to this company; harness rows have appointments.source='test' or raw->>'simulated'; the team's test contacts are tagged sys-test or have an email on a test domain — leave them out):
-contacts(id, first_name, last_name, tags text[], ghl_added_at timestamptz = arrival, ghl_fields jsonb, merged_into uuid — skip rows where it is set)
+contacts(id, first_name, last_name, tags text[], ghl_added_at timestamptz = arrival, ghl_fields jsonb, attribution jsonb = GHL's {first, last} touch (utmSource, medium, utmCampaign…), merged_into uuid — skip rows where it is set)
 appointments(id, contact_id, assigned_user_id → users.id = closer, starts_at, booked_at, status in new|confirmed|cancelled|showed|noshow|invalid, outcome_term → company_terms, call_outcome_term → company_terms, set_by text = setter name, tracking jsonb utm_*)
 company_terms(id, domain appointment_outcome|call_outcome|appointment_type, category showed|noshow|cancelled|rescheduled|closed|deposit|follow_up|lost|unqualified|…, name)
 payments(id, contact_id, amount numeric (refunds negative), status succeeded|failed|refunded, paid_at)
@@ -202,7 +203,7 @@ async function contextText(ctx: Ctx, asker: Asker, slackUser: string, now: DateT
     `Company: ${ctx.name}. Time zone: ${ctx.tz}. Today is ${local.toFormat("cccc, LLLL d, yyyy")} (${local.toISODate()}).`,
     asker ? `Asker: ${asker.name} (${asker.role}).` : `Asker: Slack user ${slackUser}, not on the roster (no CRM user has their Slack id or email); "my" questions need them to say who they are.`,
     `Roster: ${roster.map((u) => `${u.name} (${u.role})`).join(", ") || "none"}.`,
-    `A person's lead source is the CRM field ${ctx.sourceField ? `contacts.ghl_fields->>'${ctx.sourceField}'` : "(none bound)"}, else the latest booking's tracking->>'utm_source', else 'unknown'.`,
+    `A person's lead source (D78) is ${sourceOrderWords(ctx.sources)}.`,
     SCHEMA_HINT,
   ].join("\n");
 }

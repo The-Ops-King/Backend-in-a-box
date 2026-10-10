@@ -2406,3 +2406,31 @@ Tyler's rulings on the sweep of 2026-10-10 (06-journey-sweep.md §4), relayed th
 - **The company's own picklist keys** (D-1, S9), **cancels after the start** (D-3, S11), **gone cards** (D-4, S12), **records
   found by booking** (D-7, S13), **the CRM id wait** (D-5, S14), **wrap-ups without test contacts** (D-8, S15) and
   **Cancellation rebook for closing calls** (D-9) are the sweep's, decided by the owner the same day.
+
+## D78. Lead source: read in one order, captured by the engine (2026-10-10)
+
+The owner: "make sure we continue capturing the lead source." On Hair (October, 60 leads) the contact's UTM fields (UTM
+Source, Medium, Campaign, Content, Term, FBCLID) were filled on only 9 people: the ones a Calendly booking created, filled by
+a Zap the owner switches off once the engine is live. The engine never wrote them, and read only the lead-source field and
+the latest booking's UTM, so the bot's by-source splits showed 49 "unknown". GHL's own first-touch attribution
+(`attributionSource`) had a source on nearly everyone: fb 38, ig 17, zapier 4, manual 1. GHL's top-level `source` is mostly
+"Optin Form", which says nothing about where the person came from, so it is not read.
+
+- **One order, everywhere a person's source is needed** (`lead-source.ts`: the GHL-read metrics, the joined analysis's
+  `contact.source` column, the ledger's metrics, `contact.source` on the booking card and the close post, the bot, wrap-ups):
+  1. the company's lead-source field (`crm.field_contact_lead_source`), when bound and filled;
+  2. the contact's UTM Source field (`crm.field_contact_utm_source`);
+  3. GHL's attribution: the first touch's `utmSource`, then the latest touch's (`lastAttributionSource.utmSource`);
+  4. the UTM source of the person's latest booking (`appointments.tracking->>'utm_source'`);
+  5. GHL's attribution `medium`, how the record came in (`zapier`, `manual`, `form`): what made "zapier 4, manual 1";
+  6. `unknown`.
+  Values are kept as GHL has them (`fb`, `ig`), trimmed and lower-cased; no renaming. The ledger's metrics read the same
+  order from the contact row: the poll keeps GHL's attribution (first and last touch) on `contacts.attribution`.
+- **Captured by the engine, not a Zap.** Call booked's `u1` writes the booking's UTMs (Calendly tracking: `utm_source`,
+  `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`; `fbclid` when a booking carries it) to the contact's six UTM
+  fields, **only where GHL's field is empty right now**: the step reads the live contact (D68) and leaves a filled field
+  alone (`update_contact` field `if_empty`), so a first touch is never overwritten and a second booking, a move or a re-run
+  writes nothing. Each field is a binding (`crm.field_contact_utm_source`, `_utm_medium`, `_utm_campaign`, `_utm_content`,
+  `_utm_term`, `_fbclid`); an unbound one is simply not written (a binding every reference of which carries `default:` is
+  optional in a template's manifest). The mode rules apply as to any CRM write: in shadow, and for real contacts in test,
+  what would be written is recorded and nothing is.
