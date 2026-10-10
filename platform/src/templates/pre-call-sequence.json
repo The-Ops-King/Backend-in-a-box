@@ -9,6 +9,7 @@
   "definition": {
     "schema": 1,
     "reentry": "once_per_appointment",
+    "reentry_key": "{{appointment.starts_at}}",
     "premise": {
       "check": "appointment_in_future"
     },
@@ -17,6 +18,17 @@
         "id": "t1",
         "type": "trigger",
         "event": "appointment.booked",
+        "match": {
+          "eq": [
+            "{{appointment.term.category}}",
+            "closing"
+          ]
+        }
+      },
+      {
+        "id": "t2",
+        "type": "trigger",
+        "event": "appointment.rescheduled",
         "match": {
           "eq": [
             "{{appointment.term.category}}",
@@ -491,6 +503,10 @@
     "edges": [
       {
         "from": "t1",
+        "to": "e1"
+      },
+      {
+        "from": "t2",
         "to": "e1"
       },
       {

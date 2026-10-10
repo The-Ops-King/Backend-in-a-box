@@ -28,7 +28,8 @@ export async function applyOutcome(c: PoolClient, args: { companyId: string; app
     runs += (await dispatchEvent(c, ev2, ctx)).length;
     if (callOutcome?.category === "lost" && a.opportunity_id) {
       await c.query("update opportunities set status='lost', lost_at=now() where id=$1 and status='open'", [a.opportunity_id]);
-      await emitEvent(c, { ...base, event_type: "opportunity.lost", data: { by: "closer_marks" } }); events++;
+      const ev3 = await emitEvent(c, { ...base, event_type: "opportunity.lost", data: { by: "closer_marks" } }); events++;
+      runs += (await dispatchEvent(c, ev3, ctx)).length;
     }
   }
   return { events, runs, outcome: outcome.category };

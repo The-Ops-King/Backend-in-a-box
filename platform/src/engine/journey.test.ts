@@ -3,7 +3,8 @@
  * (recording) → EOD filed → deposit → agreement → signed (deal closed) → paid in full; then the side roads a sales-ops
  * operator worries about (a call booked five hours out, a texted cancel, a show the closer filed with no recording, a
  * no-show who rebooks). The catalogue is engine/06-journey-sweep.md; every `it.fails` here is a Finding there: the test
- * states the behaviour the operator expects, the engine does something else today, and the title says where.
+ * states the behaviour the operator expects, the engine does something else today, and the title says where. The
+ * findings D59 fixed (F1, F3, F4, F7, F8's recovery half, F10, F11, F13) are plain `it` now and say so.
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { DateTime } from "luxon";
@@ -176,15 +177,16 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await lastRun("pre-call-sequence", jordan)).toMatchObject({ status: "waiting", current_node: "w1" });
     });
 
-    it("speed-to-lead keeps running after the booking: its 2-hour silence email goes out to someone who booked an hour ago (nothing stops it; the only exits are a reply or the timeout)", async () => {
+    it("speed-to-lead's 2-hour silence ends at the calendar: the lead booked an hour ago, so the check before the nudge exits the run `booked` and nothing more is sent (F3, D59)", async () => {
       const r = await lastRun("speed-to-lead", jordan);
       expect(r).toMatchObject({ status: "waiting", current_node: "n3" });
       const nSent = sent.length;
       await wake(r.id); await tickAt(T0.plus({ hours: 2, minutes: 1 }));
-      expect(await lastRun("speed-to-lead", jordan)).toMatchObject({ status: "completed", exit_reason: "no_reply" });
-      expect(sent.slice(nSent).map((s) => s.body)).toEqual([expect.stringMatching(/^Still want to talk\?/)]);
+      expect(await lastRun("speed-to-lead", jordan)).toMatchObject({ status: "completed", exit_reason: "booked" });
+      expect(await stepStatus(r.id, ["c1", "n5"])).toEqual({ c1: "ok" });   // the check ran; n5 never did
+      expect(sent.length).toBe(nSent);
     });
-    it.fails("F3: a lead who books inside speed-to-lead's 2 hours should not get 'Still want to talk?' (speed-to-lead never checks for a booking; pre-call does not supersede it)", async () => {
+    it("F3 (fixed, D59): a lead who books inside speed-to-lead's 2 hours does not get 'Still want to talk?'", async () => {
       expect(sent.filter((s) => s.to === "JV1" && /^Still want to talk/.test(s.body))).toHaveLength(0);
     });
 
@@ -199,22 +201,23 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(threadOf(bookingTs)).toEqual([expect.stringMatching(/^✅ Jordan's call .* is confirmed\.\n> yes see you then$/)]);
     });
 
-    it("the reminders land at their times: 3 days, 2 days, 24h (text + email), 1 hour, 10 minutes; at 8am the morning-of branch takes its else edge for a 2pm call and nothing goes; then the sequence is done", async () => {
+    it("the reminders land at their times: 3 days, 2 days, 24h (text + email), the morning-of text at 8am for a 2pm call (F10, D59), 1 hour, 10 minutes; then the sequence is done", async () => {
       const r = await lastRun("pre-call-sequence", jordan);
       const step = async (now: DateTime, node: string, kinds: string[]) => { const n = sent.length; await wake(r.id); await tickAt(now); expect(sent.slice(n).map((s) => s.kind)).toEqual(kinds); expect((await lastRun("pre-call-sequence", jordan)).current_node).toBe(node); };
       await step(A.minus({ hours: 72 }).plus({ minutes: 1 }), "r48", ["sms"]);
       await step(A.minus({ hours: 48 }).plus({ minutes: 1 }), "r24", ["sms"]);
       await step(A.minus({ hours: 24 }).plus({ minutes: 1 }), "rm", ["email", "sms"]);
-      await step(A.set({ hour: 8 }).plus({ minutes: 1 }), "r1", []);   // bm → else → r1: the morning-of text is skipped (F10)
-      expect((await stepsOf(r.id)).find((s) => s.node_id === "bm")?.result).toEqual({ edge: "r1", else: true });
+      await step(A.set({ hour: 8 }).plus({ minutes: 1 }), "r1", ["sms"]);   // bm → mm: 14 ≥ 11, the morning-of text goes
+      expect((await stepsOf(r.id)).find((s) => s.node_id === "bm")?.result).toEqual({ edge: "mm" });
       await step(A.minus({ hours: 1 }).plus({ minutes: 1 }), "r10", ["sms"]);
       await step(A.minus({ minutes: 9 }), "x_done", ["sms"]);
       expect(await lastRun("pre-call-sequence", jordan)).toMatchObject({ status: "completed", exit_reason: "done" });
-      expect(sent.filter((s) => s.to === "JV1").length).toBe(2 + 1 + 2 + 6);   // speed-to-lead's two + its nudge; the booking two; six reminders (3d, 2d, 24h text + email, 1h, 10m)
+      expect(sent.filter((s) => s.to === "JV1").length).toBe(2 + 2 + 7);   // speed-to-lead's two (no nudge: they booked); the booking two; seven reminders (3d, 2d, 24h text + email, morning-of, 1h, 10m)
     });
-    it.fails("F10: a 2pm call should get the morning-of text at 8am; pre-call's bm compares '{{appointment.starts_at | date:HH}}' to 11, and predicate.ts operand() leaves a reference with a filter as the literal string (NaN >= 11 is false), so the branch always takes its else edge and nobody ever gets the morning-of text", async () => {
+    it("F10 (fixed, D59): a 2pm call gets the morning-of text at 8am; pre-call's bm compares '{{appointment.starts_at | date:HH}}' to 11, and operand() now renders a reference with a filter instead of comparing the literal string", async () => {
       const r = await lastRun("pre-call-sequence", jordan);
-      expect((await stepsOf(r.id)).some((s) => s.node_id === "mm")).toBe(true);
+      expect(await stepStatus(r.id, ["mm"])).toEqual({ mm: "ok" });
+      expect(sent.filter((s) => s.to === "JV1" && s.body === "[placeholder — morning-of text]")).toHaveLength(1);
     });
 
     it("call day, the recording lands: showed recorded (call.held), stat-showed, setter card → Showed and won, ✅ (already there) + thread line on the booking post, the review in the calls channel with its scorecard, Sales Call record updated; the closer card does not move", async () => {
@@ -243,14 +246,15 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect((await cardOn(jordan, "PIPE-CLOSER"))!.stage).not.toBe("STAGE-SCHED");
     });
 
-    it("end of day, the closer files 'showed, closed': Call outcome filed adds stat-closed-won, ✅ ensured, a second thread line; it writes no card and no Sales Call record", async () => {
+    it("end of day, the closer files 'showed, closed': Call outcome filed adds stat-closed-won, ✅ ensured, a second thread line, the Sales Call record says showed / closed_won (F7, D59); it writes no card", async () => {
       const nTags = tags.length, nOpp = oppWrites.length, nRec = recordWrites.length;
       await file(appt, "showed", "closed");
       await tickAt(A.plus({ hours: 5 }));
       expect(await lastRun("call-outcome", jordan)).toMatchObject({ status: "completed", exit_reason: "noted" });
       expect(tags.slice(nTags)).toEqual(["stat-showed", "stat-closed-won"]);
       expect(threadOf(bookingTs).at(-1)).toBe("✅ Showed, per Sam Closer: closed.");
-      expect(oppWrites.length).toBe(nOpp); expect(recordWrites.length).toBe(nRec);
+      expect(oppWrites.length).toBe(nOpp);
+      expect(recordWrites.slice(nRec)).toEqual([{ op: "update", id: expect.any(String), external_id: "A-JV", outcome: "showed", disposition: "closed_won" }]);
       expect((await apptRow(jordan))!.call_outcome).toBe("closed");
     });
 
@@ -267,7 +271,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(recordWrites.at(-1)).toMatchObject({ op: "update", cash_collected: "1500" });   // the Sales Call record
       expect(sent.length).toBe(nSent);   // nothing to the customer from here (D54)
       expect(reactionsOn(bookingTs).at(-1)).toBe("dollar"); expect(reactionsOn(reviewTs)).toEqual(["dollar"]);
-      expect(threadOf(bookingTs).at(-1)).toBe("💵 Paid 1,500· deposit. Details in the payments channel.");   // F13: no "$", and `prefix: ·` loses its leading space
+      expect(threadOf(bookingTs).at(-1)).toBe("💵 Paid $1,500 · deposit. Details in the payments channel.");   // F13 (D59)
       expect(await lastRun("deal-closed", jordan)).toMatchObject({ status: "completed", exit_reason: "not_yet" });
       expect(await lastRun("agreement-chase", jordan)).toMatchObject({ status: "waiting", current_node: "w1" });
     });
@@ -304,7 +308,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and triggered_by_event=$2", [companyId, pif[0].id]))).toHaveLength(0);
       expect(await cardOn(jordan, "PIPE-CLOSER")).toMatchObject({ stage: "STAGE-WON", status: "won" });
     });
-    it.fails("F12: paid in full should close the loop (a fulfilment hand-off, a stage or a tag): no template listens to payment.paid_in_full, and payments.ts emits it without dispatching it, so even a listener would never start", async () => {
+    it.fails("F12: paid in full should close the loop (a fulfilment hand-off, a stage or a tag): no template listens to payment.paid_in_full (payments.ts dispatches it since D59 / F11, so a listener would start)", async () => {
       const pif = await asOperator((c) => one<{ id: number }>(c, "select id from events where company_id=$1 and contact_id=$2 and event_type='payment.paid_in_full'", [companyId, jordan]));
       expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and triggered_by_event=$2", [companyId, pif!.id]))).not.toHaveLength(0);
     });
@@ -327,13 +331,13 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       bookingTs = (await postTs(`appointment:${run.appointment_id}`))!;
     });
 
-    it("no reply by 2pm (one hour before the call): stat-unconfirmed and ⏳; the 3-day, 2-day and 24-hour messages are stale by then and skipped, the morning-of branch is never taken; the 1-hour text goes at once; the 10-minute text at 2:50", async () => {
+    it("no reply by 2pm (one hour before the call): stat-unconfirmed and ⏳; the 3-day, 2-day and 24-hour messages are stale by then and skipped, the morning-of branch is taken (F10) but its text is stale too (G7); the 1-hour text goes at once; the 10-minute text at 2:50", async () => {
       const n = sent.length;
       await wake(run.id); await tickAt(A.minus({ minutes: 59 }));
       expect(tags.filter((t) => t === "stat-unconfirmed")).toHaveLength(1);
       expect(reactionsOn(bookingTs)).toEqual(["hourglass_flowing_sand"]);
-      expect(await stepStatus(run.id, ["m72", "m48", "m24e", "m24s", "mm", "m1"])).toEqual({ m72: "stale", m48: "stale", m24e: "stale", m24s: "stale", m1: "ok" });
-      expect((await stepsOf(run.id)).find((s) => s.node_id === "bm")?.result).toEqual({ edge: "r1", else: true });
+      expect(await stepStatus(run.id, ["m72", "m48", "m24e", "m24s", "mm", "m1"])).toEqual({ m72: "stale", m48: "stale", m24e: "stale", m24s: "stale", mm: "stale", m1: "ok" });
+      expect((await stepsOf(run.id)).find((s) => s.node_id === "bm")?.result).toEqual({ edge: "mm" });
       expect(sent.slice(n).map((s) => s.body)).toEqual(["[placeholder — 1-hour text]"]);
       expect(await lastRun("pre-call-sequence", kai)).toMatchObject({ status: "waiting", current_node: "r10" });
       await wake(run.id); await tickAt(A.minus({ minutes: 9 }));
@@ -342,11 +346,14 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       // what Kai received, in order: the booking email, the booking text, the 1-hour text, the 10-minute text
       expect(sent.filter((s) => s.to === "KAI1").map((s) => (s.kind === "email" ? "email:" + s.body.split("|")[0].slice(0, 13) : "sms:" + s.body))).toEqual(["email:You're booked", "sms:[placeholder — immediate text]", "sms:[placeholder — 1-hour text]", "sms:[placeholder — 10-minute text]"]);
     });
-    it.fails("F5 (G7) + F10: the morning-of text was valid until 1pm and should have gone at booking; the branch never reaches it (F10), and had it, the 4-hour reply wait would have held the run until 2pm, past the text's 2-hour min_lead (nothing caps wait_for_reply at the appointment)", async () => {
+    it("F10 (fixed, D59): for a 3pm call the morning-of branch takes the mm edge; what stops the text here is the reply wait, not the branch", async () => {
+      expect((await stepsOf(run.id)).find((s) => s.node_id === "bm")?.result).toEqual({ edge: "mm" });
+    });
+    it.fails("F5 (G7): the morning-of text was valid until 1pm and should have gone at booking; the 4-hour reply wait held the run until 2pm, past the text's 2-hour min_lead (nothing caps wait_for_reply at the appointment)", async () => {
       expect(await stepStatus(run.id, ["mm"])).toEqual({ mm: "ok" });
     });
 
-    it("the closer drags the call to next week (a GHL reschedule, same appointment): Call booked reacts 🔁 with the new time in the thread and posts no new card; no pre-call run exists for the new time", async () => {
+    it("the closer drags the call to next week (a GHL reschedule, same appointment): Call booked reacts 🔁 with the new time in the thread and posts no new card; the finished pre-call is not revived, a fresh one starts for the new time (F4, D59)", async () => {
       const moved = snap("A-KAI", "KAI1", A.plus({ days: 7 }));
       await book(moved);
       await tickAt(A.minus({ minutes: 5 }));
@@ -354,17 +361,21 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(booked).toMatchObject({ status: "completed", exit_reason: "booked" });
       expect(await stepStatus(booked.id, ["k3", "n4", "n4r"])).toEqual({ k3: "skipped", n4: "skipped", n4r: "ok" });
       expect(reactionsOn(bookingTs).at(-1)).toBe("repeat"); expect(threadOf(bookingTs).at(-1)).toMatch(/^🔁 Rescheduled to /);
-      expect((await runsFor("pre-call-sequence", kai)).map((r) => r.status)).toEqual(["completed"]);
+      expect((await runsFor("pre-call-sequence", kai)).map((r) => r.status)).toEqual(["completed", "waiting"]);
     });
-    it.fails("F4: a call rescheduled after its sequence ended should get a fresh pre-call sequence for the new time (pre-call starts only on appointment.booked and is once per appointment; the moved call gets no booking text and no reminders)", async () => {
-      expect((await runsFor("pre-call-sequence", kai)).some((r) => r.status === "waiting")).toBe(true);
+    it("F4 (fixed, D59): a call rescheduled after its sequence ended gets a fresh pre-call sequence for the new time: pre-call also starts on appointment.rescheduled, its reentry key carries the start time, the booking email and text go for the new time and the run waits for the reply", async () => {
+      const fresh = await lastRun("pre-call-sequence", kai);
+      expect(fresh).toMatchObject({ status: "waiting", current_node: "w1", appointment_id: run.appointment_id });
+      expect(fresh.id).not.toBe(run.id);
+      expect(sent.filter((s) => s.to === "KAI1").slice(-2).map((s) => (s.kind === "email" ? "email:" + s.body.split("|")[0].slice(0, 13) : "sms:" + s.body))).toEqual(["email:You're booked", "sms:[placeholder — immediate text]"]);
+      expect(await asOperator((c) => many(c, "select reentry_key from runs where id in ($1,$2) order by started_at", [run.id, fresh.id]))).toEqual([{ reentry_key: `appointment:${run.appointment_id}@${A.toUTC().toISO()}` }, { reentry_key: `appointment:${run.appointment_id}@${A.plus({ days: 7 }).toUTC().toISO()}` }]);
     });
   });
 
   // ---- the prospect cancels by text ----
   describe("the prospect texts that they cannot make it", () => {
     let mina: string, run: Run;
-    it("pre-call reads the reply as cancelled: the appointment is cancelled at the source and on our row, ❌ with the quote on the booking post, the run exits", async () => {
+    it("pre-call reads the reply as cancelled, a closer taps ❌: the appointment is cancelled at the source and on our row, ❌ with the quote on the booking post, the run exits; appointment.status_changed is emitted by the step (F1, D59) and Call cancelled + Cancellation rebook run from it", async () => {
       replyIntent = "cancelled";
       mina = await newContact("MINA1", "Mina", "Osei", "mina@x.com", "+16025550103");
       await book(snap("A-MINA", "MINA1", daysOut(4, 14)));
@@ -385,25 +396,29 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect((await apptRow(mina))!.status).toBe("cancelled");
       const ts = (await postTs(`appointment:${run.appointment_id}`))!;
       expect(reactionsOn(ts)).toEqual(["x"]); expect(threadOf(ts).at(-1)).toMatch(/^❌ Mina's call is cancelled\.\n> sorry, I need to cancel\nDecided by /);   // D55: a person decided
-      // the next poll sees the source agree: cancelled → cancelled is no change, so no appointment.status_changed is emitted
+      const cx = await asOperator((c) => many<{ source: string; data: Record<string, unknown> }>(c, "select source, data from events where company_id=$1 and appointment_id=$2 and event_type='appointment.status_changed' order by id", [companyId, run.appointment_id]));
+      expect(cx).toEqual([{ source: "engine", data: { source: "ghl", status: { from: "confirmed", to: "cancelled" }, by: "workflow", node: "n_cx" } }]);
+      // the next poll sees the source agree: cancelled → cancelled is no change, so the step's event stays the only one
       await book({ ...apptStore.get("A-MINA")!, status: "cancelled" });
       await tickAt(DateTime.now());
-      expect(await runsFor("call-cancelled", mina)).toHaveLength(0);
-      expect(await runsFor("cancellation-rebook", mina)).toHaveLength(0);
-      expect(await cardsOf(mina)).toEqual([expect.objectContaining({ pipeline: "PIPE-CLOSER", stage: "STAGE-SCHED", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-DIRECT", status: "open" })]);
-      expect(await tagsOf(mina)).toEqual(["meta booked call", "stat-booked", "stat-self-booked"]);
+      expect(await asOperator((c) => many(c, "select 1 from events where company_id=$1 and appointment_id=$2 and event_type='appointment.status_changed'", [companyId, run.appointment_id]))).toHaveLength(1);
+      expect(await lastRun("call-cancelled", mina)).toMatchObject({ status: "completed", exit_reason: "cancelled_recorded" });
+      expect(await lastRun("cancellation-rebook", mina)).toMatchObject({ status: "completed", exit_reason: "sent" });
     });
-    it.fails("F1: a cancel the prospect texted should run Call cancelled (cards → Cancelled, date cleared, rebook task, stat-cancelled, booked tags off) and Cancellation rebook; update_appointment writes our row directly and nothing emits appointment.status_changed, so the poll sees no delta and neither workflow ever starts", async () => {
+    it("F1 (fixed, D59): a cancel the prospect texted runs Call cancelled (cards → Cancelled, date cleared, rebook task, stat-cancelled, booked tags off) and Cancellation rebook (the rebook text and email), as a cancel at the source does", async () => {
       expect(await runsFor("call-cancelled", mina)).toHaveLength(1);
-      expect(await cardOn(mina, "PIPE-CLOSER")).toMatchObject({ stage: "STAGE-C-CANCEL" });
-      expect(await tagsOf(mina)).toContain("stat-cancelled");
+      expect(await runsFor("cancellation-rebook", mina)).toHaveLength(1);
+      expect(await cardsOf(mina)).toEqual([expect.objectContaining({ pipeline: "PIPE-CLOSER", stage: "STAGE-C-CANCEL", name: "Mina Osei -- Cancelled", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-S-CANCEL", name: "Mina Osei -- Cancelled", status: "open" })]);
+      expect(await tagsOf(mina)).toEqual(["meta booked call", "stat-cancelled"]);
+      expect(tasks.filter((t) => t.contactId === "MINA1" && /^Rebook/.test(String(t.title))).map((t) => t.title)).toEqual(["Rebook Mina Osei — cancelled"]);
+      expect(sent.filter((s) => s.to === "MINA1").slice(-2).map((s) => s.kind).sort()).toEqual(["email", "sms"]);
     });
   });
 
   // ---- a show the closer filed with no recording ----
   describe("the call showed but nothing recorded it: the closer files 'showed, follow-up' on the end-of-day form", () => {
     let pat: string, appt: string;
-    it("Call outcome filed: stat-showed + stat-follow-up, ✅ and the thread line; Post-call follow-up parks for 9am; the setter card stays at Direct Booked (open), the closer card at Scheduled, the Sales Call record still says scheduled", async () => {
+    it("Call outcome filed: stat-showed + stat-follow-up, ✅ and the thread line, the Sales Call record says showed / follow_up (F7, D59); Post-call follow-up parks for 9am; the setter card stays at Direct Booked (open), the closer card at Scheduled", async () => {
       pat = await newContact("PAT1", "Pat", "Lindqvist", "pat@x.com", "+16025550104");
       const A = daysOut(4, 14);
       await book(snap("A-PAT", "PAT1", A));
@@ -417,14 +432,15 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       const ts = (await postTs(`appointment:${appt}`))!;
       expect(reactionsOn(ts)).toEqual(["white_check_mark"]); expect(threadOf(ts).at(-1)).toBe("✅ Showed, per Sam Closer: follow up.");
       expect(await lastRun("post-call-follow-up", pat)).toMatchObject({ status: "waiting", current_node: "n1" });
-      expect(oppWrites.length).toBe(nOpp); expect(recordWrites.length).toBe(nRec);
+      expect(oppWrites.length).toBe(nOpp);
+      expect(recordWrites.slice(nRec)).toEqual([{ op: "update", id: expect.any(String), external_id: "A-PAT", outcome: "showed", disposition: "follow_up" }]);
       expect(await cardsOf(pat)).toEqual([{ pipeline: "PIPE-CLOSER", stage: "STAGE-SCHED", name: "Pat Lindqvist -- Direct", status: "open" }, { pipeline: "PIPE-SETTER", stage: "STAGE-DIRECT", name: "Pat Lindqvist -- Direct", status: "open" }]);
     });
     it.fails("F2: a show the closer confirmed should move the setter card to Showed and mark it won, as the recording path does (Sales call recorded o3); Call outcome filed only tags, so a setter card for an unrecorded show sits at Set / Direct Booked for good", async () => {
       expect(await cardOn(pat, "PIPE-SETTER")).toMatchObject({ stage: "STAGE-SHOWED", status: "won" });
     });
-    it.fails("F7: the Sales Call record should say showed / follow_up once the closer filed it; only Sales call recorded and Deal closed write that record, so an unrecorded call's record stays 'scheduled'", async () => {
-      expect(recordWrites.some((w) => w.op === "update" && w.external_id === "A-PAT" && w.outcome === "showed")).toBe(true);
+    it("F7 (fixed, D59): the Sales Call record says showed / follow_up once the closer filed it (Call outcome filed updates the record call-booked created, keyed by the appointment)", async () => {
+      expect(recordWrites.some((w) => w.op === "update" && w.external_id === "A-PAT" && w.outcome === "showed" && w.disposition === "follow_up")).toBe(true);
     });
   });
 
@@ -450,7 +466,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await tagsOf(quinn)).toEqual(["meta booked call", "stat-booked", "stat-no-show", "stat-self-booked"]);
       expect(await cardsOf(quinn)).toEqual([expect.objectContaining({ pipeline: "PIPE-CLOSER", stage: "STAGE-SCHED", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-DIRECT", status: "open" })]);
     });
-    it("they book again: Call booked moves the same two cards back to Scheduled / Direct Booked, re-adds stat-booked (stat-no-show stays); the recovery run is still parked and its 'Want to reschedule?' email goes a day later to someone who already did", async () => {
+    it("they book again: Call booked moves the same two cards back to Scheduled / Direct Booked, re-adds stat-booked (stat-no-show stays, F9); the parked recovery run wakes a day later, sees the new call on the calendar and exits `rebooked` without the 'Want to reschedule?' email (F8, D59)", async () => {
       await book(snap("A-Q2", "QUINN1", daysOut(11, 10)));
       await tickAt(DateTime.now());
       expect(await runsFor("call-booked", quinn)).toHaveLength(2);
@@ -461,11 +477,14 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       const n = sent.length;
       await asOperator((c) => c.query("update runs set next_run_at=now(), context = jsonb_set(context, '{vars,__wait_for_reply,n4,deadline}', to_jsonb($2::text), true) where id=$1", [rec.id, A.plus({ days: 1, hours: 5 }).toISO()]));
       await tickAt(A.plus({ days: 1, hours: 6 }));
-      expect(sent.slice(n).filter((s) => s.to === "QUINN1").map((s) => s.body.split("|")[0])).toEqual(["Want to reschedule?"]);
-      expect(await lastRun("no-show-recovery", quinn)).toMatchObject({ status: "completed", exit_reason: "no_reply" });
+      expect(sent.slice(n).filter((s) => s.to === "QUINN1")).toEqual([]);
+      expect(await lastRun("no-show-recovery", quinn)).toMatchObject({ status: "completed", exit_reason: "rebooked" });
+      expect(await stepStatus(rec.id, ["c1", "c2", "n6"])).toEqual({ c1: "ok", c2: "ok" });   // both checks ran; n6 never did
     });
-    it.fails("F8: a new booking should end the no-show recovery (and clear stat-no-show); the recovery never looks at the calendar and Call booked removes seq-no-show, a tag nothing sets, instead of stat-no-show", async () => {
+    it("F8 (fixed, D59): a new booking ends the no-show recovery; the check before each send reads the calendar", async () => {
       expect(sent.filter((s) => s.to === "QUINN1" && /^Want to reschedule\?/.test(s.body))).toHaveLength(0);
+    });
+    it.fails("F8 / F9 (open, the owner's call): stat-no-show should come off on the new booking; Call booked removes seq-no-show, a tag nothing sets, and the owner asked for the GHL-side tags to be left alone until the stat-* tags are declared cumulative or current", async () => {
       expect(await tagsOf(quinn)).not.toContain("stat-no-show");
     });
   });

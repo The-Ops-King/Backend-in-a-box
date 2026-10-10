@@ -5,7 +5,7 @@
   "stage": "lead",
   "sort": 20,
   "origin": "default",
-  "description": "New lead gets an email and a text right away, two hours for a reply, then one more email if they went quiet.",
+  "description": "New lead gets an email and a text right away, two hours for a reply, then one more email if they went quiet and still have no call on the calendar (a lead who booked inside the two hours is left alone).",
   "definition": {
     "schema": 1,
     "reentry": "once_per_contact",
@@ -37,6 +37,18 @@
         "type": "wait_for_reply",
         "timeout": "2h",
         "channel": "any"
+      },
+      {
+        "id": "c1",
+        "type": "check",
+        "when": {
+          "eq": [
+            "{{contact.has_upcoming_call}}",
+            false
+          ]
+        },
+        "else_exit": "booked",
+        "title": "Still nothing booked?"
       },
       {
         "id": "n5",
@@ -71,8 +83,12 @@
       },
       {
         "from": "n3",
-        "to": "n5",
+        "to": "c1",
         "label": "timeout"
+      },
+      {
+        "from": "c1",
+        "to": "n5"
       },
       {
         "from": "n5",

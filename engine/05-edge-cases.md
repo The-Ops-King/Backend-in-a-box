@@ -67,6 +67,9 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | A no-show filed for a call whose cancel/reschedule read was never answered | Call outcome filed adds `stat-possible-cancel` ("we were pretty sure they cancelled and the slot was never opened") and records `intent.unanswered_no_show`; a plain no-show gets only `stat-no-show` | same test |
 | The question cannot be posted (Slack unbound) | The listener is not armed (nothing to tap); the tag and the pending read still go on; the run goes on | `not yet` |
 | The appointment is rescheduled while a reminder is parked | The poll wakes runs on that appointment; the wait recomputes from the new start (D20) | `funnel.e2e.test.ts › reschedule → same appointment moves, the sequence stays with it, nothing else fires` |
+| The appointment is rescheduled after the sequence finished (the 10-minute text went, or it exited on a cancel / reschedule request) | A fresh run for the new time: `reentry_key` is the start time, so the booking email and text go again for the new time and the reminders follow (F4, D59) | `journey.test.ts › F4 (fixed, D59): a call rescheduled after its sequence ended gets a fresh pre-call sequence…` |
+| A closer taps ❌ on a cancel Jev read | `update_appointment` cancels at the source and on our row and emits `appointment.status_changed` itself (the poll then sees no delta): Call cancelled and Cancellation rebook run as for a cancel at the source (F1, D59) | `journey.test.ts › F1 (fixed, D59): a cancel the prospect texted runs Call cancelled…` |
+| The morning-of text for a call at 11am or later | Goes at 08:00 their time: the branch compares `{{appointment.starts_at \| date:HH}}` to 11 and a filtered reference is rendered before the compare (F10, D59) | `journey.test.ts › F10 (fixed, D59): a 2pm call gets the morning-of text at 8am…` |
 | The appointment is cancelled while a reminder is parked | Premise `appointment_in_future` fails → `moot: appointment cancelled`, no send | `engine.integration.test.ts › premise check: a cancelled appointment exits the run instead of sending`; `funnel.e2e.test.ts › cancel → rebook sequence sends, the pre-call sequence exits as moot…` |
 | The person books a second call (rebook as cancel + new booking) | The older run exits `superseded: a newer run for this person`; the new run carries on alone (D45) | `edge-cases.test.ts › D45: a second booking for the same person supersedes the pre-call run…` |
 | A call booked three minutes out | Day-one email and text skipped as stale (`validity.min_lead`), nothing fails; the reply wait's `until` is already past so the run moves on: every reminder is stale but the 10-minute text, which goes (it has no validity rule), and the run completes | `edge-cases.test.ts › a call booked three minutes out…` |
@@ -94,6 +97,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 |---|---|---|
 | Lead created → email + text at once; a reply ends it `replied`; silence → one more email, `no_reply` | As described | `templates.scenarios.test.ts › speed-to-lead: email + SMS now; a reply → tag engaged; silence → second email` |
 | The same lead fires twice (form resubmitted) | `once_per_contact`: the second start is refused | `not yet` (the New lead sibling is asserted; Speed to lead is not) |
+| The lead books inside the two hours without replying | The check before the nudge reads `contact.has_upcoming_call`; the run exits `booked`, "Still want to talk?" never goes (F3, D59) | `journey.test.ts › F3 (fixed, D59): a lead who books inside speed-to-lead's 2 hours does not get 'Still want to talk?'` |
 | 480 existing contacts at install | The first poll is a silent baseline: no `lead.created`, no 480 emails | `poll.baseline.test.ts › baseline: 3 existing contacts → replica rows, zero events` |
 | A lead created at 2am | The email waits for the send window; a `transactional` one goes at once only when the company allows it | `templates.scenarios.test.ts › dark hours: a human-sounding send waits for the window…` |
 | A lead with no phone | Email goes; the text is refused by the CRM and recorded `failed`; the run goes on (G1, D56) | `edge-cases.test.ts › the CRM refuses the text…` (on Pre-call; same code path) |
@@ -113,7 +117,7 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | The no-show is marked three days late | "sorry we missed each other" is outside `after_event max_lag 3d`: skipped as stale | `not yet` |
 | The appointment is deleted at the source after the no-show | Premise: `appointment deleted at the booking source` → exit | `not yet` |
 | A reply during the 24-hour wait | Woken, exits `replied`; no second email | covered by the first row's test only for the timeout edge; the reply edge: `not yet` |
-| The person books a new call during the recovery | Nothing in this workflow stops; Call booked runs for the new one | `not yet` |
+| The person books a new call during the recovery | The check before each send reads `contact.has_upcoming_call` (a live closing call other than the no-show's own): the run exits `rebooked`, nothing more is sent; Call booked runs for the new one. `stat-no-show` stays on until the owner decides the stat tags (F9) | `journey.test.ts › F8 (fixed, D59): a new booking ends the no-show recovery…` |
 
 ## Cancellation rebook
 
@@ -147,6 +151,8 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | Rescheduled filed as the outcome | Exit `nothing_to_mark`: Call booked already reacted 🔁 | `not yet` |
 | A deposit filed | `stat-closed-won` (closed or deposit) | `not yet` |
 | A no-show for a call whose reply Jev read as a cancel or a reschedule and nobody answered (D58) | `stat-possible-cancel` on top of `stat-no-show`, and `intent.unanswered_no_show` with the read, its confidence and when it was asked; a no-show with no pending read gets neither | `templates.scenarios.test.ts › D58: nobody taps by the call…` |
+| The Sales Call record | Updated when the contact has one, keyed by the appointment: `outcome` showed or noshow, and for a show the closer's answer as the CRM's disposition (closed/deposit → closed_won, follow_up, lost, unqualified → dq) through the `oneof:` guard (F7, D59) | `journey.test.ts › F7 (fixed, D59): the Sales Call record says showed / follow_up…`; `› end of day, the closer files 'showed, closed'…` |
+| The outcome is filed for a call booked before the engine (no Sales Call record for the contact) | The record step is skipped (`only_if` there is one); the tags and the thread line still go | `not yet` |
 
 ## Payment failed
 
@@ -220,6 +226,8 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | A payment for a contact with no closer card | Record written without the card relation; the booking/recording thread replies skipped (`thread_only`) | `templates.scenarios.test.ts › payment-recorded: a payment is written to the CRM side only…` |
 | A payment for a contact with no recording or no booking post, calls / bookings channel bound | The thread line skips ("no post to reply to"); the run goes on to its exit. **Was:** the unknown path failed the run at that step (fixed with D57: `default:` on both thread targets) | `edge-cases.test.ts › a refund (G10, fixed by D57)…` (the edges company binds the calls channel) |
 | The same payment delivered twice | Duplicate: nothing new, nothing started | `templates.scenarios.test.ts › a redelivered payment webhook records nothing new and starts nothing` |
+| The 💵 / 💸 thread lines | "💵 Paid $1,500 · deposit." / "💸 Refunded $500 · refund." (F13, D59) | `journey.test.ts › the deposit…`; `templates.scenarios.test.ts › payment-recorded (D57): a refund…` |
+| Paid in full | `payment.paid_in_full` (and `opportunity.won` on the first payment) is dispatched, so a template may listen (F11, D59); none does yet (F12) | `journey.test.ts › paid in full: …nothing listens to it` |
 | Two payments in one minute | Both recorded (G4, D56) | `edge-cases.test.ts › two payments for one person in the same minute…` |
 | A payment before the contact exists | Unlinked + alert; a later payment from the same buyer heals it; a person can link it by hand | `payments.test.ts › a stranger's payment is unlinked; a later payment that resolves the same member heals it`; `payments.test.ts › a person links an orphan by hand…` |
 | The contact arrives through the CRM poll after the orphan payment | Stays unlinked until a later payment or a hand link (D21: nothing is guessed) | `not yet` |

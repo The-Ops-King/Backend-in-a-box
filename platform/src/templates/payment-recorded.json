@@ -208,7 +208,7 @@
           "name": "Payment",
           "icon": ":dollar:"
         },
-        "template": "{{vars.pay.line}} {{event.amount | abs | money}}{{event.kind | prefix: ·}}. Details in the payments channel.",
+        "template": "{{vars.pay.line}} ${{event.amount | abs | money}} {{event.kind | prefix:·}}. Details in the payments channel.",
         "title": "React 💵 (💸 on a refund) on the booking post"
       },
       {
@@ -222,7 +222,7 @@
           "name": "Payment",
           "icon": ":dollar:"
         },
-        "template": "{{vars.pay.line}} {{event.amount | abs | money}}{{event.kind | prefix: ·}}.",
+        "template": "{{vars.pay.line}} ${{event.amount | abs | money}} {{event.kind | prefix:·}}.",
         "title": "React 💵 (💸 on a refund) on the call review"
       },
       {

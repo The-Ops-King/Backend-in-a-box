@@ -1581,3 +1581,51 @@ booked call, but in reality we should have our own attention / cancel channel." 
   text, which has no validity rule and goes.
 - Seen in passing, not fixed: the morning-of wait (`rm`, 8am) sits ahead of the 1-hour and 10-minute waits, so a call before
   8am their time sleeps through itself and those two texts never go (05-edge-cases, observed).
+## D59. The journey sweep's plain bugs (2026-10-10)
+
+Tyler asked for the end-to-end sweep (`06-journey-sweep.md`); of its findings, these were bugs with one right answer
+and are fixed here. The ones that need the owner's call (F2, F6, F9, F12, F14–F21) stay open in that file. Each fix
+turned its `it.fails` test in `journey.test.ts` into a plain test; the step tests that pinned the old behaviour now pin
+the new.
+
+- **F10, the morning-of text.** `predicate.ts` `operand()` resolved only a bare `{{path}}`; `{{appointment.starts_at |
+  date:HH}}` stayed a literal string, `NaN >= 11` was false, and the pre-call `bm` branch took its else edge for
+  everyone, so the morning-of text had never gone out. Now any `{{…}}` with a filter is rendered through the template
+  renderer (contact zone, else company zone) before the compare; a bare path still keeps its type so booleans and
+  numbers compare as before; an unknown path renders as absent, as a bare path does. A 2pm call gets the text at 8am.
+  For a call booked a few hours out the step is now reached and skipped as stale, because the booking text's 4-hour
+  reply wait still holds the run (F5/G7, open).
+- **F1, the texted cancel.** `update_appointment` wrote the CRM and our row and nothing emitted
+  `appointment.status_changed`: the poll compares our row with the source, saw cancelled = cancelled, and Call cancelled
+  and Cancellation rebook never ran, so both cards stayed at Set/Direct + Scheduled for a dead call with `stat-booked`
+  on and no rebook task. Now the step emits the event the poll would have — `{source, status: {from, to}, by:
+  "workflow", node}` — and dispatches it with the poll's context shape, after waking runs parked on that appointment.
+  Only a real change emits (confirmed → confirmed does not); the node writes only `status` on our row, so a reschedule
+  is still the poll's event. The engine fix, not a template one: a cancel decided anywhere behaves like a cancel.
+- **F3, Speed to lead after a booking.** The 2-hour reply wait's only exits were a reply or the timeout, so a lead who
+  booked inside the window was asked to book. The context gains `contact.has_upcoming_call`: a closing call for this
+  contact, not cancelled or no-showed, starting after now, other than the run's own appointment. A `check` before the
+  nudge exits the run `booked` when it is true.
+- **F8, No-show recovery after a rebook.** Same mechanism: a check before the first send and before the "Want to
+  reschedule?" email; a newer booking ends the run `rebooked`. `stat-no-show` is not touched: Call booked's tags are
+  the GHL-side tags the owner said to leave alone until the stat tags are declared cumulative or current (F9).
+- **F4, a reschedule after the sequence ended.** Pre-call started on `appointment.booked` only and was once per
+  appointment, so a GHL reschedule of a finished sequence produced a call with no prospect-facing messages. A
+  definition may now carry `reentry_key`, a template appended to the policy's key; pre-call's is
+  `{{appointment.starts_at}}` and it also triggers on `appointment.rescheduled`. A new time after a finished run is a
+  new run (booking email and text for the new time, then the reminders). A run still in flight for the appointment
+  keeps it — the parked wait follows the moved time as D20 says — and the reschedule is remembered on it as a pending
+  event rather than superseding it (D45 is for a different appointment of the same person). Whether a mid-sequence
+  reschedule should also tell the prospect the new time is open for the owner; today only Slack hears it (🔁).
+- **F7, the Sales Call record on the EOD filing.** Only Sales call recorded and Deal closed wrote
+  `custom_objects.sales_call`, so an unrecorded call's record stayed `scheduled` and a no-show never got `noshow`. Call
+  outcome filed now updates the record keyed by the appointment (as Sales call recorded does), when the contact has
+  one: `outcome` showed or noshow, and for a show the closer's call outcome mapped to the CRM's disposition
+  (closed/deposit → closed_won, follow_up, lost, unqualified → dq) through the same `oneof:` guard.
+- **F13, the 💵 thread line.** "💵 Paid 1,500· deposit." read wrong because the amount had no `$` and `prefix: ·` lost
+  its leading space (the renderer trims a filter's argument). Now "💵 Paid $1,500 · deposit." and "💸 Refunded $500 ·
+  refund.": the `$` and the space are in the template text, `{{event.kind | prefix:·}}` after them, which is how
+  `prefix:` is used everywhere else.
+- **F11, three events nobody could listen to.** `payment.paid_in_full`, `opportunity.won` and `opportunity.lost` were
+  emitted without `dispatchEvent`, so a workflow could not start from them. They are dispatched now, with the same
+  call the other emits use; no template listens yet (F12 is the owner's decision on what paid in full should do).

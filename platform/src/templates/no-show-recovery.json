@@ -5,7 +5,7 @@
   "stage": "post_call",
   "sort": 20,
   "origin": "default",
-  "description": "Ten minutes after a no-show (from GHL's status or our disposition form): text and email with the rebook link, a day for a reply, then one more email.",
+  "description": "Ten minutes after a no-show (from GHL's status or our disposition form): text and email with the rebook link, a day for a reply, then one more email. Every step first checks the calendar: once a new closing call is booked the recovery ends there, nothing more is sent.",
   "definition": {
     "schema": 1,
     "reentry": "once_per_appointment",
@@ -45,6 +45,18 @@
         }
       },
       {
+        "id": "c1",
+        "type": "check",
+        "when": {
+          "eq": [
+            "{{contact.has_upcoming_call}}",
+            false
+          ]
+        },
+        "else_exit": "rebooked",
+        "title": "Still no new call booked?"
+      },
+      {
         "id": "n2",
         "type": "send_sms",
         "template": "Hey {{contact.first_name}}, looks like we missed each other. Here's the link to grab a new time with {{appointment.closer.first_name}}: {{calendar.closer_call.url}}",
@@ -71,6 +83,18 @@
         "type": "wait_for_reply",
         "timeout": "24h",
         "channel": "any"
+      },
+      {
+        "id": "c2",
+        "type": "check",
+        "when": {
+          "eq": [
+            "{{contact.has_upcoming_call}}",
+            false
+          ]
+        },
+        "else_exit": "rebooked",
+        "title": "Still no new call booked?"
       },
       {
         "id": "n6",
@@ -105,6 +129,10 @@
       },
       {
         "from": "n1",
+        "to": "c1"
+      },
+      {
+        "from": "c1",
         "to": "n2"
       },
       {
@@ -117,8 +145,12 @@
       },
       {
         "from": "n4",
-        "to": "n6",
+        "to": "c2",
         "label": "timeout"
+      },
+      {
+        "from": "c2",
+        "to": "n6"
       },
       {
         "from": "n6",

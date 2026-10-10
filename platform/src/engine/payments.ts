@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
-import { emitEvent, type EventRow } from "./dispatch";
+import { dispatchEvent, emitEvent, type EventRow } from "./dispatch";
 
 /**
  * The ledger (D21). Every payment the provider reports is recorded, linked to a person or not. Linking is a ladder,
@@ -98,11 +98,11 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
     const co = await one<{ opp_won_on: string }>(c, "select opp_won_on from companies where id=$1", [companyId]);
     if (opp.status === "open" && co?.opp_won_on === "first_payment") {
       await c.query("update opportunities set status='won', won_at=now() where id=$1 and status='open'", [opp.id]);
-      await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: "opportunity.won", source: "engine", data: { by: "first_payment" } });
+      await dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: "opportunity.won", source: "engine", data: { by: "first_payment" } }), { contact: { id: contactId }, opportunity: { id: opp.id } });
     }
     if (isCleared) {
       const already = await one(c, "select 1 from events where opportunity_id=$1 and event_type='payment.paid_in_full'", [opp.id]);
-      if (!already) await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: "payment.paid_in_full", source: "engine", data: { total: running, contract_value: opp.contract_value } });
+      if (!already) await dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: "payment.paid_in_full", source: "engine", data: { total: running, contract_value: opp.contract_value } }), { contact: { id: contactId }, opportunity: { id: opp.id } });
     }
   }
   return { event: ev, healed: healed.length };

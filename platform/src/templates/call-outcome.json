@@ -5,7 +5,7 @@
   "stage": "post_call",
   "sort": 4,
   "origin": "spec",
-  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, and the contact gets the outcome tags. No-show → 👻 and stat-no-show. Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one) and stat-showed, then the call outcome the closer confirmed: closed or deposit → stat-closed-won, follow-up → stat-follow-up, lost → stat-lost, disqualified → stat-disqualified. A reschedule changes nothing here: Call booked already reacted 🔁. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54). A no-show after Jev had read a reply as a cancel or a reschedule and nobody answered the question (the appointment still carries that pending read) also gets stat-possible-cancel and records intent.unanswered_no_show: we were pretty sure they cancelled and the slot was never opened (D58).",
+  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, and the contact gets the outcome tags. No-show → 👻 and stat-no-show. Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one) and stat-showed, then the call outcome the closer confirmed: closed or deposit → stat-closed-won, follow-up → stat-follow-up, lost → stat-lost, disqualified → stat-disqualified. A reschedule changes nothing here: Call booked already reacted 🔁. The Sales Call record (created at booking) is updated with the outcome and, for a show, the disposition the closer confirmed. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -162,6 +162,50 @@
         "id": "x1",
         "type": "exit",
         "reason": "noted"
+      },
+      {
+        "id": "r2",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{appointment.external_id}}",
+        "only_if": {
+          "exists": "records.sales_call.key"
+        },
+        "properties": {
+          "external_id": "{{appointment.external_id}}",
+          "outcome": "noshow"
+        },
+        "title": "Sales Call record: no-show"
+      },
+      {
+        "id": "v_disp",
+        "type": "set_var",
+        "key": "disposition",
+        "value": "{{appointment.call_outcome | default:}}",
+        "pick": {
+          "closed": "closed_won",
+          "deposit": "closed_won",
+          "follow_up": "follow_up",
+          "lost": "lost",
+          "unqualified": "dq"
+        },
+        "else_value": "",
+        "title": "The closer's answer as the CRM's disposition"
+      },
+      {
+        "id": "r1",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{appointment.external_id}}",
+        "only_if": {
+          "exists": "records.sales_call.key"
+        },
+        "properties": {
+          "external_id": "{{appointment.external_id}}",
+          "outcome": "showed",
+          "disposition": "{{vars.disposition | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}"
+        },
+        "title": "Sales Call record: showed, with the disposition"
       }
     ],
     "edges": [
@@ -208,10 +252,6 @@
       {
         "from": "s1",
         "to": "s2"
-      },
-      {
-        "from": "s2",
-        "to": "b2"
       },
       {
         "from": "b2",
@@ -291,8 +331,24 @@
         "to": "g4"
       },
       {
-        "from": "g4",
+        "from": "r2",
         "to": "x1"
+      },
+      {
+        "from": "s2",
+        "to": "v_disp"
+      },
+      {
+        "from": "v_disp",
+        "to": "r1"
+      },
+      {
+        "from": "r1",
+        "to": "b2"
+      },
+      {
+        "from": "g4",
+        "to": "r2"
       }
     ]
   }
