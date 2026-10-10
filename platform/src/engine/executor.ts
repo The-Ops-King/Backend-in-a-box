@@ -585,17 +585,26 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const r = (t?: string) => (t ? render(t, d.ctx, env(d)) || undefined : undefined);
       // `clear` is the one place an empty value is written on purpose (the CRM may accept and ignore it for some field types; the Zap it replaces warned about that too)
       const cleared = node.clear.map((id) => render(id, d.ctx, env(d))).filter(Boolean).map((id) => ({ id, field_value: "" }));
+      let fields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)), ifEmpty: !!f.if_empty })).filter((f) => f.id && f.field_value !== "");
+      // D78: an if_empty field goes only where the CRM's own value is empty as of now
+      const kept: string[] = [];
+      if (fields.some((f) => f.ifEmpty) && contact?.ghl_contact_id) {
+        const live = await d.adapters.read.getContact(d.adapterCompany, contact.ghl_contact_id);
+        const blank = (v: unknown) => v === undefined || v === null || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && !v.length);
+        fields = fields.filter((f) => { const keep = !f.ifEmpty || !live || blank(live.customFields[f.id]); if (!keep) kept.push(f.id); return keep; });
+      }
       const patch = { firstName: r(node.set.first_name), lastName: r(node.set.last_name), phone: r(node.set.phone), timezone: r(node.set.timezone), assignedUserId: r(node.set.assign_to),
-        customFields: [...node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== ""), ...cleared] };
+        customFields: [...fields.map(({ id, field_value }) => ({ id, field_value })), ...cleared] };
+      const already = kept.length ? { already_set: kept } : {};
       const nothing = !patch.firstName && !patch.lastName && !patch.phone && !patch.timezone && !patch.assignedUserId && !patch.customFields.length;
-      if (nothing) return { status: "skipped", next, result: { kind: "noop", why: "nothing to write: every value rendered empty" } };
-      if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch } };
+      if (nothing) return { status: "skipped", next, result: { kind: "noop", why: kept.length ? "nothing to write: the CRM already has every value" : "nothing to write: every value rendered empty", ...already } };
+      if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch, ...already } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "update_contact: contact has no CRM id yet" };
       await d.adapters.write.updateContact(d.adapterCompany, contact.ghl_contact_id, patch);
       // our replica of the CRM contact learns what we just wrote, so a later step in the same minute reads it (the next poll confirms it)
       const fieldPatch = Object.fromEntries(patch.customFields.map((f) => [f.id, f.field_value === "" ? null : f.field_value]));
       await d.c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), ghl_fields = ghl_fields || $5::jsonb, updated_at=now() where id=$1", [d.run.contact_id, patch.firstName ?? null, patch.lastName ?? null, patch.timezone ?? null, JSON.stringify(fieldPatch)]);
-      return { status: "ok", next, result: patch as Record<string, unknown> };
+      return { status: "ok", next, result: { ...patch, ...already } };
     }
     case "create_task": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;

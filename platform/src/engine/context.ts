@@ -8,6 +8,7 @@ import { latestAgreement, facts as agreementFacts, type AgreementRow } from "./a
 import { eodFacts } from "./eod";
 import type { ContactTruth } from "./contact-truth";
 import { salesCallValues, bookingSourceValues } from "./sales-call";
+import { leadSourceSql, sourceFields, sourceFieldsParam, UNKNOWN_SOURCE } from "./lead-source";
 
 export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string | null; user_id?: string | null; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date; resume_node?: string | null; resume_at?: Date | null; step_attempt?: number; step_error?: string | null };
 export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; status: string; sms_enabled: boolean; mode: import("./mode").Mode; contract_value_default: string | null };
@@ -36,8 +37,9 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       coalesce(nullif(trim(ct.first_name),''), split_part(nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),''), ' ', 1)) as first_name,
       ct.timezone, ct.tags, ct.attributes, ct.ghl_fields, ct.assigned_ghl_user_id,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='phone' and i.retired_at is null order by i.created_at limit 1) as phone,
-      (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='email' and i.retired_at is null order by i.created_at limit 1) as email
-    from contacts ct where ct.id=$1`, [run.contact_id]);
+      (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='email' and i.retired_at is null order by i.created_at limit 1) as email,
+      ${leadSourceSql("ct", "$2")} as lead_source
+    from contacts ct where ct.id=$1`, [run.contact_id, sourceFieldsParam(sourceFields(bindings))]);
   const contactZone = typeof contact?.timezone === "string" && DateTime.now().setZone(contact.timezone).isValid ? contact.timezone : undefined;   // G20: a zone Luxon cannot use never reaches the window math
   // D13: the reply the run is reacting to is whatever the contact last sent after this run started; what we last sent is the classifier's state.
   const lastIn = await one<{ body: string | null; occurred_at: Date }>(c, "select body, occurred_at from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at >= $3 order by occurred_at desc limit 1", [company.id, run.contact_id, run.started_at ?? new Date(0)]);
@@ -55,7 +57,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   for (const [k, id] of Object.entries(bindings)) if (k.startsWith("crm.field_contact_")) { const v = raw[id]; fields[k.slice("crm.field_contact_".length)] = Array.isArray(v) ? v.join(", ") : v ?? undefined; }
   const ctx: Record<string, unknown> = {
     company: { id: company.id, name: company.name, timezone: company.timezone, operator_slack_id: bindings["bot.escalate_to"] || undefined },
-    contact: contact ? { ...contact, ghl_fields: undefined, fields, timezone: contactZone ?? company.timezone } : undefined,
+    contact: contact ? { ...contact, ghl_fields: undefined, lead_source: undefined, fields, timezone: contactZone ?? company.timezone } : undefined,
     vars: (run.context.vars as Record<string, unknown>) ?? {},
     reply: { ...((run.context.reply as Record<string, unknown>) ?? {}), ...derivedReply },   // last_inbound/last_outbound are re-derived every tick; intent/confidence from classify persist
     event: run.context.event ?? {},
@@ -127,7 +129,8 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       closer: closer ? { ...person(closer), from: closerCard ? "closer card" : "contact owner" } : undefined,
       setter: setterName ? (setterUser ? person(setterUser) : { name: setterName, first_name: setterName.split(" ")[0], mention: setterName }) : undefined,
       first_booked_at: firstBookedAt?.toISOString() ?? undefined, days_to_close: daysToClose, revenue, latest_appointment_id: latestAppt?.id, latest_recording_id: latestRec?.id, has_upcoming_call: !!upcoming,
-      source: typeof fields.lead_source === "string" && fields.lead_source ? fields.lead_source : undefined,
+      // D78: the one order every source is read in; "unknown" is left to the template's default
+      source: contact?.lead_source && contact.lead_source !== UNKNOWN_SOURCE ? contact.lead_source : undefined,
       // D68: the CRM's copy as of this read; `stale` says why the engine's copy stood in instead (the CRM did not answer)
       fetched_at: truth?.ok && truth.fresh ? truth.fetched_at : undefined, stale: truth?.ok && !truth.fresh ? truth.why : undefined };
     ctx.agreement = agr ? agreementFacts(agr) : {};

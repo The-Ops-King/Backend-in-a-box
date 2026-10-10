@@ -6,6 +6,7 @@ import type { GhlObjectRecord, GhlReads } from "@/adapters/ghl/metrics";
 import { isTestContact, testContactSql } from "./mode";
 import { MetricError, type GroupBy } from "./metric-registry";
 import { callTime } from "./sales-call";
+import { contactSource, sourceFields } from "./lead-source";
 export { callTime } from "./sales-call";
 
 /**
@@ -78,7 +79,7 @@ export function qualify(value: unknown, cfg: QualifyConfig): Qualification {
   return "unrecognized";
 }
 
-type Person = { ghl: string; name: string; at: DateTime; answer: string; q: Qualification | null; ownSource?: string };
+type Person = { ghl: string; name: string; at: DateTime; answer: string; q: Qualification | null; source: string };
 type Close = { ghl: string; name: string; at: DateTime; value: number; assignedTo?: string; closer: string; utm: string | null };
 /** A due Sales Call with the ledger appointment it matched one-to-one (by external id, else by the person and the start minute), if any. */
 export type SalesCall = { id: string; ext: string; ghl: string; name: string; test: boolean; at: DateTime; filed: CallClass | null; disposition: string; cls: CallClass | "missing"; flipped: boolean; cancelUnknown: boolean;
@@ -88,8 +89,8 @@ export type SalesCall = { id: string; ext: string; ghl: string; name: string; te
 type Call = SalesCall;
 export type GhlCtx = {
   c: PoolClient; companyId: string; ac: Company; bindings: Record<string, string>; reads: GhlReads; tz: string; start: Date; end: Date; now: Date;
-  sourceField: string; domains: string[]; filters: { closer?: string; setter?: string; source?: string };
-  memo: { leads?: Promise<{ people: Person[]; utm: Map<string, string | null> }>; closes?: Promise<Close[]>; calls?: Promise<Call[]>; payments?: Promise<Payment[]>; sources: Map<string, string> };
+  domains: string[]; filters: { closer?: string; setter?: string; source?: string };
+  memo: { leads?: Promise<{ people: Person[] }>; closes?: Promise<Close[]>; calls?: Promise<Call[]>; payments?: Promise<Payment[]>; sources: Map<string, string> };
 };
 
 async function read<T>(what: string, f: () => Promise<T>): Promise<T> {
@@ -158,8 +159,8 @@ async function leads(x: GhlCtx) {
     const facts = await ledgerFacts(x, inWindow.map((k) => k.id));
     const people = inWindow.filter((k) => !isTestContact({ tags: k.tags, emails: [k.email] }, x.domains) && !facts.get(k.id)?.test).map((k): Person => ({
       ghl: k.id, name: `${k.firstName ?? ""} ${k.lastName ?? ""}`.trim() || k.email || k.id, at: DateTime.fromISO(k.dateAdded).setZone(x.tz),
-      answer: cfg ? answerText(k.customFields[cfg.field]) : "", q: cfg ? qualify(k.customFields[cfg.field], cfg) : null, ownSource: x.sourceField ? answerText(k.customFields[x.sourceField]) || undefined : undefined }));
-    return { people, utm: new Map([...facts].map(([k, v]) => [k, v.utm])) };
+      answer: cfg ? answerText(k.customFields[cfg.field]) : "", q: cfg ? qualify(k.customFields[cfg.field], cfg) : null, source: contactSource(k, sourceFields(x.bindings), facts.get(k.id)?.utm) }));
+    return { people };
   })());
 }
 
@@ -187,12 +188,13 @@ async function closes(x: GhlCtx): Promise<Close[]> {
   })());
 }
 
-/** A person's source: the lead-source field on their GHL contact (read live), else their latest booking's UTM, else unknown. */
+/** A person's source (D78), from their GHL contact read live and their latest booking's UTM. */
 export async function sourcesOf(x: GhlCtx, list: { ghl: string; utm: string | null }[]): Promise<Map<string, string>> {
+  const f = sourceFields(x.bindings);
   for (const k of list) {
     if (x.memo.sources.has(k.ghl)) continue;
-    const own = x.sourceField && k.ghl ? await read("a contact's lead source", () => x.reads.getContact(x.ac, k.ghl)).then((ct) => (ct ? answerText(ct.customFields[x.sourceField]) : "")) : "";
-    x.memo.sources.set(k.ghl, own || k.utm || "unknown");
+    const ct = k.ghl ? await read("a contact's lead source", () => x.reads.getContact(x.ac, k.ghl)) : null;
+    x.memo.sources.set(k.ghl, contactSource(ct, f, k.utm));
   }
   return x.memo.sources;
 }
@@ -287,8 +289,8 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
   const add = (k: string, v: number) => rows.set(k, (rows.get(k) ?? 0) + v);
   const src = (s: string | undefined) => (s ?? "unknown").toLowerCase();
   if (entity === "lead") {
-    const { people, utm } = await leads(x);
-    const sourceOf = (p: Person) => p.ownSource || utm.get(p.ghl) || "unknown";
+    const { people } = await leads(x);
+    const sourceOf = (p: Person) => p.source;
     const cfg = qualifyConfig(x.bindings);
     if ((metric === "mqls" || metric === "marketing_dqs") && (!cfg || (!cfg.mql.length && !cfg.dq.length)))
       throw new MetricError(`${label} come from the answer to the CRM's work-situation field, and ${!cfg ? "no field is bound (crm.field_contact_work_situation)" : "no answers are set (qualify.mql_answers, qualify.dq_answers)"}`);

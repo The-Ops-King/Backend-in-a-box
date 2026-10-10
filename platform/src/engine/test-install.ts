@@ -34,17 +34,17 @@ export const fakeProbes: import("./health").HealthProbes = {
  * identifier counts as the person's id too (D60); an id the engine never saw is a 404 (null).
  */
 export async function replicaSnapshot(companyId: string, ghlId: string): Promise<ContactSnapshot | null> {
-  type Row = { first_name: string | null; last_name: string | null; timezone: string | null; tags: string[]; ghl_fields: Record<string, unknown>; assigned_ghl_user_id: string | null; ghl_updated_at: Date | null; ghl_added_at: Date | null; created_at: Date; phone: string | null; email: string | null };
+  type Row = { first_name: string | null; last_name: string | null; timezone: string | null; tags: string[]; ghl_fields: Record<string, unknown>; attribution: ContactSnapshot["attribution"] | null; assigned_ghl_user_id: string | null; ghl_updated_at: Date | null; ghl_added_at: Date | null; created_at: Date; phone: string | null; email: string | null };
   // on the transaction already open when there is one: a second connection mid-transaction queues behind any lock waiting on the first (a concurrent migrate's alter table wedged the shared test database that way)
   const cur = currentClient();
-  const ct = await (cur ? (fn: (c: PoolClient) => Promise<Row | undefined>) => fn(cur) : asOperator<Row | undefined>)((c) => one<Row>(c, `select ct.first_name, ct.last_name, ct.timezone, ct.tags, ct.ghl_fields, ct.assigned_ghl_user_id, ct.ghl_updated_at, ct.ghl_added_at, ct.created_at,
+  const ct = await (cur ? (fn: (c: PoolClient) => Promise<Row | undefined>) => fn(cur) : asOperator<Row | undefined>)((c) => one<Row>(c, `select ct.first_name, ct.last_name, ct.timezone, ct.tags, ct.ghl_fields, ct.attribution, ct.assigned_ghl_user_id, ct.ghl_updated_at, ct.ghl_added_at, ct.created_at,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='phone' and i.retired_at is null order by i.created_at limit 1) as phone,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='email' and i.retired_at is null order by i.created_at limit 1) as email
     from contacts ct where ct.company_id=$1 and ct.merged_into is null
       and (ct.ghl_contact_id=$2 or exists (select 1 from contact_identifiers i where i.contact_id=ct.id and i.kind='ghl_contact' and i.value=$2 and i.retired_at is null)) limit 1`, [companyId, ghlId]));
   if (!ct) return null;
   return { id: ghlId, firstName: ct.first_name ?? undefined, lastName: ct.last_name ?? undefined, email: ct.email ?? undefined, phone: ct.phone ?? undefined, timezone: ct.timezone ?? undefined, assignedTo: ct.assigned_ghl_user_id ?? undefined,
-    tags: ct.tags, customFields: ct.ghl_fields, dateUpdated: (ct.ghl_updated_at ?? new Date()).toISOString(), dateAdded: (ct.ghl_added_at ?? ct.created_at).toISOString() };
+    tags: ct.tags, customFields: ct.ghl_fields, dateUpdated: (ct.ghl_updated_at ?? new Date()).toISOString(), dateAdded: (ct.ghl_added_at ?? ct.created_at).toISOString(), ...(ct.attribution && Object.keys(ct.attribution).length ? { attribution: ct.attribution } : {}) };
 }
 
 /** Tests: adapters that never touch a vendor; every send is accepted, every classify answers "confirmed". `crm`: the fixture's own CRM (an id it lacks is a 404); without one, `getContact` echoes the replica. */

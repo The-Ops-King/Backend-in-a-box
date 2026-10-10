@@ -5,7 +5,7 @@
   "stage": "booking",
   "sort": 10,
   "origin": "spec",
-  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, a Sales Call record is created for the call slot (the recording and the filed outcome update it; a reschedule logs the old slot's record as rescheduled and makes the new slot its own, D76), and the team gets the Slack card with the intake answers. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar and reacts 🔁 on the card it replaces; later reactions (confirmed, cancelled, outcome, payment) land on that newest card.",
+  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the booking's UTMs (source, medium, campaign, content, term, fbclid) go on the contact's UTM fields where GHL has none yet (a first touch is never overwritten; an unbound field is skipped, D78), the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, a Sales Call record is created for the call slot (the recording and the filed outcome update it; a reschedule logs the old slot's record as rescheduled and makes the new slot its own, D76), and the team gets the Slack card with the intake answers and the person's lead source. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar and reacts 🔁 on the card it replaces; later reactions (confirmed, cancelled, outcome, payment) land on that newest card.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -59,6 +59,43 @@
           {
             "id": "{{crm.field_contact_appointment_date}}",
             "value": "{{appointment.starts_at | date_company:yyyy-MM-dd}}"
+          }
+        ]
+      },
+      {
+        "id": "u1",
+        "type": "update_contact",
+        "title": "Capture the booking's UTMs on the contact where GHL has none (D78)",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_utm_source | default:}}",
+            "value": "{{appointment.tracking.utm_source | default:}}",
+            "if_empty": true
+          },
+          {
+            "id": "{{crm.field_contact_utm_medium | default:}}",
+            "value": "{{appointment.tracking.utm_medium | default:}}",
+            "if_empty": true
+          },
+          {
+            "id": "{{crm.field_contact_utm_campaign | default:}}",
+            "value": "{{appointment.tracking.utm_campaign | default:}}",
+            "if_empty": true
+          },
+          {
+            "id": "{{crm.field_contact_utm_content | default:}}",
+            "value": "{{appointment.tracking.utm_content | default:}}",
+            "if_empty": true
+          },
+          {
+            "id": "{{crm.field_contact_utm_term | default:}}",
+            "value": "{{appointment.tracking.utm_term | default:}}",
+            "if_empty": true
+          },
+          {
+            "id": "{{crm.field_contact_fbclid | default:}}",
+            "value": "{{appointment.tracking.fbclid | default:}}",
+            "if_empty": true
           }
         ]
       },
@@ -284,7 +321,7 @@
         "id": "n4",
         "type": "slack_post",
         "channel": "{{slack.channel.bookings}}",
-        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}\n*Hair loss:* {{contact.fields.hair_loss | default:—}} {{contact.fields.hair_loss_stage | default:}}\n*Noticing for:* {{contact.fields.noticing_for | default:—}}\n*Commit to routine:* {{contact.fields.commit_routine | default:—}}\n*Work situation:* {{contact.fields.work_situation | default:—}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{appointment.tracking.utm_source | default:—}} · {{vars.booking_kind}}",
+        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}\n*Hair loss:* {{contact.fields.hair_loss | default:—}} {{contact.fields.hair_loss_stage | default:}}\n*Noticing for:* {{contact.fields.noticing_for | default:—}}\n*Commit to routine:* {{contact.fields.commit_routine | default:—}}\n*Work situation:* {{contact.fields.work_situation | default:—}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}",
         "as": {
           "name": "{{vars.card.name}}",
           "icon": "{{vars.card.icons}}"
@@ -319,6 +356,10 @@
       },
       {
         "from": "n1",
+        "to": "u1"
+      },
+      {
+        "from": "u1",
         "to": "n2"
       },
       {

@@ -53,7 +53,7 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
   let ghl: ContactSnapshot[], calls: SalesCall[] = [];
   try {
     ghl = (await reads.contactsAdded(ac, from, to)).filter((k) => { const t = Date.parse(k.dateAdded); return t >= from.getTime() && t <= to.getTime(); });
-    if (cfg && Object.keys(cfg.outcomes).length) calls = await salesCallsFor({ c, companyId: company.id, ac, bindings, reads, tz: company.timezone, start: from, end: now.toJSDate(), now: now.toJSDate(), sourceField: bindings["crm.field_contact_lead_source"] ?? "", domains: testDomains(bindings) });
+    if (cfg && Object.keys(cfg.outcomes).length) calls = await salesCallsFor({ c, companyId: company.id, ac, bindings, reads, tz: company.timezone, start: from, end: now.toJSDate(), now: now.toJSDate(), domains: testDomains(bindings) });
   } catch (e) { return carry(why(e)); }
 
   const out: Finding[] = [];

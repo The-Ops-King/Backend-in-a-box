@@ -8,6 +8,7 @@ import { dayBounds } from "./metrics";
 import { isTestContact, testDomains } from "./mode";
 import { GHL_SOURCE, callTime, ledgerFacts, paymentObject, paymentRecords, salesCallConfig, salesCallsFor, signed, type CallClass, type GhlCtx, type Payment } from "./ghl-metrics";
 import { MetricError, type Period } from "./metric-registry";
+import { contactSource, sourceFields } from "./lead-source";
 
 /**
  * D75: the bot joins a person's GHL records live, in memory, for one answer, and stores nothing. A row is a lead (a contact
@@ -87,7 +88,7 @@ type Call = { rec: GhlObjectRecord; at: DateTime | null; cls?: CallClass | "miss
 type Row = {
   key: string; ghl: string; name: string; at: DateTime; contact: ContactSnapshot | null; test?: boolean;
   setter: GhlCard | null; closer: GhlCard | null; calls: Call[]; call: Call | null; due: Call[]; payments: Payment[]; discovery: GhlObjectRecord[];
-  value: number; closedMark?: boolean; cashMark?: boolean;
+  value: number; closedMark?: boolean; cashMark?: boolean; /** the UTM source of the person's latest booking, from the ledger */ utm?: string | null;
 };
 type ColDef = Column & { ns: string; get: (r: Row) => string[]; keys?: Record<string, string> };
 /** Stage and user names, read only when a column asks for them, so a getter stays synchronous. */
@@ -138,7 +139,7 @@ async function open(c: PoolClient, companyId: string, reads: GhlReads, now: Date
   });
   const contacts = new Map<string, ContactSnapshot | null>();
   const fetchContacts = (ids: string[]) => each([...new Set(ids)].filter((id) => id && !contacts.has(id)), async (id) => { contacts.set(id, await get(`contact ${id}`, () => reads.getContact(ac, id))); });
-  const ctx = (start: Date, end: Date): Omit<GhlCtx, "filters" | "memo"> => ({ c, companyId, ac, bindings, reads, tz, start, end, now, sourceField: bindings["crm.field_contact_lead_source"] ?? "", domains });
+  const ctx = (start: Date, end: Date): Omit<GhlCtx, "filters" | "memo"> => ({ c, companyId, ac, bindings, reads, tz, start, end, now, domains });
   return { c, companyId, ac, bindings, tz, domains, reads, now, defs, stages, users, setters, closers, salesCalls, discovery, payments, contacts, fetchContacts, ctx, scObject };
 }
 type Graph = Awaited<ReturnType<typeof open>>;
@@ -149,9 +150,9 @@ async function columnDefs(g: Graph, unit: GraphUnit, full: boolean, names: Names
   const out: ColDef[] = [];
   const seen = new Set<string>();
   const add = (d: ColDef) => { let k = d.column; for (let i = 2; seen.has(k.toLowerCase()); i++) k = `${d.column} (${i})`; seen.add(k.toLowerCase()); out.push({ ...d, column: k }); };
-  const sourceField = g.bindings["crm.field_contact_lead_source"];
+  const sources = sourceFields(g.bindings);
   for (const f of defs.filter((x) => x.object === "contact")) add({ ns: "contact", column: `contact.${f.name}`, name: f.name, type: typeOf(f.type), ...opts(f), get: (r) => answers(r.contact?.customFields[f.prop], f) });
-  add({ ns: "contact", column: "contact.source", name: "Source", type: "text", get: (r) => { const own = sourceField ? answers(r.contact?.customFields[sourceField]) : []; return own.length ? own : r.contact?.source ? [r.contact.source] : []; } });
+  add({ ns: "contact", column: "contact.source", name: "Source", type: "text", get: (r) => [contactSource(r.contact, sources, r.utm)] });
   add({ ns: "contact", column: "contact.tags", name: "Tags", type: "multi", get: (r) => r.contact?.tags ?? [] });
   const stageOpts = async (key: string) => { if (!full || !g.bindings[key]) return undefined; const pipes = await get("pipelines", () => g.reads.pipelines(g.ac)); return pipes.find((p) => p.id === g.bindings[key])?.stages.map((s) => s.name); };
   const userOpts = async () => (full ? [...new Set((await g.users()).values())].sort() : undefined);
@@ -262,6 +263,7 @@ async function rowsOf(g: Graph, unit: GraphUnit, period: Period, need: Set<strin
   // the ledger's word that a person is the team's test contact counts too (D73)
   const facts = await ledgerFacts({ ...g.ctx(start, end), filters: {}, memo: { sources: new Map() } }, [...new Set(rows.map((r) => r.ghl).filter(Boolean))]);
   rows = rows.filter((r) => !facts.get(r.ghl)?.test);
+  for (const r of rows) r.utm = facts.get(r.ghl)?.utm ?? null;
   if (unit !== "close") { const b = await g.closers(); for (const r of rows) r.closer = b.by.get(r.ghl) ?? null; }
   if (need.has("setter_card") || unit === "lead") { const b = await g.setters(); for (const r of rows) r.setter = b.by.get(r.ghl) ?? null; }
   if (need.has("discovery")) { const d = await g.discovery(); for (const r of rows) r.discovery = d.get(r.ghl) ?? []; }

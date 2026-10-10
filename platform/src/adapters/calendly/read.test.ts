@@ -41,6 +41,11 @@ describe("Calendly → AppointmentSnapshot", () => {
     // a plain cancellation (no reschedule) must not point anywhere
     expect(mapEvent(ev({ status: "canceled" }), inv({ status: "canceled", rescheduled: false })).rescheduledTo).toBeUndefined();
   });
+  it("tracking: every UTM Calendly passes (fbclid too, when present), trimmed, blanks dropped (D78)", () => {
+    const tracking = { utm_source: " fb ", utm_medium: "paid", utm_campaign: "120249602961280685", utm_content: "ad-7", utm_term: "hair", fbclid: "IwAR-1", salesforce_uuid: null, utm_id: "" };
+    expect(mapEvent(ev(), inv({ tracking })).tracking).toEqual({ utm_source: "fb", utm_medium: "paid", utm_campaign: "120249602961280685", utm_content: "ad-7", utm_term: "hair", fbclid: "IwAR-1" });
+    expect(mapEvent(ev(), inv({ tracking: null })).tracking).toBeUndefined();
+  });
   it("an event with no invitee data still maps (status and time), with no identity", () => {
     const s = mapEvent(ev(), undefined);
     expect(s.invitee).toBeUndefined(); expect(s.status).toBe("confirmed");

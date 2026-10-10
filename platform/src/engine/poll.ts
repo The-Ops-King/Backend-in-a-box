@@ -47,6 +47,8 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
   const existing = await one<{ id: string; tags: string[] }>(c, "select id, tags from contacts where company_id=$1 and ghl_contact_id=$2", [companyId, s.id]);
   const email = normEmail(s.email), phone = normPhone(s.phone), zone = validZone(s.timezone);
   const firstName = normName(s.firstName), lastName = normName(s.lastName);
+  // a snapshot without GHL's attribution (a read that does not carry it) leaves the one already kept
+  const attribution = s.attribution ? JSON.stringify(s.attribution) : null;
   let id = existing?.id, matched = false;
   if (!id) {
     // identity resolution: an email/phone we've already seen (and still current, G15) means this is the same person's
@@ -57,11 +59,11 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
   }
   const tz = zone ?? companyTz;
   if (!id) {
-    const row = await one<{ id: string }>(c, `insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone, timezone_source, tags, ghl_fields, ghl_updated_at, ghl_added_at, assigned_ghl_user_id)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`, [companyId, s.id, firstName, lastName, tz, zone ? "ghl" : "company_default", s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.assignedTo ?? null]);
+    const row = await one<{ id: string }>(c, `insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone, timezone_source, tags, ghl_fields, ghl_updated_at, ghl_added_at, assigned_ghl_user_id, attribution)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,coalesce($12::jsonb,'{}')) returning id`, [companyId, s.id, firstName, lastName, tz, zone ? "ghl" : "company_default", s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.assignedTo ?? null, attribution]);
     id = row!.id;
   } else {
-    await c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), tags=$5, ghl_fields=$6, ghl_updated_at=$7, ghl_added_at=coalesce(ghl_added_at,$8), ghl_contact_id=coalesce(ghl_contact_id,$9), assigned_ghl_user_id=$10, gone_at=null, updated_at=now() where id=$1", [id, firstName, lastName, zone ?? null, s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.id, s.assignedTo ?? null]);
+    await c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), tags=$5, ghl_fields=$6, ghl_updated_at=$7, ghl_added_at=coalesce(ghl_added_at,$8), ghl_contact_id=coalesce(ghl_contact_id,$9), assigned_ghl_user_id=$10, attribution=coalesce($11::jsonb,attribution), gone_at=null, updated_at=now() where id=$1", [id, firstName, lastName, zone ?? null, s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.id, s.assignedTo ?? null, attribution]);
     // G15: this CRM record's own number or email changed; the old one no longer names this person. Retired, not deleted (the
     // history stays readable), and never matched again, so a recycled number is a stranger, not this person
     for (const [kind, value] of [["email", email], ["phone", phone]] as const)
