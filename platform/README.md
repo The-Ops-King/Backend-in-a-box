@@ -161,6 +161,68 @@ connected, talk seconds, set from a call, setting / confirmation calls read by t
 deals won, revenue. Per setter: dials, connects, talk, sets, bookings they set. Per closer:
 bookings, calendar outcomes, deals, revenue.
 
+### Setter metrics (D64)
+
+"What is Luis's speed to lead, and how many calls has he actually connected?" is answered from the ledger
+itself, not the rollups (a median needs every lead's own number). `setterMetrics(c, companyId, { from, to })`
+in `src/engine/metrics.ts`, over inclusive local dates, per setter (the user whose GHL id the dialer stamped
+on the call; `unassigned` for calls with no caller) plus a company-wide `totals` line:
+
+| field | meaning |
+|---|---|
+| `leads_assigned` | contacts the CRM assigned to them (`assigned_ghl_user_id`) that arrived (`ghl_added_at`) in the period; totals: every lead that arrived |
+| `never_dialled` | of those, with no outbound dial by anyone since they arrived |
+| `dials` | outbound dialer calls they made in the period (`recordings`, provider `ghl`, `raw.direction = outbound`; harness rows never count) |
+| `answered` | dials the CRM marked connected, any length |
+| `connected` | answered and at least `companies.reached_seconds` long (default 60) |
+| `talk_sec` | seconds on connected calls |
+| `contacts_reached` | distinct people behind the connected calls |
+| `leads_dialled_first` | period leads whose first outbound dial was theirs; speed to lead is measured on these |
+| `stl_median_min` / `stl_avg_min` | minutes from `contacts.ghl_added_at` to that first dial, median and mean (null when none) |
+| `bookings` | appointments booked in the period that the booking source stamped `set_by` with their name, or that the person made within a day after one of their dials |
+
+Read it with `GET /api/v1/companies/<slug>/metrics?from=YYYY-MM-DD&to=YYYY-MM-DD` (dashboard session; both
+default to this week so far in the company's zone) → `{ company, from, to, timezone, reached_seconds, totals,
+setters[] }`. The wrap-ups page (`/app/c/<slug>/wrap-ups`) shows it as the **Setters** section with a date
+range (this week / today / 30 days or any two dates). The weekly Slack post is unchanged: the `wrap-ups`
+template has no setter section to add a line to (`sections: {}`, `breakdowns: []`), and the per-setter
+breakdown it can already render comes from the rollups.
+
+### Asking the ledger a question (read-only query door, D64)
+
+`POST /api/admin/query` with `{ "company": "<slug>", "sql": "<one SELECT>", "limit": 200 }` and
+`Authorization: Bearer $CRON_SECRET` returns `{ columns, rows, row_count, ms, truncated }`. The statement runs
+inside the company's row scope as the `query_door` role (NOLOGIN, NOBYPASSRLS, SELECT on our tables only; created
+on first use, so the tenant policy applies even where the login user is a superuser or bypasses RLS, as it does
+locally), in a read-only transaction with a 5 s statement timeout, wrapped as a subquery with the row cap bound
+as a parameter (default 200, max 2000; `truncated` says a row was left behind). Refused outright: anything whose first
+keyword (comments stripped) is not `SELECT` or `WITH`, any semicolon, and the names `bindings`,
+`slack_connections`, `set_config`, `pg_read_file` and a few other file / scope / connection functions
+(`QUERY_DENY` in `src/engine/query.ts`); `bindings` and `slack_connections` are also not granted to the role, so
+the database refuses them on its own. Secrets stay encrypted either way (`bindings.value` is ciphertext),
+and the columns `report_token`, `bot_token`, `token_jti` are dropped from every result. `audit_log` is readable.
+Tables without `company_id` (`companies`, `core_categories`, templates) are global and show every row. Every
+run is an `audit_log` row: `query.ran` with the SQL, limit, row count and time, `query.failed` with the error.
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" -H 'content-type: application/json' \
+  https://backend-in-a-box.vercel.app/api/admin/query -d @- <<'JSON'
+{ "company": "acme", "sql": "
+  with lead as (
+    select ct.id, ct.first_name, ct.ghl_added_at, d.started_at as first_dial, d.caller
+    from contacts ct
+    join lateral (select r.started_at, r.raw->>'caller_ghl_user_id' as caller from recordings r
+                  where r.contact_id=ct.id and r.provider='ghl' and r.raw->>'direction'='outbound' and r.started_at>=ct.ghl_added_at
+                  order by r.started_at limit 1) d on true
+    where ct.ghl_added_at >= now() - interval '7 days')
+  select u.name as setter, count(*) as leads_dialled,
+         round(percentile_cont(0.5) within group (order by extract(epoch from (first_dial-ghl_added_at))/60)) as median_min,
+         (select count(*) from recordings r where r.raw->>'caller_ghl_user_id'=u.ghl_user_id and r.raw->>'call_status'='connected'
+            and (r.raw->>'duration_sec')::int >= 60 and r.started_at >= now() - interval '7 days') as connected
+  from lead join users u on u.ghl_user_id=lead.caller where u.name='Luis' group by u.name, u.ghl_user_id" }
+JSON
+```
+
 **Wrap-ups** are a workflow (`wrap-ups` template, D35): three schedule triggers (daily 19:00, weekly Monday
 08:00 covering last Mon–Sun, monthly the 1st at 08:00 covering last month), a `report` step that renders the
 period from the rollups into `vars.report` and keeps it as a `wrapups` row, and a `slack_post` to

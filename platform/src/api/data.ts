@@ -1,3 +1,4 @@
+import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { parseDefinition, type Definition } from "@/engine/definition";
@@ -11,6 +12,7 @@ import { workflowWithStep } from "@/engine/clock";
 import { STAGES, stageIndex } from "@/engine/stages";
 import { chartOf, pathOf, runState, type PathItem } from "./words";
 import { companyReports } from "@/engine/reports";
+import { setterMetrics } from "@/engine/metrics";
 import { EVENT_LABELS } from "@/engine/describe";
 import { effectiveMode, type Mode } from "@/engine/mode";
 
@@ -180,6 +182,13 @@ export async function contactPage(c: PoolClient, id: string) {
 }
 
 /** Every wrap-up generated for this company, newest first, exactly as Slack got it (or would have, in shadow). */
+/** Setter metrics (D64) for an inclusive local date range; the default is this week so far in the company's zone. */
+export async function metricsPage(c: PoolClient, co: CompanyHead, from?: string | null, to?: string | null) {
+  const today = DateTime.now().setZone(co.timezone);
+  const period = { from: from ?? today.startOf("week").toISODate()!, to: to ?? today.toISODate()! };
+  return { company: co, ...(await setterMetrics(c, co.id, period)) };
+}
+
 export async function wrapUpsPage(c: PoolClient, co: CompanyHead) {
   const rows = await companyReports(c, co.id);
   const wf = await workflowWithStep(c, co.id, "report");

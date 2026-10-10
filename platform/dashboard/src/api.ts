@@ -38,6 +38,8 @@ export type HealthPage = { company: CompanyHead; open: { id: string; level: stri
   starts: { event: string; label: string; category: string; workflows: { id: string; name: string; enabled: boolean }[]; seen: number }[];
   jev: { reviewed: number; agreed: number; by_intent: { predicted: string; reviewed: number; agreed: number }[] } };
 export type WrapUpsPage = { company: CompanyHead; reports: { id: string; kind: string; period_start: string; period_end: string; generated_at: string; on_demand: boolean; body: string; status: string | null }[]; workflow: { id: string; name: string; enabled: boolean; when: string | null } | null };
+export type SetterStats = { id: string; name: string; leads_assigned: number; never_dialled: number; dials: number; answered: number; connected: number; talk_sec: number; contacts_reached: number; leads_dialled_first: number; stl_median_min: number | null; stl_avg_min: number | null; bookings: number };
+export type MetricsPage = { company: CompanyHead; from: string; to: string; timezone: string; reached_seconds: number; totals: SetterStats; setters: SetterStats[] };
 export type { SetupPage };
 export type EodListPage = { company: CompanyHead; reports: { id: string; day: string; closer: string; submitted_at: string | null; reminded_at: string | null; totals: string | null; changes: { field: string; from: unknown; to: unknown; contact?: string }[] }[]; closers: { id: string; name: string; email: string; url: string }[] };
 export type { Chart, PathItem };
