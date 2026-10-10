@@ -235,7 +235,7 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
 
   // ---- 5: the same person twice in the CRM ----
 
-  it("two CRM contacts sharing an email collapse into one person: the second's CRM id attaches to the first and becomes the primary; a payment by that email and a booking under the second id land on the one person; no second New lead (D65)", async () => {
+  it("two CRM contacts sharing an email collapse into one person: the second's CRM id attaches to the first and becomes the primary; a payment by that email and a booking under the second id land on the one person; a new CRM record is a new lead, the same record again is not (D65)", async () => {
     inCrm("DUP-A", { firstName: "Dup", lastName: "One", email: "dup@x.com", phone: "+16025550501" });
     await poll(); await tick(fake, undefined, companyId);
     const a = (await contactByGhl("DUP-A"))!;
@@ -245,11 +245,13 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     expect((await identifiers(a.id)).filter((i) => i.kind === "ghl_contact").map((i) => i.value).sort()).toEqual(["DUP-A", "DUP-B"]);
     expect((await identifiers(a.id)).filter((i) => i.kind === "phone").map((i) => i.value).sort()).toEqual(["+16025550501", "+16025550502"]);
     expect(await asOperator((c) => many(c, "select 1 from contacts where company_id=$1 and id in (select contact_id from contact_identifiers where company_id=$1 and kind='email' and value='dup@x.com')", [companyId]))).toHaveLength(1);
-    // D65: the second arrival is the same person, not a new lead: no second New lead run, and the record the CRM is delivering now becomes the primary id writes go to
-    expect((await runsFor("new-lead")).filter((r) => r.contact_id === a.id)).toHaveLength(1);
-    expect((await runsFor("speed-to-lead")).filter((r) => r.contact_id === a.id)).toHaveLength(1);
+    // D65: a record the CRM made is a new lead (the owner: "that's the new truth for that email and phone"); it joins the person's history and becomes the primary id writes go to; a second delivery of the same id starts nothing
+    expect((await runsFor("new-lead")).filter((r) => r.contact_id === a.id)).toHaveLength(2);
+    expect((await runsFor("speed-to-lead")).filter((r) => r.contact_id === a.id)).toHaveLength(1);   // once per contact
     expect((await asOperator((c) => one<{ ghl_contact_id: string }>(c, "select ghl_contact_id from contacts where id=$1", [a.id])))?.ghl_contact_id).toBe("DUP-B");
-    expect(await cardNames(a.id)).toEqual([{ name: "Dup One -- New" }]);   // one card, untouched by the second record
+    expect(await cardNames(a.id)).toEqual([{ name: "Dup Two -- New" }]);   // one card, renamed by the record that is the truth now
+    await poll(); await tick(fake, undefined, companyId);
+    expect((await runsFor("new-lead")).filter((r) => r.contact_id === a.id)).toHaveLength(2);   // the same id again is not a third lead
     const p = await asOperator((c) => recordPayment(c, companyId, { providerPaymentId: "P-DUP-1", amount: 500, status: "succeeded", paidAt: new Date(), email: "Dup@x.com" }));
     expect(p.outcome).toBe("linked"); if (p.outcome === "linked") expect(p.contactId).toBe(a.id);
     await book(snap("AP-DUP-B", { contactId: "DUP-B" }));

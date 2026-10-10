@@ -41,7 +41,7 @@ async function saveCursor(c: PoolClient, companyId: string, entity: string, valu
 }
 
 /** Upserts a contact replica + identifiers; returns our id and whether it was new. */
-export async function upsertContact(c: PoolClient, companyId: string, companyTz: string, s: ContactSnapshot, keepFields?: Set<string>): Promise<{ id: string; isNew: boolean; prevTags: string[] }> {
+export async function upsertContact(c: PoolClient, companyId: string, companyTz: string, s: ContactSnapshot, keepFields?: Set<string>): Promise<{ id: string; isNew: boolean; rejoined: boolean; prevTags: string[] }> {
   // D29: the replica keeps only the custom fields a binding names (crm.field_contact_*); a sub-account can carry hundreds, and form answers live as one JSON on the contact instead
   if (keepFields) s = { ...s, customFields: Object.fromEntries(Object.entries(s.customFields).filter(([id]) => keepFields.has(id))) };
   const existing = await one<{ id: string; tags: string[] }>(c, "select id, tags from contacts where company_id=$1 and ghl_contact_id=$2", [companyId, s.id]);
@@ -49,12 +49,11 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
   const firstName = normName(s.firstName), lastName = normName(s.lastName);
   let id = existing?.id, matched = false;
   if (!id) {
-    // identity resolution: an email/phone we've already seen (and still current, G15) means this is the same person,
-    // not a new lead. The record the CRM is delivering now is the live one, so it becomes the person's primary id: a
-    // person the CRM deleted and made again resumes as themselves, and writes go to a record that exists (D65).
-    const match = await one<{ contact_id: string; ghl_contact_id: string | null }>(c, `select i.contact_id, ct.ghl_contact_id from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.retired_at is null and ((i.kind='email' and i.value=$2) or (i.kind='phone' and i.value=$3)) limit 1`, [companyId, email ?? "", phone ?? ""]);
-    // a person the CRM has never held (a Calendly booker) is the CRM's new lead now; one it already held is the same person again
-    if (match) { id = match.contact_id; matched = match.ghl_contact_id !== null; await c.query("update contacts set ghl_contact_id=$2, gone_at=null where id=$1", [id, s.id]); }
+    // identity resolution: an email/phone we've already seen (and still current, G15) means this is the same person's
+    // history. The record the CRM is delivering now is the truth and becomes the primary id writes go to (D65). It is
+    // still a new lead: the CRM made a new contact, and that is the fact the workflows answer to (D65 addendum).
+    const match = await one<{ contact_id: string }>(c, `select i.contact_id from contact_identifiers i where i.company_id=$1 and i.retired_at is null and ((i.kind='email' and i.value=$2) or (i.kind='phone' and i.value=$3)) limit 1`, [companyId, email ?? "", phone ?? ""]);
+    if (match) { id = match.contact_id; matched = true; await c.query("update contacts set ghl_contact_id=$2, gone_at=null where id=$1", [id, s.id]); }
   }
   const tz = zone ?? companyTz;
   if (!id) {
@@ -70,7 +69,7 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
   }
   for (const [kind, value] of [["ghl_contact", s.id], ["email", email], ["phone", phone]] as const)
     if (value) await attachIdentifier(c, companyId, id, kind, value);
-  return { id, isNew: !existing && !matched, prevTags: existing?.tags ?? [] };
+  return { id, isNew: !existing, rejoined: matched, prevTags: existing?.tags ?? [] };
 }
 
 /** Attaches an identifier; one the CRM had retired from someone (a recycled number) moves to the person who carries it now. A current identifier of another person is left alone. */

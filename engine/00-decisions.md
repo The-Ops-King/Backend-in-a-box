@@ -1872,3 +1872,14 @@ trying so many times just to fix one thing." Now an identity match is never a ne
 a person the engine has never seen by any id), and the record the CRM is delivering now becomes the person's primary
 id, since it is the one that exists; the older id stays as an identifier so the duplicates check (D63) can still name
 the pair. A write that the CRM refuses fails its run once and alerts; nothing restarts it.
+
+### D65 addendum. A record the CRM made is a new lead (2026-10-10)
+
+Tyler, on the first cut of D65: "Fire on lead created. That's the new truth for that email and phone. Sometimes contacts
+get deleted, especially in testing. GHL could change things like the contact id, or the email gets updated. We always
+need to use GHL, not just what we have stored. No half measures like 'only when the engine hasn't seen the id before'."
+So: a CRM record the engine has not seen by its id is a new lead, always, even when its email or phone belongs to a
+person the engine already knows. The record joins that person's history and becomes the primary id writes go to; the
+older id stays as an identifier for the duplicates check (D63). What never happens again is the loop: the same id
+delivered again is the same lead, and starts nothing. "GHL is the source of truth; the engine is workflows plus
+statistics, not storage for everything" — the live contact read before a run acts (D68) follows from the same words.
