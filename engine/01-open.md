@@ -366,3 +366,10 @@ it's a deposit, which we don't have set up right now, but that's something we ne
 deposit is not yet a product the engine knows as its own kind (a reservation fee vs the first instalment of the price).
 When it is: the gate reads the kinds paid, not the fact of a payment — a deposit alone, even signed, is not a close; the
 first non-deposit dollar with the signature is. Decide with it whether the agreement chase and `stat-customer` wait too.
+
+## 36. Setter cards never booked stay at New Lead
+
+Tyler, 2026-10-10: "They'll live in new lead in the pipeline forever until they're booked. Which might be fine actually as
+long as we sort properly." No ageing rule for the setter board, no long-term-nurture stage there. Revisit if the New Lead
+column stops being readable; the closer board's Long Term Nurture stage is the closer's own and the engine never moves a
+card out of it.
