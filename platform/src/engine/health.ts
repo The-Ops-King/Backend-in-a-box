@@ -15,6 +15,8 @@ import { anthropicPing } from "@/adapters/anthropic/health";
 import { jevPing } from "@/adapters/jev/classifier";
 import { workflowRefs, VERIFIES } from "./coverage";
 import { parseDefinition } from "./definition";
+import { liveGhlReads, type GhlReads } from "@/adapters/ghl/metrics";
+import { crmPresence, ledgerDrift } from "./ledger-drift";
 
 /**
  * D33. The hourly sweep: a read-only look at every connection a company runs on. Its own automation, with its own
@@ -33,8 +35,8 @@ export function availabilityBreakdown(times: string[], from: DateTime, days: num
   return [...byDay.entries()].map(([k, list]) => `${DateTime.fromISO(k, { zone: tz }).toFormat("ccc LLL d")} · ${list.length ? `${list.length} (${list.slice(0, 8).join(", ")}${list.length > 8 ? ", …" : ""})` : "none"}`).join("\n");
 }
 export type HealthRow = { company_id: string; channel: string | null; as_name: string | null; as_icon: string | null; last_run_at: Date | null; last_result: Finding[] };
-/** What a sweep is told by the step that runs it: which checks, the availability threshold, the channel its alerts announce in. */
-export type HealthConfig = { checks: Record<string, boolean>; min_slots: number; slots_days: number; channel?: string | null };
+/** What a sweep is told by the step that runs it: which checks, the availability threshold, the channel its alerts announce in, and its run (the ledger_drift repair records its CRM writes against it, D66). */
+export type HealthConfig = { checks: Record<string, boolean>; min_slots: number; slots_days: number; channel?: string | null; run_id?: string };
 
 export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "ghl_token", label: "GoHighLevel token", about: "the private integration token still opens the location" },
@@ -44,6 +46,7 @@ export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "ghl_fields", label: "Custom fields", about: "every bound contact and opportunity field still exists" },
   { id: "ghl_users", label: "Team", about: "closers on calendars and cards are still users in the location" },
   { id: "duplicates", label: "Duplicate contacts", about: "no person is held twice by the CRM: two records the engine already folded into one person (same phone or email, spelled two ways), or two engine persons whose phone or email differ only in spelling. The engine never merges — GoHighLevel is the source of truth, so a person merges the records there; the finding and its alert clear once the dropped record is gone from the CRM" },
+  { id: "ledger_drift", label: "Ledger matches GHL (repaired)", about: "the last 7 days (except the last half hour) compared with GHL and repaired: a contact GHL added that the ledger lacks is pulled in (New lead fires once); one GHL no longer has is marked gone; a Sales Call the booking source cancelled before the call is set to cancelled in GHL (mode rules apply) and in the ledger; otherwise GHL's filed outcome replaces the ledger's. Every repair is logged; what cannot be repaired (an unmatched record, a cancel at an unknown time, a write the mode holds back) is an alert (D73)" },
   { id: "calendly_token", label: "Calendly token", about: "the token still answers (companies that book through Calendly)" },
   { id: "calendly_calendars", label: "Calendly event types bookable", about: "every mapped event type is active and has available times over the next 7 days; a host's calendar disconnecting shows up here" },
   { id: "whop_key", label: "Whop key", about: "the API key still reads payments" },
@@ -68,6 +71,8 @@ export type HealthProbes = {
   calendlyWhoAmI: typeof calendlyWhoAmI; calendlyAvailableTimes: typeof calendlyAvailableTimes;
   whopPing: typeof whopPing; whopGetWebhook: typeof whopGetWebhook; fathomPing: typeof fathomPing; fathomListWebhooks: typeof fathomListWebhooks; anthropicPing: typeof anthropicPing; jevPing?: typeof jevPing;
   urlOk: (url: string) => Promise<{ ok: boolean; status?: number; error?: string }>;
+  /** the CRM reads the drift check compares with (D73); without them the check does not run */
+  ghl?: GhlReads;
 };
 /** Does a link a person will click still answer? HEAD first, GET when HEAD is refused; anything under 400 after redirects is fine. */
 export async function urlOk(url: string): Promise<{ ok: boolean; status?: number; error?: string }> {
@@ -82,7 +87,7 @@ export async function urlOk(url: string): Promise<{ ok: boolean; status?: number
 /** Wait between re-asks of a vendor that did not answer; 0 in tests. */
 export let PROBE_RETRY_MS = 3000;
 export const setProbeRetryMs = (ms: number) => { PROBE_RETRY_MS = ms; };
-export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, calendlyWhoAmI, calendlyAvailableTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk };
+export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, calendlyWhoAmI, calendlyAvailableTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk, ghl: liveGhlReads };
 
 const DAYS_AHEAD = 7;
 type SlotRead = { name: string; id: string; slots: number; href?: string; times: string[] };
@@ -143,6 +148,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
 
   // Duplicates: one person the CRM holds twice (D63). Replica reads plus one CRM read per suspect record; nothing is merged here
   if (on("duplicates")) out.push(...(await findDuplicates(c, company, ac, adapters, connected)));
+  if (on("ledger_drift") && connected && probes.ghl) out.push(...(await ledgerDrift(c, company, ac, bindings, probes.ghl, adapters, row.run_id, now)));
 
   // Calendly
   if (ac.booking.source === "calendly") {
@@ -313,8 +319,7 @@ async function findDuplicates(c: PoolClient, company: CompanyRow, ac: Company, a
   // status) is the one the merge dropped; a CRM that cannot be read is "unknown", and an unconfirmed pair is never alerted (D69)
   const presence = async (ghlId: string): Promise<"present" | "gone" | "unknown"> => {
     if (!connected) return "unknown";
-    try { return (await adapters.read.getContact(ac, ghlId)) ? "present" : "gone"; }
-    catch (e) { return /\bcontact (with id \S+ )?not found\b/i.test(String((e as Error).message)) ? "gone" : "unknown"; }
+    return crmPresence((id) => adapters.read.getContact(ac, id), ghlId);
   };
   const push = (item: string, text: string, ghlId: string | null, contactId: string, detail: Record<string, unknown>) =>
     out.push({ check: "duplicates", item, key: `duplicate:${item}`, ok: false, level: "warning", text, detail, href: crmUrl(ghlId) ?? page(contactId), hrefLabel: crmUrl(ghlId) ? "Open in the CRM" : "Open the contact", page: page(contactId) });

@@ -1,4 +1,6 @@
 /** Re-running install upgrades a company's untouched copy of a template whose definition changed; an edited copy is left alone; a stale copy is flagged and skipped, never fatal. */
+import { loadCompany } from "@/engine/context";
+import { qualifyConfig, salesCallConfig } from "@/engine/ghl-metrics";
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -74,6 +76,15 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
     const stored = await asOperator((c) => one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='secret.ghl_pit'", [companyId]));
     expect((await import("@/engine/crypto")).decrypt(stored!.value)).toBe("pit-fake");
     await expect(installCompany({ ...rest, slug: "upg-nopit" }, fake)).rejects.toThrow(/pit is required/);
+  });
+
+  it("the bot's GHL config (D73): the work-situation answers and the Sales Call object are bindings the metrics read back", async () => {
+    const { pit: _p, ...rest } = base;
+    await installCompany({ ...rest, crm: { ...base.crm, field_contact_work_situation: "WS" }, qualify: { mqlAnswers: ["Employed full-time", " Investor "], dqAnswers: ["Currently between jobs"], unansweredIsMql: false },
+      salesCall: { object: "custom_objects.sales_call", outcomes: { showed: "showed", no_show: "noshow", late_cancel: "cancelled" }, dqDispositions: ["dq"] } }, fake);
+    const { bindings } = await asOperator((c) => loadCompany(c, companyId));
+    expect(qualifyConfig(bindings)).toEqual({ field: "WS", mql: ["Employed full-time", "Investor"], dq: ["Currently between jobs"], unansweredIsMql: false });
+    expect(salesCallConfig(bindings)).toEqual({ object: "custom_objects.sales_call", outcomes: { showed: "showed", no_show: "noshow", late_cancel: "cancelled" }, cancelledValue: "late_cancel", dqDispositions: ["dq"] });
   });
 
   it("an edited copy is left alone when the template moves on", async () => {

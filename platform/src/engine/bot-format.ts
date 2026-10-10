@@ -1,9 +1,9 @@
-import type { Availability, MetricResult, MetricRow, Unit } from "./metric-registry";
+import { METRICS, type Availability, type ClosesList, type MetricResult, type MetricRow, type Unit } from "./metric-registry";
 
 /**
  * Everything the Slack bot posts is rendered here from tool results, never written by the model (D70): key numbers first
- * as short bold lines, then tables as aligned monospace blocks (at most 25 rows and a totals row), then what each number
- * means and the period it covers in the company's zone.
+ * as short bold lines, then tables as aligned monospace blocks (at most 25 rows and a totals row), then only the period it
+ * covers in the company's zone (D73: definitions stay with /help and the model, out of every answer).
  */
 export const MAX_ROWS = 25;
 
@@ -49,21 +49,34 @@ const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 export const periodLine = (r: { period_label: string; timezone: string }) => `Period: ${r.period_label} (${r.timezone})`;
 
+const NAMES_SHOWN = 15;
+const names = (list: string[]) => list.length <= NAMES_SHOWN ? list.join(", ") : `${list.slice(0, NAMES_SHOWN).join(", ")}, and ${list.length - NAMES_SHOWN} more`;
+const CLASS_WORDS: Record<string, string> = { showed: "showed", noshow: "no-show", cancelled: "cancelled", rescheduled: "rescheduled" };
+/** The lines a number carries under its key line: how leads answered the work-situation question; every due call by outcome, who has none filed, and GHL vs the booking source. */
+export function detailLines(r: MetricResult): string[] {
+  const L: string[] = [];
+  const q = r.qualification;
+  if (q) L.push(`MQLs: ${fmt("count", q.mql)} matched the employment standard · ${fmt("count", q.unanswered)} didn't answer${q.unanswered_is_mql && q.unanswered ? " (counted as MQLs)" : ""}${q.unrecognized ? ` · ${q.unrecognized} unrecognized answer${q.unrecognized === 1 ? "" : "s"} (${q.unrecognized_answers.map((a) => `"${a}"`).join(", ")})` : ""}`);
+  const b = r.shows_breakdown;
+  if (b) {
+    L.push(`Calls booked: ${b.booked} · Showed ${b.showed} · No-show ${b.noshow} · Cancelled ${b.cancelled}${b.rescheduled ? ` · Rescheduled ${b.rescheduled}` : ""} · Missing from EOD disposition ${b.missing}${b.missing ? ` (${names(b.missing_names)})` : ""}`);
+    for (const m of b.mismatches) L.push(`⚠️ ${m.name}: GHL says ${CLASS_WORDS[m.ghl] ?? m.ghl}, ${m.booking_source} says cancelled (counted as cancelled; fix the Sales Call in GHL)`);
+  }
+  return L;
+}
+
 /** A whole answer: every key number on top, the model's one sentence (if any), the tables, then definitions and the period. */
-export function formatAnswer(results: MetricResult[], opts: { note?: string; availability?: Availability[]; adhoc?: { why: string; columns: string[]; rows: unknown[][]; truncated: boolean }[] } = {}): string {
-  const L: string[] = [...new Set(results.map(keyLine))];
+export function formatAnswer(results: MetricResult[], opts: { note?: string; availability?: Availability[]; closes?: ClosesList[]; adhoc?: { why: string; columns: string[]; rows: unknown[][]; truncated: boolean }[] } = {}): string {
+  const L: string[] = [...new Set(results.flatMap((r) => [keyLine(r), ...detailLines(r)]))];
+  for (const k of opts.closes ?? []) L.push(closesKey(k));
   for (const a of opts.availability ?? []) L.push(availabilityKey(a));
   if (opts.note) L.push(opts.note);
   for (const r of results) { const t = metricTable(r); if (t) L.push("", `*${r.label} by ${r.group_by}*`, t); }
   for (const a of opts.availability ?? []) L.push("", availabilityBody(a));
+  for (const k of opts.closes ?? []) L.push("", ...closesBody(k));
   for (const q of opts.adhoc ?? []) L.push("", `*Ad hoc, from the raw ledger:* ${q.why}`, adhocTable(q));
-  const defs = [...new Map(results.map((r) => [r.metric, r])).values()];
-  if (defs.length) {
-    L.push("");
-    for (const r of defs) L.push(`_${r.label}: ${r.definition}_`);
-    const periods = [...new Set(results.map((r) => periodLine(r)))];
-    L.push(`_${periods.join(" · ")}_`);
-  }
+  const periods = [...results, ...(opts.closes ?? [])];
+  if (periods.length) L.push("", `_${[...new Set(periods.map((r) => periodLine(r)))].join(" · ")}_`);
   for (const a of opts.availability ?? []) L.push("", availabilityFooter(a));
   return L.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -73,6 +86,11 @@ function adhocTable(q: { columns: string[]; rows: unknown[][]; truncated: boolea
   const s = (v: unknown) => (v === null || v === undefined ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
   return table(q.columns, q.rows.map((r) => r.map(s))) + (q.truncated ? "\n_More rows than shown._" : "");
 }
+
+/** /closes: the count on top, then one line per close, newest first. */
+const closesKey = (k: ClosesList) => `*Closes${k.filters?.closer ? ` (${k.filters.closer})` : ""}: ${k.count}*  · _from ${k.source}_`;
+const closesBody = (k: ClosesList) => (k.closes.length ? k.closes.map((x) => `• ${x.name} — ${x.closer} — won ${x.won}`) : ["_No closes in this period._"]);
+export const formatCloses = (k: ClosesList) => [closesKey(k), "", ...closesBody(k), "", `_${periodLine(k)}_`].join("\n");
 
 /** Availability: the total per day (light days marked), then each closer per day, then where it came from. */
 export function availabilityBody(a: Availability): string {
@@ -94,22 +112,21 @@ export function formatAvailability(a: Availability): string {
 export const availabilityKey = (a: Availability) => `*Open slots, next ${a.days.length} days: ${a.total.toLocaleString("en-US")}*  · _from ${a.source}_`;
 export const availabilityFooter = (a: Availability) => `_${a.label}: ${a.definition}_\n_Period: ${a.days[0]?.label ?? ""} to ${a.days[a.days.length - 1]?.label ?? ""}, read just now (${a.timezone})_`;
 
-/** The summary shortcuts (/mtd, /weekly, /monthly): the key numbers with the comparison beside each, then definitions. */
+/** The summary shortcuts (/mtd, /weekly, /monthly): the key numbers with the comparison beside each, then the period. */
 export function formatSummary(cur: MetricResult[], prev: MetricResult[] | null, extra: string[] = []): string {
   const L: string[] = [];
   for (const r of cur) {
     const p = prev?.find((x) => x.metric === r.metric);
-    L.push(`${keyLine(r)}${p ? `  ·  ${p.period_name.toLowerCase()} ${fmt(p.unit, p.value)}${delta(r, p)}` : ""}`);
+    L.push(`${keyLine(r)}${p ? `  ·  ${p.period_name.toLowerCase()} ${fmt(p.unit, p.value)}${delta(r, p)}` : ""}`, ...detailLines(r));
   }
   L.push(...extra, "");
-  for (const r of cur) L.push(`_${r.label}: ${r.definition}_`);
   L.push(`_${periodLine(cur[0])}${prev?.[0] ? ` · compared with ${prev[0].period_label}` : ""}_`);
   return L.join("\n");
 }
 /** Several metrics split the same way, side by side in one table: Source | Leads | MQLs | DQs. */
 export function formatCombined(results: MetricResult[]): string {
   const by = results[0]?.group_by;
-  const L: string[] = results.map(keyLine);
+  const L: string[] = results.flatMap((r) => [keyLine(r), ...detailLines(r)]);
   if (by) {
     const keys = new Map<string, string>();
     for (const r of results) for (const x of r.rows ?? []) if (!keys.has(x.key)) keys.set(x.key, x.label);
@@ -118,9 +135,7 @@ export function formatCombined(results: MetricResult[]): string {
     const rows = order.map((k) => [keys.get(k)!, ...results.map((r) => fmt(r.unit, r.rows?.find((x) => x.key === k)?.value ?? (r.unit === "rate" ? null : 0)))]);
     L.push("", `*By ${by}*`, table([cap(by), ...results.map((r) => r.label)], rows, ["Total", ...results.map((r) => fmt(r.unit, r.value))]));
   }
-  L.push("");
-  for (const r of results) L.push(`_${r.label}: ${r.definition}_`);
-  if (results[0]) L.push(`_${periodLine(results[0])}_`);
+  if (results[0]) L.push("", `_${periodLine(results[0])}_`);
   return L.join("\n");
 }
 
@@ -136,11 +151,12 @@ export const SHORTCUTS: { command: string; about: string; example: string }[] = 
   { command: "/mtd", about: "month to date: leads, MQLs, booked, shows, closes, cash, top source by cash, vs the same days last month", example: "/mtd" },
   { command: "/weekly", about: "last full week (or `this week`), the same numbers, vs the week before", example: "/weekly this week" },
   { command: "/monthly", about: "last full month (or `this month`), the same numbers, vs the month before", example: "/monthly" },
-  { command: "/show-rate", about: "show rate overall, by closer and by source (default this month)", example: "/show-rate last month" },
+  { command: "/show-rate", about: "show rate with every due call by outcome and who is missing from EOD disposition, by closer and by source (default this month)", example: "/show-rate last month" },
   { command: "/close-rate", about: "close rate overall, by closer and by source (default this month)", example: "/close-rate last 30 days" },
   { command: "/cash", about: "cash collected, refunds and net, by closer (default this month)", example: "/cash last week" },
   { command: "/availability", about: "open bookable slots for the next 7 days, per day and per closer (or a number of days, up to 7)", example: "/availability 3" },
   { command: "/leads", about: "leads, MQLs and marketing DQs by source (default this month)", example: "/leads yesterday" },
+  { command: "/closes", about: "every close in the period, newest first: who, their closer, the day it was won (default this month)", example: "/closes last month" },
 ];
 export function helpText(botMention = "@bot"): string {
   return [
@@ -154,9 +170,14 @@ export function helpText(botMention = "@bot"): string {
     `• ${botMention} build me a report of the leads this month that showed, sorted by source`,
     `• ${botMention} what does our calendar availability look like?`,
     "",
+    "*What the numbers mean*",
+    ...HELP_METRICS.map((m) => `• *${METRICS[m].label}*: ${METRICS[m].definition}`),
+    "",
     "\"My\" means you: _what is my close rate last month_ answers for you. I answer in the thread (in a DM, privately). If I'm not sure what you mean I'll ask; if I can't get the number I'll say so and ping someone who can.",
   ].join("\n");
 }
+
+const HELP_METRICS = ["leads", "mqls", "marketing_dqs", "calls_booked_due", "show_rate", "sales_dqs", "closes", "close_rate", "cash_collected"];
 
 export const ESCALATE_UNSURE = (who: string) => `I'm not sure how to get that information. Let me ping ${who} real quick.`;
 export const ESCALATE_PING = (slackId: string) => `Hey <@${slackId}>, can you help?`;

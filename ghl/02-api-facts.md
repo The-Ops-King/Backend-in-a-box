@@ -277,3 +277,11 @@ the poll interval.
   (connected|voicemail|no_answer|busy|failed), recording_url, led_to_booking (CHECKBOX, option `yes`,
   written as `["yes"]`). Association `6aa08fc3b1739b9f7dd9f337` is contact → discovery_call.
 
+
+## Reads behind the Slack bot's numbers (D73, 2026-10-10; from the published API v2 spec, not yet re-verified live)
+
+| Read | Call | Paging / fields |
+|---|---|---|
+| Contacts added in a window | `POST /contacts/search` (Version 2021-07-28) `{locationId, pageLimit ≤ 500, filters:[{field:"dateAdded",operator:"range",value:{gte,lte}}], sort:[{field:"dateAdded",direction:"asc"}]}` | each contact carries `searchAfter`; send the last one back as `searchAfter` (not capped at 10,000 like `page`). `customFields: [{id, value}]`. |
+| Won cards on one board | `GET /opportunities/search?location_id&pipeline_id&status=won&limit=100&page=N` | status enum open, won, lost, abandoned, all. Won time = `lastStatusChangeAt` (fallback `lastStageChangeAt`, then `updatedAt`). The card embeds `contact {id, name, email, tags}`, `monetaryValue`, `assignedTo`. |
+| Custom object records | `POST /objects/{key}/records/search` `{locationId, page, pageLimit, query:""}` | records carry `searchAfter` and `properties`; no property filter in the spec, so all records are read and filtered here. Hair's `custom_objects.sales_call` records (object 6a8d189363abc358ea394676) were made by an outside integration: their `external_id` is not the ledger's Calendly event uuid, so they are matched by GHL contact id and start minute. |
