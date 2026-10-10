@@ -49,6 +49,9 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("wait"), rule: WaitRule }),
   // Waits for an inbound reply (woken the minute one arrives) or until `timeout`; follows the edge labeled "timeout" if none, else exits `no_reply`.
   z.object({ ...base, type: z.literal("wait_for_reply"), timeout: z.string(), channel: z.enum(["sms", "email", "any"]).default("any"), settle: z.string().default("90s") }),   // settle: after the first reply, wait this long for the rest of what they are typing (D47)
+  // Waits for a team member's tap on ONE Slack message (D53): `of` names it ("tag:<tag>" as a slack_post remembered it, or the id of a slack_post in this run); only `emojis` count,
+  // on that very message. The tap lands under `into` as { reaction, user, user_name, ts }. With `timeout`, silence continues with it null so a branch can handle it; without, it waits for the tap.
+  z.object({ ...base, type: z.literal("wait_for_reaction"), of: z.string(), emojis: z.array(z.string().min(1)).min(1), timeout: z.string().optional(), into: z.string().default("reaction") }),
   // kind: "human" reads like a person wrote it and always respects dark hours; "transactional" is an automated receipt ("you're booked") the company may let through at any hour
   // ghl_template: the CRM's own SMS snippet / email builder template id (or a {{crm.*}} binding); when set and found, the team's copy in the CRM wins over `template` (D30)
   z.object({ ...base, type: z.literal("send_sms"), template: z.string(), ghl_template: z.string().optional(), kind: z.enum(["human", "transactional"]).default("human"), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),

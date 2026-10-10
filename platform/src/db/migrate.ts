@@ -3,7 +3,7 @@ import { SCHEMA } from "./schema.sql";
 
 /** Every event source the engine writes; one list so an added source cannot be missed by a later constraint rebuild. */
 const APPOINTMENT_SOURCES = ["ghl", "calendly", "test"].map((s) => `'${s}'`).join(",");
-const EVENT_SOURCES = ["form", "ghl_poll", "whop", "fathom", "zapier", "engine", "disposition", "command_center", "user", "test"].map((s) => `'${s}'`).join(",");
+const EVENT_SOURCES = ["form", "ghl_poll", "whop", "fathom", "zapier", "slack", "engine", "disposition", "command_center", "user", "test"].map((s) => `'${s}'`).join(",");
 
 /** Applies engine/schema.sql (idempotently: skips if `companies` exists) then forces RLS on every tenant table. */
 export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[] }> {
@@ -17,6 +17,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table companies add column if not exists sms_enabled boolean not null default true`);
     await c.query(`alter table companies add column if not exists mode text not null default 'shadow'`);
     await c.query(`alter table runs add column if not exists wake_on_reply boolean not null default false`);
+    await c.query(`alter table runs add column if not exists wake_on_tag text`);   // D53: the Slack post whose tap wakes a run parked on wait_for_reaction
     // D51: which mode a run was born in; the column arriving on a database that already has runs stamps them with their company's mode today (every run so far was shadow-born where the company is still in shadow)
     const bornIn = await c.query("select 1 from information_schema.columns where table_name='runs' and column_name='born_in'");
     if (bornIn.rowCount === 0) {

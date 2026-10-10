@@ -371,7 +371,7 @@ create table events (
   run_id          uuid,
   event_type      text not null references event_types(name),
   occurred_at     timestamptz not null,
-  source          text not null check (source in ('form','ghl_poll','whop','fathom','zapier','engine','disposition','command_center','user')),
+  source          text not null check (source in ('form','ghl_poll','whop','fathom','zapier','slack','engine','disposition','command_center','user','test')),
   data            jsonb not null default '{}'
 );
 create index on events (company_id, contact_id, occurred_at);
@@ -525,6 +525,7 @@ create table runs (
   current_node        text,
   next_run_at         timestamptz,                         -- THE clock. Null when not waiting.
   wake_on_reply       boolean not null default false,       -- true only while parked on wait_for_reply; an inbound message wakes these and nothing else
+  wake_on_tag         text,                                 -- set only while parked on wait_for_reaction: the tag of the Slack post whose tap wakes it (D53)
   context             jsonb not null default '{}',         -- resolved vars, last reply, etc.
   exit_reason         text,
   reentry_key         text not null,                       -- computed per policy; unique prevents double runs

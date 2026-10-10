@@ -1344,3 +1344,31 @@ evening sweep) have no contact and follow only their own switch. The domain is a
 never a constant; Hair's is jtylerray.com because that is Tyler's. Test contacts are created in the CRM by Tyler,
 never by the engine ("this is to keep you from doing anything unexpected"). Slack posts before live say which rung
 they came from. Going live clears every run not born live (D51) and workflows still go on one at a time.
+
+## D53. The question waits for its own answer (2026-10-09)
+
+Tyler, on the separate "Booking decided in Slack" workflow: "Remove 'Booking decided in Slack' workflow; pre-call gets
+a wait step that waits for a reaction on that specific question message (✅ ❌ 🔁), then branches." "Workflows accomplish
+one task… directly related steps stay inside one workflow." On what a tap means: "tyler responded ✅ to Jeremy, mark
+Jeremy as confirmed" — never everyone. The unclear-reply question offers Confirmed, Declined, Rescheduled (🔁 → a
+reschedule request: the rebooking link goes out, the same path as a reply that asks to move the call). And the post
+is made *as* a persona named "Unclear reply, please confirm", so the body must not start with that title again.
+
+- A new node, `wait_for_reaction` `{ of, emojis, timeout?, into? }`, parks the run (`runs.wake_on_tag` = the tag of
+  the post it waits on, the way `wake_on_reply` marks a reply wait) until a team member taps one of `emojis` on that
+  very message. The Slack door still turns the tap into a `slack.reaction` event (D45); it now also wakes every run
+  waiting on that post's tag, and the step reads the tap back from the event by the message itself (channel + ts).
+  Another post's tap, another emoji, a removal or the bot's own reactions change nothing. The tap lands under `into`
+  (default `reaction`) as `{ reaction, user, user_name, ts }` and is carried in the run's context. With `timeout`,
+  silence continues with `reaction` null for a branch to handle; without one, only the tap moves it.
+- Pre-call's unclear branch is now: the question (tagged `decision:<appointment>`, offering ✅ ❌ 🔁, body without the
+  repeated title) → `wait_for_reaction` on it (a day) → a branch: ✅ takes the confirmed path, ❌ the cancel path,
+  🔁 the reschedule path, nobody → the reminders go on. The three paths are the ones a prospect's own words take: one
+  `stat-confirmed` step, one cancel, one rebooking text, and their thread replies now also take the bot's ✅ ❌ 🔁 off
+  the question and end with "Decided by <name>" when a person decided. The run stays ONE run for ONE contact, so the
+  reaction is matched to that contact's own question message, never to the whole team's. `stat-unconfirmed` comes off
+  whenever a call is confirmed (a contact may still carry it from an earlier booking).
+- `booking-decision` is deleted: the separate workflow it was is now a wait step inside the one it belonged to.
+- Found on the way: the door's `source: 'slack'` was never in the events check constraint (the door had no DB
+  test), and "our last message" for `reply.*` counted a Slack post about the contact as a message to them. Both fixed:
+  `slack` is an event source; the last outbound is a text or an email only.

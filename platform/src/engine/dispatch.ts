@@ -39,7 +39,7 @@ export async function startRun(c: PoolClient, args: { companyId: string; workflo
   // D45: a person is in a workflow once at a time; the newest run wins. An older run parked for this person (a pre-call for a
   // booking they replaced) exits; one mid-step (claimed inside the lease) is left to finish.
   if (args.contactId) {
-    const older = await many<{ id: string; appointment_id: string | null }>(c, `update runs set status='exited', exit_reason='superseded: a newer run for this person', finished_at=now(), next_run_at=null, wake_on_reply=false
+    const older = await many<{ id: string; appointment_id: string | null }>(c, `update runs set status='exited', exit_reason='superseded: a newer run for this person', finished_at=now(), next_run_at=null, wake_on_reply=false, wake_on_tag=null
       where workflow_id=$1 and contact_id=$2 and id<>$3 and status in ('active','waiting') and (claimed_at is null or claimed_at < now() - interval '5 minutes') returning id, appointment_id`, [args.workflowId, args.contactId, row.id]);
     for (const o of older) await emitEvent(c, { company_id: args.companyId, contact_id: args.contactId, opportunity_id: null, appointment_id: o.appointment_id, run_id: o.id, event_type: "run.exited", source: "engine", data: { reason: "superseded", by_run: row.id } });
   }

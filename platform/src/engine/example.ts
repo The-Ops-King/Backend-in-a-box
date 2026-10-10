@@ -53,6 +53,7 @@ export function exampleContext(company: { name: string; timezone: string }, bind
     },
     agreement: { id: "doc123", name: "Coaching Agreement", status: "completed", sent_at: n.minus({ days: 1 }).toISO(), signed_at: n.toISO(), signer: "Jane Doe" },
     records: { sales_call: { key: "appt123", id: "rec123" }, payment: { key: "pay_123", id: "rec456" } },
+    reaction: { reaction: "white_check_mark", user: "U0123", user_name: "Allan Parker", ts: "1700000000.000100" },
     reply: { intent: "confirmed", confidence: 0.92, top_guesses: "confirmed 92%, reschedule request 5%", last_inbound: { body: "Yes, see you then!", at: n.toISO() }, last_outbound: { body: "Hi Jane, you're booked with Allan tomorrow at 2pm.", at: n.minus({ minutes: 10 }).toISO() } },
     user: { id: "user123", name: "Allan Parker", first_name: "Allan", email: "allan@example.com", role: "closer", slack_user_id: "U0123", mention: "<@U0123>", report_url: "https://engine.example/eod/er_abc",
       eod: { day: n.toISODate(), url: "https://engine.example/eod/er_abc", today: { calls: 3, filed: false, line: "• <https://engine.example/eod/er_abc|today>: 3 calls" }, earlier: [{ day: n.minus({ days: 1 }).toISODate(), label: n.minus({ days: 1 }).toFormat("ccc LLL d"), calls: 2, url: "https://engine.example/eod/er_abc?day=" + n.minus({ days: 1 }).toISODate() }], earlier_count: 1,
