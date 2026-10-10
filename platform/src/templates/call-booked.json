@@ -5,7 +5,7 @@
   "stage": "booking",
   "sort": 10,
   "origin": "spec",
-  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, the Sales Call record is created (the recording updates it later; a reschedule moves it), and the team gets the Slack card with the intake answers. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar and reacts 🔁 on the card it replaces; later reactions (confirmed, cancelled, outcome, payment) land on that newest card.",
+  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, a Sales Call record is created for the call slot (the recording and the filed outcome update it; a reschedule logs the old slot's record as rescheduled and makes the new slot its own, D76), and the team gets the Slack card with the intake answers. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar and reacts 🔁 on the card it replaces; later reactions (confirmed, cancelled, outcome, payment) land on that newest card.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -34,6 +34,20 @@
             "closing"
           ]
         }
+      },
+      {
+        "id": "c0",
+        "type": "check",
+        "title": "Wait for GHL to have the person (a booking can land first)",
+        "when": {
+          "exists": "contact.ghl_contact_id"
+        },
+        "retry": {
+          "every": "2m",
+          "for": "1h"
+        },
+        "else_exit": "no_crm_id",
+        "else_pause": "contact has no CRM id yet: GHL did not have the person an hour after the booking"
       },
       {
         "id": "n1",
@@ -183,10 +197,24 @@
         }
       },
       {
+        "id": "k5",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{event.slot.from | default:}}",
+        "if_missing": "skip",
+        "only_if": {
+          "exists": "event.slot.from"
+        },
+        "properties": {
+          "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
+        },
+        "title": "A reschedule: the slot the call left keeps its Sales Call, logged as rescheduled"
+      },
+      {
         "id": "k4",
         "type": "crm_record",
         "object": "custom_objects.sales_call",
-        "key": "{{appointment.external_id}}",
+        "key": "{{appointment.slot_key}}",
         "properties": {
           "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
           "external_id": "{{appointment.external_id}}",
@@ -196,7 +224,7 @@
           "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
           "closer": "{{appointment.closer.name | default:}}",
           "setter": "{{appointment.set_by | default:}}",
-          "outcome": "scheduled"
+          "outcome": "{{picklist.sales_call_outcome.scheduled}}"
         },
         "relate": [
           {
@@ -266,10 +294,14 @@
     "edges": [
       {
         "from": "t1",
-        "to": "n1"
+        "to": "c0"
       },
       {
         "from": "t2",
+        "to": "c0"
+      },
+      {
+        "from": "c0",
         "to": "n1"
       },
       {
@@ -331,7 +363,7 @@
       },
       {
         "from": "k3",
-        "to": "k4"
+        "to": "k5"
       },
       {
         "from": "s5",
@@ -352,6 +384,10 @@
       {
         "from": "n4",
         "to": "x1"
+      },
+      {
+        "from": "k5",
+        "to": "k4"
       }
     ]
   }

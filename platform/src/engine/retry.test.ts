@@ -97,7 +97,7 @@ describe("failure classes (pure)", () => {
     expect(classifyError(Object.assign(new Error("overloaded"), { status: 529 }))).toMatchObject({ cls: "transient", status: 529 });
     expect(classifyError("update_contact: contact has no CRM id yet")).toMatchObject({ cls: "permanent" });
     expect(classifyError("record_outcome: no appointment_outcome term for \"shown\"")).toMatchObject({ cls: "unknown" });
-    expect(RETRY_SCHEDULE).toEqual([1, 5, 15, 60]);
+    expect(RETRY_SCHEDULE).toEqual([1, 5]);   // D76: no loops; at most three tries of a step in all
   });
 });
 
@@ -167,10 +167,10 @@ describe.skipIf(!HAS_DB)("a failed step is retried in place (D66)", () => {
       let at = DateTime.now();
       for (let i = 0; i <= RETRY_SCHEDULE.length; i++) { await wake(runId); await tickAt(at); at = at.plus({ minutes: RETRY_SCHEDULE[i] ?? 1 }); }
       const r = (await run(runId))!;
-      expect(r).toMatchObject({ status: "paused", current_node: "n1", step_attempt: RETRY_SCHEDULE.length + 1, exit_reason: expect.stringMatching(/^transient:ghl: GHL 503 .* \(5 tries over 81 minutes\)$/) });
-      expect((await steps(runId, "n1")).map((s) => s.status)).toEqual(["failed", "failed", "failed", "failed", "failed"]);
+      expect(r).toMatchObject({ status: "paused", current_node: "n1", step_attempt: RETRY_SCHEDULE.length + 1, exit_reason: expect.stringMatching(/^transient:ghl: GHL 503 .* \(3 tries over 6 minutes\)$/) });
+      expect((await steps(runId, "n1")).map((s) => s.status)).toEqual(["failed", "failed", "failed"]);
       const a = await alerts(`run:${runId}:paused`);
-      expect(a).toHaveLength(1); expect(a[0].resolved_at).toBeNull(); expect(a[0].text).toMatch(/"Tag it" needs a hand at step n1 for Ben Retry: GHL 503 .* \(gave up after 5 tries\)\. Retry or skip the step on the run page\./);
+      expect(a).toHaveLength(1); expect(a[0].resolved_at).toBeNull(); expect(a[0].text).toMatch(/"Tag it" needs a hand at step n1 for Ben Retry: GHL 503 .* \(gave up after 3 tries\)\. Retry or skip the step on the run page\./);
       expect(tags).toHaveLength(0);
       // a person retries: counter reset, due now; the CRM is back; the step passes once
       tagMode = "ok";

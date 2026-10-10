@@ -7,6 +7,7 @@ import { transcriptText, type RecordingRow } from "./recordings";
 import { latestAgreement, facts as agreementFacts, type AgreementRow } from "./agreements";
 import { eodFacts } from "./eod";
 import type { ContactTruth } from "./contact-truth";
+import { salesCallValues } from "./sales-call";
 
 export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string | null; user_id?: string | null; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date; resume_node?: string | null; resume_at?: Date | null; step_attempt?: number; step_error?: string | null };
 export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; status: string; sms_enabled: boolean; mode: import("./mode").Mode; contract_value_default: string | null };
@@ -53,13 +54,15 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   const raw = (contact?.ghl_fields ?? {}) as Record<string, unknown>;
   for (const [k, id] of Object.entries(bindings)) if (k.startsWith("crm.field_contact_")) { const v = raw[id]; fields[k.slice("crm.field_contact_".length)] = Array.isArray(v) ? v.join(", ") : v ?? undefined; }
   const ctx: Record<string, unknown> = {
-    company: { id: company.id, name: company.name, timezone: company.timezone },
+    company: { id: company.id, name: company.name, timezone: company.timezone, operator_slack_id: bindings["bot.escalate_to"] || undefined },
     contact: contact ? { ...contact, ghl_fields: undefined, fields, timezone: contactZone ?? company.timezone } : undefined,
     vars: (run.context.vars as Record<string, unknown>) ?? {},
     reply: { ...((run.context.reply as Record<string, unknown>) ?? {}), ...derivedReply },   // last_inbound/last_outbound are re-derived every tick; intent/confidence from classify persist
     event: run.context.event ?? {},
     reaction: run.context.reaction,   // what a wait_for_reaction stored (D53); carried so the steps after it can say who decided even across a park
     calendar: {}, slack: { channel: {} }, crm: {}, prompt: {},
+    // the company's own option keys for what the engine writes on a picklist (a Sales Call's outcome)
+    picklist: { sales_call_outcome: salesCallValues(bindings) },
   };
   // the recording a run was started by (recording.received) — read from the ledger every tick, never copied into the run's context
   const recId = (run.context.event as { recording_id?: string } | undefined)?.recording_id;
@@ -75,7 +78,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   }
   if (run.appointment_id) {
     const a = await one<Record<string, unknown>>(c, `
-      select a.id, a.source, a.external_id, a.starts_at, a.ends_at, a.status, a.self_booked, a.set_by, a.answers, a.reschedule_url, a.cancel_url, a.tracking, a.cancelled_by, a.cancel_reason, a.pending_read,
+      select a.id, a.source, a.external_id, coalesce(a.slot_key, a.external_id) as slot_key, a.starts_at, a.ends_at, a.status, a.self_booked, a.set_by, a.answers, a.reschedule_url, a.cancel_url, a.tracking, a.cancelled_by, a.cancel_reason, a.pending_read,
              json_build_object('name', t.name, 'category', t.category) as term,
              json_build_object('id', u.id, 'first_name', split_part(u.name,' ',1), 'name', u.name, 'email', u.email, 'ghl_user_id', u.ghl_user_id, 'slack_user_id', u.slack_user_id, 'mention', coalesce('<@' || u.slack_user_id || '>', u.name)) as closer,
              ot.category as outcome, cot.category as call_outcome
@@ -94,7 +97,8 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   ctx.cards = cards;
   if (run.contact_id) {
     // D30 facts the agreement and close flows check: has this person paid, have they signed, who owns them in the CRM, and the latest CRM record of each object we wrote for them
-    const pay = await one<{ n: number; total: string; first_at: Date | null }>(c, "select count(*)::int as n, coalesce(sum(amount),0)::text as total, min(paid_at) as first_at from payments where company_id=$1 and contact_id=$2 and status='succeeded'", [company.id, run.contact_id]);
+    // cash collected is net of refund lines (D57), as the running total Payment recorded writes to the contact is
+    const pay = await one<{ n: number; total: string; first_at: Date | null }>(c, "select count(*) filter (where status='succeeded')::int as n, coalesce(sum(amount) filter (where status in ('succeeded','refunded')),0)::text as total, min(paid_at) filter (where status='succeeded') as first_at from payments where company_id=$1 and contact_id=$2", [company.id, run.contact_id]);
     const agr: AgreementRow | null = (await latestAgreement(c, company.id, run.contact_id)) ?? null;
     const ownerGhl = (contact?.assigned_ghl_user_id as string | null) ?? bindings["crm.default_closer"] ?? null;
     const owner = ownerGhl ? await one<{ id: string; name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select id, name, email, ghl_user_id, slack_user_id from users where company_id=$1 and ghl_user_id=$2", [company.id, ownerGhl]) : null;

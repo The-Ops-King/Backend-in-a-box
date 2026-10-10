@@ -121,6 +121,14 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
   return { event: ev, healed: healed.length };
 }
 
+/** A refund names the payment it reverses (`raw.payment_id`); a refund event may carry no buyer identity, and that payment's person is not a guess. */
+async function refundedPayer(c: PoolClient, companyId: string, provider: string, input: PaymentInput): Promise<{ contactId: string; by: string } | null> {
+  const original = input.status === "refunded" ? input.raw?.payment_id : undefined;
+  if (typeof original !== "string" || !original) return null;
+  const row = await one<{ contact_id: string | null }>(c, "select contact_id from payments where company_id=$1 and provider=$2 and whop_payment_id=$3 and link_status='linked'", [companyId, provider, original]);
+  return row?.contact_id ? { contactId: row.contact_id, by: "refunded_payment" } : null;
+}
+
 /** Records a provider payment. Idempotent on (provider, payment id). `forceContactId` is for callers that already know the person (tests, manual entry). */
 export async function recordPayment(c: PoolClient, companyId: string, input: PaymentInput, forceContactId?: string): Promise<RecordResult> {
   const provider = input.provider ?? "whop";
@@ -132,7 +140,7 @@ export async function recordPayment(c: PoolClient, companyId: string, input: Pay
     const prior = (await one<PaymentRow>(c, "select * from payments where company_id=$1 and provider=$2 and whop_payment_id=$3", [companyId, provider, input.providerPaymentId]))!;
     return { outcome: "duplicate", payment: prior };
   }
-  const match = forceContactId ? { contactId: forceContactId, by: "known" } : await resolvePayer(c, companyId, input);
+  const match = forceContactId ? { contactId: forceContactId, by: "known" } : (await refundedPayer(c, companyId, provider, input)) ?? await resolvePayer(c, companyId, input);
   if (match) {
     const { event, healed } = await settle(c, companyId, match.contactId, inserted, match.by);
     return { outcome: "linked", payment: (await one<PaymentRow>(c, "select * from payments where id=$1", [inserted.id]))!, event, contactId: match.contactId, healed };

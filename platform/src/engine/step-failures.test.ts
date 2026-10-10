@@ -105,7 +105,7 @@ const fake: Adapters = {
 const CRM = { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_closer_scheduled: "STAGE-SCHED", default_closer: "U1" };
 const TABLES = ["alerts", "slack_posts", "sends", "runs", "events", "slack_connections", "workflow_triggers", "workflows", "messages", "crm_records", "payments", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"];
 let companyId: string, closingTerm: string;
-let wfNewLead: string, wfS2L: string, wfTag: string, wfCard: string, wfCardSkip: string, wfCardStatus: string, wfNote: string, wfTask: string, wfRecord: string, wfContact: string, wfSlack: string, wfNotify: string, wfClassify: string, wfAnalyze: string, wfAnalyzeOpt: string, wfAppt: string, wfBranch: string, wfRecordEv: string, wfCheck: string;
+let wfNewLead: string, wfS2L: string, wfTag: string, wfCard: string, wfCardSkip: string, wfCardStatus: string, wfNote: string, wfTask: string, wfRecord: string, wfContact: string, wfSlack: string, wfNotify: string, wfClassify: string, wfAnalyze: string, wfAnalyzeOpt: string, wfAppt: string, wfBranch: string, wfRecordEv: string, wfCheck: string, wfRecordUpdate: string, wfCardMove: string;
 
 const wipe = (slug: string) => asOperator(async (c) => {
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [slug]); if (!co) return;
@@ -181,11 +181,13 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
     wfNewLead = await templateWf("new-lead"); wfS2L = await templateWf("speed-to-lead");
     wfTag = await probe("Probe: tag", [{ id: "n1", type: "set_tag", tag: "stat-probe" }]);
     wfCard = await probe("Probe: card", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", name: "{{contact.name}} -- New" }]);
+    wfCardMove = await probe("Probe: card to another stage", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "STAGE-ELSEWHERE", name: "{{contact.name}} -- Moved" }]);
     wfCardSkip = await probe("Probe: card, skip when missing", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", if_missing: "skip" }]);
     wfCardStatus = await probe("Probe: card status only", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", status: "lost" }]);
     wfNote = await probe("Probe: note", [{ id: "n1", type: "note", template: "Probe note for {{contact.name}}" }]);
     wfTask = await probe("Probe: task", [{ id: "n1", type: "create_task", title: "Call {{contact.name}}", due: "+1d" }]);
     wfRecord = await probe("Probe: record", [{ id: "n1", type: "crm_record", object: "custom_objects.probe", key: "{{event.key}}", properties: { amount: "100", note: "{{contact.name}}" } }]);
+    wfRecordUpdate = await probe("Probe: record, update only", [{ id: "n1", type: "crm_record", object: "custom_objects.probe", key: "{{event.key}}", if_missing: "skip", properties: { outcome: "showed" } }]);
     wfContact = await probe("Probe: update contact", [{ id: "n1", type: "update_contact", set: { first_name: "Probed" } }]);
     wfSlack = await probe("Probe: slack", [{ id: "n1", type: "slack_post", channel: "{{slack.channel.bookings}}", template: "Probe post for {{contact.name}}" }, { id: "n2", type: "slack_post", channel: "{{slack.channel.bookings}}", template: "Second post for {{contact.name}}" }]);
     wfNotify = await probe("Probe: notify owner", [{ id: "n1", type: "notify_owner", template: "Owner, look at {{contact.name}}", fallback_channel: "{{slack.channel.bookings}}", task: { title: "Follow up with {{contact.name}}", due: "+1d" } }]);
@@ -361,11 +363,11 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("addTag")).toBe(1);
     });
 
-    it("503 that never clears: retried at 1 min, 5 min, 15 min and 1 h on the same step, then paused; five calls, one run — today the first 503 fails the run", async () => {
+    it("503 that never clears: retried at 1 min and 5 min on the same step, then paused with one alert; three calls in all, one run (D76: no loops)", async () => {
       fail("addTag", { status: 503, times: 99 });
       const ct = await person("DOWN503");
       const id = await start(wfTag, ct);
-      for (const minutes of [1, 5, 15, 60]) {
+      for (const minutes of [1, 5]) {
         await tickOnce();
         const r = await runRow(id); expect(r).toMatchObject({ status: "waiting", current_node: "n1" });
         expect(dueIn(r)).toBeGreaterThan(minutes * 0.8); expect(dueIn(r)).toBeLessThan(minutes * 1.2);
@@ -373,7 +375,8 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       }
       await tickOnce();
       expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1" });
-      expect(callsTo("addTag")).toBe(5);
+      expect(callsTo("addTag")).toBe(3);
+      expect((await openAlerts()).filter((a) => a.key === `run:${id}:paused`)).toHaveLength(1);
       expect(await runsOf(wfTag, ct)).toHaveLength(1);
     });
 
@@ -518,14 +521,34 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("createOpportunity")).toBe(1); expect(cardsIn("READ503")).toHaveLength(1);
     });
 
-    it("the card was deleted in the CRM between the read and the write (updateOpportunity 404): the run pauses with the CRM's words, asked once — today the run is failed", async () => {
+    it("the card was deleted in the CRM between the read and the write (updateOpportunity 404): the CRM said it is gone, so the replica marks it gone and the step makes one fresh card; asked once, no Retry loop (sweep 2026-10-10, D-4)", async () => {
       const ct = await person("DEL404");
-      handCard("DEL404");
-      fail("updateOpportunity", { status: 404, times: 99 });
+      const hand = handCard("DEL404");
+      fail("updateOpportunity", { status: 404, message: `{"message":"Opportunity with id ${hand.id} not found"}`, times: 99 });
       const id = await start(wfCard, ct);
-      await spin(id, 2);
-      expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/not found|404/) });
-      expect(callsTo("updateOpportunity")).toBe(1); expect(callsTo("createOpportunity")).toBe(0);
+      await spin(id, 3);
+      expect((await runRow(id)).status).toBe("completed");
+      expect(callsTo("updateOpportunity")).toBe(1); expect(callsTo("createOpportunity")).toBe(1);
+      expect((await replicaCards(ct)).map((k) => [k.ghl_opportunity_id === hand.id ? "hand" : "fresh", k.status])).toEqual([["hand", "gone"], ["fresh", "open"]]);
+      // the next run moves the fresh card; the gone one is never asked about again
+      calls.clear(); plans.clear();
+      const again = await start(wfCard, ct); await spin(again, 2);
+      expect((await runRow(again)).status).toBe("completed"); expect(callsTo("createOpportunity")).toBe(0);
+    });
+
+    it("a card deleted in the CRM since an earlier run (a test contact re-made): the stale replica card is found gone on the write and replaced once; a card the CRM cannot be asked about (503) is never called gone (sweep 2026-10-10, D-4)", async () => {
+      const ct = await person("STALE1");
+      const first = await start(wfCard, ct); await tickOnce(); expect((await runRow(first)).status).toBe("completed");
+      const made = (await replicaCards(ct))[0].ghl_opportunity_id!;
+      cards.delete(made); calls.clear();
+      fail("updateOpportunity", { status: 503, times: 1 });
+      const second = await start(wfCardMove, ct); await tickOnce();
+      expect(await runRow(second)).toMatchObject({ status: "waiting", current_node: "n1" });   // an outage: retried in place, nothing marked
+      expect((await replicaCards(ct))[0].status).toBe("open");
+      await wake(second); await tickOnce();
+      expect((await runRow(second)).status).toBe("completed");
+      expect(callsTo("createOpportunity")).toBe(1);
+      expect((await replicaCards(ct)).map((k) => k.status)).toEqual(["gone", "open"]);
     });
 
     it("shadow: the CRM is read (cards first, D41) but never written; a replica card with no CRM id, the run completes", async () => {
@@ -734,6 +757,31 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       await spin(second, 2);
       expect(await runRow(second)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/not found|404/) });
       expect(callsTo("updateRecord")).toBe(1); expect(callsTo("createRecord")).toBe(0);
+    });
+
+    it("a note for a contact with no CRM id yet pauses with the reason: the CRM is never asked about contact 'undefined', nobody is stamped gone (sweep 2026-10-10)", async () => {
+      const ct = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name) values ($1,'Note','Nobody') returning id", [companyId]))!.id);
+      const id = await start(wfNote, ct);
+      await tickOnce();
+      expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/no CRM id/) });
+      expect(callsTo("addNote")).toBe(0);
+      expect(await asOperator((c) => one<{ gone_at: Date | null }>(c, "select gone_at from contacts where id=$1", [ct]))).toMatchObject({ gone_at: null });
+    });
+
+    it("an update-only record step (if_missing: skip) never makes a record: none known, or one known only from a shadow run (no CRM id), is a skip; a known record is updated (sweep 2026-10-10)", async () => {
+      const ct = await person("RECUPD");
+      const none = await start(wfRecordUpdate, ct, { key: "upd-none" }); await tickOnce();
+      expect((await runRow(none)).status).toBe("completed");
+      expect((await steps(none)).find((s) => s.node_id === "n1")).toMatchObject({ status: "skipped", result: expect.objectContaining({ kind: "noop" }) });
+      // a booking made while the contact was shadowed left our row with no CRM id: updating it must not create a bare record
+      await asOperator((c) => c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,'custom_objects.probe','upd-shadow',null,$2,'{}')", [companyId, ct]));
+      const shadowBorn = await start(wfRecordUpdate, ct, { key: "upd-shadow" }); await tickOnce();
+      expect((await steps(shadowBorn)).find((s) => s.node_id === "n1")).toMatchObject({ status: "skipped" });
+      expect(callsTo("createRecord")).toBe(0); expect(callsTo("updateRecord")).toBe(0);
+      const made = await start(wfRecord, ct, { key: "upd-known" }); await tickOnce(); expect((await runRow(made)).status).toBe("completed");
+      const upd = await start(wfRecordUpdate, ct, { key: "upd-known" }); await tickOnce();
+      expect((await runRow(upd)).status).toBe("completed");
+      expect(callsTo("createRecord")).toBe(1); expect(callsTo("updateRecord")).toBe(1);
     });
 
     it("update_contact the CRM refuses with 503: retried in place, written once — today the run fails (executor.ts:480)", async () => {

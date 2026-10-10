@@ -31,14 +31,14 @@ export type InstallInput = {
   bookingCalendar?: string;              // external id bound as calendar.booking (first-call / self-book link used by lead and reactivation templates)
   crm?: Record<string, string>;          // extra crm.* bindings a template needs: pipeline and stage ids, custom field ids (key without the crm. prefix)
   whop?: { webhookSecret?: string; apiKey?: string };
-  slack?: Record<string, string>;        // slack.channel.<name> → channel id (bookings, deals, alerts, …)   // Whop → /api/webhooks/whop/<companyId>; a ws_ signing secret, or an API key and the engine creates the webhook itself (and can backfill payments)
+  slack?: Record<string, string>;        // slack.channel.<name> → channel id (bookings, deals, alerts, ops: where DMs to the team go until live (D76), …)   // Whop → /api/webhooks/whop/<companyId>; a ws_ signing secret, or an API key and the engine creates the webhook itself (and can backfill payments)
   /** Call recordings. `apiKey` registers Fathom's webhook at install (needs PUBLIC_URL); `webhookSecret` binds one made by hand. Either way the Zapier door is open too. */
   recording?: { source: "fathom"; apiKey?: string; webhookSecret?: string };
   anthropicKey?: string;                 // bound as secret.anthropic_key; the analyze node reads it (env ANTHROPIC_API_KEY is the fallback)
   /** D73: financial qualification from the CRM's work-situation field (bound through `crm` as field_contact_work_situation): the answers that make an MQL and a DQ (qualify.mql_answers, qualify.dq_answers), matched exactly; a blank answer is an MQL only with unansweredIsMql (qualify.unanswered_is_mql). */
   qualify?: { mqlAnswers?: string[]; dqAnswers?: string[]; unansweredIsMql?: boolean };
-  /** D73: the Sales Call custom object the show rate reads (crm.object_sales_call), what each of its `outcome` values means (sales_call.outcomes), and which `disposition` values are a sales DQ (sales_call.dq_dispositions). */
-  salesCall?: { object?: string; outcomes?: Record<string, "showed" | "noshow" | "cancelled" | "rescheduled">; dqDispositions?: string[] };
+  /** D73: the Sales Call custom object the show rate reads (crm.object_sales_call), what each of its `outcome` values means (sales_call.outcomes; also what the engine writes there, inverted: a new booking's `scheduled`, a no-show, a late cancel), and which `disposition` values are a sales DQ (sales_call.dq_dispositions). */
+  salesCall?: { object?: string; outcomes?: Record<string, "showed" | "noshow" | "cancelled" | "rescheduled" | "scheduled">; dqDispositions?: string[] };
   testDomains?: string[];                // bound as test.domains: email domains whose contacts pass in test (D52), e.g. ["jtylerray.com"]
   jevKey?: string;                       // bound as secret.jev_key; the classify node reads replies with it (env JEV_API_KEY is the fallback)
   /** Where the engine says what broke (D33): a Slack channel id, email addresses (needs resendKey + emailFrom), a webhook (a Zap). */

@@ -5,7 +5,7 @@ import { resolve } from "./alerts";
 /**
  * D66. One failure policy for every step, decided here and applied by the runner.
  *
- *   transient  network error, timeout, 408/425/429/5xx, Postgres connection trouble → retried in place on RETRY_SCHEDULE, then paused
+ *   transient  network error, timeout, 408/425/429/5xx, Postgres connection trouble → retried in place on RETRY_SCHEDULE (three tries in all, D76), then paused
  *   auth       401/403: the token is wrong or lost a scope → paused at once; one alert per company per vendor; a new token wakes every run paused on it
  *   permanent  400/404/422, "not found" / "invalid" from the vendor, a step's own config error → paused at once
  *   unknown    anything else → one retry as if transient, then permanent
@@ -13,8 +13,8 @@ import { resolve } from "./alerts";
 export type FailureClass = "transient" | "auth" | "permanent" | "unknown";
 export type Classified = { cls: FailureClass; vendor: string | null; status: number | null; answered: boolean; message: string };
 
-/** Minutes after each failed try before the next; the length is the number of retries. */
-export const RETRY_SCHEDULE = [1, 5, 15, 60];
+/** Minutes after each failed try before the next; the length is the number of retries. D76: no loops, at most three tries of a step in all, then one alert. */
+export const RETRY_SCHEDULE = [1, 5];
 
 /** A vendor's refusal with its shape kept: the adapters that can afford it throw this; the rest throw strings this module parses. */
 export class VendorError extends Error {

@@ -117,8 +117,8 @@
           "transaction_id": "{{event.provider_payment_id}}",
           "amount": "{{event.amount}}",
           "occurred_at": "{{event.paid_at}}",
-          "type": "{{event.kind}}",
-          "status": "{{vars.pay.status}}",
+          "type": "{{event.kind | oneof:deposit,balance,installment,paid_in_full,refund,chargeback}}",
+          "status": "{{vars.pay.status | oneof:succeeded,failed,refunded,disputed,pending}}",
           "processor": "whop",
           "contact_id": "{{contact.ghl_contact_id | default:}}",
           "opportunity_id": "{{cards.closer.id | default:}}",
@@ -176,6 +176,7 @@
         "type": "crm_record",
         "object": "custom_objects.sales_call",
         "key": "{{records.sales_call.key}}",
+        "if_missing": "skip",
         "properties": {
           "cash_collected": "{{event.running_total}}"
         }

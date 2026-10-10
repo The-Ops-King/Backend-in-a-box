@@ -248,7 +248,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     });
     it("F6 (fixed, D61): the closer card leaves Scheduled on the filed outcome — Follow Up, Lost, Disqualified, No Show / Cancelled (Pat and Quinn below) — and on the money for a close; a recording alone leaves it, because the closer board has no Showed stage", async () => {
       expect(await cardOn(jordan, "PIPE-CLOSER")).toMatchObject({ stage: "STAGE-SCHED", status: "open" });
-      expect((templates.find((t) => t.slug === "call-outcome")!.definition.nodes as unknown as Record<string, string>[]).filter((n) => n.type === "pipeline_card").map((n) => `${n.id}:${n.stage}`).sort()).toEqual(["gn1:{{crm.stage_setter_cancelled}}", "gn2:{{crm.stage_closer_cancelled}}", "k2:{{crm.stage_closer_follow_up}}", "k3:{{crm.stage_closer_lost}}", "k4:{{crm.stage_closer_disqualified}}", "sc1:{{crm.stage_setter_showed}}"]);
+      expect((templates.find((t) => t.slug === "call-outcome")!.definition.nodes as unknown as Record<string, string>[]).filter((n) => n.type === "pipeline_card").map((n) => `${n.id}:${n.stage}`).sort()).toEqual(["gn1:{{crm.stage_setter_cancelled}}", "gn2:{{crm.stage_closer_cancelled}}", "k2:{{crm.stage_closer_follow_up}}", "k3:{{crm.stage_closer_lost}}", "k4:{{crm.stage_closer_disqualified}}", "kc:{{crm.stage_closer_scheduled}}", "sc1:{{crm.stage_setter_showed}}"]);
     });
 
     it("end of day, the closer files 'showed, closed': Call outcome filed adds stat-closed-won, ✅ ensured, a second thread line, the Sales Call record says showed / closed_won (F7, D59); it writes no card: the setter card is already won by the recording, and a close leaves the closer card to the money (D61)", async () => {
@@ -408,7 +408,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       const ts = (await postTs(`appointment:${run.appointment_id}`))!;
       expect(reactionsOn(ts)).toEqual(["x"]); expect(threadOf(ts).at(-1)).toMatch(/^❌ Mina's call is cancelled\.\n> sorry, I need to cancel\nDecided by /);   // D55: a person decided
       const cx = await asOperator((c) => many<{ source: string; data: Record<string, unknown> }>(c, "select source, data from events where company_id=$1 and appointment_id=$2 and event_type='appointment.status_changed' order by id", [companyId, run.appointment_id]));
-      expect(cx).toEqual([{ source: "engine", data: { source: "ghl", status: { from: "confirmed", to: "cancelled" }, by: "workflow", node: "n_cx" } }]);
+      expect(cx).toEqual([{ source: "engine", data: { source: "ghl", status: { from: "confirmed", to: "cancelled" }, before_start: true, by: "workflow", node: "n_cx" } }]);   // a cancel before the call is a cancel (D73)
       // the next poll sees the source agree: cancelled → cancelled is no change, so the step's event stays the only one
       await book({ ...apptStore.get("A-MINA")!, status: "cancelled" });
       await tickAt(DateTime.now());
@@ -589,7 +589,8 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
 
   // ---- tag churn, read off the templates themselves ----
   describe("tags across every template (pure)", () => {
-    const l = (v?: string | string[]) => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
+    // a whole {{expr}} is a list picked at run time (Call outcome filed's undo of an earlier answer, D76); its tags are spelled out where it is picked
+    const l = (v?: string | string[]) => (v === undefined ? [] : Array.isArray(v) ? v : [v]).filter((x) => !/^\s*\{\{/.test(x));
     const adds = new Map<string, string[]>(), removes = new Map<string, string[]>();
     for (const t of templates) for (const n of t.definition.nodes as unknown as Record<string, unknown>[]) {
       const touched = n.type === "tags" ? { a: l(n.add as string[]), r: l(n.remove as string[]) } : n.type === "set_tag" ? { a: l(n.tag as string | string[]), r: [] } : n.type === "remove_tag" ? { a: [], r: l(n.tag as string | string[]) } : null;

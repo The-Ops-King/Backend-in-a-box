@@ -214,6 +214,7 @@ create table appointments (
   tracking             jsonb not null default '{}',                -- utm_* etc. as the booking source reported them
   cancelled_by         text,                                       -- who cancelled (name) and why, when the source says
   pending_read         jsonb,                                      -- D58: Jev's read of a reply the team was asked about and has not answered: { intent, confidence, at }; cleared when a person taps
+  slot_key             text,                                       -- D76: the call slot a Sales Call record is keyed by: the booking's id, or id@start after a move that kept the id; null = external_id
   cancel_reason        text,
   booked_at            timestamptz not null,
   -- replica of the booking source's state (GHL vocabulary; Calendly active/canceled maps onto it)
@@ -249,7 +250,7 @@ create table payments (
   customer_phone   text,
   whop_member_id   text,                                 -- stable buyer id; a later payment with the same id resolves through an earlier linked one
   link_status      text not null default 'linked' check (link_status in ('linked','unlinked')),
-  linked_by        text,                                 -- email | phone | member_id | manual | heal
+  linked_by        text,                                 -- email | phone | member_id | manual | heal | refunded_payment
   paid_at          timestamptz not null,
   raw              jsonb not null default '{}',          -- the small, structured part of the webhook
   unique (company_id, provider, whop_payment_id)

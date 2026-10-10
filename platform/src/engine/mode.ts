@@ -36,10 +36,12 @@ export async function contactPasses(c: PoolClient, companyId: string, contactId:
   return { ok: false, why: `test mode: not tagged ${TEST_TAG} and no email on a test domain` };
 }
 
-/** What a run does, decided once per claim (D52 addendum 2): shadow when the company is in shadow, or in test and the contact does not pass; real otherwise. A run with no contact (end of day, wrap-ups, health) is team-facing: real outside shadow. */
+/** What a run does, decided once per claim (D52 addendum 2): shadow when the company is in shadow, or in test and the contact does not pass; real otherwise.
+ *  D76: a run with no contact (end of day, wrap-ups, health) is shadow too until live: nothing outward reaches a person; the operator's alerts are not runs and still go. */
 export type Effective = "shadow" | "real";
 export async function effectiveMode(c: PoolClient, companyId: string, contactId: string | null, mode: Mode, bindings: Record<string, string>): Promise<Effective> {
   if (mode === "shadow") return "shadow";
-  if (mode === "live" || !contactId) return "real";
+  if (mode === "live") return "real";
+  if (!contactId) return "shadow";
   return (await contactPasses(c, companyId, contactId, mode, bindings)).ok ? "real" : "shadow";
 }

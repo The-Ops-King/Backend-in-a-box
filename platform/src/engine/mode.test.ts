@@ -8,11 +8,16 @@ import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
 import { contactPasses, effectiveMode } from "@/engine/mode";
 import { fakeAdapters } from "@/engine/test-install";
+import { parseDefinition, extractManifest } from "@/engine/definition";
+import { syncTriggers } from "@/engine/install";
+import { encrypt } from "@/engine/crypto";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 let companyId: string;
 const fake = fakeAdapters();
 const crmTags: { to: string; tag: string }[] = [], crmCards: string[] = [], sent: { kind: string; to: string }[] = [];
+const dms: { channel: string; text: string }[] = [];
+fake.notifier.post = async (_t, channel, text) => { dms.push({ channel, text }); return { ts: `${dms.length}.0001` }; };
 fake.write.addTag = async (_c, to, tag) => { crmTags.push({ to, tag }); };
 fake.write.createOpportunity = async (_c, input) => { crmCards.push(input.contactId); return { id: `ghl-opp-${crmCards.length}` }; };
 fake.sender.sendSms = async (_c, to) => { sent.push({ kind: "sms", to }); return { externalId: `s${sent.length}`, accepted: true }; };
@@ -36,7 +41,7 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='ladder'");
       if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
-        for (const t of ["sends", "runs", "events", "pipeline_cards", "opportunities", "contact_identifiers", "contacts", "slack_connections", "workflow_triggers", "workflows", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+        for (const t of ["sends", "runs", "events", "pipeline_cards", "opportunities", "contact_identifiers", "contacts", "slack_posts", "slack_connections", "workflow_triggers", "workflows", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
     });
     companyId = (await installCompany({ name: "Ladder", slug: "ladder", timezone: "America/Phoenix", locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, bookingCalendar: "CAL", templates: ["new-lead", "speed-to-lead"], crm: { pipeline_setter: "P", stage_setter_new_lead: "S", field_opportunity_stage_entered: "F" }, testDomains: ["@JTylerRay.com"], enable: true }, fake)).companyId;
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));   // the texts here are about the mode, not the hour
@@ -115,7 +120,49 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
       expect(await effectiveMode(c, companyId, real, "shadow", b)).toBe("shadow"); expect(await effectiveMode(c, companyId, null, "shadow", b)).toBe("shadow");
       expect(await effectiveMode(c, companyId, real, "live", b)).toBe("real");
       expect(await effectiveMode(c, companyId, real, "test", b)).toBe("shadow"); expect(await effectiveMode(c, companyId, domain, "test", b)).toBe("real");
-      expect(await effectiveMode(c, companyId, null, "test", b)).toBe("real");   // a team-facing run (end of day, wrap-ups, health) is real in test
+      expect(await effectiveMode(c, companyId, null, "test", b)).toBe("shadow");   // D76: a team-facing run (end of day, wrap-ups) reaches nobody until live
+      expect(await effectiveMode(c, companyId, null, "live", b)).toBe("real");
     });
+  });
+  it("D76: until live a DM to a team member reaches the ops channel (else the operator) instead, marked who it was for; a run with no contact (the end-of-day reminder) is no exception; the operator's own DM about a test contact goes as is; live delivers it", async () => {
+    await setMode("test");
+    const probe = async (name: string, event: string, middle: Record<string, unknown>[]) => asOperator(async (c) => {
+      const nodes = [{ id: "t1", type: "trigger", event }, ...middle, { id: "x1", type: "exit", reason: "done" }];
+      const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "none" }, nodes, edges: nodes.slice(0, -1).map((n, i) => ({ from: n.id, to: nodes[i + 1].id })) });
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,$2,'always',true) returning id", [companyId, name]))!;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'d76')", [wf.id, def, extractManifest(def)]);
+      await syncTriggers(c, companyId, wf.id, def);
+    });
+    const james = await asOperator(async (c) => {
+      await c.query("insert into slack_connections (company_id, team_id, bot_token, channels) values ($1,'T1',$2,'{}') on conflict do nothing", [companyId, encrypt("xoxb-fake")]);
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'bot.escalate_to','id',$2) on conflict (company_id,key) do update set value=excluded.value", [companyId, Buffer.from("UOP")]);
+      await c.query("insert into users (company_id, email, name, role, ghl_user_id, slack_user_id) values ($1,'tyler@ladder.test','Tyler Op','staff','GOP','UOP')", [companyId]);
+      return (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id, slack_user_id) values ($1,'james@ladder.test','James Closer','closer','GJ','UJAMES') returning id", [companyId]))!.id;
+    });
+    await probe("DM the closer", "eod.filed", [{ id: "n1", type: "slack_post", channel: "{{user.slack_user_id}}", template: "Your end of day, {{user.first_name}}" }]);
+    await probe("DM the owner", "lead.created", [{ id: "n1", type: "notify_owner", template: "Look at {{contact.name}}" }, { id: "n2", type: "slack_post", channel: "UOP", template: "Operator: {{contact.name}}" }]);
+    const filed = () => asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "eod.filed", source: "user", data: { user_id: james } }), { user: { id: james } }));
+    const owned = async (ghl: string, email: string, tags: string[]) => { const id = await contact(ghl, email, tags); await asOperator((c) => c.query("update contacts set assigned_ghl_user_id='GJ', first_name='Pat' where id=$1", [id])); return id; };
+
+    dms.length = 0;
+    await filed(); await lead(await owned("D1", "real@gmail.com", [])); await lead(await owned("D2", "me2@jtylerray.com", []));
+    await tick(fake, undefined, companyId);
+    expect(dms.filter((m) => m.channel === "UJAMES")).toEqual([]);   // nothing reaches James before live
+    const toOp = dms.filter((m) => m.channel === "UOP").map((m) => m.text.replace(/^🧪 \*\w+\* — /, ""));
+    expect(toOp.filter((t) => t.startsWith("Would have sent to James Closer:\n"))).toHaveLength(3);   // the reminder-like DM, and the owner DM for each contact
+    expect(toOp).toContain("Operator: Pat");   // the operator's own DM about the test contact goes as is
+    expect(toOp).toContain("Would have sent to Tyler Op:\nOperator: Pat");   // about a real contact it is marked, as everything else is
+    // live: the DM is the closer's
+    dms.length = 0; await setMode("live");
+    await filed(); await tick(fake, undefined, companyId);
+    expect(dms.map((m) => [m.channel, m.text])).toEqual([["UJAMES", "Your end of day, James"]]);
+    // the company's ops channel, when bound, is where held-back DMs go (the operator's DM is the fallback)
+    await setMode("test"); await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.ops','channel',$2)", [companyId, Buffer.from("COPS")]));
+    dms.length = 0; await filed(); await tick(fake, undefined, companyId);
+    expect(dms.map((m) => [m.channel, m.text.replace(/^🧪 \*\w+\* — /, "")])).toEqual([["COPS", "Would have sent to James Closer:\nYour end of day, James"]]);
+    // neither bound: held back, written down, posted nowhere
+    await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('bot.escalate_to','slack.channel.ops')", [companyId]));
+    dms.length = 0; await filed(); await tick(fake, undefined, companyId);
+    expect(dms).toEqual([]);
   });
 });

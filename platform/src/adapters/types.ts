@@ -104,6 +104,8 @@ export type SlackPersona = { name?: string; icon?: string | string[] };
 export interface Notifier {
   /** `threadTs` replies in that message's thread instead of posting to the channel. */
   post(token: string, channelId: string, text: string, as?: SlackPersona, threadTs?: string): Promise<{ ts: string; channel?: string }>;
+  /** chat.update: rewrite a message the bot posted (needs chat:write). Optional: a notifier without it posts anew. */
+  update?(token: string, channelId: string, ts: string, text: string): Promise<void>;
   /** Slack user id for an email (users.lookupByEmail; needs users:read.email), null when unknown. A DM is a post to that id. */
   lookupUserByEmail(token: string, email: string): Promise<string | null>;
   /** reactions.add on a message (needs reactions:write). Resolves false, never throws, when the scope is missing. */

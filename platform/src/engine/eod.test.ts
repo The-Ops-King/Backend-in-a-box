@@ -206,4 +206,51 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     // the engine's own showed (a recording landing) is Sales call recorded's business, not this workflow's: no run
     expect(await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: theo, opportunity_id: null, appointment_id: apptTheo, event_type: "appointment.outcome", source: "engine", data: { outcome: "showed", label: "Showed", by: "workflow:o1" } }), { contact: { id: theo }, appointment: { id: apptTheo } }))).toEqual([]);
   });
+  it("refiling the day (sweep 2026-10-10): a call whose answer is already on the ledger is not filed again, so Call outcome filed does not post its thread line and reaction a second time; a changed answer files once", async () => {
+    const day = DateTime.now().setZone(TZ).minus({ days: 1 }).toFormat("yyyy-MM-dd");
+    const token = await asOperator((c) => tokenFor(c, allan));
+    const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, day));
+    // as the form opens: Mia and Noah as filed, Theo as the CRM marked him
+    expect(pre.calls.map((x) => [x.contact, x.outcome])).toEqual([["Mia Chen", "no_show"], ["Noah Reyes", "follow_up"], ["Theo Park", "no_show"]]);
+    const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "never joined either", next_date: x.next_date ?? (x.outcome === "follow_up" ? DateTime.now().plus({ days: 2 }).toISODate() : null), next_steps: x.next_steps || (x.outcome === "follow_up" ? "call back" : "") }));
+    const outcomeRuns = () => asOperator(async (c) => Number((await one<{ n: string }>(c, "select count(*)::text as n from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Call outcome filed'", [companyId]))!.n));
+    const before = await outcomeRuns(), n = posts.length;
+    expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });   // all three are on the ledger
+    expect(await outcomeRuns()).toBe(before);
+    await tick(fake, DateTime.now(), companyId);
+    expect(posts.slice(n).filter((p) => p.channel === "CBOOK")).toEqual([]);
+    // Noah turns out to be a loss: that one call is filed, once
+    const changed = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const } : x));
+    expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(changed), calls: changed, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });
+    expect(await outcomeRuns()).toBe(before + 1);
+    await tick(fake, DateTime.now(), companyId);
+    expect(posts.slice(n).filter((p) => p.channel === "CBOOK").map((p) => p.text)).toEqual(["✅ Showed, per Allan P: lost."]);
+  });
+  it("D76: the reminder goes on every day until each of the closer's Sales Calls in GHL has an outcome (GHL is the truth, not only the ledger); blank two days on, the operator is told", async () => {
+    const day = (n: number) => DateTime.now().setZone(TZ).minus({ days: n });
+    const rec = (id: string, d: DateTime, outcome: string, closer = "Allan P") => ({ id, createdAt: d.toISO()!, properties: { display_label: `${id} Person — ${d.toISODate()}`, scheduled_at: d.set({ hour: 10, minute: 0 }).toUTC().toISO(), call_date: d.toISODate(), outcome, closer } });
+    const before = fake.read.objectRecords;
+    fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [rec("Xena", day(3), ""), rec("Yuri", day(0), "scheduled"), rec("Zoe", day(2), "showed"), rec("Walt", day(3), "", "Someone Else")] : []);
+    await asOperator(async (c) => {
+      for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })], ["bot.escalate_to", "UOPS"]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]);
+      // today's reminders already went (above); the clock starts them again as a new day would
+      await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]);
+      await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]);
+      await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='End-of-day reminder')", [companyId]);
+    });
+    try {
+      const at = DateTime.now().setZone(TZ).set({ hour: 17, minute: 1 }) as DateTime<true>;
+      await asOperator((c) => dispatchSchedules(c, at, companyId));
+      const n = posts.length; await tick(fake, at, companyId);
+      const token = await asOperator((c) => tokenFor(c, allan));
+      const dm = posts.slice(n).filter((p) => p.channel === "UALLAN").map((p) => p.text);
+      const label = (d: DateTime) => d.toFormat("ccc LLL d");
+      expect(dm).toContain(`Hey Allan, your end-of-day is waiting:\n• <https://engine.test/eod/${token}?day=${day(3).toISODate()}|${label(day(3))}>: 1 call with no outcome in GHL\n• <https://engine.test/eod/${token}|today>: 1 call with no outcome in GHL\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`);
+      expect(dm.some((t) => t.includes("Walt") || t.includes("Zoe"))).toBe(false);
+      expect(posts.slice(n).filter((p) => p.channel === "UOPS").map((p) => p.text)).toEqual([`Allan P still has Sales Calls with no outcome in GHL after two days:\n• ${label(day(3))}: Xena Person`]);   // once a day, from the evening reminder
+    } finally {
+      fake.read.objectRecords = before;
+      await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes','bot.escalate_to')", [companyId]));
+    }
+  });
 });

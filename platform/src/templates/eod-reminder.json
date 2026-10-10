@@ -5,7 +5,7 @@
   "stage": "team",
   "sort": 10,
   "origin": "spec",
-  "description": "DMs each closer their end-of-day link at the end of the day, and again the next morning for anything still unfiled.",
+  "description": "DMs each closer their end-of-day link every evening, and again the next morning, until every call is filed: days with calls and no report in the engine, and days whose Sales Calls in GHL still have no outcome (GHL is the truth). A call still blank in GHL two days on is also told to the operator (D76).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -33,15 +33,17 @@
       },
       {
         "id": "v_evening",
-        "type": "set_var",
-        "key": "lines",
-        "value": "{{user.eod.all_lines}}"
+        "type": "eod_due",
+        "period": "evening",
+        "into": "lines",
+        "title": "Today and every earlier day still to file (the ledger and GHL's Sales Calls)"
       },
       {
         "id": "v_morning",
-        "type": "set_var",
-        "key": "lines",
-        "value": "{{user.eod.earlier_lines}}"
+        "type": "eod_due",
+        "period": "morning",
+        "into": "lines",
+        "title": "Every earlier day still to file"
       },
       {
         "id": "c_due",
@@ -65,6 +67,30 @@
         "tag": "eod-reminder:{{user.id}}:{{user.eod.day}}",
         "template": "Hey {{user.first_name}}, your end-of-day is waiting:\n{{vars.lines}}\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.",
         "title": "DM the closer their link"
+      },
+      {
+        "id": "n_op",
+        "type": "slack_post",
+        "channel": "{{company.operator_slack_id}}",
+        "only_if": {
+          "and": [
+            {
+              "exists": "company.operator_slack_id"
+            },
+            {
+              "neq": [
+                "{{vars.overdue_lines | default:}}",
+                ""
+              ]
+            }
+          ]
+        },
+        "as": {
+          "name": "End of day",
+          "icon": ":clipboard:"
+        },
+        "template": "{{user.name}} still has Sales Calls with no outcome in GHL after two days:\n{{vars.overdue_lines}}",
+        "title": "Tell the operator about calls blank for two days"
       },
       {
         "id": "x_done",
@@ -100,6 +126,10 @@
       },
       {
         "from": "n_dm",
+        "to": "n_op"
+      },
+      {
+        "from": "n_op",
         "to": "x_done"
       }
     ]

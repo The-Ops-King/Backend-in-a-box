@@ -1,5 +1,6 @@
 /** Every shipped template driven through the real engine against Postgres with fake adapters. */
 import { describe, it, expect, beforeAll } from "vitest";
+import { paymentOf, signed as signedCash } from "@/engine/ghl-metrics";
 import { DateTime } from "luxon";
 import { asOperator, db, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -325,7 +326,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(await runOf(noShow)).toMatchObject({ status: "completed", exit_reason: "noted" });
     expect(oppWrites.length).toBe(n);
     const again = (await runOf(noShow)).id;
-    expect((await asOperator((c) => many<{ node_id: string; result: Record<string, unknown> }>(c, "select node_id, result from run_steps where run_id=$1 and node_id in ('gn1','gn2') order by node_id", [again]))).map((s) => [s.node_id, s.result.why])).toEqual([["gn1", "no open card on this board to move; this step never creates one"], ["gn2", "already there"]]);   // the setter card is lost (closed), the closer card is already there
+    expect((await asOperator((c) => many<{ node_id: string; result: Record<string, unknown> }>(c, "select node_id, result from run_steps where run_id=$1 and node_id in ('gn1','gn2') order by node_id", [again]))).map((s) => [s.node_id, s.result.why])).toEqual([["gn1", "already there"], ["gn2", "already there"]]);   // D76: the card steps take the board's latest card, so the setter card the first filing marked lost is where it should be   // the setter card is lost (closed), the closer card is already there
     n = oppWrites.length;
     await file(await apptOf("CO2"), "showed", "follow_up"); await tick(fake, undefined, companyId);
     expect(await runOf(followUp)).toMatchObject({ status: "completed", exit_reason: "noted" });
@@ -488,6 +489,12 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(ours.map((x) => x.record_key)).toEqual(["pay_leo_1", "pay_leo_2", "pay_leo_r1"]);   // a new line, never an edit of the old one
     const slack = await asOperator((c) => many<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack' order by id", [r.id]));
     expect(slack.map((s) => s.rendered_body.split("\n")[0]).sort()).toEqual(["*Refund:* −$500", "💸 Refunded $500 · refund.", "💸 Refunded $500 · refund. Details in the payments channel."]);   // the three Slack lines of the run (payments channel, booking thread, review thread)
+    // sweep 2026-10-10: what the bot reads back as cash (D75) is what these records say: 1,500 + 1,499 in, 500 out, net the ledger's 2,499 — the refund
+    // is subtracted once (the payment it reverses keeps its own succeeded line), and still once when the CRM's picklist dropped the refund's type
+    const written = recordWrites.filter((w) => w.op === "create" && String(w.transaction_id ?? "").startsWith("pay_leo_")).map((w, i) => ({ id: `R${i}`, createdAt: new Date().toISOString(), properties: w as Record<string, unknown> }));
+    const net = (recs: typeof written) => recs.map((x) => paymentOf(x, "America/Phoenix")).reduce((t, p) => t + signedCash(p), 0);
+    expect(written).toHaveLength(3); expect(net(written)).toBe(2499);
+    expect(net(written.map((x) => (x.properties.type === "refund" ? { ...x, properties: { ...x.properties, type: "" } } : x)))).toBe(2499);
   });
 
   it("call-recorded: a Fathom recording matched by invitee email → AI classifies, notes, scores; appointment marked showed (call.held fires), stat-showed, setter card to Showed + won, Sales Call record linked, note, Slack; an internal meeting stops at the check", async () => {
@@ -683,6 +690,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(tasks.slice(nTasks)).toEqual([expect.objectContaining({ contactId: "CCB2", title: "Chase the unsigned agreement: Leo Park", assignedUserId: "U1" })]);
     const nudge = await asOperator((c) => one<{ rendered_body: string; status: string }>(c, "select rendered_body, status from sends where run_id=$1 and channel='slack' order by scheduled_for desc limit 1", [chase.id]));
     expect(nudge?.status).toBe("suppressed"); expect(nudge?.rendered_body).toContain("Nudge 1 of 3"); expect(nudge?.rendered_body).toContain("Sam Closer");
+    expect(nudge?.rendered_body).toContain("paid $2,499 on");   // sweep 2026-10-10: net of the $500 refund, as the contact's cash collected is, and written as money
     // deal-closed stopped at its gate on each of Leo's two payments and released its once-per key both times
     const gated = (await runsFor("deal-closed")).filter((x) => x.contact_id === id);
     expect(gated.map((r) => r.exit_reason)).toEqual(["not_yet", "not_yet"]);

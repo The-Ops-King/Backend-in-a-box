@@ -2358,3 +2358,51 @@ necessary."** GHL is the source of truth.
   (the header names it; asks only on a real tie or no fit), shows only the results that answer, and reasons in its note
   (up to four sentences, numbers only from the results, a pattern only when the test says so).
 
+
+## D76. Before the hand test: one record per call slot, answers edit, nothing reaches the team before live (2026-10-10)
+
+Tyler's rulings on the sweep of 2026-10-10 (06-journey-sweep.md §4), relayed the same day and built together.
+
+- **Each call slot is its own Sales Call.** "Each call slot is its own Sales Call. If it gets cancelled or rescheduled, we log
+  that, not edit it and create a new one." Reverses the sweep's S1. An appointment carries `slot_key` (the booking's id; on a
+  move that kept the id, `id@start`); the Sales Call record is keyed by it (`{{appointment.slot_key}}`). A reschedule
+  (Calendly's cancel + new event, or a GHL move) logs the old slot's record as `rescheduled` (Call booked `k5`, the event's
+  `slot.from`) and Call booked makes the new slot its own record; a cancel before the call marks the slot's record cancelled
+  (Call cancelled `n6`), never deleted or reused. The drift sweep does not ask about a rescheduled slot's record that matches
+  no booking.
+- **A rescheduled slot is outside the show rate** ("calls booked for show rate = showed + no-show + cancelled/late_cancel +
+  missing"): `calls_booked_due`, `show_rate`, the /show-rate breakdown ("· Rescheduled N (outside the rate)") and the
+  graph's call rows leave it out.
+- **Every Sales Call is linked to its contact and its closer card** (field and association). The drift sweep repairs a
+  record missing either when the contact and the one closer card are certain, once (effects ledger, the mode's rules);
+  none or several cards, or no GHL id, is a question in the drift alert.
+- **A refiled end of day edits, never adds.** "EOD resubmit is allowed and EDITS, never adds." The call's thread line is
+  edited in place (`slack_post.edit` + its tag; `chat.update`, `notifier.update`), the same Sales Call record is updated,
+  the cards follow the new answer (`pipeline_card.pick: latest`; a closed answer after a no-show / lost puts the closer card
+  back on Scheduled), and what the earlier answer did comes off where it differs: its reaction (👻 or ✅) and its tags
+  (`appointment.outcome` carries `previous_outcome` / `previous_call_outcome`; `tags.keep`). The closer's answer is the
+  whole answer: a no-show after a lost clears the call outcome, and a lost opportunity reopens.
+- **A cancel after the call never overwrites what the call was**: "if the call showed or was a no-show, a later cancel
+  never overwrites it — the filed/recorded outcome stands". The poll keeps the show / no-show on the row; the rollups count
+  it as such; Call cancelled and Cancellation rebook ignore a cancel after the start (S11).
+- **No loops.** "A step that hits the same error retries at most 3 times in total, then stops and raises one alert naming
+  the step, person and error." `RETRY_SCHEDULE` is `[1, 5]`: three tries in all, then paused with one alert (auth pauses
+  at once as before). A card the CRM says is gone is replaced once (S12).
+- **Blank Sales Calls are chased.** "The closer is reminded every day until each of their calls with a blank outcome
+  (GHL is the truth) is filled; after 2 days blank, also tell the operator." The End-of-day reminder's `eod_due` step lists
+  the ledger's unfiled days and the days whose GHL Sales Calls for that closer are due with no outcome; two days on, the
+  evening reminder also posts the names to the operator (`bot.escalate_to`).
+- **Nothing reaches the team before live.** "Until a company is live, a Slack DM to a team member must NOT reach that
+  person." In shadow and test a DM (a `slack_post` to a user id, `notify_owner`'s DM) goes to `slack.channel.ops`, else the
+  operator's DM, prefixed "Would have sent to <name>:", unless the run is about a test contact and the operator is the
+  recipient; neither bound, it is recorded only. A run with no contact is shadow in test (`effectiveMode`): the End-of-day
+  reminder that reached James is that case. Channel posts keep D31. The operator's alerts are not runs and still go.
+- **Wrap-ups say only what happened.** "If no actual calls happened today, we don't need to say that… show only what
+  actually happened." The wrap-up's numbers come from the bot's metric registry (people, calls, deals and cash from GHL;
+  bookings and dials from the ledger; test contacts out), so the two never disagree (Oct 10 said "New leads: 0" while GHL
+  had one). A line only for a number that is not zero, a section only with a line, a rate only with its denominator, no
+  definitions; nothing at all is one line ("Nothing today: no leads, bookings, calls or payments."); a GHL read that failed
+  says so ("couldn't read GHL: …"), never a 0. The same for weekly and monthly.
+- **The company's own picklist keys** (D-1, S9), **cancels after the start** (D-3, S11), **gone cards** (D-4, S12), **records
+  found by booking** (D-7, S13), **the CRM id wait** (D-5, S14), **wrap-ups without test contacts** (D-8, S15) and
+  **Cancellation rebook for closing calls** (D-9) are the sweep's, decided by the owner the same day.

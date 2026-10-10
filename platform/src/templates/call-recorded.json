@@ -116,7 +116,7 @@
         "id": "k1",
         "type": "set_var",
         "key": "call_key",
-        "value": "{{appointment.external_id}}"
+        "value": "{{appointment.slot_key}}"
       },
       {
         "id": "k3",
@@ -148,7 +148,7 @@
           "opportunity_id": "{{cards.closer.id | default:}}",
           "scheduled_at": "{{appointment.starts_at | default:}}",
           "call_date": "{{recording.started_at | date_company:yyyy-MM-dd}}",
-          "outcome": "showed",
+          "outcome": "{{picklist.sales_call_outcome.showed}}",
           "recording_url": "{{recording.share_url | default:}}",
           "transcript_ref": "{{recording.url | default:}}",
           "closer": "{{recording.closer.name | default:}}",

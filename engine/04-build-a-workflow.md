@@ -74,7 +74,7 @@ settings; the workflow page's trigger popover lists the calendars that match.
 | `tags` | `add?` (tag or `[tags]`), `remove?` (tag or `[tags]`) | CRM tags, one step: `add` goes on, then `remove` comes off. Consecutive tag steps are always one `tags` node, never a run of them. `set_tag` / `remove_tag` (`tag` or `[tags]`) are the older one-direction forms and still run; use `tags` in anything new. |
 | `update_contact` | `set: { first_name, last_name, phone, timezone, assign_to }`, `fields: [{ id, value }]`, `clear: [ids]` | empty rendered values are left alone. |
 | `pipeline_card` | `pipeline`, `stage?`, `name?` (default the person's name), `assign_to?`, `status?: open|won|lost|abandoned`, `fields` | one open card per contact per pipeline; re-firing moves it. `if_missing: skip` = only if the card exists. |
-| `crm_record` | `object`, `key`, `properties`, `owner?`, `relate: [{ association, first, second }]` | a record on a custom object (payment, sales call), upserted by our key. |
+| `crm_record` | `object`, `key`, `properties`, `owner?`, `relate: [{ association, first, second }]`, `if_missing?: create|skip` | a record on a custom object (payment, sales call), upserted by our key. `if_missing: skip` = update only a record the engine made. |
 | `record_outcome` | `outcome`, `call_outcome?`, `notes?` | the appointment's outcome on our row (showed / noshow / …); `call.held` follows a show. |
 | `create_task` | `title`, `body?`, `due`, `assign_to?` | a CRM to-do on the contact. |
 | `note` | `template` | an internal note on the contact. |
@@ -157,7 +157,7 @@ when to actually re-test that step, and when to just alert."
 - **Only the step is retried, never the run.** A run parks on the failed node (`waiting`, `next_run_at`, wake flags
   kept); nothing before it runs again, nothing after it moves. Each try is its own `run_steps` row (`result.attempt`).
 - **Four classes, one place** (`platform/src/engine/failures.ts`): *transient* (a network error, a timeout, 408/425/429/5xx
-  from any vendor, a database connection) retries at 1, 5, 15 and 60 minutes (`RETRY_SCHEDULE`: five tries over 81
+  from any vendor, a database connection) retries at 1 and 5 minutes (three tries in all, D76) (`RETRY_SCHEDULE`: five tries over 81
   minutes), then pauses; *auth* (401/403) pauses at once; *permanent* (400/404/422, "not found" / "invalid", an unbound
   binding, a term the company does not have, a step's own config) pauses at once; *unknown* gets one retry, then is
   permanent. A failure the step returned itself (its verdict on its config or data) is permanent.

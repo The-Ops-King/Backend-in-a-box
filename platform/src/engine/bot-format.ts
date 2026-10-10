@@ -62,7 +62,7 @@ export function detailLines(r: MetricResult): string[] {
   if (q) L.push(`MQLs: ${fmt("count", q.mql)} matched the employment standard · ${fmt("count", q.unanswered)} didn't answer${q.unanswered_is_mql && q.unanswered ? " (counted as MQLs)" : ""}${q.unrecognized ? ` · ${q.unrecognized} unrecognized answer${q.unrecognized === 1 ? "" : "s"} (${q.unrecognized_answers.map((a) => `"${a}"`).join(", ")})` : ""}`);
   const b = r.shows_breakdown;
   if (b) {
-    L.push(`Calls booked: ${b.booked} · Showed ${b.showed} · No-show ${b.noshow} · Cancelled ${b.cancelled}${b.rescheduled ? ` · Rescheduled ${b.rescheduled}` : ""} · Missing from EOD disposition ${b.missing}${b.missing ? ` (${names(b.missing_names)})` : ""}`);
+    L.push(`Calls booked: ${b.booked} · Showed ${b.showed} · No-show ${b.noshow} · Cancelled ${b.cancelled} · Missing from EOD disposition ${b.missing}${b.missing ? ` (${names(b.missing_names)})` : ""}${b.rescheduled ? ` · Rescheduled ${b.rescheduled} (outside the rate)` : ""}`);
     for (const m of b.mismatches) L.push(`⚠️ ${m.name}: GHL says ${CLASS_WORDS[m.ghl] ?? m.ghl}, ${m.booking_source} says cancelled (counted as cancelled; fix the Sales Call in GHL)`);
   }
   return L;

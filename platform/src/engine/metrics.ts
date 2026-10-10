@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
-import { testContactSql } from "./mode";
+import { testContactSql, testDomains } from "./mode";
 
 /**
  * Daily rollups (D29). Every number a wrap-up or the bot needs is a count or a sum per company, per local day, per
@@ -28,7 +28,10 @@ export function dayBounds(day: string, tz: string): { start: Date; end: Date } {
 
 export async function rollupDay(c: PoolClient, companyId: string, day: string, tz: string): Promise<MetricRow[]> {
   const { start, end } = dayBounds(day, tz);
-  const p = [companyId, start, end];
+  // D73: the company's test contacts count nowhere; their domains ride as $4 in every statement below
+  const domains = testDomains({ "test.domains": (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='test.domains'", [companyId]))?.v.toString("utf8") ?? "" });
+  const p = [companyId, start, end, domains];
+  const real = (contactCol: string) => `not exists (select 1 from contacts tc where tc.id=${contactCol} and ${testContactSql("tc", "$4")})`;
   const rows: MetricRow[] = [];
   const totals: Totals = {};
   const add = (dimension: MetricRow["dimension"], id: string, metric: string, value: number) => {
@@ -41,7 +44,7 @@ export async function rollupDay(c: PoolClient, companyId: string, day: string, t
   const leads = await one<{ n: number; same: number }>(c, `
     select count(*)::int as n,
            count(*) filter (where exists (select 1 from appointments a where a.company_id=ct.company_id and a.contact_id=ct.id and a.source<>'test' and a.booked_at>=ct.ghl_added_at and a.booked_at<$3))::int as same
-    from contacts ct where ct.company_id=$1 and ct.merged_into is null and ct.ghl_added_at>=$2 and ct.ghl_added_at<$3`, p);
+    from contacts ct where ct.company_id=$1 and ct.merged_into is null and ct.ghl_added_at>=$2 and ct.ghl_added_at<$3 and ${real("ct.id")}`, p);
   add("total", "", "leads_new", leads?.n ?? 0); add("total", "", "leads_booked_same_day", leads?.same ?? 0);
 
   // speed to lead (Tyler, 2026-10-07): from the lead arriving to the FIRST DIAL, answered or not; "reached" = a connected call at least reached_seconds long
@@ -52,8 +55,8 @@ export async function rollupDay(c: PoolClient, companyId: string, day: string, t
     from (
       select ct.id, ct.ghl_added_at,
              (select min(r.started_at) from recordings r where r.company_id=ct.company_id and r.contact_id=ct.id and r.provider='ghl' and coalesce(r.raw->>'simulated','')='' and r.started_at>=ct.ghl_added_at) as first_dial,
-             exists (select 1 from recordings r where r.company_id=ct.company_id and r.contact_id=ct.id and r.provider='ghl' and coalesce(r.raw->>'simulated','')='' and r.started_at>=ct.ghl_added_at and r.raw->>'call_status'='connected' and (r.raw->>'duration_sec')::int >= $4) as reached
-      from contacts ct where ct.company_id=$1 and ct.merged_into is null and ct.ghl_added_at>=$2 and ct.ghl_added_at<$3) x`, [...p, reachedSec]);
+             exists (select 1 from recordings r where r.company_id=ct.company_id and r.contact_id=ct.id and r.provider='ghl' and coalesce(r.raw->>'simulated','')='' and r.started_at>=ct.ghl_added_at and r.raw->>'call_status'='connected' and (r.raw->>'duration_sec')::int >= $5) as reached
+      from contacts ct where ct.company_id=$1 and ct.merged_into is null and ct.ghl_added_at>=$2 and ct.ghl_added_at<$3 and ${real("ct.id")}) x`, [...p, reachedSec]);
   add("total", "", "leads_called", stl?.called ?? 0); add("total", "", "stl_sum", stl?.sum ?? 0); add("total", "", "leads_reached", stl?.reached ?? 0);
 
   // dialer calls by setter (the user who dialed); a call "set" when a booking followed within a day
@@ -65,38 +68,38 @@ export async function rollupDay(c: PoolClient, companyId: string, day: string, t
            count(*) filter (where r.analysis->'classify'->>'call_type'='setting')::int as calls_setting,
            count(*) filter (where r.analysis->'classify'->>'call_type'='confirmation')::int as calls_confirmation
     from recordings r left join users u on u.company_id=r.company_id and u.ghl_user_id=r.raw->>'caller_ghl_user_id'
-    where r.company_id=$1 and r.provider='ghl' and coalesce(r.raw->>'simulated','')='' and r.started_at>=$2 and r.started_at<$3 group by u.id`, p);
+    where r.company_id=$1 and r.provider='ghl' and coalesce(r.raw->>'simulated','')='' and r.started_at>=$2 and r.started_at<$3 and ${real("r.contact_id")} group by u.id`, p);
   for (const m of ["dials", "connects", "talk_sec", "calls_set", "calls_setting", "calls_confirmation"] as const) { let t = 0; for (const r of calls) { add("setter", r.setter, m, r[m]); t += Number(r[m]) || 0; } add("total", "", m, t); }
 
   // bookings made (the act of booking happened that day), by the closer they were booked with; setter-booked also credited to the setter named on the booking
   const booked = await many<{ closer: string; booked: number; booked_self: number; booked_set: number }>(c, `
     select coalesce(assigned_user_id::text,'unknown') as closer, count(*)::int as booked, count(*) filter (where self_booked)::int as booked_self, count(*) filter (where self_booked=false)::int as booked_set
-    from appointments where company_id=$1 and source<>'test' and booked_at>=$2 and booked_at<$3 group by assigned_user_id`, p);
+    from appointments a where a.company_id=$1 and a.source<>'test' and a.booked_at>=$2 and a.booked_at<$3 and ${real("a.contact_id")} group by a.assigned_user_id`, p);
   for (const m of ["booked", "booked_self", "booked_set"] as const) { let t = 0; for (const r of booked) { add("closer", r.closer, m, r[m]); t += Number(r[m]) || 0; } add("total", "", m, t); }
   for (const r of await many<{ setter: string; n: number }>(c, `
     select coalesce(u.id::text,'unknown') as setter, count(*)::int as n from appointments a left join users u on u.company_id=a.company_id and lower(u.name)=lower(a.set_by)
-    where a.company_id=$1 and a.source<>'test' and a.self_booked=false and a.booked_at>=$2 and a.booked_at<$3 group by u.id`, p)) add("setter", r.setter, "booked_set", r.n);
+    where a.company_id=$1 and a.source<>'test' and a.self_booked=false and a.booked_at>=$2 and a.booked_at<$3 and ${real("a.contact_id")} group by u.id`, p)) add("setter", r.setter, "booked_set", r.n);
 
   // calls on the calendar that day (booked earlier, due that day) and how they ended
   const sched = await many<{ closer: string; scheduled: number; showed: number; noshow: number; cancelled: number }>(c, `
     select coalesce(a.assigned_user_id::text,'unknown') as closer, count(*)::int as scheduled,
            count(*) filter (where t.category='showed' or a.status='showed')::int as showed,
            count(*) filter (where t.category='noshow' or a.status='noshow')::int as noshow,
-           count(*) filter (where a.status='cancelled' or t.category='cancelled')::int as cancelled
+           count(*) filter (where (a.status='cancelled' or t.category='cancelled') and coalesce(t.category,'') not in ('showed','noshow'))::int as cancelled   -- D76: a cancel after a show or a no-show never overwrites it
     from appointments a left join company_terms t on t.id=a.outcome_term
-    where a.company_id=$1 and a.source<>'test' and a.starts_at>=$2 and a.starts_at<$3 group by a.assigned_user_id`, p);
+    where a.company_id=$1 and a.source<>'test' and a.starts_at>=$2 and a.starts_at<$3 and ${real("a.contact_id")} group by a.assigned_user_id`, p);
   for (const m of ["scheduled", "showed", "noshow", "cancelled"] as const) { let t = 0; for (const r of sched) { add("closer", r.closer, m, r[m]); t += Number(r[m]) || 0; } add("total", "", m, t); }
 
   // money: cash is what arrived, revenue is what was contracted (they diverge on every payment plan)
   const money = await one<{ payments: number; cash: number; refunds: number; refunded: number }>(c, `
     select count(*) filter (where status='succeeded')::int as payments, coalesce(sum(amount) filter (where status='succeeded'),0)::float as cash,
            count(*) filter (where status='refunded')::int as refunds, coalesce(-sum(amount) filter (where status='refunded'),0)::float as refunded
-    from payments where company_id=$1 and coalesce(raw->>'simulated','')='' and paid_at>=$2 and paid_at<$3`, p);
+    from payments py where py.company_id=$1 and coalesce(py.raw->>'simulated','')='' and py.paid_at>=$2 and py.paid_at<$3 and ${real("py.contact_id")}`, p);
   for (const m of ["payments", "cash", "refunds", "refunded"] as const) add("total", "", m, money?.[m] ?? 0);
   const won = await many<{ closer: string; deals_won: number; revenue: number }>(c, `
     select coalesce((select a.assigned_user_id::text from appointments a where a.company_id=o.company_id and (a.opportunity_id=o.id or a.contact_id=o.contact_id) and a.source<>'test' order by a.starts_at desc limit 1),'unknown') as closer,
            count(*)::int as deals_won, coalesce(sum(o.contract_value),0)::float as revenue
-    from opportunities o where o.company_id=$1 and o.status='won' and o.won_at>=$2 and o.won_at<$3 group by 1`, p);
+    from opportunities o where o.company_id=$1 and o.status='won' and o.won_at>=$2 and o.won_at<$3 and ${real("o.contact_id")} group by 1`, p);
   for (const m of ["deals_won", "revenue"] as const) { let t = 0; for (const r of won) { add("closer", r.closer, m, r[m]); t += Number(r[m]) || 0; } add("total", "", m, t); }
 
   for (const [metric, value] of Object.entries(totals)) rows.push({ dimension: "total", dimension_id: "", metric, value });

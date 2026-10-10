@@ -3,6 +3,8 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import type { CompanyRow } from "./context";
 import { readMetrics, rollupRange, type Breakdown, type Totals } from "./metrics";
+import { testContactSql, testDomains } from "./mode";
+import type { GhlReads } from "@/adapters/ghl/metrics";
 
 /**
  * Wrap-ups (D29): "what happened today / this week / this month", computed from the daily rollups and posted to Slack
@@ -24,8 +26,7 @@ export function periodFor(kind: ReportKind, now: DateTime<boolean>, toDate = fal
 
 // ---- rendering ---------------------------------------------------------------------------------------------------------
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
-const pct = (n: number, of: number) => (of > 0 ? `${Math.round((n / of) * 100)}%` : "—");
-const mins = (sec: number) => `${Math.round(sec / 60)} min`;
+const pct = (n: number, of: number) => `${Math.round((n / of) * 100)}%`;
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 function heading(kind: ReportKind, period: Period, tz: string, toDate: boolean): string {
@@ -34,12 +35,13 @@ function heading(kind: ReportKind, period: Period, tz: string, toDate: boolean):
   if (kind === "weekly") return `${toDate ? "This week so far" : "Last week"} — ${s.toFormat("LLL d")} to ${e.toFormat("LLL d")}`;
   return `${toDate ? `${s.toFormat("LLLL")} so far` : s.toFormat("LLLL yyyy")}`;
 }
+const when = (kind: ReportKind, toDate: boolean) => (kind === "daily" ? "today" : kind === "weekly" ? (toDate ? "this week" : "last week") : toDate ? "this month" : "last month");
 
 export type Said = { label: string; answered: number; top: [string, number][]; rest: number; restKinds: number }[];
-/** What the period's new bookings answered on the booking form, tallied per question. Reads the questions the booking source carries (D24); no list to maintain. */
-export async function whatTheySaid(c: PoolClient, companyId: string, period: Period, tz: string): Promise<Said> {
+/** What the period's new bookings answered on the booking form, tallied per question. Reads the questions the booking source carries (D24); no list to maintain. Test contacts out (D73). */
+export async function whatTheySaid(c: PoolClient, companyId: string, period: Period, tz: string, domains: string[] = []): Promise<Said> {
   const from = DateTime.fromISO(period.start, { zone: tz }).startOf("day").toJSDate(), to = DateTime.fromISO(period.end, { zone: tz }).endOf("day").toJSDate();
-  const rows = await many<{ answers: Record<string, unknown> }>(c, "select answers from appointments where company_id=$1 and source<>'test' and booked_at>=$2 and booked_at<=$3 and answers<>'{}'::jsonb", [companyId, from, to]);
+  const rows = await many<{ answers: Record<string, unknown> }>(c, `select a.answers from appointments a join contacts ct on ct.id=a.contact_id where a.company_id=$1 and a.source<>'test' and a.booked_at>=$2 and a.booked_at<=$3 and a.answers<>'{}'::jsonb and not ${testContactSql("ct", "$4")}`, [companyId, from, to, domains]);
   const intake = await many<{ answers: Record<string, unknown> }>(c, "select attributes as answers from intake where company_id=$1 and submitted_at>=$2 and submitted_at<=$3", [companyId, from, to]);
   const tally = new Map<string, Map<string, number>>(); const asked = new Map<string, number>();
   for (const r of [...rows, ...intake]) for (const [q, raw] of Object.entries(r.answers ?? {})) {
@@ -52,73 +54,63 @@ export async function whatTheySaid(c: PoolClient, companyId: string, period: Per
     .sort((a, b) => b.answered - a.answered);
 }
 
-export function renderReport(args: { kind: ReportKind; period: Period; tz: string; toDate: boolean; totals: Totals; setters: Breakdown[]; closers: Breakdown[]; breakdowns: string[]; said: Said }): string {
-  const { totals: t, period, tz, kind, toDate } = args;
-  const v = (k: string) => t[k] ?? 0;
-  const anything = ["leads_new", "dials", "booked", "scheduled", "payments", "deals_won"].some((k) => v(k) > 0) || args.said.length > 0;
-  const head = `*${heading(kind, period, tz, toDate)}*`;
-  if (!anything) return `${head}\nNothing yet. No leads, no calls, no bookings, no money.`;
-  // Slack on a phone: a bold title per section, the headline number on its own line, the rest as bullets with the rate after a dot. No code block: it does not wrap.
-  const L: string[] = [head];
-  const section = (title: string, about: string) => { L.push("", `*${title}*  _${about}_`); };
-  const main = (label: string, value: string | number, note?: string) => L.push(`*${label}: ${value}*${note ? `  ·  ${note}` : ""}`);
-  const sub = (label: string, value: string | number, note?: string) => L.push(`    • ${label}: ${value}${note ? `  ·  ${note}` : ""}`);
-  section("New leads", "people who first appeared");
-  main("New leads", v("leads_new"));
-  sub("booked a call the same day", v("leads_booked_same_day"), `${pct(v("leads_booked_same_day"), v("leads_new"))} of them`);
-  sub("called", v("leads_called"), `${pct(v("leads_called"), v("leads_new"))} of them` + (v("leads_called") ? ` · avg ${mins(v("stl_sum") / v("leads_called"))} from arrival to first dial` : ""));
-  sub("reached", v("leads_reached"), `${pct(v("leads_reached"), v("leads_called"))} of those called`);
-  section("Bookings made", "the booking happened in the period");
-  main("Calls booked", v("booked"), "any lead, new or old");
-  sub("setter-booked", v("booked_set"), pct(v("booked_set"), v("booked")));
-  sub("self-booked", v("booked_self"), pct(v("booked_self"), v("booked")));
-  section("Setter calls", "every dial the team made or took");
-  main("Dials", v("dials"));
-  sub("connected", v("connects"), `${pct(v("connects"), v("dials"))} connection rate` + (v("talk_sec") ? ` · ${mins(v("talk_sec"))} talking` : ""));
-  sub("led to a booking", v("calls_set"), `${pct(v("calls_set"), v("connects"))} of connects`);
-  if (v("calls_setting") || v("calls_confirmation")) sub("read by the AI", v("calls_setting") + v("calls_confirmation"), `${v("calls_setting")} setting · ${v("calls_confirmation")} confirmation`);
-  if (args.breakdowns.includes("setter")) for (const s of args.setters.filter((x) => (x.values.dials ?? 0) > 0)) {
-    const d = s.values; sub(s.name, `${d.dials ?? 0} dials`, `${d.connects ?? 0} connected (${pct(d.connects ?? 0, d.dials ?? 0)}) · ${mins(d.talk_sec ?? 0)} · ${d.calls_set ?? 0} set`);
-  }
-  section("Calls on the calendar", "booked earlier, due in the period");
-  main("Scheduled", v("scheduled"));
-  sub("showed", v("showed"), `${pct(v("showed"), v("scheduled"))} show rate`);
-  sub("no-show", v("noshow"), pct(v("noshow"), v("scheduled")));
-  sub("cancelled", v("cancelled"), pct(v("cancelled"), v("scheduled")));
-  const unmarked = v("scheduled") - v("showed") - v("noshow") - v("cancelled");
-  if (unmarked > 0) sub("not yet marked", unmarked, "outcome missing");
-  if (args.breakdowns.includes("closer")) for (const cl of args.closers.filter((x) => (x.values.scheduled ?? 0) + (x.values.deals_won ?? 0) > 0)) {
-    const d = cl.values; sub(cl.name, `${d.scheduled ?? 0} scheduled`, `${d.showed ?? 0} showed (${pct(d.showed ?? 0, d.scheduled ?? 0)}) · ${d.deals_won ?? 0} won · ${money(d.revenue ?? 0)}`);
-  }
-  if (args.said.length) {
-    section("What they said", "booking-form answers from the period's bookings");
-    for (const q of args.said.slice(0, 10)) {
-      L.push(`*${q.label}*  (${q.answered} answered)`);
-      for (const [a, n] of q.top) L.push(`    • ${a.length > 62 ? `${a.slice(0, 59)}…` : a}: ${n}  ·  ${pct(n, q.answered)}`);
-      if (q.rest) L.push(`    • ${q.rest} spread across ${plural(q.restKinds, "other answer")}`);
-    }
-  }
-  section("Money", "collected and contracted");
-  main("Cash collected", money(v("cash")), plural(v("payments"), "payment"));
-  if (v("refunds")) sub("refunded", money(v("refunded")), plural(v("refunds"), "refund"));
-  main("Revenue contracted", money(v("revenue")), `${plural(v("deals_won"), "deal")} won`);
-  if (v("revenue") > v("cash") && v("deals_won")) sub("outstanding", money(v("revenue") - v("cash")), "contracted, not yet collected");
-  return L.join("\n");
+/** The period's numbers by registry name (null: not read, or nothing to say); `calls` the show-rate breakdown. */
+export type Numbers = Record<string, number | null>;
+export type CallsSeen = { booked: number; showed: number; noshow: number; cancelled: number; missing: number; rescheduled: number };
+
+/**
+ * D76 (Tyler: "if no actual calls happened today, we don't need to say that… show only what actually happened"): a line only
+ * for a number that is not zero, a section only when it has a line, a rate only when its denominator is not zero, no
+ * definitions (those are /help's). Nothing at all: one line, so silence never looks like a broken engine. A GHL read that
+ * failed says so, never a 0.
+ */
+export function renderReport(args: { kind: ReportKind; period: Period; tz: string; toDate: boolean; numbers: Numbers; calls?: CallsSeen | null; said: Said; ghlError?: string }): string {
+  const { numbers: n, kind, toDate } = args;
+  const v = (k: string) => n[k] ?? 0;
+  const parts = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" · ");
+  const sections: [string, string[]][] = [];
+  const add = (title: string, ...lines: (string | false | null | undefined)[]) => { const l = lines.filter((x): x is string => !!x); if (l.length) sections.push([title, l]); };
+  add("Leads", v("leads") > 0 && parts(`New leads: ${v("leads")}`, v("mqls") > 0 && `MQLs ${v("mqls")}`));
+  add("Bookings", v("booked") > 0 && parts(`Calls booked: ${v("booked")}`, v("booked_self") > 0 && `self-booked ${v("booked_self")}`, v("booked_set") > 0 && `setter-booked ${v("booked_set")}`), v("reschedules") > 0 && `Rescheduled: ${v("reschedules")}`);
+  const k = args.calls;
+  add("Sales calls", !!k && k.booked > 0 && parts(`Calls due: ${k.booked}`, k.showed > 0 && `showed ${k.showed}`, k.noshow > 0 && `no-show ${k.noshow}`, k.cancelled > 0 && `cancelled ${k.cancelled}`, k.missing > 0 && `not filed ${k.missing}`, `show rate ${pct(k.showed, k.booked)}`),
+    !!k && k.rescheduled > 0 && `Rescheduled away: ${k.rescheduled}`);
+  add("Setter calls", v("dials") > 0 && parts(`Dials: ${v("dials")}`, v("connected") > 0 && `connected ${v("connected")}`), n.speed_to_lead != null && n.speed_to_lead > 0 && `Speed to lead: ${Math.round(n.speed_to_lead)} min`);
+  add("Deals", v("closes") > 0 && parts(`Closes: ${v("closes")}`, v("revenue") > 0 && `revenue ${money(v("revenue"))}`, !!k && k.showed > 0 && `close rate ${pct(v("closes"), k.showed)}`));
+  add("Cash", (v("cash_gross") > 0 || v("refunds") > 0) && parts(`Cash collected: ${money(v("cash_collected"))}`, v("refunds") > 0 && `refunds ${money(v("refunds"))}`));
+  if (args.said.length) add("What they said", ...args.said.slice(0, 10).flatMap((q) => [`*${q.label}*`, ...q.top.map(([a, c]) => `    • ${a.length > 62 ? `${a.slice(0, 59)}…` : a}: ${c}`), q.rest ? `    • ${q.rest} spread across ${plural(q.restKinds, "other answer")}` : ""]));
+  const failed = args.ghlError ? `_couldn't read GHL: ${args.ghlError}_` : "";
+  if (!sections.length) return failed ? `*${heading(kind, args.period, args.tz, toDate)}*\n${failed}` : `Nothing ${when(kind, toDate)}: no leads, bookings, calls or payments.`;
+  return [`*${heading(kind, args.period, args.tz, toDate)}*`, ...sections.map(([title, lines]) => `\n*${title}*\n${lines.join("\n")}`), ...(failed ? [`\n${failed}`] : [])].join("\n");
 }
 
 // ---- generate + post -----------------------------------------------------------------------------------------------------
-export type Built = { id: string; body: string; numbers: { totals: Totals; setters: Breakdown[]; closers: Breakdown[] }; period: Period };
+export type Built = { id: string; body: string; numbers: { totals: Totals; setters: Breakdown[]; closers: Breakdown[] } & { registry?: Numbers }; period: Period };
+/** The numbers the wrap-up says, by the same registry the bot answers from (D73/D75), so the two can never disagree. */
+export const WRAPUP_METRICS = ["leads", "mqls", "booked", "booked_self", "booked_set", "reschedules", "dials", "connected", "speed_to_lead", "closes", "revenue", "cash_collected", "cash_gross", "refunds"];
 
-/** The report step: recompute the period's days, render, keep it in the wrapups ledger. Posting is the slack_post after it. */
-export async function buildReport(c: PoolClient, company: CompanyRow, kind: ReportKind, period: Period, opts: { breakdowns?: string[]; sections?: Record<string, boolean>; onDemand?: boolean; toDate?: boolean } = {}): Promise<Built> {
+/** The report step: the period's numbers from the registry (people, calls, deals and cash from GHL; bookings and dials from the ledger), rendered, kept in the wrapups ledger. Posting is the slack_post after it. */
+export async function buildReport(c: PoolClient, company: CompanyRow, kind: ReportKind, period: Period, opts: { breakdowns?: string[]; sections?: Record<string, boolean>; onDemand?: boolean; toDate?: boolean; reads?: GhlReads; now?: Date } = {}): Promise<Built> {
+  const { getMetric } = await import("./metric-registry");
   await rollupRange(c, company.id, period.start, period.end, company.timezone);
   const { totals, setters, closers } = await readMetrics(c, company.id, period.start, period.end);
-  const said = opts.sections?.what_they_said === false ? [] : await whatTheySaid(c, company.id, period, company.timezone);
-  const body = renderReport({ kind, period, tz: company.timezone, toDate: !!opts.toDate, totals, setters, closers, breakdowns: opts.breakdowns ?? [], said });
+  const p = { from: period.start, to: period.end, label: "", name: "" };
+  const numbers: Numbers = {}; const errors: string[] = [];
+  for (const m of WRAPUP_METRICS) {
+    try { const r = await getMetric(c, company.id, { metric: m, period: p, now: opts.now }, opts.reads); numbers[m] = typeof r.value === "number" ? r.value : null; }
+    catch (e) { numbers[m] = null; const msg = String((e as Error).message); if (/GHL/.test(msg) && !/no object is bound|not mapped|none is bound|not connected|no field is bound|no answers are set/.test(msg)) errors.push(msg); }
+  }
+  let calls: CallsSeen | null = null;
+  try { const r = await getMetric(c, company.id, { metric: "show_rate", period: p, now: opts.now }, opts.reads); calls = r.shows_breakdown ?? null; }
+  catch (e) { const msg = String((e as Error).message); if (/GHL could not be read/.test(msg)) errors.push(msg); }
+  const domains = testDomains(Object.fromEntries((await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key='test.domains'", [company.id])).map((b) => [b.key, b.value.toString("utf8")])));
+  const said = opts.sections?.what_they_said === false ? [] : await whatTheySaid(c, company.id, period, company.timezone, domains);
+  const ghlError = [...new Set(errors.filter((x) => /GHL could not be read/.test(x)))][0]?.replace(/^GHL could not be read /, "").slice(0, 200);
+  const body = renderReport({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, said, ghlError });
   const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers) values ($1,$2,$3,$4,$5,$6,$7) returning id",
-    [company.id, kind, period.start, period.end, !!opts.onDemand, body, { totals, setters, closers }]);
+    [company.id, kind, period.start, period.end, !!opts.onDemand, body, { totals, setters, closers, registry: numbers }]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'report.generated','report',$2,$3)", [company.id, rep!.id, { kind, period, on_demand: !!opts.onDemand }]);
-  return { id: rep!.id, body, numbers: { totals, setters, closers }, period };
+  return { id: rep!.id, body, numbers: { totals, setters, closers, registry: numbers }, period };
 }
 
 export const companyReports = (c: PoolClient, companyId: string, limit = 30) => many<{ id: string; kind: ReportKind; period_start: string; period_end: string; generated_at: Date; on_demand: boolean; body: string; send_status: string | null }>(c,

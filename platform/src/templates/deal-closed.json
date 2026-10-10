@@ -81,9 +81,10 @@
         "type": "crm_record",
         "object": "custom_objects.sales_call",
         "key": "{{records.sales_call.key}}",
+        "if_missing": "skip",
         "properties": {
           "disposition": "closed_won",
-          "outcome": "showed",
+          "outcome": "{{picklist.sales_call_outcome.showed}}",
           "cash_collected": "{{contact.cash_collected}}"
         }
       },

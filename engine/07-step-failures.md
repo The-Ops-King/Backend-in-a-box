@@ -106,7 +106,7 @@ so a refusal is never an exception.
 | Situation | Expected | Today | Test |
 |---|---|---|---|
 | The CRM accepts | `sent`, external id kept, `message.sent` event | `executor.ts:120-122` | every passing send test |
-| 503 / 502 / 500 / 429 / network from the CRM (transient) | Retry the step in place at 1, 5, 15, 60 min; the text goes once; one `sent` row for the step | The refusal is written `failed`, the step is `skipped` as `blocked` (one `blocked:` alert), the run walks on (`executor.ts:126`, D56/G1). **Never retried, so the text never goes.** And F1: the failed row would block a retry. | `20 messages (503 twice, then ok)…` (`it.fails`); invariant `20 messages, the invariant that holds today…` |
+| 503 / 502 / 500 / 429 / network from the CRM (transient) | Retry the step in place at 1 and 5 min (three tries in all, D76); the text goes once; one `sent` row for the step | The refusal is written `failed`, the step is `skipped` as `blocked` (one `blocked:` alert), the run walks on (`executor.ts:126`, D56/G1). **Never retried, so the text never goes.** And F1: the failed row would block a retry. | `20 messages (503 twice, then ok)…` (`it.fails`); invariant `20 messages, the invariant that holds today…` |
 | 401 / 403 (token rotated) | Pause at once; one alert for the CRM; woken when the token is replaced | Same as above: written, blocked, walks on — and every CRM step after it fails the same way, each its own alert | `401 on a send…` (`it.fails`) |
 | 400 / 422 (the number is invalid, the sub-account has no SMS number) | **Policy:** pause with the vendor's words. **D56/G1:** write the refusal, skip as blocked, carry on to the emails. Decide. | D56: `executor.ts:126` | `400 on a send…` (`it.todo`) |
 | 404 / "Contact with id … not found" | Stamp `gone_at`, one alert per contact, exit `moot` at the next look | `executor.ts:124,130-140` | `the contact is deleted in the CRM mid-run…` |
@@ -176,7 +176,7 @@ idempotent in the CRM (adding an existing tag, removing an absent one, both succ
 | 400 / 422 | Pause with the vendor's words; asked once | Failed; asked once | `400: never retried…` (passes); `400: the run pauses…` (`it.fails`) |
 | 404 (the contact is gone) | Stamp gone + exit moot, as a send does; never failed | Failed | `404 on a tag write…` (`it.fails`) |
 | 429 | Transient (the client already waited 1.5 s and 3 s, `client.ts:19`); retry at 1 min | Failed | `429 (the client already waited…)…` (`it.fails`) |
-| 503 / 502 / 500 | Retry at 1, 5, 15, 60 min, then pause; five calls in all | Failed on the first | `503 that never clears…` (`it.fails`) |
+| 503 / 502 / 500 | Retry at 1 and 5 min, then pause with one alert; three calls in all (D76) | Failed on the first | `503 that never clears…` (`it.fails`) |
 | Network (ECONNRESET, timeout) | Transient | Failed | `a network error (ECONNRESET, no status)…` (`it.fails`) |
 | Unknown (a TypeError in the adapter) | One try a minute later, then pause | Failed at once | `an error nobody classified…` (`it.fails`) |
 | Stopped run retried by hand | Resumes at the tag step; the trigger ran once; the tag went on once | Exactly that (`runner.ts:126`, `:183`) | `a stopped run retried by hand resumes at the step…` |
@@ -204,7 +204,7 @@ and moved, never duplicated. "Already there" is no write (`:420`, D61). Create a
 | `createOpportunity` 503 twice then ok | Retry at 1 then 5 min; one card; run completes | Failed on the first; no card | `20 cards (503 twice, then ok)…` (`it.fails`); invariant passes |
 | `createOpportunity` succeeded, then the call died | The retry reads the CRM, adopts the card, completes; one card both sides | Failed; one card in the CRM, none in the replica; a retry inside the CRM's index lag could create a second (C2) | `20 cards (crash after…)…` ×2 |
 | `createOpportunity` 400 / 422 (a stage id that is not on that pipeline, a bad custom field id) | Pause with the vendor's words | Failed | `not yet` (same path as the tag 400) |
-| `updateOpportunity` 404 (the card was deleted between the read and the write) | Pause with the words; asked once | Failed | `the card was deleted in the CRM between the read and the write…` (`it.fails`) |
+| `updateOpportunity` 404 (the card was deleted between the read and the write) | The replica card is marked `gone` and the step makes one fresh card, once (effects ledger); a move-only step skips | Done (sweep 2026-10-10, S12) | `the card was deleted in the CRM between the read and the write…`; `a card deleted in the CRM since an earlier run…` |
 | Pipeline / stage binding unresolved | Pause (configuration) | `failed: pipeline, stage or name unresolved` (`:417`) | `not yet` |
 | Run not about a contact | Pause (definition) | `failed` (`:401`) | `not yet` |
 | Contact with no CRM id | Pause / wait | `failed` (`:434`) | `not yet` (same words as the tag step) |
@@ -249,7 +249,7 @@ from the create and remembered at `:456` (C5). `relateRecords` swallows 400 / 40
 | 503 | Retry in place; written once | Failed | `a note the CRM refuses with 503…` (`it.fails`) |
 | Written, then the call died | One note across retries | Failed; a retry writes a second | `a note whose call dies…` ×2 |
 | 401 / 400 / 404 | Per class | Failed | `not yet` |
-| Contact with no CRM id | `ghlId!` is undefined → the CRM is asked for `/contacts/undefined/notes` → 404 → failed. Should pause / wait | `:366` | `not yet` |
+| Contact with no CRM id | Pauses "note: contact has no CRM id yet"; the CRM is never asked (fixed in the sweep of 2026-10-10; was: asked for `/contacts/undefined/notes`) | `executor.ts` note | `a note for a contact with no CRM id yet…` |
 
 ## update_contact
 

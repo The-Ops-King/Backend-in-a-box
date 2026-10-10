@@ -105,6 +105,14 @@ describe.skipIf(!process.env.DATABASE_URL)("payments ledger", () => {
     expect(r.event.data).toMatchObject({ running_total: 2499, cleared: false });
   });
 
+  it("a refund that carries no buyer identity (sweep 2026-10-10) belongs to whoever made the payment it reverses: linked through that payment's id, so Payment recorded writes its minus line", async () => {
+    const r = await asOperator((c) => recordPayment(c, companyId, pay("ref_2", { amount: -250, status: "refunded", raw: { payment_id: "pay_2" } })));
+    expect(r.outcome).toBe("linked"); if (r.outcome !== "linked") return;
+    expect(r.contactId).toBe(ann); expect(r.payment).toMatchObject({ kind: "refund", linked_by: "refunded_payment" });
+    // a refund pointing at a payment the ledger has not linked (or does not know) is not guessed
+    expect((await asOperator((c) => recordPayment(c, companyId, pay("ref_3", { amount: -100, status: "refunded", raw: { payment_id: "pay_nobody" } })))).outcome).toBe("unlinked");
+  });
+
   it("resolvePayer: nothing to match on → null", async () => {
     expect(await asOperator((c) => resolvePayer(c, companyId, {}))).toBeNull();
   });
