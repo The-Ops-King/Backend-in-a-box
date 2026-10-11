@@ -27,6 +27,14 @@ A deleted contact (404) is marked gone and the run exits moot before anything is
 leaves the run on the copy and the run page says so. A refresh never starts a workflow: new leads and tag changes
 stay the poll's job.
 
+**A run keeps its own state, not a copy of the contact (D84).** What a run saves when it parks, pauses or ends
+(`runs.context`) is only what it needs to go on: `vars` (its own values, wait pins, Slack posts, an armed listener),
+`reply`, `event` (the trigger), `reaction`, and `contact.fetched_at` / `contact.stale` for the run page. The person, the
+booking, the call and its transcript are read fresh at every wake and never saved on the run (`persistedContext` in
+`src/engine/context.ts`). Older rows are slimmed once with `POST /api/admin/slim-runs` and
+`Authorization: Bearer $CRON_SECRET`: `{}` is a dry run that reports `{ scanned, changed, bytes_before, bytes_after }`;
+`{ "dryRun": false }` rewrites (optionally `company: "<slug>"`; when `done` is false, call again with `after: next`).
+
 Live proof: a real appointment booked in GHL was detected, both workflows started, the
 confirmation email went out through GHL into the contact's thread, the reminder is waiting for
 8am the morning of. 47 tests pass (`pnpm test`), including the end-to-end suite against Postgres.

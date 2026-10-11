@@ -30,6 +30,21 @@ export async function loadCompany(c: PoolClient, companyId: string): Promise<{ r
   return { row, adapterCompany, bindings };
 }
 
+/**
+ * D84: what a run keeps between wakes. Only what buildContext reads back (vars, with the wait pins and an armed listener under
+ * vars.__*; reply; event; reaction) and when the CRM was last read for the run page (contact.fetched_at / stale). The contact,
+ * appointment, recording, cards and the rest are read fresh at every wake, so a copy of them here would only be a stale duplicate.
+ */
+export const KEPT_KEYS = ["vars", "reply", "event", "reaction"] as const;
+export function persistedContext(ctx: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of KEPT_KEYS) if (ctx[k] !== undefined) out[k] = ctx[k];
+  const ct = ctx.contact as { fetched_at?: unknown; stale?: unknown } | null | undefined, read: Record<string, unknown> = {};
+  if (ct && typeof ct === "object") { if (ct.fetched_at != null) read.fetched_at = ct.fetched_at; if (ct.stale != null) read.stale = ct.stale; }
+  if (Object.keys(read).length) out.contact = read;
+  return out;
+}
+
 /** Builds what `{{…}}` resolves against. Secrets are never placed in the context. */
 /** `truth`: what the live read before this run acted found (D68): when the CRM was read, or why the engine's copy stood in. */
 export async function buildContext(c: PoolClient, run: RunRow, company: CompanyRow, bindings: Record<string, string>, truth?: ContactTruth): Promise<Record<string, unknown>> {

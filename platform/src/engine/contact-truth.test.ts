@@ -90,8 +90,7 @@ describe.skipIf(!HAS_DB)("the live contact is read before a run acts (D68)", () 
     expect((await person("T1"))!).toMatchObject({ first_name: "Liv", last_name: "Old", gone_at: null });
     expect(await identifiers(ct.id, "phone")).toEqual([{ value: "+16025550301", retired: true }, { value: "+16025550302", retired: false }]);
     const contact = stl.context.contact as Record<string, unknown>;
-    expect(contact).toMatchObject({ first_name: "Liv", name: "Liv Old", phone: "+16025550302", email: "t1@x.com" });
-    expect(contact.stale).toBeUndefined(); expect(typeof contact.fetched_at).toBe("string");
+    expect(contact).toEqual({ fetched_at: expect.any(String) });   // D84: the run keeps when the CRM was read, not a copy of the person
     const page = await asOperator((c) => runPage(c, stl.id));
     expect(page!.run.contact_truth).toEqual({ fetched_at: contact.fetched_at, stale: null });
   });

@@ -1,5 +1,7 @@
 import type { PoolClient } from "pg";
-import { many } from "@/db/client";
+import { isDeepStrictEqual } from "node:util";
+import { asOperator, many } from "@/db/client";
+import { KEPT_KEYS, persistedContext } from "./context";
 
 /**
  * D38: the hub keeps what the engine needs, not an archive. Per company: an inbound reply's row goes after
@@ -21,4 +23,40 @@ export async function purgeOld(c: PoolClient, now = new Date()): Promise<{ repli
     sends += s.rowCount ?? 0;
   }
   return { replies, sends };
+}
+
+/** scanned: rows with something to drop; changed: rows rewritten (or, dry, that would be); bytes as JSON text. */
+export type SlimReport = { dryRun: boolean; scanned: number; changed: number; bytes_before: number; bytes_after: number; done: boolean; next: string | null };
+
+/**
+ * D84, once: rewrites every run's saved context to what a run now keeps (persistedContext), dropping the contact, appointment,
+ * recording and other copies runs used to save. A batch per transaction, compare-and-set (a run a tick saved meanwhile is left for
+ * the next pass), and a row already slim is not touched, so it is safe to re-run. `dryRun` counts the rows and bytes (as JSON text)
+ * it would change without writing. Stops after `budgetMs` and returns `next` to continue from.
+ */
+export async function slimRunContexts(opts: { dryRun?: boolean; batchSize?: number; after?: string | null; budgetMs?: number; companyId?: string } = {}): Promise<SlimReport> {
+  const dryRun = opts.dryRun ?? false, size = Math.min(5000, Math.max(1, opts.batchSize ?? 500)), stopAt = Date.now() + (opts.budgetMs ?? 240_000);
+  const r: SlimReport = { dryRun, scanned: 0, changed: 0, bytes_before: 0, bytes_after: 0, done: false, next: opts.after ?? null };
+  for (;;) {
+    const rows = await asOperator(async (c) => {
+      // only rows with something to drop: a key past the kept ones, or a contact that is more (or less) than its read stamp
+      const batch = await many<{ id: string; context: Record<string, unknown> }>(c, `select id, context from runs where ($1::uuid is null or id > $1) and ($4::uuid is null or company_id=$4)
+        and (exists (select 1 from jsonb_object_keys(context) k where k <> all($2::text[]))
+          or (context ? 'contact' and (jsonb_typeof(context->'contact') <> 'object' or context->'contact' = '{}'::jsonb or (context->'contact') - 'fetched_at' - 'stale' <> '{}'::jsonb
+            or context->'contact'->'fetched_at' = 'null'::jsonb or context->'contact'->'stale' = 'null'::jsonb)))
+        order by id limit $3`, [r.next, [...KEPT_KEYS, "contact"], size, opts.companyId ?? null]);
+      for (const row of batch) {
+        const slim = persistedContext(row.context);
+        if (isDeepStrictEqual(slim, row.context)) continue;
+        if (!dryRun && !(await c.query("update runs set context=$2 where id=$1 and context=$3::jsonb", [row.id, slim, row.context])).rowCount) continue;
+        r.changed++; r.bytes_before += Buffer.byteLength(JSON.stringify(row.context)); r.bytes_after += Buffer.byteLength(JSON.stringify(slim));
+      }
+      return batch;
+    });
+    r.scanned += rows.length;
+    if (rows.length) r.next = rows[rows.length - 1].id;
+    if (rows.length < size) { r.done = true; r.next = null; break; }
+    if (Date.now() >= stopAt) break;
+  }
+  return r;
 }

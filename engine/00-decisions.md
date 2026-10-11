@@ -2625,3 +2625,21 @@ so the engine had Lynton as "showed" while GHL had him closed won.
 - **Pending** is a new call outcome: a close that has not gone through (the agreement or the rest of the money is
   outstanding). It is not a close. Hair's `close_pending` means pending.
 
+
+## D84. A run keeps its own state, not a copy of the contact (2026-10-11)
+
+Tyler: the run should stop saving the contact copies; nobody will ever ask what a contact looked like four turns ago.
+Store only what is needed, GHL is the truth. Every time a run parked, ended or paused, the engine wrote the whole context
+it had built into `runs.context`: the person's name, phone, email, custom fields and tags, the booking with its answers
+and tracking, the call with its transcript and summary, cards, team members. A wake read back only `vars`, `reply`,
+`event` and `reaction` and rebuilt the rest from the ledger and the CRM, so the copies were never used, only kept.
+
+- A run keeps: `vars` (its own values, with the wait pins `vars.__wait.*`, `__wait_for_reply.*`,
+  `__wait_for_reaction.*`, `__check.*`, its Slack posts `vars.__slack.*` and an armed listener `vars.__listen`), `reply`
+  (as today; whether the reply texts stay is a separate decision), `event` (the trigger, which names the recording by
+  id), `reaction`, and `contact.fetched_at` / `contact.stale` (when the CRM was last read, for the run page, D68).
+  Nothing else. One function decides it (`persistedContext`), used wherever a run is saved.
+- The contact row stays (name, phone, email, GHL id, tags, custom fields), and so does the run's own record: where it
+  is, its steps, what it sent. Every wake still reads the person, the booking and the call fresh, as before.
+- Older rows are slimmed once by `POST /api/admin/slim-runs` (a dry run unless `dryRun: false`; it reports the rows and
+  bytes it would change). Batched, compare-and-set, safe to re-run.

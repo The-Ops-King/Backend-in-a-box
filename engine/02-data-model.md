@@ -770,6 +770,8 @@ editor reads and writes, and what the engine executes.
 `contact.*` · `appointment.*` (incl. `.closer.*`, `.term.*`) · `opportunity.*` · `company.*` ·
 `calendar.<key>.*` · `slack.channel.<role>` · `reply.*` · `event.*` (the trigger) · `vars.*` ·
 bindings by key, with secrets masked in logs.
+Built fresh at every wake. Between wakes a run keeps only `vars`, `reply`, `event`, `reaction` and
+`contact.fetched_at` / `contact.stale` (D84).
 
 ### Manifest (extracted on save)
 ```json
