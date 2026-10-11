@@ -2645,3 +2645,15 @@ and tracking, the call with its transcript and summary, cards, team members. A w
   is, its steps, what it sent. Every wake still reads the person, the booking and the call fresh, as before.
 - Older rows are slimmed once by `POST /api/admin/slim-runs` (a dry run unless `dryRun: false`; it reports the rows and
   bytes it would change). Batched, compare-and-set, safe to re-run.
+
+## D86. A late lead is still a lead; the workflow decides what it gets (2026-10-11)
+
+The minute poll brings every new GHL contact in. The hourly sweep (D73) is the safety net for one the poll missed (GHL
+down, a search that lagged). Was: a lead the sweep found more than 60 minutes after it arrived started no lead
+workflows at all, and the sweep's alert asked someone to follow up by hand. That rule lived in code with no record.
+
+- The sweep now always fires New lead for a contact it pulls in, with `minutes_late` on the event. New lead runs (the
+  setter card and tag are right however late).
+- Speed to lead decides: a setting on its first step (`late_after_min`, 60) and a branch. In time, it runs as before.
+  Too late, it sends no first text or email and posts to the ops channel (else alerts) that the lead came in late and
+  someone should follow up by hand.

@@ -635,6 +635,22 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59', quiet_allow_transactional=false where id=$1", [companyId]));
   });
 
+  it("a lead the engine noticed late (the hourly sweep found them after GHL) gets no first text or email from Speed to lead; the team is told to follow up by hand", async () => {
+    const id = await newContact("CLATE", "late@x.com");
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.ops','channel',$2) on conflict (company_id,key) do update set value=excluded.value", [companyId, Buffer.from("COPS")]));
+    try {
+      const n = sent.length, p = slackPosts.length;
+      await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { by: "health", minutes_late: 95 } }), { contact: { id } }));
+      await tick(fake, undefined, companyId);
+      expect(sent.slice(n).filter((x) => x.to.includes("late@x.com"))).toEqual([]);
+      const run = (await runsFor("speed-to-lead")).find((r) => r.contact_id === id)!;
+      expect(run).toMatchObject({ status: "completed", exit_reason: "late" });
+      const steps = await asOperator((c) => many<{ node_id: string; result: { would_post?: string } }>(c, "select node_id, result from run_steps where run_id=$1 order by started_at", [run.id]));
+      expect(steps.map((x) => x.node_id)).toEqual(["t1", "v_late", "b_late", "s_late", "x_late"]);   // no email, no text
+      expect(steps.find((x) => x.node_id === "s_late")!.result.would_post).toMatch(/came into GHL 95 minutes before the engine saw them, so no first text or email went ou/);   // slack isn't connected yet in this file
+    } finally { await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='slack.channel.ops'", [companyId])); }
+  });
+
   it("sms_enabled=false: SMS nodes are suppressed and the run continues", async () => {
     await asOperator((c) => c.query("update companies set sms_enabled=false where id=$1", [companyId]));
     const id = await newContact("CNOSMS", "nosms@x.com");

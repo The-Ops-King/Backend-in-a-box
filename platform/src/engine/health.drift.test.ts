@@ -105,7 +105,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     const r = await sweep();
     const fs = drift(r.findings);
     const repaired = fs.filter((f) => f.ok).map((f) => f.item).sort();
-    expect(repaired).toEqual(["repair:G-GONE", "repair:G-SOON", "repair:R1:ledger", "repair:R2:ghl", "repair:R2:ledger", "repair:R3:ledger", "repair:R4:ledger", "repair:R7:ledger"]);
+    expect(repaired).toEqual(["repair:G-GONE", "repair:G-NEW", "repair:G-SOON", "repair:R1:ledger", "repair:R2:ghl", "repair:R2:ledger", "repair:R3:ledger", "repair:R4:ledger", "repair:R7:ledger"]);
     // the test contact's record is written to GHL; the real contact's is held back by test mode
     expect(writes).toEqual([{ id: "R2", outcome: "cancelled" }]);
     expect(await outcomeOf("AP1")).toBe("cancelled"); expect(await outcomeOf("AP2")).toBe("cancelled");
@@ -115,8 +115,9 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     expect(await outcomeOf("AP6")).toBeNull();
     const nina = await asOperator((c) => one<{ id: string; first_name: string }>(c, "select id, first_name from contacts where company_id=$1 and ghl_contact_id='G-NEW'", [companyId]));
     expect(nina?.first_name).toBe("Nina");
-    // a day late: in the ledger, but no lead workflows; a person is told. 45 minutes late: a lead like any other
-    expect(await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from events where company_id=$1 and contact_id=$2 and event_type='lead.created'", [companyId, nina!.id]))).toEqual({ n: 0 });
+    // a day late or 45 minutes late, each is a lead: the event says how late, and the lead workflows decide what a late lead gets
+    expect(await asOperator((c) => one<{ minutes: number }>(c, "select (data->>'minutes_late')::int as minutes from events where company_id=$1 and contact_id=$2 and event_type='lead.created'", [companyId, nina!.id]))).toEqual({ minutes: expect.any(Number) });
+    expect((await asOperator((c) => one<{ minutes: number }>(c, "select (data->>'minutes_late')::int as minutes from events where company_id=$1 and contact_id=$2 and event_type='lead.created'", [companyId, nina!.id])))!.minutes).toBeGreaterThan(60 * 23);
     expect(await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from events e join contacts ct on ct.id=e.contact_id where e.company_id=$1 and ct.ghl_contact_id='G-SOON' and e.event_type='lead.created'", [companyId]))).toEqual({ n: 1 });
     expect(await asOperator((c) => one(c, "select 1 from contacts where company_id=$1 and ghl_contact_id='G-RECENT'", [companyId]))).toBeUndefined();
     expect((await asOperator((c) => one<{ gone_at: Date | null }>(c, "select gone_at from contacts where company_id=$1 and ghl_contact_id='G-GONE'", [companyId])))?.gone_at).toBeTruthy();
@@ -128,7 +129,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     expect(bad.text.split("\n").filter((l) => l.startsWith("• ")).length).toBe((bad.detail as { items: unknown[] }).items.length);   // one line each
     expect(bad.text).toContain("• G-K1, "); expect(bad.text).toContain("I couldn't change it (test mode: would set the outcome to \"cancelled\""); expect(bad.text).toContain("Set it to cancelled in GHL?");
     expect(bad.text).toContain("GHL has this Sales Call, but the engine has no booking for that person at that time.");
-    expect(bad.text).toMatch(/Nina New came into GHL .* New lead and Speed to lead did NOT run\. Can someone follow up by hand\?/);
+    expect(bad.text).not.toContain("Nina");
     expect(bad.text).toContain("Calendly says cancelled, GHL says no-show, and I can't tell when it was cancelled. Which is right?");
     expect(bad.text).not.toContain("G-FLAKY");
     expect((await asOperator((c) => openAlerts(c, companyId))).filter((a) => a.key === "health:ledger_drift")).toHaveLength(1);
@@ -139,7 +140,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     let r = await sweep();
     expect(drift(r.findings).filter((f) => f.ok)).toEqual([]);   // nothing left to repair, nothing written again
     expect(writes).toHaveLength(1);
-    expect(await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from events where company_id=$1 and event_type='lead.created'", [companyId]))).toEqual({ n: 1 });
+    expect(await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from events where company_id=$1 and event_type='lead.created'", [companyId]))).toEqual({ n: 2 });   // Nina and Sol, once each
     // live: the real contact's record may now be written; a refusal leaves it for the next sweep, unclaimed
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
     refuse = true; r = await sweep(); refuse = false;

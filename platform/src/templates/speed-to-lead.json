@@ -5,7 +5,7 @@
   "stage": "lead",
   "sort": 20,
   "origin": "default",
-  "description": "New lead gets an email and a text right away, two hours for a reply, then one more email if they went quiet and still have no call on the calendar (a lead who booked inside the two hours is left alone).",
+  "description": "New lead gets an email and a text right away, two hours for a reply, then one more email if they went quiet and still have no call on the calendar (a lead who booked inside the two hours is left alone). A lead the engine only noticed late (GHL was down, or a minute check missed it) gets no first text or email; the team is told to follow up by hand instead. How late is too late is a setting on the first step.",
   "definition": {
     "schema": 1,
     "reentry": "once_per_contact",
@@ -66,12 +66,62 @@
         "id": "x2",
         "type": "exit",
         "reason": "no_reply"
+      },
+      {
+        "id": "v_late",
+        "type": "set_var",
+        "key": "late_after_min",
+        "value": 60,
+        "title": "Too late for a first text after this many minutes"
+      },
+      {
+        "id": "b_late",
+        "type": "branch",
+        "title": "Did the engine see this lead in time?"
+      },
+      {
+        "id": "s_late",
+        "type": "slack_post",
+        "channel": "{{slack.channel.ops}}",
+        "fallback_channel": "{{slack.channel.alerts}}",
+        "title": "Tell the team to follow up by hand",
+        "template": "<https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:A new lead}}> came into GHL {{event.minutes_late}} minutes before the engine saw them, so no first text or email went out. Can someone follow up by hand?"
+      },
+      {
+        "id": "x_late",
+        "type": "exit",
+        "reason": "late"
       }
     ],
     "edges": [
       {
         "from": "t1",
-        "to": "n1"
+        "to": "v_late"
+      },
+      {
+        "from": "v_late",
+        "to": "b_late"
+      },
+      {
+        "from": "b_late",
+        "to": "n1",
+        "when": {
+          "lte": [
+            "{{event.minutes_late | default:0}}",
+            "{{vars.late_after_min}}"
+          ]
+        },
+        "label": "in time"
+      },
+      {
+        "from": "b_late",
+        "to": "s_late",
+        "else": true,
+        "label": "too late"
+      },
+      {
+        "from": "s_late",
+        "to": "x_late"
       },
       {
         "from": "n1",
