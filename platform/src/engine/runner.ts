@@ -8,6 +8,7 @@ import { syncCards } from "./cards";
 import { refreshContact } from "./contact-truth";
 import { effectiveMode } from "./mode";
 import { executeNode, listenerOf, markGone, setPath, type ExecDeps, type Listener } from "./executor";
+import { releaseHeldTranscripts } from "./transcripts";
 import type { Node } from "./definition";
 import type { HealthProbes } from "./health";
 import { deferIntoWindow } from "./waitrule";
@@ -93,6 +94,8 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           const lis = status === "waiting" && ctx ? listenerOf(ctx) : undefined;
           const due = lis?.until && (!next_run_at || new Date(lis.until) < next_run_at) ? new Date(lis.until) : next_run_at ?? null;
           if (run.step_held && status !== "paused") { await resolve(c, run.company_id, `run:${run.id}:paused`, now.toJSDate(), true); run.step_held = false; }   // held, then moot or turned off: nothing left to say
+          // D87: a run that is done lets go of a transcript a webhook delivered for its recording (none is kept past the runs that read it)
+          if (status === "completed" || status === "exited") await releaseHeldTranscripts(c, run);
           // D77: a run held on a step stays held only while it is paused there; any other way out ends the hold
           return c.query("update runs set status=$2, exit_reason=coalesce($3, exit_reason), next_run_at=$4, current_node=coalesce($5,current_node), context=coalesce($6,context), wake_on_reply=$7, wake_on_tag=$8, resume_node=case when $9 then coalesce($5,current_node) else resume_node end, resume_at=case when $9 then $10 else resume_at end, claimed_at=null, claimed_by=null, finished_at=case when $2 in ('completed','exited','failed') then now() end, step_held=($2='paused' and step_held) where id=$1",
             [run.id, status, exit_reason ?? null, due, current_node ?? null, ctx ? persistedContext(ctx) : null, !!wake.reply, wake.tag ?? lis?.tag ?? null, !!lis, next_run_at ?? null]);

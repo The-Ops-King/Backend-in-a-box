@@ -13,11 +13,17 @@ import { testContactSql } from "./mode";
 export const SETTER_RESULTS = ["set", "follow_up", "dq", "not_interested"] as const;
 export type SetterResult = (typeof SETTER_RESULTS)[number];
 export const RESULT_WORDS: Record<SetterResult, string> = { set: "Set", follow_up: "Follow up", dq: "DQ", not_interested: "Not interested" };
-/** A closing call booked this long after the setter call ended counts as Set whatever Jev read. */
-export const BOOKED_WITHIN_MIN = 30;
 /** How long after the call a booking still says the call set it, for scoring. */
 export const TRUTH_DAYS = 7;
 export const DISCOVERY_OBJECT = "custom_objects.discovery_call";
+/**
+ * D87: the one definition of "this call set a booking" in SQL, the same the setter workflow waits for: a connected call (more than 0
+ * seconds) followed by a booking through a setter link for that person, made from the start of the call to `win` minutes (the
+ * company's setter_result.set_within_min, a SQL expression here) after hang-up. `r` is the recordings row's alias.
+ */
+export const setByBookingSql = (r: string, win: string) => `(${r}.raw->>'call_status'='connected' and coalesce((${r}.raw->>'duration_sec')::int, 1) > 0
+  and exists (select 1 from appointments sa where sa.company_id=${r}.company_id and sa.contact_id=${r}.contact_id and sa.source<>'test' and sa.self_booked = false
+    and sa.booked_at >= ${r}.started_at and sa.booked_at <= coalesce(${r}.ended_at, ${r}.started_at) + make_interval(mins => ${win})))`;
 const isResult = (v: unknown): v is SetterResult => typeof v === "string" && (SETTER_RESULTS as readonly string[]).includes(v);
 
 function resultMap(bindings: Record<string, string>): Record<string, unknown> {
@@ -47,7 +53,7 @@ export type SetterRead = {
   recording_id: string; contact_id: string; at: Date; setter: string | null; predicted: string; confidence: number | null; result: string; decided_by: string;
   truth: SetterResult | "not_set" | null; truth_by: TruthBy | null; agreed: boolean | null;
 };
-export const TRUTH_WORDS: Record<TruthBy, string> = { crm: "changed on the Discovery Call record", human: "a team member's tap", booking_30m: `booked within ${BOOKED_WITHIN_MIN} minutes`, booking_7d: `booked within ${TRUTH_DAYS} days`, dq_tag: "a dq tag added in the CRM", card_lost: "the setter card marked lost in the CRM", no_booking_7d: `no booking within ${TRUTH_DAYS} days` };
+export const TRUTH_WORDS: Record<TruthBy, string> = { crm: "changed on the Discovery Call record", human: "a team member's tap", booking_30m: "booked through a setter link during the call or soon after (the company's Set window)", booking_7d: `booked within ${TRUTH_DAYS} days`, dq_tag: "a dq tag added in the CRM", card_lost: "the setter card marked lost in the CRM", no_booking_7d: `no booking within ${TRUTH_DAYS} days` };
 
 type Row = { recording_id: string; contact_id: string; end_at: Date; setter: string | null; predicted: string | null; confidence: string | null; result: string | null; decided_by: string | null; booked_30: boolean;
   human: string | null; booked_7d: boolean; dq_tag: boolean; card_lost: boolean; ghl_record_id: string | null; written: string | null };
@@ -55,7 +61,7 @@ type Row = { recording_id: string; contact_id: string; end_at: Date; setter: str
 /**
  * Every setter-call read in [start, end) (one per recording, the latest), people who are test contacts left out, each with
  * what happened since (D79), strongest first: a later change of `call_result` on the Discovery Call record in GHL (read
- * live; skipped when GHL cannot be read), a team member's tap, a booking within 30 minutes, a booking within 7 days → set;
+ * live; skipped when GHL cannot be read), a team member's tap, the call Set by a setter-link booking (D87), a booking within 7 days → set;
  * a dq tag added in the CRM → dq; the setter card marked lost in the CRM → not interested; Jev read set and 7 days passed
  * with no booking → not set. Anything else is not known yet. Only what a person or the CRM did counts, never the engine's
  * own actions.
@@ -65,7 +71,7 @@ export async function setterReads(c: PoolClient, companyId: string, q: { start: 
   const rows = await many<Row>(c, `
     select * from (select distinct on (e.data->>'recording_id') e.data->>'recording_id' as recording_id, e.contact_id::text as contact_id, coalesce(r.ended_at, r.started_at) as end_at,
         nullif(e.data->>'setter','') as setter, nullif(e.data->>'predicted','') as predicted, nullif(e.data->>'predicted_confidence','') as confidence,
-        nullif(e.data->>'result','') as result, nullif(e.data->>'decided_by','') as decided_by, coalesce(e.data->>'booked_within_30m','') = 'true' as booked_30,
+        nullif(e.data->>'result','') as result, nullif(e.data->>'decided_by','') as decided_by, coalesce(e.data->>'set_by_booking', e.data->>'booked_within_30m', '') = 'true' as booked_30,
         (select h.data->>'decided' from events h where h.company_id=e.company_id and h.event_type='intent.reviewed' and h.data->>'domain'='setter_call_result' and h.data->>'recording_id'=e.data->>'recording_id' order by h.id desc limit 1) as human,
         exists (select 1 from appointments a where a.company_id=e.company_id and a.contact_id=e.contact_id and a.source<>'test' and a.booked_at >= r.started_at and a.booked_at < coalesce(r.ended_at, r.started_at) + make_interval(days => $5)) as booked_7d,
         exists (select 1 from events t where t.company_id=e.company_id and t.contact_id=e.contact_id and t.event_type='tag.added' and t.source='ghl_poll' and (t.data->>'tag'='dq' or t.data->>'tag' like 'dq-%') and t.occurred_at > coalesce(r.ended_at, r.started_at)) as dq_tag,

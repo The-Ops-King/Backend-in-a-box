@@ -2,13 +2,15 @@ import type { PoolClient } from "pg";
 import { isDeepStrictEqual } from "node:util";
 import { asOperator, many } from "@/db/client";
 import { KEPT_KEYS, persistedContext } from "./context";
+import { sweepHeldTranscripts } from "./transcripts";
 
 /**
  * D38: the hub keeps what the engine needs, not an archive. Per company: an inbound reply's row goes after
  * reply_retention_days (the "they replied" event stays), and the engine's own sends go after sends_retention_days once
- * their run is over (a live run keeps its sends: idempotency and the wait-for-reply boundary read them).
+ * their run is over (a live run keeps its sends: idempotency and the wait-for-reply boundary read them). D87: a call's transcript
+ * or summary still held `calls.transcript_hold_hours` after the last run about it ended is cleared (transcripts.ts).
  */
-export async function purgeOld(c: PoolClient, now = new Date()): Promise<{ replies: number; sends: number }> {
+export async function purgeOld(c: PoolClient, now = new Date()): Promise<{ replies: number; sends: number; transcripts: number }> {
   let replies = 0, sends = 0;
   for (const co of await many<{ id: string; reply_retention_days: number; sends_retention_days: number }>(c, "select id, reply_retention_days, sends_retention_days from companies")) {
     const r = await c.query("delete from messages where company_id=$1 and occurred_at < $2::timestamptz - make_interval(days => $3::int)", [co.id, now, co.reply_retention_days]);
@@ -22,7 +24,9 @@ export async function purgeOld(c: PoolClient, now = new Date()): Promise<{ repli
       and (s.run_id is null or not exists (select 1 from runs r where r.id=s.run_id and r.status in ('active','waiting')))`, [co.id, now, co.sends_retention_days]);
     sends += s.rowCount ?? 0;
   }
-  return { replies, sends };
+  // D87: a transcript a webhook delivered is held only while runs read it; anything still held well after its runs ended goes here
+  const transcripts = await sweepHeldTranscripts(c, now);
+  return { replies, sends, transcripts };
 }
 
 /** scanned: rows with something to drop; changed: rows rewritten (or, dry, that would be); bytes as JSON text. */

@@ -98,10 +98,13 @@ async function settle(c: PoolClient, companyId: string, r: RecordingRow, contact
 /** Records a provider recording. Idempotent on (provider, recording id). */
 export async function recordRecording(c: PoolClient, companyId: string, input: RecordingInput): Promise<RecordResult> {
   const provider = input.provider ?? "fathom";
+  // D87: a webhook body delivers the transcript once, so it is HELD on the row only until the runs that read it are done (transcripts.ts
+  // releases it); the provider's summary is never kept (nothing reads it). Whether there was one stays on the row for good.
+  const has = !!input.transcript?.length;
   const inserted = await one<RecordingRow>(c, `insert into recordings (company_id, provider, external_id, title, started_at, ended_at, duration_min, url, share_url, recorded_by_email, recorded_by_name, invitees, transcript, summary, raw)
-    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) on conflict (company_id, provider, external_id) do nothing returning *`,
+    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,null,$14) on conflict (company_id, provider, external_id) do nothing returning *`,
     [companyId, provider, input.externalId, input.title ?? null, input.startedAt, input.endedAt ?? null, input.durationMin ?? null, input.url ?? null, input.shareUrl ?? null, normEmail(input.recordedBy?.email) ?? null, input.recordedBy?.name ?? null,
-      JSON.stringify(input.invitees), input.transcript ? JSON.stringify(input.transcript) : null, input.summary ?? null, input.raw ?? {}]);
+      JSON.stringify(input.invitees), has ? JSON.stringify(input.transcript) : null, { ...(input.raw ?? {}), transcript_status: has ? "ready" : "none" }]);
   if (!inserted) return { outcome: "duplicate", recording: (await one<RecordingRow>(c, "select * from recordings where company_id=$1 and provider=$2 and external_id=$3", [companyId, provider, input.externalId]))! };
   const { match, reason } = await resolveRecording(c, companyId, input);
   if (match) {
@@ -131,17 +134,19 @@ export async function linkRecording(c: PoolClient, companyId: string, recordingI
  * A call the CRM's dialer logged is a recording too, and lives in the same ledger: provider 'ghl', the call entry's id as
  * external_id, the contact known outright (the thread names them, so no ladder). What is different is timing: the entry
  * appears the moment the call ends, the transcript minutes later, so a connected call sits `pending` and is settled by a
- * later poll (transcript found, or the wait ran out). Every call is kept, answered or not — connection rate and
- * speed-to-lead are read from this table later. `call.logged` fires once per call, when it settles.
+ * later poll (transcript found, or `calls.transcript_wait_min` after hang-up passed). Every call is kept, answered or not —
+ * connection rate and speed-to-lead are read from this table later. `call.logged` fires once per call, when it settles.
+ * D87: the transcript itself is never stored; the row says whether there is one (`raw.transcript_status`), and a step that
+ * reads it fetches it from GHL again (transcripts.ts). A call of 0 seconds is not a connected call, nor a part of one.
  */
 export type PhoneCallInput = { externalId: string; contactId: string; startedAt: Date; durationSec: number; direction: "inbound" | "outbound"; status: string; callerGhlUserId?: string; conversationUrl?: string; raw?: Record<string, unknown> };
 /** GHL's dialer vocabulary → ours. Unknown statuses are kept as given so nothing is silently rewritten. */
 export const callOutcome = (status: string) => ({ completed: "connected", answered: "connected", "no-answer": "no_answer", noanswer: "no_answer", busy: "busy", failed: "failed", canceled: "failed", cancelled: "failed", voicemail: "voicemail" } as Record<string, string>)[status.toLowerCase()] ?? status.toLowerCase();
-export const TRANSCRIPT_WAIT_MIN = 30;   // a connected call with no transcript yet is re-checked for this long, then settles without one
 
 export async function recordPhoneCall(c: PoolClient, companyId: string, input: PhoneCallInput): Promise<{ recording: RecordingRow; isNew: boolean }> {
-  const outcome = callOutcome(input.status);
-  const connected = outcome === "connected" && input.durationSec > 0;
+  // D87: "Calls under a minimum of 0, for sure. Don't count it." The dialer says completed for a 0-second connect; it is no call
+  const said = callOutcome(input.status), outcome = said === "connected" && !(input.durationSec > 0) ? "zero_seconds" : said;
+  const connected = outcome === "connected";
   const caller = input.callerGhlUserId ? await one<{ name: string; email: string }>(c, "select name, email from users where company_id=$1 and ghl_user_id=$2", [companyId, input.callerGhlUserId]) : null;
   const raw = { ...(input.raw ?? {}), kind: "phone", direction: input.direction, call_status: outcome, call_status_raw: input.status, duration_sec: input.durationSec, caller_ghl_user_id: input.callerGhlUserId ?? null, transcript_status: connected ? "pending" : "none" };
   const inserted = await one<RecordingRow>(c, `insert into recordings (company_id, contact_id, provider, external_id, title, started_at, ended_at, duration_min, share_url, recorded_by_email, recorded_by_name, invitees, link_status, linked_by, raw)
@@ -152,17 +157,25 @@ export async function recordPhoneCall(c: PoolClient, companyId: string, input: P
   return { recording: (await one<RecordingRow>(c, "select * from recordings where company_id=$1 and provider='ghl' and external_id=$2", [companyId, input.externalId]))!, isNew: false };
 }
 
-/** Writes the transcript (or the fact there is none) and fires `call.logged` exactly once. `silent` for the baseline poll: the row is kept, nothing is dispatched. */
-export async function settlePhoneCall(c: PoolClient, r: RecordingRow, media: { recordingUrl?: string; transcript: RecordingRow["transcript"] | null } | null, opts: { silent?: boolean } = {}): Promise<{ recording: RecordingRow; event: EventRow | null }> {
+/**
+ * Writes whether there is a transcript (never the transcript: GHL keeps it and a step fetches it again, D87) and fires
+ * `call.logged` exactly once. `silent` for the baseline poll: the row is kept, nothing is dispatched. `hold` is for a source
+ * that cannot be asked again (the simulator's synthetic call): the transcript is held like a webhook's until its runs are done.
+ */
+export async function settlePhoneCall(c: PoolClient, r: RecordingRow, media: { recordingUrl?: string; transcript: RecordingRow["transcript"] | null } | null, opts: { silent?: boolean; hold?: boolean } = {}): Promise<{ recording: RecordingRow; event: EventRow | null }> {
   const has = !!media?.transcript?.length;
   const raw = { ...r.raw, transcript_status: has ? "ready" : "none", ...(opts.silent ? { baseline: true } : {}) };
-  const row = (await one<RecordingRow>(c, "update recordings set transcript=$2, url=coalesce($3, url), raw=$4 where id=$1 returning *", [r.id, has ? JSON.stringify(media!.transcript) : null, media?.recordingUrl ?? null, raw]))!;
+  const row = (await one<RecordingRow>(c, "update recordings set transcript=$2, url=coalesce($3, url), raw=$4 where id=$1 returning *", [r.id, has && opts.hold ? JSON.stringify(media!.transcript) : null, media?.recordingUrl ?? null, raw]))!;
   if (opts.silent) return { recording: row, event: null };
   const event = await emitEvent(c, { company_id: r.company_id, contact_id: r.contact_id, opportunity_id: null, appointment_id: null, event_type: "call.logged", source: "ghl_poll", occurred_at: r.started_at, data: eventData(row, phoneFacts(row)) });
   return { recording: row, event };
 }
 /** The call as a trigger sees it (`{{recording.*}}` in a match), the same fields context.ts exposes to the run. */
-export const phoneFacts = (r: RecordingRow) => { const raw = r.raw as Record<string, unknown>; return { kind: "phone", direction: raw.direction, status: raw.call_status, connected: raw.call_status === "connected", duration_sec: raw.duration_sec, has_transcript: !!r.transcript?.length, caller: r.recorded_by_name }; };
-export const pendingPhoneCalls = (c: PoolClient, companyId: string, limit = 20) => many<RecordingRow>(c, "select * from recordings where company_id=$1 and provider='ghl' and raw->>'transcript_status'='pending' order by started_at limit $2", [companyId, limit]);
+export const phoneFacts = (r: RecordingRow) => { const raw = r.raw as Record<string, unknown>; return { kind: "phone", direction: raw.direction, status: raw.call_status, connected: isConnected(r), duration_sec: raw.duration_sec, has_transcript: hasTranscript(r), caller: r.recorded_by_name }; };
+/** A call that connected for more than 0 seconds (rows from before D87 may say connected for a 0-second connect). */
+export const isConnected = (r: Pick<RecordingRow, "raw">) => r.raw.call_status === "connected" && !(Number(r.raw.duration_sec ?? 1) <= 0);
+/** Whether the recording has a transcript to read: settled with one (D87: the row keeps only that fact), or one is held. */
+export const hasTranscript = (r: Pick<RecordingRow, "raw" | "transcript">) => r.raw.transcript_status === "ready" || !!r.transcript?.length;
+export const pendingPhoneCalls = (c: PoolClient, companyId: string, limit = 100) => many<RecordingRow>(c, "select * from recordings where company_id=$1 and provider='ghl' and raw->>'transcript_status'='pending' order by started_at limit $2", [companyId, limit]);
 
 export const unlinkedRecordings = (c: PoolClient, companyId: string) => many<RecordingRow>(c, "select * from recordings where company_id=$1 and link_status='unlinked' order by started_at desc", [companyId]);

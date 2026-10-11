@@ -77,17 +77,17 @@ const DEFS = [
   flow("Twice", [trig("wfe-loop"), { id: "n1", type: "wait_for_event", event: "appointment.booked", since: "{{event.since}}", until: TWO_HOURS }, { id: "b1", type: "branch" }, { id: "s1", type: "set_var", key: "seen", value: "yes" },
     { id: "x2", type: "exit", reason: "twice" }, { id: "xu", type: "exit", reason: "no_event" }],
     [{ from: "t1", to: "n1" }, { from: "n1", to: "b1", label: "event" }, { from: "n1", to: "xu", label: "until" }, { from: "b1", to: "x2", when: { exists: "vars.seen" } }, { from: "b1", to: "s1", else: true }, { from: "s1", to: "n1" }]),
-  // D85: the three context facts, said by a template with lookup instead (the facts stay; this proves the step can stand in for them)
+  // D85: the context facts, said by a template with lookup instead; D87 deleted "booked within 30 minutes" and "led to a booking" (one Set: a setter-link booking in the Set window), has_upcoming_call stays
   flow("Facts", [trig("facts"),
-    { id: "o1", type: "set_var", key: "old_30m", value: "{{recording.booked_within_30m}}" }, { id: "o2", type: "set_var", key: "old_led", value: "{{recording.led_to_booking}}" }, { id: "o3", type: "set_var", key: "old_up", value: "{{contact.has_upcoming_call}}" },
-    { id: "l1", type: "lookup", query: "appointments_for_contact", params: { kind: "closing", status_not: "cancelled", booked_since: "{{recording.started_at}}", booked_until: "{{recording.ended_at}} +30m" }, into: "b30" },
+    { id: "o3", type: "set_var", key: "old_up", value: "{{contact.has_upcoming_call}}" },
+    { id: "l1", type: "lookup", query: "appointments_for_contact", params: { booking_source: "setter", booked_since: "{{recording.started_at}}", booked_until: "{{recording.set_until}}" }, into: "b30" },
     { id: "l2", type: "lookup", query: "appointments_for_contact", params: { status_not: "cancelled", booked_since: "{{recording.started_at}}" }, into: "led" },
     { id: "l3", type: "lookup", query: "appointments_for_contact", params: { kind: "closing", status_not: "cancelled,noshow", starts_since: "{{now}}", exclude: "{{appointment.id | default:}}" }, into: "up" },
     { id: "l4", type: "lookup", query: "calls_for_contact", params: { since: "{{recording.started_at}} -1d", kind: "phone", connected: "true", caller: "sam@x.com" }, into: "calls" },
     { id: "l5", type: "lookup", query: "last_event", params: { type: "appointment.booked" }, into: "last_booking" },
     { id: "l6", type: "lookup", query: "appointments_for_contact", params: { booking_source: "{{event.source_filter | default:}}", order: "booked_at" }, into: "all" },
     { id: "x1", type: "exit", reason: "done" }],
-    [{ from: "t1", to: "o1" }, { from: "o1", to: "o2" }, { from: "o2", to: "o3" }, { from: "o3", to: "l1" }, { from: "l1", to: "l2" }, { from: "l2", to: "l3" }, { from: "l3", to: "l4" }, { from: "l4", to: "l5" }, { from: "l5", to: "l6" }, { from: "l6", to: "x1" }]),
+    [{ from: "t1", to: "o3" }, { from: "o3", to: "l1" }, { from: "l1", to: "l2" }, { from: "l2", to: "l3" }, { from: "l3", to: "l4" }, { from: "l4", to: "l5" }, { from: "l5", to: "l6" }, { from: "l6", to: "x1" }]),
   // D85: a record the engine did not make, by the CRM's own id
   flow("By id", [trig("byid"), { id: "n1", type: "crm_record", object: "custom_objects.sales_call", record_id: "{{event.record | default:}}", properties: { outcome: "{{event.outcome}}", disposition: "{{event.disp | default:}}", not_a_field: "x" },
     clear: ["disposition", "next_step"], relate: [{ association: "ASSOC-1", first: "{{record.id}}", second: "{{contact.ghl_contact_id}}" }] }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
@@ -312,14 +312,14 @@ describe.skipIf(!HAS_DB)("building blocks (D85)", () => {
       values ($1,$2,'ghl_dialer',$3,$4,$5,30,'sam@x.com',$6,'linked') returning id`, [companyId, contactId, `R${++seq}`, started.toJSDate(), started.plus({ minutes: 30 }).toJSDate(), { kind: "phone", call_status: "connected", direction: "outbound" }]))!.id);
     type Vars = Record<string, { any?: boolean; count?: number; items?: Record<string, unknown>[]; found?: boolean; type?: string } & Record<string, unknown>>;
     const facts = async (contactId: string, recId: string, extra: Record<string, unknown> = {}) => { const id = await fire(contactId, "facts", { recording_id: recId, ...extra }); await tickAt(DateTime.now()); const r = (await run(id))!; expect(r).toMatchObject({ status: "completed" }); return r.context.vars as Vars; };
-    const same = (v: Vars) => { expect(String(v.b30.any)).toBe(v.old_30m); expect(String(v.led.any)).toBe(v.old_led); expect(String(v.up.any)).toBe(v.old_up); };
+    const same = (v: Vars) => { expect(String(v.up.any)).toBe(v.old_up); };
 
-    it("booked within 30 minutes, led to a booking, has an upcoming call: each said with lookup, and each agrees with the engine's own fact", async () => {
+    it("set by a setter-link booking in the Set window (D87), led to a booking, has an upcoming call: each said with lookup; the upcoming call agrees with the engine's own fact", async () => {
       await asOperator((c) => c.query("insert into users (company_id, name, email, role) values ($1,'Sam Setter','sam@x.com','setter') on conflict do nothing", [companyId]));
       const t = DateTime.now().minus({ hours: 3 });
       const cases: { first: string; setup: (ct: string) => Promise<unknown>; want: [boolean, boolean, boolean] }[] = [
-        { first: "Ja", setup: (ct) => book(ct, { at: t.plus({ minutes: 40 }).toJSDate(), self: false }), want: [true, true, true] },          // a closing call booked 10 minutes after the call ended
-        { first: "Ka", setup: (ct) => book(ct, { at: t.plus({ minutes: 70 }).toJSDate() }), want: [false, true, true] },                       // forty minutes after: not this call's
+        { first: "Ja", setup: (ct) => book(ct, { at: t.plus({ minutes: 40 }).toJSDate(), self: false }), want: [true, true, true] },          // a setter-link booking 10 minutes after the call ended
+        { first: "Ka", setup: (ct) => book(ct, { at: t.plus({ minutes: 70 }).toJSDate() }), want: [false, true, true] },                       // self-booked forty minutes after: not this call's
         { first: "Lu", setup: (ct) => book(ct, { at: t.plus({ minutes: 10 }).toJSDate(), kind: "qualifying" }), want: [false, true, false] },  // not a closing call
         { first: "Mo", setup: (ct) => book(ct, { at: t.plus({ minutes: 10 }).toJSDate(), status: "cancelled" }), want: [false, false, false] }, // cancelled
         { first: "Ny", setup: (ct) => book(ct, { at: t.minus({ days: 3 }).toJSDate(), starts: DateTime.now().minus({ days: 1 }) }), want: [false, false, false] }, // booked before, and already past

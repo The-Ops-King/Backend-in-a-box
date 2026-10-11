@@ -35,7 +35,7 @@ const docSends: { templateId: string; contactId: string; userId?: string }[] = [
 const liveCards = new Map<string, import("@/adapters/types").LiveCard[]>();   // what the CRM "has" for a contact: cards the engine never made (D41)
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], openCards: async (_c, id) => liveCards.get(id) ?? [], pipelineCards: async (_c, pipelineId) => [...liveCards.entries()].flatMap(([cid, cards]) => cards.filter((k) => k.pipelineId === pipelineId).map((k) => ({ ...k, contactId: cid }))), inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
+    contactsChangedSince: async () => [], openCards: async (_c, id) => liveCards.get(id) ?? [], pipelineCards: async (_c, pipelineId) => [...liveCards.entries()].flatMap(([cid, cards]) => cards.filter((k) => k.pipelineId === pipelineId).map((k) => ({ ...k, contactId: cid }))), inboundSince: async () => [], callMedia: async (_c, id) => callMedia.get(id) ?? { transcript: null }, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
     getContact: async (c, id) => (await replicaSnapshot(c.id, id)) ?? { id, firstName: id, email: `${id.toLowerCase()}@x.com`, phone: phoneFor(id), tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() },
     listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }],
   },
@@ -51,7 +51,7 @@ const fake: Adapters = {
     deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null,
   },
   classifier: { choice: async (_s, _input, options): Promise<Classification> => {   // Jev, faked by vocabulary (D48)
-    const value = options.includes("setting") ? setterCallType : options.includes("not_interested") ? "set" : options.includes("budget") ? "other" : options.includes("sales_call") ? (salesCall ? "sales_call" : "other") : options.includes("closed_won") ? "closed_won" : replyIntent;
+    const value = options.includes("setting") ? setterCallType : options.includes("not_interested") ? "follow_up" : options.includes("budget") ? "other" : options.includes("sales_call") ? (salesCall ? "sales_call" : "other") : options.includes("closed_won") ? "closed_won" : replyIntent;
     return { value, confidence: 0.95, distribution: { [value]: 0.95 }, unclear: false }; } },
   notifier: { post: async (_t, channel, text, _as, threadTs) => { slackPosts.push({ channel, text, threadTs }); return { ts: `ts${slackPosts.length}` }; }, lookupUserByEmail: async () => null, react: async (_t, _ch, ts, emoji) => { reacted.push(`${ts}:${emoji}`); return true; }, unreact: async (_t, _ch, ts, emoji) => { unreacted.push(`${ts}:${emoji}`); return true; }, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
   // answers by which prompt is asked, the way the real model would: classify → is it a sales call, notes → the write-up, rubric → the score
@@ -64,6 +64,7 @@ const fake: Adapters = {
     return { text: JSON.stringify(parsed), parsed, model: "fake", usage: { input: 1000, output: 100, cacheRead: 0 } }; } },
 };
 const analyses: string[] = [];
+const callMedia = new Map<string, import("@/adapters/types").CallMedia>();   // GHL keeps a dialer call's transcript; the engine reads it back when a step needs it (D87)
 const slackPosts: { channel: string; text: string; threadTs?: string }[] = [];   // every message is its own ts, as in Slack
 const unreacted: string[] = [];
 const reacted: string[] = [];
@@ -662,19 +663,20 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(sup?.suppressed_reason).toMatch(/sms_disabled/);
   });
 
-  it("setter-call-logged: a connected dialer call with a transcript → 15 minutes after the call the AI calls it a setting call, digest, Discovery Call record linked to the contact, note, Slack; too short / no transcript / 'where are you' each stop at their check; a fresh call waits", async () => {
+  it("setter-call-logged: a connected dialer call with a transcript → Jev calls it a setting call and, 15 minutes after hang-up with no setter booking, it posts Jev's read: digest, Discovery Call record linked to the contact, note, Slack; too short / no transcript / 'where are you' each stop at their check; a fresh call waits", async () => {
     const id = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CCB2'", [companyId])))!.id;
     const transcript = [{ speaker: "0", text: "Hey Leo, got two minutes?" }, { speaker: "1", text: "Sure. It has been getting worse for a year. What does it cost?" }, { speaker: "0", text: "The specialist covers that. Thursday at two?" }, { speaker: "1", text: "Works." }];
-    const logCall = (ext: string, durationSec: number, minutesAgo: number, withTranscript: boolean, status = "completed") => asOperator(async (c) => {
-      const { recording } = await recordPhoneCall(c, companyId, { externalId: ext, contactId: id, startedAt: new Date(Date.now() - minutesAgo * 60e3), durationSec, direction: "outbound", status, callerGhlUserId: "U1", conversationUrl: "https://app.gohighlevel.com/v2/location/L/conversations/conversations/CCB2" });
-      const { recording: row, event } = await settlePhoneCall(c, recording, withTranscript ? { recordingUrl: `https://ghl.test/${ext}/recording`, transcript } : { transcript: null });
-      await dispatchEvent(c, event!, { contact: { id }, recording: { id: row.id, ...phoneFacts(row) } });
+    const logCall = (ext: string, durationSec: number, minutesAgo: number, withTranscript: boolean, status = "completed", who = id) => asOperator(async (c) => {
+      const { recording } = await recordPhoneCall(c, companyId, { externalId: ext, contactId: who, startedAt: new Date(Date.now() - minutesAgo * 60e3), durationSec, direction: "outbound", status, callerGhlUserId: "U1", conversationUrl: "https://app.gohighlevel.com/v2/location/L/conversations/conversations/CCB2" });
+      if (withTranscript) callMedia.set(ext, { recordingUrl: `https://ghl.test/${ext}/recording`, transcript });
+      const { recording: row, event } = await settlePhoneCall(c, recording, withTranscript ? callMedia.get(ext)! : { transcript: null });
+      await dispatchEvent(c, event!, { contact: { id: who }, recording: { id: row.id, ...phoneFacts(row) } });
       return row;
     });
-    const lastRun = async () => (await runsFor("setter-call-logged")).filter((x) => x.contact_id === id).at(-1)!;
+    const lastRun = async (who = id) => (await runsFor("setter-call-logged")).filter((x) => x.contact_id === who).at(-1)!;
     // 1. the real thing: 3 minutes, 20 minutes ago, transcript present
     const nRec = recordWrites.length, nRel = relations.length, nAn = analyses.length;
-    const row = await logCall("call-1", 184, 40, true);   // D79: a setting call's result is read 35 minutes after it ends
+    const row = await logCall("call-1", 184, 40, true);   // D87: posted 15 minutes after hang-up, the Set window (30) closed too
     expect(row.raw).toMatchObject({ kind: "phone", call_status: "connected", duration_sec: 184, transcript_status: "ready" });
     expect(row.recorded_by_name).toBe("Sam Closer");
     await tick(fake, undefined, companyId); await tick(fake, undefined, companyId);
@@ -682,11 +684,11 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(run).toMatchObject({ status: "completed", exit_reason: "posted" });
     expect(analyses.slice(nAn)).toHaveLength(1);   // the digest; the kind of call is Jev's (D48)
     const rw = recordWrites.slice(nRec); expect(rw).toHaveLength(1);
-    expect(rw[0]).toMatchObject({ op: "create", external_id: "call-1", contact_id: "CCB2", direction: "outbound", duration_sec: 184, setter: "Sam Closer", outcome: "connected", recording_url: "https://ghl.test/call-1/recording", call_result: "set" });
-    expect(rw[0].led_to_booking).toEqual(["yes"]);   // Leo's appointment was booked (by this test run) after the call started → the checkbox is written as the CRM wants it
+    expect(rw[0]).toMatchObject({ op: "create", external_id: "call-1", contact_id: "CCB2", direction: "outbound", duration_sec: 184, setter: "Sam Closer", outcome: "connected", recording_url: "https://ghl.test/call-1/recording", call_result: "follow_up" });
+    expect(rw[0]).not.toHaveProperty("led_to_booking");   // D87: only a Set call ticks it; Leo's booking came through no setter link
     expect(relations.slice(nRel)).toEqual([`ASSOC-DC:CCB2>rec-${nRec + 1}`]);
     const slack = await asOperator((c) => one<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [run.id]));
-    expect(slack?.rendered_body).toContain("setting"); expect(slack?.rendered_body).toContain("Fit: 8/10"); expect(slack?.rendered_body).toContain("*Outcome:* Set (Jev is 95% sure)");
+    expect(slack?.rendered_body).toContain("setting"); expect(slack?.rendered_body).toContain("Fit: 8/10"); expect(slack?.rendered_body).toContain("*Outcome:* Follow up (Jev is 95% sure)");
     const stored = await asOperator((c) => one<{ analysis: Record<string, unknown> }>(c, "select analysis from recordings where id=$1", [row.id]));
     expect(Object.keys(stored!.analysis).sort()).toEqual(["classify", "notes"]);
     // 2. a 30-second connect stops before the wait; 3. a connected call nobody recorded stops too; neither reaches the AI
@@ -699,8 +701,10 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await logCall("call-4", 95, 20, true); await tick(fake, undefined, companyId); await tick(fake, undefined, companyId); setterCallType = "setting";
     expect(await lastRun()).toMatchObject({ status: "completed", exit_reason: "not_a_setting_call" }); expect(recordWrites.length).toBe(nRec4);
     // 5. a call that just ended waits 15 minutes from its END (so the booking the setter makes right after shows up): a 40-minute call that started 42 minutes ago ended 2 minutes ago → ~13 minutes to go
-    await logCall("call-5", 2400, 42, true); await tick(fake, undefined, companyId);
-    const waiting = await lastRun(); expect(waiting.status).toBe("waiting");
+    //    (someone else: Leo's calls above overlap this one, so for him it would be one conversation, already Set by his booking, D87)
+    const noa = (await asOperator((c) => one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone) values ($1,'CCB-W','Noa','Wait',$2) returning id", [companyId, TZ])))!.id;
+    await logCall("call-5", 2400, 42, true, "completed", noa); await tick(fake, undefined, companyId);
+    const waiting = await lastRun(noa); expect(waiting).toMatchObject({ status: "waiting", current_node: "w_post" });
     expect(Math.abs(DateTime.fromJSDate(waiting.next_run_at!).diffNow("minutes").minutes - 13)).toBeLessThan(1.5);
     // 6. a no-answer never starts the workflow at all (trigger wants a connected call)
     const nRuns = (await runsFor("setter-call-logged")).length;

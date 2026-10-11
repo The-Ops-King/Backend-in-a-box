@@ -18,7 +18,7 @@ describe("blocking steps (D77)", () => {
       "calendar-availability": blockingActs("calendar-availability"), "health-check": blockingActs("health-check"), "wrap-ups": blockingActs("wrap-ups"),
     }).toEqual({
       "new-lead": [], "speed-to-lead": [], "setter-call-logged": ["a1", "a2", "a3"], "call-booked": ["b5", "s4"],   // the closer card: the Sales Call record names it; D79: setter-call-logged's result read feeds the record, the post and the actions, Jev's DQ reason does not hold the run (a plain dq tag stands in)
-      "pre-call-sequence": ["c1"], "call-cancelled": [], "cancellation-rebook": [], "call-recorded": ["a1", "a2", "a3"],
+      "pre-call-sequence": ["c1"], "call-cancelled": [], "cancellation-rebook": [], "call-recorded": ["a1", "a2", "a3", "q_which"],   // D87: the "which booking was it?" question is what the tap is waited on
       "call-outcome": [], "eod-reminder": ["v_evening", "v_morning"], "eod-filed": [], "deal-closed": [],   // deal-closed's congratulations is optional
       "agreement-send-manually": [], "agreement-signed": [], "agreement-chase": [], "payment-recorded": [], "calendar-availability": [], "health-check": [], "wrap-ups": ["n_build"],
     });

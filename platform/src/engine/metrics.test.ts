@@ -38,7 +38,7 @@ describe.skipIf(!process.env.DATABASE_URL)("setter metrics", () => {
       await call("k8", l1, min(L1, 15), "completed", 300, "U-LUIS", { direction: "inbound" });          // inbound: not a dial
       await call("k9", l1, min(L1, 16), "completed", 300, "U-LUIS", { raw: { simulated: true } });     // harness: never counts
       const appt = (ext: string, contactId: string, bookedAt: Date, setBy: string | null) => c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status, self_booked, set_by) values ($1,$2,'ghl',$3,$4,$5,$5,$6,'confirmed',false,$7)", [companyId, contactId, ext, term, min(bookedAt, 24 * 60), bookedAt, setBy]);
-      await appt("A1", l1, min(L1, 70), null);                      // an hour after Luis's dial, before the unassigned one: Luis's
+      await appt("A1", l1, min(L1, 30), null);                      // D87: 18 minutes after Luis's call ended, inside the Set window (30): his call set it
       await appt("A2", l2, min(L2, 60 + 25 * 60), "Mia");            // more than a day after any dial, still in the period: the booking source named her
     });
   });

@@ -60,16 +60,40 @@ describe.skipIf(!HAS_DB)("dialer calls in the recordings ledger", () => {
     media.set("c1", { recordingUrl: "https://ghl.test/c1/recording", transcript: [{ speaker: "0", text: "Hey Ana." }, { speaker: "1", text: "Hi." }] });
     await pollAll(fake);
     const c1 = (await rows()).find((r) => r.external_id === "c1")!;
-    expect(c1.raw.transcript_status).toBe("ready"); expect(c1.transcript).toHaveLength(2); expect(c1.url).toBe("https://ghl.test/c1/recording");
+    expect(c1.raw.transcript_status).toBe("ready"); expect(c1.transcript).toBeNull(); expect(c1.url).toBe("https://ghl.test/c1/recording");   // D87: GHL keeps the transcript; the row only says there is one
     const ev2 = await logged(); expect(ev2).toHaveLength(2); expect(ev2[1].data).toMatchObject({ external_id: "c1", connected: true, has_transcript: true, duration_sec: 172, caller: "Lu Setter" });
     await pollAll(fake); expect(await logged()).toHaveLength(2);
   });
-  it("a connected call nobody recorded settles without a transcript once the wait runs out", async () => {
-    messages = [call("c3", "GC1", "completed", 100, 45)];
+  it("D87: a transcript is waited for, every minute, for two hours after hang-up (the company's setting), then the call settles without one", async () => {
+    // 90 minutes after hang-up: still waited for, and settled the minute it lands
+    messages = [call("c3", "GC1", "completed", 100, 92)];
+    await pollAll(fake);
+    expect((await rows()).find((r) => r.external_id === "c3")!.raw.transcript_status).toBe("pending");
+    media.set("c3", { transcript: [{ speaker: "0", text: "Sorry, the transcript took its time." }] });
     await pollAll(fake);
     const c3 = (await rows()).find((r) => r.external_id === "c3")!;
-    expect(c3.raw.transcript_status).toBe("none"); expect(c3.transcript).toBeNull();
-    expect((await logged()).at(-1)!.data).toMatchObject({ external_id: "c3", connected: true, has_transcript: false });
+    expect(c3.raw.transcript_status).toBe("ready"); expect(c3.transcript).toBeNull();
+    expect((await logged()).at(-1)!.data).toMatchObject({ external_id: "c3", connected: true, has_transcript: true });
+    // more than two hours after hang-up: settled without one
+    messages = [call("c3b", "GC1", "completed", 100, 125)];
+    await pollAll(fake);
+    const c3b = (await rows()).find((r) => r.external_id === "c3b")!;
+    expect(c3b.raw.transcript_status).toBe("none"); expect(c3b.transcript).toBeNull();
+    expect((await logged()).at(-1)!.data).toMatchObject({ external_id: "c3b", connected: true, has_transcript: false });
+    // the wait is the company's: thirty minutes, and a call 45 minutes old settles without one
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'calls.transcript_wait_min','text',$2)", [companyId, Buffer.from("30")]));
+    try {
+      messages = [call("c3c", "GC1", "completed", 100, 45)];
+      await pollAll(fake);
+      expect((await rows()).find((r) => r.external_id === "c3c")!.raw.transcript_status).toBe("none");
+    } finally { await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='calls.transcript_wait_min'", [companyId])); }
+  });
+  it("D87: a 0-second connect is no call: not connected, nothing to wait for, never a part of one", async () => {
+    messages = [call("c0s", "GC1", "completed", 0, 3)];
+    await pollAll(fake);
+    const z = (await rows()).find((r) => r.external_id === "c0s")!;
+    expect(z.raw).toMatchObject({ call_status: "zero_seconds", transcript_status: "none", duration_sec: 0 });
+    expect((await logged()).at(-1)!.data).toMatchObject({ external_id: "c0s", connected: false, has_transcript: false });
   });
   it("a call to a lead the contacts poll has not seen yet pulls the contact first", async () => {
     messages = [call("c4", "GC-NEW", "completed", 65, 1)];

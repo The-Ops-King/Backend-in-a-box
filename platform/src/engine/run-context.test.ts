@@ -186,6 +186,7 @@ describe.skipIf(!HAS_DB)("D84: a run keeps its own state, not a copy of the cont
         const run = (await one<RunRow>(c, "select * from runs where id=$1", [id]))!;
         const fat: Record<string, unknown> = { ...(await buildContext(c, run, company, bindings)), vars: { greeting: `${key}-ok`, __wait: { w1: { until: "2026-10-12T00:00:00.000Z" } } } };
         (fat.contact as Record<string, unknown>).fetched_at = "2026-10-11T00:00:00.000Z";
+        (fat.recording as Record<string, unknown>).transcript_text = TRANSCRIPT;   // a row saved before D87 carried the call's transcript too
         await c.query("update runs set status='waiting', current_node='w1', next_run_at=now()+interval '1 day', context=$2 where id=$1", [id, fat]);
         out.push(id);
       }

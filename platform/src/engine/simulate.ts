@@ -101,7 +101,8 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
       return { ok: true, action, detail: { recording: r.recording.id, appointment: r.appointmentId }, runsStarted: (await dispatchEvent(c, r.event, { ...ctx, appointment: appt ?? undefined })).length };
     }
     case "call": {
-      // a connected setter call, 20 minutes ago so the template's wait is already over, with a transcript the classifier will read as a setting call
+      // a connected setter call, 20 minutes ago (so the post's 15 minutes after hang-up are already over), with a transcript the classifier will read as a setting call;
+      // GHL has no such call to read it back from, so the transcript is held like a webhook's until the run is done (D87)
       const setter = await one<{ ghl_user_id: string }>(c, "select ghl_user_id from users where company_id=$1 and ghl_user_id is not null and active order by (role='setter') desc, name limit 1", [company.id]);
       const loc = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='crm.location_id'", [company.id]))?.value.toString("utf8");
       const { recording, isNew } = await recordPhoneCall(c, company.id, { externalId: `test-call-${randomUUID().slice(0, 8)}`, contactId: contact.id, startedAt: new Date(Date.now() - 20 * 60e3), durationSec: 184, direction: "outbound", status: "completed", callerGhlUserId: setter?.ghl_user_id,
@@ -111,7 +112,7 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
         { speaker: "0", text: `Hey ${name.split(" ")[0]}, this is the team calling about the form you filled out. Got two minutes?` }, { speaker: "1", text: "Yeah, sure." },
         { speaker: "0", text: "What made you reach out?" }, { speaker: "1", text: "It has been getting worse for about a year and I want to deal with it before it gets any further." },
         { speaker: "0", text: "Makes sense. If we could fix that, what would that change for you?" }, { speaker: "1", text: "Honestly just feeling like myself again. What does it cost?" },
-        { speaker: "0", text: "The specialist walks you through pricing on the call. Does Thursday at two work?" }, { speaker: "1", text: "Thursday at two works." }] });
+        { speaker: "0", text: "The specialist walks you through pricing on the call. Does Thursday at two work?" }, { speaker: "1", text: "Thursday at two works." }] }, { hold: true });
       return { ok: true, action, detail: { recording: row.id, caller: row.recorded_by_name }, runsStarted: event ? (await dispatchEvent(c, event, { ...ctx, recording: { id: row.id, ...phoneFacts(row) } })).length : 0 };
     }
     case "agreement": case "sign": {

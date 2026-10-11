@@ -2,6 +2,8 @@ import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { testContactSql, testDomains } from "./mode";
+import { callSettingOf } from "./call-settings";
+import { setByBookingSql } from "./setter-result";
 
 /**
  * Daily rollups (D29). Every number a wrap-up or the bot needs is a count or a sum per company, per local day, per
@@ -59,16 +61,17 @@ export async function rollupDay(c: PoolClient, companyId: string, day: string, t
       from contacts ct where ct.company_id=$1 and ct.merged_into is null and ct.ghl_added_at>=$2 and ct.ghl_added_at<$3 and ${real("ct.id")}) x`, [...p, reachedSec]);
   add("total", "", "leads_called", stl?.called ?? 0); add("total", "", "stl_sum", stl?.sum ?? 0); add("total", "", "leads_reached", stl?.reached ?? 0);
 
-  // dialer calls by setter (the user who dialed); a call "set" when a booking followed within a day
+  // dialer calls by setter (the user who dialed); D87: a call is "set" the one way the setter workflow says so (setByBookingSql), credited to whoever dialed it
+  const setWithin = await callSettingOf(c, companyId, "setter_result.set_within_min");
   const calls = await many<{ setter: string; dials: number; connects: number; talk_sec: number; calls_set: number; calls_setting: number; calls_confirmation: number }>(c, `
     select coalesce(u.id::text, 'unknown') as setter, count(*)::int as dials,
-           count(*) filter (where r.raw->>'call_status'='connected')::int as connects,
+           count(*) filter (where r.raw->>'call_status'='connected' and coalesce((r.raw->>'duration_sec')::int, 1) > 0)::int as connects,
            coalesce(sum((r.raw->>'duration_sec')::int) filter (where r.raw->>'call_status'='connected'),0)::int as talk_sec,
-           count(*) filter (where r.raw->>'call_status'='connected' and exists (select 1 from appointments a where a.company_id=r.company_id and a.contact_id=r.contact_id and a.source<>'test' and a.booked_at>=r.started_at and a.booked_at<r.started_at+interval '1 day'))::int as calls_set,
+           count(*) filter (where ${setByBookingSql("r", "$5::int")})::int as calls_set,
            count(*) filter (where r.analysis->'classify'->>'call_type'='setting')::int as calls_setting,
            count(*) filter (where r.analysis->'classify'->>'call_type'='confirmation')::int as calls_confirmation
     from recordings r left join users u on u.company_id=r.company_id and u.ghl_user_id=r.raw->>'caller_ghl_user_id'
-    where r.company_id=$1 and r.provider='ghl' and coalesce(r.raw->>'simulated','')='' and r.started_at>=$2 and r.started_at<$3 and ${real("r.contact_id")} group by u.id`, p);
+    where r.company_id=$1 and r.provider='ghl' and coalesce(r.raw->>'simulated','')='' and r.started_at>=$2 and r.started_at<$3 and ${real("r.contact_id")} group by u.id`, [...p, setWithin]);
   for (const m of ["dials", "connects", "talk_sec", "calls_set", "calls_setting", "calls_confirmation"] as const) { let t = 0; for (const r of calls) { add("setter", r.setter, m, r[m]); t += Number(r[m]) || 0; } add("total", "", m, t); }
 
   // bookings made (the act of booking happened that day), by the closer they were booked with; setter-booked also credited to the setter named on the booking
@@ -207,17 +210,19 @@ export async function setterMetrics(c: PoolClient, companyId: string, period: { 
   }
 
   const notTestAppt = opts.testDomains ? `and not exists (select 1 from contacts tc where tc.id=a.contact_id and ${testContactSql("tc", "$4")})` : "";
-  // bookings that followed: the booking source named them (set_by), or the person booked within a day of one of their dials
+  // bookings that followed: the booking source named them (set_by), or one of their calls set it (D87: a setter-link booking during the call or within the company's Set window after it)
+  const setWithin = await callSettingOf(c, companyId, "setter_result.set_within_min");
   for (const r of await many<{ id: string | null; name: string | null; is_total: number; n: number }>(c, `
     with mine as (
       select a.id as appt, u.id as uid, u.name from appointments a
-        join recordings r on r.company_id=a.company_id and r.contact_id=a.contact_id and ${OUTBOUND_DIAL} and r.started_at<=a.booked_at and a.booked_at<r.started_at+interval '1 day'
+        join recordings r on r.company_id=a.company_id and r.contact_id=a.contact_id and ${OUTBOUND_DIAL} and r.raw->>'call_status'='connected' and coalesce((r.raw->>'duration_sec')::int, 1) > 0
+          and a.self_booked = false and a.booked_at >= r.started_at and a.booked_at <= coalesce(r.ended_at, r.started_at) + make_interval(mins => $${4 + tp.length}::int)
         left join users u on u.company_id=a.company_id and u.ghl_user_id=r.raw->>'caller_ghl_user_id'
         where a.company_id=$1 and a.source<>'test' and a.booked_at>=$2 and a.booked_at<$3 ${notTestAppt}
       union
       select a.id, u.id, u.name from appointments a join users u on u.company_id=a.company_id and lower(u.name)=lower(a.set_by)
         where a.company_id=$1 and a.source<>'test' and a.booked_at>=$2 and a.booked_at<$3 ${notTestAppt})
-    select uid::text as id, name, grouping(uid, name) as is_total, count(distinct appt)::int as n from mine group by grouping sets ((uid, name), ())`, [...p, ...tp])) {
+    select uid::text as id, name, grouping(uid, name) as is_total, count(distinct appt)::int as n from mine group by grouping sets ((uid, name), ())`, [...p, ...tp, setWithin])) {
     if (Number(r.is_total)) totals.bookings = Number(r.n); else row(r.id, r.name).bookings = Number(r.n);
   }
 
