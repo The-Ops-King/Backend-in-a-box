@@ -80,7 +80,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     // an hour on, still broken: one line in the thread
     await asOperator((c) => c.query("update alerts set announced_at = now() - interval '61 minutes', first_seen = first_seen - interval '61 minutes' where company_id=$1 and resolved_at is null", [companyId]));
     a = await alertsThenSay();
-    expect(a.repeated).toBe(1); expect(posts).toHaveLength(2); expect(posts[1].threadTs).toBe("ts1"); expect(posts[1].text).toMatch(/Still open after 1h/);
+    expect(a.repeated).toBe(1); expect(posts).toHaveLength(2); expect(posts[1].threadTs).toBe("ts1"); expect(posts[1].text).toMatch(/Still open after (1 hour|6\d min)/);
     // fixed: a new token in settings wakes both paused runs for one more try of their step; the alert closes in the thread, ✅ on the first post
     tagFails = false; await asOperator((c) => setBinding(c, companyId, "secret.ghl_pit", "secret", "p-new", "test"));
     expect(await tagRuns("waiting")).toHaveLength(2);
@@ -88,7 +88,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(await tagRuns("completed")).toHaveLength(2);
     a = await alertsThenSay();
     expect(a.closed).toBeGreaterThanOrEqual(1);
-    expect(posts).toHaveLength(3); expect(posts[2].threadTs).toBe("ts1"); expect(posts[2].text).toMatch(/^✅ Resolved after 1h/);
+    expect(posts).toHaveLength(3); expect(posts[2].threadTs).toBe("ts1"); expect(posts[2].text).toMatch(/^✅ Resolved after (1 hour|6\d min)/);
     expect(reactions).toEqual([{ channel: "CALERTS", ts: "ts1", emoji: "white_check_mark" }]);
     expect(await asOperator((c) => openAlerts(c, companyId))).toHaveLength(0);
   });
@@ -204,7 +204,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.nope','channel',$2)", [companyId, Buffer.from("CNOPE")]));
     await fireRemove(); await tick(fake, undefined, companyId);
     const a2 = await alertsThenSay();
-    expect(a2.resolved).toBeGreaterThanOrEqual(1); expect(posts.at(-1)!.text).toMatch(/^✅ Resolved after 0h: Say hi couldn't post/);
+    expect(a2.resolved).toBeGreaterThanOrEqual(1); expect(posts.at(-1)!.text).toMatch(/^✅ Resolved after \d+ min: Say hi couldn't post/);
     expect((await asOperator((c) => openAlerts(c, companyId))).filter((x) => x.key.startsWith("blocked:"))).toHaveLength(0);
   });
 

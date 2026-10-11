@@ -129,6 +129,8 @@ export async function destinationsFor(c: PoolClient, companyId: string, source?:
 }
 
 const hoursOpen = (from: Date, to: Date) => Math.round((to.getTime() - from.getTime()) / 36e5);
+/** "17 min", "3 hours", "2 days": how long an alert was open, as a person says it. */
+export const openFor = (from: Date, to: Date) => { const min = Math.max(1, Math.round((to.getTime() - from.getTime()) / 60_000)); return min < 60 ? `${min} min` : min < 48 * 60 ? `${Math.round(min / 60)} hour${Math.round(min / 60) === 1 ? "" : "s"}` : `${Math.round(min / 1440)} days`; };
 /** What kind of alert it is, for the workflow's words ("Token rejected", "Health check"…). */
 export const alertKind = (a: Pick<AlertRow, "source" | "key" | "detail">): string => a.source !== "step" ? a.source
   : a.key.startsWith("blocked:") ? "blocked" : a.key.startsWith("skipped:") ? "skipped" : a.key.startsWith("run:") ? ((a.detail as { held?: boolean }).held ? "held" : "paused") : a.key.startsWith("auth:") ? "auth" : "failed";
@@ -158,7 +160,7 @@ export async function announceDue(c: PoolClient, _adapters: Adapters, now = new 
       const ev = await emitEvent(c, { company_id: a.company_id, contact_id: null, opportunity_id: null, appointment_id: null, event_type: type, source: "engine", data: {
         alert_id: a.id, key: a.key, level: a.level, source: a.source, kind: alertKind(a), text: a.text, detail: a.detail, company: a.company, href: a.href, link,
         ...(link && d.fix ? { fix_link: `${link}#fix`, fix_label: d.fix.label } : {}), ...(d.link ? { extra_link: d.link, extra_label: d.link_label ?? null } : {}), ...(d.thread ? { thread: d.thread } : {}),
-        hours_open: hoursOpen(a.first_seen, a.resolved_at ?? now), first_seen: a.first_seen.toISOString(), ...(a.resolved_at ? { resolved_at: a.resolved_at.toISOString() } : {}),
+        hours_open: hoursOpen(a.first_seen, a.resolved_at ?? now), open_for: openFor(a.first_seen, a.resolved_at ?? now), first_seen: a.first_seen.toISOString(), ...(a.resolved_at ? { resolved_at: a.resolved_at.toISOString() } : {}),
         channel: dest.channel, as_name: dest.as_name, as_icon: dest.as_icon } });
       handed = (await dispatchEvent(c, ev, {})).length > 0;
     }

@@ -198,7 +198,7 @@
           "name": "{{event.as_name | default:Engine alerts}}",
           "icon": "{{vars.icon}}"
         },
-        "template": "{{vars.mark}} Still open after {{event.hours_open}}h: {{vars.body | truncate:300}}{{event.thread | line}}",
+        "template": "{{vars.mark}} Still open after {{event.open_for}}: {{vars.body | truncate:300}}{{event.thread | line}}",
         "title": "Still open: a line in its thread"
       },
       {
@@ -216,7 +216,7 @@
           "name": "{{event.as_name | default:Engine alerts}}",
           "icon": "{{vars.icon}}"
         },
-        "template": "✅ Resolved after {{event.hours_open}}h: {{event.text | truncate:200}}",
+        "template": "✅ Resolved after {{event.open_for}}: {{event.text | truncate:200}}",
         "title": "Cleared: resolved in its thread, ✅ on the first post"
       },
       {

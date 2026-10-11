@@ -113,7 +113,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: duplicate contacts (D63)", (
     expect((await contactByGhl("DUP-1"))!).toMatchObject({ ghl_contact_id: "DUP-1", gone_at: null });   // the person is still here, under the survivor
     const ann = await announce();
     expect(ann.resolved).toBeGreaterThanOrEqual(1);
-    expect(mine()).toHaveLength(2); expect(mine()[1].threadTs).toBe(tsOf(mine()[0])); expect(mine()[1].text).toMatch(/^✅ Resolved after 0h: Two CRM records for one person: Dup Spelled/);
+    expect(mine()).toHaveLength(2); expect(mine()[1].threadTs).toBe(tsOf(mine()[0])); expect(mine()[1].text).toMatch(/^✅ Resolved after \d+ min: Two CRM records for one person: Dup Spelled/);
     expect(reactions.filter((x) => x.channel === "CDUPES")).toEqual([{ channel: "CDUPES", ts: tsOf(mine()[0]), emoji: "white_check_mark" }]);
     const pg = await page();
     expect(pg.checks.find((x) => x.id === "duplicates")!.state).toBe("ok");

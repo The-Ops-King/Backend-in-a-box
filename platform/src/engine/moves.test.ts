@@ -422,7 +422,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: alerts are said by the Health c
     expect(await say()).toMatchObject({ repeated: 0 });   // the default: an hour
     await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'alerts.repeat_minutes','number','30')", [companyId]));
     expect(await say()).toMatchObject({ repeated: 1 });
-    expect(posts.at(-1)).toMatchObject({ threadTs: "ts1", text: expect.stringMatching(/^🔴 Still open after 0h: Still broken$/) });
+    expect(posts.at(-1)).toMatchObject({ threadTs: "ts1", text: expect.stringMatching(/^🔴 Still open after \d+ min: Still broken$/) });
     const { tickAlerts } = await import("@/engine/alerts");
     const poll = { companies: 1, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, calls: 0, agreements: 0, cardsMoved: 0, eventsDispatched: 0, baselined: 0, errors: [] };
     const tk = { claimed: 0, completed: 0, waiting: 0, exited: 0, failed: 0, paused: 0, recovery: false, staleExits: 0, sends: 0 };
