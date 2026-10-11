@@ -1,0 +1,25 @@
+{
+  "slug": "recording-unlinked",
+  "name": "Unmatched recording",
+  "category": "calls",
+  "stage": "post_call",
+  "sort": 40,
+  "origin": "spec",
+  "engine_default": true,
+  "description": "A call recording came in that matched no contact or booking: the team is told in the alerts channel (else bookings) with the meeting, why it did not match, who was on it and the link to match it by hand. Matching it on the recordings page links it and Sales call recorded runs as if it had matched on arrival. Was the engine's own post (D88).",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": { "check": "none" },
+    "nodes": [
+      { "id": "t1", "type": "trigger", "event": "recording.unlinked" },
+      { "id": "n1", "type": "slack_post", "channel": "{{slack.channel.alerts}}", "fallback_channel": "{{slack.channel.bookings}}", "label": "shadow", "title": "Tell the team a recording matched nobody",
+        "template": "*Unmatched recording* · {{event.title | default:untitled}} · {{event.duration_min | default:?}} min\n{{event.reason | default:no match}}\n*Attendees:* {{event.attendees | default:nobody listed}} · *Recorded by:* {{event.recorded_by | default:—}}\n{{event.share_url | default:}}\nLink it: {{company.base_url}}/c/{{company.slug}}/recordings" },
+      { "id": "x1", "type": "exit", "reason": "told" }
+    ],
+    "edges": [
+      { "from": "t1", "to": "n1" },
+      { "from": "n1", "to": "x1" }
+    ]
+  }
+}

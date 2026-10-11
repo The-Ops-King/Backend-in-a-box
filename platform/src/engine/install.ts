@@ -122,6 +122,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
   // D56: live is never set by install itself; `mode: "live"` is a go-live after the install, with its readiness refusal and clean slate (D51)
   const modeFlag = input.mode === "live" ? null : input.mode ?? null;
   const out = await asOperator(async (c) => {
+    // D88: a company that already existed gets a template that carries what the engine used to do by itself ON, so an upgrade never lets that go quiet
+    const existed = !!(await one(c, "select 1 from companies where slug=$1", [input.slug]));
     const storedPit = input.pit ? null : await one<{ value: Buffer }>(c, "select b.value from bindings b join companies co on co.id=b.company_id where co.slug=$1 and b.key='secret.ghl_pit'", [input.slug]);
     const pit = input.pit ?? (storedPit ? decrypt(storedPit.value) : null);
     if (!pit) throw new Error("pit is required: this company has no CRM token stored yet");
@@ -257,8 +259,9 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       const wf = await one<{ id: string }>(c, `insert into workflows (company_id, template_id, template_version, name, reentry_policy, reentry_window, stage, sort, origin) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, [companyId, tpl!.id, tpl!.version, t.name, def.reentry, def.reentry_window ?? null, t.stage, t.sort, t.origin]);
       await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'installed from template')", [wf!.id, t.definition, manifest]);
       await syncTriggers(c, companyId, wf!.id, def);
-      if (input.enable && !missing.length) await c.query("update workflows set enabled=true where id=$1", [wf!.id]);
-      installed.push(`${t.slug} → ${missing.length ? `OFF, missing: ${missing.join(", ")}` : input.enable ? "enabled" : "installed OFF"}`);
+      const carried = existed && "engine_default" in t && t.engine_default === true;
+      if ((input.enable || carried) && !missing.length) await c.query("update workflows set enabled=true where id=$1", [wf!.id]);
+      installed.push(`${t.slug} → ${missing.length ? `OFF, missing: ${missing.join(", ")}` : input.enable ? "enabled" : carried ? "enabled (it carries what the engine did before, D88)" : "installed OFF"}`);
     }
     // Fathom's webhook is registered once per company and remembered; a re-install never makes a second one
     let fathomWebhook = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='fathom.webhook_id'", [companyId]))?.value.toString("utf8");

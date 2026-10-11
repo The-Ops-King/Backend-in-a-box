@@ -4,7 +4,6 @@ import { loadCompany } from "@/engine/context";
 import { recordPayment } from "@/engine/payments";
 import { dispatchEvent } from "@/engine/dispatch";
 import { parseZapierPayment } from "@/engine/webhooks/zapier";
-import { notifyTeam } from "@/engine/notify";
 import { zapierAuthorized } from "@/engine/inbound";
 export const dynamic = "force-dynamic";
 
@@ -24,7 +23,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     const r = await recordPayment(c, companyId, parsed.input);
     if (r.outcome === "duplicate") return NextResponse.json({ ok: true, duplicate: true, payment: r.payment.id });
     if (r.outcome === "unlinked") {
-      await notifyTeam(c, company, bindings, "alerts", `*Unlinked payment* · $${Math.abs(parsed.input.amount).toFixed(2)} ${parsed.input.status}\nNobody in the CRM matched this buyer.\n*Email:* ${parsed.input.email ?? "—"} · *Phone:* ${parsed.input.phone ?? "—"} · *Whop member:* ${parsed.input.memberId ?? "—"}\nLink it: ${process.env.TICK_URL ?? ""}/c/${company.slug}/payments`);
+      await dispatchEvent(c, r.event, {});   // D88: the Unlinked payment workflow tells the team
       return NextResponse.json({ ok: true, unlinked: true, payment: r.payment.id });
     }
     const started = await dispatchEvent(c, r.event, { contact: { id: r.contactId } });

@@ -85,9 +85,9 @@ export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record
     const node = nodes.get(t.node_id);
     if (!node || node.type !== "trigger") continue;
     if (node.match && !evaluate(node.match, { ...matchCtx, event: { ...e.data, _source: e.source, _type: e.event_type } })) continue;
-    // an event about a person rather than a contact (eod.filed) names them in its data; one with neither has nothing to be about
+    // an event about a person rather than a contact (eod.filed) names them in its data; one with neither is about the company (D88: an
+    // unlinked payment, an alert, a drift finding), and its run has no contact, like a scheduled one
     const userId = typeof e.data.user_id === "string" ? e.data.user_id : null;
-    if (!e.contact_id && !userId) continue;
     const id = await startRun(c, { companyId: e.company_id, workflowId: t.workflow_id, triggerId: t.id, triggerNodeId: t.node_id, event: e, contactId: e.contact_id, userId, appointmentId: e.appointment_id, opportunityId: e.opportunity_id });
     if (id) started.push(id);
   }

@@ -72,7 +72,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   const raw = (contact?.ghl_fields ?? {}) as Record<string, unknown>;
   for (const [k, id] of Object.entries(bindings)) if (k.startsWith("crm.field_contact_")) { const v = raw[id]; fields[k.slice("crm.field_contact_".length)] = Array.isArray(v) ? v.join(", ") : v ?? undefined; }
   const ctx: Record<string, unknown> = {
-    company: { id: company.id, name: company.name, timezone: company.timezone, operator_slack_id: bindings["bot.escalate_to"] || undefined },
+    company: { id: company.id, name: company.name, slug: company.slug, timezone: company.timezone, operator_slack_id: bindings["bot.escalate_to"] || undefined, base_url: (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "") },
     contact: contact ? { ...contact, ghl_fields: undefined, lead_source: undefined, fields, timezone: contactZone ?? company.timezone } : undefined,
     vars: (run.context.vars as Record<string, unknown>) ?? {},
     reply: { ...((run.context.reply as Record<string, unknown>) ?? {}), ...derivedReply },   // last_inbound/last_outbound are re-derived every tick; intent/confidence from classify persist

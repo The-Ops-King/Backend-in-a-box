@@ -23,7 +23,7 @@ import { APPOINTMENT_FACTS, APPOINTMENT_JOINS, appointmentRow, runLookup } from 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
 /** A post made before live says which rung it came from, so the team never reads a rehearsal as a real client; a run shadowed in test says shadow. */
-const modePrefix = (d: ExecDeps) => (d.company.mode === "live" ? "" : d.effective === "shadow" ? SHADOW_PREFIX : `🧪 *${d.company.mode}* — `);
+const modePrefix = (d: ExecDeps, label: "mode" | "shadow" | "none" = "mode") => (label === "none" || d.company.mode === "live" ? "" : label === "shadow" ? (d.company.mode === "shadow" ? SHADOW_PREFIX : "") : d.effective === "shadow" ? SHADOW_PREFIX : `🧪 *${d.company.mode}* — `);
 /** The step's own name/icon, else the company's defaults (bindings slack.name / slack.icon), else the app. A list of icons is handed on whole; the notifier picks one per post.
  *  An icon that is one whole `{{expr}}` takes the value as it is, so a set_var can hand over a list of faces (a reschedule's 🔁 instead of the calendars). */
 const faces = (d: ExecDeps, icon: string): string[] => { const m = /^\s*\{\{([^}]+)\}\}\s*$/.exec(icon); const v = m ? resolveExpr(m[1], d.ctx, env(d)) : render(icon, d.ctx, env(d)); return (Array.isArray(v) ? v : [v]).map((x) => (x === undefined || x === null ? "" : String(x))).filter(Boolean); };
@@ -382,7 +382,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already posted (idempotency)" } };
       // Slack is the team, not the CRM or the contact: in shadow the post still goes out, marked, so the team sees what the engine would do (D31)
       const token = decrypt(conn.bot_token), postTo = route ? route.to : parentTs && parentChannel ? parentChannel : channelId;
-      const shown = `${route ? route.prefix : ""}${text}`, body = !parentTs ? `${modePrefix(d)}${shown}` : shown;
+      const shown = `${route ? route.prefix : ""}${text}`, body = !parentTs ? `${modePrefix(d, node.label)}${shown}` : shown;
       // D76: a post that says where a thing stands (a call's filed outcome, the day's report) is edited in place when it is said again, never repeated
       const prior = node.edit && node.tag ? await one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, render(node.tag, d.ctx, env(d))]) : null;
       const update = d.adapters.notifier.update;

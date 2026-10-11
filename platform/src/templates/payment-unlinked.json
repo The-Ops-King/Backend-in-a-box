@@ -1,0 +1,25 @@
+{
+  "slug": "payment-unlinked",
+  "name": "Unlinked payment",
+  "category": "payments",
+  "stage": "payments",
+  "sort": 40,
+  "origin": "spec",
+  "engine_default": true,
+  "description": "A payment came in that nobody in the CRM matched (by the provider's member id, email or phone): the team is told in the alerts channel (else bookings) with what the payment carried and the link to match it by hand. Matching it on the payments page links it and Payment recorded runs as if it had matched on arrival. Was the engine's own post (D88).",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": { "check": "none" },
+    "nodes": [
+      { "id": "t1", "type": "trigger", "event": "payment.unlinked" },
+      { "id": "n1", "type": "slack_post", "channel": "{{slack.channel.alerts}}", "fallback_channel": "{{slack.channel.bookings}}", "label": "shadow", "title": "Tell the team a payment matched nobody",
+        "template": "*Unlinked payment* · ${{event.amount | abs | fixed:2}} {{event.status}}\nNobody in the CRM matched this buyer.\n*Email:* {{event.customer_email | default:—}} · *Phone:* {{event.customer_phone | default:—}} · *Whop member:* {{event.whop_member_id | default:—}}\nLink it: {{company.base_url}}/c/{{company.slug}}/payments" },
+      { "id": "x1", "type": "exit", "reason": "told" }
+    ],
+    "edges": [
+      { "from": "t1", "to": "n1" },
+      { "from": "n1", "to": "x1" }
+    ]
+  }
+}

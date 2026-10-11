@@ -81,6 +81,8 @@ const filters: Record<string, Filter> = {
   line: (v, arg) => (v === undefined || v === null || v === "" ? "" : `\n${arg ? `${arg} ` : ""}${v}`),
   // a refund is stored negative; the sign is written by the template ("−$500"), the number by this
   abs: (v) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? "" : Math.abs(Number(v))),
+  // a number with a fixed count of decimals, no thousands separator: 1500 | fixed:2 → 1500.00 ; nothing → ""
+  fixed: (v, arg) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? "" : Number(v).toFixed(Number(arg ?? 0))),
   // 2999 → 2,999 ; 2999.5 → 2,999.50 ; nothing → ""
   money: (v) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? "" : Number(v).toLocaleString("en-US", { minimumFractionDigits: Number.isInteger(Number(v)) ? 0 : 2, maximumFractionDigits: 2 })),
   // a list as one line when short, else bullets; an object list shows its lead field (the objection, the pain) — for Slack lines like *Pain:* …

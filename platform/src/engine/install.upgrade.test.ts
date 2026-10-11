@@ -87,6 +87,26 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
     expect(salesCallConfig(bindings)).toEqual({ object: "custom_objects.sales_call", outcomes: { showed: "showed", no_show: "noshow", late_cancel: "cancelled" }, cancelledValue: "late_cancel", dqDispositions: ["dq"], dispositions: { closed_won: { meaning: "closed" }, follow_up: { meaning: "follow_up" }, lost: { meaning: "lost" }, dq: { meaning: "unqualified" } } });
   });
 
+  it("D88: a template that carries what the engine did by itself comes in ON for a company that already existed, and OFF for a new one", async () => {
+    const wipe = (slug: string) => asOperator(async (c) => {
+      const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [slug]); if (!co) return;
+      await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
+      for (const t of ["workflow_triggers", "workflows", "users", "calendars", "company_terms", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+      await c.query("delete from companies where id=$1", [co.id]);
+    });
+    await wipe("upg-d88"); await wipe("upg-d88-new");
+    const { pit: _p, enable: _e, ...rest } = base;
+    await installCompany({ ...rest, pit: "pit-fake", slug: "upg-d88", templates: ["new-lead"] }, fake);
+    const again = await installCompany({ ...rest, slug: "upg-d88", templates: ["new-lead", "payment-unlinked", "recording-unlinked", "card-moved"].filter((s) => templates.some((t) => t.slug === s)) }, fake);
+    expect(again.installed.find((s) => s.startsWith("payment-unlinked"))).toMatch(/enabled \(it carries what the engine did before/);
+    expect(again.installed.find((s) => s.startsWith("recording-unlinked"))).toMatch(/enabled/);
+    const states = await asOperator((c) => many<{ slug: string; enabled: boolean }>(c, "select t.slug, w.enabled from workflows w join workflow_templates t on t.id=w.template_id join companies co on co.id=w.company_id where co.slug='upg-d88'"));
+    expect(Object.fromEntries(states.map((r) => [r.slug, r.enabled]))).toMatchObject({ "new-lead": false, "payment-unlinked": true, "recording-unlinked": true });
+    const fresh = await installCompany({ ...rest, pit: "pit-fake", slug: "upg-d88-new", templates: ["payment-unlinked"] }, fake);
+    expect(fresh.installed[0]).toMatch(/installed OFF/);
+    await wipe("upg-d88"); await wipe("upg-d88-new");
+  });
+
   it("an edited copy is left alone when the template moves on", async () => {
     const wf = (await asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='call-cancelled'", [companyId])))!;
     await asOperator((c) => c.query("update workflows set diverged=true, diverged_at=now(), template_version=0 where id=$1", [wf.id]));
