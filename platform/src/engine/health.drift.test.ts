@@ -62,7 +62,7 @@ const asked = (fs: Finding[]) => ((drift(fs).find((f) => !f.ok)?.detail as { ite
 const worded = async () => {
   await asOperator((c) => c.query("update alerts set announced_at=null, announce_count=0 where company_id=$1 and key='health:ledger_drift' and resolved_at is null", [companyId]));
   const n = posts.length; await asOperator((c) => announceDue(c, fake, new Date(), companyId)); await run();
-  return posts.slice(n).find((p) => /(didn't|doesn't|don't) match GHL/.test(p.text))?.text ?? "";
+  return posts.slice(n).find((p) => /^\S+ \*Drift Co · Health check\*\n/.test(p.text) && /(didn't|doesn't|don't) match GHL/.test(p.text))?.text ?? "";
 };
 const outcomeOf = (ext: string) => asOperator(async (c) => (await one<{ category: string | null }>(c, "select t.category from appointments a left join company_terms t on t.id=a.outcome_term where a.company_id=$1 and a.external_id=$2", [companyId, ext]))?.category ?? null);
 

@@ -119,7 +119,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     const r = await installCompany({ name: "Journey", slug: "journey", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, setterRule: "question", closers: ["sam@x.com"], enable: true, crm: CRM, slack: SLACK, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [r.companyId]));   // D56: install cannot reach live without Slack; this journey asserts behaviour with Slack unbound
     companyId = r.companyId;
-    expect(r.installed.filter((s) => !s.endsWith("enabled"))).toEqual([expect.stringMatching(/^eod-call-filed → OFF, missing: crm\.object_sales_call$/)]);   // D88 A3: needs the Sales Call object, which this fixture does not bind
+    expect(r.installed.filter((s) => !s.endsWith("enabled")).sort()).toEqual(["eod-call-filed → OFF, missing: crm.object_sales_call", "ledger-drift → OFF, missing: crm.object_sales_call"]);   // D88 A3, A6: they need the Sales Call object, which this fixture does not bind
     await asOperator(async (c) => {
       await c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]);
       await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id, channels) values ($1,'T1',$2,'UBOT','{}')", [companyId, encrypt("xoxb-fake")]);
