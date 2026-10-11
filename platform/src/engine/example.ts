@@ -47,9 +47,10 @@ export function exampleContext(company: { name: string; timezone: string }, bind
     recording: {
       id: "rec-id", provider: "fathom", external_id: "123456", title: "Jane Doe <> Allan P", started_at: n.minus({ hours: 2 }).toISO(), ended_at: n.minus({ hours: 1, minutes: 22 }).toISO(), duration_min: 38, duration_sec: 2280,
       url: link("https://fathom.video/calls/123456"), share_url: link("https://fathom.video/share/abc123"), recorded_by: { name: "Allan P", email: "allan@example.com" }, closer: allan, caller: allan,
+      // transcript_text: only an example; a run reads it from its source when a step needs it, never from the ledger (D87)
       invitees: [{ name: "Jane Doe", email: "jane@example.com" }], invitee_names: "Jane Doe", transcript_text: "Allan: Thanks for making the time, Jane. Tell me what you have noticed…", has_transcript: true,
-      summary: "Jane has seen thinning at the crown for a year and wants to act before it spreads.", matched_by: "invitee email", analysis: {},
-      kind: "meeting", direction: "outbound", status: "connected", connected: true, led_to_booking: true,
+      matched_by: "invitee email", analysis: {},
+      kind: "meeting", direction: "outbound", status: "connected", connected: true, set_until: n.minus({ minutes: 52 }).toISO(),
     },
     agreement: { id: "doc123", name: "Coaching Agreement", status: "completed", sent_at: n.minus({ days: 1 }).toISO(), signed_at: n.toISO(), signer: "Jane Doe" },
     records: { sales_call: { key: "appt123", id: "rec123" }, payment: { key: "pay_123", id: "rec456" } },
@@ -60,8 +61,12 @@ export function exampleContext(company: { name: string; timezone: string }, bind
         earlier_lines: `• <https://engine.example/eod/er_abc?day=${n.minus({ days: 1 }).toISODate()}|${n.minus({ days: 1 }).toFormat("ccc LLL d")}>: 2 calls`, all_lines: `• <https://engine.example/eod/er_abc|today>: 3 calls\n• <https://engine.example/eod/er_abc?day=${n.minus({ days: 1 }).toISODate()}|${n.minus({ days: 1 }).toFormat("ccc LLL d")}>: 2 calls` } },
     vars: {
       lines: "• <https://engine.example/eod/er_abc|today>: 3 calls", kind: "daily", report: { body: "Daily wrap-up · Thu Oct 8\n\nBooked                                   4\nShowed                                  3   75% of 4\nClosed                                  1   33% of 3\nCash collected                     $4,000", period: { start: n.toISODate(), end: n.toISODate() } },
-      setter_line: "*Setter:* Luis", booking_kind: "setter", appt_line: `*Appointment:* ${call.toFormat("ccc LLL d · h:mm a ZZZZ")} · marked showed`, call_key: "appt123", min_seconds: 60, booked_flag: "yes", outcome_line: "Connected · 6 min · booked a call", revenue: 4000,
-      classify: { call_type: "setting", is_sales_call: true, confidence: 0.9 },
+      setter_line: "*Setter:* Luis", booking_kind: "setter", appt_line: `*Appointment:* ${call.toFormat("ccc LLL d · h:mm a ZZZZ")} · marked showed`, call_key: "appt123", min_seconds: 60, booked_flag: "yes", outcome_line: "Follow up (Jev is 88% sure)", revenue: 4000,
+      classify: { call_type: "setting", is_sales_call: true, confidence: 0.9, result: "follow_up" },
+      convo: { count: 2, any: true, key: "123456", part: 2, total_sec: 1140, total_min: 19, later_ready: 0, transcript_text: "Part 1 of 2 (2:04 PM, 3 min):\nLuis: Hey Jane, got two minutes?…\n\nPart 2 of 2 (2:08 PM, 16 min):\nLuis: Sorry, the line dropped…",
+        first: { id: "rec-id-1", external_id: "123456", started_at: n.minus({ hours: 2 }).toISO(), duration_min: 3 }, last: { id: "rec-id", external_id: "123457", started_at: n.minus({ hours: 1, minutes: 56 }).toISO(), duration_min: 16 } },
+      parts_line: " (2 parts)", result: "follow_up", result_words: "Follow up", jev_confidence: 88, jev_guesses: "follow up 88%, set 8%", decided_by: "jev", act_line: "*Would have (actions are off):* a task for Luis to call back Jane Doe, due next business day.",
+      recording_line: "\n*Recording:* <https://fathom.video/share/abc123|Fathom>",
       notes: { summary: "Jane has thinning at the crown and wants to act now. Price was the only hesitation; she will decide with her partner this week.", prospect_situation: "a year of thinning at the crown", pain: ["thinning at the crown", "hats every day"], desire: ["keep what she has", "feel confident at work"], objections: [{ objection: "price", quote: "that's more than I expected", handled: true }], disposition: "follow_up", primary_objection: "price", next_step: "decide with her partner", next_step_date: n.plus({ days: 4 }).toISODate(), digest: "Setting call: qualified, booked a closing call for tomorrow 2pm.", fit_quality: 8 },
       rubric: { overall_score: 8, scores: { rapport: 9, discovery: 8, pain_depth: 7, presentation: 8, objection_handling: 7, close_attempt: 8 }, strengths: ["asked about the timeline before price", "let Jane finish every answer"], misses: ["did not quantify the cost of waiting"], coaching: ["tie the price back to the pain she named"], talk_ratio: "closer 55 / prospect 45" },
       cheer: "Well done Allan: three days from first call to a signed client.",

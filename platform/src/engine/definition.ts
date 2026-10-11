@@ -46,8 +46,9 @@ export const Schedule = z.object({ every: z.string().regex(/^\d+(m|h|d)$/).optio
 export type Schedule = z.infer<typeof Schedule>;
 /** D85: the read-only questions a `lookup` step may ask, with the filters each takes (rendered templates; the SQL is the engine's, lookup.ts). */
 export const LOOKUP_QUERIES = {
-  appointments_for_contact: ["booked_since", "booked_until", "starts_since", "starts_until", "kind", "booking_source", "status", "status_not", "exclude", "order"],
+  appointments_for_contact: ["booked_since", "booked_until", "starts_since", "starts_until", "kind", "booking_source", "status", "status_not", "exclude", "order", "closer"],
   calls_for_contact: ["since", "until", "provider", "caller", "kind", "connected"],
+  call_conversation: ["recording_id", "gap_min"],
   last_event: ["type", "since", "until", "about"],
 } as const;
 export type LookupQuery = keyof typeof LOOKUP_QUERIES;
@@ -140,8 +141,9 @@ export const Node = z.discriminatedUnion("type", [
     relate: z.array(z.object({ association: z.string(), first: z.string(), second: z.string() })).default([]), clear: z.array(z.string()).default([]) }),
   // with `when`: value if it holds, else_value otherwise. With `pick`: value is rendered and looked up in it ("{{reply.intent}}" → pick.cancelled), else_value when no key matches.
   z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown(), when: Predicate.optional(), pick: z.record(z.unknown()).optional(), else_value: z.unknown().optional() }),
-  // A fact for the ledger: one event of type `event` with `data` rendered (a whole "{{path}}" keeps its type, so a boolean stays a boolean). Ours, never the CRM; runs in shadow too. Starts nothing by itself.
-  z.object({ ...base, type: z.literal("record"), event: z.string().min(1), data: z.record(z.string()).default({}) }),
+  // A fact for the ledger: one event of type `event` with `data` rendered (a whole "{{path}}" keeps its type, so a boolean stays a boolean). Ours, never the CRM; runs in shadow too. Starts nothing unless `start`.
+  // D87: `appointment` (templated, one of the person's bookings) makes the fact about that booking; `start` also starts the workflows listening for it, once (a dialer call Jev read as closing starts the closer's workflow)
+  z.object({ ...base, type: z.literal("record"), event: z.string().min(1), data: z.record(z.string()).default({}), appointment: z.string().optional(), start: z.boolean().optional() }),
   z.object({ ...base, type: z.literal("start_workflow"), workflow: z.string(), with: z.record(z.unknown()).optional() }),
   z.object({ ...base, type: z.literal("pause_runs"), scope: z.enum(["contact", "appointment"]).default("contact") }),
   z.object({ ...base, type: z.literal("exit"), reason: z.string() }),

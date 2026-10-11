@@ -37,8 +37,9 @@ export async function runLookup(c: PoolClient, s: LookupScope, query: LookupQuer
         where a.company_id=$1 and a.contact_id=$2 and ($3::timestamptz is null or a.booked_at >= $3) and ($4::timestamptz is null or a.booked_at <= $4)
           and ($5::timestamptz is null or a.starts_at >= $5) and ($6::timestamptz is null or a.starts_at <= $6) and (cardinality($7::text[]) = 0 or coalesce(t.category, 'closing') = any($7))
           and ($8::boolean is null or a.self_booked = $8) and (cardinality($9::text[]) = 0 or a.status = any($9)) and not (a.status = any($10::text[])) and ($11::uuid is null or a.id <> $11)
+          and ($12::text is null or lower(coalesce(u.name, '')) = lower($12) or lower(coalesce(u.email, '')) = lower($12) or coalesce(u.ghl_user_id, '') = $12)
         order by a.${p.order === "booked_at" ? "booked_at" : "starts_at"}, a.id limit 500`,
-        [s.companyId, s.contactId, t.booked_since, t.booked_until, t.starts_since, t.starts_until, list(p.kind), p.booking_source ? p.booking_source === "self" : null, list(p.status), list(p.status_not), p.exclude || null]);
+        [s.companyId, s.contactId, t.booked_since, t.booked_until, t.starts_since, t.starts_until, list(p.kind), p.booking_source ? p.booking_source === "self" : null, list(p.status), list(p.status_not), p.exclude || null, p.closer || null]);
       return { value: listOf(rows) };
     }
     case "calls_for_contact": {
@@ -47,15 +48,52 @@ export async function runLookup(c: PoolClient, s: LookupScope, query: LookupQuer
       if (p.kind && !["phone", "meeting"].includes(p.kind)) return { error: `kind is phone or meeting, not "${p.kind}"` };
       if (p.connected && !["true", "false"].includes(p.connected)) return { error: `connected is true or false, not "${p.connected}"` };
       const rows = await many<Record<string, unknown>>(c, `select r.id, r.provider, case when r.raw->>'kind'='phone' then 'phone' else 'meeting' end as kind, r.started_at, r.ended_at, r.duration_min,
-          coalesce((r.raw->>'duration_sec')::int, r.duration_min*60) as duration_sec, r.raw->>'direction' as direction, r.raw->>'call_status' as status, coalesce(r.raw->>'call_status' = 'connected', false) as connected,
+          coalesce((r.raw->>'duration_sec')::int, r.duration_min*60) as duration_sec, r.raw->>'direction' as direction, r.raw->>'call_status' as status, coalesce(r.raw->>'call_status' = 'connected' and coalesce((r.raw->>'duration_sec')::int, 1) > 0, false) as connected,
           coalesce(u.name, r.recorded_by_name) as caller, r.recorded_by_email as caller_email, r.title, r.appointment_id
         from recordings r left join users u on u.company_id=r.company_id and lower(u.email)=r.recorded_by_email
         where r.company_id=$1 and r.contact_id=$2 and ($3::timestamptz is null or r.started_at >= $3) and ($4::timestamptz is null or r.started_at <= $4)
           and (cardinality($5::text[]) = 0 or r.provider = any($5)) and ($6::text is null or lower(coalesce(u.name, r.recorded_by_name, '')) = lower($6) or lower(coalesce(r.recorded_by_email, '')) = lower($6))
-          and ($7::text is null or (case when r.raw->>'kind'='phone' then 'phone' else 'meeting' end) = $7) and ($8::boolean is null or coalesce(r.raw->>'call_status' = 'connected', false) = $8)
+          and ($7::text is null or (case when r.raw->>'kind'='phone' then 'phone' else 'meeting' end) = $7) and ($8::boolean is null or coalesce(r.raw->>'call_status' = 'connected' and coalesce((r.raw->>'duration_sec')::int, 1) > 0, false) = $8)
         order by r.started_at, r.id limit 500`,
         [s.companyId, s.contactId, t.since, t.until, list(p.provider), p.caller || null, p.kind || null, p.connected ? p.connected === "true" : null]);
       return { value: listOf(rows) };
+    }
+    case "call_conversation": {
+      // D87: "tech issues happen, or sometimes somebody hangs up on accident, so we need to be able to take both calls as a whole." The
+      // parts of the conversation a dialer call belongs to: the same caller's connected calls (more than 0 seconds) to this person,
+      // each starting within `gap_min` of the one before it ending, chained both ways, in order. A meeting recording is its own whole.
+      if (!s.contactId) return { error: "the run is not about a contact" };
+      if (!p.recording_id) return { error: "call_conversation needs the recording_id of a call" };
+      const gap = Number(p.gap_min);
+      if (p.gap_min === undefined || !Number.isFinite(gap) || gap < 0) return { error: `gap_min is a number of minutes, not "${p.gap_min ?? ""}"` };
+      const facts = `r.id, r.external_id, r.provider, case when r.raw->>'kind'='phone' then 'phone' else 'meeting' end as kind, r.started_at, coalesce(r.ended_at, r.started_at) as ended_at, r.duration_min,
+        coalesce((r.raw->>'duration_sec')::int, r.duration_min*60) as duration_sec, (r.raw->>'transcript_status' = 'ready' or r.transcript is not null) as has_transcript, coalesce(r.raw->>'transcript_status', '') as transcript_status,
+        r.raw->>'caller_ghl_user_id' as caller_id, coalesce(u.name, r.recorded_by_name) as caller`;
+      const from = "recordings r left join users u on u.company_id=r.company_id and lower(u.email)=r.recorded_by_email";
+      type Part = Record<string, unknown> & { id: string; kind: string; started_at: Date; ended_at: Date; caller_id: string | null };
+      const self = (await many<Part>(c, `select ${facts} from ${from} where r.company_id=$1 and r.contact_id=$2 and r.id::text=$3`, [s.companyId, s.contactId, p.recording_id]))[0];
+      if (!self) return { error: `${p.recording_id} is not a call of this person's` };
+      let parts = [self];
+      if (self.kind === "phone") {
+        const near = await many<Part>(c, `select ${facts} from ${from}
+          where r.company_id=$1 and r.contact_id=$2 and r.raw->>'kind'='phone' and r.raw->>'call_status'='connected' and coalesce((r.raw->>'duration_sec')::int, 1) > 0
+            and r.raw->>'caller_ghl_user_id' is not distinct from $3 and r.started_at between $4::timestamptz - interval '1 day' and $4::timestamptz + interval '1 day'
+          order by r.started_at, r.id`, [s.companyId, s.contactId, self.caller_id, self.started_at]);
+        const at = near.findIndex((r) => r.id === self.id);
+        if (at >= 0) {
+          const joins = (a: { ended_at: Date }, b: { started_at: Date }) => b.started_at.getTime() - a.ended_at.getTime() <= gap * 60e3;
+          let lo = at, hi = at;
+          while (lo > 0 && joins(near[lo - 1], near[lo])) lo--;
+          while (hi < near.length - 1 && joins(near[hi], near[hi + 1])) hi++;
+          parts = near.slice(lo, hi + 1);
+        }
+      }
+      const value = listOf(parts.map(({ caller_id: _c, ...r }) => r));
+      const me = parts.findIndex((r) => r.id === self.id);
+      const sec = parts.reduce((n, r) => n + (Number(r.duration_sec) || 0), 0);
+      // key: what the whole conversation is filed under (its first part's id, so a call that turned out to be one part keeps its own key);
+      // later_ready: parts after this one that already have a transcript (their own run reads the whole conversation, this one need not post)
+      return { value: { ...value, key: String(parts[0].external_id), part: me + 1, total_sec: sec, total_min: Math.round(sec / 60), later_ready: parts.slice(me + 1).filter((r) => r.has_transcript).length } };
     }
     case "last_event": {
       if (!p.type) return { error: "last_event needs a type" };

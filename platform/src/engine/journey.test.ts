@@ -45,9 +45,10 @@ const apptStore = new Map<string, AppointmentSnapshot>();   // what the booking 
 const liveCards = new Map<string, LiveCard[]>();            // what the CRM "has" for a contact (D41)
 let replyIntent = "confirmed";
 const base = fakeAdapters();
+const callMedia = new Map<string, import("@/adapters/types").CallMedia>();   // GHL keeps a dialer call's transcript; the engine reads it back when a step needs it (D87)
 const fake: Adapters = {
   ...base,
-  read: { ...base.read, openCards: async (_c, id) => liveCards.get(id) ?? [], pipelineCards: async (_c, pipelineId) => [...liveCards.entries()].flatMap(([cid, cards]) => cards.filter((k) => k.pipelineId === pipelineId).map((k) => ({ ...k, contactId: cid }))), listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }] },
+  read: { ...base.read, callMedia: async (_c, id) => callMedia.get(id) ?? { transcript: null }, openCards: async (_c, id) => liveCards.get(id) ?? [], pipelineCards: async (_c, pipelineId) => [...liveCards.entries()].flatMap(([cid, cards]) => cards.filter((k) => k.pipelineId === pipelineId).map((k) => ({ ...k, contactId: cid }))), listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }] },
   booking: (() => { const b = { appointmentsInWindow: async () => [], listCalendars: async () => [{ id: "CAL", name: "Closer Call", teamMemberIds: ["U1"] }], getAppointment: async (_c: unknown, id: string) => apptStore.get(id) ?? null }; return { ghl: b, calendly: b }; })(),
   write: { ...base.write, addTag: async (_c, _id, t) => { tags.push(t); }, removeTag: async (_c, _id, t) => { removedTags.push(t); }, updateContact: async (_c, id, patch) => { contactWrites.push({ id, ...patch }); },
     createTask: async (_c, id, task) => { tasks.push({ contactId: id, ...task }); return { id: `task-${tasks.length}` }; },
@@ -143,11 +144,12 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await lastRun("speed-to-lead", jordan)).toMatchObject({ status: "waiting", current_node: "n3" });
     });
 
-    it("setter call logged: a connected 3-minute dial with a transcript, read 15 minutes after it ended, its result 35 minutes after → Discovery Call record linked, note, Slack; nothing moves on the cards (the actions are off)", async () => {
+    it("setter call logged: a connected 3-minute dial with a transcript, no setter booking, posted 15 minutes after it ended with Jev's read → Discovery Call record linked, note, Slack; nothing moves on the cards (the actions are off)", async () => {
       const nRec = recordWrites.length, nCards = JSON.stringify(await cardsOf(jordan));
       await asOperator(async (c) => {
         const { recording } = await recordPhoneCall(c, companyId, { externalId: "dial-1", contactId: jordan, startedAt: T0.minus({ minutes: 40 }).toJSDate(), durationSec: 184, direction: "outbound", status: "completed", callerGhlUserId: "U1" });
-        const { recording: row, event } = await settlePhoneCall(c, recording, { transcript: [{ speaker: "0", text: "Hey Jordan, two minutes?" }, { speaker: "1", text: "Sure, it has been thinning for a year." }] });
+        callMedia.set("dial-1", { transcript: [{ speaker: "0", text: "Hey Jordan, two minutes?" }, { speaker: "1", text: "Sure, it has been thinning for a year." }] });
+        const { recording: row, event } = await settlePhoneCall(c, recording, callMedia.get("dial-1")!);
         await dispatchEvent(c, event!, { contact: { id: jordan }, recording: { id: row.id, ...phoneFacts(row) } });
       });
       await tickAt(T0); await tickAt(T0);

@@ -170,6 +170,10 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
       ('setter_dq_reason','no_problem','No problem to solve',6), ('setter_dq_reason','competitor','Competitor',7), ('setter_dq_reason','bad_contact','Bad contact',8), ('setter_dq_reason','other','Other',9)
       on conflict (domain, value) do nothing`);
     await c.query(`insert into event_types values ('setter_call.result','call') on conflict do nothing`);
+    // D87: Jev's fourth call type, and the hand-over of a dialer call Jev read as closing to the closer's workflow
+    await c.query(`insert into core_categories (domain, value, label, sort) values ('setter_call_type','closing','Closing call',3) on conflict (domain, value) do nothing`);
+    await c.query(`update core_categories set sort=4 where domain='setter_call_type' and value='other' and sort<>4`);
+    await c.query(`insert into event_types values ('call.closing','call') on conflict do nothing`);
     await c.query(`alter table sends drop constraint if exists sends_channel_check`);
     await c.query(`alter table sends add constraint sends_channel_check check (channel in ('sms','email','slack','webhook'))`);
     await ownsOrAbsent(c, "slack_posts", "tag");

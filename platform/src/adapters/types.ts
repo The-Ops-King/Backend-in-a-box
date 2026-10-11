@@ -139,5 +139,9 @@ export type BotToolDef = { name: string; description: string; input_schema: Reco
 export interface BotModel {
   next(apiKey: string, req: { system: string; tools: BotToolDef[]; messages: BotMessage[] }): Promise<BotTurn>;
 }
-export type Adapters = { read: CrmRead; booking: Record<BookingSource, BookingRead>; write: CrmWrite; sender: Sender; classifier: Classifier; notifier: Notifier; analyst: Analyst; bot?: BotModel };
+/** D87: a meeting recorder a transcript is read back from when a step needs it (Fathom); the engine never keeps one. Null when it has none. */
+export interface Recorder {
+  transcript(apiKey: string, recordingId: string): Promise<{ speaker: string; email?: string; text: string; timestamp?: string }[] | null>;
+}
+export type Adapters = { read: CrmRead; booking: Record<BookingSource, BookingRead>; write: CrmWrite; sender: Sender; classifier: Classifier; notifier: Notifier; analyst: Analyst; bot?: BotModel; recorder?: Recorder };
 export const bookingFor = (a: Adapters, c: Company): BookingRead => a.booking[c.booking.source];

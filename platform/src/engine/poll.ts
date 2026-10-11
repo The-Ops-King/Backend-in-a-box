@@ -6,7 +6,8 @@ import { loadCompany, type CompanyRow } from "./context";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { ensureOpportunityForBooking, ensureUser, userIdByEmail } from "./lifecycle";
 import { simTag, simulate } from "./simulate";
-import { pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, TRANSCRIPT_WAIT_MIN, type RecordingRow } from "./recordings";
+import { pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, type RecordingRow } from "./recordings";
+import { callSetting } from "./call-settings";
 import { applyDocument, facts as agreementFacts } from "./agreements";
 import { foldCard } from "./cards";
 import { handMoved } from "./card-moves";
@@ -278,11 +279,15 @@ async function settleCall(c: PoolClient, r: RecordingRow, media: Awaited<ReturnT
   const { recording, event } = await settlePhoneCall(c, r, media, { silent });
   if (event) rep.eventsDispatched += (await dispatchEvent(c, event, { contact: { id: contactId }, recording: { id: recording.id, ...phoneFacts(recording) } })).length;
 }
-/** Connected calls still waiting for a transcript: re-read each tick, settle on a transcript or once the wait has run out. */
-async function pollPendingCalls(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) {
+/**
+ * Connected calls still waiting for a transcript: re-read each tick (every minute; it costs nothing), settled the minute one is
+ * there, or without one once `calls.transcript_wait_min` (D87: 2 hours unless the company says otherwise) has passed since hang-up.
+ */
+async function pollPendingCalls(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
+  const waitMs = callSetting(bindings, "calls.transcript_wait_min") * 60e3;
   for (const r of await pendingPhoneCalls(c, co.id)) {
     const media = await adapters.read.callMedia(ac, r.external_id);
-    const expired = Date.now() - r.started_at.getTime() > TRANSCRIPT_WAIT_MIN * 60e3;
+    const expired = Date.now() - (r.ended_at ?? r.started_at).getTime() > waitMs;
     if (!media?.transcript && !expired) continue;
     await settleCall(c, r, media, r.contact_id!, false, rep);
   }

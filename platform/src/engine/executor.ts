@@ -19,6 +19,7 @@ import { classifyError } from "./failures";
 import { claimEffect, markEffect, PENDING_WHY, type EffectKind } from "./effects";
 import { callTime } from "./sales-call";
 import { APPOINTMENT_FACTS, APPOINTMENT_JOINS, appointmentRow, runLookup } from "./lookup";
+import { dropTranscripts, hydrateTranscripts } from "./transcripts";
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
@@ -216,7 +217,13 @@ async function applyTags(d: ExecDeps, type: Node["type"], next: string | null, w
   return { status: "ok", next };
 }
 
+/** D87: a step that reads a transcript gets it from its source just before it runs, and the context lets go of it right after (transcripts.ts). */
 export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome> {
+  const held = node.type === "trigger" || (node.only_if && !evaluate(node.only_if, d.ctx)) ? [] : await hydrateTranscripts(d, node);
+  try { return await executeStep(d, node); } finally { dropTranscripts(d.ctx, held); }
+}
+
+async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
   d.ctx.now = d.now.toISO();   // {{now | date:...}} in templates; refreshed every node so a persisted context never carries a stale clock
   const next = single(d, node.id);
   // only_if: a step that runs some of the time; the chart shows it with the blue mark and this condition
@@ -419,12 +426,13 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       setPath(d.ctx, node.into, r.value); setPath(d.ctx, "reply.confidence", r.confidence); setPath(d.ctx, "reply.intent_confidence", Math.round(r.confidence * 100)); setPath(d.ctx, "reply.top_guesses", top || "none");
       const recId = (d.ctx.recording as { id?: string } | undefined)?.id; const intoKey = node.into.replace(/^vars\./, "").split(".");
       // merged in depth: a second read into vars.classify.* keeps the first (D79: the setter call's kind, then its result)
-      if (recId && node.input.includes("recording.")) {
+      const readsTranscript = /transcript_text/.test(node.input);
+      if (recId && (node.input.includes("recording.") || readsTranscript)) {
         const prior = (await one<{ a: unknown }>(d.c, "select analysis->$2 as a from recordings where id=$1", [recId, intoKey[0]]))?.a ?? null;
         const merged = deepSet(prior, intoKey.slice(1), { value: r.value, confidence: r.confidence, ambiguity: r.ambiguity ?? null });
         await d.c.query("update recordings set analysis = jsonb_set(analysis, $2::text[], $3::jsonb, true) where id=$1", [recId, [intoKey[0]], JSON.stringify(merged)]);
       }
-      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, input } });
+      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, ...(readsTranscript ? { input_chars: input.length } : { input }) } });   // D87: a transcript is never copied into the ledger
       return { status: "ok", next, result: { value: r.value, confidence: r.confidence, ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(r.unclear ? { why: r.confidence < node.threshold ? "not confident enough" : "a careful person would doubt it" } : {}) } };
     }
 
@@ -709,8 +717,24 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       // bookkeeping never fails a run: a field whose path is not in this run's context lands as null
       const data: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(node.data)) { try { data[k] = deepRender(v, d.ctx, env(d)); } catch (e) { if (e instanceof UnknownPathError) data[k] = null; else throw e; } }
-      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: node.event, source: "engine", data });
-      return { status: "ok", next, result: { event: node.event, ...data } };
+      // D87: `appointment` makes the fact about that booking of this person's (a call Jev read as closing, about the booking it lines up with); blank is the run's own
+      let apptId = d.run.appointment_id, oppId = d.run.opportunity_id;
+      const named = node.appointment !== undefined ? render(node.appointment, d.ctx, env(d)).trim() : "";
+      if (named) {
+        const a = await one<{ id: string; opportunity_id: string | null }>(d.c, "select id, opportunity_id from appointments where company_id=$1 and contact_id=$2 and id::text=$3", [d.company.id, d.run.contact_id, named]);
+        if (!a) return { status: "failed", error: `record ${node.id}: ${named} is not one of this person's bookings` };
+        apptId = a.id; oppId = a.opportunity_id ?? oppId;
+      }
+      if (!node.start) {
+        await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: apptId, run_id: d.run.id, event_type: node.event, source: "engine", data });
+        return { status: "ok", next, result: { event: node.event, ...data } };
+      }
+      // D87: `start` also starts the workflows listening for it (once: a retry finds the fact this step wrote and starts nothing again)
+      const prior = await one<{ id: string }>(d.c, "select id::text from events where run_id=$1 and event_type=$2 and data->>'_node'=$3 limit 1", [d.run.id, node.event, node.id]);
+      if (prior) return { status: "ok", next, result: { event: node.event, ...data, already: Number(prior.id) } };
+      const ev = await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: apptId, run_id: d.run.id, event_type: node.event, source: "engine", data: { ...data, _node: node.id } });
+      const started = await dispatchEvent(d.c, ev, { contact: { id: d.run.contact_id }, ...(apptId ? { appointment: { id: apptId } } : {}), ...(d.ctx.recording ? { recording: d.ctx.recording } : {}) });
+      return { status: "ok", next, result: { event: node.event, ...data, ...(apptId ? { appointment_id: apptId } : {}), started } };
     }
     case "resume": return d.run.resume_node ? { status: "resume", result: { to: d.run.resume_node, due: d.run.resume_at?.toISOString() ?? null } } : { status: "ok", next, result: { kind: "noop", why: "nothing to go back to: no listener pulled this run away" } };
     case "pause_runs": {

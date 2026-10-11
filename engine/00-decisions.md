@@ -2691,3 +2691,64 @@ workflows at all, and the sweep's alert asked someone to follow up by hand. That
 - Speed to lead decides: a setting on its first step (`late_after_min`, 60) and a branch. In time, it runs as before.
   Too late, it sends no first text or email and posts to the ops channel (else alerts) that the lead came in late and
   someone should follow up by hand.
+
+## D87. One setter result, posted when the booking lands; calls by conversation; closing calls through the dialer; transcripts never stored (2026-10-11)
+
+Tyler, on how calls flow: "I want these all in individual workflows ... I do not want you to hard code it." "I don't like a
+hard 'wait' rule ... calls can take anywhere from 5 minutes to an hour or more." "For this application we'll never store the
+transcripts." Live example: Lynton's 64-minute closing call with James on Oct 5 came through the GHL dialer (a 0-minute
+connect, then the call 37 seconds later), landed in Setter call logged, was read as "other", and nothing happened.
+
+- **Transcripts are waited for, not timed.** The minute poll re-checks a connected call for its transcript every tick, for up
+  to `calls.transcript_wait_min` (a company setting, 120) after hang-up (was 30 minutes from the start), then settles without
+  one. Nothing else waits for a transcript.
+- **A call of 0 seconds is no call.** The dialer's "completed" with 0 seconds is `zero_seconds`: not connected, never a part
+  of a conversation, no run, not a connect in the metrics (still a dial). The 60-second knob on the setter post stays.
+- **Calls by conversation.** "Tech issues happen, or sometimes somebody hangs up on accident, so we need to be able to take
+  both calls as a whole." The same caller's connected calls to the same person, each starting within
+  `calls.conversation_gap_min` (15) of the last one ending, are one conversation (`lookup call_conversation`). The first part
+  posts as usual; never a wait for a possible second part. When a later part's transcript lands, its run reads the whole
+  conversation (each part's transcript fetched from GHL again) and edits the same Slack post (`slack_post` `edit` on the
+  `setter-call:<first part>` tag, chat.update as D76's EOD resubmit) and updates the same Discovery Call record (keyed by the
+  first part), marked "(2 parts)". A part whose later part already has a transcript leaves the whole to that part's run
+  (`read_with_a_later_part`), checked before it posts and again before a late Set. Sales call recorded reads conversations the
+  same way; a meeting recording is its own whole.
+- **Closing calls through the dialer.** Jev's call type has a fourth answer, closing. A dialer call Jev reads as closing is
+  recorded as `call.closing` about the person's booked call with the same closer starting within an hour of the call, and
+  that event starts Sales call recorded (its second trigger: "another trigger on the Fathom call"), so one closer workflow
+  handles Fathom and dialer closing calls: linked to the booking, marked showed, Jev's outcome read, notes, review. A closing
+  call that lines up with no booking is posted as unlinked and the team is asked which booking it was (the attention channel,
+  else ops, else calls; 1️⃣ 2️⃣ 3️⃣ for their closing calls two weeks either side, ❌ none, two days); the tap records
+  `call.closing` about that booking and the workflow runs again on it, editing the review. To say this in a template,
+  `record` gained `start` (also start the workflows listening for the event, once) and `appointment` (the event is about that
+  booking); `appointments_for_contact` gained `closer`.
+- **One setter result.** "Led to booking" and Set are one thing: **Set** = a booking through a setter link for that person
+  (`booking_source` setter, D24's rules unchanged), made during the call or within `setter_result.set_within_min` (30) after
+  hang-up, credited to the setter on the call. Otherwise Jev's read: follow up, DQ or not interested; Jev's Set with no such
+  booking, or a read under 70% sure, asks the setters (D79's question, DQ reason and "Would have" unchanged). A self-booked
+  link is never Set. The context facts `recording.booked_within_30m` and `recording.led_to_booking` are gone;
+  `recording.set_until` (hang-up + the setting) is the window's end; the metrics' `calls_set` and the setter report's
+  bookings count the same rule (`setByBookingSql`, was "a booking within a day"). The Discovery Call's `led_to_booking`
+  checkbox is ticked only when Set.
+- **Posted when the booking lands.** "Post as soon as the booking lands." `wait_for_event appointment.booked` (a setter-link
+  booking, `since` the call's start, `until` 15 minutes after hang-up): one made during the call, or landing in those 15
+  minutes, posts at once as Set; otherwise the post goes out at the 15-minute mark with Jev's result. A second
+  `wait_for_event` until the Set window closes: a setter-link booking that lands then edits the post and the record to Set
+  the moment it lands; one after that changes nothing. The fixed 15- and 35-minute waits are gone. A confirmation call posts
+  as soon as it is read. The question to the setters and the actions wait for the window to close, so a call that becomes
+  Set at minute 25 never gets a callback task.
+- **Transcripts never stored.** A transcript is read from its source the moment a step needs it (`{{recording.transcript_text}}`,
+  `{{vars.<lookup>.transcript_text}}` for a conversation) and dropped from the context after the step, so no run, event or step
+  row keeps one (the classify event keeps the input's length when the input is a transcript). GHL dialer calls are read
+  again through `callMedia` (every retry reads again). A Fathom or Zapier webhook delivers it once, so it is held on the
+  recording only until the runs that read it end (kept while one is paused on a failing read), then cleared; a step that needs
+  it later reads it from Fathom's API (`fathomTranscript`, to verify live). Retention clears anything still held
+  `calls.transcript_hold_hours` (48) after its last run ended. The provider's summary is never kept. Jev's answers (call type,
+  result, confidence, DQ reason) stay on the recording's analysis. The simulator's synthetic call holds its transcript like a
+  webhook's.
+- Where the numbers live: the 2 hours, 15-minute gap, 30-minute Set window and 48 hours are company settings
+  (`calls.transcript_wait_min`, `calls.conversation_gap_min`, `setter_result.set_within_min`, `calls.transcript_hold_hours`,
+  offered on the settings screen); the 15-minute post deadline, the hour either side for a closing call's booking and the
+  two weeks of bookings offered to the team are step settings in the templates.
+- Known limit, stated: a part that already asked the setters (Jev unsure) keeps its question open when a later part of the
+  same conversation arrives; the later part's run reads the whole and may ask again under the same tag.

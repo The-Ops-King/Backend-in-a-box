@@ -1,3 +1,4 @@
+import { VendorError } from "@/engine/failures";
 /**
  * Fathom external API (fathom/01-api-facts.md): base https://api.fathom.ai/external/v1, header X-Api-Key.
  * Webhooks are created per API key and deliver the Meeting object (Standard Webhooks, whsec_ secret returned once).
@@ -37,3 +38,22 @@ export async function fathomPing(apiKey: string): Promise<boolean | { ok: false;
   if (res.ok) return true;
   return { ok: false, status: res.status, detail: (await res.text().catch(() => "")).slice(0, 160) };
 }
+
+/**
+ * D87: one recording's transcript, read again from Fathom when a step needs it (the engine never keeps it). `GET
+ * /recordings/{recording_id}/transcript` answers `{ transcript: [{ speaker { display_name, matched_calendar_invitee_email }, text,
+ * timestamp }] }` (fathom/01-api-facts.md, to verify live). Null when Fathom has none for it; a refusal or an outage throws with the
+ * status, so the step's retry policy takes it.
+ */
+export async function fathomTranscript(apiKey: string, recordingId: string): Promise<{ speaker: string; email?: string; text: string; timestamp?: string }[] | null> {
+  const res = await fetch(`${BASE}/recordings/${encodeURIComponent(recordingId)}/transcript`, { headers: headers(apiKey) });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new VendorError("fathom", res.status, `/recordings/${recordingId}/transcript`, (await res.text().catch(() => "")).slice(0, 300));
+  const body = (await res.json()) as { transcript?: unknown } | unknown[];
+  const lines = Array.isArray(body) ? body : Array.isArray((body as { transcript?: unknown }).transcript) ? ((body as { transcript: unknown[] }).transcript) : [];
+  const out = lines.map((l) => { const r = (l ?? {}) as Record<string, unknown>; const sp = (r.speaker ?? {}) as Record<string, unknown>;
+    return { speaker: typeof sp === "string" ? sp : String(sp.display_name ?? "Speaker"), email: typeof sp.matched_calendar_invitee_email === "string" ? sp.matched_calendar_invitee_email.toLowerCase() : undefined, text: String(r.text ?? ""), timestamp: typeof r.timestamp === "string" ? r.timestamp : undefined }; })
+    .filter((l) => l.text.trim());
+  return out.length ? out : null;
+}
+export const fathomRecorder = { transcript: fathomTranscript };

@@ -30,8 +30,8 @@ stay the poll's job.
 **A run keeps its own state, not a copy of the contact (D84).** What a run saves when it parks, pauses or ends
 (`runs.context`) is only what it needs to go on: `vars` (its own values, wait pins, Slack posts, an armed listener),
 `reply`, `event` (the trigger), `reaction`, and `contact.fetched_at` / `contact.stale` for the run page. The person, the
-booking, the call and its transcript are read fresh at every wake and never saved on the run (`persistedContext` in
-`src/engine/context.ts`). Older rows are slimmed once with `POST /api/admin/slim-runs` and
+booking and the call are read fresh at every wake and never saved on the run (`persistedContext` in
+`src/engine/context.ts`); a call's transcript is not even in the context until a step reads it (D87, below). Older rows are slimmed once with `POST /api/admin/slim-runs` and
 `Authorization: Bearer $CRON_SECRET`: `{}` is a dry run that reports `{ scanned, changed, bytes_before, bytes_after }`;
 `{ "dryRun": false }` rewrites (optionally `company: "<slug>"`; when `done` is false, call again with `after: next`).
 
@@ -56,8 +56,8 @@ Every template carries a `stage` on the customer's journey (`src/engine/stages.t
 | call-booked | closing call booked or moved | contact gets appointment date + closer as owner; the booking's UTMs (source, medium, campaign, content, term, fbclid) on the contact's UTM fields where GHL's is empty (read live; a first touch is never overwritten; an unbound `crm.field_contact_utm_*` / `crm.field_contact_fbclid` is skipped, D78); setter card → Direct Booked Call ("-- Direct") or Appointment Set ("-- Set", setter stamped); closer card created/moved to Scheduled ("-- Direct" / "-- Setter Booked"); tags `stat-booked` + `stat-self-booked`/`stat-set`, nurture tags off, and `stat-no-show` / `stat-cancelled` / `stat-possible-cancel` / `stat-needs-attention` off too (a fresh booking resets them so a filter on them never catches someone who rebooked, D62); Slack card with intake answers, reschedule link, the person's lead source (D78). Needs the setter/closer pipeline + stage ids and the custom field ids as `crm.*`; `slack.channel.bookings` optional |
 | call-cancelled | closing call cancelled (a reschedule never fires this) | setter and closer cards → their cancelled stage (move only); appointment date cleared on the contact; rebook task for the closer due in a day with who cancelled and why; `stat-cancelled` on, booked tags off; Slack note. Needs `crm.stage_setter_cancelled`, `crm.stage_closer_cancelled` |
 | payment-recorded | payment linked to a contact | cash collected on the contact = running total; revenue generated stamped once with the program price; `pay-paid-full` (and `pay-plan-active` off) when cleared, else `pay-plan-active`; Payment custom-object record written and linked to the contact and the closer card; Slack line. A refund (`payment.refunded`, D57) is a new line in the same tracker with a minus sign: cash collected = the lower running total, a Payment record with the negative amount (`type` refund, `status` refunded), `pay-refunded` added, `pay-paid-full` / `pay-plan-active` left as the last payment set them, Slack `*Refund:* −$X`, 💸 on the booking and review threads; nothing re-stamped, no agreement sent. Needs `crm.field_contact_cash_collected`, `crm.field_contact_revenue_generated`, `crm.assoc_payment_contact`, `crm.assoc_payment_opportunity`, `crm.pipeline_closer`; `slack.channel.payments` optional |
-| call-recorded | a call recording matched to a contact | AI decides whether it is a sales call (else stop), pulls the notes and scores the call against the rubric (`analyze` nodes on `prompt.call_classify` / `prompt.call_notes` / `prompt.call_rubric`); when an appointment matched: appointment recorded as showed (`call.held` fires), `stat-showed`, setter card → Showed and won; Sales Call record written and linked; notes on the contact; Slack review. Needs `secret.anthropic_key`, `crm.stage_setter_showed`, `crm.assoc_sales_call_contact`, `crm.assoc_sales_call_opportunity`; `slack.channel.calls` optional | Slack goes out first, so a CRM hiccup never hides that the call happened; the Sales Call record is created at booking by call-booked, one per call slot, and updated here (a reschedule logs the old slot's record as rescheduled and gives the new slot its own, D76); `disposition` and `objection_primary` pass through the `oneof:` filter so a value the CRM would silently drop is never written.
-| setter-call-logged | the dialer logged a connected phone call (`call.logged`) | under the minimum length (a `set_var` knob, 60s, editable on the step) or no recording → stop; 15 minutes after the call Jev says setting / confirmation / other (other → stop) and the AI writes the digest with pains, goals, triage, a next step and a fit score (`prompt.setter_call_notes`); for a setting call, 35 minutes after it ended Jev reads what it achieved (D79): set, follow up, DQ (with Jev's reason) or not interested; a closing call booked within 30 minutes of the call is set whatever Jev read; Discovery Call record written and linked to the contact (`led_to_booking` checkbox as `["yes"]`, `call_result` in the company's option keys from `discovery_call.results`, left out and named while the object has no such field), digest as a note, Slack post with the result. Under 70% sure (or a doubtful read) nothing is written and the setters are asked (✅ Set · 🔁 Follow up · ❌ DQ · 🚫 Not interested, two days; the first tap writes it and scores Jev). The actions a result implies (follow up → a callback task for the setter due the next business day; DQ → `dq-<reason>` tag + setter card lost, at `crm.stage_setter_dq` when bound; not interested → setter card lost, at `crm.stage_setter_not_interested` when bound) run only with `setter_result.act` true; off (the default) the post says what they would have done. Every read is a `setter_call.result` event; `jev_setter_accuracy` scores them. Needs `secret.anthropic_key`, `crm.assoc_discovery_call_contact`, `crm.pipeline_setter`; `slack.channel.setter_calls` optional (the question falls back to `slack.channel.ops`, then `slack.channel.bookings`) |
+| call-recorded | a call recording matched to a contact (`recording.received`, Fathom), or a dialer call Jev read as a closing call (`call.closing`, handed over by setter-call-logged, D87) | the whole call is read (a dialer call in parts is one call: `lookup call_conversation`); Jev decides whether a meeting recording is a sales call (else stop; a dialer call Jev already read as closing skips this) and how it ended; the AI pulls the notes and scores the call against the rubric (`prompt.call_review`); when it lines up with a booking: appointment recorded as showed (`call.held` fires), `stat-showed`, setter card → Showed and won; Sales Call record written and linked; notes on the contact; Slack review (the same call again edits it in place: `edit` on the `recording:<first part>` tag). A closing call by phone that lines up with no booking is posted as unlinked and the team is asked which booking it was (attention channel, else ops, else calls; 1️⃣ 2️⃣ 3️⃣ for the first three of their closing calls two weeks either side, ❌ none, two days); a tap records `call.closing` about that booking (`record` with `appointment` and `start`) and this workflow runs again on it. Needs `secret.anthropic_key`, `crm.stage_setter_showed`, `crm.assoc_sales_call_contact`, `crm.assoc_sales_call_opportunity`; `slack.channel.calls` optional | Slack goes out first, so a CRM hiccup never hides that the call happened; the Sales Call record is created at booking by call-booked, one per call slot, and updated here (a reschedule logs the old slot's record as rescheduled and gives the new slot its own, D76); an unlinked closing call gets no record until it is linked; `disposition` and `objection_primary` pass through the `oneof:` filter so a value the CRM would silently drop is never written.
+| setter-call-logged | the dialer logged a connected phone call (`call.logged`), once its transcript came in or `calls.transcript_wait_min` passed | D87. The call is read as one conversation with the same setter's calls to the person, each starting within `calls.conversation_gap_min` (15) of the last one ending (`lookup call_conversation`; 0-second connects are never a part); a conversation under the minimum length (a `set_var` knob, 60s) or with no recording → stop. Jev reads the whole conversation (each part's transcript fetched from GHL, none stored): setting / confirmation / closing / other (other → stop; closing → `record call.closing` with `start`, about the booking with the same closer starting within an hour of the call, and Sales call recorded takes it). The AI writes the digest (`prompt.setter_call_notes`). A confirmation call posts as soon as it is read. A setting call: Jev reads set / follow up / DQ / not interested, then `wait_for_event appointment.booked` (a setter-link booking made from the call's start, up to the Set window) until 15 minutes after hang-up: a booking already made during the call or landing in those 15 minutes posts at once as **Set**; otherwise the post goes out at the 15-minute mark with Jev's read (Jev's Set with no booking, or a read under 70% sure, asks the setters). A second `wait_for_event` until `recording.set_until` (hang-up + `setter_result.set_within_min`, 30): a setter-link booking that lands then edits the post and the Discovery Call record to Set the moment it lands. A later part of the conversation edits the same post (`edit` on the `setter-call:<first part>` tag) and the same record (keyed by the first part), marked "(N parts)"; a part whose later part already has a transcript leaves the whole to that part's run. Discovery Call record (`led_to_booking` `["yes"]` only when Set, `call_result` in the company's option keys from `discovery_call.results`, left out and named while the object has no such field), digest as a note, Slack post with the result. The setters' question: ✅ Set · 🔁 Follow up · ❌ DQ · 🚫 Not interested, two days; the first tap writes it and scores Jev. The actions a result implies (follow up → a callback task for the setter due the next business day; DQ → `dq-<reason>` tag + setter card lost, at `crm.stage_setter_dq` when bound; not interested → setter card lost, at `crm.stage_setter_not_interested` when bound) run only with `setter_result.act` true; off (the default) the post says what they would have done. Every read is a `setter_call.result` event; `jev_setter_accuracy` scores them. Needs `secret.anthropic_key`, `crm.assoc_discovery_call_contact`, `crm.pipeline_setter`; `slack.channel.setter_calls` optional (the question falls back to `slack.channel.ops`, then `slack.channel.bookings`) |
 | agreement-send-manually | tag `sys-send-agreement-manually` added | unless already signed: `send_document` (the Documents & Contracts template `crm.agreement_template`, from `crm.agreement_sender`), tag `stat-agreement-sent`, trigger tag removed, note |
 | agreement-signed | the signer completed the agreement (`agreement.signed`, from the documents poll) | tag `stat-agreement-signed` (and `stat-agreement-unsigned` off, D62), dated note, Slack (`slack.channel.deals`) |
 | deal-closed | first payment OR agreement signed, either order, once per contact | gate: paid AND signed AND not tagged `stat-customer` (else stop, and the stop does not use up the "once"); then `stat-customer`, closer card → Closed - Won (won), setter card won, Sales Call record `closed_won` / `showed` with cash collected, welcome email + text (CRM templates by id when set on the step, else the copy on the step), Slack. Needs `crm.stage_closer_closed_won`; `slack.channel.deals` optional |
@@ -124,17 +124,30 @@ A call placed or taken in GHL is a `TYPE_CALL` entry in the contact's conversati
 conversations poll turns every one of them (answered or not) into a `recordings` row: provider `ghl`,
 the entry's id as `external_id`, linked straight to the contact (the thread names them, no ladder),
 `raw` carrying the dialer's facts (`direction`, `call_status` normalised to connected / voicemail /
-no_answer / busy / failed, `duration_sec`, `caller_ghl_user_id`), `recorded_by_*` = the user who
+no_answer / busy / failed / zero_seconds (D87: a 0-second "completed" is no call), `duration_sec`, `caller_ghl_user_id`), `recorded_by_*` = the user who
 dialed. GHL writes the entry when the call ends and the transcript minutes later, so a connected call
-sits `raw.transcript_status = pending` and the `calls` poll re-reads it each tick, settling it when the
-transcript lands (stored as `transcript`, recording link as `url`) or after 30 minutes without one.
+sits `raw.transcript_status = pending` and the `calls` poll re-reads it every tick (every minute), settling it the
+minute the transcript lands (`transcript_status = ready`, recording link as `url`; the transcript itself is not stored)
+or, `calls.transcript_wait_min` (120) after hang-up, without one.
 `call.logged` fires once per call, at settle, with `recording.kind = phone`, `connected`,
 `duration_sec`, `has_transcript`, `direction`, `status`, `caller` available to trigger matches and
-to the run (`recording.caller.name`, `recording.led_to_booking` = an appointment booked after the
-call started, read live). A call is never a reply: it does not wake `wait_for_reply`, and `TYPE_ACTIVITY`
+to the run (`recording.caller.name`, `recording.set_until` = when the Set window closes). A call is never a reply: it does not wake `wait_for_reply`, and `TYPE_ACTIVITY`
 entries are skipped too. Every call stays in the ledger for connection-rate and speed-to-lead
 reporting later. Recording is not on for every call in GHL (verified on Hair: 2 of 4 long calls had
 one), so a connected call with no transcript is a normal case, not an error.
+
+### Transcripts are never stored (D87)
+
+A transcript is read from its source the moment a step needs it and dropped when the step is done
+(`src/engine/transcripts.ts`): `{{recording.transcript_text}}` is the run's call, `{{vars.<lookup>.transcript_text}}`
+every call a lookup answered (a conversation's parts, each headed "Part n of N"). The executor fills them just before
+the step and takes them out of the context after it, so no run, event or step row carries one (the classify event keeps
+`input_chars`, not the text); a step retried after a failure reads it again. Sources: a GHL dialer call → `callMedia`;
+a Fathom or Zapier recording → the webhook delivered it once, so it is held on the recording row only until the runs that
+read it are done (released at their end; kept while one is paused on a failing step), then read from Fathom's API
+(`secret.fathom_api_key`, `GET /recordings/<id>/transcript`, to verify live) if a step needs it again. Retention's sweep
+clears anything still held `calls.transcript_hold_hours` (48) after the last run about it ended. The provider's summary
+is never kept. Jev's answers (call type, result, confidence, DQ reason) and the AI notes stay on `recordings.analysis`.
 
 ### Reading a call with AI
 
@@ -746,7 +759,8 @@ Actions: `create` (a lead comes in), `book` (a setter books the closing call, 3 
 contact's zone), `book-self`, `reschedule` (+2 days), `cancel`, `pay` (the program price), `agreement`
 (an agreement sent and unsigned), `sign` (the agreement completed), `record`
 (a Fathom-shaped recording with a short transcript, through the match ladder), `call` (a connected
-3-minute dialer call 20 minutes ago with a setting-call transcript, dialed by the roster's setter),
+3-minute dialer call 20 minutes ago with a setting-call transcript, dialed by the roster's setter; GHL has no such
+call to read it back from, so the transcript is held like a webhook's until the run is done),
 `reset` (the engine
 forgets every run, send, card, pursuit and synthetic appointment for that person; the contact stays).
 Synthetic appointments have `source = 'test'` and never exist at a booking source; the premise check
@@ -819,19 +833,20 @@ at, source, data }`. A later step that reads `vars.<into>` makes the lookup bloc
 
 | query | params | each item |
 |---|---|---|
-| `appointments_for_contact` | `booked_since`, `booked_until`, `starts_since`, `starts_until`, `kind` (call types, e.g. `closing`; a booking with none is closing), `booking_source` (`setter` / `self`), `status`, `status_not` (comma lists), `exclude` (an appointment id), `order` (`starts_at` / `booked_at`) | `id, starts_at, ends_at, booked_at, status, kind, booking_source, set_by, source, closer, outcome` |
-| `calls_for_contact` | `since`, `until` (call start), `provider`, `caller` (name or email), `kind` (`phone` / `meeting`), `connected` (`true` / `false`) | `id, provider, kind, started_at, ended_at, duration_min, duration_sec, direction, status, connected, caller, caller_email, title, appointment_id` |
+| `appointments_for_contact` | `booked_since`, `booked_until`, `starts_since`, `starts_until`, `kind` (call types, e.g. `closing`; a booking with none is closing), `booking_source` (`setter` / `self`), `status`, `status_not` (comma lists), `exclude` (an appointment id), `order` (`starts_at` / `booked_at`), `closer` (D87: name, email or CRM user id) | `id, starts_at, ends_at, booked_at, status, kind, booking_source, set_by, source, closer, outcome` |
+| `calls_for_contact` | `since`, `until` (call start), `provider`, `caller` (name or email), `kind` (`phone` / `meeting`), `connected` (`true` / `false`; more than 0 seconds) | `id, provider, kind, started_at, ended_at, duration_min, duration_sec, direction, status, connected, caller, caller_email, title, appointment_id` |
+| `call_conversation` (D87) | `recording_id` (a call), `gap_min` (minutes) | the parts: `id, external_id, provider, kind, started_at, ended_at, duration_min, duration_sec, has_transcript, transcript_status, caller`; besides the list, `key` (the first part's id, what the conversation is filed under), `part` (this call's number), `total_sec`, `total_min`, `later_ready` (later parts that already have a transcript) |
 | `last_event` | `type` (comma list), `since`, `until`, `about` (`contact` / `appointment`) | (one event) |
 
-The context facts `recording.booked_within_30m`, `recording.led_to_booking` and `contact.has_upcoming_call` are each
-one lookup (`nodes.test.ts` proves they agree): `{ kind: closing, status_not: cancelled, booked_since:
-"{{recording.started_at}}", booked_until: "{{recording.ended_at}} +30m" }` → `.any`; `{ status_not: cancelled,
-booked_since: "{{recording.started_at}}" }` → `.any`; `{ kind: closing, status_not: "cancelled,noshow",
-starts_since: "{{now}}", exclude: "{{appointment.id | default:}}" }` → `.any`.
+The context fact `contact.has_upcoming_call` is one lookup (`nodes.test.ts` proves they agree): `{ kind: closing,
+status_not: "cancelled,noshow", starts_since: "{{now}}", exclude: "{{appointment.id | default:}}" }` → `.any`. D87 deleted
+`recording.booked_within_30m` and `recording.led_to_booking`: there is one Set, a setter-link booking from the call's
+start to `recording.set_until`, `{ booking_source: setter, booked_since: "{{recording.started_at}}", booked_until:
+"{{recording.set_until}}" }` → `.any`, the same rule the metrics count (`setByBookingSql`).
 
 ```json
 { "id": "l_booked", "type": "lookup", "query": "appointments_for_contact", "into": "booked",
-  "params": { "kind": "closing", "status_not": "cancelled", "booked_since": "{{recording.started_at}}", "booked_until": "{{recording.ended_at}} +30m" } }
+  "params": { "booking_source": "setter", "booked_since": "{{recording.started_at}}", "booked_until": "{{recording.set_until}}" } }
 ```
 
 **`crm_record` by the CRM's id.** `record_id` (a template, e.g. `"{{vars.found.id}}"` from a lookup or a webhook)
@@ -861,6 +876,17 @@ wins, shadow writes nothing, an open card only (reopening picks the latest). Our
 ```json
 { "id": "o_lost", "type": "update_opportunity", "status": "lost", "lost_reason": "{{vars.reason}}",
   "card": { "pipeline": "{{crm.pipeline_closer}}", "stage": "{{crm.stage_closer_lost | default:}}" } }
+```
+
+**`record` that starts workflows (D87).** `record` writes one event to the ledger and, by default, starts nothing.
+`start: true` also dispatches it to the workflows with a trigger on that type, once (a retry finds the event this step
+wrote and starts nothing again); `appointment` (templated, one of the person's bookings; blank is the run's own) makes the
+event about that booking, so the run it starts carries it. Setter call logged hands a dialer call Jev read as closing to
+Sales call recorded this way.
+
+```json
+{ "id": "rec_close", "type": "record", "event": "call.closing", "appointment": "{{vars.booking_id}}", "start": true,
+  "data": { "recording_id": "{{recording.id}}", "conversation": "{{vars.convo.key}}" } }
 ```
 
 ## Seeing what will happen (and when)
