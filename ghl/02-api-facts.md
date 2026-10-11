@@ -86,8 +86,8 @@ in each sub-account before SMS sends. Email needed no provisioning.
 
 The same read is how the engine gets a reply's words back when a step needs them (D89): it
 stores only the message id. Its `message` carries `body`, `messageType` and `subject`; the
-`body` and `subject` fields on this single-message read are taken on the shape of the thread
-listing below and are **to verify live**. The engine reads a thread once for all of its
+`body` field on this single-message read is **verified live (2026-10-11, Hair, an inbound SMS)**:
+`{ message: { id, body, direction, messageType: "TYPE_SMS", conversationId, contactId, … }, traceId }`. The engine reads a thread once for all of its
 messages and falls back to this read per message (a 404 is a message GHL no longer has).
 
 `GET /conversations/{conversationId}/messages` lists the thread. Email `status` came
