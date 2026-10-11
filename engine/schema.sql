@@ -15,17 +15,9 @@ create table companies (
   status            text not null default 'active'
                     check (status in ('onboarding','active','hosted','archived')),
   archived_at       timestamptz,
-  purge_after_months int not null default 12,
-  -- opportunity lifecycle rules (per-company settings, Tyler: "depends on workflow and settings")
+  -- D88: an opportunity is won and lost by workflow steps (update_opportunity in Payment recorded and Call outcome filed), not by settings here
   reached_seconds   int not null default 60,            -- a connected dial at least this long counts as the lead being reached (speed to lead)
   contract_value_default numeric(12,2),                 -- the program price; a new opportunity's contract_value until a closer sets one
-  opp_opens_on      text not null default 'first_booking'
-                    check (opp_opens_on in ('lead_created','first_booking','pipeline_entry')),
-  opp_won_on        text not null default 'first_payment'
-                    check (opp_won_on in ('first_payment','closer_marks','paid_in_full')),
-  opp_lost_on       text not null default 'closer_marks_or_inactive'
-                    check (opp_lost_on in ('closer_marks','closer_marks_or_inactive')),
-  opp_inactive_days int not null default 90,
   reply_retention_days int not null default 7,       -- D38: an inbound reply's row lives this long (the wait-for-reply step needs hours); the event stays
   sends_retention_days int not null default 30,      -- D38: the engine's own sends, with their words, live this long
   created_at        timestamptz not null default now()

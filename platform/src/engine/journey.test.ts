@@ -119,7 +119,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     const r = await installCompany({ name: "Journey", slug: "journey", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, setterRule: "question", closers: ["sam@x.com"], enable: true, crm: CRM, slack: SLACK, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [r.companyId]));   // D56: install cannot reach live without Slack; this journey asserts behaviour with Slack unbound
     companyId = r.companyId;
-    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(templates.length);
+    expect(r.installed.filter((s) => !s.endsWith("enabled"))).toEqual([expect.stringMatching(/^eod-call-filed → OFF, missing: crm\.object_sales_call$/)]);   // D88 A3: needs the Sales Call object, which this fixture does not bind
     await asOperator(async (c) => {
       await c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]);
       await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id, channels) values ($1,'T1',$2,'UBOT','{}')", [companyId, encrypt("xoxb-fake")]);
@@ -473,6 +473,10 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(tags.slice(nTags)).toEqual(["stat-showed", "stat-lost"]);
       expect(oppWrites.slice(nOpp)).toEqual([expect.objectContaining({ op: "update", id: closerCard, stageId: "STAGE-LOST", status: "lost" })]);   // k3: already at Lost, so only the status is news; the won setter card is left alone
       expect(threadOf(ts).at(-1)).toBe("✅ Showed, per Sam Closer: lost.");
+      // D88 (A9): the opportunity follows the answer in Call outcome filed, not in the engine
+      const opp = () => asOperator((c) => one<{ status: string; lost_at: Date | null }>(c, "select o.status, o.lost_at from opportunities o join appointments a on a.opportunity_id=o.id where a.id=$1", [appt]));
+      expect(await opp()).toMatchObject({ status: "lost" });
+      expect(await asOperator((c) => many(c, "select data from events where company_id=$1 and contact_id=$2 and event_type='opportunity.lost'", [companyId, pat]))).toEqual([{ data: expect.objectContaining({ by: "workflow", node: "o_lost", from: "open" }) }]);
       liveCards.delete("PAT1");
     });
     it("F7 (fixed, D59): the Sales Call record says showed / follow_up once the closer filed it (Call outcome filed updates the record call-booked created, keyed by the appointment)", async () => {

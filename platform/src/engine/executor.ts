@@ -756,8 +756,9 @@ async function updateOpportunity(d: ExecDeps, node: Extract<Node, { type: "updat
   const reason = status === "lost" && node.lost_reason ? String(r(node.lost_reason) ?? "") : "";
   const term = reason ? await one<{ id: string; category: string; name: string }>(d.c, "select id, category, name from company_terms where company_id=$1 and domain='lost_reason' and active and (category=$2 or lower(name)=lower($2)) order by (category=$2) desc limit 1", [d.company.id, reason]) : null;
   const out: Record<string, unknown> = { opportunity: oppId, ...fields };
-  if (status && status !== cur.status) {
-    await d.c.query("update opportunities set status=$2, won_at=case when $2='won' then now() else won_at end, lost_at=case when $2='lost' then now() else lost_at end, lost_reason_term=case when $2='lost' then $3::uuid else lost_reason_term end where id=$1", [oppId, status, term?.id ?? null]);
+  if (status && status !== cur.status && node.from && !node.from.includes(cur.status as "open" | "won" | "lost")) Object.assign(out, { left: `the opportunity is ${cur.status}; this step changes it only from ${node.from.join(" or ")}` });
+  else if (status && status !== cur.status) {
+    await d.c.query("update opportunities set status=$2, won_at=case when $2='won' then now() else won_at end, lost_at=case when $2='lost' then now() when $2='open' then null else lost_at end, lost_reason_term=case when $2='lost' then $3::uuid else lost_reason_term end where id=$1", [oppId, status, term?.id ?? null]);
     Object.assign(out, { status: { from: cur.status, to: status } });
     if (status !== "open") {
       const ev = await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: `opportunity.${status}`, source: "engine",

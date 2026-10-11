@@ -58,15 +58,7 @@ create table companies (
   status            text not null default 'active'
                     check (status in ('onboarding','active','hosted','archived')),
   archived_at       timestamptz,
-  purge_after_months int not null default 12,
-  -- opportunity lifecycle rules (per-company settings, Tyler: "depends on workflow and settings")
-  opp_opens_on      text not null default 'first_booking'
-                    check (opp_opens_on in ('lead_created','first_booking','pipeline_entry')),
-  opp_won_on        text not null default 'first_payment'
-                    check (opp_won_on in ('first_payment','closer_marks','paid_in_full')),
-  opp_lost_on       text not null default 'closer_marks_or_inactive'
-                    check (opp_lost_on in ('closer_marks','closer_marks_or_inactive')),
-  opp_inactive_days int not null default 90,
+  -- D88: won and lost are workflow steps (update_opportunity), not company settings
   created_at        timestamptz not null default now()
 );
 
@@ -862,9 +854,9 @@ a habit.
 
 | Rule | Fires on | Does |
 |---|---|---|
-| Opportunity open | `appointment.booked` (or per `opp_opens_on`) with no open opportunity on the contact | insert `opportunities`, emit `opportunity.opened` |
-| Opportunity won | `payment.received` (or per `opp_won_on`) | `status='won'`, emit `opportunity.won`. This is a **deal**. |
-| Opportunity lost | closer marks lost, or no events in `opp_inactive_days` | `status='lost'`, emit `opportunity.lost` |
+| Opportunity open | `appointment.booked` with no open opportunity on the contact (or a payment from someone with none) | insert `opportunities`, emit `opportunity.opened` |
+| Opportunity won | Payment recorded's `update_opportunity` step (D88: by default a succeeded payment on an open opportunity) | `status='won'`, emit `opportunity.won`. This is a **deal**. |
+| Opportunity lost | Call outcome filed's `update_opportunity` step (D88: a filed loss; a refiled answer that takes the loss back reopens it) | `status='lost'`, emit `opportunity.lost` |
 | Paid in full | sum of succeeded payments ≥ `contract_value` | emit `payment.paid_in_full` |
 | Appointment type | `appointment.booked` | `appointment_term` from `calendars.appointment_term` |
 | Contact attributes | `intake` insert | merge into `contacts.attributes` |

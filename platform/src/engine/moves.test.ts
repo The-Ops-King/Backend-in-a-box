@@ -227,3 +227,70 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: an end-of-day answer for a Sale
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
   });
 });
+
+describe.skipIf(!process.env.DATABASE_URL)("D88: won and lost are workflow steps (A9)", () => {
+  let contact: string, appt: string, opp: string;
+  const oppRow = () => asOperator((c) => one<{ status: string; lost_at: Date | null; won_at: Date | null }>(c, "select status, lost_at, won_at from opportunities where id=$1", [opp]));
+  const oppEvents = (t: string) => asOperator((c) => many<{ data: Record<string, unknown> }>(c, "select data from events where opportunity_id=$1 and event_type=$2 order by id", [opp, t]));
+  beforeAll(async () => {
+    await migrate(); companyId = await freshCompany("mvs-a9");
+    await asOperator(async (c) => {
+      await c.query("update companies set contract_value_default=3000 where id=$1", [companyId]);
+      contact = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,'G-ROY','Roy','Kent') returning id", [companyId]))!.id;
+      await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email','roy@x.test')", [companyId, contact]);
+      opp = (await one<{ id: string }>(c, "insert into opportunities (company_id, contact_id, status, opened_by, contract_value) values ($1,$2,'open','test',3000) returning id", [companyId, contact]))!.id;
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const cal = (await one<{ id: string }>(c, "insert into calendars (company_id, external_id, name, appointment_term, active) values ($1,'CAL','Closer',$2,true) returning id", [companyId, term]))!.id;
+      appt = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, appointment_term, starts_at, ends_at, status, booked_at, opportunity_id) values ($1,$2,$3,'A-ROY',$4,now() - interval '2 hours', now() - interval '1 hour','confirmed', now() - interval '3 days',$5) returning id", [companyId, contact, cal, term, opp]))!.id;
+    });
+  });
+  const file = (call: string) => asOperator(async (c) => {
+    const { recordDisposition, outcomeTermFor } = await import("@/engine/disposition");
+    const callTerm = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2", [companyId, call]))!.id;
+    return recordDisposition(c, { companyId, appointmentId: appt, outcomeTermId: (await outcomeTermFor(c, companyId, "showed"))!, callOutcomeTermId: callTerm });
+  });
+
+  it("Call outcome filed: a loss marks the open opportunity lost, a refiled answer that takes the loss back opens it again; the engine itself writes neither", async () => {
+    await install("call-outcome", (d) => {
+      const keep = new Set(["t1", "u1", "u2", "u3", "u4", "o_reopen", "b1", "b2", "c3", "o_lost", "x0", "x1"]);
+      d.nodes = d.nodes.filter((n) => keep.has(n.id));
+      d.edges = [{ from: "t1", to: "u1" }, { from: "u1", to: "u2" }, { from: "u2", to: "u3" }, { from: "u3", to: "u4" }, { from: "u4", to: "o_reopen" }, { from: "o_reopen", to: "b1" },
+        { from: "b1", to: "b2", when: { eq: ["{{event.outcome}}", "showed"] } }, { from: "b1", to: "x0", else: true },
+        { from: "b2", to: "c3", when: { eq: ["{{appointment.call_outcome}}", "lost"] } }, { from: "b2", to: "x1", else: true }, { from: "c3", to: "o_lost" }, { from: "o_lost", to: "x1" }];
+    });
+    await file("lost");
+    expect(await oppRow()).toMatchObject({ status: "open" });   // nothing until the workflow runs
+    await run();
+    expect(await oppRow()).toMatchObject({ status: "lost" });
+    expect(await oppEvents("opportunity.lost")).toEqual([{ data: expect.objectContaining({ by: "workflow", node: "o_lost", from: "open" }) }]);
+    await file("follow_up"); await run();
+    expect(await oppRow()).toMatchObject({ status: "open", lost_at: null });
+    // a won pursuit is never made lost by a later answer: the step changes it only from open
+    await asOperator((c) => c.query("update opportunities set status='won', won_at=now() where id=$1", [opp]));
+    await file("lost"); await run();
+    expect(await oppRow()).toMatchObject({ status: "won" });
+    await asOperator((c) => c.query("update opportunities set status='open', won_at=null where id=$1", [opp]));
+    await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
+  });
+
+  it("Payment recorded: a payment wins the open opportunity, once; a company that wins on paid in full says so on the step", async () => {
+    const pay = (id: string, amount: number) => asOperator(async (c) => { const r = await recordPayment(c, companyId, { providerPaymentId: id, amount, status: "succeeded", email: "roy@x.test", paidAt: new Date() }); if (r.outcome === "linked") await dispatchEvent(c, r.event, { contact: { id: contact } }); return r; });
+    const onlyTheWin = (d: Definition, cond?: Definition["nodes"][number]["only_if"]) => {
+      d.nodes = d.nodes.filter((n) => ["t1", "t2", "v1", "o_won", "x1"].includes(n.id)); d.edges = [{ from: "t1", to: "v1" }, { from: "t2", to: "v1" }, { from: "v1", to: "o_won" }, { from: "o_won", to: "x1" }];
+      if (cond) { const n = d.nodes.find((x) => x.id === "o_won")!; n.only_if = cond; }
+    };
+    await install("payment-recorded", (d) => onlyTheWin(d, { and: [{ eq: ["{{event._type}}", "payment.received"] }, { eq: ["{{event.cleared}}", true] }] }));
+    await pay("p-dep", 1000); await run();
+    expect(await oppRow()).toMatchObject({ status: "open" });   // a deposit: this company wins on paid in full
+    await pay("p-bal", 2000); await run();
+    expect(await oppRow()).toMatchObject({ status: "won" });
+    await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
+    await asOperator((c) => c.query("update opportunities set status='open', won_at=null where id=$1", [opp]));
+    await asOperator((c) => c.query("delete from events where opportunity_id=$1 and event_type='opportunity.won'", [opp]));
+    await install("payment-recorded", (d) => onlyTheWin(d));   // the template as shipped: any payment wins it
+    await pay("p-3", 100); await run();
+    await pay("p-4", 100); await run();
+    expect(await oppRow()).toMatchObject({ status: "won" });
+    expect(await oppEvents("opportunity.won")).toEqual([{ data: expect.objectContaining({ by: "workflow", node: "o_won" }) }]);   // once
+  });
+});

@@ -37,6 +37,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','test','live'))`);
     await c.query(`alter table runs drop constraint if exists runs_born_in_check`);
     await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('shadow','test','live'))`);
+    // D88: settings nothing read (purge_after_months, opp_lost_on, opp_inactive_days) or that half worked (opp_opens_on, opp_won_on) are gone; won and lost are workflow steps
+    for (const col of ["purge_after_months", "opp_opens_on", "opp_won_on", "opp_lost_on", "opp_inactive_days"]) await c.query(`alter table companies drop column if exists ${col}`);
     await c.query(`alter table companies add column if not exists reply_retention_days int not null default 7`);
     await c.query(`alter table companies add column if not exists sends_retention_days int not null default 30`);
     await c.query(`alter table sends drop constraint if exists sends_status_check`);

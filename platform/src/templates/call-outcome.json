@@ -5,7 +5,7 @@
   "stage": "post_call",
   "sort": 4,
   "origin": "spec",
-  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed or deposit → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A call filed as rescheduled or cancelled on the call only updates its Sales Call record (Call booked reacts 🔁 to a real reschedule). The Sales Call record is updated with the outcome in the company's own option keys and, for a show, the disposition the closer confirmed; a booking whose record the engine never wrote is found in GHL by the booking's id, else the person and the start minute, never made. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54). A refiled answer edits, never adds (D76): the thread line is edited in place, the earlier answer's reaction and tags come off where they differ, and the cards follow the new answer (the most recent card on each board, whatever the last answer left it as, reopened where the new answer leaves it open). What the earlier answer left on the Sales Call record and the new one does not say is emptied (D77): a no-show or a call rescheduled on the call empties the disposition, cash, objection, next step and payment terms; a show with no call outcome empties the disposition. Close pending (half a close, D83) is a show: stat-showed and the disposition close_pending; it is never counted as a close (D88).",
+  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed or deposit → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A call filed as rescheduled or cancelled on the call only updates its Sales Call record (Call booked reacts 🔁 to a real reschedule). The Sales Call record is updated with the outcome in the company's own option keys and, for a show, the disposition the closer confirmed; a booking whose record the engine never wrote is found in GHL by the booking's id, else the person and the start minute, never made. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54). A refiled answer edits, never adds (D76): the thread line is edited in place, the earlier answer's reaction and tags come off where they differ, and the cards follow the new answer (the most recent card on each board, whatever the last answer left it as, reopened where the new answer leaves it open). What the earlier answer left on the Sales Call record and the new one does not say is emptied (D77): a no-show or a call rescheduled on the call empties the disposition, cash, objection, next step and payment terms; a show with no call outcome empties the disposition. Close pending (half a close, D83) is a show: stat-showed and the disposition close_pending; it is never counted as a close (D88). The opportunity follows the answer (D88): a loss marks it lost (opportunity.lost); a refiled answer that takes the loss back opens it again.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -151,6 +151,31 @@
           ]
         },
         "title": "A changed answer: take off what the earlier answer tagged and this one does not"
+      },
+      {
+        "id": "o_reopen",
+        "type": "update_opportunity",
+        "status": "open",
+        "only_if": {
+          "and": [
+            {
+              "eq": [
+                "{{event.previous_call_outcome | default:}}",
+                "lost"
+              ]
+            },
+            {
+              "neq": [
+                "{{appointment.call_outcome | default:}}",
+                "lost"
+              ]
+            }
+          ]
+        },
+        "title": "A changed answer takes the loss back: the opportunity is open again",
+        "from": [
+          "lost"
+        ]
       },
       {
         "id": "b1",
@@ -360,6 +385,15 @@
         "pick": "latest"
       },
       {
+        "id": "o_lost",
+        "type": "update_opportunity",
+        "status": "lost",
+        "title": "Opportunity lost",
+        "from": [
+          "open"
+        ]
+      },
+      {
         "id": "c4",
         "type": "set_tag",
         "tag": [
@@ -508,7 +542,7 @@
       },
       {
         "from": "u4",
-        "to": "b1"
+        "to": "o_reopen"
       },
       {
         "from": "t2",
@@ -676,7 +710,7 @@
       },
       {
         "from": "k3",
-        "to": "x1"
+        "to": "o_lost"
       },
       {
         "from": "k4",
@@ -693,6 +727,14 @@
       {
         "from": "r3s",
         "to": "r3"
+      },
+      {
+        "from": "o_reopen",
+        "to": "b1"
+      },
+      {
+        "from": "o_lost",
+        "to": "x1"
       }
     ]
   }

@@ -4,12 +4,14 @@ import type { Adapters, Company } from "@/adapters/types";
 import { emitEvent, type EventRow } from "./dispatch";
 import { recordPayment } from "./payments";
 
-/** D13 §13: opportunity opens at first booking (per company setting), becomes a deal on first payment. */
+/**
+ * D13 §13: the ledger's opportunity (the pursuit runs, payments and bookings hang off) opens at the first booking, or at a
+ * payment from someone with none. That is the ledger's plumbing; won and lost are workflow steps (update_opportunity, D88).
+ */
 export async function ensureOpportunityForBooking(c: PoolClient, companyId: string, contactId: string, appointmentId: string, bookedEvent: EventRow): Promise<string> {
-  const co = await one<{ opp_opens_on: string }>(c, "select opp_opens_on from companies where id=$1", [companyId]);
   const open = await one<{ id: string }>(c, "select id from opportunities where company_id=$1 and contact_id=$2 and status='open' order by opened_at desc limit 1", [companyId, contactId]);
   let oppId = open?.id;
-  if (!oppId && co?.opp_opens_on !== "pipeline_entry") {
+  if (!oppId) {
     const row = await one<{ id: string }>(c, "insert into opportunities (company_id, contact_id, opened_by) values ($1,$2,'first_booking') returning id", [companyId, contactId]);
     oppId = row!.id;
     await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: oppId, appointment_id: appointmentId, event_type: "opportunity.opened", source: "engine", data: { by: "first_booking", event_id: bookedEvent.id } });

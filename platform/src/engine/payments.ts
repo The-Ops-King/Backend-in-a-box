@@ -108,11 +108,7 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
   const ev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: type, source: "whop", occurred_at: payment.paid_at,
     data: { payment_id: payment.id, provider_payment_id: payment.whop_payment_id, amount, currency: payment.currency, kind, paid_at: payment.paid_at.toISOString(), prior_total: prior, running_total: running, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - running, 0)), cleared: isCleared, linked_by: linkedBy, customer_email: payment.customer_email, whop_member_id: payment.whop_member_id } });
   if (payment.status === "succeeded") {
-    const co = await one<{ opp_won_on: string }>(c, "select opp_won_on from companies where id=$1", [companyId]);
-    if (opp.status === "open" && co?.opp_won_on === "first_payment") {
-      await c.query("update opportunities set status='won', won_at=now() where id=$1 and status='open'", [opp.id]);
-      await dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: "opportunity.won", source: "engine", data: { by: "first_payment" } }), { contact: { id: contactId }, opportunity: { id: opp.id } });
-    }
+    // D88 (A9): the opportunity is won by Payment recorded's update_opportunity step, where the company decides on which payment
     if (isCleared) {
       const already = await one(c, "select 1 from events where opportunity_id=$1 and event_type='payment.paid_in_full'", [opp.id]);
       if (!already) await dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: "payment.paid_in_full", source: "engine", data: { total: running, contract_value: opp.contract_value } }), { contact: { id: contactId }, opportunity: { id: opp.id } });
