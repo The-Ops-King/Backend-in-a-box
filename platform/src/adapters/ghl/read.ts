@@ -144,6 +144,10 @@ export const ghlRead: CrmRead = {
     }
     return out;
   },
+  async objectFields(c, objectKey) {
+    const r = await ghl<{ fields?: { fieldKey: string }[] }>(c.pit, "GET", `/objects/${objectKey}?locationId=${c.locationId}&fetchProperties=true`);
+    return (r.fields ?? []).map((f) => f.fieldKey.split(".").pop()!).filter(Boolean);
+  },
   /** Documents & Contracts (verified 2026-10-07): `GET /proposals/document?locationId&limit<=21&skip`; status sent | viewed | completed; recipients[] carries the signer contact id, hasCompleted, signedDate. */
   async documents(c) {
     const out: DocumentSnapshot[] = [];

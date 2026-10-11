@@ -505,6 +505,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       recordedBy: { name: "Sam Closer", email: "sam@x.com" }, invitees: [{ name: "Sam Closer", email: "sam@x.com", isExternal: false }, { name: "Leo Park", email: "cb2@x.com", isExternal: true }],
       transcript: [{ speaker: "Sam Closer", text: "Thanks for hopping on." }, { speaker: "Leo Park", text: "I just want it to stop." }] };
     const nTags = tags.length, nOpp = oppWrites.length, nRec = recordWrites.length, nRel = relations.length, nAn = analyses.length;
+    // this company's Sales Call object has no next-step fields (Hair's case, found live): they are left out and named, the rest is written
+    fake.read.objectFields = async (_c, key) => (key === "custom_objects.sales_call" ? ["display_label", "external_id", "contact_id", "opportunity_id", "scheduled_at", "call_date", "outcome", "recording_url", "transcript_ref", "closer", "setter", "duration_min", "disposition", "objection_primary", "objections_raised", "score_total", "rubric_version", "cash_collected", "booking_source"] : []);
     const r = await asOperator((c) => recordRecording(c, companyId, rec));
     expect(r.outcome).toBe("linked"); if (r.outcome !== "linked") return;
     expect(r.contactId).toBe(id); expect(r.recording.linked_by).toBe("email"); expect(r.appointmentId).toBe(appt.id);
@@ -521,6 +523,10 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     // the record was created at booking (call-booked); the recording updates that same one
     expect(rw[0]).toMatchObject({ op: "update", external_id: appt.external_id, outcome: "showed", contact_id: "CCB2", closer: "Sam Closer", duration_min: 43, disposition: "closed_won", objection_primary: "price", recording_url: "https://fathom.video/share/abc" });
     expect(relations.slice(nRel)).toEqual([`ASSOC-SC:CCB2>${rw[0].id}`, `ASSOC-SO:${rw[0].id}>${rw[0].opportunity_id}`]);
+    expect(rw[0]).not.toHaveProperty("next_step");
+    const r1 = await asOperator((c) => one<{ result: { not_on_object?: string[] } }>(c, "select result from run_steps where run_id=$1 and node_id='r1'", [run.id]));
+    expect(r1?.result.not_on_object).toEqual(expect.arrayContaining(["next_step"]));
+    delete fake.read.objectFields;
     const a = await asOperator((c) => one<{ outcome: string | null }>(c, "select t.category as outcome from appointments a left join company_terms t on t.id=a.outcome_term where a.id=$1", [appt.id]));
     expect(a?.outcome).toBe("showed");
     const evs = await asOperator((c) => many<{ event_type: string }>(c, "select event_type from events where company_id=$1 and contact_id=$2 and event_type in ('appointment.outcome','call.held','call.analyzed') order by id", [companyId, id]));

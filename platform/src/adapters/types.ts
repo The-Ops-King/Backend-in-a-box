@@ -52,6 +52,8 @@ export interface CrmRead {
   callsBetween(c: Company, from: Date, to: Date): Promise<MessageSnapshot[]>;
   wonOpportunities(c: Company, from: Date, to: Date): Promise<WonOpportunity[]>;
   objectRecords(c: Company, objectKey: string): Promise<ObjectRecord[]>;
+  /** The property keys a custom object has (the last segment of each field key); absent where the vendor has no schema read. */
+  objectFields?(c: Company, objectKey: string): Promise<string[]>;
   documents(c: Company): Promise<DocumentSnapshot[]>;
   opportunitiesSince(c: Company, since: Date): Promise<OppSnapshot[]>;
   /** Every card the CRM holds for one contact, any status. */

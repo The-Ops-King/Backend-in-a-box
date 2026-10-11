@@ -553,6 +553,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       // D77: what an earlier answer set and this one does not is emptied with null (the CRM ignores "" on some field types); only an update has anything to empty
       const cleared = Object.fromEntries([...new Set(node.clear.map((k) => render(k, d.ctx, env(d)).trim()).filter((k) => k && !(k in properties)))].map((k) => [k, null]));
       const owner = node.owner ? render(node.owner, d.ctx, env(d)) || undefined : undefined;
+      // a property the company's object does not have would make the CRM refuse the whole write: it is left out and named
+      const known = await objectKeys(d, objectKey);
+      const dropped = known ? [...Object.keys(properties), ...Object.keys(cleared)].filter((k) => !known.has(k)) : [];
+      for (const k of dropped) { delete properties[k]; delete cleared[k]; }
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
       let ghlId = existing?.ghl_record_id ?? null;
       // an update-only step: nothing to update when we never made the record, or made it only in shadow (no CRM id); a bare record keyed by an id alone would be a duplicate
@@ -582,7 +586,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
         if (!shadow(d)) await d.adapters.write.relateRecords(d.adapterCompany, assoc, first, second);
         related.push(`${first}→${second}`);
       }
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), our_id: row!.id, crm_id: ghlId, properties, related } };
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
     }
     case "update_contact": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
@@ -784,6 +788,16 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
  * the record carrying the booking's own id, else the one of this person (any of their GHL ids) starting the same minute
  * (with no readable time, the same day). Never by name; a record already tied to another booking is not a candidate.
  */
+/** The object's own property keys, read from the CRM at most every ten minutes per company; null when it cannot be read (the write goes as is). */
+const objectKeyCache = new Map<string, { at: number; keys: Set<string> }>();
+async function objectKeys(d: ExecDeps, objectKey: string): Promise<Set<string> | null> {
+  if (!objectKey.startsWith("custom_objects.") || !d.adapters.read.objectFields) return null;
+  const k = `${d.company.id}:${objectKey}`, hit = objectKeyCache.get(k);
+  if (hit && Date.now() - hit.at < 10 * 60e3) return hit.keys;
+  try { const keys = new Set(await d.adapters.read.objectFields(d.adapterCompany, objectKey)); if (!keys.size) return null; objectKeyCache.set(k, { at: Date.now(), keys }); return keys; }
+  catch { return null; }
+}
+
 async function bookingRecord(d: ExecDeps, objectKey: string): Promise<{ id: string } | { why: string }> {
   const appt = d.ctx.appointment as { external_id?: string; starts_at?: string } | undefined;
   if (!d.run.appointment_id || !appt?.starts_at) return { why: "the run has no booking to match it by" };
