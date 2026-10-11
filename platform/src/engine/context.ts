@@ -73,7 +73,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   const raw = (contact?.ghl_fields ?? {}) as Record<string, unknown>;
   for (const [k, id] of Object.entries(bindings)) if (k.startsWith("crm.field_contact_")) { const v = raw[id]; fields[k.slice("crm.field_contact_".length)] = Array.isArray(v) ? v.join(", ") : v ?? undefined; }
   const ctx: Record<string, unknown> = {
-    company: { id: company.id, name: company.name, timezone: company.timezone, operator_slack_id: bindings["bot.escalate_to"] || undefined },
+    company: { id: company.id, name: company.name, slug: company.slug, timezone: company.timezone, operator_slack_id: bindings["bot.escalate_to"] || undefined, base_url: (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "") },
     contact: contact ? { ...contact, ghl_fields: undefined, lead_source: undefined, fields, timezone: contactZone ?? company.timezone } : undefined,
     vars: (run.context.vars as Record<string, unknown>) ?? {},
     reply: { ...((run.context.reply as Record<string, unknown>) ?? {}), ...derivedReply },   // last_inbound/last_outbound are re-derived every tick; intent/confidence from classify persist
@@ -109,7 +109,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
            left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
       where a.id=$1`, [run.appointment_id]);
-    if (a) ctx.appointment = { ...a, starts_at: (a.starts_at as Date).toISOString(), ends_at: (a.ends_at as Date).toISOString() };
+    if (a) ctx.appointment = { ...a, starts_at: (a.starts_at as Date).toISOString(), ends_at: (a.ends_at as Date).toISOString(), started: (a.starts_at as Date).getTime() <= Date.now() };   // started: the call's time has come (D88)
   }
   if (run.opportunity_id) ctx.opportunity = await one(c, "select id, status, contract_value, opened_at from opportunities where id=$1", [run.opportunity_id]);
   // the contact's open card on each bound board: crm.pipeline_closer = <id> → cards.closer = { id (CRM), stage, name }

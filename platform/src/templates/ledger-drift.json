@@ -1,0 +1,107 @@
+{
+  "slug": "ledger-drift",
+  "name": "Ledger drift",
+  "category": "engine",
+  "stage": "engine",
+  "sort": 12,
+  "origin": "spec",
+  "engine_default": true,
+  "description": "What the hourly sweep found GHL and the ledger apart on, that GHL itself should change (D73, D76, D88): a Sales Call the booking source cancelled before its start is set to cancelled on its record (once ever: GHL set back after that is a question for a person), and a Sales Call missing its link to its contact or its one closer card gets the field and the association. Each by the record's own id; shadow and a test-mode contact that does not pass write nothing. The sweep's questions are said by Health check; every finding is also a drift.found event for any workflow that wants it. Was the engine's own write.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "none"
+    },
+    "nodes": [
+      {
+        "id": "t_cancel",
+        "type": "trigger",
+        "event": "drift.sales_call_cancelled"
+      },
+      {
+        "id": "t_link",
+        "type": "trigger",
+        "event": "drift.sales_call_unlinked"
+      },
+      {
+        "id": "b1",
+        "type": "branch",
+        "title": "Which repair?"
+      },
+      {
+        "id": "r_cancel",
+        "type": "crm_record",
+        "object": "{{crm.object_sales_call}}",
+        "record_id": "{{event.record_id}}",
+        "properties": {
+          "outcome": "{{event.cancelled_value}}"
+        },
+        "title": "Set the Sales Call cancelled in GHL"
+      },
+      {
+        "id": "r_link",
+        "type": "crm_record",
+        "object": "{{crm.object_sales_call}}",
+        "record_id": "{{event.record_id}}",
+        "properties": {
+          "contact_id": "{{event.contact_field | default:}}",
+          "opportunity_id": "{{event.card_id | default:}}"
+        },
+        "relate": [
+          {
+            "association": "{{crm.assoc_sales_call_contact | default:}}",
+            "first": "{{event.contact_field | default:}}",
+            "second": "{{event.record_id}}"
+          },
+          {
+            "association": "{{crm.assoc_sales_call_opportunity | default:}}",
+            "first": "{{event.record_id}}",
+            "second": "{{event.card_id | default:}}"
+          }
+        ],
+        "title": "Link the Sales Call to its contact and closer card"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "repaired"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t_cancel",
+        "to": "b1"
+      },
+      {
+        "from": "t_link",
+        "to": "b1"
+      },
+      {
+        "from": "b1",
+        "to": "r_cancel",
+        "when": {
+          "eq": [
+            "{{event._type}}",
+            "drift.sales_call_cancelled"
+          ]
+        },
+        "label": "cancelled before the call"
+      },
+      {
+        "from": "b1",
+        "to": "r_link",
+        "else": true,
+        "label": "not linked"
+      },
+      {
+        "from": "r_cancel",
+        "to": "x1"
+      },
+      {
+        "from": "r_link",
+        "to": "x1"
+      }
+    ]
+  }
+}

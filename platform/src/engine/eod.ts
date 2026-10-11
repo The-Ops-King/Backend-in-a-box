@@ -5,12 +5,10 @@ import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 import { decrypt } from "./crypto";
 import { loadCompany, type CompanyRow } from "./context";
-import { callTime, filedMeaning, salesCallValues } from "./sales-call";
-import { effectiveMode } from "./mode";
-import { raise } from "./alerts";
+import { callTime, filedMeaning } from "./sales-call";
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
-import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, MONEY, type CallEntry, type CallOutcome, type DayTotals, type EodField } from "./eod-form";
+import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, choiceOf, valueFor, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
 
 /**
  * D34. The closer's end-of-day report: one link per closer, no login. Opening it shows their day prefilled from what the
@@ -59,9 +57,6 @@ export type BlankSalesCall = { id: string; day: string; at: DateTime | null; nam
 export type CloserSalesCall = BlankSalesCall & { filed: boolean; due: boolean; appointment_id: string | null };
 /** A row on the form for a Sales Call the engine has no booking for: keyed by the record, so filing it writes to that record. */
 export const GHL_ROW = "ghl:";
-/** What a held call puts on its Sales Call; a no-show or a call rescheduled on the call empties it (D77). */
-export const HELD_CALL_PROPS = ["disposition", "cash_collected", "objection_primary", "next_step", "next_step_date", "payment_terms"];
-const DISPOSITION: Partial<Record<CallOutcome, string>> = { closed: "closed_won", deposit: "closed_won", follow_up: "follow_up", lost: "lost", dq: "dq" };
 
 /**
  * D76/D77: the closer's Sales Calls in GHL (matched by the record's `closer` to their roster name), each with whether it is
@@ -108,10 +103,12 @@ export async function blankSalesCalls(c: PoolClient, adapters: Adapters, adapter
 export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: string; name: string; email: string }, day: string, now: DateTime = DateTime.now(), adapters?: Adapters): Promise<EodPrefill> {
   const tz = company.timezone;
   const from = DateTime.fromFormat(day, DAY_FMT, { zone: tz }).startOf("day"), to = from.endOf("day");
-  const appts = await many<{ id: string; contact_id: string; contact: string; ghl_contact_id: string | null; starts_at: Date; ends_at: Date | null; status: string; outcome_cat: string | null; call_outcome_cat: string | null; notes: string | null }>(c, `
+  const fields = await loadEodForm(c, company.id), v = (m: Parameters<typeof valueFor>[1]) => valueFor(fields, m);
+  const appts = await many<{ id: string; contact_id: string; contact: string; ghl_contact_id: string | null; starts_at: Date; ends_at: Date | null; status: string; outcome_cat: string | null; call_outcome_cat: string | null; notes: string | null; via: string | null }>(c, `
     select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.ghl_contact_id, a.starts_at, a.ends_at, a.status,
            ot.category as outcome_cat, cot.category as call_outcome_cat,
-           (select fs.answers->>'notes' from form_submissions fs where fs.appointment_id=a.id order by fs.submitted_at desc limit 1) as notes
+           (select fs.answers->>'notes' from form_submissions fs where fs.appointment_id=a.id order by fs.submitted_at desc limit 1) as notes,
+           (select fs.answers->>'via' from form_submissions fs where fs.appointment_id=a.id order by fs.submitted_at desc limit 1) as via
     from appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
     where a.company_id=$1 and a.assigned_user_id=$2 and a.starts_at >= $3 and a.starts_at <= $4 and ${HELD_CALL} order by a.starts_at`, [company.id, closer.id, from.toJSDate(), to.toJSDate()]);
   const calls: CallEntry[] = [];
@@ -128,20 +125,23 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     // failed recording or a phone call never becomes a no-show because nobody changed a default
     const over = DateTime.fromJSDate(a.ends_at ?? a.starts_at) < now;
     // what the ledger says first (a recorded or marked outcome, then money), then Jev's read of the transcript as the tentative pre-set
-    const outcome: CallOutcome = a.outcome_cat === "noshow" || a.status === "noshow" ? "no_show" : a.outcome_cat === "rescheduled" ? "rescheduled"
-      : a.call_outcome_cat === "closed" ? "closed" : a.call_outcome_cat === "deposit" ? "deposit" : a.call_outcome_cat === "follow_up" ? "follow_up" : a.call_outcome_cat === "lost" ? "lost" : a.call_outcome_cat === "unqualified" ? "dq"
-      : paid > 0 ? (contract > 0 && paid < contract ? "deposit" : "closed") : won ? "closed"
-      : disp === "closed_won" ? "closed" : disp === "follow_up" || disp === "close_pending" ? "follow_up" : disp === "lost" ? "lost" : disp === "dq" ? "dq" : "";
-    const money = MONEY.includes(outcome);
+    // the company's own answer for what the ledger holds (B6): each outcome is found by what it means, not by its key
+    const byCall = a.call_outcome_cat ? v({ call_outcome: a.call_outcome_cat as CallMeaning }) || (a.call_outcome_cat === "deposit" ? v({ call_outcome: "closed" }) : "") : "";
+    const outcome: string = a.outcome_cat === "noshow" || a.status === "noshow" ? v({ attendance: "noshow" }) : a.outcome_cat === "rescheduled" ? v({ attendance: "rescheduled" })
+      : byCall || (paid > 0 ? (contract > 0 && paid < contract ? v({ call_outcome: "deposit" }) || v({ call_outcome: "closed" }) : v({ call_outcome: "closed" })) : won ? v({ call_outcome: "closed" })
+      : disp === "closed_won" ? v({ call_outcome: "closed" }) : disp === "follow_up" ? v({ call_outcome: "follow_up" }) : disp === "close_pending" ? v({ call_outcome: "pending" }) || v({ call_outcome: "follow_up" }) : disp === "lost" ? v({ call_outcome: "lost" }) : disp === "dq" ? v({ call_outcome: "unqualified" }) : "");
+    const money = isMoney(outcome, fields);
+    // A1 (D88): a card dragged to Lost or Disqualified filed the outcome; the form says so and asks why
+    const moved = a.via === "card_moved" && (a.call_outcome_cat === "lost" || a.call_outcome_cat === "unqualified") ? `${a.notes ?? "Moved in the CRM"}. Say why.` : "";
     const aboutParts = [str(notes.summary), str(notes.pain) && `Pains: ${str(notes.pain)}`, str(notes.desire) && `Goals: ${str(notes.desire)}`, str(notes.objections) && `Objections: ${str(notes.objections)}`].filter(Boolean);
     calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null, recording_url: rec?.share_url ?? null,
-      outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), revenue: money ? contract || paid || null : null, cash: money ? paid || null : null,
-      next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {} });
+      outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: money ? contract || paid || null : null, cash: money ? paid || null : null,
+      next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", lost_reason: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {} });
   }
   // D77: Sales Calls booked before the engine was installed, blank in GHL: their own rows, filed straight to the record; a row filed here before stays on the form after GHL has its answer
   let ghlUnread: string | undefined;
   if (adapters) {
-    const blank = (s: string): CallEntry => ({ appointment_id: s, contact_id: "", contact: "—", starts_at: from.toISO()!, href_contact: null, recording_url: null, outcome: "", revenue: null, cash: null, next_date: null, next_steps: "", dq_reason: "", dq_note: "", about: "", notes: "", extra: {} });
+    const blank = (s: string): CallEntry => ({ appointment_id: s, contact_id: "", contact: "—", starts_at: from.toISO()!, href_contact: null, recording_url: null, outcome: "", revenue: null, cash: null, next_date: null, next_steps: "", dq_reason: "", dq_note: "", lost_reason: "", about: "", notes: "", extra: {} });
     try {
       const { adapterCompany, bindings } = await loadCompany(c, company.id);
       for (const r of (await blankSalesCalls(c, adapters, adapterCompany, company.id, bindings, closer.name, tz, now)).filter((x) => !x.engine && x.day === day)) {
@@ -153,50 +153,33 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     for (const f of filed?.answers?.calls ?? []) if (f.appointment_id.startsWith(GHL_ROW) && !calls.some((x) => x.appointment_id === f.appointment_id)) calls.push({ ...blank(f.appointment_id), contact_id: f.contact_id, contact: f.contact, starts_at: f.starts_at });
     calls.sort((a, b) => a.starts_at.localeCompare(b.starts_at));
   }
-  return { day, closer, company: { id: company.id, name: company.name, slug: company.slug, timezone: tz }, ...totalsOf(calls), calls, ...(ghlUnread ? { ghl_unread: ghlUnread } : {}) };
-}
-
-/**
- * D77: a form row for a Sales Call the engine never booked is written to that record directly, the same properties Call
- * outcome filed writes: the outcome in the company's own keys, the disposition for a held call, and null for what a held call
- * carried when the answer is a no-show or rescheduled on the call. Not in live (or for a non-test contact in test): noted, not written.
- */
-async function fileGhlRow(c: PoolClient, adapters: Adapters, company: CompanyRow, call: CallEntry): Promise<"written" | "would" | "unchanged"> {
-  const { adapterCompany, bindings } = await loadCompany(c, company.id);
-  const object = bindings["crm.object_sales_call"], recordId = call.appointment_id.slice(GHL_ROW.length);
-  const v = salesCallValues(bindings);
-  const outcome = call.outcome === "no_show" ? v.noshow : call.outcome === "rescheduled" ? v.on_call : v.showed;
-  const props: Record<string, unknown> = { ...(outcome ? { outcome } : {}) };
-  if (DISPOSITION[call.outcome]) props.disposition = DISPOSITION[call.outcome];
-  else for (const k of HELD_CALL_PROPS) props[k] = null;
-  const effective = await effectiveMode(c, company.id, call.contact_id || null, company.mode, bindings);
-  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'eod.sales_call_filed','crm_record',$2,$3)", [company.id, recordId, { object, properties: props, written: effective === "real" }]);
-  if (effective !== "real") return "would";
-  await adapters.write.updateRecord(adapterCompany, object, recordId, props);
-  return "written";
+  return { day, closer, company: { id: company.id, name: company.name, slug: company.slug, timezone: tz }, ...totalsOf(calls, fields), calls, ...(ghlUnread ? { ghl_unread: ghlUnread } : {}) };
 }
 
 /** The closer's end-of-day picture for a run about them (context root user.eod): today's calls and whether today is filed, and every earlier day in the last week with calls and no report. Lines are ready to post. */
-export async function eodFacts(c: PoolClient, company: CompanyRow, userId: string, base: string, now = DateTime.now()): Promise<{ day: string; url: string; today: { calls: number; filed: boolean; line: string; open: string[] }; earlier: { day: string; label: string; calls: number; url: string; open: string[] }[]; earlier_count: number; earlier_lines: string; all_lines: string }> {
+export async function eodFacts(c: PoolClient, company: CompanyRow, userId: string, base: string, now = DateTime.now(), lookbackDays = 7): Promise<{ day: string; url: string; today: { calls: number; filed: boolean; line: string; open: string[]; moved: string[] }; earlier: { day: string; label: string; calls: number; url: string; open: string[]; moved: string[] }[]; earlier_count: number; earlier_lines: string; all_lines: string }> {
   const tz = company.timezone, local = now.setZone(tz), day = local.toFormat(DAY_FMT);
   const token = await tokenFor(c, userId), url = `${base}/eod/${token}`;
   // calls: the day's held calls with no answer on the ledger yet (a no-show, a call rescheduled on the call or a call
   // outcome is an answer; "showed" alone is not); open: those calls, for the reminder to check against GHL (D76)
-  const rows = await many<{ day: string; calls: number; open: string[]; filed: boolean }>(c, `
+  // A1 (D88): a call a card move filed as lost or DQ is still owed until the day is filed, so the closer says why
+  const rows = await many<{ day: string; calls: number; open: string[]; moved: string[]; filed: boolean }>(c, `
     select d.day::text as day, count(a.id)::int as calls, coalesce(array_agg(a.id::text) filter (where a.id is not null), '{}') as open,
+           coalesce(array_agg(a.id::text) filter (where a.id is not null and a.call_outcome_term is not null), '{}') as moved,
            exists (select 1 from eod_reports r where r.company_id=$1 and r.user_id=$2 and r.day=d.day and r.submitted_at is not null) as filed
-    from (select generate_series(($3::date - interval '7 days')::date, $3::date, interval '1 day')::date as day) d
-    left join (appointments a left join company_terms ot on ot.id=a.outcome_term)
+    from (select generate_series(($3::date - interval '${lookbackDays} days')::date, $3::date, interval '1 day')::date as day) d
+    left join (appointments a left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term)
       on a.company_id=$1 and a.assigned_user_id=$2 and ${HELD_CALL} and (a.starts_at at time zone $4)::date = d.day
-         and a.call_outcome_term is null and coalesce(ot.category, '') not in ('noshow', 'rescheduled', 'cancelled')
+         and ((a.call_outcome_term is null and coalesce(ot.category, '') not in ('noshow', 'rescheduled', 'cancelled'))
+           or (cot.category in ('lost', 'unqualified') and (select fs.answers->>'via' from form_submissions fs where fs.appointment_id=a.id order by fs.submitted_at desc limit 1) = 'card_moved'))
     group by d.day order by d.day`, [company.id, userId, day, tz]);
   const label = (d: string) => DateTime.fromFormat(d, DAY_FMT, { zone: tz }).toFormat("ccc LLL d");
-  const today = rows.find((r) => r.day === day) ?? { day, calls: 0, open: [], filed: false };
-  const earlier = rows.filter((r) => r.day < day && r.calls > 0 && !r.filed).map((r) => ({ day: r.day, label: label(r.day), calls: r.calls, url: `${url}?day=${r.day}`, open: r.open }));
+  const today = rows.find((r) => r.day === day) ?? { day, calls: 0, open: [], moved: [], filed: false };
+  const earlier = rows.filter((r) => r.day < day && r.calls > 0 && !r.filed).map((r) => ({ day: r.day, label: label(r.day), calls: r.calls, url: `${url}?day=${r.day}`, open: r.open, moved: r.moved }));
   const line = (d: { label: string; calls: number; url: string }, when: string) => `• <${d.url}|${when}>: ${d.calls} call${d.calls === 1 ? "" : "s"}`;
   const todayLine = today.calls && !today.filed ? line({ label: "today", calls: today.calls, url }, "today") : "";
   const earlierLines = earlier.map((d) => line(d, d.label)).join("\n");
-  return { day, url, today: { calls: today.calls, filed: today.filed, line: todayLine, open: today.open }, earlier, earlier_count: earlier.length, earlier_lines: earlierLines, all_lines: [todayLine, earlierLines].filter(Boolean).join("\n") };
+  return { day, url, today: { calls: today.calls, filed: today.filed, line: todayLine, open: today.open, moved: today.moved }, earlier, earlier_count: earlier.length, earlier_lines: earlierLines, all_lines: [todayLine, earlierLines].filter(Boolean).join("\n") };
 }
 
 export type Change = { field: string; from: unknown; to: unknown; contact?: string };
@@ -208,12 +191,12 @@ const TOTAL_WORDS = { calls_count: "calls today", closes: "closes", deposits: "d
 const CALL_WORDS = { cash: "cash collected", revenue: "revenue generated", next_date: "follow-up date" } as const;
 const money = (v: unknown) => `$${num(v).toLocaleString("en-US")}`;
 const dayWords = (v: unknown) => { const d = DateTime.fromISO(String(v ?? "")); return d.isValid ? d.toFormat("ccc LLL d") : String(v ?? ""); };
-export function diffAnswers(pre: EodPrefill, ans: EodAnswers): Change[] {
+export function diffAnswers(pre: EodPrefill, ans: EodAnswers, fields?: EodField[]): Change[] {
   const out: Change[] = [];
   for (const k of ["calls_count", "closes", "deposits", "cash", "revenue"] as const) if (num(pre[k]) !== num(ans[k])) out.push({ field: TOTAL_WORDS[k], from: k === "cash" || k === "revenue" ? money(pre[k]) : num(pre[k]), to: k === "cash" || k === "revenue" ? money(ans[k]) : num(ans[k]) });
   for (const call of ans.calls) {
     const p = pre.calls.find((x) => x.appointment_id === call.appointment_id); if (!p) continue;
-    if (p.outcome && p.outcome !== call.outcome) out.push({ field: "", from: outcomeLabel(p.outcome), to: outcomeLabel(call.outcome), contact: p.contact });
+    if (p.outcome && p.outcome !== call.outcome) out.push({ field: "", from: outcomeLabel(p.outcome, fields), to: outcomeLabel(call.outcome, fields), contact: p.contact });
     for (const k of ["cash", "revenue", "next_date"] as const) {
       const a = p[k] ?? "", b = call[k] ?? "";
       if (a === "" || String(a) === String(b)) continue;
@@ -227,12 +210,14 @@ export const changeLine = (ch: Change) => `${ch.contact ? `${ch.contact}: ` : ""
 
 /** The disposition note for one call: everything the closer said about it, one line per thing. */
 function dispositionNotes(call: CallEntry, fields: EodField[]): string {
+  const meaning = choiceOf(call.outcome, fields)?.call_outcome;
   const lines = [
     call.about && `About: ${call.about}`,
     call.notes,
-    call.outcome === "dq" && (call.dq_reason || call.dq_note) ? `DQ: ${[call.dq_reason, call.dq_note].filter(Boolean).join(" - ")}` : "",
-    call.outcome === "follow_up" && (call.next_steps || call.next_date) ? `Next: ${call.next_steps}${call.next_date ? ` by ${call.next_date}` : ""}` : "",
-    MONEY.includes(call.outcome) ? `${outcomeLabel(call.outcome)}: ${call.cash == null ? "?" : money(call.cash)} collected, ${call.revenue == null ? "?" : money(call.revenue)} revenue generated` : "",
+    meaning === "unqualified" && (call.dq_reason || call.dq_note) ? `DQ: ${[call.dq_reason, call.dq_note].filter(Boolean).join(" - ")}` : "",
+    meaning === "lost" && call.lost_reason ? `Lost: ${call.lost_reason}` : "",
+    meaning === "follow_up" && (call.next_steps || call.next_date) ? `Next: ${call.next_steps}${call.next_date ? ` by ${call.next_date}` : ""}` : "",
+    isMoney(call.outcome, fields) ? `${outcomeLabel(call.outcome, fields)}: ${call.cash == null ? "?" : money(call.cash)} collected, ${call.revenue == null ? "?" : money(call.revenue)} revenue generated` : "",
     ...fields.filter((f) => f.scope === "call" && !f.builtin && call.extra?.[f.key]).map((f) => `${f.label}: ${call.extra[f.key]}`),
   ];
   return lines.filter(Boolean).join("\n");
@@ -250,7 +235,7 @@ export async function submitEod(c: PoolClient, adapters: Adapters, args: { token
   const pre = await prefill(c, company, closer, args.day, DateTime.now(), adapters);
   // a GHL row the form did not offer this closer is dropped before anything is stored or written (D77)
   args = { ...args, answers: { ...args.answers, calls: args.answers.calls.filter((x) => !x.appointment_id.startsWith(GHL_ROW) || pre.calls.some((p) => p.appointment_id === x.appointment_id)) } };
-  const changes = diffAnswers(pre, args.answers);
+  const changes = diffAnswers(pre, args.answers, fields);
   const before = (await reportFor(c, company.id, closer.id, args.day))?.answers?.calls ?? [];
   let recorded = 0;
   const outcomeTerm = async (cat: string) => outcomeTermFor(c, company.id, cat);
@@ -261,13 +246,19 @@ export async function submitEod(c: PoolClient, adapters: Adapters, args: { token
       // a row this form offered (the closer's own blank record, or one they filed here before); one GHL already holds this answer for is not written again
       const offered = pre.calls.find((x) => x.appointment_id === call.appointment_id)!;
       if (!offered.record_id && before.find((x) => x.appointment_id === call.appointment_id)?.outcome === call.outcome) { recorded++; continue; }
-      try { await fileGhlRow(c, adapters, company, call); recorded++; }
-      catch (e) { await raise(c, { companyId: company.id, key: `eod:sales_call:${call.appointment_id.slice(GHL_ROW.length)}`, level: "warning", source: "engine", href: `/app/c/${company.slug}`, text: `Couldn't write ${closer.name}'s answer for ${call.contact} (${outcomeLabel(call.outcome)}) to its Sales Call in GHL: ${String((e as Error).message).slice(0, 200)}. Filing the day again retries it.`, detail: { record_id: call.appointment_id.slice(GHL_ROW.length), outcome: call.outcome } }); }
+      // A3 (D88): the answer is an event; the "Sales Call filed from the end-of-day form" workflow writes it to that record by its id
+      const choice = choiceOf(call.outcome, fields);
+      const ev = await emitEvent(c, { company_id: company.id, contact_id: call.contact_id || null, opportunity_id: null, appointment_id: null, event_type: "eod.call_filed", source: "user",
+        data: { user_id: closer.id, record_id: call.appointment_id.slice(GHL_ROW.length), day: args.day, contact: call.contact, outcome: call.outcome, outcome_label: outcomeLabel(call.outcome, fields), attendance: choice?.attendance ?? null, meaning: choice?.attendance === "showed" ? choice.call_outcome ?? null : null } });
+      await dispatchEvent(c, ev, { contact: { id: call.contact_id || null }, user: { id: closer.id } });
+      recorded++;
       continue;
     }
-    const outcomeCat = call.outcome === "no_show" ? "noshow" : call.outcome === "rescheduled" ? "rescheduled" : "showed";
+    // B6: what the company's answer means decides what is filed, whatever the answer is called
+    const choice = choiceOf(call.outcome, fields); if (!choice) continue;
+    const outcomeCat = choice.attendance;
     const outcomeTermId = await outcomeTerm(outcomeCat); if (!outcomeTermId) continue;
-    const callCat = call.outcome === "closed" ? "closed" : call.outcome === "deposit" ? "deposit" : call.outcome === "follow_up" ? "follow_up" : call.outcome === "lost" ? "lost" : call.outcome === "dq" ? "unqualified" : null;
+    const callCat = choice.attendance === "showed" ? choice.call_outcome ?? null : null;
     const callOutcomeTermId = callCat ? (await callTerm(callCat)) ?? (callCat === "deposit" ? await callTerm("closed") : null) : null;
     // an answer the ledger already holds (filed before, a card moved by hand, the CRM's no-show) is not filed again: Call outcome filed already posted it, and a second run would post it twice
     const held = await one<{ outcome_term: string | null; call_outcome_term: string | null; status: string }>(c, "select outcome_term, call_outcome_term, status from appointments where id=$1 and company_id=$2", [call.appointment_id, company.id]);
@@ -282,7 +273,10 @@ export async function submitEod(c: PoolClient, adapters: Adapters, args: { token
   const dayAnswers = fields.filter((f) => f.scope === "day" && args.answers.day_answers?.[f.key]).map((f) => ({ key: f.key, label: f.label, answer: args.answers.day_answers[f.key] }));
   const ev = await emitEvent(c, { company_id: company.id, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "eod.filed", source: "user",
     data: { user_id: closer.id, report_id: row?.id, day: args.day, day_label: DateTime.fromFormat(args.day, DAY_FMT).toFormat("ccc LLL d"), totals_line: totalsLine(args.answers), calls_count: args.answers.calls_count, closes: args.answers.closes, deposits: args.answers.deposits, cash: args.answers.cash, revenue: args.answers.revenue,
-      calls: args.answers.calls.map((x) => ({ contact: x.contact, contact_id: x.contact_id, appointment_id: x.appointment_id, outcome: x.outcome, outcome_label: outcomeLabel(x.outcome), revenue: x.revenue, cash: x.cash, next_date: x.next_date, next_steps: x.next_steps, dq_reason: x.dq_reason, dq_note: x.dq_note, about: x.about, notes: x.notes, ...x.extra })),
+      calls: args.answers.calls.map((x) => ({ contact: x.contact, contact_id: x.contact_id, appointment_id: x.appointment_id, outcome: x.outcome, outcome_label: outcomeLabel(x.outcome, fields), meaning: choiceOf(x.outcome, fields)?.call_outcome ?? choiceOf(x.outcome, fields)?.attendance ?? null, revenue: x.revenue, cash: x.cash, next_date: x.next_date, next_steps: x.next_steps, dq_reason: x.dq_reason, dq_note: x.dq_note, lost_reason: x.lost_reason ?? "", about: x.about, notes: x.notes, ...x.extra })),
+      // A1 (D88): why each lost or DQ call went that way, for the summary
+      reasons: args.answers.calls.map((x) => ({ x, m: choiceOf(x.outcome, fields)?.call_outcome })).filter(({ x, m }) => (m === "lost" && x.lost_reason) || (m === "unqualified" && (x.dq_reason || x.dq_note)))
+        .map(({ x, m }) => ({ contact: x.contact, outcome_label: outcomeLabel(x.outcome, fields), reason: m === "lost" ? x.lost_reason : [x.dq_reason, x.dq_note].filter(Boolean).join(" - ") })),
       corrections, corrections_lines: corrections.map((x) => `• ${x}`).join("\n"), corrections_block: corrections.length ? `*Corrected from what the engine had:*\n${corrections.map((x) => `• ${x}`).join("\n")}` : "", corrections_count: corrections.length, corrected: corrections.length > 0, day_answers: dayAnswers, day_answers_lines: dayAnswers.map((d) => `*${d.label}* ${d.answer}`).join("\n"), refiled: !!wasFiled } });
   await dispatchEvent(c, ev, { user: { id: closer.id } });
   return { ok: true, changes, recorded };

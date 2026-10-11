@@ -7,7 +7,7 @@ import { encrypt } from "@/engine/crypto";
 import { loadCompany } from "@/engine/context";
 import { recordPhoneCall, settlePhoneCall } from "@/engine/recordings";
 import { rollupDay, readMetrics } from "@/engine/metrics";
-import { buildReport, periodFor, renderReport } from "@/engine/reports";
+import { buildReport, periodFor, renderLayout, reportFacts, shippedLayout } from "@/engine/reports";
 import { dispatchSchedules, periodOf, scheduleWords } from "@/engine/clock";
 import { tick } from "@/engine/runner";
 import { installTemplateForTest, replicaSnapshot, fakeProbes } from "@/engine/test-install";
@@ -15,6 +15,8 @@ import type { GhlReads } from "@/adapters/ghl/metrics";
 import type { Adapters, BookingRead } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
+/** D88 (A8): the body is the shipped template's layout over the numbers; these are the words renderReport used to hold, unchanged. */
+const renderReport = (a: Parameters<typeof reportFacts>[0]) => renderLayout(shippedLayout(), reportFacts(a), {}, { tz: a.tz, companyTz: a.tz });
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 
 describe("report periods and due-ness (pure)", () => {

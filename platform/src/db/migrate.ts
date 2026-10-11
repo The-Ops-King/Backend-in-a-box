@@ -37,6 +37,10 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','test','live'))`);
     await c.query(`alter table runs drop constraint if exists runs_born_in_check`);
     await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('shadow','test','live'))`);
+    // D88: alerts are Slack only, said by the Health check workflow; the email and webhook destinations are gone with their paths
+    await c.query(`delete from bindings where key in ('alerts.email','alerts.email_from','alerts.webhook','secret.resend_key')`);
+    // D88: settings nothing read (purge_after_months, opp_lost_on, opp_inactive_days) or that half worked (opp_opens_on, opp_won_on) are gone; won and lost are workflow steps
+    for (const col of ["purge_after_months", "opp_opens_on", "opp_won_on", "opp_lost_on", "opp_inactive_days"]) await c.query(`alter table companies drop column if exists ${col}`);
     await c.query(`alter table companies add column if not exists reply_retention_days int not null default 7`);
     await c.query(`alter table companies add column if not exists sends_retention_days int not null default 30`);
     await c.query(`alter table sends drop constraint if exists sends_status_check`);
@@ -147,6 +151,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table runs alter column contact_id drop not null`);
     await c.query(`alter table runs add column if not exists user_id uuid references users(id)`);
     await c.query(`insert into event_types values ('schedule','clock'), ('eod.filed','report') on conflict do nothing`);
+    await c.query(`insert into event_types values ('eod.call_filed','report') on conflict do nothing`);
+    await c.query(`insert into event_types values ('alert.raised','engine'), ('alert.repeated','engine'), ('alert.resolved','engine') on conflict do nothing`);   // D88 A7: the Health check workflow says what broke
+    await c.query(`insert into event_types values ('drift.found','engine'), ('drift.sales_call_cancelled','engine'), ('drift.sales_call_unlinked','engine') on conflict do nothing`);   // D88 A6: the hourly drift sweep's findings   // D88 A3: an end-of-day answer for a Sales Call booked before the engine
     // D45: a team member's reaction on a post the engine remembered is an event a workflow can start from
     await c.query(`alter table slack_connections add column if not exists bot_user_id text`);
     // D46 column, unused since D54 (the end-of-day form presumes a no-show from the call time alone); left in place, nothing reads it

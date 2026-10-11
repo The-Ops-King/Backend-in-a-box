@@ -1,0 +1,289 @@
+{
+  "slug": "card-moved",
+  "name": "Card moved by hand",
+  "category": "post_call",
+  "stage": "post_call",
+  "sort": 5,
+  "origin": "spec",
+  "engine_default": true,
+  "description": "Someone dragged a pipeline card in the CRM (or a CRM workflow moved it): a line in the booking post's thread says who moved which card where (the mover when the CRM says who, else someone). A move that names an outcome files it on the call once the call has started, as the end-of-day form would, so Call outcome filed runs: the closer card into No Show / Cancelled, or the setter card into No-Show / Cancel / Reschedule, is a no-show; the closer card into Lost is a show that was lost; into Disqualified, a show that was disqualified. An outcome the call already carries is not filed twice; a future call dragged to No Show / Cancelled is a cancel, which the calendar carries. Follow Up, Financing Pending and every other stage are only noted. The end-of-day form opens with the outcome the move filed and asks why it was lost or DQ (D61, D88).",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "none"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "card.moved"
+      },
+      {
+        "id": "v_status",
+        "type": "set_var",
+        "key": "status_part",
+        "when": {
+          "neq": [
+            "{{event.from_status}}",
+            "{{event.to_status}}"
+          ]
+        },
+        "value": " and marked it {{event.to_status}}",
+        "else_value": "",
+        "title": "Whether the status changed too"
+      },
+      {
+        "id": "v_line",
+        "type": "set_var",
+        "key": "line",
+        "when": {
+          "neq": [
+            "{{event.from_stage}}",
+            "{{event.to_stage}}"
+          ]
+        },
+        "value": "🗂️ {{event.mover | default:someone}} moved the {{event.pipeline}} card to {{event.to_name}}{{vars.status_part}}",
+        "else_value": "🗂️ {{event.mover | default:someone}} marked the {{event.pipeline}} card {{event.to_status}}",
+        "title": "The thread line"
+      },
+      {
+        "id": "n_line",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "as": {
+          "name": "Card moved",
+          "icon": ":card_index_dividers:"
+        },
+        "template": "{{vars.line}}",
+        "title": "Say who moved the card, in the booking post's thread"
+      },
+      {
+        "id": "b1",
+        "type": "branch",
+        "title": "Does the stage name an outcome for a call that has started?"
+      },
+      {
+        "id": "o_noshow",
+        "type": "record_outcome",
+        "outcome": "noshow",
+        "source": "disposition",
+        "user": "{{event.mover_id | default:}}",
+        "via": "card_moved",
+        "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
+        "title": "File a no-show, as the form would"
+      },
+      {
+        "id": "o_lost",
+        "type": "record_outcome",
+        "outcome": "showed",
+        "call_outcome": "lost",
+        "source": "disposition",
+        "user": "{{event.mover_id | default:}}",
+        "via": "card_moved",
+        "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
+        "title": "File a show that was lost, as the form would"
+      },
+      {
+        "id": "o_dq",
+        "type": "record_outcome",
+        "outcome": "showed",
+        "call_outcome": "unqualified",
+        "source": "disposition",
+        "user": "{{event.mover_id | default:}}",
+        "via": "card_moved",
+        "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
+        "title": "File a show that was disqualified, as the form would"
+      },
+      {
+        "id": "x_filed",
+        "type": "exit",
+        "reason": "filed"
+      },
+      {
+        "id": "x_noted",
+        "type": "exit",
+        "reason": "noted"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "v_status"
+      },
+      {
+        "from": "v_status",
+        "to": "v_line"
+      },
+      {
+        "from": "v_line",
+        "to": "n_line"
+      },
+      {
+        "from": "n_line",
+        "to": "b1"
+      },
+      {
+        "from": "b1",
+        "to": "o_noshow",
+        "label": "into a no-show stage",
+        "when": {
+          "and": [
+            {
+              "eq": [
+                "{{appointment.started}}",
+                true
+              ]
+            },
+            {
+              "neq": [
+                "{{event.from_stage}}",
+                "{{event.to_stage}}"
+              ]
+            },
+            {
+              "neq": [
+                "{{appointment.outcome | default:}}",
+                "noshow"
+              ]
+            },
+            {
+              "or": [
+                {
+                  "and": [
+                    {
+                      "eq": [
+                        "{{event.pipeline}}",
+                        "closer"
+                      ]
+                    },
+                    {
+                      "eq": [
+                        "{{event.to_stage}}",
+                        "{{crm.stage_closer_cancelled | default:}}"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "and": [
+                    {
+                      "eq": [
+                        "{{event.pipeline}}",
+                        "setter"
+                      ]
+                    },
+                    {
+                      "eq": [
+                        "{{event.to_stage}}",
+                        "{{crm.stage_setter_cancelled | default:}}"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "from": "b1",
+        "to": "o_lost",
+        "label": "into Lost",
+        "when": {
+          "and": [
+            {
+              "eq": [
+                "{{appointment.started}}",
+                true
+              ]
+            },
+            {
+              "neq": [
+                "{{event.from_stage}}",
+                "{{event.to_stage}}"
+              ]
+            },
+            {
+              "neq": [
+                "{{appointment.call_outcome | default:}}",
+                "lost"
+              ]
+            },
+            {
+              "eq": [
+                "{{event.pipeline}}",
+                "closer"
+              ]
+            },
+            {
+              "eq": [
+                "{{event.to_stage}}",
+                "{{crm.stage_closer_lost | default:}}"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "from": "b1",
+        "to": "o_dq",
+        "label": "into Disqualified",
+        "when": {
+          "and": [
+            {
+              "eq": [
+                "{{appointment.started}}",
+                true
+              ]
+            },
+            {
+              "neq": [
+                "{{event.from_stage}}",
+                "{{event.to_stage}}"
+              ]
+            },
+            {
+              "neq": [
+                "{{appointment.call_outcome | default:}}",
+                "unqualified"
+              ]
+            },
+            {
+              "eq": [
+                "{{event.pipeline}}",
+                "closer"
+              ]
+            },
+            {
+              "eq": [
+                "{{event.to_stage}}",
+                "{{crm.stage_closer_disqualified | default:}}"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "from": "b1",
+        "to": "x_noted",
+        "else": true,
+        "label": "any other stage, or nothing new to file: noted"
+      },
+      {
+        "from": "o_noshow",
+        "to": "x_filed"
+      },
+      {
+        "from": "o_lost",
+        "to": "x_filed"
+      },
+      {
+        "from": "o_dq",
+        "to": "x_filed"
+      }
+    ]
+  }
+}

@@ -6,8 +6,7 @@ import type { GhlReads } from "@/adapters/ghl/metrics";
 import type { CompanyRow } from "./context";
 import type { Finding } from "./health";
 import { effectiveMode, isTestContact, testContactSql, testDomains } from "./mode";
-import { claimEffect, markEffect, releasePending, PENDING_WHY } from "./effects";
-import { paymentRecords, salesCallConfig, salesCallsFor, type Payment, type SalesCall, type SalesCallConfig } from "./ghl-metrics";
+import { paymentRecords, salesCallConfig, salesCallsFor, type Payment, type SalesCall } from "./ghl-metrics";
 
 /**
  * D73. "Always GHL. It's the truth. If the two are different, that's an issue." And: "the engine is only the mirror of the
@@ -17,13 +16,15 @@ import { paymentRecords, salesCallConfig, salesCallsFor, type Payment, type Sale
  * - a contact GHL added that the ledger lacks is pulled in with the contacts poll's own upsert, and a record new to the
  *   engine fires lead.created once, as the poll would have;
  * - a ledger contact GHL confirms is gone is stamped gone (asked first, D69);
- * - a Sales Call the booking source cancelled before its start is set to cancelled in GHL (mode rules, D52; the effects
- *   ledger, D66, so the write is never made twice) and in the ledger;
+ * - a Sales Call the booking source cancelled before its start is set to cancelled in the ledger, and in GHL by the Ledger
+ *   drift workflow (D88: `drift.sales_call_cancelled`, once ever per record, under the mode rules, D52);
+ * - a Sales Call missing its link to its contact or closer card is linked by the same workflow (`drift.sales_call_unlinked`);
  * - otherwise a filed Sales Call outcome wins over the ledger's.
- * Every repair is in the audit log and the sweep's result. What it cannot repair (an unmatched record, a cancel at an
- * unknown time, a write the mode holds back or the CRM refuses) is one alert naming the people, resolved by the sweep that
- * finds nothing left. A read that did not happen decides nothing: whatever was open stays open.
+ * Every repair is in the audit log and the sweep's result, and each kind of finding is one `drift.found` event a sweep
+ * (`kind`, `items`). What it cannot repair is one alert, its questions as lists by kind in the alert's detail; the Health check
+ * workflow words them (D88). A read that did not happen decides nothing: whatever was open stays open.
  */
+/** The defaults of the health_check step's drift settings (D88): `drift_days` looked back over, `poll_lag_min` the poll has not reached. */
 export const DRIFT_DAYS = 7;
 export const POLL_LAG_MIN = 30;
 const NAMES = 10;
@@ -34,6 +35,7 @@ export async function crmPresence(get: (id: string) => Promise<ContactSnapshot |
   catch (e) { return /\bcontact (with id \S+ )?not found\b/i.test(String((e as Error).message)) ? "gone" : "unknown"; }
 }
 
+/** The categories' words, for the repair log and the questions' data (the questions themselves are worded by the workflow). */
 const WORDS: Record<string, string> = { showed: "showed", noshow: "no-show", cancelled: "cancelled", rescheduled: "rescheduled" };
 const RESULT_WORDS: Record<string, string> = { closed: "closed", deposit: "deposit", pending: "close pending", follow_up: "follow up", lost: "lost", unqualified: "DQ", qualified: "qualified" };
 const snapName = (k: ContactSnapshot) => `${k.firstName ?? ""} ${k.lastName ?? ""}`.trim() || k.email || k.phone || k.id;
@@ -42,9 +44,10 @@ const why = (e: unknown) => String((e as Error).message).slice(0, 160);
 const callLabel = (k: SalesCall) => `${k.name.split(" · ")[0].trim() || k.name}, ${k.at.toFormat("ccc LLL d")}${k.at.hour || k.at.minute ? ` at ${k.at.toFormat("h:mm a")}` : ""}`;
 
 /** `runId`: the health step's run, which the effects ledger records CRM writes against; without one, no CRM write is made. */
-export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Company, bindings: Record<string, string>, reads: GhlReads, adapters: Adapters, runId: string | undefined, now: DateTime = DateTime.now()): Promise<Finding[]> {
-  const check = "ledger_drift";
-  const from = now.minus({ days: DRIFT_DAYS }).toJSDate(), to = now.minus({ minutes: POLL_LAG_MIN }).toJSDate();
+export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Company, bindings: Record<string, string>, reads: GhlReads, _adapters: Adapters, _runId: string | undefined, now: DateTime = DateTime.now(), opts: { days?: number; pollLagMin?: number } = {}): Promise<Finding[]> {
+  const check = "ledger_drift", days = opts.days ?? DRIFT_DAYS;
+  const from = now.minus({ days }).toJSDate(), to = now.minus({ minutes: opts.pollLagMin ?? POLL_LAG_MIN }).toJSDate();
+  const { emitEvent, dispatchEvent } = await import("./dispatch");
   const carry = async (reason: string): Promise<Finding[]> => {
     const open = await one<{ text: string; level: "error" | "warning"; detail: Record<string, unknown> }>(c, "select text, level, detail from alerts where company_id=$1 and key='health:ledger_drift' and resolved_at is null", [company.id]);
     return open ? [{ check, ok: false, level: open.level, text: open.text, detail: open.detail }] : [{ check, ok: true, level: "warning", text: `GHL could not be read to compare with the ledger (${reason}); compared again next sweep.` }];
@@ -57,13 +60,22 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
   } catch (e) { return carry(why(e)); }
 
   const out: Finding[] = [];
-  const left: string[] = [];
-  const unrepaired: Record<string, unknown>[] = [];
+  // D88: what the sweep cannot settle is a question, kept as data (kind + the facts); the Health check workflow words it
+  const left: Record<string, unknown>[] = [];
+  const found = new Map<string, Record<string, unknown>[]>();   // every finding by kind, for the drift.found events
+  const note = (kind: string, item: Record<string, unknown>) => found.set(kind, [...(found.get(kind) ?? []), item]);
   const audit = (target: string, id: string, before: unknown, after: Record<string, unknown>) =>
     c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'health.repaired',$2,$3,$4,$5)", [company.id, target, id, before === null ? null : JSON.stringify(before), JSON.stringify(after)]);
   const fixedPeople = new Set<string>();
-  const repaired = (item: string, text: string, detail: Record<string, unknown>, who?: string) => { fixedPeople.add(who ?? item); out.push({ check, item: `repair:${item}`, ok: true, level: "warning", text: `Repaired: ${text}.`, detail }); };
-  const cannot = (text: string, detail: Record<string, unknown>) => { left.push(text); unrepaired.push(detail); };
+  const repaired = (item: string, text: string, detail: Record<string, unknown>, who?: string, kind = "repaired") => { fixedPeople.add(who ?? item); out.push({ check, item: `repair:${item}`, ok: true, level: "warning", text: `Repaired: ${text}.`, detail }); note(kind, detail); };
+  const ask = (kind: string, data: Record<string, unknown>) => { left.push({ kind, ...data }); note(kind, data); };
+  /** A write the Ledger drift workflow is already making for this record (a run still going) is not asked for again. */
+  const inFlight = async (type: string, recordId: string) => !!(await one(c, `select 1 from runs r join events e on e.id=r.triggered_by_event where r.company_id=$1 and e.event_type=$2 and e.data->>'record_id'=$3 and r.status in ('active','waiting','paused') limit 1`, [company.id, type, recordId]));
+  /** One write for the Ledger drift workflow, about the person and their booking; false when no workflow took it. */
+  const handOn = async (type: string, k: SalesCall, data: Record<string, unknown>) => {
+    const ev = await emitEvent(c, { company_id: company.id, contact_id: k.appt!.contact_id, opportunity_id: null, appointment_id: k.appt!.id, event_type: type, source: "engine", data: { record_id: k.id, label: callLabel(k), ...data } });
+    return (await dispatchEvent(c, ev, { contact: { id: k.appt!.contact_id }, appointment: { id: k.appt!.id } })).length > 0;
+  };
   // one repair failing in the database must not undo the others
   const guarded = async (f: () => Promise<void>, onError: (e: unknown) => void) => {
     await c.query("savepoint drift_repair");
@@ -76,7 +88,6 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
   const missing = ghl.filter((k) => !known.has(k.id));
   if (missing.length) {
     const { upsertContact, boundFieldIds } = await import("./poll");
-    const { emitEvent, dispatchEvent } = await import("./dispatch");
     for (const s of missing) await guarded(async () => {
       const up = await upsertContact(c, company.id, company.timezone, s, boundFieldIds(bindings));
       // the record is new to the engine here, so the sweep is what makes it a lead: the poll will now see it as known and fire nothing.
@@ -84,8 +95,8 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       const minutesLate = Math.max(0, Math.round((now.toMillis() - Date.parse(s.dateAdded)) / 60_000));
       if (up.isNew) await dispatchEvent(c, await emitEvent(c, { company_id: company.id, contact_id: up.id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: s.id, by: "health", minutes_late: minutesLate } }), { contact: { id: up.id, ghl_contact_id: s.id, tags: s.tags } });
       await audit("contact", up.id, null, { repair: "pulled_in", ghl_contact_id: s.id, lead_created: up.isNew, minutes_late: minutesLate });
-      repaired(s.id, `${snapName(s)} was in GHL but not the ledger; pulled in${up.isNew ? " (New lead fired once)" : ""}`, { ghl_contact_id: s.id, contact_id: up.id }, s.id);
-    }, (e) => cannot(`${snapName(s)} is in GHL but the engine couldn't pull them in (${why(e)}). I'll try again next hour.`, { kind: "missing", ghl_contact_id: s.id }));
+      repaired(s.id, `${snapName(s)} was in GHL but not the ledger; pulled in${up.isNew ? " (New lead fired once)" : ""}`, { ghl_contact_id: s.id, contact_id: up.id, name: snapName(s), lead_created: up.isNew }, s.id, "pulled_in");
+    }, (e) => ask("missing", { name: snapName(s), why: why(e), ghl_contact_id: s.id }));
   }
 
   // 2. ledger contacts of those days GHL no longer has: GHL is asked about each; only its own "gone" counts
@@ -98,17 +109,17 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     if ((await crmPresence((id) => reads.getContact(ac, id), o.ghl_contact_id)) !== "gone") continue;
     await c.query("update contacts set gone_at=now(), updated_at=now() where id=$1 and gone_at is null", [o.id]);
     await audit("contact", o.id, { gone_at: null }, { repair: "marked_gone", ghl_contact_id: o.ghl_contact_id });
-    repaired(o.ghl_contact_id, `${o.name ?? o.ghl_contact_id} is gone from GHL; marked gone in the ledger`, { contact_id: o.id, ghl_contact_id: o.ghl_contact_id }, o.ghl_contact_id);
+    repaired(o.ghl_contact_id, `${o.name ?? o.ghl_contact_id} is gone from GHL; marked gone in the ledger`, { contact_id: o.id, ghl_contact_id: o.ghl_contact_id, name: o.name ?? o.ghl_contact_id }, o.ghl_contact_id, "marked_gone");
   }
 
   // 3. Sales Calls against the bookings they match
   const termOf = async (cat: string) => (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_outcome' and category=$2 order by is_default desc limit 1", [company.id, cat]))?.id ?? null;
   const setLedgerOutcome = async (k: SalesCall, cat: string, reason: string) => {
     const term = await termOf(cat);
-    if (!term) { cannot(`${callLabel(k)}: GHL says ${WORDS[cat] ?? cat}, but the engine has no "${cat}" outcome set up, so it can't follow. That's a setup fix on our side.`, { kind: "outcome_term", record_id: k.id }); return; }
+    if (!term) { ask("setup", { label: callLabel(k), said: WORDS[cat] ?? cat, term: cat, record_id: k.id }); return; }
     await c.query("update appointments set outcome_term=$2 where id=$1", [k.appt!.id, term]);
     await audit("appointment", k.appt!.id, { outcome: k.appt!.outcome }, { repair: reason, outcome: cat, sales_call: k.id });
-    repaired(`${k.id}:ledger`, `${callLabel(k)}: the ledger said ${WORDS[k.appt!.outcome ?? ""] ?? "nothing"}, now ${WORDS[cat]} as ${reason === "booking_cancelled" ? `${k.booking_source} cancelled it before the call` : "GHL says"}`, { appointment_id: k.appt!.id, sales_call: k.id, outcome: cat }, k.ghl || k.id);
+    repaired(`${k.id}:ledger`, `${callLabel(k)}: the ledger said ${WORDS[k.appt!.outcome ?? ""] ?? "nothing"}, now ${WORDS[cat]} as ${reason === "booking_cancelled" ? `${k.booking_source} cancelled it before the call` : "GHL says"}`, { appointment_id: k.appt!.id, sales_call: k.id, label: callLabel(k), from: k.appt!.outcome, outcome: cat, reason }, k.ghl || k.id, "attendance_changed");
   };
   // D83: GHL's outcome (the record's disposition) is copied the same way: a call that showed takes it; a call GHL says did
   // not happen (no-show, cancelled, rescheduled) has none. Nothing fires: the ledger only follows GHL
@@ -120,13 +131,13 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       if (!cur) return;
       await c.query("update appointments set call_outcome_term=null where id=$1", [a.id]);
       await audit("appointment", a.id, { call_outcome: cur }, { repair: "ghl_outcome", call_outcome: null, sales_call: k.id });
-      repaired(`${k.id}:result`, `${label}: the ledger had ${RESULT_WORDS[cur] ?? cur}, but it was ${WORDS[attended]}; outcome cleared`, { appointment_id: a.id, sales_call: k.id }, k.ghl || k.id);
+      repaired(`${k.id}:result`, `${label}: the ledger had ${RESULT_WORDS[cur] ?? cur}, but it was ${WORDS[attended]}; outcome cleared`, { appointment_id: a.id, sales_call: k.id, label, from: cur, call_outcome: null }, k.ghl || k.id, "outcome_changed");
       return;
     }
     if (!k.disposition.trim()) return;
     const mapped = cfg!.dispositions[k.disposition.trim().toLowerCase()];
     let meaning = mapped?.meaning;
-    if (!mapped || !meaning) { cannot(`${label}: GHL's outcome is "${k.disposition}", and the engine hasn't been told what that means yet. That's a setup fix on our side.`, { kind: "disposition_unmapped", record_id: k.id, disposition: k.disposition }); return; }
+    if (!mapped || !meaning) { ask("disposition_unmapped", { label, disposition: k.disposition, record_id: k.id }); return; }
     // pending is half a close and nothing else: paid or signed, not both (both is a close; neither is still a follow up)
     if (meaning === "pending") {
       const ev = await one<{ paid: boolean; signed: boolean }>(c, `select exists (select 1 from payments p where p.company_id=$1 and p.contact_id=$2 and p.status='succeeded') as paid,
@@ -137,63 +148,65 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     if ((cur === meaning && (!mapped.reason || held?.name === mapped.reason)) || (cur === "deposit" && meaning === "closed")) return;
     // the reason's own term when the company has it (Lost: Financing denied), else the meaning's default
     const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2 and active order by (name = $3) desc, is_default desc, sort limit 1", [company.id, meaning, mapped.reason ?? ""]))?.id;
-    if (!term) { cannot(`${label}: GHL says ${RESULT_WORDS[meaning]}, but the engine has no "${meaning}" outcome set up, so it can't follow. That's a setup fix on our side.`, { kind: "call_outcome_term", record_id: k.id }); return; }
+    if (!term) { ask("setup", { label, said: RESULT_WORDS[meaning] ?? meaning, term: meaning, record_id: k.id }); return; }
     await c.query("update appointments set call_outcome_term=$2 where id=$1", [a.id, term]);
     await audit("appointment", a.id, { call_outcome: cur }, { repair: "ghl_outcome", call_outcome: meaning, ...(mapped.reason ? { reason: mapped.reason } : {}), sales_call: k.id });
-    repaired(`${k.id}:result`, `${label}: the ledger said ${cur ? RESULT_WORDS[cur] ?? cur : "no outcome"}, now ${RESULT_WORDS[meaning]}${mapped.reason ? ` (${mapped.reason})` : ""} as GHL says`, { appointment_id: a.id, sales_call: k.id, call_outcome: meaning, ...(mapped.reason ? { reason: mapped.reason } : {}) }, k.ghl || k.id);
+    repaired(`${k.id}:result`, `${label}: the ledger said ${cur ? RESULT_WORDS[cur] ?? cur : "no outcome"}, now ${RESULT_WORDS[meaning]}${mapped.reason ? ` (${mapped.reason})` : ""} as GHL says`, { appointment_id: a.id, sales_call: k.id, label, from: cur, call_outcome: meaning, ...(mapped.reason ? { reason: mapped.reason } : {}) }, k.ghl || k.id, "outcome_changed");
   };
-  // D76: every Sales Call is linked to its contact and the closer card (fields and associations); repaired when the one right card and contact are certain
+  // D76: every Sales Call is linked to its contact and the closer card (fields and associations); when the one right card and contact
+  // are certain, the Ledger drift workflow links it (D88: `drift.sales_call_unlinked`, crm_record by the record's id), else it is a question
   const linkRecord = async (k: SalesCall) => {
     if (!cfg) return;
     const label = callLabel(k), closerBoard = bindings["crm.pipeline_closer"];
     const needContact = !k.links.contact_field, needCard = !!closerBoard && !k.links.opportunity;
     if (!needContact && !needCard) return;
     const ghlContact = (await one<{ v: string | null }>(c, "select ghl_contact_id as v from contacts where id=$1", [k.appt!.contact_id]))?.v ?? null;
-    if (!ghlContact) { cannot(`${label}: this Sales Call isn't linked to its contact, and the engine doesn't know the person's GHL id. Who is it?`, { kind: "link_contact", record_id: k.id }); return; }
+    if (!ghlContact) { ask("link_contact", { label, record_id: k.id }); return; }
     let card: string | null = null;
     if (needCard) {
       const cards = await many<{ v: string }>(c, "select ghl_opportunity_id as v from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id=$3 and ghl_opportunity_id is not null and status<>'gone'", [company.id, k.appt!.contact_id, closerBoard]);
-      if (cards.length !== 1) { cannot(`${label}: this Sales Call isn't linked to a closer card, and the person has ${cards.length ? `${cards.length} closer cards` : "none"}. Which card is it?`, { kind: "link_card", record_id: k.id, cards: cards.length }); return; }
+      if (cards.length !== 1) { ask("link_card", { label, record_id: k.id, cards: cards.length }); return; }
       card = cards[0].v;
     }
     // the mode decides, as for every repair (D52): a contact the company may not write to yet is linked once it may
-    if (!runId || (await effectiveMode(c, company.id, k.appt!.contact_id, company.mode, bindings)) === "shadow") return;
-    const node = `repair:${k.id}:links`;
-    const cl = await claimEffect(c, company.id, runId, node, "record");
-    if (!cl.fresh) return;
-    const props: Record<string, unknown> = { ...(needContact ? { contact_id: ghlContact } : {}), ...(card ? { opportunity_id: card } : {}) };
-    try {
-      await adapters.write.updateRecord(ac, cfg.object, k.id, props);
-      if (needContact && bindings["crm.assoc_sales_call_contact"]) await adapters.write.relateRecords(ac, bindings["crm.assoc_sales_call_contact"], ghlContact, k.id);
-      if (card && bindings["crm.assoc_sales_call_opportunity"]) await adapters.write.relateRecords(ac, bindings["crm.assoc_sales_call_opportunity"], k.id, card);
-    } catch (e) { if ((e as { status?: number }).status) await releasePending(c, runId, node); cannot(`${label}: GHL refused the link (${why(e)}).`, { kind: "link_refused", record_id: k.id }); return; }
-    await markEffect(c, runId, node, "record", k.id);
-    await audit("sales_call", k.id, null, { repair: "linked", ...props });
-    repaired(`${k.id}:links`, `${label}: the Sales Call is now linked to ${[needContact ? "its contact" : "", card ? "the closer card" : ""].filter(Boolean).join(" and ")}`, { sales_call: k.id, ...props }, k.ghl || k.id);
+    if ((await effectiveMode(c, company.id, k.appt!.contact_id, company.mode, bindings)) === "shadow") return;
+    if (await inFlight("drift.sales_call_unlinked", k.id)) return;
+    const data = { object: cfg.object, ...(needContact ? { contact_field: ghlContact } : {}), ...(card ? { card_id: card } : {}), need_contact: needContact, need_card: !!card };
+    if (!(await handOn("drift.sales_call_unlinked", k, data))) { ask("link_unhandled", { label, record_id: k.id }); return; }
+    await audit("sales_call", k.id, null, { repair: "linked", by: "workflow", ...data });
+    repaired(`${k.id}:links`, `${label}: the Ledger drift workflow links the Sales Call to ${[needContact ? "its contact" : "", card ? "the closer card" : ""].filter(Boolean).join(" and ")}`, { sales_call: k.id, label, ...data }, k.ghl || k.id, "link_requested");
   };
   for (const k of calls) {
     const label = callLabel(k);
     // D76: a slot a call moved away from keeps its own record, logged as rescheduled; it matches no booking by design
     if (k.match === "none" && k.filed === "rescheduled") continue;
-    if (k.match === "none") { cannot(`${label}: GHL has this Sales Call, but the engine has no booking for that person at that time. Was it booked outside ${k.booking_source || "the booking calendar"}, or moved?`, { kind: "unmatched", record_id: k.id }); continue; }
-    if (k.match === "many") { cannot(`${label}: this Sales Call fits more than one booking in the engine, so I won't guess which. Which booking is it?`, { kind: "ambiguous", record_id: k.id }); continue; }
+    if (k.match === "none") { ask("unmatched", { label, booking_source: k.booking_source || null, record_id: k.id }); continue; }
+    if (k.match === "many") { ask("ambiguous", { label, record_id: k.id }); continue; }
     const a = k.appt!;
-    await guarded(() => linkRecord(k), (e) => cannot(`${label}: the engine couldn't link this Sales Call (${why(e)}). I'll try again next hour.`, { kind: "link_write", record_id: k.id }));
-    if (k.cancelUnknown && k.filed) { cannot(`${label}: ${k.booking_source} says cancelled, GHL says ${WORDS[k.filed]}, and I can't tell when it was cancelled. Which is right?`, { kind: "cancel_time_unknown", record_id: k.id }); continue; }
+    const ledgerFailed = (e: unknown) => ask("ledger_write", { label, why: why(e), record_id: k.id });
+    await guarded(() => linkRecord(k), ledgerFailed);
+    const ghlSaid = k.filed ? WORDS[k.filed] : "nothing";
+    if (k.cancelUnknown && k.filed) { ask("cancel_time_unknown", { label, booking_source: k.booking_source, ghl_said: ghlSaid, record_id: k.id }); continue; }
     const cancelWins = k.cls === "cancelled" && k.filed !== "cancelled" && a.status === "cancelled";
     if (cancelWins) {
-      const r = await writeCancelled(c, company, ac, bindings, adapters, cfg!, runId, k);
-      if (r === "written") {
-        await audit("sales_call", k.id, { outcome: k.filed }, { repair: "booking_cancelled", outcome: cfg!.cancelledValue, appointment_id: a.id });
-        repaired(`${k.id}:ghl`, `${label}: ${k.booking_source} cancelled it before the call; GHL said ${k.filed ? WORDS[k.filed] : "nothing"}, now cancelled`, { sales_call: k.id, outcome: cfg!.cancelledValue }, k.ghl || k.id);
-      } else cannot(`${label}: ${k.booking_source} cancelled it before the call, but GHL still says ${k.filed ? WORDS[k.filed] : "nothing"} and I couldn't change it (${r}). Set it to cancelled in GHL?`, { kind: "cancel_not_written", record_id: k.id, why: r });
-      await guarded(() => followResult(k, "cancelled"), (e) => cannot(`${label}: the engine couldn't clear its outcome (${why(e)}). I'll try again next hour.`, { kind: "ledger_write", record_id: k.id }));
-      if (a.outcome !== "cancelled") await guarded(() => setLedgerOutcome(k, "cancelled", "booking_cancelled"), (e) => cannot(`${label}: the engine couldn't record it as cancelled (${why(e)}). I'll try again next hour.`, { kind: "ledger_write", record_id: k.id }));
+      const asked = { label, booking_source: k.booking_source, ghl_said: ghlSaid, record_id: k.id };
+      await guarded(async () => {
+        if (!cfg!.cancelledValue) return ask("cancel_no_value", asked);
+        if ((await effectiveMode(c, company.id, a.contact_id, company.mode, bindings)) === "shadow") return ask("cancel_held_back", { ...asked, mode: company.mode, value: cfg!.cancelledValue });
+        // a repair is made once, ever: a record GHL set back after the workflow wrote it is left for a person
+        if (await one(c, "select 1 from crm_records where company_id=$1 and object_key=$2 and ghl_record_id=$3 and properties->>'outcome'=$4", [company.id, cfg!.object, k.id, cfg!.cancelledValue])) return ask("cancel_set_back", asked);
+        if (await inFlight("drift.sales_call_cancelled", k.id)) return;
+        if (!(await handOn("drift.sales_call_cancelled", k, { object: cfg!.object, cancelled_value: cfg!.cancelledValue, booking_source: k.booking_source, ghl_said: k.filed }))) return ask("cancel_unhandled", asked);
+        await audit("sales_call", k.id, { outcome: k.filed }, { repair: "booking_cancelled", outcome: cfg!.cancelledValue, appointment_id: a.id, by: "workflow" });
+        repaired(`${k.id}:ghl`, `${label}: ${k.booking_source} cancelled it before the call; GHL said ${ghlSaid}; the Ledger drift workflow sets it to cancelled`, { sales_call: k.id, label, outcome: cfg!.cancelledValue }, k.ghl || k.id, "cancel_requested");
+      }, ledgerFailed);
+      await guarded(() => followResult(k, "cancelled"), ledgerFailed);
+      if (a.outcome !== "cancelled") await guarded(() => setLedgerOutcome(k, "cancelled", "booking_cancelled"), ledgerFailed);
       continue;
     }
-    if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), (e) => cannot(`${label}: the engine couldn't copy GHL's outcome (${why(e)}). I'll try again next hour.`, { kind: "ledger_write", record_id: k.id })); }
-    await guarded(() => followResult(k), (e) => cannot(`${label}: the engine couldn't copy GHL's outcome (${why(e)}). I'll try again next hour.`, { kind: "ledger_write", record_id: k.id }));
-    if (!k.filed && a.outcome && k.cls === "missing") cannot(`${label}: the engine has ${WORDS[a.outcome] ?? a.outcome} but GHL's Sales Call has no outcome. Should GHL say ${WORDS[a.outcome] ?? a.outcome}?`, { kind: "ghl_unfiled", record_id: k.id });
+    if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), ledgerFailed); }
+    await guarded(() => followResult(k), ledgerFailed);
+    if (!k.filed && a.outcome && k.cls === "missing") ask("ghl_unfiled", { label, has: WORDS[a.outcome] ?? a.outcome, record_id: k.id });
   }
 
   // 4. D75: a won closer card and the money GHL holds for that person should agree; asked only once Payment records exist at all
@@ -211,46 +224,27 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       const day = (t: DateTime) => t.setZone(company.timezone).toFormat("ccc LLL d");
       for (const k of won) {
         if (paid.has(k.contactId) || !inWindow(Date.parse(k.wonAt)) || ledger.get(k.contactId)?.test || isTestContact({ tags: k.contactTags, emails: [k.contactEmail] }, domains)) continue;
-        cannot(`${ledger.get(k.contactId)?.name ?? k.contactName ?? k.contactId}: their closer card was won ${day(DateTime.fromISO(k.wonAt))}, but GHL has no payment for them. Did they pay, or should the card not be won?`, { kind: "won_no_payment", ghl_contact_id: k.contactId, card: k.id });
+        ask("won_no_payment", { name: ledger.get(k.contactId)?.name ?? k.contactName ?? k.contactId, day: day(DateTime.fromISO(k.wonAt)), ghl_contact_id: k.contactId, card: k.id });
       }
       const asked = new Set<string>();
       for (const p of pays.filter((x) => x.flow === "in" && x.ghl && inWindow(x.at.toMillis())).sort((a, b) => a.at.toMillis() - b.at.toMillis())) {
         if (wonBy.has(p.ghl) || asked.has(p.ghl) || ledger.get(p.ghl)?.test) continue;
         asked.add(p.ghl);
-        cannot(`${ledger.get(p.ghl)?.name ?? (p.label || p.ghl)}: GHL has a $${Math.round(p.amount).toLocaleString("en-US")} payment from ${day(p.at)} but no won closer card. Should their closer card be won?`, { kind: "payment_no_won", ghl_contact_id: p.ghl, payment: p.id });
+        ask("payment_no_won", { name: ledger.get(p.ghl)?.name ?? (p.label || p.ghl), amount: Math.round(p.amount), day: day(p.at), ghl_contact_id: p.ghl, payment: p.id });
       }
     }
   }
 
+  // D88: each kind of finding is one event a sweep, for any workflow that wants it (the questions are worded by Health check)
+  for (const [kind, items] of found) await dispatchEvent(c, await emitEvent(c, { company_id: company.id, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "drift.found", source: "engine", data: { kind, items, count: items.length } }), {});
   // repairs alone are logged, not announced; a person hears only when something needs them, with what was already fixed as context
   if (left.length) {
-    const fixed = fixedPeople.size;
-    const head = `${fixed ? `${fixed} ${fixed === 1 ? "record" : "records"} in the engine didn't match GHL over the last ${DRIFT_DAYS} days; ${fixed === 1 ? "it's" : "they've"} been updated from GHL.\n` : ""}${left.length === 1 ? (fixed ? "Except this one, which I have a question about:" : "One thing in the engine doesn't match GHL and I have a question about it:") : `${fixed ? "Except these" : `${left.length} things in the engine don't match GHL`}, which I have questions about:`}`;
-    out.push({ check, ok: false, level: "warning", text: `${head}\n${left.slice(0, NAMES).map((x) => `• ${x}`).join("\n")}${left.length > NAMES ? `\n…and ${left.length - NAMES} more on the dashboard.` : ""}`, detail: { items: unrepaired, fixed } });
+    const fixed = fixedPeople.size, shown = left.slice(0, NAMES);
+    const q: Record<string, Record<string, unknown>[]> = {};
+    for (const item of shown) (q[item.kind as string] ??= []).push(item);
+    out.push({ check, ok: false, level: "warning", text: `${left.length} ${left.length === 1 ? "question" : "questions"} about records in the engine that don't match GHL${fixed ? ` (${fixed} more updated from GHL)` : ""}.`,
+      detail: { items: left, q, fixed, count: left.length, more: Math.max(0, left.length - NAMES) || null, days, shape: fixed ? (left.length === 1 ? "fixed_one" : "fixed_many") : left.length === 1 ? "one" : "many" } });
   }
-  else if (!out.length) out.push({ check, ok: true, level: "warning", text: `${ghl.length} contact${ghl.length === 1 ? "" : "s"} added in GHL in the last ${DRIFT_DAYS} days, all in the ledger${cfg ? `; ${calls.length} Sales Call${calls.length === 1 ? "" : "s"} agree with the ledger` : ""}.` });
+  else if (!out.length) out.push({ check, ok: true, level: "warning", text: `${ghl.length} contact${ghl.length === 1 ? "" : "s"} added in GHL in the last ${days} days, all in the ledger${cfg ? `; ${calls.length} Sales Call${calls.length === 1 ? "" : "s"} agree with the ledger` : ""}.` });
   return out;
-}
-
-/** The one CRM write a repair makes: the Sales Call's outcome set to cancelled, under the mode (D52) and the effects ledger (D66). */
-async function writeCancelled(c: PoolClient, company: CompanyRow, ac: Company, bindings: Record<string, string>, adapters: Adapters, cfg: SalesCallConfig, runId: string | undefined, k: SalesCall): Promise<string> {
-  if (!cfg.cancelledValue) return "no outcome value means cancelled (sales_call.outcomes)";
-  if (!runId) return "no run to record the write against";
-  if ((await effectiveMode(c, company.id, k.appt!.contact_id, company.mode, bindings)) === "shadow")
-    return `${company.mode} mode: would set the outcome to "${cfg.cancelledValue}"; nothing is written to the CRM for this contact yet`;
-  const node = `repair:${k.id}:outcome`;
-  // a repair is made once, ever: a later sweep that finds its own earlier write never asks again
-  const prior = await one<{ run_id: string; done_at: Date | null }>(c, "select run_id::text as run_id, done_at from step_effects where company_id=$1 and node_id=$2 and kind='record' order by created_at desc limit 1", [company.id, node]);
-  if (prior?.done_at) return "it was set once already and GHL says otherwise again; left for a person";
-  if (prior && prior.run_id !== runId) return PENDING_WHY;
-  const cl = await claimEffect(c, company.id, runId, node, "record");
-  if (!cl.fresh) return cl.done ? "it was set once already" : PENDING_WHY;
-  try { await adapters.write.updateRecord(ac, cfg.object, k.id, { outcome: cfg.cancelledValue }); }
-  catch (e) {
-    // a CRM that answered with an error wrote nothing, so the claim comes off; one that never answered keeps it (D66)
-    if ((e as { status?: number }).status) await releasePending(c, runId, node);
-    return `GHL refused it (${why(e)})`;
-  }
-  await markEffect(c, runId, node, "record", k.id);
-  return "written";
 }

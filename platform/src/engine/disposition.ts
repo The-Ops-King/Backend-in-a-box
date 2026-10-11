@@ -2,12 +2,13 @@ import type { PoolClient } from "pg";
 import { one } from "@/db/client";
 import { dispatchEvent, emitEvent } from "./dispatch";
 
-export type DispositionInput = { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; userId?: string | null };
+export type DispositionInput = { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; userId?: string | null; via?: string };
 type OutcomeSource = "disposition" | "engine";
 
 /**
  * The outcome is written onto OUR appointment row (never GHL), then the journey gets appointment.outcome and, if they
- * showed, call.held. Both the closer's form and a workflow step (a recording proves the show) land here.
+ * showed, call.held. Both the closer's form and a workflow step (a recording proves the show) land here. What the answer
+ * does to the opportunity is Call outcome filed's (D88).
  */
 export async function applyOutcome(c: PoolClient, args: { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; userId?: string | null; dispositionId?: string | null; source: OutcomeSource; runId?: string | null; by?: string }): Promise<{ events: number; runs: number; outcome: string }> {
   const a = await one<{ id: string; contact_id: string; opportunity_id: string | null; appointment_term: string; term_category: string }>(c,
@@ -22,7 +23,6 @@ export async function applyOutcome(c: PoolClient, args: { companyId: string; app
   const exact = args.source === "disposition";
   await c.query(`update appointments set outcome_term=$2, call_outcome_term=${exact ? "$3" : "coalesce($3, call_outcome_term)"}, disposition_id=coalesce($4, disposition_id), dispositioned_at=now(), dispositioned_by=coalesce($5, dispositioned_by) where id=$1`,
     [a.id, args.outcomeTermId, args.callOutcomeTermId ?? null, args.dispositionId ?? null, args.userId ?? null]);
-  if (exact && before?.call_outcome === "lost" && callOutcome?.category !== "lost" && a.opportunity_id) await c.query("update opportunities set status='open', lost_at=null where id=$1 and status='lost'", [a.opportunity_id]);
   const base = { company_id: args.companyId, contact_id: a.contact_id, opportunity_id: a.opportunity_id, appointment_id: a.id, source: args.source, run_id: args.runId ?? null };
   const ctx = { contact: { id: a.contact_id }, appointment: { id: a.id, term: { category: a.term_category } } };
   let events = 0, runs = 0;
@@ -31,12 +31,8 @@ export async function applyOutcome(c: PoolClient, args: { companyId: string; app
   if (outcome.category === "showed") {
     const ev2 = await emitEvent(c, { ...base, event_type: "call.held", data: { type: a.term_category, outcome: callOutcome?.category ?? null, notes: args.notes ? args.notes.slice(0, 500) : undefined, by: args.by ?? args.source } }); events++;
     runs += (await dispatchEvent(c, ev2, ctx)).length;
-    if (callOutcome?.category === "lost" && a.opportunity_id) {
-      await c.query("update opportunities set status='lost', lost_at=now() where id=$1 and status='open'", [a.opportunity_id]);
-      const ev3 = await emitEvent(c, { ...base, event_type: "opportunity.lost", data: { by: "closer_marks" } }); events++;
-      runs += (await dispatchEvent(c, ev3, ctx)).length;
-    }
   }
+  // D88 (A9): the opportunity follows the call in Call outcome filed (update_opportunity: lost on a loss, open again when a refiled answer takes the loss back), not here
   return { events, runs, outcome: outcome.category };
 }
 
@@ -57,7 +53,7 @@ export async function recordDisposition(c: PoolClient, d: DispositionInput): Pro
   if (!form) form = await one<{ id: string; version: number }>(c, `insert into forms (company_id, purpose, appointment_term, name, fields) values ($1,'disposition',$2,'Disposition',$3) returning id, version`,
     [d.companyId, a.appointment_term, JSON.stringify([{ key: "outcome", label: "Did they show?", type: "enum", required: true }, { key: "call_outcome", label: "How did the call go?", type: "enum" }, { key: "notes", label: "Notes", type: "text" }])]);
   const sub = await one<{ id: string }>(c, `insert into form_submissions (company_id, form_id, form_version, contact_id, appointment_id, submitted_by, answers) values ($1,$2,$3,$4,$5,$6,$7) returning id`,
-    [d.companyId, form!.id, form!.version, a.contact_id, a.id, d.userId ?? null, { outcome: outcome.category, call_outcome: callOutcome?.category ?? null, notes: d.notes ?? "" }]);
+    [d.companyId, form!.id, form!.version, a.contact_id, a.id, d.userId ?? null, { outcome: outcome.category, call_outcome: callOutcome?.category ?? null, notes: d.notes ?? "", ...(d.via ? { via: d.via } : {}) }]);
   const r = await applyOutcome(c, { companyId: d.companyId, appointmentId: d.appointmentId, outcomeTermId: d.outcomeTermId, callOutcomeTermId: d.callOutcomeTermId, notes: d.notes, userId: d.userId, dispositionId: sub!.id, source: "disposition" });
   return { events: r.events, runs: r.runs };
 }

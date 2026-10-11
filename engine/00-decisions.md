@@ -2729,7 +2729,8 @@ connect, then the call 37 seconds later), landed in Setter call logged, was read
   link is never Set. The context facts `recording.booked_within_30m` and `recording.led_to_booking` are gone;
   `recording.set_until` (hang-up + the setting) is the window's end; the metrics' `calls_set` and the setter report's
   bookings count the same rule (`setByBookingSql`, was "a booking within a day"). The Discovery Call's `led_to_booking`
-  checkbox is ticked only when Set.
+  checkbox is no longer written: GHL refuses to update a checkbox on a custom object record (found live, ghl/02-api-facts),
+  and `call_result` carries Set.
 - **Posted when the booking lands.** "Post as soon as the booking lands." `wait_for_event appointment.booked` (a setter-link
   booking, `since` the call's start, `until` 15 minutes after hang-up): one made during the call, or landing in those 15
   minutes, posts at once as Set; otherwise the post goes out at the 15-minute mark with Jev's result. A second
@@ -2752,3 +2753,75 @@ connect, then the call 37 seconds later), landed in Setter call logged, was read
   two weeks of bookings offered to the team are step settings in the templates.
 - Known limit, stated: a part that already asked the setters (Jev unsure) keeps its question open when a later part of the
   same conversation arrives; the later part's run reads the whole and may ask again under the same tag.
+
+## D88. Business rules live in workflows and settings, not code (2026-10-11)
+
+The owner: "I want these all in individual workflows. I don't want this to be a custom build that we have to continue to
+build every single time. I want to be able to adjust and adapt the existing workflows ... I do not want you to hard code
+it." D85 built the steps; this moves the behaviour the audit found in engine code onto them. The engine keeps the ledger,
+the doors, the collecting and dedupe, the clock; what is said, what is written to the CRM and when is a workflow's or a
+setting's. Existing companies get it through the normal install upgrade: an untouched copy follows the template, and a
+template that carries what the engine used to do by itself (`engine_default`) installs ON into a company that already
+existed (OFF into a new one, as every template). What an existing company sees stays the same except where said below.
+
+- **A card moved by hand** (A1, was `card-moves.ts`). The engine records `card.moved` (now with the mover's roster id)
+  and nothing else. The new **Card moved by hand** workflow posts the thread line, branches on `event.to_stage` against
+  the stage bindings, checks the call has started (`appointment.started`) and files the outcome with `record_outcome`
+  `source: disposition`, so Call outcome filed still runs. The cards poll watches every bound `crm.pipeline_*`. Tyler:
+  dragging to Lost or DQ "should still show up in the end-of-day report so we can get an understanding of why it was lost
+  or DQ": the form opens with that outcome and what the move said, asks the new **Why were they lost?** (or the DQ reason),
+  the reminder keeps the day owed until it is filed, and the filed summary lists the reasons.
+- **Unlinked payments and unmatched recordings** (A2, was `notify.ts` and the Whop / Zapier / recording doors).
+  `payment.unlinked` and `recording.unlinked` are dispatched; the **Unlinked payment** and **Unmatched recording**
+  workflows post the same words. `notifyTeam` is gone. An event with no contact and no person starts a run about the company.
+- **An end-of-day answer for a Sales Call booked before the engine** (A3, was `eod.ts` `fileGhlRow`). It is an
+  `eod.call_filed` event; the **Sales Call filed from the end-of-day form** workflow writes the record by its own id
+  (`crm_record` `record_id`), the disposition from a pick the company edits.
+- **The end-of-day reminder** (A4, was `eod_due` in the executor). `lookback_days` (7), `include_today` and
+  `overdue_after_days` (2) are on the step; it hands the template a list and the DM and the operator's note are built from
+  it with `each` / `join`. Tyler: "The end-of-day report: yes, that's great."
+- **The hourly drift sweep** (A6, was `ledger-drift.ts`'s CRM writes and questions). The ledger mirroring stays in the
+  engine (a contact pulled in, one marked gone, the attendance and D83's outcome followed); each kind of finding is one
+  `drift.found` event a sweep. The two GHL writes are `drift.sales_call_cancelled` (once ever per record; GHL set back
+  afterwards is a question) and `drift.sales_call_unlinked`, done by the new **Ledger drift** workflow with `crm_record`
+  by id. The questions are data on the `health:ledger_drift` alert and Health check words them, the same words. D73's
+  and D83's behaviour is otherwise unchanged. `drift_days` (7) and `poll_lag_min` (30) are settings on the step.
+- **Alerts** (A7, was `alerts.ts` `announceDue`). Tyler: "an alerts workflow is the best way to go ... we already have an
+  hourly health report, so why don't we just put that in there?" The engine collects, dedupes and times alerts and emits
+  `alert.raised`, `alert.repeated` (every `alerts.repeat_minutes`, 60) and `alert.resolved`; **Health check** has three
+  triggers for them and posts the alert, the still-open line in its thread and the resolved line with a ✅. A failed poll
+  is an alert after `alerts.poll_failures` (2). Slack only (Tyler: "We definitely don't need to alert on an email"): the
+  email (Resend) and company webhook destinations are gone with their settings; an alert about the engine itself still
+  goes to `OPERATOR_WEBHOOK_URL`.
+- **Wrap-ups** (A8, was `reports.ts` `renderReport` and `WRAPUP_METRICS`). Tyler: "we should absolutely have a specific
+  wrap-up report section in the workflow or template ... that can be adjusted." The `report` step reads the numbers named
+  in `metrics` and words the body with its `layout` (headings and the empty line by kind, sections of lines built with
+  `each`); the engine only drops blank lines and empty sections. The shipped layout says exactly what the code said.
+  `breakdowns` (closer, setter) now does something; `period` sends a week or month so far.
+- **Won and lost** (A9, was `disposition.ts` and `payments.ts`). Call outcome filed marks the opportunity lost on a loss
+  and open again when a refiled answer takes the loss back; Payment recorded marks it won on a payment
+  (`update_opportunity`, `from: [open]`, so a won pursuit is never made lost by a later answer). Removed because nothing
+  read them or they half worked: `purge_after_months`, `opp_lost_on`, `opp_inactive_days`, `opp_won_on` (only
+  first_payment worked), `opp_opens_on` (lead_created was ignored; the ledger's opportunity is plumbing and opens at the
+  first booking or a payment). A company that wins on paid in full changes the step's condition.
+- **The end-of-day outcomes** (B6, was `eod-form.ts` `OUTCOMES` and the value checks in `eod.ts`). The outcome field on
+  the company's `forms` row carries its own list, each answer with its label and meaning (attendance, call outcome,
+  money); everything reads the meaning. **Close pending** is added (D83: only half a close, never counted as one).
+- **Constants that became settings** (B): `alerts.repeat_minutes`, `alerts.poll_failures`; on the health_check step
+  `slots_days` (the executor used to pass 7 whatever the step said), `fathom_silent_days` (14), `drift_days`,
+  `poll_lag_min`; on eod_due the three above; on report `metrics` and `period`.
+
+Changed for an existing company, on purpose: the unlinked, card-move, old-Sales-Call and alert posts and writes happen on
+the next tick after the fact instead of in the same request; a loss now asks why (required, the company can untick it);
+the form offers Close pending and Jev's "close pending" read pre-fills it; the filed summary lists lost and DQ reasons;
+the drift questions are grouped by kind; the opportunity is won and lost a tick later, inside the workflows; no alert
+email or webhook. A company whose Health check, Payment recorded or Call outcome filed copy was edited before D88 is not
+upgraded (D16) and does not get their new steps: readiness warns when no workflow says the alerts; the others need the
+copy re-made from the template.
+
+Supersedes: D35's "the inbound doors and the alert announcer are engine" (the announcer is Health check's), D33's fixed
+hourly cadence and its email and webhook destinations, D61's handler that posted the line and filed the outcome (a
+workflow now), D76's fixed eod_due rules and wrap-up words in code, D77's direct write of an old Sales Call's answer and
+its fixed DISPOSITION map, D73's CRM writes inside the sweep, and D29's claim that nothing about wrap-ups was in code
+(true now). D82's "a call already answered is not owed" gains one exception: a loss or DQ a card move filed is owed until
+the day is filed.

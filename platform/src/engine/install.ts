@@ -43,8 +43,8 @@ export type InstallInput = {
   discoveryCall?: { results?: Record<string, "set" | "follow_up" | "dq" | "not_interested">; act?: boolean };
   testDomains?: string[];                // bound as test.domains: email domains whose contacts pass in test (D52), e.g. ["jtylerray.com"]
   jevKey?: string;                       // bound as secret.jev_key; the classify node reads replies with it (env JEV_API_KEY is the fallback)
-  /** Where the engine says what broke (D33): a Slack channel id, email addresses (needs resendKey + emailFrom), a webhook (a Zap). */
-  alerts?: { slackChannel?: string; email?: string; emailFrom?: string; webhook?: string; resendKey?: string; asName?: string; asIcon?: string };
+  /** Where the Health check workflow says what broke (D33, D88: Slack only): the channel, the face, how often an open alert is said again (minutes, 60), how many failed polls in a row make an alert (2). */
+  alerts?: { slackChannel?: string; asName?: string; asIcon?: string; repeatMinutes?: number; pollFailures?: number };
   prompts?: Record<string, string>;      // prompt.<name> overrides; defaults from src/prompts fill the rest
   slackToken?: string;                   // the Slack app's bot token (xoxb-…); verified with Slack, stored encrypted; "disconnect" removes it
   slackSigningSecret?: string;           // the Slack app's signing secret, so the reactions door can trust what Slack sends (D45)
@@ -122,6 +122,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
   // D56: live is never set by install itself; `mode: "live"` is a go-live after the install, with its readiness refusal and clean slate (D51)
   const modeFlag = input.mode === "live" ? null : input.mode ?? null;
   const out = await asOperator(async (c) => {
+    // D88: a company that already existed gets a template that carries what the engine used to do by itself ON, so an upgrade never lets that go quiet
+    const existed = !!(await one(c, "select 1 from companies where slug=$1", [input.slug]));
     const storedPit = input.pit ? null : await one<{ value: Buffer }>(c, "select b.value from bindings b join companies co on co.id=b.company_id where co.slug=$1 and b.key='secret.ghl_pit'", [input.slug]);
     const pit = input.pit ?? (storedPit ? decrypt(storedPit.value) : null);
     if (!pit) throw new Error("pit is required: this company has no CRM token stored yet");
@@ -179,10 +181,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (input.anthropicKey) await bind("secret.anthropic_key", "secret", input.anthropicKey);
     if (input.jevKey) await bind("secret.jev_key", "secret", input.jevKey);
     if (input.alerts?.slackChannel) await bind("alerts.slack_channel", "channel", input.alerts.slackChannel);
-    if (input.alerts?.email) await bind("alerts.email", "text", input.alerts.email);
-    if (input.alerts?.emailFrom) await bind("alerts.email_from", "text", input.alerts.emailFrom);
-    if (input.alerts?.webhook) await bind("alerts.webhook", "text", input.alerts.webhook);
-    if (input.alerts?.resendKey) await bind("secret.resend_key", "secret", input.alerts.resendKey);
+    if (input.alerts?.repeatMinutes !== undefined) await bind("alerts.repeat_minutes", "number", String(input.alerts.repeatMinutes));
+    if (input.alerts?.pollFailures !== undefined) await bind("alerts.poll_failures", "number", String(input.alerts.pollFailures));
     if (input.alerts?.asName) await bind("alerts.as_name", "text", input.alerts.asName);
     if (input.alerts?.asIcon) await bind("alerts.as_icon", "text", input.alerts.asIcon);
     // prompts: the company's own text wins; a default fills any prompt a template needs that nobody wrote yet
@@ -257,8 +257,9 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       const wf = await one<{ id: string }>(c, `insert into workflows (company_id, template_id, template_version, name, reentry_policy, reentry_window, stage, sort, origin) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, [companyId, tpl!.id, tpl!.version, t.name, def.reentry, def.reentry_window ?? null, t.stage, t.sort, t.origin]);
       await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'installed from template')", [wf!.id, t.definition, manifest]);
       await syncTriggers(c, companyId, wf!.id, def);
-      if (input.enable && !missing.length) await c.query("update workflows set enabled=true where id=$1", [wf!.id]);
-      installed.push(`${t.slug} → ${missing.length ? `OFF, missing: ${missing.join(", ")}` : input.enable ? "enabled" : "installed OFF"}`);
+      const carried = existed && "engine_default" in t && t.engine_default === true;
+      if ((input.enable || carried) && !missing.length) await c.query("update workflows set enabled=true where id=$1", [wf!.id]);
+      installed.push(`${t.slug} → ${missing.length ? `OFF, missing: ${missing.join(", ")}` : input.enable ? "enabled" : carried ? "enabled (it carries what the engine did before, D88)" : "installed OFF"}`);
     }
     // Fathom's webhook is registered once per company and remembered; a re-install never makes a second one
     let fathomWebhook = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='fathom.webhook_id'", [companyId]))?.value.toString("utf8");

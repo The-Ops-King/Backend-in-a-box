@@ -1,8 +1,9 @@
 /**
  * D73: the ledger is GHL's mirror, and the hourly sweep mends it. A contact GHL added that the ledger lacks is pulled in
  * (New lead once); one GHL says is gone is marked gone; a Sales Call the booking source cancelled before its start is set to
- * cancelled in GHL (test mode: only a test contact's record is written; once, through the effects ledger) and in the ledger;
- * otherwise GHL's filed outcome replaces the ledger's. What cannot be repaired is one alert, resolved when nothing is left.
+ * cancelled in the ledger and, by the Ledger drift workflow, in GHL (test mode: only a test contact's record is written; once ever);
+ * otherwise GHL's filed outcome replaces the ledger's. What cannot be repaired is one alert, resolved when nothing is left; its
+ * questions are data the Health check workflow words (D88).
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { DateTime } from "luxon";
@@ -11,7 +12,8 @@ import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { loadCompany } from "@/engine/context";
 import { runHealthStep, type Finding, type HealthProbes } from "@/engine/health";
-import { openAlerts } from "@/engine/alerts";
+import { announceDue, openAlerts } from "@/engine/alerts";
+import { tick } from "@/engine/runner";
 import { fakeAdapters, fakeProbes, installTemplateForTest } from "@/engine/test-install";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
 import type { GhlObjectRecord, GhlReads, GhlWonCard } from "@/adapters/ghl/metrics";
@@ -42,8 +44,9 @@ const writes: { id: string; outcome: unknown }[] = [];
 let refuse = false;
 const base = fakeAdapters();
 const linkWrites: { id: string; props: Record<string, unknown> }[] = [], relations: string[] = [];
-const fake: Adapters = { ...base, write: { ...base.write, relateRecords: async (_c, a, f, t) => { relations.push(`${a}:${f}>${t}`); }, updateRecord: async (_c, _key, id, props) => {
-  if (!("outcome" in props)) { linkWrites.push({ id, props }); return; }
+const posts: { channel: string; text: string }[] = [];
+const fake: Adapters = { ...base, notifier: { ...base.notifier, post: async (_t, channel, text) => { posts.push({ channel, text }); return { ts: `ts${posts.length}` }; } }, write: { ...base.write, relateRecords: async (_c, a, f, t) => { relations.push(`${a}:${f}>${t}`); }, updateRecord: async (_c, _key, id, props) => {
+  if (!("outcome" in props)) { linkWrites.push({ id, props }); const r = records.find((x) => x.id === id); if (r) Object.assign(r.properties, props); return; }
   if (refuse) throw Object.assign(new Error("GHL 422 on /objects: bad value"), { status: 422 });
   writes.push({ id, outcome: props.outcome }); const r = records.find((x) => x.id === id); if (r) r.properties.outcome = props.outcome; } } };
 
@@ -51,6 +54,16 @@ let companyId: string, runId: string;
 const sc = (id: string, ext: string, contact: string, at: DateTime, outcome: string): GhlObjectRecord => ({ id, createdAt: ago({ days: 9 }).toISO()!, properties: { external_id: ext, contact_id: contact, scheduled_at: at.toUTC().toISO(), outcome, closer: "Cara Closer" } });
 const sweep = (opts: { run?: boolean } = {}) => asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return runHealthStep(c, row, fake, probes, { checks: {}, min_slots: 0, slots_days: 7, run_id: opts.run === false ? undefined : runId }); });
 const drift = (fs: Finding[]) => fs.filter((f) => f.check === "ledger_drift");
+/** D88: the Ledger drift workflow makes the GHL writes the sweep hands it, on the next tick. */
+const run = () => tick(fake, undefined, companyId, probes);
+type Q = { kind: string; label?: string; name?: string };
+const asked = (fs: Finding[]) => ((drift(fs).find((f) => !f.ok)?.detail as { items?: Q[] } | undefined)?.items ?? []);
+/** D88: the questions as Health check words them: the open drift alert said afresh, its post's text. */
+const worded = async () => {
+  await asOperator((c) => c.query("update alerts set announced_at=null, announce_count=0 where company_id=$1 and key='health:ledger_drift' and resolved_at is null", [companyId]));
+  const n = posts.length; await asOperator((c) => announceDue(c, fake, new Date(), companyId)); await run();
+  return posts.slice(n).find((p) => /^\S+ \*Drift Co · Health check\*\n/.test(p.text) && /(didn't|doesn't|don't) match GHL/.test(p.text))?.text ?? "";
+};
 const outcomeOf = (ext: string) => asOperator(async (c) => (await one<{ category: string | null }>(c, "select t.category from appointments a left join company_terms t on t.id=a.outcome_term where a.company_id=$1 and a.external_id=$2", [companyId, ext]))?.category ?? null);
 
 describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)", () => {
@@ -60,7 +73,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       const co = await one<{ id: string }>(c, "select id from companies where slug='drift'");
       if (co) {
         await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
-        for (const t of ["step_effects", "sends", "poll_cursors", "messages", "crm_records", "pipeline_cards", "opportunities", "runs", "workflow_triggers", "workflows", "alerts", "health_checks", "audit_log", "events", "appointments", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
+        for (const t of ["step_effects", "slack_posts", "slack_connections", "sends", "poll_cursors", "messages", "crm_records", "pipeline_cards", "opportunities", "runs", "workflow_triggers", "workflows", "alerts", "health_checks", "audit_log", "events", "appointments", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
         await c.query("delete from companies where id=$1", [co.id]);
       }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode) values ('Drift Co','drift',$1,'test') returning id", [TZ]))!.id;
@@ -68,7 +81,10 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       for (const [k, kind, v] of [["crm.location_id", "id", "LOC-DRIFT"], ["secret.ghl_pit", "secret", "pit"], ["crm.object_sales_call", "id", "custom_objects.sales_call"], ["test.domains", "text", "test.co"],
         ["sales_call.outcomes", "text", JSON.stringify({ showed: "showed", no_show: "noshow", cancelled: "cancelled", late_cancel: "cancelled" })]])
         await c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,$3,$4)", [companyId, k, kind, kind === "secret" ? encrypt(v) : Buffer.from(v)]);
-      const wf = await installTemplateForTest(c, companyId, "health-check", { enabled: false });
+      const wf = await installTemplateForTest(c, companyId, "health-check");   // D88: it words the alerts
+      await installTemplateForTest(c, companyId, "ledger-drift");   // D88: it makes the GHL writes
+      await c.query("insert into bindings (company_id, key, kind, value) values ($1,'alerts.slack_channel','channel',$2)", [companyId, Buffer.from("CALERTS")]);
+      await c.query("insert into slack_connections (company_id, team_id, bot_token, channels) values ($1,'T1',$2,'{}')", [companyId, encrypt("xoxb-fake")]);
       runId = (await one<{ id: string }>(c, "insert into runs (company_id, workflow_id, workflow_version, reentry_key) values ($1,$2,1,'drift-sweep') returning id", [companyId, wf]))!.id;
       const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
       const term = async (cat: string) => (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_outcome' and category=$2", [companyId, cat]))!.id;
@@ -106,7 +122,9 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     const fs = drift(r.findings);
     const repaired = fs.filter((f) => f.ok).map((f) => f.item).sort();
     expect(repaired).toEqual(["repair:G-GONE", "repair:G-NEW", "repair:G-SOON", "repair:R1:ledger", "repair:R2:ghl", "repair:R2:ledger", "repair:R3:ledger", "repair:R4:ledger", "repair:R7:ledger"]);
-    // the test contact's record is written to GHL; the real contact's is held back by test mode
+    // the test contact's record is written to GHL (by the Ledger drift workflow, D88); the real contact's is held back by test mode
+    expect(writes).toEqual([]);
+    await run();
     expect(writes).toEqual([{ id: "R2", outcome: "cancelled" }]);
     expect(await outcomeOf("AP1")).toBe("cancelled"); expect(await outcomeOf("AP2")).toBe("cancelled");
     expect(await outcomeOf("AP3")).toBe("showed");    // GHL wins
@@ -125,15 +143,18 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     const audit = await asOperator((c) => many<{ target_id: string; after: { repair: string } }>(c, "select target_id, after from audit_log where company_id=$1 and action='health.repaired'", [companyId]));
     expect(audit.map((a) => a.after.repair).sort()).toEqual(["booking_cancelled", "booking_cancelled", "booking_cancelled", "ghl_outcome", "ghl_outcome", "ghl_outcome", "marked_gone", "pulled_in", "pulled_in"]);
     const bad = fs.find((f) => !f.ok)!;
-    expect(bad.text).toMatch(/^\d+ records in the engine didn't match GHL over the last 7 days; they've been updated from GHL\.\nExcept these, which I have questions about:\n• /);
-    expect(bad.text.split("\n").filter((l) => l.startsWith("• ")).length).toBe((bad.detail as { items: unknown[] }).items.length);   // one line each
-    expect(bad.text).toContain("• G-K1, "); expect(bad.text).toContain("I couldn't change it (test mode: would set the outcome to \"cancelled\""); expect(bad.text).toContain("Set it to cancelled in GHL?");
-    expect(bad.text).toContain("GHL has this Sales Call, but the engine has no booking for that person at that time.");
-    expect(bad.text).not.toContain("Nina");
-    expect(bad.text).toContain("Calendly says cancelled, GHL says no-show, and I can't tell when it was cancelled. Which is right?");
-    expect(bad.text).not.toContain("G-FLAKY");
+    expect(asked(r.findings).map((q) => q.kind).sort()).toEqual(["cancel_held_back", "cancel_time_unknown", "unmatched"]);
+    // the questions as the Health check workflow words them (D88): the words the engine used to hold
+    const text = await worded();
+    expect(text).toMatch(/\n\d+ records in the engine didn't match GHL over the last 7 days; they've been updated from GHL\.\nExcept these, which I have questions about:\n• /);
+    expect(text.split("\n").filter((l) => l.startsWith("• ")).length).toBe((bad.detail as { items: unknown[] }).items.length);   // one line each
+    expect(text).toContain("• G-K1, "); expect(text).toContain("I couldn't change it (test mode: would set the outcome to \"cancelled\""); expect(text).toContain("Set it to cancelled in GHL?");
+    expect(text).toContain("GHL has this Sales Call, but the engine has no booking for that person at that time.");
+    expect(text).not.toContain("Nina");
+    expect(text).toContain("Calendly says cancelled, GHL says no-show, and I can't tell when it was cancelled. Which is right?");
+    expect(text).not.toContain("G-FLAKY");
     expect((await asOperator((c) => openAlerts(c, companyId))).filter((a) => a.key === "health:ledger_drift")).toHaveLength(1);
-    expect(await asOperator((c) => one<{ done: boolean }>(c, "select done_at is not null as done from step_effects where company_id=$1 and node_id='repair:R2:outcome'", [companyId]))).toEqual({ done: true });
+    expect(await asOperator((c) => one(c, "select 1 from crm_records where company_id=$1 and ghl_record_id='R2' and properties->>'outcome'='cancelled'", [companyId]))).toBeTruthy();
   });
 
   it("the next sweep finds the repairs holding and repeats nothing; once the rest is mended the alert resolves", async () => {
@@ -143,28 +164,30 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     expect(await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from events where company_id=$1 and event_type='lead.created'", [companyId]))).toEqual({ n: 2 });   // Nina and Sol, once each
     // live: the real contact's record may now be written; a refusal leaves it for the next sweep, unclaimed
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
-    refuse = true; r = await sweep(); refuse = false;
-    expect(drift(r.findings).find((f) => !f.ok)!.text).toContain("I couldn't change it (GHL refused it (GHL 422 on /objects: bad value))");
-    expect(await asOperator((c) => one(c, "select 1 from step_effects where company_id=$1 and node_id='repair:R1:outcome'", [companyId]))).toBeUndefined();
+    refuse = true; r = await sweep(); await run(); refuse = false;
+    // the workflow's write was refused: its step says so (and alerts, D77); nothing is recorded as written, so the next sweep hands it on again
+    expect(writes).toHaveLength(1);
+    expect(await asOperator((c) => one<{ result: Record<string, unknown> }>(c, "select s.result from run_steps s join runs r on r.id=s.run_id join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Ledger drift' and s.node_id='r_cancel' and s.status='skipped' order by s.started_at desc limit 1", [companyId]))).toEqual({ result: expect.objectContaining({ kind: "gave_up", class: "permanent", vendor: "ghl", why: "couldn't update the Sales Call record after 1 try; the run went on without it" }) });
     records.splice(records.findIndex((x) => x.id === "R5"), 1);
     await asOperator((c) => c.query("update appointments set source_updated_at=starts_at + interval '1 hour' where company_id=$1 and external_id='AP6'", [companyId]));
-    r = await sweep();
+    r = await sweep(); await run();
     expect(writes).toEqual([{ id: "R2", outcome: "cancelled" }, { id: "R1", outcome: "cancelled" }]);
     expect(drift(r.findings).filter((f) => f.ok).map((f) => f.item)).toEqual(["repair:R1:ghl", "repair:R6:ledger"]);   // AP6 cancelled after its start: the filed no-show stands
     expect(r.resolved).toBeGreaterThanOrEqual(1);
     expect((await asOperator((c) => openAlerts(c, companyId))).filter((a) => a.key === "health:ledger_drift")).toHaveLength(0);
     // a GHL record set back after the repair is not written twice: it is left for a person
     records.find((x) => x.id === "R1")!.properties.outcome = "no_show";
-    r = await sweep();
+    r = await sweep(); await run();
     expect(writes).toHaveLength(2);
-    expect(drift(r.findings).find((f) => !f.ok)!.text).toContain("it was set once already and GHL says otherwise again");
+    expect(asked(r.findings).map((q) => q.kind)).toEqual(["cancel_set_back"]);
+    expect(await worded()).toContain("it was set once already and GHL says otherwise again");
     records.find((x) => x.id === "R1")!.properties.outcome = "cancelled";
   });
 
-  it("no run, no CRM write; GHL that cannot be read keeps the open alert as it is", async () => {
+  it("GHL that cannot be read keeps the open alert as it is", async () => {
     records.find((x) => x.id === "R2")!.properties.outcome = "no_show";
-    let r = await sweep({ run: false });
-    expect(drift(r.findings).find((f) => !f.ok)!.text).toContain("no run to record the write against");
+    let r = await sweep();
+    expect(asked(r.findings).map((q) => q.kind)).toContain("cancel_set_back");   // written once already: a person's now
     const before = (await asOperator((c) => openAlerts(c, companyId))).find((a) => a.key === "health:ledger_drift")!;
     ghlDown = true; r = await sweep(); ghlDown = false;
     expect(drift(r.findings)).toEqual([expect.objectContaining({ ok: false, text: before.text })]);
@@ -175,15 +198,16 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     won.push({ id: "W-K1", pipelineId: "PIPE-CLOSER", status: "won", wonAt: ago({ days: 2 }).toUTC().toISO()!, contactId: "G-K1", contactName: "G-K1", contactTags: [] },
       { id: "W-TEST", pipelineId: "PIPE-CLOSER", status: "won", wonAt: ago({ days: 2 }).toUTC().toISO()!, contactId: "G-TEST", contactName: "G-TEST", contactTags: [] });   // the team's test contact: never asked about
     try {
-      expect(drift((await sweep()).findings).map((f) => f.text).join("\n")).not.toMatch(/won closer card|closer card was won/);   // no Payment records at all: nothing to compare yet
+      expect(asked((await sweep()).findings).map((q) => q.kind)).not.toEqual(expect.arrayContaining(["won_no_payment"]));   // no Payment records at all: nothing to compare yet
       payments.push({ id: "PAY-K2", createdAt: ago({ days: 1 }).toISO()!, properties: { contact_id: "G-K2", amount: 500, type: "deposit", status: "succeeded", occurred_at: ago({ days: 1 }).toUTC().toISO() } },
         { id: "PAY-K2b", createdAt: ago({ days: 1 }).toISO()!, properties: { contact_id: "G-K2", amount: 250, type: "installment", status: "succeeded", occurred_at: ago({ hours: 5 }).toUTC().toISO() } });
-      const bad = drift((await sweep()).findings).find((f) => !f.ok)!;
-      expect(bad.text).toMatch(/which I have questions about:\n/);
-      expect(bad.text).toMatch(/\n• G-K1: their closer card was won \w{3} \w{3} \d{1,2}, but GHL has no payment for them\. Did they pay, or should the card not be won\?/);
-      expect(bad.text).toMatch(/\n• G-K2: GHL has a \$500 payment from \w{3} \w{3} \d{1,2} but no won closer card\. Should their closer card be won\?/);
-      expect(bad.text.match(/G-K2: GHL has/g)).toHaveLength(1);
-      expect(bad.text).not.toContain("G-TEST: their closer card");
+      await sweep();
+      const text = await worded();
+      expect(text).toMatch(/which I have questions about:\n/);
+      expect(text).toMatch(/\n• G-K1: their closer card was won \w{3} \w{3} \d{1,2}, but GHL has no payment for them\. Did they pay, or should the card not be won\?/);
+      expect(text).toMatch(/\n• G-K2: GHL has a \$500 payment from \w{3} \w{3} \d{1,2} but no won closer card\. Should their closer card be won\?/);
+      expect(text.match(/G-K2: GHL has/g)).toHaveLength(1);
+      expect(text).not.toContain("G-TEST: their closer card");
     } finally {
       won.splice(0); payments.splice(0);
       await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='crm.pipeline_closer'", [companyId]));
@@ -198,11 +222,12 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     });
     try {
       const fs = drift((await sweep()).findings);
+      await run();   // D88: the Ledger drift workflow links it
       expect(linkWrites).toEqual(expect.arrayContaining([{ id: "R3", props: { opportunity_id: "CARD-K2" } }]));
       expect(relations).toContain("ASSOC-OPP:R3>CARD-K2");
-      expect(fs.find((f) => f.item === "repair:R3:links")?.text).toMatch(/linked to the closer card/);
-      expect(fs.find((f) => !f.ok)!.text).toMatch(/G-K1, .*: this Sales Call isn't linked to a closer card, and the person has none\. Which card is it\?/);
-      const n = linkWrites.length; await sweep(); expect(linkWrites.length).toBe(n);   // a link is written once
+      expect(fs.find((f) => f.item === "repair:R3:links")?.text).toMatch(/links the Sales Call to the closer card/);
+      expect(await worded()).toMatch(/G-K1, .*: this Sales Call isn't linked to a closer card, and the person has none\. Which card is it\?/);
+      const n = linkWrites.length; await sweep(); await run(); expect(linkWrites.length).toBe(n);   // a link is written once
     } finally { await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('crm.pipeline_closer','crm.assoc_sales_call_opportunity','crm.assoc_sales_call_contact')", [companyId])); }
   });
   it("D83: GHL's outcome (the disposition) is copied too: a showed call takes it, a call GHL says did not happen has none, a deposit stays a deposit, a value nobody mapped is asked about until it is", async () => {
@@ -230,7 +255,8 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       expect(await resultOf("AP11")).toBeNull();
       expect(fs.filter((f) => f.ok).map((f) => f.item)).toEqual(expect.arrayContaining(["repair:R8:result", "repair:R9:result"]));
       expect(fs.some((f) => f.item === "repair:R10:result")).toBe(false);
-      expect(fs.find((f) => !f.ok)!.text).toContain(`GHL's outcome is "financing_denied", and the engine hasn't been told what that means yet.`);
+      expect(asked(fs.length ? [...fs] : []).some((q) => q.kind === "disposition_unmapped")).toBe(true);
+      expect(await worded()).toContain(`GHL's outcome is "financing_denied", and the engine hasn't been told what that means yet.`);
       // the company says what it means, with its own reason under lost; the next sweep follows
       await asOperator(async (c) => {
         await c.query("insert into bindings (company_id, key, kind, value) values ($1,'sales_call.dispositions','text',$2)", [companyId, Buffer.from(JSON.stringify({ closed_won: "closed", follow_up: "follow_up", lost: "lost", dq: "unqualified", financing_denied: { meaning: "lost", reason: "Financing denied" }, close_pending: "pending" }))]);
@@ -247,7 +273,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       await asOperator((c) => c.query("insert into payments (company_id, contact_id, whop_payment_id, amount, status, paid_at) values ($1,$2,'pay-k3',500,'succeeded',now())", [companyId, k3]));
       await sweep();
       expect(await resultOf("AP12")).toBe("closed");      // signed and paid: a close
-      expect(again.some((f) => !f.ok && f.text.includes("financing_denied"))).toBe(false);
+      expect(asked(again).some((q) => q.kind === "disposition_unmapped")).toBe(false);
       expect(again.some((f) => f.item === "repair:R8:result")).toBe(false);   // nothing repeated
     } finally {
       for (const id of ["R8", "R9", "R10", "R11", "R12"]) records.splice(records.findIndex((r) => r.id === id), 1);

@@ -12,6 +12,6 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   const w = await asOperator((c) => one<{ company_id: string }>(c, "select company_id from workflows where id=$1", [id])); if (!w) return fail(404, "no such workflow");
   const r = await asOperator((c) => fireNow(c, w.company_id, id));
   let note = r.why ? `Not started: ${r.why}` : `Started ${r.started.length} run${r.started.length === 1 ? "" : "s"}`;
-  if (r.started.length) { const t = await tick(liveAdapters, undefined, w.company_id); await asOperator((c) => announceDue(c, liveAdapters)); note += `: ${t.completed} finished, ${t.failed} failed, ${t.waiting} waiting`; }
+  if (r.started.length) { const t = await tick(liveAdapters, undefined, w.company_id); await asOperator((c) => announceDue(c, liveAdapters, new Date(), w.company_id)); await tick(liveAdapters, undefined, w.company_id); note += `: ${t.completed} finished, ${t.failed} failed, ${t.waiting} waiting`; }
   return ok({ ok: !r.why, note, started: r.started.length });
 }

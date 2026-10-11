@@ -38,13 +38,13 @@ describe.skipIf(!process.env.DATABASE_URL)("payments ledger", () => {
     expect(deriveKind(0, 0, 2999, "failed")).toBe("failed");
   });
 
-  it("email matches exactly; a deposit opens a pursuit priced at the company default and marks it won", async () => {
+  it("email matches exactly; a deposit opens a pursuit priced at the company default (won is Payment recorded's step, D88)", async () => {
     const r = await asOperator((c) => recordPayment(c, companyId, pay("pay_1", { amount: 1500, email: "Ann@X.com", memberId: "mber_ann" })));
     expect(r.outcome).toBe("linked"); if (r.outcome !== "linked") return;
     expect(r.contactId).toBe(ann); expect(r.payment.kind).toBe("deposit"); expect(r.payment.linked_by).toBe("email");
     expect(r.event.data).toMatchObject({ kind: "deposit", running_total: 1500, contract_value: 2999, outstanding: 1499, cleared: false });
     const opp = await asOperator((c) => one<{ status: string; contract_value: string }>(c, "select status, contract_value from opportunities where company_id=$1 and contact_id=$2", [companyId, ann]));
-    expect(opp).toEqual({ status: "won", contract_value: "2999.00" });
+    expect(opp).toEqual({ status: "open", contract_value: "2999.00" });
   });
 
   it("the member id links the next payment even when the email changed; the balance clears the deal and fires paid_in_full once", async () => {

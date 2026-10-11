@@ -5,7 +5,7 @@
   "stage": "payments",
   "sort": 20,
   "origin": "spec",
-  "description": "A payment landed in the ledger: cash collected on the contact becomes the running total, revenue generated is stamped once with the program price, pay-plan-active or pay-paid-full is set, the payment is written to the CRM's Payment object and linked to the contact and the closer card. On the first payment, if the agreement is not signed yet, the purchase agreement is sent for signature, stat-agreement-sent is added and the closer card moves to Agreement Sent. A dated note records the payment, the Sales Call record's cash collected is updated when there is one, and the team gets the Slack line. A refund is a new line in the same tracker with a minus sign: cash collected drops to the lower running total, the Payment record is written with the negative amount, pay-refunded is added (pay-paid-full / pay-plan-active stay as the last payment left them), the Slack line reads Refund, and nothing is re-stamped. Nothing goes to the customer from here.",
+  "description": "A payment landed in the ledger: cash collected on the contact becomes the running total, revenue generated is stamped once with the program price, pay-plan-active or pay-paid-full is set, the payment is written to the CRM's Payment object and linked to the contact and the closer card. On the first payment, if the agreement is not signed yet, the purchase agreement is sent for signature, stat-agreement-sent is added and the closer card moves to Agreement Sent. A dated note records the payment, the Sales Call record's cash collected is updated when there is one, and the team gets the Slack line. A refund is a new line in the same tracker with a minus sign: cash collected drops to the lower running total, the Payment record is written with the negative amount, pay-refunded is added (pay-paid-full / pay-plan-active stay as the last payment left them), the Slack line reads Refund, and nothing is re-stamped. Nothing goes to the customer from here. A payment on an open opportunity wins it (update_opportunity, one opportunity.won; D88: it was the engine's own rule).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -47,6 +47,21 @@
           "react": "dollar"
         },
         "title": "Payment or refund: the words, the sign, the emoji"
+      },
+      {
+        "id": "o_won",
+        "type": "update_opportunity",
+        "status": "won",
+        "only_if": {
+          "eq": [
+            "{{event._type}}",
+            "payment.received"
+          ]
+        },
+        "title": "Opportunity won on a payment (change the condition to win on paid in full, or move the step to Call outcome filed to win on the closer's answer)",
+        "from": [
+          "open"
+        ]
       },
       {
         "id": "n1",
@@ -243,6 +258,10 @@
       },
       {
         "from": "v1",
+        "to": "o_won"
+      },
+      {
+        "from": "o_won",
         "to": "n1"
       },
       {

@@ -112,7 +112,7 @@ export async function recordRecording(c: PoolClient, companyId: string, input: R
     return { outcome: "linked", recording: (await one<RecordingRow>(c, "select * from recordings where id=$1", [inserted.id]))!, event, contactId: match.contactId, appointmentId };
   }
   const row = (await one<RecordingRow>(c, "update recordings set unlinked_reason=$2 where id=$1 returning *", [inserted.id, reason ?? null]))!;
-  const event = await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "recording.unlinked", source: provider === "fathom" ? "fathom" : "zapier", occurred_at: input.startedAt, data: eventData(row, { reason, invitees: input.invitees }) });
+  const event = await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "recording.unlinked", source: provider === "fathom" ? "fathom" : "zapier", occurred_at: input.startedAt, data: eventData(row, { reason, invitees: input.invitees, attendees: input.invitees.map((i) => i.email ?? i.name).filter(Boolean).join(", ") }) });
   return { outcome: "unlinked", recording: row, event, reason: reason ?? "no match" };
 }
 

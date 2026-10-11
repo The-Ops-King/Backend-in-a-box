@@ -39,6 +39,9 @@ export async function companyReadiness(c: PoolClient, companyId: string, slugPre
     issues.push({ level: "warning", text: "No test email domain (test.domains): in test only contacts tagged sys-test pass.", href: `${slugPrefix}/setup` });
   if (!slack) issues.push({ level: "blocker", text: "Slack is not connected: every Slack post (team alerts, booking cards, call reviews, unlinked payments) is recorded but never posted.", href: `${slugPrefix}/setup#slack` });
   if (!co.sms_enabled) issues.push({ level: "warning", text: "SMS is off for this company: text steps are skipped and the run continues." });
+  // D88: the engine no longer posts alerts itself; a company whose Health check copy predates that (edited, so not upgraded) says nothing
+  if (!(await one(c, "select 1 from workflow_triggers t join workflows w on w.id=t.workflow_id where t.company_id=$1 and t.event_type='alert.raised' and t.enabled and w.enabled", [companyId])))
+    issues.push({ level: "warning", text: "No workflow says the alerts: none that is on starts on alert.raised. Re-make Health check from the template (an edited copy from before D88 has no alert steps), or add them.", href: `${slugPrefix}/health` });
   for (const w of workflows) {
     if (w.parseError) issues.push({ level: "blocker", text: `${w.name}: its stored definition no longer runs on this engine (${w.parseError.slice(0, 120)}). Re-run install to upgrade it to the current template.`, href: `${slugPrefix}/w/${w.id}` });
     if (w.missing.length) issues.push({ level: w.enabled ? "blocker" : "warning", text: `${w.name}${w.enabled ? " is ON but" : ""} is missing ${w.missing.join(", ")}.`, href: `${slugPrefix}/w/${w.id}` });

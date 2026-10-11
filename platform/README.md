@@ -50,19 +50,24 @@ Every template carries a `stage` on the customer's journey (`src/engine/stages.t
 | no-show-recovery | GHL marks no-show, or the disposition form does | 10 min, SMS + email with the rebook link, 24h for a reply, one more email |
 | cancellation-rebook | GHL marks cancelled | SMS + email with the rebook link |
 | post-call-follow-up | disposition says follow-up | next morning SMS |
-| call-outcome | a closer filed how a call went (end-of-day or disposition form), or the CRM marked a no-show | on the contact's own booking post: no-show → 👻 in the thread + `stat-no-show`, the setter card → No-Show / Cancel / Reschedule, **lost** (the setter pipeline is won on a show, lost on a no-show; the next booking makes a fresh setter card) and the closer card → No Show / Cancelled, still open (a rebook reuses it); showed → ✅ (Sales call recorded already put one when the recording landed; a repeat is a no-op) + `stat-showed` + the setter card → Showed, won (a no-op when the recording moved it), then the confirmed call outcome's tag and closer-card move: closed/deposit → `stat-closed-won` (the closer card waits for Deal closed / Payment recorded), follow-up → `stat-follow-up` + Follow Up, lost → `stat-lost` + Lost (lost), disqualified → `stat-disqualified` + Disqualified (lost); rescheduled or cancelled on the call → the Sales Call record says so. A refiled answer edits the thread line in place and takes back what the earlier answer did where it differs (D76). Every card step moves a card that exists and never makes one (D61). The engine's own showed (from a recording) does not start it; Jev's read only pre-fills the form (D50, D54). No workflow presumes a no-show any more: the end-of-day form opens with no-show for a call whose time has passed with no recording, no outcome and no money, and nothing is marked until the closer answers. Needs `crm.pipeline_setter`, `crm.pipeline_closer`, `crm.stage_setter_showed`, `crm.stage_setter_cancelled`, `crm.stage_closer_cancelled`, `crm.stage_closer_follow_up`, `crm.stage_closer_lost`, `crm.stage_closer_disqualified`; `slack.channel.bookings` optional |
+| call-outcome | a closer filed how a call went (end-of-day or disposition form), or the CRM marked a no-show | on the contact's own booking post: no-show → 👻 in the thread + `stat-no-show`, the setter card → No-Show / Cancel / Reschedule, **lost** (the setter pipeline is won on a show, lost on a no-show; the next booking makes a fresh setter card) and the closer card → No Show / Cancelled, still open (a rebook reuses it); showed → ✅ (Sales call recorded already put one when the recording landed; a repeat is a no-op) + `stat-showed` + the setter card → Showed, won (a no-op when the recording moved it), then the confirmed call outcome's tag and closer-card move: closed/deposit → `stat-closed-won` (the closer card waits for Deal closed / Payment recorded), follow-up → `stat-follow-up` + Follow Up, lost → `stat-lost` + Lost (lost), disqualified → `stat-disqualified` + Disqualified (lost); rescheduled or cancelled on the call → the Sales Call record says so; close pending (D83) → `stat-showed` and the disposition `close_pending`, never a close. The opportunity follows the answer (D88): a loss marks it lost (`update_opportunity`, `from: [open]`), a refiled answer that takes the loss back opens it again. A refiled answer edits the thread line in place and takes back what the earlier answer did where it differs (D76). Every card step moves a card that exists and never makes one (D61). The engine's own showed (from a recording) does not start it; Jev's read only pre-fills the form (D50, D54). No workflow presumes a no-show any more: the end-of-day form opens with no-show for a call whose time has passed with no recording, no outcome and no money, and nothing is marked until the closer answers. Needs `crm.pipeline_setter`, `crm.pipeline_closer`, `crm.stage_setter_showed`, `crm.stage_setter_cancelled`, `crm.stage_closer_cancelled`, `crm.stage_closer_follow_up`, `crm.stage_closer_lost`, `crm.stage_closer_disqualified`; `slack.channel.bookings` optional |
 | payment-failed | Whop failure | one post in `slack.channel.payments` tagging the closer; the client is not messaged |
 | reactivation | tag `reactivate` added | email, 3 days, SMS, 4 days, last email; once per 90 days |
 | call-booked | closing call booked or moved | contact gets appointment date + closer as owner; the booking's UTMs (source, medium, campaign, content, term, fbclid) on the contact's UTM fields where GHL's is empty (read live; a first touch is never overwritten; an unbound `crm.field_contact_utm_*` / `crm.field_contact_fbclid` is skipped, D78); setter card → Direct Booked Call ("-- Direct") or Appointment Set ("-- Set", setter stamped); closer card created/moved to Scheduled ("-- Direct" / "-- Setter Booked"); tags `stat-booked` + `stat-self-booked`/`stat-set`, nurture tags off, and `stat-no-show` / `stat-cancelled` / `stat-possible-cancel` / `stat-needs-attention` off too (a fresh booking resets them so a filter on them never catches someone who rebooked, D62); Slack card with intake answers, reschedule link, the person's lead source (D78). Needs the setter/closer pipeline + stage ids and the custom field ids as `crm.*`; `slack.channel.bookings` optional |
 | call-cancelled | closing call cancelled (a reschedule never fires this) | setter and closer cards → their cancelled stage (move only); appointment date cleared on the contact; rebook task for the closer due in a day with who cancelled and why; `stat-cancelled` on, booked tags off; Slack note. Needs `crm.stage_setter_cancelled`, `crm.stage_closer_cancelled` |
-| payment-recorded | payment linked to a contact | cash collected on the contact = running total; revenue generated stamped once with the program price; `pay-paid-full` (and `pay-plan-active` off) when cleared, else `pay-plan-active`; Payment custom-object record written and linked to the contact and the closer card; Slack line. A refund (`payment.refunded`, D57) is a new line in the same tracker with a minus sign: cash collected = the lower running total, a Payment record with the negative amount (`type` refund, `status` refunded), `pay-refunded` added, `pay-paid-full` / `pay-plan-active` left as the last payment set them, Slack `*Refund:* −$X`, 💸 on the booking and review threads; nothing re-stamped, no agreement sent. Needs `crm.field_contact_cash_collected`, `crm.field_contact_revenue_generated`, `crm.assoc_payment_contact`, `crm.assoc_payment_opportunity`, `crm.pipeline_closer`; `slack.channel.payments` optional |
+| payment-recorded | payment linked to a contact | cash collected on the contact = running total; revenue generated stamped once with the program price; `pay-paid-full` (and `pay-plan-active` off) when cleared, else `pay-plan-active`; Payment custom-object record written and linked to the contact and the closer card; Slack line. A refund (`payment.refunded`, D57) is a new line in the same tracker with a minus sign: cash collected = the lower running total, a Payment record with the negative amount (`type` refund, `status` refunded), `pay-refunded` added, `pay-paid-full` / `pay-plan-active` left as the last payment set them, Slack `*Refund:* −$X`, 💸 on the booking and review threads; nothing re-stamped, no agreement sent. A payment on an open opportunity wins it (`update_opportunity` `o_won`; change its condition to win on paid in full, or move it, D88). Needs `crm.field_contact_cash_collected`, `crm.field_contact_revenue_generated`, `crm.assoc_payment_contact`, `crm.assoc_payment_opportunity`, `crm.pipeline_closer`; `slack.channel.payments` optional |
 | call-recorded | a call recording matched to a contact (`recording.received`, Fathom), or a dialer call Jev read as a closing call (`call.closing`, handed over by setter-call-logged, D87) | the whole call is read (a dialer call in parts is one call: `lookup call_conversation`); Jev decides whether a meeting recording is a sales call (else stop; a dialer call Jev already read as closing skips this) and how it ended; the AI pulls the notes and scores the call against the rubric (`prompt.call_review`); when it lines up with a booking: appointment recorded as showed (`call.held` fires), `stat-showed`, setter card → Showed and won; Sales Call record written and linked; notes on the contact; Slack review (the same call again edits it in place: `edit` on the `recording:<first part>` tag). A closing call by phone that lines up with no booking is posted as unlinked and the team is asked which booking it was (attention channel, else ops, else calls; 1️⃣ 2️⃣ 3️⃣ for the first three of their closing calls two weeks either side, ❌ none, two days); a tap records `call.closing` about that booking (`record` with `appointment` and `start`) and this workflow runs again on it. Needs `secret.anthropic_key`, `crm.stage_setter_showed`, `crm.assoc_sales_call_contact`, `crm.assoc_sales_call_opportunity`; `slack.channel.calls` optional | Slack goes out first, so a CRM hiccup never hides that the call happened; the Sales Call record is created at booking by call-booked, one per call slot, and updated here (a reschedule logs the old slot's record as rescheduled and gives the new slot its own, D76); an unlinked closing call gets no record until it is linked; `disposition` and `objection_primary` pass through the `oneof:` filter so a value the CRM would silently drop is never written.
-| setter-call-logged | the dialer logged a connected phone call (`call.logged`), once its transcript came in or `calls.transcript_wait_min` passed | D87. The call is read as one conversation with the same setter's calls to the person, each starting within `calls.conversation_gap_min` (15) of the last one ending (`lookup call_conversation`; 0-second connects are never a part); a conversation under the minimum length (a `set_var` knob, 60s) or with no recording → stop. Jev reads the whole conversation (each part's transcript fetched from GHL, none stored): setting / confirmation / closing / other (other → stop; closing → `record call.closing` with `start`, about the booking with the same closer starting within an hour of the call, and Sales call recorded takes it). The AI writes the digest (`prompt.setter_call_notes`). A confirmation call posts as soon as it is read. A setting call: Jev reads set / follow up / DQ / not interested, then `wait_for_event appointment.booked` (a setter-link booking made from the call's start, up to the Set window) until 15 minutes after hang-up: a booking already made during the call or landing in those 15 minutes posts at once as **Set**; otherwise the post goes out at the 15-minute mark with Jev's read (Jev's Set with no booking, or a read under 70% sure, asks the setters). A second `wait_for_event` until `recording.set_until` (hang-up + `setter_result.set_within_min`, 30): a setter-link booking that lands then edits the post and the Discovery Call record to Set the moment it lands. A later part of the conversation edits the same post (`edit` on the `setter-call:<first part>` tag) and the same record (keyed by the first part), marked "(N parts)"; a part whose later part already has a transcript leaves the whole to that part's run. Discovery Call record (`led_to_booking` `["yes"]` only when Set, `call_result` in the company's option keys from `discovery_call.results`, left out and named while the object has no such field), digest as a note, Slack post with the result. The setters' question: ✅ Set · 🔁 Follow up · ❌ DQ · 🚫 Not interested, two days; the first tap writes it and scores Jev. The actions a result implies (follow up → a callback task for the setter due the next business day; DQ → `dq-<reason>` tag + setter card lost, at `crm.stage_setter_dq` when bound; not interested → setter card lost, at `crm.stage_setter_not_interested` when bound) run only with `setter_result.act` true; off (the default) the post says what they would have done. Every read is a `setter_call.result` event; `jev_setter_accuracy` scores them. Needs `secret.anthropic_key`, `crm.assoc_discovery_call_contact`, `crm.pipeline_setter`; `slack.channel.setter_calls` optional (the question falls back to `slack.channel.ops`, then `slack.channel.bookings`) |
+| setter-call-logged | the dialer logged a connected phone call (`call.logged`), once its transcript came in or `calls.transcript_wait_min` passed | D87. The call is read as one conversation with the same setter's calls to the person, each starting within `calls.conversation_gap_min` (15) of the last one ending (`lookup call_conversation`; 0-second connects are never a part); a conversation under the minimum length (a `set_var` knob, 60s) or with no recording → stop. Jev reads the whole conversation (each part's transcript fetched from GHL, none stored): setting / confirmation / closing / other (other → stop; closing → `record call.closing` with `start`, about the booking with the same closer starting within an hour of the call, and Sales call recorded takes it). The AI writes the digest (`prompt.setter_call_notes`). A confirmation call posts as soon as it is read. A setting call: Jev reads set / follow up / DQ / not interested, then `wait_for_event appointment.booked` (a setter-link booking made from the call's start, up to the Set window) until 15 minutes after hang-up: a booking already made during the call or landing in those 15 minutes posts at once as **Set**; otherwise the post goes out at the 15-minute mark with Jev's read (Jev's Set with no booking, or a read under 70% sure, asks the setters). A second `wait_for_event` until `recording.set_until` (hang-up + `setter_result.set_within_min`, 30): a setter-link booking that lands then edits the post and the Discovery Call record to Set the moment it lands. A later part of the conversation edits the same post (`edit` on the `setter-call:<first part>` tag) and the same record (keyed by the first part), marked "(N parts)"; a part whose later part already has a transcript leaves the whole to that part's run. Discovery Call record (`call_result` in the company's option keys from `discovery_call.results`, left out and named while the object has no such field), digest as a note, Slack post with the result. The setters' question: ✅ Set · 🔁 Follow up · ❌ DQ · 🚫 Not interested, two days; the first tap writes it and scores Jev. The actions a result implies (follow up → a callback task for the setter due the next business day; DQ → `dq-<reason>` tag + setter card lost, at `crm.stage_setter_dq` when bound; not interested → setter card lost, at `crm.stage_setter_not_interested` when bound) run only with `setter_result.act` true; off (the default) the post says what they would have done. Every read is a `setter_call.result` event; `jev_setter_accuracy` scores them. Needs `secret.anthropic_key`, `crm.assoc_discovery_call_contact`, `crm.pipeline_setter`; `slack.channel.setter_calls` optional (the question falls back to `slack.channel.ops`, then `slack.channel.bookings`) |
 | agreement-send-manually | tag `sys-send-agreement-manually` added | unless already signed: `send_document` (the Documents & Contracts template `crm.agreement_template`, from `crm.agreement_sender`), tag `stat-agreement-sent`, trigger tag removed, note |
 | agreement-signed | the signer completed the agreement (`agreement.signed`, from the documents poll) | tag `stat-agreement-signed` (and `stat-agreement-unsigned` off, D62), dated note, Slack (`slack.channel.deals`) |
 | deal-closed | first payment OR agreement signed, either order, once per contact | gate: paid AND signed AND not tagged `stat-customer` (else stop, and the stop does not use up the "once"); then `stat-customer`, closer card → Closed - Won (won), setter card won, Sales Call record `closed_won` / `showed` with cash collected, welcome email + text (CRM templates by id when set on the step, else the copy on the step), Slack. Needs `crm.stage_closer_closed_won`; `slack.channel.deals` optional |
 | agreement-chase | first payment | 24h → unsigned? → nudge the owner (Slack DM, else `slack.channel.alerts` with an @mention; CRM task on the contact) → 24h → … three nudges at most; a signature ends it; after the third: tag `stat-agreement-unsigned`, one alerts post |
 | payment-recorded (extended) | payment linked | as before, plus on the first payment with no signature: send the agreement, `stat-agreement-sent`, closer card → Agreement Sent (`crm.stage_closer_agreement_sent`); dated note; Sales Call record cash collected updated when there is one |
+| card-moved | `card.moved` (a pipeline card dragged by hand in the CRM, any bound board, D61) | "🗂️ <who> moved the <board> card to <stage>" in the booking post's thread; into the closer's No Show / Cancelled or the setter's No-Show / Cancel / Reschedule → a no-show, into Lost → showed + lost, into Disqualified → showed + DQ, filed with `record_outcome` `source: disposition` (as the end-of-day form files it, so Call outcome filed runs) once the call has started and when the call does not already carry it; any other stage is noted. Installs ON into an existing company (D88) |
+| payment-unlinked | `payment.unlinked` | the "*Unlinked payment*" post in the alerts channel (else bookings), marked only in shadow (D88) |
+| recording-unlinked | `recording.unlinked` | the "*Unmatched recording*" post in the alerts channel (else bookings) with why, who was on it and the link to match it (D88) |
+| eod-call-filed | `eod.call_filed` (an end-of-day answer for a Sales Call booked before the engine, D77) | the record by its own id (`crm_record` `record_id`): the attendance in the company's keys, the disposition the answer means, what a held call carries emptied for a no-show (D88). Needs `crm.object_sales_call` |
+| ledger-drift | `drift.sales_call_cancelled`, `drift.sales_call_unlinked` (the hourly sweep, D73/D76) | sets a Sales Call the booking source cancelled before its start to cancelled, links a Sales Call to its contact and its one closer card (field and association), each by the record's id (D88). Needs `crm.object_sales_call` |
 | new-lead | lead created | with a phone: setter-pipeline card "Name -- New" (stage New Lead, stage-entered date today) + tag `stat-new`; without a phone: exit `no_phone`. Needs `crm.pipeline_setter`, `crm.stage_setter_new_lead`, `crm.field_opportunity_stage_entered` (install `crm: {...}`) |
 
 Every message is a template on the workflow, editable per company once the editor exists; until
@@ -89,8 +94,8 @@ engine creates its own Whop webhook (api v1; payment.succeeded, payment.failed, 
 backfill. Needs `payment:basic:read` and `developer:manage_webhook` on the key.
 
 Whop posts to `/api/webhooks/whop/<companyId>` (signature verified, Standard Webhooks). Each
-payment is a ledger row linked by member id, email or phone, or left **unlinked** with a team
-alert; a linked payment shows under the person's History on their contact page. Linking (by the engine's matching, or `POST /api/admin/...`) settles
+payment is a ledger row linked by member id, email or phone, or left **unlinked**: `payment.unlinked`
+starts the Unlinked payment workflow, which tells the team in its own words (D88); a linked payment shows under the person's History on their contact page. Linking (by the engine's matching, or `POST /api/admin/...`) settles
 it: pursuit, derived kind, running total, `cleared`, and the `payment.received` event that starts
 workflows. Set the program price with `contractValueDefault` at install and the Whop signing
 secret with `whop: { webhookSecret }`. Facts about Whop's payload are in `whop/01-api-facts.md`.
@@ -113,8 +118,8 @@ Zap posting to `/api/webhooks/zapier/<companyId>/recording` with the same `x-eng
 payment door (body: `recording_id`, `title`, `started_at`, `duration_seconds` or `duration_minutes`,
 `share_url`, `recorded_by_email`, `invitees` as "Name <email>, …" or an array, `transcript` as text or
 an array, `summary`). Either way it is a `recordings` row, matched by invitee email → invitee name →
-the recorder's calendar (one appointment within two hours), or left **unmatched** with the reason, a
-team alert; a linked recording shows under the person's History on their contact page. A linked recording
+the recorder's calendar (one appointment within two hours), or left **unmatched** with the reason:
+`recording.unlinked` starts the Unmatched recording workflow, which tells the team (D88); a linked recording shows under the person's History on their contact page. A linked recording
 emits `recording.received` (with the contact's appointment nearest the start, within a day) and
 templates take it from there. Facts about Fathom's API are in `fathom/01-api-facts.md`.
 
@@ -189,6 +194,18 @@ connected, talk seconds, set from a call, setting / confirmation calls read by t
 (setter- vs self-booked), on the calendar / showed / no-show / cancelled, payments, cash, refunds,
 deals won, revenue. Per setter: dials, connects, talk, sets, bookings they set. Per closer:
 bookings, calendar outcomes, deals, revenue.
+
+**The wrap-up's words are the wrap-ups template's** (D88). The `report` step reads the registry numbers named in
+`metrics` (default: leads, MQLs, bookings, reschedules, dials, connected, speed to lead, closes, revenue, cash
+collected, cash gross, refunds) and the show-rate breakdown, and words the body with its `layout`: `heading` and
+`empty` by kind (`daily`, `weekly`, `weekly_to_date`, `monthly`, `monthly_to_date`), `sections` of `lines`, and a
+`failed` line for a GHL read that did not happen. Each line is a template over `report.*`: `n.<metric>` (null when zero,
+so `{{report.n.leads | each:"New leads: {{item}}"}}` says nothing on a quiet day), `raw.<metric>`, `calls.*`,
+`rates.show_rate` / `rates.close_rate` (whole percent, null without a denominator), `money_moved`, `said` (the first ten
+booking questions with their top answers), `by.closer` / `by.setter` (when `breakdowns` asks for them), `start` /
+`end`. The engine only puts it together: a line that renders blank is left out, a section with no line is left out,
+nothing at all is the `empty` line. The shipped layout says exactly what the old code said. `period: in_progress` sends
+this week or month so far instead of the one just ended. A copy with no layout of its own is worded by the shipped one.
 
 ### Setter metrics (D64)
 
@@ -282,22 +299,24 @@ fix), then rolls every day up. Keyed on source ids, so re-running is safe.
 ## Cards moved by hand (D61)
 
 The CRM is the truth about cards (D41), and a closer dragging one between runs used to be invisible until a run
-happened to read that contact. The poll now has a `cards` entity: each tick it reads the two bound boards whole
-(`GET /opportunities/search?pipeline_id=…`, 100 a page, ten pages at most; the search has no updated-since filter)
-and folds every card of a contact it knows into `pipeline_cards`. A known card whose stage or status differs from
-the replica, with a CRM stamp newer than our last write to it, was moved by a hand (or a CRM workflow): a
-`card.moved` event goes on the contact ({pipeline, from_stage, to_stage, from_name, to_name, from_status,
-to_status, by: crm, mover}), the replica follows, and the booking post's thread gets "🗂️ <who> moved the closer
-card to Follow Up" (the mover when the CRM says who, else "someone"). A move into the closer board's No Show /
-Cancelled, Lost or Disqualified, or the setter board's No-Show / Cancel / Reschedule, for a call whose time has
-passed files that outcome on the appointment through `recordDisposition`, exactly as the end-of-day form does, so
-Call outcome filed tags it and the Sales Call record says so; Follow Up and Financing Pending are the closer's own
-stages and file nothing. The handler never writes a card's status: the replica keeps the status the CRM returned, and
-the owner's rule (setter lost on a no-show) is Call outcome filed's step, which only ever marks an open card. The same detection runs
-inside every run's read of a contact's cards (`syncCards`), so whichever sees the move first records it, once. The
-first pass is a silent baseline. A card step that finds the card already where it would put it is a no-op
-(`already there`): no CRM write, no second line. Stage names in the line come from the binding keys
-(`crm.stage_closer_follow_up` → Follow Up), never from a CRM call. The contact page lists the moves under History.
+happened to read that contact. The poll now has a `cards` entity: each tick it reads every bound board whole (every
+`crm.pipeline_*`, D88; `GET /opportunities/search?pipeline_id=…`, 100 a page, ten pages at most; the search has no
+updated-since filter) and folds every card of a contact it knows into `pipeline_cards`. A known card whose stage or
+status differs from the replica, with a CRM stamp newer than our last write to it, was moved by a hand (or a CRM
+workflow): the engine records a `card.moved` event on the contact, about their latest closing call ({pipeline (the
+board's name from its binding), pipeline_id, from_stage, to_stage, from_name, to_name, from_status, to_status, by: crm,
+mover, mover_id, crm_card}), the replica follows, and that is all the engine does. What the move means is the **Card
+moved by hand** workflow's (D88, `card-moved`): the "🗂️ <who> moved the closer card to Follow Up" line in the booking
+post's thread (the mover when the CRM says who, else "someone"), and a branch on `event.to_stage` against the stage
+bindings: into the closer board's No Show / Cancelled, Lost or Disqualified, or the setter board's No-Show / Cancel /
+Reschedule, for a call that has started (`appointment.started`) and does not already carry that answer, a
+`record_outcome` with `source: disposition` files it exactly as the end-of-day form does, so Call outcome filed tags it
+and the Sales Call record says so. Every other stage is noted. The end-of-day form opens with what the move filed, says
+so, asks why it was lost or a DQ, and the reminder keeps the day owed until it is filed. Nothing writes a card's status
+here: the replica keeps the status the CRM returned. The same detection runs inside every run's read of a contact's
+cards (`syncCards`), so whichever sees the move first records it, once. The first pass is a silent baseline. Stage
+names in the line come from the binding keys (`crm.stage_closer_follow_up` → Follow Up), never from a CRM call. The
+contact page lists the moves under History.
 
 ## Agreements (D30)
 
@@ -384,7 +403,7 @@ Until the in-tool agent exists, the chat is the agent. Three shapes cover almost
 ## Setup page (`/app/c/<slug>/setup`, read-only — D42)
 
 Everything a company's installed workflows need, driven by their manifests, shown and never edited here:
-connections (GHL location and PIT, Anthropic, Whop, Fathom, Calendly, Resend — a secret reads "set · ends
+connections (GHL location and PIT, Anthropic, Whop, Fathom, Calendly — a secret reads "set · ends
 with …" or "missing"), booking source and setter rule, each calendar's call type, setter-vs-self rule and
 question map, every `crm.*` id with the name the live CRM gives it, Slack channels, alert destinations,
 prompts, the schedule workflows, the end-of-day form and the inbound door URLs. Blockers sit at the top;
@@ -609,19 +628,26 @@ goes on, with one alert "Couldn't <what> for <name> after 3 tries (<error>); eve
 re-checked alone (15 minutes, then hourly) until it passes, one alert, ✅ Resolved when it does; a run that pauses for a
 person becomes an alert with the workflow, the step in words, the contact, the error and the link to its page, where
 **Retry this step** / **Skip this step** are the two hands; a dead token is one `auth:<vendor>` alert per company that a new token in settings closes while waking the
-runs it stopped; a poll cursor that has failed twice in a row becomes one; a workflow copy the engine cannot parse
+runs it stopped; a poll cursor that has failed `alerts.poll_failures` times in a row (2) becomes one; a workflow copy the engine cannot parse
 becomes one; a run the engine itself broke (`failed`) becomes one. One open alert per
-(company, key): the first time it is posted to the company's destinations (`alerts.slack_channel`,
-`alerts.email` via Resend with `secret.resend_key` and `alerts.email_from`, `alerts.webhook` for a Zap), and
-remembered with its Slack ts. Still open an hour later → a line in that thread, never a new post. Cleared
-(the next run got past the step, the poll succeeded, the sweep found it fine) → "Resolved" in the thread and
-a ✅ reaction on the first post (the Slack app needs `reactions:write`; without it the thread still says
-resolved and says what scope is missing). The dashboard home and each company page show what is open;
+(company, key). The engine collects and dedupes them and keeps the clock; **what is said is the Health check
+workflow's** (D88): the first time an alert is due the engine emits `alert.raised` (its text, level, kind, links,
+the thread detail, the company's alert channel and face: the sweep's own for its findings, else
+`alerts.slack_channel` / `alerts.as_name` / `alerts.as_icon`), while it stays open `alert.repeated` every
+`alerts.repeat_minutes` (60), and once it clears (the next run got past the step, the poll succeeded, the sweep
+found it fine) `alert.resolved`. The workflow posts the alert (tagged `alert:<id>`; the headline per kind, the 🔴 / 🟡,
+the Open and fix links are its set_vars and template), the still-open line in its thread, and "Resolved" in the
+thread with a ✅ on the first post (the Slack app needs `reactions:write`). Slack only: there is no alert email or
+webhook any more (Tyler: "We definitely don't need to alert on an email"; a webhook step on the workflow is the way out
+if one is ever wanted); an alert about the engine itself (no company) still goes to `OPERATOR_WEBHOOK_URL`. A company
+with no enabled workflow on `alert.raised` (an edited Health check copy from before D88 is not upgraded) hears nothing;
+readiness says so. The dashboard home and each company page show what is open;
 `/app/c/<slug>/health` shows open alerts, the last sweep check by check, what cleared recently, and (folded) every event a workflow can start from with the workflows that use it.
 
 The **health check** is a workflow (`health-check` template, D35): a schedule trigger (every 60 minutes) and a
 `health_check` step whose settings are the list of checks (`checks: {"<id>": false}` turns one off), the
-channel its alerts announce in and the face they post as. Edit the company's copy to change any of it. It is
+channel its alerts announce in and the face they post as, and (D88) `slots_days` (7), `fathom_silent_days` (14),
+`drift_days` (7) and `poll_lag_min` (30); plus the three alert triggers above. Edit the company's copy to change any of it. It is
 read-only against every vendor except for the ledger repair below. Checks: the GHL token opens the location; every mapped GHL calendar returns
 free slots over the next 7 days (a closer's Google/Outlook sync dropping shows up as no slots: GHL has no flag
 for it); every bound pipeline, stage, contact field and opportunity field still exists; closers on calendars
@@ -634,11 +660,13 @@ to; the Anthropic key answers; no enabled workflow is missing a binding; no pers
 (D63: two records the poll folded into one person by phone or email, or two persons whose phone or email differ
 only in spelling — one finding and one alert per person, `duplicate:<contact_id>`, with the CRM contact to merge
 at; the engine never merges, and the finding clears when the CRM no longer has the dropped record); and the ledger
-matches GHL over the last 7 days (D73, `ledger_drift`, the one check that writes: a contact GHL added that the ledger
-lacks is pulled in and fires New lead once; one GHL says is gone is marked gone; a Sales Call the booking source
-cancelled before its start is set to cancelled in GHL, under the mode rules and the effects ledger, and in the ledger;
-otherwise GHL's filed outcome replaces the ledger's; every repair is in `audit_log` as `health.repaired`, and what cannot
-be repaired is one alert, `health:ledger_drift`). A failed
+matches GHL over the last `drift_days` (D73, `ledger_drift`: a contact GHL added that the ledger lacks is pulled in
+and fires New lead once; one GHL says is gone is marked gone; a Sales Call the booking source cancelled before its start
+is set cancelled in the ledger and handed to the **Ledger drift** workflow to set in GHL (`drift.sales_call_cancelled`,
+once ever, under the mode rules), as is a Sales Call missing its link to its contact or its one closer card
+(`drift.sales_call_unlinked`); otherwise GHL's filed outcome replaces the ledger's; every repair is in `audit_log` as
+`health.repaired`, each kind of finding is one `drift.found` event a sweep, and what cannot be repaired is one alert,
+`health:ledger_drift`, whose questions are data the Health check workflow words, D88). A failed
 check is an alert like any other and clears itself on the next clean sweep. `Sweep now` on the health page
 starts the workflow now (`fireNow`), as does `POST /api/admin/health { company }`.
 Probes live in `src/adapters/*/health.ts` and are injectable (`HealthProbes`), so `src/engine/health.ts`
@@ -685,11 +713,19 @@ at the top, calls, closes, deposits, cash collected and revenue generated. Every
 Each call asks one thing first, what happened, and the questions that follow appear once it is picked: closed or
 deposit show cash collected, then revenue generated (a call with more cash than revenue is not filed until it
 is fixed); follow up shows the next date and steps; DQ shows a reason (a select) and a
-note; the held outcomes show "about this prospect"; notes follow any outcome. A deposit is a payment short of the
+note; lost shows "Why were they lost?" (a select the company edits, required; A1, D88); the held outcomes show "about
+this prospect"; notes follow any outcome. A deposit is a payment short of the
 contract value (prefilled when what was paid that day is less than the contract or the program price); it is counted
-on its own, not as a close, and its cash and revenue are in the totals. Attendance is implied by the outcome:
-no-show and rescheduled record the appointment outcome, everything else records showed plus the call outcome
-(`call_outcome` terms: closed, deposit, follow_up, lost, unqualified for DQ).
+on its own, not as a close, and its cash and revenue are in the totals. Close pending (D83) is half a close (signed but
+not paid, or paid but not signed): a show, never counted as a close. Attendance is implied by the outcome.
+
+**The outcome list is the company's** (B6, D88): the outcome field on the `forms` row carries `choices`, each
+`{ value, label, attendance: showed | noshow | rescheduled, call_outcome?: closed | deposit | pending | follow_up | lost |
+unqualified, money? }`. Everything reads the meaning, never the key: what is filed (the attendance and the call outcome
+term), the totals (closes are `closed`, deposits `deposit`, cash and revenue the `money` ones, by default closed and
+deposit), which questions follow (cash and revenue follow money, the DQ and lost reasons their meaning, about any show),
+how the ledger's outcome and Jev's read pre-fill the form, and an old Sales Call's write. The defaults are Closed,
+Deposit, Close pending, Follow up, Lost, DQ, Rescheduled / cancelled on the call, No-show.
 
 The form is the company's (`forms`, purpose `eod`; `src/engine/eod-form.ts` holds the defaults and the merge):
 labels, what is required, the option lists (DQ reasons) and their own questions, per call (after chosen outcomes,
@@ -706,22 +742,29 @@ Submitting again replaces the day.
 
 Calls booked before the engine was installed (D77): the form also lists the closer's Sales Calls in GHL (the record's
 `closer` matches their roster name) whose call time has passed and that have neither an outcome nor a disposition,
-when the engine has no booking for them. Such a row is filed straight to its record by id (the outcome in the
-company's own keys, the disposition for a held call, `null` for what a held call carries on a no-show or a call
-rescheduled on the call), in live, or for a test contact in test; a record with an outcome never appears, and a row
-filed here stays on the form for refiling. The reminder counts the same rows. A changed answer, on any row, empties on
+when the engine has no booking for them. Filing such a row is an `eod.call_filed` event (the record id, the answer and
+what it means); the **Sales Call filed from the end-of-day form** workflow (`eod-call-filed`, D88) writes it to the
+record by its id (`crm_record` `record_id`: the attendance in the company's own keys, the disposition the answer means
+from a pick the company edits, `clear` for what a held call carries on a no-show or a call rescheduled on the call); the
+mode rules are the step's (shadow writes nothing). A record with an outcome never appears, and a row filed here stays on
+the form for refiling. The reminder counts the same rows. A changed answer, on any row, empties on
 the Sales Call what the earlier answer set and the new one does not (`crm_record.clear`, sent as `null`).
 
 Who is a closer is a role on the roster (settings § Team; install input `closers`: emails or CRM user ids). The CRM
 roster comes in as `staff`; only `closer` rows get a link and the DM.
 
 The reminder and what happens after filing are workflows (D35). `eod-reminder`: two schedule triggers, one run per
-closer each: at 18:00 company time (today's link plus any earlier unfiled day in the last week, one line each) and at
+closer each: at 18:00 company time (today's link plus any earlier unfiled day, one line each) and at
 09:00 (earlier unfiled days only), a `check` that there is something to file, a `slack_post` DM to the closer
-(`{{user.slack_user_id}}`, looked up by email) remembered under the tag `eod-reminder:<user>:<day>`. Change the
-times, the copy or the face on the company's copy. `eod-filed`: filing emits `eod.filed` with the whole report
-(totals, every call with its answers, corrections, the day questions) and a run about that closer starts: the
-summary to `{{slack.channel.eod}}` (edited in place on a refile, D76) with the corrections and the day's answers, then "✅ Got it" threaded under the
+(`{{user.slack_user_id}}`, looked up by email) remembered under the tag `eod-reminder:<user>:<day>`. The `eod_due`
+steps carry the rules (D88): `lookback_days` (7), `include_today` (evening yes, morning no), `overdue_after_days` (2:
+a Sales Call still blank in GHL that long is also told to the operator; null: never); they hand the template a list
+(`vars.due.days`: url, label, `when`, calls, `ghl_blank`, `both`; `vars.due.overdue`: label, names) and every word of
+the DM and the operator's note is built from it with `each` / `join`. Change the times, the rules, the copy or the face
+on the company's copy. `eod-filed`: filing emits `eod.filed` with the whole report
+(totals, every call with its answers, corrections, the day questions, why each loss or DQ went that way) and a run about
+that closer starts: the summary to `{{slack.channel.eod}}` (edited in place on a refile, D76) with the corrections, the
+day's answers and the lost / DQ reasons, then "✅ Got it" threaded under the
 reminder DM with a ✅ reaction (`thread_of: "tag:…"`, `react`). A `webhook` step after it sends the report to
 Airtable, a Zap, Apps Script, anything with a URL. Filed reports and every closer's link: `/c/<slug>/eod`.
 Tested in `eod.test.ts`.
@@ -888,6 +931,30 @@ Sales call recorded this way.
 { "id": "rec_close", "type": "record", "event": "call.closing", "appointment": "{{vars.booking_id}}", "start": true,
   "data": { "recording_id": "{{recording.id}}", "conversation": "{{vars.convo.key}}" } }
 ```
+
+### D88 additions
+
+Business behaviour that lived in engine code now lives in workflows and settings (D88). The pieces that made it
+possible, all data in the definition:
+
+- `slack_post.label`: `mode` (the rung's mark before live, D31/D52, the default), `shadow` (only while the company is
+  in shadow) or `none` (an alert about the engine itself, never marked).
+- `record_outcome.source: disposition` (with `user` and `via`): a person's answer filed exactly as the end-of-day form
+  files it, so Call outcome filed runs; `via` is kept on the submission (`card_moved`).
+- `update_opportunity.from`: the statuses the change is made from (`lost` only an open one).
+- `eod_due`: `lookback_days`, `include_today`, `overdue_after_days`; a list into `vars.<into>`.
+- `report`: `metrics`, `layout`, `period`, and `breakdowns` (`closer`, `setter`) that now do something.
+- `health_check`: `slots_days`, `fathom_silent_days`, `drift_days`, `poll_lag_min`.
+- Filters: `nonzero`, `plural:"word"` (or `"person|people"`), `then:"text"`, `suffix:"text"`, `fixed:2`, `first:10`,
+  `money:0`; inside a nested `each`, `{{parent}}` is the outer item.
+- Context: `company.slug`, `company.base_url`, `appointment.started`.
+- An event with no contact and no person starts a run about the company (unlinked payments and recordings, alerts,
+  drift findings).
+- A template marked `engine_default` installs ON into a company that already existed (it carries what the engine did
+  by itself), OFF into a new one.
+- New events: `alert.raised`, `alert.repeated`, `alert.resolved`, `drift.found`, `drift.sales_call_cancelled`,
+  `drift.sales_call_unlinked`, `eod.call_filed`; `payment.unlinked` and `recording.unlinked` are dispatched now.
+- Settings (bindings): `alerts.repeat_minutes` (60), `alerts.poll_failures` (2).
 
 ## Seeing what will happen (and when)
 

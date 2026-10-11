@@ -26,7 +26,7 @@
           "name": "End of day",
           "icon": ":clipboard:"
         },
-        "template": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.corrections_block | default:Nothing corrected: the prefill matched. | line}}{{event.day_answers_lines | line}}",
+        "template": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.corrections_block | default:Nothing corrected: the prefill matched. | line}}{{event.day_answers_lines | line}}{{event.reasons | each:\"\\n• {{item.contact}} ({{item.outcome_label}}): {{item.reason}}\" | join:\"\" | line:*Why lost or DQ:*}}",
         "title": "Post the day's summary in Slack",
         "tag": "eod-summary:{{event.user_id}}:{{event.day}}",
         "edit": true

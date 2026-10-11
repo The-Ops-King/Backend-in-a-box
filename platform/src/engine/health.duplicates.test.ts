@@ -12,7 +12,8 @@ import { pollAll } from "@/engine/poll";
 import { loadCompany } from "@/engine/context";
 import { runHealthStep, type Finding } from "@/engine/health";
 import { announceDue, openAlerts } from "@/engine/alerts";
-import { fakeAdapters, fakeProbes } from "@/engine/test-install";
+import { fakeAdapters, fakeProbes, installTemplateForTest } from "@/engine/test-install";
+import { tick } from "@/engine/runner";
 import { companyBySlug, healthPage } from "@/api/data";
 import type { Adapters, ContactSnapshot, SlackPersona } from "@/adapters/types";
 
@@ -40,6 +41,8 @@ const idents = (contactId: string, kind: string) => asOperator((c) => many<{ val
 const mine = () => posts.filter((p) => p.channel === "CDUPES");
 const tsOf = (p: (typeof posts)[number]) => `ts${posts.indexOf(p) + 1}`;
 const open = () => asOperator((c) => openAlerts(c, companyId));
+/** D88 (A7): what is due goes to the Health check workflow, which says it on the next tick. */
+const announce = async () => { const a = await asOperator((c) => announceDue(c, fake, new Date(), companyId)); await tick(fake, undefined, companyId, fakeProbes); return a; };
 const page = () => asOperator(async (c) => healthPage(c, (await companyBySlug(c, "dupes"))!));
 
 describe.skipIf(!process.env.DATABASE_URL)("health: duplicate contacts (D63)", () => {
@@ -47,11 +50,13 @@ describe.skipIf(!process.env.DATABASE_URL)("health: duplicate contacts (D63)", (
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='dupes'");
-      if (co) { for (const t of ["alerts", "health_checks", "events", "contact_identifiers", "contacts", "slack_connections", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
+        for (const t of ["alerts", "health_checks", "sends", "slack_posts", "runs", "workflow_triggers", "workflows", "events", "contact_identifiers", "contacts", "slack_connections", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode) values ('Dupes Co','dupes',$1,'live') returning id", [TZ]))!.id;
       await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories", [companyId]);
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'alerts.slack_channel','channel',$4)", [companyId, Buffer.from("LOC-DUPES"), encrypt("p"), Buffer.from("CALERTS")]);
       await c.query("insert into slack_connections (company_id, team_id, bot_token, channels) values ($1,'T1',$2,'{}')", [companyId, encrypt("xoxb-fake")]);
+      await installTemplateForTest(c, companyId, "health-check");   // D88 (A7): the workflow says the alerts
       // the baseline poll already happened: from here every poll is deltas, as in production
       await c.query("insert into poll_cursors (company_id, entity, cursor, last_polled_at, last_success_at) values ($1,'contacts',$2,now(),now())", [companyId, new Date(Date.now() - 864e5).toISOString()]);
     });
@@ -78,14 +83,14 @@ describe.skipIf(!process.env.DATABASE_URL)("health: duplicate contacts (D63)", (
     expect(alerts[0].detail).toMatchObject({ link: "https://app.gohighlevel.com/v2/location/LOC-DUPES/contacts/detail/DUP-2", link_label: "Open in the CRM", ghl_contact_ids: ["DUP-1", "DUP-2"] });
 
     // said once, in the sweep's own channel, with the CRM link to merge at
-    const ann = await asOperator((c) => announceDue(c, fake, new Date(), companyId));
+    const ann = await announce();
     expect(ann.posted).toBeGreaterThanOrEqual(1); expect(mine()).toHaveLength(1);
     expect(mine()[0].as?.name).toBe("Health check");
     expect(mine()[0].text).toMatch(/^🟡 \*Dupes Co · Health check\*\nTwo CRM records for one person: Dup Spelled — DUP-1, DUP-2 \(same phone \+16025550901\)\n/);
     expect(mine()[0].text).toMatch(/<https:\/\/app\.gohighlevel\.com\/v2\/location\/LOC-DUPES\/contacts\/detail\/DUP-2\|Open in the CRM>/);
     // the next sweep finds the same pair: nothing new is raised or said
     const r2 = await sweep(); expect(r2.raised).toBe(0); expect(r2.resolved).toBe(0); expect(dupes(r2.findings)).toHaveLength(1);
-    await asOperator((c) => announceDue(c, fake, new Date(), companyId)); expect(mine()).toHaveLength(1);
+    await announce(); expect(mine()).toHaveLength(1);
     expect(await open()).toHaveLength(1);
 
     // the Health page: the check is `warn` with the one finding and its CRM link
@@ -106,7 +111,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: duplicate contacts (D63)", (
     expect(await open()).toHaveLength(0);
     expect(await idents(ct.id, "ghl_contact")).toEqual([{ value: "DUP-1", retired: false }, { value: "DUP-2", retired: true }]);
     expect((await contactByGhl("DUP-1"))!).toMatchObject({ ghl_contact_id: "DUP-1", gone_at: null });   // the person is still here, under the survivor
-    const ann = await asOperator((c) => announceDue(c, fake, new Date(), companyId));
+    const ann = await announce();
     expect(ann.resolved).toBeGreaterThanOrEqual(1);
     expect(mine()).toHaveLength(2); expect(mine()[1].threadTs).toBe(tsOf(mine()[0])); expect(mine()[1].text).toMatch(/^✅ Resolved after 0h: Two CRM records for one person: Dup Spelled/);
     expect(reactions.filter((x) => x.channel === "CDUPES")).toEqual([{ channel: "CDUPES", ts: tsOf(mine()[0]), emoji: "white_check_mark" }]);
@@ -145,14 +150,14 @@ describe.skipIf(!process.env.DATABASE_URL)("health: duplicate contacts (D63)", (
     expect(found).toHaveLength(1);
     expect(found[0]).toMatchObject({ ok: false, key: `duplicate:${a.id}:${b.id}`, text: "Two CRM records for one person: Nia Hughes — UK-1, UK-2 (same phone +442079460958 / 442079460958)", href: expect.stringMatching(/UK-1$/), page: `/app/c/dupes/contacts/${a.id}` });
     expect((await open()).map((x) => x.key)).toEqual([`duplicate:${a.id}:${b.id}`]);
-    await asOperator((c) => announceDue(c, fake, new Date(), companyId)); expect(mine()).toHaveLength(1);
+    await announce(); expect(mine()).toHaveLength(1);
     // merged in the CRM: UK-2 is gone there → stamped gone here (G21's mark), as a failed send would have done
     crm.delete("UK-2");
     r = await sweep();
     expect(dupes(r.findings).every((f) => f.ok)).toBe(true); expect(r.resolved).toBe(1); expect(await open()).toHaveLength(0);
     expect((await contactByGhl("UK-2"))!.gone_at).toEqual(expect.any(Date));
     expect((await contactByGhl("UK-1"))!.gone_at).toBeNull();
-    const ann = await asOperator((c) => announceDue(c, fake, new Date(), companyId));
+    const ann = await announce();
     expect(ann.resolved).toBeGreaterThanOrEqual(1); expect(mine()).toHaveLength(2); expect(mine()[1].text).toMatch(/^✅ Resolved/);
   });
 

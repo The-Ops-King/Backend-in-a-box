@@ -40,7 +40,7 @@ function outputsOf(n: Node): { re: RegExp; what: string }[] {
     case "lookup": return [{ re: pathRe(`vars.${n.into}`), what: "what it looked up" }];
     case "webhook": return n.into ? [{ re: pathRe(`vars.${n.into}`), what: "the response" }] : [];
     case "report": return [{ re: pathRe(`vars.${n.into}`), what: "the wrap-up" }];
-    case "eod_due": return [{ re: pathRe(`vars.${n.into}`), what: "the lines" }, { re: pathRe("vars.overdue_lines"), what: "the overdue lines" }];
+    case "eod_due": return [{ re: pathRe(`vars.${n.into}`), what: "the days still to file" }, { re: pathRe("vars.overdue_lines"), what: "the overdue lines" }];
     case "update_appointment": return Object.keys(n.set).map((k) => ({ re: pathRe(`appointment.${k}`), what: `the appointment's ${humanWords(k)}` }));
     default: return [];
   }
@@ -104,7 +104,7 @@ export function doingWords(n: Node): string {
     case "send_document": return "send the agreement for signature";
     case "slack_post": return n.title ? lower(n.title) : n.thread_of ? "reply in the Slack thread" : `post to Slack (${pathWords(n.channel)})`;
     case "pipeline_card": return `move the ${pathWords(n.pipeline).replace(/^pipeline /, "")} card${n.title ? ` (${n.title})` : ""}`;
-    case "crm_record": return `${n.if_missing === "create" && !n.record_id ? "create" : "update"} the ${humanWords(n.object.replace(/^custom_objects\./, "")).replace(/\b[a-z]/g, (c) => c.toUpperCase())} record`;
+    case "crm_record": return `${n.if_missing === "create" && !n.record_id ? "create" : "update"} the ${humanWords((/^\{\{\s*crm\.object_([a-z0-9_]+)/.exec(n.object)?.[1] ?? n.object).replace(/^custom_objects\./, "")).replace(/\b[a-z]/g, (c) => c.toUpperCase())} record`;
     case "update_appointment": return "update the booking in the CRM";
     case "webhook": return `call ${n.url.replace(/^https?:\/\//, "").split(/[/?]/)[0] || "the webhook"}`;
     default: return lower(n.title ?? describeNode(n).title);

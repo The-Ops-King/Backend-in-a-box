@@ -3,15 +3,15 @@ import { many, one } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
 import type { PollReport } from "./poll";
 import type { TickReport } from "./runner";
-import { decrypt } from "./crypto";
-import { resendSend } from "@/adapters/email/resend";
 import { classifyError, plainError } from "./failures";
 
 /**
  * D33. The engine tells the operator the minute something fails, and says so once.
- * One open alert per (company, key). First seen → posted to the company's alert destinations (Slack channel, email,
- * webhook) and remembered with its Slack ts. Still open an hour later → a reply in that thread, never a new post.
- * Gone → "Resolved" in the thread and a ✅ reaction on the first post. Nothing is said while everything works.
+ * One open alert per (company, key): the collecting, the dedupe and the cadence are the engine's. What is said, and where,
+ * is the company's Health check workflow (D88): the first time an alert is due the engine emits `alert.raised`, while it
+ * stays open `alert.repeated` every `alerts.repeat_minutes` (60), and once it clears `alert.resolved`; the workflow posts the
+ * alert, its hourly line in the thread and the ✅. Nothing is said while everything works. Slack only (Tyler: "We definitely
+ * don't need to alert on an email"); an alert about the engine itself (no company) goes to OPERATOR_WEBHOOK_URL.
  *
  * Sources: `step` (a run failed at a step), `poll` (the CRM poll keeps failing), `health` (the hourly sweep), `engine`.
  * Live sources (poll, health, engine) are reconciled: what is present stays open, what is absent resolves.
@@ -21,7 +21,9 @@ export type Source = "step" | "poll" | "health" | "engine";
 export type AlertInput = { companyId: string | null; key: string; level: Level; source: Source; text: string; detail?: Record<string, unknown>; href?: string | null };
 export type AlertRow = { id: string; company_id: string | null; key: string; level: Level; source: Source; text: string; detail: Record<string, unknown>; href: string | null; first_seen: Date; last_seen: Date; announced_at: Date | null; announce_count: number; slack_channel: string | null; slack_ts: string | null; resolved_at: Date | null; resolved_announced: boolean };
 
+/** The defaults of the two alert settings (bindings, D88): `alerts.repeat_minutes` and `alerts.poll_failures`. */
 export const REPEAT_AFTER_MIN = 60;
+export const POLL_FAILURES = 2;
 const NIL = "00000000-0000-0000-0000-000000000000";
 
 /** Open the alert, or touch it if it is already open. */
@@ -54,9 +56,11 @@ const base = () => (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replac
 export async function collectThisTick(c: PoolClient, poll: PollReport, tick: TickReport, now = new Date()): Promise<{ raised: number; resolved: number }> {
   let raised = 0, resolved = 0;
   const add = (r: { raised: number; resolved: number }) => { raised += r.raised; resolved += r.resolved; };
-  // 1. polling: a cursor that has failed twice in a row is a problem; one miss is the vendor blinking
+  // 1. polling: a cursor that has failed `alerts.poll_failures` times in a row (2) is a problem; one miss is the vendor blinking
   const companies = await many<{ id: string; slug: string }>(c, "select id, slug from companies where status in ('active','hosted')");
-  const stuck = await many<{ company_id: string; entity: string; n: number; last_success_at: Date | null }>(c, "select company_id, entity, consecutive_failures as n, last_success_at from poll_cursors where consecutive_failures >= 2");
+  const stuck = await many<{ company_id: string; entity: string; n: number; last_success_at: Date | null }>(c, `select p.company_id, p.entity, p.consecutive_failures as n, p.last_success_at from poll_cursors p
+    left join bindings b on b.company_id=p.company_id and b.key='alerts.poll_failures'
+    where p.consecutive_failures >= greatest(1, coalesce(nullif(regexp_replace(convert_from(b.value, 'UTF8'), '\\D', '', 'g'), '')::int, $1))`, [POLL_FAILURES]);
   for (const co of companies) {
     const present: AlertInput[] = [];
     for (const s of stuck.filter((x) => x.company_id === co.id)) {
@@ -117,69 +121,58 @@ async function stepWords(c: PoolClient, workflowId: string, nodeId: string): Pro
   } catch { return `do step ${nodeId}`; }
 }
 
-/** Where a company wants to hear about problems: Slack channel, email addresses, a webhook (a Zap). The sweep may have its own channel and face. */
-export type Destinations = { slackToken: string | null; channel: string | null; emails: string[]; webhook: string | null; emailKey: string | null; emailFrom: string | null; as: { name?: string; icon?: string } };
-export async function destinationsFor(c: PoolClient, companyId: string): Promise<Destinations> {
-  const b = Object.fromEntries((await many<{ key: string; kind: string; value: Buffer }>(c, "select key, kind, value from bindings where company_id=$1 and (key like 'alerts.%' or key in ('secret.resend_key','slack.name','slack.icon'))", [companyId])).map((r) => [r.key, r.kind === "secret" ? decrypt(r.value) : r.value.toString("utf8")]));
-  const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [companyId]);
-  return { slackToken: conn ? decrypt(conn.bot_token) : null, channel: b["alerts.slack_channel"] || null, emails: (b["alerts.email"] ?? "").split(/[,\s]+/).map((s) => s.trim()).filter(Boolean), webhook: b["alerts.webhook"] || process.env.OPERATOR_WEBHOOK_URL || null,
-    emailKey: b["secret.resend_key"] || process.env.RESEND_API_KEY || null, emailFrom: b["alerts.email_from"] || process.env.ALERT_EMAIL_FROM || null, as: { name: b["alerts.as_name"] || "Engine alerts", icon: b["alerts.as_icon"] || undefined } };
+/** Where a company's alerts go and the face they post as: the health check's own channel and face for its findings, else the alerts channel (D33). The workflow posts there. */
+export async function destinationsFor(c: PoolClient, companyId: string, source?: Source): Promise<{ channel: string | null; as_name: string | null; as_icon: string | null }> {
+  const b = Object.fromEntries((await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key in ('alerts.slack_channel','alerts.as_name','alerts.as_icon')", [companyId])).map((r) => [r.key, r.value.toString("utf8")]));
+  const hc = source === "health" ? await one<{ channel: string | null; as_name: string | null; as_icon: string | null }>(c, "select channel, as_name, as_icon from health_checks where company_id=$1", [companyId]) : null;
+  return { channel: hc?.channel || b["alerts.slack_channel"] || null, as_name: hc?.as_name || b["alerts.as_name"] || null, as_icon: hc?.as_icon || b["alerts.as_icon"] || null };
 }
 
-const mark = (level: Level) => (level === "error" ? "🔴" : "🟡");
 const hoursOpen = (from: Date, to: Date) => Math.round((to.getTime() - from.getTime()) / 36e5);
+/** What kind of alert it is, for the workflow's words ("Token rejected", "Health check"…). */
+export const alertKind = (a: Pick<AlertRow, "source" | "key" | "detail">): string => a.source !== "step" ? a.source
+  : a.key.startsWith("blocked:") ? "blocked" : a.key.startsWith("skipped:") ? "skipped" : a.key.startsWith("run:") ? ((a.detail as { held?: boolean }).held ? "held" : "paused") : a.key.startsWith("auth:") ? "auth" : "failed";
 
-/** Say what is new, repeat what is still open after an hour (in its thread), and close what has cleared (in its thread, with a ✅). */
-export async function announceDue(c: PoolClient, adapters: Adapters, now = new Date(), onlyCompanyId?: string): Promise<{ posted: number; repeated: number; resolved: number }> {
+/**
+ * D88 (A7): what is due is an event for the company's workflows, not a post: `alert.raised` the first time, `alert.repeated`
+ * once it has been open `alerts.repeat_minutes` since it was last said, `alert.resolved` once it cleared. The Health check
+ * workflow says it (Slack, threaded under the first post by its tag, ✅ on resolve). An alert with no company (the engine itself)
+ * goes to the operator's webhook. Returns how many of each were handed on (a workflow started for them).
+ */
+export async function announceDue(c: PoolClient, _adapters: Adapters, now = new Date(), onlyCompanyId?: string): Promise<{ posted: number; repeated: number; resolved: number }> {
   const out = { posted: 0, repeated: 0, resolved: 0 };
   const due = await many<AlertRow & { slug: string | null; company: string | null }>(c, `select a.*, co.slug, co.name as company from alerts a left join companies co on co.id=a.company_id
-    where ($2::uuid is null or a.company_id=$2) and ((a.resolved_at is null and (a.announced_at is null or a.announced_at < $1)) or (a.resolved_at is not null and not a.resolved_announced)) order by a.first_seen`, [new Date(now.getTime() - REPEAT_AFTER_MIN * 60e3), onlyCompanyId ?? null]);
+    left join bindings b on b.company_id=a.company_id and b.key='alerts.repeat_minutes'
+    where ($2::uuid is null or a.company_id=$2) and ((a.resolved_at is null and (a.announced_at is null
+      or a.announced_at < $1::timestamptz - make_interval(mins => greatest(1, coalesce(nullif(regexp_replace(convert_from(b.value, 'UTF8'), '\\D', '', 'g'), '')::int, $3)))))
+      or (a.resolved_at is not null and not a.resolved_announced)) order by a.first_seen`, [now, onlyCompanyId ?? null, REPEAT_AFTER_MIN]);
+  const { dispatchEvent, emitEvent } = await import("./dispatch");
   for (const a of due) {
-    const dest: Destinations = a.company_id ? await destinationsFor(c, a.company_id) : { slackToken: null, channel: null, emails: [], webhook: process.env.OPERATOR_WEBHOOK_URL ?? null, emailKey: null, emailFrom: null, as: { name: "Engine alerts" } };
-    // the sweep can have its own channel and face
-    const hc = a.source === "health" && a.company_id ? await one<{ channel: string | null; as_name: string | null; as_icon: string | null }>(c, "select channel, as_name, as_icon from health_checks where company_id=$1", [a.company_id]) : null;
-    const channel = hc?.channel || dest.channel; const as = { name: hc?.as_name || dest.as.name, icon: hc?.as_icon || dest.as.icon || (a.level === "error" ? ":rotating_light:" : ":warning:") };
-    const link = a.href ? `${base()}${a.href}` : null; const where = a.company ? `${a.company} · ` : "";
-    if (a.resolved_at) {
-      // resolved: a reply in the thread and a check on the first post; email and webhook get a short note
-      if (dest.slackToken && a.slack_channel && a.slack_ts) {
-        const reacted = await adapters.notifier.react(dest.slackToken, a.slack_channel, a.slack_ts, "white_check_mark").catch(() => false);
-        await adapters.notifier.post(dest.slackToken, a.slack_channel, `✅ Resolved after ${hoursOpen(a.first_seen, a.resolved_at)}h: ${a.text.slice(0, 200)}${reacted ? "" : "\n_(add the reactions:write scope to the Slack app and the first post gets a ✅ too)_"}`, as, a.slack_ts).catch(() => null);
-      }
-      await sendEmail(dest, `Resolved: ${where}${a.text.slice(0, 80)}`, `${where}${a.text}\n\nResolved ${a.resolved_at.toISOString()}${link ? `\n${link}` : ""}`);
-      await sendWebhook(dest, "alert.resolved", a, now);
-      await c.query("update alerts set resolved_announced=true where id=$1", [a.id]); out.resolved++; continue;
+    const type = a.resolved_at ? "alert.resolved" : a.announce_count > 0 ? "alert.repeated" : "alert.raised";
+    let handed = false;
+    if (!a.company_id) handed = await sendWebhook(type, a, now);   // the engine itself: no company workflow to say it
+    else {
+      const dest = await destinationsFor(c, a.company_id, a.source);
+      const d = a.detail as { fix?: { label: string }; link?: string; link_label?: string; thread?: string };
+      const link = a.href ? `${base()}${a.href}` : null;
+      const ev = await emitEvent(c, { company_id: a.company_id, contact_id: null, opportunity_id: null, appointment_id: null, event_type: type, source: "engine", data: {
+        alert_id: a.id, key: a.key, level: a.level, source: a.source, kind: alertKind(a), text: a.text, detail: a.detail, company: a.company, href: a.href, link,
+        ...(link && d.fix ? { fix_link: `${link}#fix`, fix_label: d.fix.label } : {}), ...(d.link ? { extra_link: d.link, extra_label: d.link_label ?? null } : {}), ...(d.thread ? { thread: d.thread } : {}),
+        hours_open: hoursOpen(a.first_seen, a.resolved_at ?? now), first_seen: a.first_seen.toISOString(), ...(a.resolved_at ? { resolved_at: a.resolved_at.toISOString() } : {}),
+        channel: dest.channel, as_name: dest.as_name, as_icon: dest.as_icon } });
+      handed = (await dispatchEvent(c, ev, {})).length > 0;
     }
-    const repeat = a.announce_count > 0;
-    let said = false;   // counted only when something actually went out; an alert with no destination is still marked so it is not retried every minute
-    if (dest.slackToken && channel) {
-      if (repeat && a.slack_ts) { const thread = (a.detail as { thread?: string }).thread; said = !!(await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} Still open after ${hoursOpen(a.first_seen, now)}h: ${a.text.slice(0, 300)}${thread ? `\n${thread}` : ""}`, as, a.slack_ts).catch(() => null)); }   // the hourly repeat carries the fresh breakdown
-      else {
-        const fix = (a.detail as { fix?: { label: string } }).fix; const extra = (a.detail as { link?: string; link_label?: string });
-        const r = await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} *${where}${a.source === "step" ? (a.key.startsWith("blocked:") ? "Step could not run" : a.key.startsWith("skipped:") ? "Step skipped" : a.key.startsWith("run:") ? ((a.detail as { held?: boolean }).held ? "Run paused on a step" : "Run needs a hand") : a.key.startsWith("auth:") ? "Token rejected" : "Run failed") : a.source === "health" ? "Health check" : a.source === "poll" ? "Polling" : "Engine"}*\n${a.text}${link ? `\n<${link}|Open>${fix ? ` · <${link}#fix|${fix.label}>` : ""}` : ""}${extra.link ? `${link ? " · " : "\n"}<${extra.link}|${extra.link_label ?? "Open"}>` : ""}`, as).catch(() => null);
-        if (r) {
-          said = true; await c.query("update alerts set slack_channel=$2, slack_ts=$3 where id=$1", [a.id, channel, r.ts]);
-          // the detail that belongs under the post, not in it: the next days' availability at a glance
-          const thread = (a.detail as { thread?: string }).thread; if (thread) await adapters.notifier.post(dest.slackToken, channel, thread, as, r.ts).catch(() => null);
-        }
-      }
-    }
-    if (!repeat && (await sendEmail(dest, `${a.level === "error" ? "Error" : "Warning"}: ${where}${a.text.slice(0, 80)}`, `${where}${a.text}${link ? `\n\n${link}` : ""}`))) said = true;
-    if (await sendWebhook(dest, repeat ? "alert.repeated" : "alert.raised", a, now)) said = true;
-    await c.query("update alerts set announced_at=$2, announce_count=announce_count+1 where id=$1", [a.id, now]);
-    if (said) { if (repeat) out.repeated++; else out.posted++; }
+    // marked either way: an alert nobody listens for is not handed on again every minute
+    if (a.resolved_at) await c.query("update alerts set resolved_announced=true where id=$1", [a.id]);
+    else await c.query("update alerts set announced_at=$2, announce_count=announce_count+1 where id=$1", [a.id, now]);
+    if (handed) { if (type === "alert.resolved") out.resolved++; else if (type === "alert.repeated") out.repeated++; else out.posted++; }
   }
   return out;
 }
 
-async function sendEmail(dest: Destinations, subject: string, text: string): Promise<boolean> {
-  if (!dest.emails.length || !dest.emailKey || !dest.emailFrom) return false;
-  const r = await resendSend(dest.emailKey, { from: dest.emailFrom, to: dest.emails, subject: `[Engine] ${subject}`, text }).catch(() => ({ ok: false }));
-  return r.ok;
-}
-async function sendWebhook(dest: Destinations, event: string, a: AlertRow, now: Date): Promise<boolean> {
-  if (!dest.webhook) return false;
-  try { const r = await fetch(dest.webhook, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event, at: now.toISOString(), source: "backend-in-a-box", alert: { id: a.id, key: a.key, level: a.level, kind: a.source, text: a.text, href: a.href ? `${base()}${a.href}` : null, first_seen: a.first_seen, resolved_at: a.resolved_at } }) }); return r.ok; }
+async function sendWebhook(event: string, a: AlertRow, now: Date): Promise<boolean> {
+  const url = process.env.OPERATOR_WEBHOOK_URL; if (!url) return false;
+  try { const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event, at: now.toISOString(), source: "backend-in-a-box", alert: { id: a.id, key: a.key, level: a.level, kind: a.source, text: a.text, href: a.href ? `${base()}${a.href}` : null, first_seen: a.first_seen, resolved_at: a.resolved_at } }) }); return r.ok; }
   catch { return false; }   /* the alert channel being down is reported by the outside health check, not by us */
 }
 

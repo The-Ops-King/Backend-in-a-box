@@ -12,7 +12,7 @@ import type { CompanyRow, RunRow } from "./context";
 import type { Effective } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { raise } from "./alerts";
-import { applyOutcome, outcomeTermFor } from "./disposition";
+import { applyOutcome, outcomeTermFor, recordDisposition } from "./disposition";
 import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } from "./health";
 import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports";
 import { classifyError } from "./failures";
@@ -24,7 +24,7 @@ import { dropTranscripts, hydrateTranscripts } from "./transcripts";
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
 /** A post made before live says which rung it came from, so the team never reads a rehearsal as a real client; a run shadowed in test says shadow. */
-const modePrefix = (d: ExecDeps) => (d.company.mode === "live" ? "" : d.effective === "shadow" ? SHADOW_PREFIX : `🧪 *${d.company.mode}* — `);
+const modePrefix = (d: ExecDeps, label: "mode" | "shadow" | "none" = "mode") => (label === "none" || d.company.mode === "live" ? "" : label === "shadow" ? (d.company.mode === "shadow" ? SHADOW_PREFIX : "") : d.effective === "shadow" ? SHADOW_PREFIX : `🧪 *${d.company.mode}* — `);
 /** The step's own name/icon, else the company's defaults (bindings slack.name / slack.icon), else the app. A list of icons is handed on whole; the notifier picks one per post.
  *  An icon that is one whole `{{expr}}` takes the value as it is, so a set_var can hand over a list of faces (a reschedule's 🔁 instead of the calendars). */
 const faces = (d: ExecDeps, icon: string): string[] => { const m = /^\s*\{\{([^}]+)\}\}\s*$/.exec(icon); const v = m ? resolveExpr(m[1], d.ctx, env(d)) : render(icon, d.ctx, env(d)); return (Array.isArray(v) ? v : [v]).map((x) => (x === undefined || x === null ? "" : String(x))).filter(Boolean); };
@@ -389,7 +389,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already posted (idempotency)" } };
       // Slack is the team, not the CRM or the contact: in shadow the post still goes out, marked, so the team sees what the engine would do (D31)
       const token = decrypt(conn.bot_token), postTo = route ? route.to : parentTs && parentChannel ? parentChannel : channelId;
-      const shown = `${route ? route.prefix : ""}${text}`, body = !parentTs ? `${modePrefix(d)}${shown}` : shown;
+      const shown = `${route ? route.prefix : ""}${text}`, body = !parentTs ? `${modePrefix(d, node.label)}${shown}` : shown;
       // D76: a post that says where a thing stands (a call's filed outcome, the day's report) is edited in place when it is said again, never repeated
       const prior = node.edit && node.tag ? await one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, render(node.tag, d.ctx, env(d))]) : null;
       const update = d.adapters.notifier.update;
@@ -615,6 +615,13 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (!termId) return { status: "failed", error: `record_outcome: no appointment_outcome term for "${category}"` };
       const callTerm = node.call_outcome ? await one<{ id: string }>(d.c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2 and active limit 1", [d.company.id, render(node.call_outcome, d.ctx, env(d))]) : null;
       const notes = node.notes ? render(node.notes, d.ctx, env(d)) : undefined;
+      if (node.source === "disposition") {
+        // D88: a person's answer (a card dragged in the CRM), filed exactly as the end-of-day form files it
+        const userId = node.user ? render(node.user, d.ctx, env(d)).trim() || null : null;
+        const r = await recordDisposition(d.c, { companyId: d.company.id, appointmentId: d.run.appointment_id, outcomeTermId: termId, callOutcomeTermId: callTerm?.id ?? null, notes, userId, via: node.via ? render(node.via, d.ctx, env(d)) : undefined });
+        if (d.ctx.appointment) (d.ctx.appointment as Record<string, unknown>).outcome = category;
+        return { status: "ok", next, result: { outcome: category, call_outcome: node.call_outcome ? render(node.call_outcome, d.ctx, env(d)) : null, as: "disposition", events: r.events, runs_started: r.runs } };
+      }
       // ours, never the CRM: a show is a fact about our appointment row, so shadow mode records it too
       const r = await applyOutcome(d.c, { companyId: d.company.id, appointmentId: d.run.appointment_id, outcomeTermId: termId, callOutcomeTermId: callTerm?.id ?? null, notes, source: "engine", runId: d.run.id, by: `workflow:${node.id}` });
       if (d.ctx.appointment) (d.ctx.appointment as Record<string, unknown>).outcome = r.outcome;
@@ -650,7 +657,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
     case "health_check": {
       const channel = node.channel ? (/^\{\{/.test(node.channel) ? (resolvePath(d.ctx, node.channel.replace(/^\{\{\s*|\s*\}\}$/g, "")) as string | undefined) : node.channel) : undefined;
       const as = persona(d, node.as);
-      const r = await runHealthStep(d.c, d.company, d.adapters, d.probes ?? liveProbes, { checks: node.checks, min_slots: 0, slots_days: 7, channel: channel ?? null, run_id: d.run.id, as_name: node.as?.name ? as.name : null, as_icon: node.as?.icon ? (Array.isArray(as.icon) ? as.icon[0] : as.icon) : null }, d.now as DateTime<true>);
+      const r = await runHealthStep(d.c, d.company, d.adapters, d.probes ?? liveProbes, { checks: node.checks, min_slots: 0, slots_days: node.slots_days, fathom_silent_days: node.fathom_silent_days, drift_days: node.drift_days, poll_lag_min: node.poll_lag_min, channel: channel ?? null, run_id: d.run.id, as_name: node.as?.name ? as.name : null, as_icon: node.as?.icon ? (Array.isArray(as.icon) ? as.icon[0] : as.icon) : null }, d.now as DateTime<true>);
       const failing = r.findings.filter((f) => !f.ok);
       return { status: "ok", next, result: { checks: r.findings.length, failing: failing.length, raised: r.raised, resolved: r.resolved, ...(failing.length ? { problems: failing.map((f) => f.text).slice(0, 10) } : {}) } };
     }
@@ -662,48 +669,55 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
     }
     case "eod_due": {
       // D76: the closer is reminded every day until each of their calls is filed. GHL's Sales Calls are the truth: a call
-      // filed there is answered whatever the ledger holds, and a blank one is owed; the ledger fills in the calls GHL has no record of
-      type Day = { day: string; label: string; calls: number; url: string; open: string[] };
-      const user = d.ctx.user as { name?: string; eod?: { day: string; url: string; today: { calls: number; filed: boolean; open: string[] }; earlier: Day[] } } | undefined;
-      if (!user?.eod) { setPath(d.ctx, `vars.${node.into}`, ""); return { status: "ok", next, result: { kind: "noop", why: "the run is not about a closer" } }; }
-      const tz = d.company.timezone, today = d.now.setZone(tz).toISODate()!, eod = user.eod, label = (day: string) => DateTime.fromISO(day, { zone: tz }).toFormat("ccc LLL d");
-      // ledger: the day's calls with no answer on the ledger; blank: every blank Sales Call that day (the operator hears their
-      // names); extra: blank ones the ledger does not already count, so the line counts what the form shows (D77)
-      const days = new Map<string, { ledger: Set<string>; blank: string[]; extra: number }>();
-      for (const e of eod.earlier) days.set(e.day, { ledger: new Set(e.open), blank: [], extra: 0 });
-      if (node.period === "evening" && eod.today.calls && !eod.today.filed) days.set(eod.day, { ledger: new Set(eod.today.open), blank: [], extra: 0 });
+      // filed there is answered whatever the ledger holds, and a blank one is owed; the ledger fills in the calls GHL has no record of.
+      // D88 (A4): how far back, whether today counts and when the operator hears are the step's; the words are the template's
+      const user = d.ctx.user as { id?: string; name?: string; eod?: { day: string; url: string } } | undefined;
+      const legacy = node.lookback_days === undefined && node.include_today === undefined && node.overdue_after_days === undefined;
+      if (!user?.eod || !user.id) { setPath(d.ctx, `vars.${node.into}`, legacy ? "" : { days: [], count: 0, overdue: [], overdue_count: 0 }); return { status: "ok", next, result: { kind: "noop", why: "the run is not about a closer" } }; }
+      const lookback = node.lookback_days ?? 7, withToday = node.include_today ?? node.period === "evening", overdueAfter = node.overdue_after_days === undefined ? (node.period === "evening" ? 2 : null) : node.overdue_after_days;
+      const tz = d.company.timezone, today = d.now.setZone(tz).toISODate()!, label = (day: string) => DateTime.fromISO(day, { zone: tz }).toFormat("ccc LLL d");
+      const { closerSalesCalls, eodFacts } = await import("./eod");
+      const eod = await eodFacts(d.c, d.company, user.id, (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, ""), d.now as DateTime<true>, lookback);
+      // ledger: the day's calls with no answer on the ledger; moved: those a card move answered, owed until the day is filed (A1);
+      // blank: every blank Sales Call that day (the operator hears their names); extra: blank ones the ledger does not already count (D77)
+      const days = new Map<string, { ledger: Set<string>; moved: Set<string>; blank: string[]; extra: number }>();
+      for (const e of eod.earlier) days.set(e.day, { ledger: new Set(e.open), moved: new Set(e.moved), blank: [], extra: 0 });
+      if (withToday && eod.today.calls && !eod.today.filed) days.set(eod.day, { ledger: new Set(eod.today.open), moved: new Set(eod.today.moved), blank: [], extra: 0 });
       let ghl: string | undefined;
       if (d.bindings["crm.object_sales_call"] && user.name) {
         try {
-          const { closerSalesCalls } = await import("./eod");
           const recs = await closerSalesCalls(d.c, d.adapters, d.adapterCompany, d.company.id, d.bindings, user.name, tz, d.now);
-          for (const r of recs) if (r.filed && r.appointment_id) for (const e of days.values()) e.ledger.delete(r.appointment_id);
+          for (const r of recs) if (r.filed && r.appointment_id) for (const e of days.values()) if (!e.moved.has(r.appointment_id)) e.ledger.delete(r.appointment_id);
           for (const r of recs) {
-            if (r.filed || !r.due || (node.period === "morning" && r.day >= today)) continue;
-            const e = days.get(r.day) ?? { ledger: new Set<string>(), blank: [], extra: 0 }; e.blank.push(r.name);
+            if (r.filed || !r.due || (!withToday && r.day >= today)) continue;
+            const e = days.get(r.day) ?? { ledger: new Set<string>(), moved: new Set<string>(), blank: [], extra: 0 }; e.blank.push(r.name);
             if (!(r.appointment_id && e.ledger.has(r.appointment_id))) e.extra++;
             days.set(r.day, e);
           }
         } catch (e) { ghl = String((e as Error).message).slice(0, 200); }   // GHL unread: the ledger's days still go out
       }
-      const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-      const lines = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).filter(([, e]) => e.ledger.size || e.extra).map(([day, e]) => {
-        const url = day === eod.day ? eod.url : `${eod.url}?day=${day}`, when = day === eod.day ? "today" : label(day);
-        return `• <${url}|${when}>: ${e.ledger.size ? plural(e.ledger.size, "call") : ""}${e.ledger.size && e.extra ? ", " : ""}${e.extra ? `${plural(e.extra, "call")} with no outcome in GHL` : ""}`;
-      });
-      const twoDaysAgo = d.now.setZone(tz).minus({ days: 2 }).toISODate()!;
-      const overdue = node.period === "evening" ? [...days.entries()].filter(([day, e]) => e.blank.length && day <= twoDaysAgo).sort(([a], [b]) => a.localeCompare(b)).map(([day, e]) => `• ${label(day)}: ${e.blank.join(", ")}`) : [];
-      setPath(d.ctx, `vars.${node.into}`, lines.join("\n")); setPath(d.ctx, "vars.overdue_lines", overdue.join("\n"));
-      return { status: "ok", next, result: { days: lines.length, overdue: overdue.length, ...(ghl ? { ghl_unread: ghl } : {}) } };
+      const owed = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).filter(([, e]) => e.ledger.size || e.extra)
+        .map(([day, e]) => ({ day, label: label(day), when: day === eod.day ? "today" : label(day), url: day === eod.day ? eod.url : `${eod.url}?day=${day}`, today: day === eod.day, calls: e.ledger.size, ghl_blank: e.extra, both: e.ledger.size > 0 && e.extra > 0 }));
+      const cutoff = overdueAfter === null ? null : d.now.setZone(tz).minus({ days: overdueAfter }).toISODate()!;
+      const overdue = cutoff === null ? [] : [...days.entries()].filter(([day, e]) => e.blank.length && day <= cutoff).sort(([a], [b]) => a.localeCompare(b)).map(([day, e]) => ({ day, label: label(day), names: e.blank }));
+      if (legacy) {
+        // a copy edited before D88 reads its lines as text; it keeps getting them, word for word, until it is re-made from the template
+        const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+        setPath(d.ctx, `vars.${node.into}`, owed.map((o) => `• <${o.url}|${o.when}>: ${o.calls ? plural(o.calls, "call") : ""}${o.both ? ", " : ""}${o.ghl_blank ? `${plural(o.ghl_blank, "call")} with no outcome in GHL` : ""}`).join("\n"));
+        setPath(d.ctx, "vars.overdue_lines", overdue.map((o) => `• ${o.label}: ${o.names.join(", ")}`).join("\n"));
+      } else setPath(d.ctx, `vars.${node.into}`, { days: owed, count: owed.length, overdue, overdue_count: overdue.length, overdue_after_days: overdueAfter, lookback_days: lookback });
+      return { status: "ok", next, result: { days: owed.length, overdue: overdue.length, lookback_days: lookback, include_today: withToday, ...(legacy ? { shape: "lines (a copy from before D88)" } : {}), ...(ghl ? { ghl_unread: ghl } : {}) } };
     }
     case "report": {
       const kind = render(node.kind, d.ctx, env(d)) as ReportKind;
       if (!REPORT_KINDS.includes(kind)) return { status: "failed", error: `report kind must be one of ${REPORT_KINDS.join(", ")}, got "${kind}"` };
       const manual = (d.ctx.event as { manual?: boolean } | undefined)?.manual === true;
-      const period = periodFor(kind, d.now.setZone(d.company.timezone), manual);
-      const b = await buildReport(d.c, d.company, kind, period, { breakdowns: node.breakdowns, sections: node.sections, onDemand: manual, toDate: manual, reads: d.probes?.ghl, now: d.now.toJSDate() });
-      setPath(d.ctx, `vars.${node.into}`, { body: b.body, period: b.period, numbers: b.numbers, id: b.id });
-      return { status: "ok", next, result: { kind, period: b.period, report_id: b.id, ...(manual ? { to_date: true } : {}) } };
+      // D88 (A8): a week or month just ended, or the one in progress (a manual run is always so far); the words are the layout's
+      const toDate = manual || node.period === "in_progress";
+      const period = periodFor(kind, d.now.setZone(d.company.timezone), toDate);
+      const b = await buildReport(d.c, d.company, kind, period, { breakdowns: node.breakdowns, sections: node.sections, metrics: node.metrics, layout: node.layout, ctx: d.ctx, onDemand: manual, toDate, reads: d.probes?.ghl, now: d.now.toJSDate() });
+      setPath(d.ctx, `vars.${node.into}`, { ...b.facts, body: b.body, period: b.period, numbers: b.numbers, id: b.id });
+      return { status: "ok", next, result: { kind, period: b.period, report_id: b.id, ...(toDate ? { to_date: true } : {}), ...(node.layout ? {} : { worded_by: "the shipped template's layout (this copy has none)" }) } };
     }
     case "set_var": {
       // a value chosen by a condition or picked by a fact: plumbing, not a fork on the chart
@@ -773,8 +787,9 @@ async function updateOpportunity(d: ExecDeps, node: Extract<Node, { type: "updat
   const reason = status === "lost" && node.lost_reason ? String(r(node.lost_reason) ?? "") : "";
   const term = reason ? await one<{ id: string; category: string; name: string }>(d.c, "select id, category, name from company_terms where company_id=$1 and domain='lost_reason' and active and (category=$2 or lower(name)=lower($2)) order by (category=$2) desc limit 1", [d.company.id, reason]) : null;
   const out: Record<string, unknown> = { opportunity: oppId, ...fields };
-  if (status && status !== cur.status) {
-    await d.c.query("update opportunities set status=$2, won_at=case when $2='won' then now() else won_at end, lost_at=case when $2='lost' then now() else lost_at end, lost_reason_term=case when $2='lost' then $3::uuid else lost_reason_term end where id=$1", [oppId, status, term?.id ?? null]);
+  if (status && status !== cur.status && node.from && !node.from.includes(cur.status as "open" | "won" | "lost")) Object.assign(out, { left: `the opportunity is ${cur.status}; this step changes it only from ${node.from.join(" or ")}` });
+  else if (status && status !== cur.status) {
+    await d.c.query("update opportunities set status=$2, won_at=case when $2='won' then now() else won_at end, lost_at=case when $2='lost' then now() when $2='open' then null else lost_at end, lost_reason_term=case when $2='lost' then $3::uuid else lost_reason_term end where id=$1", [oppId, status, term?.id ?? null]);
     Object.assign(out, { status: { from: cur.status, to: status } });
     if (status !== "open") {
       const ev = await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: `opportunity.${status}`, source: "engine",

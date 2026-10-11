@@ -35,7 +35,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='eod'");
       if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
-        for (const t of ["eod_reports", "slack_posts", "alerts", "sends", "runs", "events", "form_submissions", "forms", "recordings", "payments", "pipeline_cards", "appointments", "opportunities", "contact_identifiers", "contacts", "workflow_triggers", "workflows", "slack_connections", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+        for (const t of ["eod_reports", "crm_records", "slack_posts", "alerts", "sends", "runs", "events", "form_submissions", "forms", "recordings", "payments", "pipeline_cards", "appointments", "opportunities", "contact_identifiers", "contacts", "workflow_triggers", "workflows", "slack_connections", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode) values ('EOD Co','eod',$1,'live') returning id", [TZ]))!.id;
       await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories", [companyId]);
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'alerts.slack_channel','channel',$4),($1,'slack.channel.eod','channel',$4)", [companyId, Buffer.from("LOC"), encrypt("p"), Buffer.from("CALERTS")]);
@@ -75,7 +75,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
 
   it("the form is the defaults until the company edits it: labels, required flags and option lists are theirs, the keys stay", async () => {
     const def = await asOperator((c) => loadEodForm(c, companyId));
-    expect(def.map((f) => f.key)).toEqual(["outcome", "cash", "revenue", "next_date", "next_steps", "dq_reason", "dq_note", "about", "notes", "general_notes"]);
+    expect(def.map((f) => f.key)).toEqual(["outcome", "cash", "revenue", "next_date", "next_steps", "dq_reason", "dq_note", "lost_reason", "about", "notes", "general_notes"]);
     expect(def.find((f) => f.key === "dq_reason")!.options).toEqual(DQ_REASONS);
     expect(def.filter((f) => f.key === "cash" || f.key === "revenue").map((f) => f.label)).toEqual(["Cash collected ($)", "Revenue generated ($)"]);
     // a form saved with the old default label follows the rename; a label the company chose stays theirs
@@ -92,7 +92,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(own.find((f) => f.key === "dq_reason")).toMatchObject({ label: "DQ because", options: ["Broke", "Other"], when: ["dq"] });
     expect(own.find((f) => f.key === "did_well")).toMatchObject({ scope: "day", builtin: false });
     expect(own.find((f) => f.key === "energy")).toMatchObject({ scope: "call", when: ["closed", "deposit", "follow_up"], options: ["Low", "OK", "High"] });
-    expect(own.map((f) => f.key).slice(0, 10)).toEqual(def.map((f) => f.key));
+    expect(own.map((f) => f.key).slice(0, 11)).toEqual(def.map((f) => f.key));
   });
 
   it("the reminder is a workflow: at its evening time, each closer with calls and no filed report gets one DM with the standing link, once; staff never do", async () => {
@@ -150,7 +150,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const filedRun = await asOperator((c) => one<{ id: string; user_id: string }>(c, "select r.id, r.user_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day report filed'", [companyId]));
     expect(filedRun?.user_id).toBe(allan);
     expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
-    const reminderTs = `ts${n}`.replace(/ts\d+/, (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts where company_id=$1", [companyId])))!.ts);
+    const reminderTs = `ts${n}`.replace(/ts\d+/, (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts where company_id=$1 and tag like 'eod-reminder:%'", [companyId])))!.ts);
     expect(reactions).toEqual([{ channel: "UALLAN", ts: reminderTs, emoji: "white_check_mark" }]);
     const reply = posts.slice(n).find((p) => p.threadTs === reminderTs)!; expect(reply.text).toBe("✅ Got it. 3 calls, 1 close, $2,000 collected, $4,000 revenue generated.");
     const summary = posts.slice(n).find((p) => p.channel === "CALERTS")!;
@@ -232,7 +232,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     await tick(fake, DateTime.now(), companyId);
     expect(posts.slice(n).filter((p) => p.channel === "CBOOK")).toEqual([]);
     // Noah turns out to be a loss: that one call is filed, once
-    const changed = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const } : x));
+    const lostNoReason = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const } : x));
+    expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(lostNoReason), calls: lostNoReason, day_answers: {} } }))).toEqual({ ok: false, why: "Still needed: Noah Reyes: Why were they lost?" });   // A1 (D88): a loss says why
+    const changed = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const, lost_reason: "Price" } : x));
     expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(changed), calls: changed, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });
     expect(await outcomeRuns()).toBe(before + 1);
     await tick(fake, DateTime.now(), companyId);
@@ -330,15 +332,18 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     try {
       const who = { id: allan, name: "Allan P", email: "allan@eod.test" };
       const open = () => asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, dayStr, DateTime.now(), fake));
+      await asOperator((c) => installTemplateForTest(c, companyId, "eod-call-filed"));   // A3 (D88): the write is that workflow's
       const pre = await open();
       expect(pre.calls.map((x) => x.contact)).toEqual(["Mia Chen", "Sol Before", "Noah Reyes", "Theo Park"]);
       expect(pre.calls.find((x) => x.contact === "Sol Before")).toMatchObject({ appointment_id: "ghl:Sol", record_id: "Sol", outcome: "" });
       expect((await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, dayStr))).calls).toHaveLength(3);   // without the vendors, the ledger's rows alone
       const token = await asOperator((c) => tokenFor(c, allan));
-      const answer = (o: "no_show" | "follow_up") => { const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "n", next_date: x.outcome === "follow_up" || (x.contact === "Sol Before" && o === "follow_up") ? DateTime.now().plus({ days: 2 }).toISODate() : x.next_date, next_steps: x.next_steps || "call back", outcome: x.contact === "Sol Before" ? o : x.outcome || "no_show" as const })); return { ...pre, ...totalsOf(calls), calls, day_answers: {} }; };
+      const answer = (o: "no_show" | "follow_up") => { const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "n", next_date: x.outcome === "follow_up" || (x.contact === "Sol Before" && o === "follow_up") ? DateTime.now().plus({ days: 2 }).toISODate() : x.next_date, next_steps: x.next_steps || "call back", lost_reason: x.lost_reason || "Price", outcome: x.contact === "Sol Before" ? o : x.outcome || "no_show" as const })); return { ...pre, ...totalsOf(calls), calls, day_answers: {} }; };
       // a row the form never offered is refused: nothing written
       const forged = answer("no_show"); forged.calls = [...forged.calls, { ...forged.calls[1], appointment_id: "ghl:Uri", contact: "Uri" }];
       expect(await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: forged }))).toMatchObject({ ok: true });
+      expect(writes).toEqual([]);   // the answer is an event; the workflow writes it on the next tick
+      await tick(fake, DateTime.now(), companyId);
       expect(writes.map((w) => w.id)).toEqual(["Sol"]);
       expect(writes[0]).toEqual({ object: "custom_objects.sales_call", id: "Sol", props: { outcome: "no_show", disposition: null, cash_collected: null, objection_primary: null, next_step: null, next_step_date: null, payment_terms: null } });
       // GHL has its answer now: no longer blank, still on the form because it was filed here, and a changed answer edits the same record
@@ -347,8 +352,10 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       expect(again.calls.find((x) => x.appointment_id === "ghl:Sol")!.record_id).toBeUndefined();
       expect(again.calls.some((x) => x.appointment_id === "ghl:Uri")).toBe(false);   // the forged row was never stored
       await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: answer("follow_up") }));
+      await tick(fake, DateTime.now(), companyId);
       expect(writes.slice(1)).toEqual([{ object: "custom_objects.sales_call", id: "Sol", props: { outcome: "showed", disposition: "follow_up" } }]);
       await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: answer("follow_up") }));
+      await tick(fake, DateTime.now(), companyId);
       expect(writes).toHaveLength(2);   // the same answer is not written again
       // the reminder no longer counts it: nothing blank is left for that day
       expect((await open()).calls.filter((x) => x.record_id)).toEqual([]);
