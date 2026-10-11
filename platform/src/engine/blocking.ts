@@ -7,9 +7,9 @@ import { describeNode, humanWords, pathWords, templateWords } from "./describe";
  * D77. Which steps hold the run when they keep failing, and which are skipped so the rest still runs.
  *
  * A step is BLOCKING when the run cannot go on without it: it decides where the run goes or waits (trigger, branch, check,
- * the waits, set_var, record, record_outcome, update_opportunity, start_workflow, pause_runs, resume, exit), or a later
+ * the waits (wait_for_event too), set_var, record, record_outcome, update_opportunity, start_workflow, pause_runs, resume, exit), or a later
  * step on its path reads what it produced (`cards.<board>` / `opportunity.*` after a pipeline_card, `record.*` after a
- * crm_record, the `into` of a classify / analyze / webhook / report / eod_due, `appointment.<field>` after an
+ * crm_record, the `into` of a classify / analyze / webhook / report / eod_due / lookup, `appointment.<field>` after an
  * update_appointment that sets it, a slack_post a later blocking wait_for_reaction waits on). Everything else is
  * NON-BLOCKING: its effect lives outside the run (tags, notes, tasks, contact updates, sends, Slack posts and reactions,
  * documents, records and cards nothing later reads, an `optional` analyze). Derived from the definition alone;
@@ -19,7 +19,7 @@ export type Role = { blocking: boolean; why: string };
 
 const CONTROL: Partial<Record<Node["type"], string>> = {
   trigger: "it starts the run", exit: "it ends the run", branch: "it decides where the run goes", check: "it decides whether the run goes on",
-  wait: "the run waits on it", wait_for_reply: "the run waits on it", wait_for_reaction: "the run waits on it", resume: "it decides where the run goes",
+  wait: "the run waits on it", wait_for_reply: "the run waits on it", wait_for_reaction: "the run waits on it", wait_for_event: "the run waits on it", resume: "it decides where the run goes",
   set_var: "later steps read what it remembers", record: "it is the run's own ledger", record_outcome: "it is the run's own ledger",
   update_opportunity: "it is the run's own ledger", start_workflow: "it hands the run on", pause_runs: "it stops the person's other runs",
 };
@@ -37,6 +37,7 @@ function outputsOf(n: Node): { re: RegExp; what: string }[] {
     case "crm_record": return [{ re: pathRe("record"), what: "the record's id" }];
     case "classify": return [n.into, "reply.confidence", "reply.intent_confidence", "reply.top_guesses"].map((p) => ({ re: pathRe(p), what: pathWords(p) }));
     case "analyze": return (Array.isArray(n.into) ? n.into : [n.into]).map((k) => ({ re: pathRe(`vars.${k}`), what: `the AI's ${humanWords(k)}` }));
+    case "lookup": return [{ re: pathRe(`vars.${n.into}`), what: "what it looked up" }];
     case "webhook": return n.into ? [{ re: pathRe(`vars.${n.into}`), what: "the response" }] : [];
     case "report": return [{ re: pathRe(`vars.${n.into}`), what: "the wrap-up" }];
     case "eod_due": return [{ re: pathRe(`vars.${n.into}`), what: "the lines" }, { re: pathRe("vars.overdue_lines"), what: "the overdue lines" }];
@@ -103,7 +104,7 @@ export function doingWords(n: Node): string {
     case "send_document": return "send the agreement for signature";
     case "slack_post": return n.title ? lower(n.title) : n.thread_of ? "reply in the Slack thread" : `post to Slack (${pathWords(n.channel)})`;
     case "pipeline_card": return `move the ${pathWords(n.pipeline).replace(/^pipeline /, "")} card${n.title ? ` (${n.title})` : ""}`;
-    case "crm_record": return `${n.if_missing === "create" ? "create" : "update"} the ${humanWords(n.object.replace(/^custom_objects\./, "")).replace(/\b[a-z]/g, (c) => c.toUpperCase())} record`;
+    case "crm_record": return `${n.if_missing === "create" && !n.record_id ? "create" : "update"} the ${humanWords(n.object.replace(/^custom_objects\./, "")).replace(/\b[a-z]/g, (c) => c.toUpperCase())} record`;
     case "update_appointment": return "update the booking in the CRM";
     case "webhook": return `call ${n.url.replace(/^https?:\/\//, "").split(/[/?]/)[0] || "the webhook"}`;
     default: return lower(n.title ?? describeNode(n).title);
@@ -119,11 +120,11 @@ export async function dependentsWords(c: PoolClient, companyId: string, workflow
   const events = n.type === "update_appointment" && "status" in n.set ? ["appointment.status_changed"] : [];
   const names = new Set<string>();
   if (events.length) for (const r of await many<{ name: string }>(c, "select distinct w.name from workflow_triggers t join workflows w on w.id=t.workflow_id where t.company_id=$1 and t.enabled and w.enabled and w.id<>$2 and t.event_type = any($3::text[])", [companyId, workflowId, events])) names.add(r.name);
-  if ((n.type === "crm_record" && n.if_missing === "create") || (n.type === "pipeline_card" && n.if_missing === "create")) {
+  if ((n.type === "crm_record" && n.if_missing === "create" && !n.record_id) || (n.type === "pipeline_card" && n.if_missing === "create")) {
     const others = await many<{ name: string; definition: unknown }>(c, "select w.name, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 and w.enabled and w.id<>$2", [companyId, workflowId]);
     for (const o of others) {
       let def: Definition; try { def = parseDefinition(o.definition); } catch { continue; }
-      if (def.nodes.some((m) => (n.type === "crm_record" && m.type === "crm_record" && m.object === n.object && m.if_missing !== "create") || (n.type === "pipeline_card" && m.type === "pipeline_card" && m.pipeline === n.pipeline && m.if_missing === "skip"))) names.add(o.name);
+      if (def.nodes.some((m) => (n.type === "crm_record" && m.type === "crm_record" && m.object === n.object && m.if_missing !== "create" && !m.record_id) || (n.type === "pipeline_card" && m.type === "pipeline_card" && m.pipeline === n.pipeline && m.if_missing === "skip"))) names.add(o.name);
     }
   }
   if (!names.size) return "";

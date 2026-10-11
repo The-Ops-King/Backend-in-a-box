@@ -13,6 +13,8 @@ export async function emitEvent(c: PoolClient, e: Omit<EventRow, "id" | "occurre
   const row = await one<EventRow>(c, `insert into events (company_id, contact_id, opportunity_id, appointment_id, run_id, event_type, occurred_at, source, data)
     values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,
     [e.company_id, e.contact_id, e.opportunity_id, e.appointment_id, e.run_id ?? null, e.event_type, e.occurred_at ?? new Date(), e.source, e.data]);
+  // D85: a run parked on wait_for_event for this type, about this person or this booking, looks again now (an inbound text wakes a reply wait the same way); the step itself decides whether it counts
+  if (e.contact_id || e.appointment_id) await c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting' and wake_on_event=$2 and (contact_id=$3 or appointment_id=$4)", [e.company_id, e.event_type, e.contact_id, e.appointment_id]);
   return row!;
 }
 
@@ -52,7 +54,7 @@ export async function startRun(c: PoolClient, args: { companyId: string; workflo
   // booking they replaced) exits; one mid-step (claimed inside the lease) is left to finish.
   // D56: only for runs about one person-level fact; an `always` run is about its own fact (a payment, a recording, a call)
   if (args.contactId && SUPERSEDES.has(def.reentry)) {
-    const older = await many<{ id: string; appointment_id: string | null }>(c, `update runs set status='exited', exit_reason='superseded: a newer run for this person', finished_at=now(), next_run_at=null, wake_on_reply=false, wake_on_tag=null
+    const older = await many<{ id: string; appointment_id: string | null }>(c, `update runs set status='exited', exit_reason='superseded: a newer run for this person', finished_at=now(), next_run_at=null, wake_on_reply=false, wake_on_tag=null, wake_on_event=null
       where workflow_id=$1 and contact_id=$2 and id<>$3 and status in ('active','waiting') and (claimed_at is null or claimed_at < now() - interval '5 minutes') returning id, appointment_id`, [args.workflowId, args.contactId, row.id]);
     for (const o of older) await emitEvent(c, { company_id: args.companyId, contact_id: args.contactId, opportunity_id: null, appointment_id: o.appointment_id, run_id: o.id, event_type: "run.exited", source: "engine", data: { reason: "superseded", by_run: row.id } });
   }

@@ -26,7 +26,7 @@ function label(def: Definition, n: Node): string {
   const d = n.type === "branch" ? { title: branchTitle(def, n.id) } : describeNode(n);
   return d.quote ? `${wrap(esc(d.title))}<br/>${wrap(esc(trunc(d.quote.replace(/[*_~]/g, ""), 60)))}` : wrap(esc(trunc(d.title, 70)));   // Slack's *bold* marks would read as markdown in the chart
 }
-const edgeLabel = (e: Edge) => esc(edgeWords(e));
+const edgeLabel = (e: Edge, from?: Node) => esc(edgeWords(e, from));
 
 /** Fills by kind (dark theme). Strokes by run status. */
 export const KIND_FILL: Record<NodeKind, { fill: string; stroke: string }> = {
@@ -43,7 +43,7 @@ export function toMermaid(def: Definition, steps: Step[] = [], currentNode?: str
   const doneExits = new Set(def.nodes.filter((n) => n.type === "exit" && exitWords(n.reason).startsWith("Done")).map((n) => n.id));
   def = { ...def, nodes: def.nodes.filter((n) => !doneExits.has(n.id)), edges: def.edges.filter((e) => !doneExits.has(e.to) && !doneExits.has(e.from)) };
   for (const n of def.nodes) lines.push(`  ${n.id}${shape(n, label(def, n))}`);
-  for (const e of def.edges) { const l = edgeLabel(e); lines.push(l ? `  ${e.from} -->|${l}| ${e.to}` : `  ${e.from} --> ${e.to}`); }
+  for (const e of def.edges) { const l = edgeLabel(e, def.nodes.find((n) => n.id === e.from)); lines.push(l ? `  ${e.from} -->|${l}| ${e.to}` : `  ${e.from} --> ${e.to}`); }
   // a check's "if not" path is an exit reason, not an edge; draw it dashed to the matching exit so nothing floats unexplained
   const synthetic: string[] = [];
   for (const n of def.nodes) if (n.type === "check") {

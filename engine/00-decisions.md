@@ -2627,7 +2627,6 @@ so the engine had Lynton as "showed" while GHL had him closed won.
   pending is checked against the ledger: paid or signed (not both) is pending; both is closed; neither is follow up.
   It is never counted as a close. Hair's `close_pending` means pending.
 
-
 ## D84. A run keeps its own state, not a copy of the contact (2026-10-11)
 
 Tyler: the run should stop saving the contact copies; nobody will ever ask what a contact looked like four turns ago.
@@ -2645,6 +2644,41 @@ and tracking, the call with its transcript and summary, cards, team members. A w
   is, its steps, what it sent. Every wake still reads the person, the booking and the call fresh, as before.
 - Older rows are slimmed once by `POST /api/admin/slim-runs` (a dry run unless `dryRun: false`; it reports the rows and
   bytes it would change). Batched, compare-and-set, safe to re-run.
+
+## D85. Workflow building blocks: wait for an event, lists, lookups, records by id, opportunities (2026-10-11)
+
+The owner: "I want these all in individual workflows. I don't want this to be a custom build that we have to continue to
+build every single time. I want to be able to adjust and adapt the existing workflows ... I do not want you to hard code it."
+An audit found business behaviour held in engine code because a workflow had no generic step to say it with. These are the
+steps. Nothing existing moves onto them yet; that is the next piece of work, done separately.
+
+- **Wait for an event, or a deadline.** `wait_for_event` waits for one event type about the run's contact (or its
+  appointment), optionally passing a condition, and goes on by the edge labelled `event` the moment one is written, or by
+  `until` at the deadline. Nothing polls: a parked run is marked with the type it waits for (`runs.wake_on_event`) and writing
+  any event wakes the runs of that company waiting for that type about that person or booking, the way a reply wakes a reply
+  wait. `since` lets an event that already happened count ("a booking made during the call"); without it only events after the
+  step began count, and an event the step took once is not taken again. The deadline is pinned when the step begins and waits
+  for the send window as `wait` does, unless the step says it is internal.
+- **Lists in a template.** `each` renders its quoted argument once per item of a list (`{{item.*}}`, `{{index}}`,
+  `{{number}}`) and `join` puts the lines together; an empty list falls to `default:`. The smallest change to the filter
+  grammar that allows it: a filter argument in double quotes is read whole, so it may hold `|`, `}}` and expressions of
+  its own. Nothing written before uses a quoted argument, so every existing template renders as it did.
+- **Lookups.** `lookup` reads facts into a var for the steps after it, from a fixed set of named, read-only questions the
+  engine owns: a person's bookings (by when booked, when they start, call type, setter or self, status), their recorded
+  calls (by when, provider, caller, phone or meeting, connected) and the last event of a type. A template picks a question and
+  its filters, never SQL. The facts "booked within 30 minutes of the call", "led to a booking" and "has an upcoming call" are
+  each one lookup now, proven equal to the engine's own; the facts stay until the templates move.
+- **A CRM record by its own id.** `crm_record` takes `record_id`, the CRM's id of a record the engine did not make (the
+  old process's Sales Calls, a record a person made). It only ever updates; everything else is the keyed update's rules:
+  shadow and test write nothing, unknown properties are left out and named, `clear` empties what this answer does not set.
+  An update is idempotent, so it takes no create claim; nothing can be created twice.
+- **Opportunities won and lost.** `update_opportunity` takes `status` (open, won, lost) and a `lost_reason` from the
+  company's terms, writes our ledger, and each change to won or lost is one `opportunity.won` / `opportunity.lost` event
+  that starts the workflows listening for it (once: the row and the event are written together). `card` marks the
+  contact's card on a board the same way through the pipeline card step's own code, not a second copy of it.
+- Each block is classified for the failure policy like the rest (D77): the event wait and the opportunity are blocking (the
+  run waits on one; the other is the ledger), a lookup is blocking when a later step reads it, a record by id is not unless
+  a later step reads `record.*`.
 
 ## D86. A late lead is still a lead; the workflow decides what it gets (2026-10-11)
 

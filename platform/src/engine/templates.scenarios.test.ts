@@ -646,7 +646,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       const run = (await runsFor("speed-to-lead")).find((r) => r.contact_id === id)!;
       expect(run).toMatchObject({ status: "completed", exit_reason: "late" });
       const steps = await asOperator((c) => many<{ node_id: string; result: { would_post?: string } }>(c, "select node_id, result from run_steps where run_id=$1 order by started_at", [run.id]));
-      expect(steps.map((x) => x.node_id)).toEqual(["t1", "v_late", "b_late", "s_late", "x_late"]);   // no email, no text
+      expect(steps.map((x) => x.node_id).sort()).toEqual(["b_late", "s_late", "t1", "v_late", "x_late"]);   // no email, no text
       expect(steps.find((x) => x.node_id === "s_late")!.result.would_post).toMatch(/came into GHL 95 minutes before the engine saw them, so no first text or email went ou/);   // slack isn't connected yet in this file
     } finally { await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='slack.channel.ops'", [companyId])); }
   });

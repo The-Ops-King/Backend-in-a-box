@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import type { Definition, Node, Edge } from "@/engine/definition";
-import { EVENT_LABELS, branchTitle, collapsePlumbing, constsOf, describeNode, durationWords, edgeWords, exitWords, humanWords, pathWords, predicateWords, waitWords, templateWords, walkOrder } from "@/engine/describe";
+import { EVENT_LABELS, branchTitle, eventWords, untilWords, collapsePlumbing, constsOf, describeNode, durationWords, edgeWords, exitWords, humanWords, pathWords, predicateWords, waitWords, templateWords, walkOrder } from "@/engine/describe";
 import { exampleContext, nodeExamples } from "@/engine/example";
 import { scheduleWords } from "@/engine/when";
 import type { Projected } from "@/engine/project";
@@ -26,7 +26,7 @@ export function kindOf(n: Node): ChartKind {
     case "trigger": return "trig";
     case "send_sms": case "send_email": case "notify_owner": case "send_document": return "send";
     case "wait": return "wait";
-    case "wait_for_reply": case "wait_for_reaction": return "reply";
+    case "wait_for_reply": case "wait_for_reaction": case "wait_for_event": return "reply";
     case "branch": return "fork";
     case "check": return "check";
     case "tags": case "set_tag": case "remove_tag": return "tag";
@@ -91,6 +91,8 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "wait": { const w = waitWords(n.rule).replace(/^Wait (until )?/, "").replace(/\s*\(.*\)$/, "").replace(/^(\d+) hours?/, (_, h) => (+h >= 48 && +h % 24 === 0 ? `${+h / 24} days` : `${h} hour${+h === 1 ? "" : "s"}`)); return { title: w.replace(/^./, (c) => c.toUpperCase()) }; }
     case "wait_for_reply": return { title: "Wait for a reply", meta: `up to ${durationWords(n.timeout)}` };
     case "wait_for_reaction": return { title: n.blocking ? "Wait for a tap in Slack" : "Listen for a tap in Slack", meta: `${n.emojis.map((e) => `:${e}:`).join(" ")}${n.timeout ? ` · up to ${durationWords(n.timeout)}` : ""}${!n.blocking ? " · the run goes on" : ""}` };
+    case "lookup": return { title: describeNode(n).title };
+    case "wait_for_event": return { title: `Wait for ${eventWords(n.event)}`, meta: n.until ? untilWords(n.until) : undefined };
     case "resume": return { title: "Go back to where the run was" };
     case "branch": { const outs = def.edges.filter((e) => e.from === n.id); const whens = outs.filter((e) => e.when); const reply = whens.length && whens.every((e) => JSON.stringify(e.when).includes("reply.")); return { title: reply ? "What did they say?" : whens.length === 1 ? `${edgeWords(whens[0]).replace(/^./, (c) => c.toUpperCase())}?` : branchTitle(def, n.id) }; }
     case "check": return { title: `Check ${predicateWords(n.when, constsOf(def))}`, meta: n.retry ? `waits up to ${durationWords(n.retry.for)}` : undefined };
@@ -100,7 +102,7 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "analyze": { const w: Record<string, string> = { classify: "is it a sales call?", notes: "call notes", rubric: "scorecard", objections: "objections" }; const keys = Array.isArray(n.into) ? n.into : [n.into]; return { title: `AI: ${keys.map((k) => w[k] ?? humanWords(k)).join(" and ")}` }; }
     case "update_contact": return { title: "Update the contact" };
     case "pipeline_card": return { title: n.stage ? (n.if_missing === "skip" ? "Move the card" : "Move the card") : n.status ? `Mark the card ${n.status}` : "Update the card", meta: n.stage ? stageChip(n.stage, n.pipeline) : pipelineChip(n.pipeline) };
-    case "crm_record": return { title: `Write the ${humanWords(n.object.replace(/^custom_objects\./, ""))} record` };
+    case "crm_record": return { title: `${n.record_id ? "Update" : "Write"} the ${humanWords(n.object.replace(/^custom_objects\./, ""))} record` };
     case "create_task": { const t = taskWords(n.title); return { title: `Task: ${t[0].toLowerCase()}${t.slice(1)}` }; }
     case "note": return { title: "Leave a note" };
     case "record_outcome": return { title: `Record the call as ${n.outcome.replace(/_/g, " ")}` };
@@ -126,12 +128,13 @@ export function logoOf(n: Node, bookingSource: "ghl" | "calendly" = "ghl"): stri
     case "wait": return "clock";
     case "wait_for_reply": return "reply";
     case "wait_for_reaction": return "slack";
+    case "wait_for_event": return logoOf({ id: n.id, type: "trigger", event: n.event }, bookingSource);
     case "branch": return "fork";
     case "check": return "if";
     case "exit": return "end";
     case "webhook": return "webhook";
     case "send_document": return "doc";
-    case "health_check": case "availability_check": case "report": case "record": return "engine";
+    case "health_check": case "availability_check": case "report": case "record": case "lookup": return "engine";
     case "update_appointment": return bookingSource;
     default: return "ghl";
   }
@@ -152,7 +155,7 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
     // the AI reading a reply is plumbing between the wait and the fork; the chart routes around it, the popover of the fork says so
     return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), hidden: (n.type === "classify" && (n.domain === "reply_intent" || foldsIntoGate(full, n))) || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource) };
   });
-  const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e), else: e.else || undefined }));
+  const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e, def.nodes.find((n) => n.id === e.from)), else: e.else || undefined }));
   return { nodes, edges };
 }
 

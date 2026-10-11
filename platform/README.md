@@ -772,6 +772,97 @@ A run about the company or a person has no contact; the dashboard shows the pers
 Nothing on a timer lives outside a workflow: the end-of-day reminders, the health sweep, the availability
 watch and the wrap-ups are templates like any other, installed and edited like any other.
 
+## Building blocks (D85)
+
+Generic steps a template combines instead of the engine hardcoding a business rule. Each is data in the
+definition, says what it does in plain words on the chart, is listed in the coverage map and has a failure role.
+
+**`wait_for_event`: an event or a deadline, whichever comes first.** `{ event, match?, about?, since?, until?,
+into?, respect_send_window? }`. Waits for an `event` (a type from `event_types`, checked by the sweep like a
+trigger's) about the run's contact (`about: "contact"`, the default) or its appointment (`"appointment"`).
+`match` is the trigger's predicate, read against the run's context plus the event's data under `data` and the
+whole event under `vars.<into>` (`{{vars.booking.appointment.kind}}`: a booking event carries the booking's
+`kind`, `booking_source` setter | self, `status`, `starts_at`, `booked_at`). `since` (a template time, with an
+optional offset: `"{{recording.started_at}}"`, `"{{recording.ended_at}} -5m"`) lets an event that already
+happened count at once; without it only events after the step began count. `until` is a `wait` rule on any
+context time (`{ anchor: "recording.ended_at", offset: "+15m" }`), pinned when the step begins and moved into
+the send window as `wait` is, unless `respect_send_window: false` (a deadline nobody hears about). The result
+lands in `vars.<into>` (default `waited`): `{ matched: true, id, type, at, source, data, appointment? }` or
+`{ matched: false }`. Edges: `label: "event"` and `label: "until"` (a plain edge stands in for either). Nothing
+polls: parked, the run carries `runs.wake_on_event` = the type, and `emitEvent` (`dispatch.ts`) sets
+`next_run_at = now()` on every waiting run of the company with that type for that contact or appointment, the
+way an inbound text wakes a reply wait; the deadline is `next_run_at`. An event the step took is never taken
+again when the run comes back to the step. Deadline editable on the step (`until_offset`).
+
+```json
+{ "id": "w_booked", "type": "wait_for_event", "event": "appointment.booked", "since": "{{recording.started_at}}",
+  "match": { "eq": ["{{vars.booking.appointment.kind}}", "closing"] }, "into": "booking",
+  "until": { "anchor": "recording.ended_at", "offset": "+30m", "tz": "company" }, "respect_send_window": false }
+```
+
+**Lists in any template.** Two filters: `each:"<template>"` renders its own template once per item of a list,
+with `{{item.*}}` (nested fields too), `{{index}}` (from 0) and `{{number}}` (from 1) beside the rest of the
+context; `join:"<separator>"` puts the lines together (default `, `). A filter argument in double quotes may
+hold `|`, `}}` and `{{…}}` of its own, with `\"` and `\n` as escapes. An absent or empty list renders nothing,
+so the existing `default:` gives the fallback. Works in Slack text, notes, task bodies, every template.
+
+```
+{{vars.days | each:"• {{item.label}}: {{item.count}} calls" | join:"\n" | default:No calls today}}
+```
+
+**`lookup`: facts into vars for the steps after it.** `{ query, params, into }`. `query` is one of the engine's
+own read-only questions (`LOOKUP_QUERIES` in `definition.ts`, the SQL in `lookup.ts`; never SQL in a template),
+always about the run's company and its contact (or appointment); `params` are templates, and one that renders blank is no filter.
+Times take an ISO time, `now`, either with an offset (`"{{recording.ended_at}} +30m"`), or an offset from now
+(`"-7d"`). A list answer is `{ count, any, items, first, last }`; `last_event` answers `{ found, count, id, type,
+at, source, data }`. A later step that reads `vars.<into>` makes the lookup blocking (D77).
+
+| query | params | each item |
+|---|---|---|
+| `appointments_for_contact` | `booked_since`, `booked_until`, `starts_since`, `starts_until`, `kind` (call types, e.g. `closing`; a booking with none is closing), `booking_source` (`setter` / `self`), `status`, `status_not` (comma lists), `exclude` (an appointment id), `order` (`starts_at` / `booked_at`) | `id, starts_at, ends_at, booked_at, status, kind, booking_source, set_by, source, closer, outcome` |
+| `calls_for_contact` | `since`, `until` (call start), `provider`, `caller` (name or email), `kind` (`phone` / `meeting`), `connected` (`true` / `false`) | `id, provider, kind, started_at, ended_at, duration_min, duration_sec, direction, status, connected, caller, caller_email, title, appointment_id` |
+| `last_event` | `type` (comma list), `since`, `until`, `about` (`contact` / `appointment`) | (one event) |
+
+The context facts `recording.booked_within_30m`, `recording.led_to_booking` and `contact.has_upcoming_call` are each
+one lookup (`nodes.test.ts` proves they agree): `{ kind: closing, status_not: cancelled, booked_since:
+"{{recording.started_at}}", booked_until: "{{recording.ended_at}} +30m" }` → `.any`; `{ status_not: cancelled,
+booked_since: "{{recording.started_at}}" }` → `.any`; `{ kind: closing, status_not: "cancelled,noshow",
+starts_since: "{{now}}", exclude: "{{appointment.id | default:}}" }` → `.any`.
+
+```json
+{ "id": "l_booked", "type": "lookup", "query": "appointments_for_contact", "into": "booked",
+  "params": { "kind": "closing", "status_not": "cancelled", "booked_since": "{{recording.started_at}}", "booked_until": "{{recording.ended_at}} +30m" } }
+```
+
+**`crm_record` by the CRM's id.** `record_id` (a template, e.g. `"{{vars.found.id}}"` from a lookup or a webhook)
+addresses a record the engine did not make, instead of the engine's own `key`. The step only ever updates that
+record (an id that renders empty is skipped, never a create); the rules are the ones a keyed update has: shadow
+and a test-mode contact that does not pass write nothing (and our ledger is not told they did), properties the
+object lacks are left out and named (`not_on_object`, D76), `clear` empties what this answer does not set (D77),
+`relate` links it. Our ledger keeps it under the key of the row that already has that CRM id, else `key` when
+given, else `ghl:<id>`. An update by id is idempotent, so a retry writes the same values once more and nothing is
+ever created twice.
+
+```json
+{ "id": "r_sc", "type": "crm_record", "object": "{{crm.object_sales_call}}", "record_id": "{{vars.sales_call.id}}",
+  "properties": { "disposition": "{{vars.outcome}}" }, "clear": ["cash_collected", "next_step"] }
+```
+
+**`update_opportunity`: won, lost, and the card.** `{ status?, lost_reason?, set?, card? }` on our ledger's
+opportunity (the run's, else the contact's open one). `status` (templated) is `open`, `won` or `lost`; `lost_reason`
+is one of the company's `lost_reason` terms by key or name (one it lacks is kept on the event and named in the
+step's result); `set` keeps `contract_value` and `installments` (the older `set.status` still works). Each change to
+won or lost is one `opportunity.won` / `opportunity.lost` event (`{ by: "workflow", node, from, lost_reason? }`),
+dispatched to the workflows that start on it; the row and the event are one transaction, so a retry finds the status
+set and emits nothing again. `card: { pipeline, stage? }` marks the contact's card on that board the same way (and
+moves it when a stage is given) through the pipeline card step's own code: the CRM read first, a hand that moved it
+wins, shadow writes nothing, an open card only (reopening picks the latest). Ours, so the ledger part runs in shadow.
+
+```json
+{ "id": "o_lost", "type": "update_opportunity", "status": "lost", "lost_reason": "{{vars.reason}}",
+  "card": { "pipeline": "{{crm.pipeline_closer}}", "stage": "{{crm.stage_closer_lost | default:}}" } }
+```
+
 ## Seeing what will happen (and when)
 
 Every live run shows its plan: the contact page ("What happens next"), the run page, and the workflow

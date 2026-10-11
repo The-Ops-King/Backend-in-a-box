@@ -2,12 +2,12 @@ import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
-import { fallbacksOf, onwardEdge, type Edge, type Node } from "./definition";
+import { fallbacksOf, labelledEdge, onwardEdge, type Edge, type Node } from "./definition";
 import { evaluate } from "./predicate";
 import { render, resolveExpr, resolvePath, parseDuration, StaleTemplateError, UnknownPathError } from "./template";
 import { predicateWords, durationWords } from "./describe";
 import { syncCards, pickCard, latestCard } from "./cards";
-import { computeWaitUntil, deferIntoWindow } from "./waitrule";
+import { computeWaitUntil, deferIntoWindow, timeParam } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
 import type { Effective } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
@@ -18,6 +18,7 @@ import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports
 import { classifyError } from "./failures";
 import { claimEffect, markEffect, PENDING_WHY, type EffectKind } from "./effects";
 import { callTime } from "./sales-call";
+import { APPOINTMENT_FACTS, APPOINTMENT_JOINS, appointmentRow, runLookup } from "./lookup";
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
@@ -319,6 +320,16 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       return timeoutEdge ? { status: "ok", next: timeoutEdge.to, result: { timed_out: true } } : { status: "exit", reason: "no_reply", result: { timed_out: true } };
     }
 
+    case "wait_for_event": return waitForEvent(d, node);
+    case "lookup": {
+      // D85: a fixed read-only question of the ledger, its filters templated; a blank filter is none
+      const params = Object.fromEntries(Object.entries(node.params).map(([k, v]) => [k, render(v, d.ctx, env(d)).trim()]).filter(([, v]) => v !== ""));
+      const r = await runLookup(d.c, { companyId: d.company.id, contactId: d.run.contact_id, appointmentId: d.run.appointment_id, now: d.now }, node.query, params);
+      if ("error" in r) return { status: "failed", error: `lookup ${node.id} (${node.query}): ${r.error}` };
+      setPath(d.ctx, `vars.${node.into}`, r.value);
+      return { status: "ok", next, result: { query: node.query, params, ...("count" in r.value ? { count: r.value.count } : {}), ...("found" in r.value ? { found: r.value.found } : {}) } };
+    }
+
     case "wait_for_reaction": {
       // the message: a post remembered under a tag, or a post this run made (by node id). The door matches taps to it by tag; the step by the message itself (channel + ts).
       const post = node.of.startsWith("tag:")
@@ -481,78 +492,13 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const started = await dispatchEvent(d.c, ev, { contact: { id: d.run.contact_id }, appointment: { id: d.run.appointment_id, starts_at: a!.starts_at.toISOString(), status: patch.status, term: a!.term, self_booked: a!.self_booked } });
       return { status: "ok", next, result: { ...patch, status_changed: { from: a!.status, to: patch.status }, started } };
     }
-    case "pipeline_card": {
-      const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
-      const pipelineId = render(node.pipeline, d.ctx, env(d));
-      if (!d.run.contact_id) return { status: "failed", error: `pipeline_card ${node.id}: the run is not about a contact` };
-      // D41: read the CRM first. A card made by anything else (a CRM workflow, a person) is adopted and moved, never duplicated; a CRM that cannot be read fails the step rather than guessing.
-      // D66: the read at claim time already failed this tick: that is this step's failure (retried in place), not a second ask of a CRM that just said no
-      if (d.cardsReadError) return { status: "failed", error: `pipeline_card ${node.id}: could not read the contact's cards in the CRM: ${d.cardsReadError}` };
-      try { await syncCards(d.c, d.company, d.adapterCompany, d.adapters, d.run.contact_id, contact?.ghl_contact_id); }
-      catch (e) { return { status: "failed", error: `pipeline_card ${node.id}: could not read the contact's cards in the CRM: ${(e as Error).message}` }; }
-      // pick latest (D76): the board's most recent card whatever its status, so a changed answer can undo what the last one did (a lost card back to a stage)
-      const card = node.pick === "latest" ? await latestCard(d.c, d.company.id, d.run.contact_id, pipelineId) : await pickCard(d.c, d.company.id, d.run.contact_id, pipelineId);
-      // D66: on a retry, a hand that moved this board's card since the step first tried wins; the step does not move it back
-      if (card && (d.run.step_attempt ?? 0) > 0) {
-        const hand = await one<{ to_name: string | null; mover: string | null }>(d.c, `select data->>'to_name' as to_name, data->>'mover' as mover from events where company_id=$1 and contact_id=$2 and event_type='card.moved' and data->>'pipeline_id'=$3 and data->>'by'='crm'
-          and occurred_at > (select min(started_at) from run_steps where run_id=$4 and node_id=$5) order by occurred_at desc limit 1`, [d.company.id, d.run.contact_id, pipelineId, d.run.id, node.id]);
-        if (hand) return { status: "skipped", next, result: { kind: "noop", why: `moved by hand since this step first tried${hand.mover ? ` (${hand.mover}` : " ("}${hand.to_name ? `to ${hand.to_name})` : ")"}; a hand wins`, crm_card: card.ghl_opportunity_id } };
-      }
-      // stage and name are optional on an update: a step that only stamps fields leaves the card where it is
-      // a stage binding left unbound (`{{crm.stage_x | default:}}`) leaves the card on its stage, like no stage at all
-      const stageId = (node.stage ? render(node.stage, d.ctx, env(d)) : "") || (card?.ghl_stage_id ?? "");
-      // G13: a person with no name in the CRM is named on the card by an address they do have, never " -- New"
-      const who = d.ctx.contact as { name?: string | null; email?: string | null; phone?: string | null; ghl_contact_id?: string | null } | undefined;
-      const nameCtx = who && !who.name ? { ...d.ctx, contact: { ...who, name: who.email ?? who.phone ?? who.ghl_contact_id ?? null } } : d.ctx;
-      const name = node.name ? render(node.name, nameCtx, env(d)) : card?.name ?? render("{{contact.name}}", nameCtx, env(d));   // a card made without a name carries the person's
-      const customFields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== "");
-      const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
-      // no open card: a step with a stage makes one there (D41: a contact always has their cards); a status-only step has no stage to make one in, so there is nothing to mark
-      if (!card && node.if_missing === "skip") return { status: "skipped", next, result: { kind: "noop", why: "no open card on this board to move; this step never creates one" } };
-      if (!card && !node.stage) return { status: "skipped", next, result: { kind: "noop", why: `no open card on this board to mark ${node.status ?? "updated"}` } };
-      if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
-      const write = { pipelineId, stageId, name, status: node.status ?? ("open" as const), assignedUserId, customFields };
-      // D61: a card already where this step would put it (a second filing, a hand that moved it first) is left alone: no CRM write, no replica bump
-      if (card && card.ghl_stage_id === stageId && card.name === name && (!node.status || node.status === card.status) && !customFields.length && !assignedUserId) return { status: "skipped", next, result: { kind: "noop", why: "already there", stage: stageId, crm_card: card.ghl_opportunity_id } };
-      // the pursuit the card belongs to: the run's, else the contact's open one, else a new one
-      let oppId = d.run.opportunity_id ?? card?.opportunity_id ?? (await one<{ id: string }>(d.c, "select id from opportunities where company_id=$1 and contact_id=$2 and status='open' order by opened_at desc limit 1", [d.company.id, d.run.contact_id]))?.id;
-      if (!oppId) {
-        oppId = (await one<{ id: string }>(d.c, "insert into opportunities (company_id, contact_id, opened_by) values ($1,$2,$3) returning id", [d.company.id, d.run.contact_id, `workflow:${node.id}`]))!.id;
-        await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "opportunity.opened", source: "engine", data: { by: "workflow", node: node.id, shadow: shadow(d) } });
-      }
-      const ownerRow = assignedUserId ? await one<{ id: string }>(d.c, "select id from users where company_id=$1 and ghl_user_id=$2", [d.company.id, assignedUserId]) : undefined;
-      // D69: a card the CRM answers is not there (deleted by a person, or with the contact) is gone from the replica too, and the step makes a fresh one, once (the create is claimed below)
-      let goneCard: string | undefined;
-      if (card && !shadow(d) && card.ghl_opportunity_id) {
-        try { await d.adapters.write.updateOpportunity(d.adapterCompany, card.ghl_opportunity_id, write); }
-        catch (e) {
-          if (!cardGone(e)) throw e;
-          await d.c.query("update pipeline_cards set status='gone', updated_at=now() where id=$1", [card.id]);
-          goneCard = card.ghl_opportunity_id;
-          if (node.if_missing === "skip" || !node.stage) { await refreshCardsCtx(d, pipelineId); return { status: "skipped", next, result: { kind: "noop", why: `the card is gone from the CRM (${goneCard}); this step never creates one` } }; }
-        }
-      }
-      if (card && !goneCard) {
-        await d.c.query("update pipeline_cards set name=$2, ghl_stage_id=$3, assigned_user_id=coalesce($4, assigned_user_id), status=coalesce($5, status), updated_at=now() where id=$1", [card.id, name, stageId, ownerRow?.id ?? null, node.status ?? null]);
-      } else {
-        let ghlId: string | null = null;
-        if (!shadow(d)) {
-          if (!contact?.ghl_contact_id) return { status: "failed", error: "pipeline_card: contact has no CRM id yet" };
-          // D66: the CRM was read first (D41) and has no card, so a pending claim means the earlier try never reached it; a done claim is a card the read missed (index lag) and is reused
-          const cl = await claim(d, node, "card");
-          if (!cl.fresh && cl.done && cl.external_id) ghlId = cl.external_id;
-          else { ghlId = (await d.adapters.write.createOpportunity(d.adapterCompany, { ...write, contactId: contact.ghl_contact_id })).id; await done(d, node, "card", ghlId); }
-        }
-        await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, assigned_user_id, status, created_by_run) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (company_id, ghl_opportunity_id) do update set ghl_stage_id=excluded.ghl_stage_id, name=excluded.name, status=excluded.status, updated_at=now()", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name, ownerRow?.id ?? null, node.status ?? "open", d.run.id]);
-      }
-      if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
-      d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
-      await refreshCardsCtx(d, pipelineId);
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card && !goneCard ? "moved" : "created", ...(goneCard ? { replaced_gone_card: goneCard } : {}), ...(card && !goneCard ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), fields: customFields } };
-    }
+    case "pipeline_card": return pipelineCard(d, node, next);
     case "crm_record": {
-      const objectKey = render(node.object, d.ctx, env(d)), key = render(node.key, d.ctx, env(d));
-      if (!objectKey || !key) return { status: "failed", error: `crm_record ${node.id}: object or key rendered empty` };
+      const objectKey = render(node.object, d.ctx, env(d)), key = node.key ? render(node.key, d.ctx, env(d)) : "";
+      // D85: a record the engine did not make, addressed by the CRM's own id; an id that renders empty is nothing to update, not a fault
+      const byId = node.record_id !== undefined ? render(node.record_id, d.ctx, env(d)).trim() : undefined;
+      if (byId === "") return { status: "skipped", next, result: { kind: "noop", why: "no record to update: its CRM id rendered empty" } };
+      if (!objectKey || (!key && !byId)) return { status: "failed", error: `crm_record ${node.id}: object or key rendered empty` };
       const properties: Record<string, unknown> = {};
       // a rendered `["yes"]` is a checkbox / multi-option value (the CRM wants an array); numbers go as numbers on amount-like keys
       for (const [k, v] of Object.entries(node.properties)) { const r = render(v, d.ctx, env(d)); if (r === "") continue; properties[k] = /^\[.*\]$/s.test(r) ? jsonArrayOr(r) : /^-?\d+(\.\d+)?$/.test(r) && /amount|total|count|score|duration|min$/i.test(k) ? Number(r) : r; }
@@ -564,6 +510,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const dropped = known ? [...Object.keys(properties), ...Object.keys(cleared)].filter((k) => !known.has(k)) : [];
       for (const k of dropped) { delete properties[k]; delete cleared[k]; }
       if (dropped.length && !Object.keys(properties).length && !Object.keys(cleared).length) return { status: "skipped", next, result: { kind: "noop", why: `nothing to write: the ${objectKey} object has no ${dropped.join(", ")} field yet`, not_on_object: dropped } };
+      if (byId) return recordById(d, node, next, objectKey, key, byId, properties, cleared, owner, dropped);
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
       let ghlId = existing?.ghl_record_id ?? null;
       // an update-only step: nothing to update when we never made the record, or made it only in shadow (no CRM id); a bare record keyed by an id alone would be a duplicate
@@ -586,13 +533,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
         on conflict (company_id, object_key, record_key) do update set ghl_record_id=coalesce(excluded.ghl_record_id, crm_records.ghl_record_id), properties=crm_records.properties || excluded.properties, updated_at=now() returning id`,
         [d.company.id, objectKey, key, ghlId, d.run.contact_id, properties]);
       d.ctx.record = { id: ghlId ?? "", key, object: objectKey, properties };
-      const related: string[] = [];
-      for (const r of node.relate) {
-        const assoc = render(r.association, d.ctx, env(d)), first = render(r.first, d.ctx, env(d)), second = render(r.second, d.ctx, env(d));
-        if (!assoc || !first || !second) continue;
-        if (!shadow(d)) await d.adapters.write.relateRecords(d.adapterCompany, assoc, first, second);
-        related.push(`${first}→${second}`);
-      }
+      const related = await relate(d, node);
       return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
     }
     case "update_contact": {
@@ -634,12 +575,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       await done(d, node, "task", t.id);
       return { status: "ok", next, result: { task_id: t.id, title, due: dueAt.toISOString(), assignedUserId } };
     }
-    case "update_opportunity": {
-      if (!d.run.opportunity_id) return { status: "failed", error: "update_opportunity with no opportunity on run" };
-      const allowed = new Set(["status", "contract_value", "installments"]);
-      for (const [k, v] of Object.entries(node.set)) if (allowed.has(k)) await d.c.query(`update opportunities set ${k}=$2 where id=$1`, [d.run.opportunity_id, v]);
-      return { status: "ok", next };
-    }
+    case "update_opportunity": return updateOpportunity(d, node, next);
     case "analyze": {
       // not a CRM write, so it runs in shadow too: seeing what the AI would say about a call is the point of shadow
       const apiKey = d.bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY;
@@ -792,6 +728,193 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       return started ? { status: "exit", reason: `started:${node.workflow}`, result: { run_id: started } } : { status: "exit", reason: `handoff_suppressed:${node.workflow}`, result: { why: "target disabled or re-entry blocked" } };
     }
   }
+}
+
+/**
+ * Our ledger's opportunity: the run's, else the contact's open one. D85: won / lost / open with a lost reason, one
+ * opportunity.won / opportunity.lost per change (the row and the event are one transaction, so a retry finds the status already
+ * set and emits nothing again), dispatched like any event; `card` marks the contact's card on that board through pipelineCard.
+ * Ours, never the CRM, so it runs in shadow too; the card follows the card step's own shadow rule.
+ */
+async function updateOpportunity(d: ExecDeps, node: Extract<Node, { type: "update_opportunity" }>, next: string | null): Promise<StepOutcome> {
+  const r = (v: unknown) => (typeof v === "string" ? render(v, d.ctx, env(d)).trim() : v);
+  const status = String(r(node.status ?? node.set.status ?? "") ?? "");
+  if (status && !["open", "won", "lost"].includes(status)) return { status: "failed", error: `update_opportunity ${node.id}: status is open, won or lost, not "${status}"` };
+  const oppId = d.run.opportunity_id ?? (d.run.contact_id ? (await one<{ id: string }>(d.c, "select id from opportunities where company_id=$1 and contact_id=$2 and status='open' order by opened_at desc limit 1", [d.company.id, d.run.contact_id]))?.id : undefined);
+  if (!oppId) return { status: "failed", error: "update_opportunity with no opportunity on run" };
+  const fields: Record<string, unknown> = {};
+  for (const k of ["contract_value", "installments"]) { const v = r(node.set[k]); if (v !== undefined && v !== null && v !== "") fields[k] = v; }
+  for (const [k, v] of Object.entries(fields)) await d.c.query(`update opportunities set ${k}=$2 where id=$1`, [oppId, v]);
+  const cur = (await one<{ status: string }>(d.c, "select status from opportunities where id=$1", [oppId]))!;
+  const reason = status === "lost" && node.lost_reason ? String(r(node.lost_reason) ?? "") : "";
+  const term = reason ? await one<{ id: string; category: string; name: string }>(d.c, "select id, category, name from company_terms where company_id=$1 and domain='lost_reason' and active and (category=$2 or lower(name)=lower($2)) order by (category=$2) desc limit 1", [d.company.id, reason]) : null;
+  const out: Record<string, unknown> = { opportunity: oppId, ...fields };
+  if (status && status !== cur.status) {
+    await d.c.query("update opportunities set status=$2, won_at=case when $2='won' then now() else won_at end, lost_at=case when $2='lost' then now() else lost_at end, lost_reason_term=case when $2='lost' then $3::uuid else lost_reason_term end where id=$1", [oppId, status, term?.id ?? null]);
+    Object.assign(out, { status: { from: cur.status, to: status } });
+    if (status !== "open") {
+      const ev = await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: `opportunity.${status}`, source: "engine",
+        data: { by: "workflow", node: node.id, from: cur.status, ...(reason ? { lost_reason: term?.category ?? reason, ...(term ? {} : { lost_reason_unknown: true }) } : {}), ...(shadow(d) ? { shadow: true } : {}) } });
+      out.started = await dispatchEvent(d.c, ev, { contact: { id: d.run.contact_id }, opportunity: { id: oppId, status } });
+    }
+  } else if (term) await d.c.query("update opportunities set lost_reason_term=$2 where id=$1 and status='lost'", [oppId, term.id]);
+  if (reason) Object.assign(out, { lost_reason: term?.category ?? reason, ...(term ? {} : { lost_reason_unknown: `no lost reason "${reason}" in the company's terms; recorded on the event only` }) });
+  if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
+  d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
+  if (!node.card) return { status: "ok", next, result: out };
+  const card = await pipelineCard(d, { id: node.id, type: "pipeline_card", pipeline: node.card.pipeline, stage: node.card.stage, status: (status || undefined) as "open" | "won" | "lost" | undefined, if_missing: "skip", pick: status === "open" ? "latest" : "open", fields: [] }, next);
+  if (card.status === "failed") return card;
+  return { status: "ok", next, result: { ...out, card: "result" in card ? card.result ?? {} : {} } };
+}
+
+/** A card on a CRM board (D19, D41): the pipeline_card step, and the card an update_opportunity marks won or lost (D85). */
+async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_card" }>, next: string | null): Promise<StepOutcome> {
+  const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
+  const pipelineId = render(node.pipeline, d.ctx, env(d));
+  if (!d.run.contact_id) return { status: "failed", error: `pipeline_card ${node.id}: the run is not about a contact` };
+  // D41: read the CRM first. A card made by anything else (a CRM workflow, a person) is adopted and moved, never duplicated; a CRM that cannot be read fails the step rather than guessing.
+  // D66: the read at claim time already failed this tick: that is this step's failure (retried in place), not a second ask of a CRM that just said no
+  if (d.cardsReadError) return { status: "failed", error: `pipeline_card ${node.id}: could not read the contact's cards in the CRM: ${d.cardsReadError}` };
+  try { await syncCards(d.c, d.company, d.adapterCompany, d.adapters, d.run.contact_id, contact?.ghl_contact_id); }
+  catch (e) { return { status: "failed", error: `pipeline_card ${node.id}: could not read the contact's cards in the CRM: ${(e as Error).message}` }; }
+  // pick latest (D76): the board's most recent card whatever its status, so a changed answer can undo what the last one did (a lost card back to a stage)
+  const card = node.pick === "latest" ? await latestCard(d.c, d.company.id, d.run.contact_id, pipelineId) : await pickCard(d.c, d.company.id, d.run.contact_id, pipelineId);
+  // D66: on a retry, a hand that moved this board's card since the step first tried wins; the step does not move it back
+  if (card && (d.run.step_attempt ?? 0) > 0) {
+    const hand = await one<{ to_name: string | null; mover: string | null }>(d.c, `select data->>'to_name' as to_name, data->>'mover' as mover from events where company_id=$1 and contact_id=$2 and event_type='card.moved' and data->>'pipeline_id'=$3 and data->>'by'='crm'
+      and occurred_at > (select min(started_at) from run_steps where run_id=$4 and node_id=$5) order by occurred_at desc limit 1`, [d.company.id, d.run.contact_id, pipelineId, d.run.id, node.id]);
+    if (hand) return { status: "skipped", next, result: { kind: "noop", why: `moved by hand since this step first tried${hand.mover ? ` (${hand.mover}` : " ("}${hand.to_name ? `to ${hand.to_name})` : ")"}; a hand wins`, crm_card: card.ghl_opportunity_id } };
+  }
+  // stage and name are optional on an update: a step that only stamps fields leaves the card where it is
+  // a stage binding left unbound (`{{crm.stage_x | default:}}`) leaves the card on its stage, like no stage at all
+  const stageId = (node.stage ? render(node.stage, d.ctx, env(d)) : "") || (card?.ghl_stage_id ?? "");
+  // G13: a person with no name in the CRM is named on the card by an address they do have, never " -- New"
+  const who = d.ctx.contact as { name?: string | null; email?: string | null; phone?: string | null; ghl_contact_id?: string | null } | undefined;
+  const nameCtx = who && !who.name ? { ...d.ctx, contact: { ...who, name: who.email ?? who.phone ?? who.ghl_contact_id ?? null } } : d.ctx;
+  const name = node.name ? render(node.name, nameCtx, env(d)) : card?.name ?? render("{{contact.name}}", nameCtx, env(d));   // a card made without a name carries the person's
+  const customFields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== "");
+  const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
+  // no open card: a step with a stage makes one there (D41: a contact always has their cards); a status-only step has no stage to make one in, so there is nothing to mark
+  if (!card && node.if_missing === "skip") return { status: "skipped", next, result: { kind: "noop", why: "no open card on this board to move; this step never creates one" } };
+  if (!card && !node.stage) return { status: "skipped", next, result: { kind: "noop", why: `no open card on this board to mark ${node.status ?? "updated"}` } };
+  if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
+  const write = { pipelineId, stageId, name, status: node.status ?? ("open" as const), assignedUserId, customFields };
+  // D61: a card already where this step would put it (a second filing, a hand that moved it first) is left alone: no CRM write, no replica bump
+  if (card && card.ghl_stage_id === stageId && card.name === name && (!node.status || node.status === card.status) && !customFields.length && !assignedUserId) return { status: "skipped", next, result: { kind: "noop", why: "already there", stage: stageId, crm_card: card.ghl_opportunity_id } };
+  // the pursuit the card belongs to: the run's, else the contact's open one, else a new one
+  let oppId = d.run.opportunity_id ?? card?.opportunity_id ?? (await one<{ id: string }>(d.c, "select id from opportunities where company_id=$1 and contact_id=$2 and status='open' order by opened_at desc limit 1", [d.company.id, d.run.contact_id]))?.id;
+  if (!oppId) {
+    oppId = (await one<{ id: string }>(d.c, "insert into opportunities (company_id, contact_id, opened_by) values ($1,$2,$3) returning id", [d.company.id, d.run.contact_id, `workflow:${node.id}`]))!.id;
+    await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "opportunity.opened", source: "engine", data: { by: "workflow", node: node.id, shadow: shadow(d) } });
+  }
+  const ownerRow = assignedUserId ? await one<{ id: string }>(d.c, "select id from users where company_id=$1 and ghl_user_id=$2", [d.company.id, assignedUserId]) : undefined;
+  // D69: a card the CRM answers is not there (deleted by a person, or with the contact) is gone from the replica too, and the step makes a fresh one, once (the create is claimed below)
+  let goneCard: string | undefined;
+  if (card && !shadow(d) && card.ghl_opportunity_id) {
+    try { await d.adapters.write.updateOpportunity(d.adapterCompany, card.ghl_opportunity_id, write); }
+    catch (e) {
+      if (!cardGone(e)) throw e;
+      await d.c.query("update pipeline_cards set status='gone', updated_at=now() where id=$1", [card.id]);
+      goneCard = card.ghl_opportunity_id;
+      if (node.if_missing === "skip" || !node.stage) { await refreshCardsCtx(d, pipelineId); return { status: "skipped", next, result: { kind: "noop", why: `the card is gone from the CRM (${goneCard}); this step never creates one` } }; }
+    }
+  }
+  if (card && !goneCard) {
+    await d.c.query("update pipeline_cards set name=$2, ghl_stage_id=$3, assigned_user_id=coalesce($4, assigned_user_id), status=coalesce($5, status), updated_at=now() where id=$1", [card.id, name, stageId, ownerRow?.id ?? null, node.status ?? null]);
+  } else {
+    let ghlId: string | null = null;
+    if (!shadow(d)) {
+      if (!contact?.ghl_contact_id) return { status: "failed", error: "pipeline_card: contact has no CRM id yet" };
+      // D66: the CRM was read first (D41) and has no card, so a pending claim means the earlier try never reached it; a done claim is a card the read missed (index lag) and is reused
+      const cl = await claim(d, node, "card");
+      if (!cl.fresh && cl.done && cl.external_id) ghlId = cl.external_id;
+      else { ghlId = (await d.adapters.write.createOpportunity(d.adapterCompany, { ...write, contactId: contact.ghl_contact_id })).id; await done(d, node, "card", ghlId); }
+    }
+    await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, assigned_user_id, status, created_by_run) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (company_id, ghl_opportunity_id) do update set ghl_stage_id=excluded.ghl_stage_id, name=excluded.name, status=excluded.status, updated_at=now()", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name, ownerRow?.id ?? null, node.status ?? "open", d.run.id]);
+  }
+  if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
+  d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
+  await refreshCardsCtx(d, pipelineId);
+  return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card && !goneCard ? "moved" : "created", ...(goneCard ? { replaced_gone_card: goneCard } : {}), ...(card && !goneCard ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), fields: customFields } };
+}
+
+/** A crm_record step's `relate`, after the record is in `record.*`: each link both ends of which rendered. */
+async function relate(d: ExecDeps, node: Extract<Node, { type: "crm_record" }>): Promise<string[]> {
+  const related: string[] = [];
+  for (const r of node.relate) {
+    const assoc = render(r.association, d.ctx, env(d)), first = render(r.first, d.ctx, env(d)), second = render(r.second, d.ctx, env(d));
+    if (!assoc || !first || !second) continue;
+    if (!shadow(d)) await d.adapters.write.relateRecords(d.adapterCompany, assoc, first, second);
+    related.push(`${first}→${second}`);
+  }
+  return related;
+}
+
+/**
+ * D85: crm_record addressed by the CRM's own record id, for a record the engine did not make (booked before install, made by
+ * a person or a CRM workflow). Always an update, so it is idempotent as a retry (the same values written again) and needs no
+ * create claim; `clear` empties what this answer does not set; properties the object lacks were already dropped and are named.
+ * Shadow writes nothing, not even our ledger's copy (we did not write the CRM, so the ledger must not say we did).
+ */
+async function recordById(d: ExecDeps, node: Extract<Node, { type: "crm_record" }>, next: string | null, objectKey: string, key: string, ghlId: string, properties: Record<string, unknown>, cleared: Record<string, null>, owner: string | undefined, dropped: string[]): Promise<StepOutcome> {
+  const write = { ...properties, ...cleared };
+  if (!Object.keys(write).length) return { status: "skipped", next, result: { kind: "noop", why: "nothing to write: every value rendered empty", crm_id: ghlId } };
+  const ours = await one<{ id: string; record_key: string }>(d.c, "select id, record_key from crm_records where company_id=$1 and object_key=$2 and ghl_record_id=$3 order by updated_at desc limit 1", [d.company.id, objectKey, ghlId]);
+  const recordKey = ours?.record_key ?? (key || `ghl:${ghlId}`);
+  let ourId: string | null = ours?.id ?? null;
+  if (!shadow(d)) {
+    await d.adapters.write.updateRecord(d.adapterCompany, objectKey, ghlId, write, owner);
+    ourId = (await one<{ id: string }>(d.c, `insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,$5,$6)
+      on conflict (company_id, object_key, record_key) do update set ghl_record_id=excluded.ghl_record_id, properties=crm_records.properties || excluded.properties, updated_at=now() returning id`,
+      [d.company.id, objectKey, recordKey, ghlId, d.run.contact_id, write]))!.id;
+  }
+  d.ctx.record = { id: ghlId, key: recordKey, object: objectKey, properties: write };
+  const related = await relate(d, node);
+  return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true, would_update: write } : {}), record: "updated", by_crm_id: true, our_id: ourId, crm_id: ghlId, properties: write, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
+}
+
+type EventPin = { entered?: string; after_id?: number; since?: string | null; until?: string | null; consumed?: number[] };
+/**
+ * D85: an event about this person (or booking) or a deadline, whichever comes first. Parked, the run carries runs.wake_on_event =
+ * the type, and emitEvent wakes it the moment one is written (dispatch.ts), the way an inbound text wakes a reply wait; the
+ * deadline is next_run_at like any wait. What it counts: events after the step began (by id, so a clock skew never hides one), or at
+ * or after `since`; never one this step already took (a loop back, or `resume`, does not see the same event twice).
+ */
+async function waitForEvent(d: ExecDeps, node: Extract<Node, { type: "wait_for_event" }>): Promise<StepOutcome> {
+  const about = node.about === "appointment" ? d.run.appointment_id : d.run.contact_id;
+  if (!about) return { status: "failed", error: `wait_for_event ${node.id}: the run is not about ${node.about === "appointment" ? "an appointment" : "a contact"}` };
+  const key = `vars.__wait_for_event.${node.id}`;
+  const pin: EventPin = { ...((resolvePath(d.ctx, key) as EventPin | undefined) ?? {}) };
+  if (!pin.entered) {
+    if (!(await one(d.c, "select 1 from event_types where name=$1", [node.event]))) return { status: "failed", error: `wait_for_event ${node.id}: "${node.event}" is not an event type the engine knows` };
+    let since: DateTime | null = null;
+    if (node.since) { const raw = render(node.since, d.ctx, env(d)); since = timeParam(raw, d.now); if (raw.trim() && !since) return { status: "failed", error: `wait_for_event ${node.id}: since "${raw}" is not a time` }; }
+    let until: DateTime | null = null;
+    if (node.until) { until = computeWaitUntil(node.until, { now: d.now, contactTz: contactTz(d), companyTz: d.company.timezone, ctx: d.ctx }).at; if (node.respect_send_window) until = deferIntoWindow(until, contactTz(d), d.company.send_window_start, d.company.send_window_end).at; }
+    Object.assign(pin, { entered: d.now.toISO(), after_id: Number((await one<{ id: string }>(d.c, "select coalesce(max(id),0)::text as id from events"))!.id), since: since?.toISO() ?? null, until: until?.toISO() ?? null });
+  }
+  const consumed = pin.consumed ?? [];
+  const rows = await many<{ id: string; event_type: string; occurred_at: Date; source: string; data: Record<string, unknown>; appointment_id: string | null }>(d.c,
+    `select id::text, event_type, occurred_at, source, data, appointment_id from events where company_id=$1 and event_type=$2 and ${node.about === "appointment" ? "appointment_id" : "contact_id"}=$3
+      and (case when $4::timestamptz is not null then occurred_at >= $4 else (id > $5 or occurred_at >= $6) end) and not (id = any($7::bigint[])) order by occurred_at, id limit 200`,
+    [d.company.id, node.event, about, pin.since ?? null, pin.after_id ?? 0, pin.entered, consumed]);
+  const prior = resolvePath(d.ctx, `vars.${node.into}`);
+  const leave = async (into: unknown, label: "event" | "until", result: Record<string, unknown>): Promise<StepOutcome> => {
+    setPath(d.ctx, `vars.${node.into}`, into); setPath(d.ctx, key, { consumed: pin.consumed ?? consumed });
+    await d.c.query("update runs set wake_on_event=null where id=$1", [d.run.id]);
+    return { status: "ok", next: labelledEdge(d.edgesFrom(node.id), label)?.to ?? null, result };
+  };
+  for (const ev of rows) {
+    const appt = ev.appointment_id ? await one<Record<string, unknown>>(d.c, `select ${APPOINTMENT_FACTS} from appointments a ${APPOINTMENT_JOINS} where a.id=$1`, [ev.appointment_id]) : null;
+    const found = { matched: true, id: Number(ev.id), type: ev.event_type, at: ev.occurred_at.toISOString(), source: ev.source, data: ev.data, ...(appt ? { appointment: appointmentRow(appt) } : {}) };
+    if (node.match) { setPath(d.ctx, `vars.${node.into}`, found); const ok = evaluate(node.match, { ...d.ctx, data: ev.data }); setPath(d.ctx, `vars.${node.into}`, prior); if (!ok) continue; }
+    pin.consumed = [...consumed, found.id];
+    return leave(found, "event", { event: found.type, event_id: found.id, at: found.at });
+  }
+  if (pin.until && DateTime.fromISO(pin.until) <= d.now) return leave({ matched: false }, "until", { timed_out: true, until: pin.until });
+  setPath(d.ctx, key, pin);
+  await d.c.query("update runs set wake_on_event=$2 where id=$1", [d.run.id, node.event]);
+  return { status: "waiting", until: pin.until ? DateTime.fromISO(pin.until) : undefined, stay: true, result: { waiting_for: node.event, about: node.about, until: pin.until ?? null, ...(pin.since ? { since: pin.since } : {}) } };
 }
 
 /**

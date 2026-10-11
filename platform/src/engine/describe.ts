@@ -1,6 +1,7 @@
 import { scheduleWords } from "./when";
 import type { Definition, Edge, Node, Predicate, WaitRule } from "./definition";
 import { fallbacksOf } from "./definition";
+import { exprSpans } from "./template";
 
 /**
  * Plain-English descriptions of workflow pieces, shared by the flow chart and the step list so the two never disagree.
@@ -16,9 +17,9 @@ export function kindOf(n: Node): NodeKind {
     case "send_sms": case "send_email": case "slack_post": case "send_document": case "notify_owner": return "message";
     case "tags": case "set_tag": case "remove_tag": case "note": case "update_appointment": case "update_opportunity": case "pipeline_card": case "update_contact": case "create_task": case "crm_record": case "record_outcome": return "crm";
     case "check": case "branch": return "decision";
-    case "wait": case "wait_for_reply": case "wait_for_reaction": return "wait";
+    case "wait": case "wait_for_reply": case "wait_for_reaction": case "wait_for_event": return "wait";
     case "classify": case "analyze": return "ai";
-    case "set_var": case "start_workflow": case "pause_runs": case "record": case "resume": return "control";
+    case "set_var": case "start_workflow": case "pause_runs": case "record": case "resume": case "lookup": return "control";
     case "webhook": return "message";
     case "health_check": case "availability_check": case "report": case "eod_due": return "control";
     case "exit": return "exit";
@@ -67,6 +68,7 @@ export function pathWords(p: unknown): string {
   if (path.startsWith("crm.")) return humanWords(path);
   if (path.startsWith("event.")) return humanWords(path.slice(6));
   if (path.startsWith("vars.")) return humanWords(path.slice(5));
+  if (path.startsWith("data.")) return `the event's ${PATHS[`appointment.${path.slice(5)}`] ?? humanWords(path.slice(5))}`;   // what a wait_for_event match reads (D85)
   if (path.startsWith("contact.fields.")) return humanWords(path.slice("contact.fields.".length));
   if (path.startsWith("cards.")) return `the ${humanWords(path.split(".")[1])} card${path.split(".").length > 2 ? ` ${humanWords(path.split(".").slice(2).join(" "))}` : ""}`;
   if (path.startsWith("record.")) return `the record ${humanWords(path.slice(7))}`;
@@ -76,7 +78,12 @@ export function pathWords(p: unknown): string {
   return humanWords(path.split(".").slice(-2).join(" "));
 }
 /** Message templates keep their text; bindings inside become their plain name so the chart does not show `{{calendar.closer_call.url}}`. */
-export const templateWords = (t: string) => t.replace(/<[^>]+>/g, " ").replace(/\{\{\s*([a-zA-Z0-9_.]+)(?:\s*\|[^}]*)?\s*\}\}/g, (_, p) => `[${pathWords(p)}]`).replace(/\s+/g, " ").trim();
+export const templateWords = (t: string) => {
+  const s = t.replace(/<[^>]+>/g, " "); let out = "", at = 0;
+  // an `each` is one bracket for the list it walks, not its inner {{item.*}} (D85)
+  for (const x of exprSpans(s)) { const p = x.expr.split("|")[0].trim(); out += s.slice(at, x.start) + (/^[a-zA-Z0-9_.]+$/.test(p) ? `[${pathWords(p)}${/\|\s*each\b/.test(x.expr) ? ", one line each" : ""}]` : s.slice(x.start, x.end)); at = x.end; }
+  return (out + s.slice(at)).replace(/\s+/g, " ").trim();
+};
 
 /** A predicate as a person would say it. `consts` are the workflow's own set_var literals, so "≥ the minimum call length" reads "longer than 60 seconds". */
 export function predicateWords(p: Predicate, consts: Record<string, unknown> = {}): string {
@@ -149,6 +156,13 @@ export function describeNode(n: Node): NodeText {
     case "wait_for_reaction": return n.blocking
       ? { title: `Wait for a reaction on ${n.of.startsWith("tag:") ? "that Slack post" : "the post before"}: ${n.emojis.map((e) => `:${e}:`).join(" ")}`, detail: `${n.timeout ? `Up to ${durationWords(n.timeout)}; ` : ""}continues the minute a team member taps one of them on that very message; any other reaction, or a tap on another post, changes nothing${n.timeout ? "; silence continues with no decision" : ""}` }
       : { title: `Listen for a reaction on ${n.of.startsWith("tag:") ? "that Slack post" : "the post before"}: ${n.emojis.map((e) => `:${e}:`).join(" ")}`, detail: `The run goes on at once; a tap on that very message, whenever it comes, pulls the run to the tap path and \"go back\" returns it to where it was${n.until ? `; nobody by ${waitWords(n.until).replace(/^Wait until /, "").replace(/^Wait /, "")} and it takes the no-answer path` : ""}` };
+    case "wait_for_event": return { title: `Wait for ${eventWords(n.event)}${n.until ? `, ${untilWords(n.until)}` : ""}`,
+      detail: [`About ${n.about === "appointment" ? "this booking" : "this person"}${n.match ? `, when ${predicateWords(n.match)}` : ""}; moves on the moment one arrives`, n.since ? `one already there from ${templateWords(n.since)} counts at once` : "only one after this step begins counts", n.until ? `nothing by then and it takes the no-event path${n.respect_send_window ? " (the deadline waits for the send window)" : ""}` : "without a deadline it waits for the event alone"].join("; ") };
+    case "lookup": {
+      const what = { appointments_for_contact: "their bookings", calls_for_contact: "their recorded calls", last_event: `the last ${n.params.type ? n.params.type.split(",").map((t) => eventWords(t.trim())).join(" or ") : "event"}` }[n.query];
+      const filters = Object.entries(n.params).filter(([k]) => n.query !== "last_event" || k !== "type").map(([k, v]) => `${humanWords(k)} ${/\{\{/.test(v) ? templateWords(v) : humanWords(v)}`);
+      return { title: `Look up ${what}`, detail: `${filters.length ? `${filters.join("; ")}; ` : ""}saved as ${humanWords(n.into)} for the steps after it (the engine's own question, read-only)` };
+    }
     case "resume": return { title: "Go back to where the run was", detail: "The step the listener pulled the run away from, with its own due time; nothing to go back to, and the run simply goes on" };
     case "send_sms": return { title: n.kind === "transactional" ? "Send text (automated receipt, may go out in dark hours)" : "Send text", quote: templateWords(n.template), detail: n.validity?.min_lead ? `Only if at least ${durationWords(n.validity.min_lead)} before the call; otherwise ${n.on_stale === "skip" ? "skip it" : n.on_stale === "substitute" ? "send the fallback" : "pause for a human"}` : undefined };
     case "send_email": return { title: `Send email: “${templateWords(n.subject)}”`, quote: templateWords(n.template), detail: n.kind === "transactional" ? "Automated receipt: may go out in dark hours if the company allows it" : undefined };
@@ -171,11 +185,16 @@ export function describeNode(n: Node): NodeText {
     case "update_appointment": return "pending_read" in n.set && Object.keys(n.set).length === 1
       ? { title: n.set.pending_read === null ? "Clear the pending read on the appointment" : "Note Jev's pending read on the appointment", detail: n.set.pending_read === null ? "A person decided; the appointment no longer carries an open question" : "What Jev read, how sure it was and when, kept until a person decides; a no-show after it is a possible cancel" }
       : { title: `Mark appointment ${Object.entries(n.set).filter(([k]) => k !== "pending_read").map(([k, v]) => `${humanWords(k)} → ${value(v)}`).join(", ")}` };
-    case "update_opportunity": return { title: `Update opportunity: ${Object.entries(n.set).map(([k, v]) => `${humanWords(k)} → ${value(v)}`).join(", ")}` };
+    case "update_opportunity": {
+      const st = n.status ?? (typeof n.set.status === "string" ? n.set.status : undefined), rest = Object.entries(n.set).filter(([k]) => k !== "status").map(([k, v]) => `${humanWords(k)} → ${value(v)}`);
+      const w = (t: string) => (/\{\{/.test(t) ? templateWords(t) : t);
+      return { title: st ? `Mark the opportunity ${w(st)}` : `Update opportunity: ${rest.join(", ")}`,
+        detail: [st && n.lost_reason ? `lost reason ${w(n.lost_reason)}` : "", st && rest.length ? `also ${rest.join(", ")}` : "", n.card ? `the ${pathWords(n.card.pipeline).replace(/^pipeline /, "")} card marked the same way${n.card.stage ? `, moved to ${pathWords(n.card.stage)}` : ""}` : "", st ? "a change to won or lost is recorded as Deal won or Opportunity lost and starts the workflows that listen for it" : ""].filter(Boolean).join("; ") || undefined };
+    }
     case "pipeline_card": return {
       title: n.stage ? `${n.if_missing === "skip" ? "Move" : "Create or move"} pipeline card${n.name ? ` “${templateWords(n.name)}”` : ""}` : `Update the ${pathWords(n.pipeline)} card`,
       detail: `${n.stage ? `In the ${pathWords(n.pipeline)}, stage ${pathWords(n.stage)}` : "Card stays where it is"}${n.status ? `; marked ${n.status}` : ""}${n.assign_to ? `; owner → ${pathWords(n.assign_to)}` : ""}${n.fields.length ? `; set ${n.fields.map((f) => `${pathWords(f.id)} = ${templateWords(f.value)}`).join(", ")}` : ""}${n.if_missing === "skip" ? "; only if the card already exists" : ""}` };
-    case "crm_record": return { title: `${n.if_missing !== "create" ? "Update" : "Write"} ${humanWords(n.object.replace(/^custom_objects\./, ""))} record`, detail: `Keyed by ${pathWords(n.key)}; ${Object.keys(n.properties).length} fields${n.relate.length ? `; linked to ${n.relate.length} related record${n.relate.length > 1 ? "s" : ""}` : ""}${n.clear.length ? `; empties ${n.clear.map((k) => (/\{\{/.test(k) ? pathWords(k) : humanWords(k))).join(", ")} unless this answer sets them` : ""}${n.if_missing === "skip" ? "; only if the record already exists" : n.if_missing === "match" ? "; only a record that exists, found by the booking when the engine did not write it" : ""}` };
+    case "crm_record": return { title: `${n.if_missing !== "create" || n.record_id ? "Update" : "Write"} ${humanWords(n.object.replace(/^custom_objects\./, ""))} record`, detail: `${n.record_id ? `The CRM's own record ${/\{\{/.test(n.record_id) ? templateWords(n.record_id) : n.record_id}, made outside the engine; never creates one` : `Keyed by ${pathWords(n.key)}`}; ${Object.keys(n.properties).length} fields${n.relate.length ? `; linked to ${n.relate.length} related record${n.relate.length > 1 ? "s" : ""}` : ""}${n.clear.length ? `; empties ${n.clear.map((k) => (/\{\{/.test(k) ? pathWords(k) : humanWords(k))).join(", ")} unless this answer sets them` : ""}${n.record_id ? "" : n.if_missing === "skip" ? "; only if the record already exists" : n.if_missing === "match" ? "; only a record that exists, found by the booking when the engine did not write it" : ""}` };
     case "create_task": return { title: `Task for ${n.assign_to ? pathWords(n.assign_to) : "the team"}: “${templateWords(n.title)}”`, detail: /\{\{/.test(n.due) ? `Due ${templateWords(n.due)}` : `Due in ${durationWords(n.due)}`, quote: n.body ? templateWords(n.body) : undefined };
     case "set_var": { const w = (v: unknown) => typeof v === "string" ? templateWords(v) : JSON.stringify(v);
       if (n.pick) return { title: `Remember ${humanWords(n.key)}, picked by ${w(n.value)}`, detail: `${Object.entries(n.pick).map(([k, v]) => `${humanWords(k)} → ${w(v)}`).join("; ")}${n.else_value !== undefined ? `; otherwise ${w(n.else_value)}` : ""}` };
@@ -189,13 +208,20 @@ export function describeNode(n: Node): NodeText {
 
 /** A branch reads as the question its outgoing edges answer: "setter booked or self-booked?" */
 export function branchTitle(def: Definition, nodeId: string): string {
-  const labels = def.edges.filter((e) => e.from === nodeId).map(edgeWords).filter((w) => w && w !== "otherwise");
+  const labels = def.edges.filter((e) => e.from === nodeId).map((e) => edgeWords(e)).filter((w) => w && w !== "otherwise");
   const els = def.edges.some((e) => e.from === nodeId && e.else);
   if (!labels.length) return "Which way?";
   return `${labels.join(", or ")}${els && labels.length === 1 ? ", or neither" : ""}?`.replace(/^./, (c) => c.toUpperCase());
 }
 
-export function edgeWords(e: Edge): string {
+/** An event type as a person says it, lower-cased for the middle of a sentence: "appointment booked". */
+export const eventWords = (t: string) => (EVENT_LABELS[t] ?? humanWords(t)).replace(/^[A-Z](?![A-Z])/, (c) => c.toLowerCase());
+/** A deadline as the end of a sentence: "up to 2 hours", "until 15 minutes after the call ended". */
+export const untilWords = (rule: WaitRule) => { const w = waitWords(rule); return w.startsWith("Wait until ") ? w.replace(/^Wait /, "") : w.replace(/^Wait /, "up to "); };
+
+/** `from`: the step the edge leaves, when its labels mean something of their own (an event wait's `event` and `until`, D85). */
+export function edgeWords(e: Edge, from?: Node): string {
+  if (from?.type === "wait_for_event" && (e.label === "event" || e.label === "until")) return e.label === "event" ? eventWords(from.event) : `no ${eventWords(from.event)} in time`;
   if (e.label === "timeout") return "no reply in time";
   if (e.label === "tap") return "a team member taps";
   if (e.label === "until") return "nobody tapped in time";

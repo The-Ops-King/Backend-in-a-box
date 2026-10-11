@@ -67,3 +67,26 @@ describe("date filters on an absent value", () => {
     expect(() => render("{{contact.first_booked_at | date_company}}", { contact: {} }, env)).toThrow(UnknownPathError);   // no default: still refused at save
   });
 });
+
+describe("lists: one line per item (D85)", () => {
+  const env = { now, tz: "America/Phoenix" };
+  const days = [{ label: "Mon", count: 3, closer: { name: "Sam" } }, { label: "Tue", count: 1, closer: { name: "Ana" } }];
+  const ctx = { vars: { days, none: [], names: ["Ann", "Bo"] }, company: { name: "Hair" } };
+  it("each renders its own template per item, with nested fields, the index and the rest of the context; join puts the lines together", () => {
+    expect(render('{{vars.days | each:"• {{item.label}}: {{item.count}} calls with {{item.closer.name}}" | join:"\\n"}}', ctx, env)).toBe("• Mon: 3 calls with Sam\n• Tue: 1 calls with Ana");
+    expect(render('{{vars.days | each:"{{number}}. {{item.label}} ({{index}}) at {{company.name}}" | join:"; "}}', ctx, env)).toBe("1. Mon (0) at Hair; 2. Tue (1) at Hair");
+    expect(render("{{vars.names | each | join}}", ctx, env)).toBe("Ann, Bo");
+    expect(render('Days:\n{{vars.days | each:"- {{item.label}}" | join:"\\n"}}\nEnd', ctx, env)).toBe("Days:\n- Mon\n- Tue\nEnd");
+  });
+  it("an empty or absent list falls back through default; a missing item field is the inner template's default", () => {
+    expect(render('{{vars.none | each:"• {{item.label}}" | join:"\\n" | default:No calls today}}', ctx, env)).toBe("No calls today");
+    expect(render('{{vars.missing | each:"• {{item.label}}" | join:"\\n" | default:No calls today}}', ctx, env)).toBe("No calls today");
+    expect(render('{{vars.days | each:"{{item.label}}: {{item.note | default:\\"no note\\"}}" | join:", "}}', ctx, env)).toBe("Mon: no note, Tue: no note");
+    expect(() => render('{{vars.days | each:"{{item.nope}}" | join}}', ctx, env)).toThrow(UnknownPathError);
+  });
+  it("a quoted argument keeps its | and }} as text, and the old grammar is unchanged around it", () => {
+    expect(render('{{vars.names | each:"<{{item}}|x>" | join:" }} "}}', ctx, env)).toBe("<Ann|x> }} <Bo|x>");
+    expect(render("{{contact.missing | default:a:b}} {{ company.name }} {{x", { company: { name: "Hair" } }, env)).toBe("a:b Hair {{x");
+    expect(render("{{}} plain", {}, env)).toBe("{{}} plain");
+  });
+});
