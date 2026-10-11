@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { api, usePage } from "~/api";
 import type { CallEntry, EodField } from "@/engine/eod-form";
 type EodPrefill = { day: string; calls_count: number; closes: number; deposits: number; cash: number; revenue: number; calls: CallEntry[] };
-import { dayFields, fieldsFor, totalsOf, valueOf, type CallOutcome } from "@/engine/eod-form";
+import { dayFields, fieldsFor, outcomeLabel, totalsOf, valueOf, type CallOutcome } from "@/engine/eod-form";
 import { Skeleton } from "~/ui/pieces";
 
 type Page = { closer: { first_name: string; name: string }; company: { name: string; timezone: string }; day: string; is_today: boolean; prev: string; next: string; filed: { at: string; changes: number } | null; pre: EodPrefill; seen: { calls: number; cash: number }; fields: EodField[]; day_answers: Record<string, string>; outcomes: { value: string; label: string }[] };
@@ -36,7 +36,7 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   const [callsCount, setCallsCount] = useState(String(d.pre.calls_count));
   const [touched, setTouched] = useState<{ closes?: string; deposits?: string; cash?: string; revenue?: string }>({});
   const [dayAnswers, setDayAnswers] = useState<Record<string, string>>(d.day_answers);
-  const [busy, setBusy] = useState(false); const [done, setDone] = useState<{ recorded: number; changes: number } | null>(null); const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false); const [done, setDone] = useState<{ recorded: number; changes: number } | null>(null); const [err, setErr] = useState<string | null>(null); const [editing, setEditing] = useState(false);
   const t = totalsOf(calls);
   const set = (i: number, patch: Partial<CallEntry>) => setCalls((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const setField = (i: number, key: string, v: string) => {
@@ -50,13 +50,23 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   const showDeposits = t.deposits > 0 || touched.deposits !== undefined;
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true); setErr(null);
-    try { const r = await api<{ recorded: number; changes: number }>(`/api/eod/${token}`, { method: "POST", json: { day: d.day, calls_count: callsCount, closes: touched.closes ?? "", deposits: touched.deposits ?? String(t.deposits), cash: touched.cash ?? "", revenue: touched.revenue ?? "", calls, day_answers: dayAnswers } }); setDone(r); onFiled(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    try { const r = await api<{ recorded: number; changes: number }>(`/api/eod/${token}`, { method: "POST", json: { day: d.day, calls_count: callsCount, closes: touched.closes ?? "", deposits: touched.deposits ?? String(t.deposits), cash: touched.cash ?? "", revenue: touched.revenue ?? "", calls, day_answers: dayAnswers } }); setDone(r); setEditing(false); onFiled(); }
     catch (x) { setErr((x as Error).message); }
-    setBusy(false);
+    setBusy(false); window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  // filed: a thank-you page in place of the form, with what went in; the form comes back only if they choose to change something
+  if (done && !editing) {
+    const counts = Object.entries(calls.reduce<Record<string, number>>((m, c) => { const k = outcomeLabel(c.outcome); m[k] = (m[k] ?? 0) + 1; return m; }, {}));
+    const dayWords = new Date(`${d.day}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+    return <div className="thanks" style={{ marginTop: 14 }}>
+      <h2>Thanks, {d.closer.first_name}. Your end of day for {dayWords} is in.</h2>
+      <p>{calls.length} call{calls.length === 1 ? "" : "s"} filed{counts.length ? `: ${counts.map(([k, n]) => `${n} ${k.toLowerCase()}`).join(", ")}` : ""}.</p>
+      {done.changes ? <p className="note">{done.changes} answer{done.changes === 1 ? "" : "s"} differed from what the engine had; the team will see the corrections.</p> : null}
+      <button className="submit" type="button" onClick={() => setEditing(true)}>Change an answer</button>
+    </div>;
+  }
   return <form className="form" onSubmit={submit} style={{ marginTop: 14 }}>
-    {done ? <div className="banner">Filed. {done.recorded} call{done.recorded === 1 ? "" : "s"} recorded{done.changes ? `, ${done.changes} correction${done.changes === 1 ? "" : "s"} noted` : ", everything matched"}. You can still change anything below and submit again.</div> : null}
-    {err ? <div className="banner warn">Not filed: {err}. Your answers are still here; fix and submit again.</div> : null}
+    {err ? <div className="banner warn"><strong>Not saved.</strong> {err}. Your answers are still here; fix and press Submit again.</div> : null}
     <div className="call"><div className="g2" style={{ gridTemplateColumns: showDeposits ? "repeat(auto-fit, minmax(130px, 1fr))" : "repeat(auto-fit, minmax(150px, 1fr))" }}>
       <label>How many calls today?<input type="number" min={0} value={callsCount} onChange={(e) => setCallsCount(e.target.value)} /><span className="note">{d.seen.calls} on your calendar</span></label>
       <label>Closes<input type="number" min={0} value={touched.closes ?? String(t.closes)} onChange={(e) => setTouched((x) => ({ ...x, closes: e.target.value }))} /></label>
