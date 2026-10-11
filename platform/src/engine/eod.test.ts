@@ -75,7 +75,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
 
   it("the form is the defaults until the company edits it: labels, required flags and option lists are theirs, the keys stay", async () => {
     const def = await asOperator((c) => loadEodForm(c, companyId));
-    expect(def.map((f) => f.key)).toEqual(["outcome", "cash", "revenue", "next_date", "next_steps", "dq_reason", "dq_note", "about", "notes", "general_notes"]);
+    expect(def.map((f) => f.key)).toEqual(["outcome", "cash", "revenue", "next_date", "next_steps", "dq_reason", "dq_note", "lost_reason", "about", "notes", "general_notes"]);
     expect(def.find((f) => f.key === "dq_reason")!.options).toEqual(DQ_REASONS);
     expect(def.filter((f) => f.key === "cash" || f.key === "revenue").map((f) => f.label)).toEqual(["Cash collected ($)", "Revenue generated ($)"]);
     // a form saved with the old default label follows the rename; a label the company chose stays theirs
@@ -92,7 +92,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(own.find((f) => f.key === "dq_reason")).toMatchObject({ label: "DQ because", options: ["Broke", "Other"], when: ["dq"] });
     expect(own.find((f) => f.key === "did_well")).toMatchObject({ scope: "day", builtin: false });
     expect(own.find((f) => f.key === "energy")).toMatchObject({ scope: "call", when: ["closed", "deposit", "follow_up"], options: ["Low", "OK", "High"] });
-    expect(own.map((f) => f.key).slice(0, 10)).toEqual(def.map((f) => f.key));
+    expect(own.map((f) => f.key).slice(0, 11)).toEqual(def.map((f) => f.key));
   });
 
   it("the reminder is a workflow: at its evening time, each closer with calls and no filed report gets one DM with the standing link, once; staff never do", async () => {
@@ -150,7 +150,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const filedRun = await asOperator((c) => one<{ id: string; user_id: string }>(c, "select r.id, r.user_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day report filed'", [companyId]));
     expect(filedRun?.user_id).toBe(allan);
     expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
-    const reminderTs = `ts${n}`.replace(/ts\d+/, (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts where company_id=$1", [companyId])))!.ts);
+    const reminderTs = `ts${n}`.replace(/ts\d+/, (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts where company_id=$1 and tag like 'eod-reminder:%'", [companyId])))!.ts);
     expect(reactions).toEqual([{ channel: "UALLAN", ts: reminderTs, emoji: "white_check_mark" }]);
     const reply = posts.slice(n).find((p) => p.threadTs === reminderTs)!; expect(reply.text).toBe("✅ Got it. 3 calls, 1 close, $2,000 collected, $4,000 revenue generated.");
     const summary = posts.slice(n).find((p) => p.channel === "CALERTS")!;
@@ -232,7 +232,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     await tick(fake, DateTime.now(), companyId);
     expect(posts.slice(n).filter((p) => p.channel === "CBOOK")).toEqual([]);
     // Noah turns out to be a loss: that one call is filed, once
-    const changed = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const } : x));
+    const lostNoReason = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const } : x));
+    expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(lostNoReason), calls: lostNoReason, day_answers: {} } }))).toEqual({ ok: false, why: "Still needed: Noah Reyes: Why were they lost?" });   // A1 (D88): a loss says why
+    const changed = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const, lost_reason: "Price" } : x));
     expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(changed), calls: changed, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });
     expect(await outcomeRuns()).toBe(before + 1);
     await tick(fake, DateTime.now(), companyId);
@@ -335,7 +337,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       expect(pre.calls.find((x) => x.contact === "Sol Before")).toMatchObject({ appointment_id: "ghl:Sol", record_id: "Sol", outcome: "" });
       expect((await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, dayStr))).calls).toHaveLength(3);   // without the vendors, the ledger's rows alone
       const token = await asOperator((c) => tokenFor(c, allan));
-      const answer = (o: "no_show" | "follow_up") => { const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "n", next_date: x.outcome === "follow_up" || (x.contact === "Sol Before" && o === "follow_up") ? DateTime.now().plus({ days: 2 }).toISODate() : x.next_date, next_steps: x.next_steps || "call back", outcome: x.contact === "Sol Before" ? o : x.outcome || "no_show" as const })); return { ...pre, ...totalsOf(calls), calls, day_answers: {} }; };
+      const answer = (o: "no_show" | "follow_up") => { const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "n", next_date: x.outcome === "follow_up" || (x.contact === "Sol Before" && o === "follow_up") ? DateTime.now().plus({ days: 2 }).toISODate() : x.next_date, next_steps: x.next_steps || "call back", lost_reason: x.lost_reason || "Price", outcome: x.contact === "Sol Before" ? o : x.outcome || "no_show" as const })); return { ...pre, ...totalsOf(calls), calls, day_answers: {} }; };
       // a row the form never offered is refused: nothing written
       const forged = answer("no_show"); forged.calls = [...forged.calls, { ...forged.calls[1], appointment_id: "ghl:Uri", contact: "Uri" }];
       expect(await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: forged }))).toMatchObject({ ok: true });

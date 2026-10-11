@@ -10,6 +10,9 @@ import { recordPayment } from "@/engine/payments";
 import { ingestRecording } from "@/engine/inbound";
 import { loadCompany } from "@/engine/context";
 import type { Definition } from "@/engine/definition";
+import { DateTime } from "luxon";
+import { mergeEodFields, outcomesOf, choiceOf, totalsOf } from "@/engine/eod-form";
+import { prefill, submitEod, tokenFor, saveEodForm, loadEodForm, eodFacts } from "@/engine/eod";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -113,5 +116,77 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: a card moved by hand is a workf
     await run();
     expect(posts.map((p) => p.text)).toEqual(["Sam Closer dragged Lost"]);
     expect(await outcome()).toMatchObject({ outcome: null, call_outcome: null });
+  });
+});
+
+describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day form's outcomes are the company's (B6), and a card dragged to Lost asks why (A1)", () => {
+  let sam: string, appt: string, contact: string;
+  const day = () => DateTime.now().setZone("America/Phoenix").toFormat("yyyy-MM-dd");
+  beforeAll(async () => {
+    await migrate(); companyId = await freshCompany("mvs-eod");
+    await asOperator(async (c) => {
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.pipeline_closer','id','P-C'),($1,'crm.stage_closer_lost','id','S-LOST'),($1,'slack.channel.eod','channel','CEOD')", [companyId]);
+      sam = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id) values ($1,'sam@x.test','Sam Closer','closer','U-SAM') returning id", [companyId]))!.id;
+      contact = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,'G-LEE','Lee','Park') returning id", [companyId]))!.id;
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const cal = (await one<{ id: string }>(c, "insert into calendars (company_id, external_id, name, appointment_term, active) values ($1,'CAL','Closer',$2,true) returning id", [companyId, term]))!.id;
+      appt = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, appointment_term, starts_at, ends_at, status, booked_at, assigned_user_id) values ($1,$2,$3,'A-LEE',$4,now() - interval '20 minutes', now() - interval '5 minutes','confirmed', now() - interval '3 days',$5) returning id", [companyId, contact, cal, term, sam]))!.id;
+    });
+  });
+  beforeEach(() => { posts.length = 0; });
+
+  it("the defaults gain Close pending: a show, never a close; the builtins follow what an answer means", () => {
+    const fields = mergeEodFields(null);
+    expect(outcomesOf(fields).map((o) => o.value)).toEqual(["closed", "deposit", "pending", "follow_up", "lost", "dq", "rescheduled", "no_show"]);
+    expect(choiceOf("pending", fields)).toMatchObject({ label: "Close pending", attendance: "showed", call_outcome: "pending" });
+    const call = (outcome: string) => ({ appointment_id: outcome, contact_id: "", contact: outcome, starts_at: "", href_contact: null, recording_url: null, outcome, revenue: 3000, cash: 500, next_date: null, next_steps: "", dq_reason: "", dq_note: "", about: "", notes: "", extra: {} });
+    expect(totalsOf([call("closed"), call("pending"), call("deposit")], fields)).toEqual({ calls_count: 3, closes: 1, deposits: 1, cash: 1000, revenue: 6000 });
+    expect(fields.find((f) => f.key === "about")!.when).toEqual(["closed", "deposit", "pending", "follow_up", "lost", "dq"]);
+  });
+
+  it("a company's own list: its words, its keys, the meaning decides what is filed and counted", async () => {
+    const own = [{ key: "outcome", label: "What happened?", type: "select" as const, scope: "call" as const, required: true, builtin: true, choices: [
+      { value: "won", label: "Won 🎉", attendance: "showed" as const, call_outcome: "closed" as const },
+      { value: "half", label: "Signed, not paid", attendance: "showed" as const, call_outcome: "pending" as const },
+      { value: "gone", label: "Lost it", attendance: "showed" as const, call_outcome: "lost" as const },
+      { value: "ghost", label: "Ghosted", attendance: "noshow" as const } ] }];
+    await asOperator((c) => saveEodForm(c, companyId, own));
+    const fields = await asOperator((c) => loadEodForm(c, companyId));
+    expect(outcomesOf(fields).map((o) => o.label)).toEqual(["Won 🎉", "Signed, not paid", "Lost it", "Ghosted"]);
+    expect(fields.find((f) => f.key === "cash")!.when).toEqual(["won"]);
+    expect(fields.find((f) => f.key === "lost_reason")!.when).toEqual(["gone"]);
+    const token = await asOperator((c) => tokenFor(c, sam));
+    const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: sam, name: "Sam Closer", email: "sam@x.test" }, day()));
+    const calls = pre.calls.map((x) => ({ ...x, outcome: "half" }));
+    expect(await asOperator((c) => submitEod(c, fake, { token, day: day(), answers: { ...pre, ...totalsOf(calls, fields), calls, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 1 });
+    expect(await asOperator((c) => one(c, "select ot.category as outcome, cot.category as call_outcome from appointments a join company_terms ot on ot.id=a.outcome_term join company_terms cot on cot.id=a.call_outcome_term where a.id=$1", [appt]))).toEqual({ outcome: "showed", call_outcome: "pending" });
+    expect(totalsOf(calls, fields).closes).toBe(0);
+    // the form shows the ledger's answer in the company's own word
+    expect((await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: sam, name: "Sam Closer", email: "sam@x.test" }, day()))).calls[0].outcome).toBe("half");
+    await asOperator((c) => c.query("delete from forms where company_id=$1 and purpose='eod'", [companyId]));
+    await asOperator((c) => c.query("delete from eod_reports where company_id=$1", [companyId]));
+  });
+
+  it("a card dragged to Lost: the form opens Lost with what the move said, asks why, the reminder owes the day until it is filed, and the summary says why", async () => {
+    await install("card-moved"); await install("eod-filed");
+    await asOperator((c) => c.query("update appointments set outcome_term=null, call_outcome_term=null where id=$1", [appt]));
+    await asOperator(async (c) => {
+      const opp = (await one<{ id: string }>(c, "insert into opportunities (company_id, contact_id, status, opened_by) values ($1,$2,'open','test') returning id", [companyId, contact]))!.id;
+      const { handMoved } = await import("@/engine/card-moves");
+      await handMoved(c, companyId, fake, { contactId: contact, cardId: "x", opportunityId: opp, crmCardId: "CARD-L", pipelineId: "P-C", fromStage: "S-SCHED", toStage: "S-LOST", fromStatus: "open", toStatus: "open", movedBy: "U-SAM", at: new Date() });
+    });
+    await run();
+    const who = { id: sam, name: "Sam Closer", email: "sam@x.test" };
+    const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, day()));
+    expect(pre.calls[0]).toMatchObject({ outcome: "lost", moved: "Card moved to Lost in the CRM by Sam Closer. Say why.", lost_reason: "" });
+    const facts = await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, sam, "https://engine.test"));
+    expect(facts.today).toMatchObject({ calls: 1, filed: false, moved: [appt] });   // owed: the closer has not said why
+    const token = await asOperator((c) => tokenFor(c, sam));
+    expect(await asOperator((c) => submitEod(c, fake, { token, day: day(), answers: { ...pre, calls: pre.calls, day_answers: {} } }))).toEqual({ ok: false, why: "Still needed: Lee Park: Why were they lost?" });
+    const calls = pre.calls.map((x) => ({ ...x, lost_reason: "Timing" }));
+    expect(await asOperator((c) => submitEod(c, fake, { token, day: day(), answers: { ...pre, calls, day_answers: {} } }))).toMatchObject({ ok: true });
+    await run();
+    expect(posts.find((p) => p.channel === "CEOD")!.text).toMatch(/\n\*Why lost or DQ:\* \n• Lee Park \(Lost\): Timing$/);
+    expect((await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, sam, "https://engine.test"))).today).toMatchObject({ filed: true });
   });
 });

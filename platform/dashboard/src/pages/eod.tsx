@@ -37,12 +37,12 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   const [touched, setTouched] = useState<{ closes?: string; deposits?: string; cash?: string; revenue?: string }>({});
   const [dayAnswers, setDayAnswers] = useState<Record<string, string>>(d.day_answers);
   const [busy, setBusy] = useState(false); const [done, setDone] = useState<{ recorded: number; changes: number } | null>(null); const [err, setErr] = useState<string | null>(null); const [editing, setEditing] = useState(false);
-  const t = totalsOf(calls);
+  const t = totalsOf(calls, d.fields);
   const set = (i: number, patch: Partial<CallEntry>) => setCalls((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const setField = (i: number, key: string, v: string) => {
     if (key === "revenue" || key === "cash") set(i, { [key]: v === "" ? null : Number(v.replace(/[,$]/g, "")) || 0 });
     else if (key === "next_date") set(i, { next_date: v || null });
-    else if (key === "next_steps" || key === "dq_reason" || key === "dq_note" || key === "about" || key === "notes") set(i, { [key]: v });
+    else if (key === "next_steps" || key === "dq_reason" || key === "dq_note" || key === "lost_reason" || key === "about" || key === "notes") set(i, { [key]: v });
     else setCalls((cs) => cs.map((c, j) => (j === i ? { ...c, extra: { ...c.extra, [key]: v } } : c)));
   };
   const time = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: d.company.timezone });
@@ -56,7 +56,7 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   };
   // filed: a thank-you page in place of the form, with what went in; the form comes back only if they choose to change something
   if (done && !editing) {
-    const counts = Object.entries(calls.reduce<Record<string, number>>((m, c) => { const k = outcomeLabel(c.outcome); m[k] = (m[k] ?? 0) + 1; return m; }, {}));
+    const counts = Object.entries(calls.reduce<Record<string, number>>((m, c) => { const k = outcomeLabel(c.outcome, d.fields); m[k] = (m[k] ?? 0) + 1; return m; }, {}));
     const dayWords = new Date(`${d.day}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
     return <div className="thanks" style={{ marginTop: 14 }}>
       <h2>Thanks, {d.closer.first_name}. Your end of day for {dayWords} is in.</h2>
@@ -81,6 +81,7 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
         <div className="hd"><b>{i + 1}. {c.contact}</b><span className="note">{time(c.starts_at)}</span>{c.href_contact ? <a href={c.href_contact} target="_blank" rel="noreferrer">CRM ↗</a> : null}{c.recording_url ? <a href={c.recording_url} target="_blank" rel="noreferrer">Recording ↗</a> : null}{c.appointment_id.startsWith("ghl:") ? <span className="note">booked before the engine; your answer goes straight to its Sales Call</span> : null}</div>
         <label>{outcomeField.label}{outcomeField.required ? <span className="req"> *</span> : null}<select value={c.outcome} required={outcomeField.required} onChange={(e) => set(i, { outcome: e.target.value as CallOutcome })}><option value="">—</option>{d.outcomes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
         {c.hint && !c.outcome ? <p className="hint">{c.hint}</p> : null}
+        {c.moved ? <p className="hint">{c.moved}</p> : null}
         {after.length ? <div className="after">{after.map((f) => <Field key={f.key} f={f} value={valueOf(c, f.key)} onChange={(v) => setField(i, f.key, v)} />)}</div> : null}
       </div>; })}
     {dayFields(d.fields).map((f) => <div key={f.key} className="call"><Field f={f} value={dayAnswers[f.key] ?? ""} onChange={(v) => setDayAnswers((x) => ({ ...x, [f.key]: v }))} /></div>)}
