@@ -128,7 +128,9 @@ export const Node = z.discriminatedUnion("type", [
   // optional: decoration (a congratulations line); when the AI cannot run the step is skipped and the run goes on without the value
   z.object({ ...base, type: z.literal("analyze"), prompt: z.string(), input: z.string().default("{{recording.transcript_text}}"), into: z.union([z.string(), z.array(z.string().min(1)).min(2)]), format: z.enum(["json", "text"]).default("json"), max_tokens: z.number().int().positive().optional(), optional: z.boolean().default(false) }),   // into: one var, or the keys of one object the prompt returns (`["notes", "rubric"]` → vars.notes, vars.rubric from one read)
   // Writes the appointment's outcome on OUR row (showed / noshow / …), the same path the closer's disposition form takes; call.held follows a show.
-  z.object({ ...base, type: z.literal("record_outcome"), outcome: z.string(), call_outcome: z.string().optional(), notes: z.string().optional() }),
+  // source (D88): "engine" (a fact the engine saw, a recording) or "disposition" (a person's answer: filed as the form files it, so Call outcome filed runs);
+  // user: who answered (a roster user id, templated); via: what filed it, kept on the submission ("card_moved"), so the end-of-day form can say so
+  z.object({ ...base, type: z.literal("record_outcome"), outcome: z.string(), call_outcome: z.string().optional(), notes: z.string().optional(), source: z.enum(["engine", "disposition"]).default("engine"), user: z.string().optional(), via: z.string().optional() }),
   // A record on a CRM custom object (payment, sales call, …), upserted by our own key so the CRM's lagging search is never consulted.
   // `properties` values are templates; an empty rendered value is left out. `relate` links the record to other records by association id.
   // `if_missing: skip` makes it an update of a record the CRM already holds (one we made, with its CRM id); it never creates one.

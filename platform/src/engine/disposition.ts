@@ -2,7 +2,7 @@ import type { PoolClient } from "pg";
 import { one } from "@/db/client";
 import { dispatchEvent, emitEvent } from "./dispatch";
 
-export type DispositionInput = { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; userId?: string | null };
+export type DispositionInput = { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; userId?: string | null; via?: string };
 type OutcomeSource = "disposition" | "engine";
 
 /**
@@ -57,7 +57,7 @@ export async function recordDisposition(c: PoolClient, d: DispositionInput): Pro
   if (!form) form = await one<{ id: string; version: number }>(c, `insert into forms (company_id, purpose, appointment_term, name, fields) values ($1,'disposition',$2,'Disposition',$3) returning id, version`,
     [d.companyId, a.appointment_term, JSON.stringify([{ key: "outcome", label: "Did they show?", type: "enum", required: true }, { key: "call_outcome", label: "How did the call go?", type: "enum" }, { key: "notes", label: "Notes", type: "text" }])]);
   const sub = await one<{ id: string }>(c, `insert into form_submissions (company_id, form_id, form_version, contact_id, appointment_id, submitted_by, answers) values ($1,$2,$3,$4,$5,$6,$7) returning id`,
-    [d.companyId, form!.id, form!.version, a.contact_id, a.id, d.userId ?? null, { outcome: outcome.category, call_outcome: callOutcome?.category ?? null, notes: d.notes ?? "" }]);
+    [d.companyId, form!.id, form!.version, a.contact_id, a.id, d.userId ?? null, { outcome: outcome.category, call_outcome: callOutcome?.category ?? null, notes: d.notes ?? "", ...(d.via ? { via: d.via } : {}) }]);
   const r = await applyOutcome(c, { companyId: d.companyId, appointmentId: d.appointmentId, outcomeTermId: d.outcomeTermId, callOutcomeTermId: d.callOutcomeTermId, notes: d.notes, userId: d.userId, dispositionId: sub!.id, source: "disposition" });
   return { events: r.events, runs: r.runs };
 }

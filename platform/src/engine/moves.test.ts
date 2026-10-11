@@ -67,3 +67,51 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: unlinked payments and recording
     expect(posts.at(-1)).toMatchObject({ channel: "CBOOK", text: "💸 Nobody matched ghost@buyer.test ($2,999)" });
   });
 });
+
+describe.skipIf(!process.env.DATABASE_URL)("D88: a card moved by hand is a workflow (A1)", () => {
+  let contact: string, appt: string;
+  beforeAll(async () => {
+    await migrate(); companyId = await freshCompany("mvs-a1");
+    await asOperator(async (c) => {
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.pipeline_closer','id','P-C'),($1,'crm.stage_closer_lost','id','S-LOST'),($1,'crm.stage_closer_follow_up','id','S-FU')", [companyId]);
+      await c.query("insert into users (company_id, email, name, role, ghl_user_id) values ($1,'sam@x.test','Sam Closer','closer','U-SAM')", [companyId]);
+      contact = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,'G-PAT','Pat','Lind') returning id", [companyId]))!.id;
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const cal = (await one<{ id: string }>(c, "insert into calendars (company_id, external_id, name, appointment_term, active) values ($1,'CAL','Closer',$2,true) returning id", [companyId, term]))!.id;
+      appt = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, appointment_term, starts_at, ends_at, status, booked_at) values ($1,$2,$3,'A-PAT',$4,now() - interval '2 hours', now() - interval '1 hour','confirmed', now() - interval '3 days') returning id", [companyId, contact, cal, term]))!.id;
+      await c.query("insert into slack_posts (company_id, tag, channel, ts) values ($1,$2,'CBOOK','ts-booking')", [companyId, `appointment:${appt}`]);
+    });
+  });
+  beforeEach(() => { posts.length = 0; });
+  const move = (from: string, to: string) => asOperator(async (c) => {
+    const opp = (await one<{ id: string }>(c, "insert into opportunities (company_id, contact_id, status, opened_by) values ($1,$2,'open','test') returning id", [companyId, contact]))!.id;
+    const { handMoved } = await import("@/engine/card-moves");
+    return handMoved(c, companyId, fake, { contactId: contact, cardId: "x", opportunityId: opp, crmCardId: "CARD-1", pipelineId: "P-C", fromStage: from, toStage: to, fromStatus: "open", toStatus: "open", movedBy: "U-SAM", at: new Date() });
+  });
+  const outcome = () => asOperator((c) => one<{ outcome: string | null; call_outcome: string | null; via: string | null }>(c, `select ot.category as outcome, cot.category as call_outcome, (select fs.answers->>'via' from form_submissions fs where fs.appointment_id=a.id order by fs.submitted_at desc limit 1) as via
+    from appointments a left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term where a.id=$1`, [appt]));
+
+  it("the engine only records card.moved; the workflow says it in the thread and files a lost call as a person's answer", async () => {
+    await install("card-moved");
+    const r = await move("S-FU", "S-LOST");
+    expect(r.runs).toHaveLength(1);
+    expect(posts).toHaveLength(0);   // nothing is said by the engine itself
+    await run();
+    expect(posts).toEqual([expect.objectContaining({ channel: "CBOOK", threadTs: "ts-booking", text: "🗂️ Sam Closer moved the closer card to Lost", as: { name: "Card moved", icon: ":card_index_dividers:" } })]);
+    expect(await outcome()).toEqual({ outcome: "showed", call_outcome: "lost", via: "card_moved" });
+    expect(await asOperator((c) => one(c, "select 1 from events where company_id=$1 and event_type='appointment.outcome' and source='disposition'", [companyId]))).toBeTruthy();   // Call outcome filed starts on this
+  });
+
+  it("the company's copy decides: a line in its own words, and Lost only noted", async () => {
+    await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
+    await asOperator((c) => c.query("update appointments set outcome_term=null, call_outcome_term=null where id=$1", [appt]));
+    await install("card-moved", (d) => {
+      const v = d.nodes.find((n) => n.id === "v_line")!; if (v.type === "set_var") v.value = "{{event.mover | default:someone}} dragged {{event.to_name}}";
+      d.edges = d.edges.filter((e) => e.to !== "o_lost");
+    });
+    await move("S-FU", "S-LOST");
+    await run();
+    expect(posts.map((p) => p.text)).toEqual(["Sam Closer dragged Lost"]);
+    expect(await outcome()).toMatchObject({ outcome: null, call_outcome: null });
+  });
+});

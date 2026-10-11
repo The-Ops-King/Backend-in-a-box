@@ -108,7 +108,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
            left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
       where a.id=$1`, [run.appointment_id]);
-    if (a) ctx.appointment = { ...a, starts_at: (a.starts_at as Date).toISOString(), ends_at: (a.ends_at as Date).toISOString() };
+    if (a) ctx.appointment = { ...a, starts_at: (a.starts_at as Date).toISOString(), ends_at: (a.ends_at as Date).toISOString(), started: (a.starts_at as Date).getTime() <= Date.now() };   // started: the call's time has come (D88)
   }
   if (run.opportunity_id) ctx.opportunity = await one(c, "select id, status, contract_value, opened_at from opportunities where id=$1", [run.opportunity_id]);
   // the contact's open card on each bound board: crm.pipeline_closer = <id> → cards.closer = { id (CRM), stage, name }

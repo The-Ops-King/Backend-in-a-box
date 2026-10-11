@@ -462,10 +462,12 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect((await pollTheCards()).cardsMoved).toBe(1);
       expect(await cardMoves(pat)).toEqual([expect.objectContaining({ pipeline: "closer", from_stage: "STAGE-FOLLOWUP", to_stage: "STAGE-LOST", from_name: "Follow Up", to_name: "Lost", from_status: "open", to_status: "open", by: "crm", mover: "Sam Closer", crm_card: closerCard })]);
       expect(await cardOn(pat, "PIPE-CLOSER")).toMatchObject({ stage: "STAGE-LOST", status: "open" });
-      expect(threadOf(ts).at(-1)).toBe("🗂️ Sam Closer moved the closer card to Lost");
-      expect(await apptRow(pat)).toMatchObject({ outcome: "showed", call_outcome: "lost" });
       expect((await pollTheCards()).cardsMoved).toBe(0);   // the replica already says Lost: a second look is not a second move
       expect(await cardMoves(pat)).toHaveLength(1);
+      await tickAt(DateTime.now());   // D88: Card moved by hand says it in the thread and files the outcome
+      expect(threadOf(ts).at(-1)).toBe("🗂️ Sam Closer moved the closer card to Lost");
+      expect(await apptRow(pat)).toMatchObject({ outcome: "showed", call_outcome: "lost" });
+      expect(await lastRun("card-moved", pat)).toMatchObject({ status: "completed", exit_reason: "filed" });
       await tickAt(DateTime.now());
       expect(await lastRun("call-outcome", pat)).toMatchObject({ status: "completed", exit_reason: "noted" });
       expect(tags.slice(nTags)).toEqual(["stat-showed", "stat-lost"]);
@@ -528,10 +530,12 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       liveCards.set("RAE1", [{ id: setterCard, pipelineId: "PIPE-SETTER", stageId: "STAGE-S-CANCEL", status: "open", name: "Rae Dunmore -- Direct", updatedAt: DateTime.now().plus({ minutes: 1 }).toISO()! }]);
       expect((await pollTheCards()).cardsMoved).toBe(1);
       expect(await cardMoves(rae)).toEqual([expect.objectContaining({ pipeline: "setter", to_stage: "STAGE-S-CANCEL", to_name: "Cancelled", to_status: "open", by: "crm", mover: null })]);
-      expect(threadOf(ts).at(-1)).toBe("🗂️ someone moved the setter card to Cancelled");
-      expect(await apptRow(rae)).toMatchObject({ outcome: "noshow" });
       expect(oppWrites.length).toBe(nOpp);   // the handler itself writes nothing to the CRM
       liveCards.delete("RAE1");
+      await tickAt(DateTime.now());   // D88: Card moved by hand
+      expect(threadOf(ts).at(-1)).toBe("🗂️ someone moved the setter card to Cancelled");
+      expect(await apptRow(rae)).toMatchObject({ outcome: "noshow" });
+      expect(oppWrites.length).toBe(nOpp);   // the workflow writes nothing to the CRM either: the outcome is ours
       await tickAt(DateTime.now());
       expect(await lastRun("call-outcome", rae)).toMatchObject({ status: "completed", exit_reason: "noted" });
       expect(reactionsOn(ts)).toContain("ghost");

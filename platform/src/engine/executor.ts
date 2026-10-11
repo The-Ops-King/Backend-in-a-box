@@ -12,7 +12,7 @@ import type { CompanyRow, RunRow } from "./context";
 import type { Effective } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { raise } from "./alerts";
-import { applyOutcome, outcomeTermFor } from "./disposition";
+import { applyOutcome, outcomeTermFor, recordDisposition } from "./disposition";
 import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } from "./health";
 import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports";
 import { classifyError } from "./failures";
@@ -607,6 +607,13 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       if (!termId) return { status: "failed", error: `record_outcome: no appointment_outcome term for "${category}"` };
       const callTerm = node.call_outcome ? await one<{ id: string }>(d.c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2 and active limit 1", [d.company.id, render(node.call_outcome, d.ctx, env(d))]) : null;
       const notes = node.notes ? render(node.notes, d.ctx, env(d)) : undefined;
+      if (node.source === "disposition") {
+        // D88: a person's answer (a card dragged in the CRM), filed exactly as the end-of-day form files it
+        const userId = node.user ? render(node.user, d.ctx, env(d)).trim() || null : null;
+        const r = await recordDisposition(d.c, { companyId: d.company.id, appointmentId: d.run.appointment_id, outcomeTermId: termId, callOutcomeTermId: callTerm?.id ?? null, notes, userId, via: node.via ? render(node.via, d.ctx, env(d)) : undefined });
+        if (d.ctx.appointment) (d.ctx.appointment as Record<string, unknown>).outcome = category;
+        return { status: "ok", next, result: { outcome: category, call_outcome: node.call_outcome ? render(node.call_outcome, d.ctx, env(d)) : null, as: "disposition", events: r.events, runs_started: r.runs } };
+      }
       // ours, never the CRM: a show is a fact about our appointment row, so shadow mode records it too
       const r = await applyOutcome(d.c, { companyId: d.company.id, appointmentId: d.run.appointment_id, outcomeTermId: termId, callOutcomeTermId: callTerm?.id ?? null, notes, source: "engine", runId: d.run.id, by: `workflow:${node.id}` });
       if (d.ctx.appointment) (d.ctx.appointment as Record<string, unknown>).outcome = r.outcome;

@@ -300,14 +300,15 @@ async function pollAgreements(c: PoolClient, co: CompanyRow, ac: Company, adapte
 }
 
 /**
- * D61: every card on the bound boards (setter, closer), any status, diffed against `pipeline_cards`. A stage or status
- * the engine did not write, with a CRM stamp newer than our last write, is a hand on a card: `handMoved` records it
- * (event, thread line, the outcome it names). Cards of people the engine does not know yet are left for the contacts
+ * D61: every card on the bound boards (every `crm.pipeline_*`, D88), any status, diffed against `pipeline_cards`. A stage or
+ * status the engine did not write, with a CRM stamp newer than our last write, is a hand on a card: `handMoved` records it
+ * as `card.moved`, and the Card moved by hand workflow says and files what it means. Cards of people the engine does not know yet are left for the contacts
  * poll to bring first. The first pass is a silent baseline: the replica takes the CRM's state and nothing is said.
  * The CRM's search cannot filter by updated time, so each tick reads the boards whole (paged; see `pipelineCards`).
  */
 export async function pollCards(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
-  const boards = ["crm.pipeline_setter", "crm.pipeline_closer"].map((k) => bindings[k]).filter((v): v is string => !!v);
+  // D88: every bound board is watched (setter, closer, any other the company binds); what a move means is the Card moved by hand workflow's
+  const boards = [...new Set(Object.entries(bindings).filter(([k, v]) => k.startsWith("crm.pipeline_") && !!v).map(([, v]) => v))];
   if (!boards.length) return;
   const { isBaseline } = await cursor(c, co.id, "cards", DateTime.now());
   for (const pipelineId of boards) {
