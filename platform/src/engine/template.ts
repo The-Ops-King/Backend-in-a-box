@@ -65,7 +65,10 @@ const filters: Record<string, Filter> = {
   default: (v, arg) => (v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length) ? arg : v),
   // D85: one rendered line per item of a list, the argument a template of its own with {{item.*}}, {{index}} (from 0) and {{number}} (from 1)
   // beside everything else in the context: {{vars.days | each:"• {{item.label}}: {{item.count}} calls" | join:"\n" | default:No calls}}
-  each: (v, arg, env, ctx) => (Array.isArray(v) ? v : absent(v) ? [] : [v]).map((item, index) => render(arg ?? "{{item}}", { ...ctx, item, index, number: index + 1 }, env)),
+  // inside a nested each, {{parent}} is the item of the list around it (D88)
+  each: (v, arg, env, ctx) => (Array.isArray(v) ? v : absent(v) ? [] : [v]).map((item, index) => render(arg ?? "{{item}}", { ...ctx, item, index, number: index + 1, parent: ctx.item }, env)),
+  // the first N items of a list: {{report.said | first:10 | each:"…"}}
+  first: (v, arg) => (Array.isArray(v) ? v.slice(0, Number(arg ?? 1)) : v),
   join: (v, arg) => (Array.isArray(v) ? v.map((x) => (x === undefined || x === null ? "" : typeof x === "object" ? JSON.stringify(x) : String(x))).join(arg ?? ", ") : v),
   json: (v) => (v === undefined ? "" : JSON.stringify(v, null, 2)),
   // an analysis object as Slack / note text: keys become labels, lists become bullets, anything named like a quote is a blockquote
@@ -91,7 +94,10 @@ const filters: Record<string, Filter> = {
   // a number with a fixed count of decimals, no thousands separator: 1500 | fixed:2 → 1500.00 ; nothing → ""
   fixed: (v, arg) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? "" : Number(v).toFixed(Number(arg ?? 0))),
   // 2999 → 2,999 ; 2999.5 → 2,999.50 ; nothing → ""
-  money: (v) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? "" : Number(v).toLocaleString("en-US", { minimumFractionDigits: Number.isInteger(Number(v)) ? 0 : 2, maximumFractionDigits: 2 })),
+  // money:0 rounds to whole dollars (2999.5 → 3,000)
+  money: (v, arg) => { if (v === undefined || v === null || v === "" || isNaN(Number(v))) return ""; const n = Number(v);
+    if (arg === undefined || arg === "") return n.toLocaleString("en-US", { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 });
+    const d = Number(arg); return (Math.round(n * 10 ** d) / 10 ** d).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); },
   // a list as one line when short, else bullets; an object list shows its lead field (the objection, the pain) — for Slack lines like *Pain:* …
   bullets: (v) => { const items = (Array.isArray(v) ? v : v === undefined || v === null || v === "" ? [] : [v]).map((x) => (x && typeof x === "object" ? scalar((x as Record<string, unknown>)[Object.keys(x as object).find((k) => /objection|pain|desire|name|label|title|text/i.test(k)) ?? Object.keys(x as object)[0]]) : scalar(x))).filter(Boolean); return items.length <= 1 || items.join(", ").length <= 80 ? items.join(", ") : `\n${items.map((i) => `• ${i}`).join("\n")}`; },
 };
@@ -195,7 +201,7 @@ export function render(template: string, ctx: Record<string, unknown>, env: Rend
 
 /** Save-time check: every {{path}} must be a known root. Bindings are checked against the manifest separately. */
 export const KNOWN_ROOTS = ["contact", "appointment", "opportunity", "company", "calendar", "slack", "reply", "event", "vars", "crm", "secret", "now", "cards", "record", "recording", "prompt", "agreement", "records", "user", "reaction", "picklist", "setting",
-  "data", "item", "index", "number"];   // data: the event a wait_for_event match is reading; item, index, number: inside an `each` (D85)
+  "data", "item", "index", "number", "parent", "report"];   // report: the facts a report step's layout reads (D88)   // data: the event a wait_for_event match is reading; item, index, number: inside an `each` (D85)
 export function referencedPaths(template: string): string[] {
   return [...template.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)/g)].map((m) => m[1]);
 }

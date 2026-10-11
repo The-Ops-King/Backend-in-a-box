@@ -704,10 +704,12 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const kind = render(node.kind, d.ctx, env(d)) as ReportKind;
       if (!REPORT_KINDS.includes(kind)) return { status: "failed", error: `report kind must be one of ${REPORT_KINDS.join(", ")}, got "${kind}"` };
       const manual = (d.ctx.event as { manual?: boolean } | undefined)?.manual === true;
-      const period = periodFor(kind, d.now.setZone(d.company.timezone), manual);
-      const b = await buildReport(d.c, d.company, kind, period, { breakdowns: node.breakdowns, sections: node.sections, onDemand: manual, toDate: manual, reads: d.probes?.ghl, now: d.now.toJSDate() });
-      setPath(d.ctx, `vars.${node.into}`, { body: b.body, period: b.period, numbers: b.numbers, id: b.id });
-      return { status: "ok", next, result: { kind, period: b.period, report_id: b.id, ...(manual ? { to_date: true } : {}) } };
+      // D88 (A8): a week or month just ended, or the one in progress (a manual run is always so far); the words are the layout's
+      const toDate = manual || node.period === "in_progress";
+      const period = periodFor(kind, d.now.setZone(d.company.timezone), toDate);
+      const b = await buildReport(d.c, d.company, kind, period, { breakdowns: node.breakdowns, sections: node.sections, metrics: node.metrics, layout: node.layout, ctx: d.ctx, onDemand: manual, toDate, reads: d.probes?.ghl, now: d.now.toJSDate() });
+      setPath(d.ctx, `vars.${node.into}`, { ...b.facts, body: b.body, period: b.period, numbers: b.numbers, id: b.id });
+      return { status: "ok", next, result: { kind, period: b.period, report_id: b.id, ...(toDate ? { to_date: true } : {}), ...(node.layout ? {} : { worded_by: "the shipped template's layout (this copy has none)" }) } };
     }
     case "set_var": {
       // a value chosen by a condition or picked by a fact: plumbing, not a fork on the chart

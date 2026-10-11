@@ -13,6 +13,7 @@ import type { Definition } from "@/engine/definition";
 import { DateTime } from "luxon";
 import { mergeEodFields, outcomesOf, choiceOf, totalsOf } from "@/engine/eod-form";
 import { prefill, submitEod, tokenFor, saveEodForm, loadEodForm, eodFacts } from "@/engine/eod";
+import { reportFacts, renderLayout, shippedLayout } from "@/engine/reports";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -345,5 +346,46 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day reminder's days 
     await asOperator((c) => c.query("delete from runs where workflow_id=$1", [wf]));
     expect(await evening(wf)).toEqual([`Hey Sam, your end-of-day is waiting:\n• <https://engine.test/eod/${token}?day=${d3.toISODate()}|${d3.toFormat("ccc LLL d")}>: 1 call\n• <https://engine.test/eod/${token}|today>: 1 call\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`]);
     await off();
+  });
+});
+
+describe("D88: the wrap-up's words are the template's (A8)", () => {
+  const day = { start: "2026-10-10", end: "2026-10-10" };
+  const facts = (over: Partial<Parameters<typeof reportFacts>[0]> = {}) => reportFacts({ kind: "daily", period: day, tz: "UTC", toDate: false, numbers: { leads: 3, booked: 0 }, calls: null, said: [], ...over });
+  const body = (f: ReturnType<typeof reportFacts>, layout = shippedLayout()) => renderLayout(layout, f, {}, { tz: "UTC", companyTz: "UTC" });
+
+  it("as shipped: what they said, the top four answers each, the rest counted, long answers cut", () => {
+    const long = "Business owner or entrepreneur who runs several companies at once and travels";
+    const said = [{ label: "work situation", answered: 9, top: [[long, 3], ["Employed full-time", 2], ["Investor", 1], ["Retired", 1]] as [string, number][], rest: 2, restKinds: 2 }, { label: "budget", answered: 2, top: [["$5k", 2]] as [string, number][], rest: 0, restKinds: 0 }];
+    expect(body(facts({ said }))).toBe(`*What happened today — Saturday, Oct 10*\n\n*Leads*\nNew leads: 3\n\n*What they said*\n*work situation*\n    • ${long.slice(0, 59)}…: 3\n    • Employed full-time: 2\n    • Investor: 1\n    • Retired: 1\n    • 2 spread across 2 other answers\n*budget*\n    • $5k: 2`);
+  });
+
+  it("the company's layout decides the words, the sections and the order; per-closer lines when the step asks for them", () => {
+    const layout = { heading: { daily: "📊 {{report.start | date:LLL d}}" }, empty: { daily: "Quiet day." }, sections: [
+      { title: "People", lines: ["{{report.n.leads | each:\"{{item | plural:lead}} came in\"}}"] },
+      { title: "By closer", lines: ["{{report.by.closer | each:\"{{item.name}} won {{item.values.deals_won | default:0}}\" | join:\"\\n\"}}"] }] };
+    expect(body(facts(), layout)).toBe("📊 Oct 10\n\nPeople\n3 leads came in");
+    expect(body(facts({ by: { closer: [{ id: "1", name: "Sam", values: { deals_won: 2 } }], setter: [] } }), layout)).toBe("📊 Oct 10\n\nPeople\n3 leads came in\n\nBy closer\nSam won 2");
+    expect(body(facts({ numbers: { leads: 0 } }), layout)).toBe("Quiet day.");
+  });
+
+  it("this week so far has its own heading and empty line; the shipped words are unchanged", () => {
+    expect(body(facts({ kind: "weekly", toDate: true, period: { start: "2026-10-05", end: "2026-10-10" }, numbers: {} }))).toBe("Nothing this week: no leads, bookings, calls or payments.");
+    expect(body(facts({ kind: "weekly", toDate: true, period: { start: "2026-10-05", end: "2026-10-10" } }))).toBe("*This week so far — Oct 5 to Oct 10*\n\n*Leads*\nNew leads: 3");
+  });
+});
+
+describe.skipIf(!process.env.DATABASE_URL)("D88: the wrap-ups workflow words its post from its own step (A8)", () => {
+  beforeAll(async () => { await migrate(); companyId = await freshCompany("mvs-a8"); await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.reports','channel','CREP')", [companyId])); });
+  beforeEach(() => { posts.length = 0; });
+  it("an edited layout and metric list change what is posted and what the wrap-ups ledger keeps", async () => {
+    const { fakeProbes } = await import("@/engine/test-install");
+    const ghl = { contactsAdded: async () => [], wonCards: async () => [], objectRecords: async () => [], cards: async () => [], pipelines: async () => [], users: async () => [], getContact: async () => null, recordContact: async () => null, fieldCatalog: async () => [] };
+    const wf = await install("wrap-ups", (d) => { const n = d.nodes.find((x) => x.id === "n_build")!; if (n.type === "report") { n.metrics = ["booked", "dials"]; n.layout = { heading: { daily: "Today" }, empty: { daily: "Nothing to report, boss." }, sections: [{ title: "Calls", lines: ["{{report.raw.dials}} dials"] }] }; } });
+    const { fireNow } = await import("@/engine/clock");
+    await asOperator((c) => fireNow(c, companyId, wf, "t_daily"));
+    await tick(fake, undefined, companyId, { ...fakeProbes, ghl });
+    expect(posts.map((p) => p.text)).toEqual(["Today\n\nCalls\n0 dials"]);
+    expect((await asOperator((c) => one<{ body: string; numbers: { registry: Record<string, unknown> } }>(c, "select body, numbers from wrapups where company_id=$1", [companyId])))).toMatchObject({ body: "Today\n\nCalls\n0 dials", numbers: { registry: { booked: 0, dials: 0 } } });
   });
 });
