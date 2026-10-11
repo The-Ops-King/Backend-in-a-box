@@ -12,7 +12,8 @@ import { tick } from "@/engine/runner";
 import { fakeAdapters } from "@/engine/test-install";
 import { syncTriggers } from "@/engine/install";
 import { parseDefinition, extractManifest } from "@/engine/definition";
-import { describeNode, edgeWords } from "@/engine/describe";
+import { describeNode, edgeWords, templateWords } from "@/engine/describe";
+import { KNOWN_ROOTS, referencedPaths } from "@/engine/template";
 import { saveStepEdit } from "@/engine/edits";
 import type { Adapters } from "@/adapters/types";
 
@@ -81,6 +82,14 @@ describe("wait_for_event (pure)", () => {
     expect(describeNode(n).detail).toBe("About this person, when not the event's self-booked and booking appointment kind is closing call; moves on the moment one arrives; only one after this step begins counts; nothing by then and it takes the no-event path (the deadline waits for the send window)");
     expect(edgeWords({ from: "n1", to: "x", label: "event" }, n)).toBe("appointment booked");
     expect(edgeWords({ from: "n1", to: "x", label: "until" }, n)).toBe("no appointment booked in time");
+  });
+});
+
+describe("lists in templates (pure)", () => {
+  it("read on the chart as the list they walk, and pass the save-time path check", () => {
+    const t = 'Today:\n{{vars.days | each:"• {{item.label}}: {{item.count}} calls" | join:"\\n" | default:none}} for {{contact.first_name}}';
+    expect(templateWords(t)).toBe("Today: [days, one line each] for [first name]");
+    expect(referencedPaths(t).every((p) => KNOWN_ROOTS.includes(p.split(".")[0]))).toBe(true);
   });
 });
 

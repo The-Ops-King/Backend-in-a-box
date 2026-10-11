@@ -1,6 +1,7 @@
 import { scheduleWords } from "./when";
 import type { Definition, Edge, Node, Predicate, WaitRule } from "./definition";
 import { fallbacksOf } from "./definition";
+import { exprSpans } from "./template";
 
 /**
  * Plain-English descriptions of workflow pieces, shared by the flow chart and the step list so the two never disagree.
@@ -77,7 +78,12 @@ export function pathWords(p: unknown): string {
   return humanWords(path.split(".").slice(-2).join(" "));
 }
 /** Message templates keep their text; bindings inside become their plain name so the chart does not show `{{calendar.closer_call.url}}`. */
-export const templateWords = (t: string) => t.replace(/<[^>]+>/g, " ").replace(/\{\{\s*([a-zA-Z0-9_.]+)(?:\s*\|[^}]*)?\s*\}\}/g, (_, p) => `[${pathWords(p)}]`).replace(/\s+/g, " ").trim();
+export const templateWords = (t: string) => {
+  const s = t.replace(/<[^>]+>/g, " "); let out = "", at = 0;
+  // an `each` is one bracket for the list it walks, not its inner {{item.*}} (D85)
+  for (const x of exprSpans(s)) { const p = x.expr.split("|")[0].trim(); out += s.slice(at, x.start) + (/^[a-zA-Z0-9_.]+$/.test(p) ? `[${pathWords(p)}${/\|\s*each\b/.test(x.expr) ? ", one line each" : ""}]` : s.slice(x.start, x.end)); at = x.end; }
+  return (out + s.slice(at)).replace(/\s+/g, " ").trim();
+};
 
 /** A predicate as a person would say it. `consts` are the workflow's own set_var literals, so "≥ the minimum call length" reads "longer than 60 seconds". */
 export function predicateWords(p: Predicate, consts: Record<string, unknown> = {}): string {

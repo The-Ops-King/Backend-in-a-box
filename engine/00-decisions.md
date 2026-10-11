@@ -2639,4 +2639,7 @@ steps. Nothing existing moves onto them yet; that is the next piece of work, don
   wait. `since` lets an event that already happened count ("a booking made during the call"); without it only events after the
   step began count, and an event the step took once is not taken again. The deadline is pinned when the step begins and waits
   for the send window as `wait` does, unless the step says it is internal.
-
+- **Lists in a template.** `each` renders its quoted argument once per item of a list (`{{item.*}}`, `{{index}}`,
+  `{{number}}`) and `join` puts the lines together; an empty list falls to `default:`. The smallest change to the filter
+  grammar that allows it: a filter argument in double quotes is read whole, so it may hold `|`, `}}` and expressions of
+  its own. Nothing written before uses a quoted argument, so every existing template renders as it did.

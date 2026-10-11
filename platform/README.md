@@ -792,6 +792,16 @@ again when the run comes back to the step. Deadline editable on the step (`until
   "until": { "anchor": "recording.ended_at", "offset": "+30m", "tz": "company" }, "respect_send_window": false }
 ```
 
+**Lists in any template.** Two filters: `each:"<template>"` renders its own template once per item of a list,
+with `{{item.*}}` (nested fields too), `{{index}}` (from 0) and `{{number}}` (from 1) beside the rest of the
+context; `join:"<separator>"` puts the lines together (default `, `). A filter argument in double quotes may
+hold `|`, `}}` and `{{…}}` of its own, with `\"` and `\n` as escapes. An absent or empty list renders nothing,
+so the existing `default:` gives the fallback. Works in Slack text, notes, task bodies, every template.
+
+```
+{{vars.days | each:"• {{item.label}}: {{item.count}} calls" | join:"\n" | default:No calls today}}
+```
+
 ## Seeing what will happen (and when)
 
 Every live run shows its plan: the contact page ("What happens next"), the run page, and the workflow

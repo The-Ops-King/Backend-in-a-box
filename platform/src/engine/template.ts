@@ -45,7 +45,7 @@ export function relative(target: DateTime, mode: "auto" | "minutes" | "hours", n
   return `${t.toFormat("ccc, LLL d")} at ${clock(t)}`;
 }
 
-type Filter = (v: unknown, arg: string | undefined, env: RenderEnv) => unknown;
+type Filter = (v: unknown, arg: string | undefined, env: RenderEnv, ctx: Record<string, unknown>) => unknown;
 export type RenderEnv = { now?: DateTime; tz: string; companyTz?: string };
 
 const absent = (v: unknown) => v === undefined || v === null || v === "";
@@ -62,7 +62,11 @@ const filters: Record<string, Filter> = {
   upper: (v) => String(v ?? "").toUpperCase(),
   lower: (v) => String(v ?? "").toLowerCase(),
   first_name: (v) => String(v ?? "").trim().split(/\s+/)[0] ?? "",
-  default: (v, arg) => (v === undefined || v === null || v === "" ? arg : v),
+  default: (v, arg) => (v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length) ? arg : v),
+  // D85: one rendered line per item of a list, the argument a template of its own with {{item.*}}, {{index}} (from 0) and {{number}} (from 1)
+  // beside everything else in the context: {{vars.days | each:"• {{item.label}}: {{item.count}} calls" | join:"\n" | default:No calls}}
+  each: (v, arg, env, ctx) => (Array.isArray(v) ? v : absent(v) ? [] : [v]).map((item, index) => render(arg ?? "{{item}}", { ...ctx, item, index, number: index + 1 }, env)),
+  join: (v, arg) => (Array.isArray(v) ? v.map((x) => (x === undefined || x === null ? "" : typeof x === "object" ? JSON.stringify(x) : String(x))).join(arg ?? ", ") : v),
   json: (v) => (v === undefined ? "" : JSON.stringify(v, null, 2)),
   // an analysis object as Slack / note text: keys become labels, lists become bullets, anything named like a quote is a blockquote
   lines: (v) => renderLines(v),
@@ -126,28 +130,63 @@ function toDT(v: unknown, tz: string): DateTime {
   return dt.setZone(tz);
 }
 
+/** A filter argument in double quotes may hold `|`, `}}` and `{{…}}` of its own (`each`, D85); `\"` `\\` `\n` `\t` inside it are escapes. */
+const quotedArg = (i: number, t: string, from: number) => t[i] === '"' && /:\s*$/.test(t.slice(from, i));
+const unquote = (a: string) => (a.length >= 2 && a.startsWith('"') && a.endsWith('"') ? a.slice(1, -1).replace(/\\(["\\nt])/g, (_, c: string) => (c === "n" ? "\n" : c === "t" ? "\t" : c)) : a);
+/** The outermost `{{ … }}` of a template, quoted filter arguments read whole; an unclosed one is text. */
+export function exprSpans(t: string): { start: number; end: number; expr: string }[] {
+  const out: { start: number; end: number; expr: string }[] = [];
+  for (let i = t.indexOf("{{"); i >= 0; i = t.indexOf("{{", i)) {
+    let j = i + 2, q = false;
+    for (; j < t.length; j++) {
+      if (q) { if (t[j] === "\\") j++; else if (t[j] === '"') q = false; continue; }
+      if (quotedArg(j, t, i + 2)) q = true;
+      else if (t[j] === "}" && t[j + 1] === "}") break;
+    }
+    if (j >= t.length) break;
+    const expr = t.slice(i + 2, j).trim();
+    if (expr) out.push({ start: i, end: j + 2, expr });
+    i = j + 2;
+  }
+  return out;
+}
+/** The pipes of one expression, split outside quoted arguments. */
+function pipesOf(expr: string): string[] {
+  const out: string[] = []; let cur = "", q = false;
+  for (let j = 0; j < expr.length; j++) {
+    const ch = expr[j];
+    if (q) { cur += ch; if (ch === "\\" && j + 1 < expr.length) cur += expr[++j]; else if (ch === '"') q = false; continue; }
+    if (ch === '"' && /:\s*$/.test(cur)) q = true;
+    if (ch === "|") { out.push(cur.trim()); cur = ""; } else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+
 /** One `path | filter:arg | filter2` expression, as a value (its type kept: a number stays a number). Unknown path → throws (also enforced at save). */
 export function resolveExpr(expr: string, ctx: Record<string, unknown>, env: RenderEnv): unknown {
-  const [pathRaw, ...pipes] = expr.split("|").map((s) => s.trim());
+  const [pathRaw, ...pipes] = pipesOf(expr);
   let v = resolvePath(ctx, pathRaw);
-  if (v === undefined && !pipes.some((p) => /^(default|prefix|line|link|bullets|oneof)\b/.test(p))) throw new UnknownPathError(`unknown path {{${pathRaw}}}`);   // these pipes mean "may be absent"
+  if (v === undefined && !pipes.some((p) => /^(default|prefix|line|link|bullets|oneof|each)\b/.test(p))) throw new UnknownPathError(`unknown path {{${pathRaw}}}`);   // these pipes mean "may be absent" (an absent list is an empty one)
   for (const pipe of pipes) {
     // split on the FIRST colon only — "date:h:mma" has a colon inside its argument
-    const i = pipe.indexOf(":"); const name = (i < 0 ? pipe : pipe.slice(0, i)).trim(); const arg = i < 0 ? undefined : pipe.slice(i + 1).trim();
+    const i = pipe.indexOf(":"); const name = (i < 0 ? pipe : pipe.slice(0, i)).trim(); const arg = i < 0 ? undefined : unquote(pipe.slice(i + 1).trim());
     const f = filters[name];
     if (!f) throw new Error(`unknown filter ${name}`);
-    v = f(v, arg, env);
+    v = f(v, arg, env, ctx);
   }
   return v;
 }
 /** Renders `{{ path | filter:arg | filter2 }}`. Unknown path → throws (also enforced at save). */
 export function render(template: string, ctx: Record<string, unknown>, env: RenderEnv): string {
-  return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => { const v = resolveExpr(expr, ctx, env); return v === undefined || v === null ? "" : String(v); });
+  let out = "", at = 0;
+  for (const s of exprSpans(template)) { const v = resolveExpr(s.expr, ctx, env); out += template.slice(at, s.start) + (v === undefined || v === null ? "" : String(v)); at = s.end; }
+  return out + template.slice(at);
 }
 
 /** Save-time check: every {{path}} must be a known root. Bindings are checked against the manifest separately. */
 export const KNOWN_ROOTS = ["contact", "appointment", "opportunity", "company", "calendar", "slack", "reply", "event", "vars", "crm", "secret", "now", "cards", "record", "recording", "prompt", "agreement", "records", "user", "reaction", "picklist", "setting",
-  "data"];   // data: the event a wait_for_event match is reading (D85)
+  "data", "item", "index", "number"];   // data: the event a wait_for_event match is reading; item, index, number: inside an `each` (D85)
 export function referencedPaths(template: string): string[] {
   return [...template.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)/g)].map((m) => m[1]);
 }
