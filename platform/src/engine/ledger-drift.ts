@@ -126,8 +126,15 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       return;
     }
     if (!k.disposition.trim()) return;
-    const mapped = cfg!.dispositions[k.disposition.trim().toLowerCase()], meaning = mapped?.meaning;
+    const mapped = cfg!.dispositions[k.disposition.trim().toLowerCase()];
+    let meaning = mapped?.meaning;
     if (!mapped || !meaning) { cannot(`${label}: GHL's outcome is "${k.disposition}", and the engine hasn't been told what that means yet. That's a setup fix on our side.`, { kind: "disposition_unmapped", record_id: k.id, disposition: k.disposition }); return; }
+    // pending is half a close and nothing else: paid or signed, not both (both is a close; neither is still a follow up)
+    if (meaning === "pending") {
+      const ev = await one<{ paid: boolean; signed: boolean }>(c, `select exists (select 1 from payments p where p.company_id=$1 and p.contact_id=$2 and p.status='succeeded') as paid,
+          exists (select 1 from agreements g where g.company_id=$1 and g.contact_id=$2 and g.signed_at is not null) as signed`, [company.id, a.contact_id]);
+      meaning = ev?.paid && ev.signed ? "closed" : ev?.paid || ev?.signed ? "pending" : "follow_up";
+    }
     // the engine files a deposit as closed won (the field has no deposit), so a deposit already says what GHL says
     if ((cur === meaning && (!mapped.reason || held?.name === mapped.reason)) || (cur === "deposit" && meaning === "closed")) return;
     // the reason's own term when the company has it (Lost: Financing denied), else the meaning's default

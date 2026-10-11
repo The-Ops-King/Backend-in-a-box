@@ -2622,8 +2622,10 @@ so the engine had Lynton as "showed" while GHL had him closed won.
   never guessed.
 - A reason is the company's own term under that meaning, made at install: Hair's `financing_denied` is lost with the
   reason "Financing denied" (they applied for financing and nothing offered works).
-- **Pending** is a new call outcome: a close that has not gone through (the agreement or the rest of the money is
-  outstanding). It is not a close. Hair's `close_pending` means pending.
+- **Pending** is a new call outcome: half a close, and only that. Tyler: "Closed Pending would be they have signed the
+  agreement but no payment, or payment but no signed agreement. Everything else is just words." So a disposition meaning
+  pending is checked against the ledger: paid or signed (not both) is pending; both is closed; neither is follow up.
+  It is never counted as a close. Hair's `close_pending` means pending.
 
 
 ## D84. A run keeps its own state, not a copy of the contact (2026-10-11)

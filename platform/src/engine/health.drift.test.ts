@@ -238,12 +238,19 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       const again = drift((await sweep()).findings);
       expect(await resultOf("AP11")).toBe("lost");
       expect(await asOperator(async (c) => (await one<{ name: string }>(c, "select t.name from appointments a join company_terms t on t.id=a.call_outcome_term where a.company_id=$1 and a.external_id='AP11'", [companyId]))?.name)).toBe("Financing denied");
-      expect(await resultOf("AP12")).toBe("pending");
+      expect(await resultOf("AP12")).toBe("follow_up");   // close pending in GHL, but nothing paid or signed: still a follow up
+      const k3 = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K3'", [companyId])))!.id;
+      await asOperator((c) => c.query("insert into agreements (company_id, contact_id, external_id, status, sent_at, signed_at) values ($1,$2,'DOC-K3','completed',now(),now())", [companyId, k3]));
+      await sweep();
+      expect(await resultOf("AP12")).toBe("pending");     // signed, not paid: half a close
+      await asOperator((c) => c.query("insert into payments (company_id, contact_id, whop_payment_id, amount, status, paid_at) values ($1,$2,'pay-k3',500,'succeeded',now())", [companyId, k3]));
+      await sweep();
+      expect(await resultOf("AP12")).toBe("closed");      // signed and paid: a close
       expect(again.some((f) => !f.ok && f.text.includes("financing_denied"))).toBe(false);
       expect(again.some((f) => f.item === "repair:R8:result")).toBe(false);   // nothing repeated
     } finally {
       for (const id of ["R8", "R9", "R10", "R11", "R12"]) records.splice(records.findIndex((r) => r.id === id), 1);
-      await asOperator(async (c) => { await c.query("delete from bindings where company_id=$1 and key='sales_call.dispositions'", [companyId]); await c.query("delete from audit_log where company_id=$1", [companyId]); await c.query("delete from appointments where company_id=$1 and external_id in ('AP8','AP9','AP10','AP11','AP12')", [companyId]); await c.query("delete from company_terms where company_id=$1 and name='Financing denied'", [companyId]); });
+      await asOperator(async (c) => { await c.query("delete from bindings where company_id=$1 and key='sales_call.dispositions'", [companyId]); await c.query("delete from audit_log where company_id=$1", [companyId]); await c.query("delete from appointments where company_id=$1 and external_id in ('AP8','AP9','AP10','AP11','AP12')", [companyId]); await c.query("delete from company_terms where company_id=$1 and name='Financing denied'", [companyId]); await c.query("delete from payments where company_id=$1 and whop_payment_id='pay-k3'", [companyId]); await c.query("delete from agreements where company_id=$1 and external_id='DOC-K3'", [companyId]); });
     }
   });
 });
