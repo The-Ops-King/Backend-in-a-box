@@ -18,7 +18,7 @@ import { recordPayment } from "@/engine/payments";
 import { contactPasses } from "@/engine/mode";
 import { render } from "@/engine/template";
 import { tick } from "@/engine/runner";
-import { fakeAdapters } from "@/engine/test-install";
+import { fakeAdapters, ghlMessages } from "@/engine/test-install";
 import type { Adapters, AppointmentSnapshot, ContactSnapshot, MessageSnapshot } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -80,7 +80,7 @@ const daysOut = (d: number, hour = 14) => DateTime.now().setZone(TZ).plus({ days
 const snap = (id: string, over: Partial<AppointmentSnapshot> = {}): AppointmentSnapshot => { const start = daysOut(3); return { id, calendarId: "CAL", assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 45 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {}, ...over }; };
 const book = async (s: AppointmentSnapshot) => { apptStore.set(s.id, s); await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, s); }); };
 const upsert = (s: ContactSnapshot) => asOperator(async (c) => { crm.set(s.id, s); return upsertContact(c, companyId, TZ, s); });
-const reply = (ghlContactId: string, body: string) => { inbox.push({ id: `m-${ghlContactId}-${Math.random().toString(36).slice(2, 8)}`, conversationId: `cv-${ghlContactId}`, contactId: ghlContactId, channel: "sms", direction: "inbound", body, dateAdded: new Date().toISOString() }); return poll(); };
+const reply = (ghlContactId: string, body: string) => { const id = `m-${ghlContactId}-${Math.random().toString(36).slice(2, 8)}`; ghlMessages.texts.set(id, body); inbox.push({ id, conversationId: `cv-${ghlContactId}`, contactId: ghlContactId, channel: "sms", direction: "inbound", body, dateAdded: new Date().toISOString() }); return poll(); };
 
 describe("contacts (pure)", () => {
   it("the first_name filter takes the first whitespace-separated word, never splits a hyphen, and is used by no shipped template ({{contact.first_name}} is the CRM's own first-name field)", () => {

@@ -32,6 +32,8 @@ export type AppointmentSnapshot = {
 };
 /** `channel: "call"` is a phone call the CRM logged in the thread: no body, `call` carries what the dialer knew (status, seconds, who dialed). */
 export type MessageSnapshot = { id: string; conversationId: string; contactId: string; channel: "sms" | "email" | "call"; direction: "inbound" | "outbound"; body?: string; subject?: string; status?: string; dateAdded: string; call?: { status: string; durationSec?: number; userId?: string } };
+/** An inbound message's words as the CRM holds them (D89): read by id when a step needs them, never stored. An email's body is not read (its subject is), as the poll never read it. */
+export type MessageText = { body: string; subject?: string };
 /** What the CRM holds for a logged call beyond the thread entry. `transcript` is null when the call was not recorded (or not yet transcribed). */
 export type CallMedia = { recordingUrl?: string; transcript: { speaker: string; text: string; timestamp?: string }[] | null };
 export type WonOpportunity = { id: string; contactId: string; pipelineId: string; stageId: string; wonAt: string; createdAt: string; monetaryValue?: number; customFields: Record<string, unknown> };
@@ -47,6 +49,9 @@ export interface CrmRead {
   contactsChangedSince(c: Company, sinceIso: string): Promise<ContactSnapshot[]>;
   inboundSince(c: Company, sinceIso: string): Promise<MessageSnapshot[]>;
   callMedia(c: Company, messageId: string): Promise<CallMedia | null>;
+  /** D89: the words of these messages, by message id, read at the moment a step needs them. A thread named for a message is read once for all of
+   *  its messages; the rest one by one. A message the CRM no longer has is left out of the map; a CRM that does not answer throws. */
+  messageBodies(c: Company, messages: { id: string; conversationId?: string | null }[]): Promise<Map<string, MessageText>>;
   // history (D29 backfill): the same facts the poll sees going forward, read back over a window, once
   contactsAddedBetween(c: Company, from: Date, to: Date): Promise<ContactSnapshot[]>;
   callsBetween(c: Company, from: Date, to: Date): Promise<MessageSnapshot[]>;

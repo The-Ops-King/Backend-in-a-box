@@ -20,6 +20,7 @@ import { claimEffect, markEffect, PENDING_WHY, type EffectKind } from "./effects
 import { callTime } from "./sales-call";
 import { APPOINTMENT_FACTS, APPOINTMENT_JOINS, appointmentRow, runLookup } from "./lookup";
 import { dropTranscripts, hydrateTranscripts } from "./transcripts";
+import { dropReplies, hydrateReplies, mentionsReplyText, readsReplyText, scrubReplyText } from "./replies";
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
@@ -62,7 +63,7 @@ export type StepOutcome =
 export type Listener = { node: string; tag: string; channel: string; ts: string; emojis: string[]; into: string; until: string | null; armed_at: string };
 export const listenerOf = (ctx: Record<string, unknown>): Listener | undefined => resolvePath(ctx, "vars.__listen") as Listener | undefined;
 
-export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes; effective: Effective; cardsReadError?: string };
+export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes; effective: Effective; cardsReadError?: string; /** D89: the reply words this step was given (replies.ts), for a step that writes what it rendered */ replyTexts?: string[] };
 
 const contactTz = (d: ExecDeps) => { const tz = (d.ctx.contact as { timezone?: string } | undefined)?.timezone; return tz && DateTime.now().setZone(tz).isValid ? tz : d.company.timezone; };
 /** A shadowed run (shadow mode, or test with a contact that does not pass) proceeds exactly as it would live, but nothing is written to the CRM; sends are recorded as "would have sent". */
@@ -217,10 +218,27 @@ async function applyTags(d: ExecDeps, type: Node["type"], next: string | null, w
   return { status: "ok", next };
 }
 
-/** D87: a step that reads a transcript gets it from its source just before it runs, and the context lets go of it right after (transcripts.ts). */
+/**
+ * D87: a step that reads a transcript gets it from its source just before it runs, and the context lets go of it right after (transcripts.ts).
+ * D89: the same for a reply's words (replies.ts), read from GHL by message id; what the step leaves behind (its result, a var it set) is
+ * scrubbed of them before the runner saves it.
+ */
 export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome> {
-  const held = node.type === "trigger" || (node.only_if && !evaluate(node.only_if, d.ctx)) ? [] : await hydrateTranscripts(d, node);
-  try { return await executeStep(d, node); } finally { dropTranscripts(d.ctx, held); }
+  const runs = node.type !== "trigger" && !(node.only_if && !evaluate(node.only_if, d.ctx));
+  const held = runs ? await hydrateTranscripts(d, node) : [];
+  let replies: string[] | null = null;
+  try {
+    replies = runs ? await hydrateReplies(d, node) : null;
+    if (!replies?.length) return await executeStep(d, node);
+    const before = new Map(Object.entries((d.ctx.vars as Record<string, unknown>) ?? {}).map(([k, v]) => [k, JSON.stringify(v)]));
+    d.replyTexts = replies;
+    const out = await executeStep(d, node);
+    const vars = d.ctx.vars as Record<string, unknown> | undefined;
+    if (vars) for (const [k, v] of Object.entries(vars)) if (before.get(k) !== JSON.stringify(v)) vars[k] = scrubReplyText(v, replies, { cut: false });
+    // a classify step's result is Jev's answer, never its input (an answer of "confirmed" to a reply of "confirmed" stays as it is)
+    const scrubbed = "error" in out && typeof out.error === "string" ? { ...out, error: scrubReplyText(out.error, replies) } : out;
+    return node.type === "classify" || !("result" in scrubbed) || !scrubbed.result ? scrubbed : { ...scrubbed, result: scrubReplyText(scrubbed.result, replies) };
+  } finally { dropTranscripts(d.ctx, held); if (runs && readsReplyText(node)) dropReplies(d.ctx); d.replyTexts = undefined; }
 }
 
 async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
@@ -302,15 +320,16 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       // boundary = our last contact-facing send in this run (sent, or would-have-sent in shadow); Slack posts don't count
       const lastSend = await one<{ sent_at: Date }>(d.c, "select sent_at from sends where run_id=$1 and channel in ('sms','email') and status in ('sent','shadow') order by sent_at desc limit 1", [d.run.id]);
       const since = lastSend?.sent_at ?? d.run.started_at ?? new Date(0);
-      const replies = await many<{ body: string | null; occurred_at: Date; channel: string }>(d.c,
-        `select body, occurred_at, channel from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at > $3 ${node.channel === "any" ? "" : "and channel=$4"} order by occurred_at`,
+      // D89: which messages came in and when; their words are read from GHL by the step that needs them (replies.ts)
+      const replies = await many<{ ghl_message_id: string; occurred_at: Date; channel: string }>(d.c,
+        `select ghl_message_id, occurred_at, channel from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at > $3 ${node.channel === "any" ? "" : "and channel=$4"} order by occurred_at, id`,
         node.channel === "any" ? [d.company.id, d.run.contact_id, since] : [d.company.id, d.run.contact_id, since, node.channel]);
       if (replies.length) {
         // D47: people answer in pieces ("yes" … "see you then"). After the newest message, wait `settle` for the rest; a further reply re-wakes and restarts the clock.
         const newest = replies[replies.length - 1]; const settled = DateTime.fromJSDate(newest.occurred_at).plus(parseDuration(node.settle));
         if (d.now < settled) return { status: "waiting", until: settled, stay: true, wakeOnReply: true, result: { settling_until: settled.toISO(), replies: replies.length } };
-        setPath(d.ctx, "reply.last_inbound", { body: newest.body, at: newest.occurred_at.toISOString(), channel: newest.channel });
-        setPath(d.ctx, "reply.inbound_since_send", replies.map((r) => r.body ?? "").filter(Boolean).join("\n"));
+        setPath(d.ctx, "reply.last_inbound", { message_id: newest.ghl_message_id, at: newest.occurred_at.toISOString(), channel: newest.channel });
+        setPath(d.ctx, "reply.message_ids", replies.map((r) => r.ghl_message_id));
         setPath(d.ctx, "reply.count", replies.length);
         return { status: "ok", next, result: { replied_at: newest.occurred_at.toISOString(), replies: replies.length } };
       }
@@ -426,13 +445,13 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       setPath(d.ctx, node.into, r.value); setPath(d.ctx, "reply.confidence", r.confidence); setPath(d.ctx, "reply.intent_confidence", Math.round(r.confidence * 100)); setPath(d.ctx, "reply.top_guesses", top || "none");
       const recId = (d.ctx.recording as { id?: string } | undefined)?.id; const intoKey = node.into.replace(/^vars\./, "").split(".");
       // merged in depth: a second read into vars.classify.* keeps the first (D79: the setter call's kind, then its result)
-      const readsTranscript = /transcript_text/.test(node.input);
+      const readsTranscript = /transcript_text/.test(node.input), readsReply = mentionsReplyText(node.input) || !!d.replyTexts?.length;
       if (recId && (node.input.includes("recording.") || readsTranscript)) {
         const prior = (await one<{ a: unknown }>(d.c, "select analysis->$2 as a from recordings where id=$1", [recId, intoKey[0]]))?.a ?? null;
         const merged = deepSet(prior, intoKey.slice(1), { value: r.value, confidence: r.confidence, ambiguity: r.ambiguity ?? null });
         await d.c.query("update recordings set analysis = jsonb_set(analysis, $2::text[], $3::jsonb, true) where id=$1", [recId, [intoKey[0]], JSON.stringify(merged)]);
       }
-      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, ...(readsTranscript ? { input_chars: input.length } : { input }) } });   // D87: a transcript is never copied into the ledger
+      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, top_guesses: top || "none", ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(readsTranscript || readsReply ? { input_chars: input.length } : { input }) } });   // D87, D89: neither a transcript nor a reply's words are copied into the ledger; Jev's read is
       return { status: "ok", next, result: { value: r.value, confidence: r.confidence, ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(r.unclear ? { why: r.confidence < node.threshold ? "not confident enough" : "a careful person would doubt it" } : {}) } };
     }
 
@@ -731,6 +750,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       // bookkeeping never fails a run: a field whose path is not in this run's context lands as null
       const data: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(node.data)) { try { data[k] = deepRender(v, d.ctx, env(d)); } catch (e) { if (e instanceof UnknownPathError) data[k] = null; else throw e; } }
+      if (d.replyTexts?.length) Object.assign(data, scrubReplyText(data, d.replyTexts, { cut: false }));   // D89: a fact never carries a reply's words
       // D87: `appointment` makes the fact about that booking of this person's (a call Jev read as closing, about the booking it lines up with); blank is the run's own
       let apptId = d.run.appointment_id, oppId = d.run.opportunity_id;
       const named = node.appointment !== undefined ? render(node.appointment, d.ctx, env(d)).trim() : "";

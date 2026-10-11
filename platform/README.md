@@ -29,7 +29,7 @@ stay the poll's job.
 
 **A run keeps its own state, not a copy of the contact (D84).** What a run saves when it parks, pauses or ends
 (`runs.context`) is only what it needs to go on: `vars` (its own values, wait pins, Slack posts, an armed listener),
-`reply`, `event` (the trigger), `reaction`, and `contact.fetched_at` / `contact.stale` for the run page. The person, the
+`reply` (never a reply's words, D89), `event` (the trigger), `reaction`, and `contact.fetched_at` / `contact.stale` for the run page. The person, the
 booking and the call are read fresh at every wake and never saved on the run (`persistedContext` in
 `src/engine/context.ts`); a call's transcript is not even in the context until a step reads it (D87, below). Older rows are slimmed once with `POST /api/admin/slim-runs` and
 `Authorization: Bearer $CRON_SECRET`: `{}` is a dry run that reports `{ scanned, changed, bytes_before, bytes_after }`;
@@ -153,6 +153,24 @@ read it are done (released at their end; kept while one is paused on a failing s
 (`secret.fathom_api_key`, `GET /recordings/<id>/transcript`, to verify live) if a step needs it again. Retention's sweep
 clears anything still held `calls.transcript_hold_hours` (48) after the last run about it ended. The provider's summary
 is never kept. Jev's answers (call type, result, confidence, DQ reason) and the AI notes stay on `recordings.analysis`.
+
+### A reply is kept as "it came in" plus Jev's read, never its words (D89)
+
+The conversations poll stores an inbound text or email as a row with no words: ids (GHL's message and thread), channel,
+when, who. That is all a reply wait needs to wake, settle (D47) and count. A step whose settings read the words
+(`{{reply.inbound_since_send}}`, `{{reply.last_inbound.body}}` / `.subject`: pre-call's classify `c1`, the Slack question
+and the three decision lines that quote it) gets them from GHL by message id just before it runs
+(`CrmRead.messageBodies`: one `GET /conversations/{id}/messages` per thread, else `GET /conversations/messages/{id}`) and
+the context drops them after it (`src/engine/replies.ts`, the D87 pattern). The run keeps only `reply.message_ids` and
+`reply.last_inbound.message_id`; a step's result or a var it set is scrubbed of the words before it is saved; the
+`reply.classified` event keeps `input_chars`, never the input. GHL down when the words are needed: the step fails and is
+retried in place (D66/D77); Jev is never asked with an empty text. Jev's read stays: `reply.intent`,
+`reply.intent_confidence`, `reply.top_guesses` on the run, the same plus `ambiguity` on `reply.classified`, and
+`predicted` / `predicted_confidence` on `intent.reviewed` / `intent.unanswered`. The engine's own sends (`sends.rendered_body`,
+including a Slack post that quotes the reply) are its own record and keep their words as before (D38). What was stored
+before is cleared once with `POST /api/admin/clear-reply-texts` and `Authorization: Bearer $CRON_SECRET`: `{}` is a dry
+run that reports `{ messages, runs, events, run_steps }`; `{ "dryRun": false }` clears (optionally `company: "<slug>"`);
+a rerun changes nothing.
 
 ### Reading a call with AI
 
@@ -1146,8 +1164,8 @@ command center · template drift tooling · attribute reclassification. All desi
 
 ## Known gaps worth knowing
 
-- Email bodies in `sends.rendered_body` are stored (they're ours); GHL email *replies* store
-  metadata only.
+- Email bodies in `sends.rendered_body` are stored (they're ours); a GHL reply, text or email, stores
+  only that it came in (D89). An email reply's body is not read back either (its subject is), as before.
 - `relative:auto` rounding and the formatter are tested; cross-DST edge cases aren't yet.
 - Vercel Auth (SSO protection) is on for deployment URLs; the cron is internal so it's fine, but
   hitting `/api/health` from a browser needs a bypass token or a custom domain.

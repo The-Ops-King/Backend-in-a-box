@@ -19,7 +19,7 @@ import { applyPayment } from "@/engine/lifecycle";
 import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { fakeAdapters, fakeProbes } from "@/engine/test-install";
+import { fakeAdapters, fakeProbes, inboundForTest } from "@/engine/test-install";
 import { recordRecording, recordPhoneCall, settlePhoneCall, phoneFacts, type RecordingInput } from "@/engine/recordings";
 import { simulate } from "@/engine/simulate";
 import { reactionArrived } from "@/engine/webhooks/slack";
@@ -85,7 +85,7 @@ const postTs = (tag: string) => asOperator(async (c) => (await one<{ ts: string 
 const reactionsOn = (ts: string) => reactions.filter((r) => r.ts === ts).map((r) => r.emoji);
 const threadOf = (ts: string) => posts.filter((p) => p.threadTs === ts).map((p) => p.text);
 const wake = (runId: string) => asOperator((c) => c.query("update runs set next_run_at=now() where id=$1", [runId]));
-const inbound = (contactId: string, body: string) => asOperator((c) => c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,$3,'sms','inbound',$4,now())", [companyId, contactId, `m${Math.random()}`, body]));
+const inbound = (contactId: string, body: string) => asOperator((c) => inboundForTest(c, companyId, contactId, body));   // D89: GHL holds the words
 const term = (domain: string, category: string) => asOperator(async (c) => (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain=$2 and category=$3", [companyId, domain, category]))!.id);
 const closerUser = () => asOperator(async (c) => (await one<{ id: string }>(c, "select id from users where company_id=$1 and ghl_user_id='U1'", [companyId]))!.id);
 /** The engine's clock for one tick: due-ness is the database's now(), so a parked run is woken by hand and `now` carries what the steps believe the time is. */

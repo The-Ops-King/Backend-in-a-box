@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import { ghl, GhlError } from "./client";
-import type { AppointmentSnapshot, Attribution, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, LiveCard, MessageSnapshot, ObjectRecord, OppSnapshot, Touch, UserSnapshot, WonOpportunity } from "../types";
+import type { AppointmentSnapshot, Attribution, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, LiveCard, MessageSnapshot, MessageText, ObjectRecord, OppSnapshot, Touch, UserSnapshot, WonOpportunity } from "../types";
 
 type RawTouch = Record<string, unknown> & { isFirst?: boolean; isLast?: boolean };
 export type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string | null; tags?: string[]; source?: string; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string;
@@ -67,6 +67,27 @@ export const ghlRead: CrmRead = {
         if (type === "TYPE_CALL") { const call = msg.meta?.call ?? {}; out.push({ ...base, channel: "call", call: { status: String(call.status ?? msg.status ?? ""), durationSec: typeof call.duration === "number" ? call.duration : undefined, userId: msg.userId } }); continue; }
         out.push({ ...base, channel: type === "TYPE_EMAIL" ? "email" : "sms", body: type === "TYPE_EMAIL" ? undefined : msg.body, subject: msg.subject });
       }
+    }
+    return out;
+  },
+  /**
+   * D89: a reply's words are read back from GHL when a step needs them; the engine stores only that it came in. The messages of one thread
+   * come from one read of the thread (`GET /conversations/{id}/messages`, the newest 100); any not in it, or with no thread named, are read
+   * one by one (`GET /conversations/messages/{id}`, the read the sender's delivery status uses). A 404 is a message GHL no longer has: left out.
+   */
+  async messageBodies(c, messages) {
+    type Raw = { id: string; messageType?: string; body?: string; subject?: string };
+    const out = new Map<string, MessageText>();
+    const put = (m: Raw) => { out.set(m.id, { body: m.messageType === "TYPE_EMAIL" ? "" : String(m.body ?? ""), ...(m.subject ? { subject: m.subject } : {}) }); };
+    const want = new Set(messages.map((m) => m.id));
+    for (const conv of [...new Set(messages.map((m) => m.conversationId).filter((x): x is string => !!x))]) {
+      const r = await ghl<{ messages: { messages: Raw[] } }>(c.pit, "GET", `/conversations/${conv}/messages?limit=100`, { version: "2021-04-15" });
+      for (const m of r.messages?.messages ?? []) if (want.has(m.id)) put(m);
+    }
+    for (const id of want) {
+      if (out.has(id)) continue;
+      try { const r = await ghl<{ message?: Raw }>(c.pit, "GET", `/conversations/messages/${id}`, { version: "2021-04-15" }); if (r.message) put({ ...r.message, id }); }
+      catch (e) { if (e instanceof GhlError && e.status === 404) continue; throw e; }
     }
     return out;
   },

@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { isDeepStrictEqual } from "node:util";
 import { asOperator, many } from "@/db/client";
 import { KEPT_KEYS, persistedContext } from "./context";
+import { scrubReplyText } from "./replies";
 import { sweepHeldTranscripts } from "./transcripts";
 
 /**
@@ -63,4 +64,42 @@ export async function slimRunContexts(opts: { dryRun?: boolean; batchSize?: numb
     if (Date.now() >= stopAt) break;
   }
   return r;
+}
+
+export type ReplyTextReport = { dryRun: boolean; messages: number; runs: number; events: number; run_steps: number };
+
+/**
+ * D89, once: takes the words of people's replies out of what the engine kept before it stopped keeping them. Inbound `messages` rows lose
+ * `body` and `subject` (the row, "it came in", stays); a run's saved `reply` loses `inbound_since_send` and `last_inbound.body` / `.subject`;
+ * a `message.received` event loses `body`; a `reply.classified` event's `input` becomes `input_chars` (every classify that was not of a
+ * transcript, which D87 already stored as a length, read a reply); a step result that quoted a reply still held in `messages` (a Slack
+ * post's `would_post` preview) has the quote replaced. Jev's read (intent, confidence, unclear) is untouched. `dryRun` (the default)
+ * counts the rows each part would change and writes nothing. Each part only touches rows that still hold words, so it is safe to re-run:
+ * a second real run changes nothing.
+ */
+export async function clearReplyTexts(opts: { dryRun?: boolean; companyId?: string } = {}): Promise<ReplyTextReport> {
+  const dryRun = opts.dryRun ?? true, co = opts.companyId ?? null;
+  return asOperator(async (c) => {
+    const r: ReplyTextReport = { dryRun, messages: 0, runs: 0, events: 0, run_steps: 0 };
+    // step results first, while the words to look for are still on the messages rows (retention has already dropped rows older than its window)
+    const steps = await many<{ id: string; result: Record<string, unknown>; texts: string[] }>(c, `select s.id, s.result, array_agg(distinct m.body) as texts
+      from run_steps s join runs x on x.id=s.run_id join messages m on m.company_id=x.company_id and m.contact_id=x.contact_id and m.direction='inbound' and m.body is not null and m.body <> ''
+      where ($1::uuid is null or x.company_id=$1) and s.result is not null and jsonb_typeof(s.result)='object' and s.result <> '{}'::jsonb group by s.id, s.result`, [co]);
+    for (const s of steps) {
+      const clean = scrubReplyText(s.result, s.texts);
+      if (isDeepStrictEqual(clean, s.result)) continue;
+      if (!dryRun) await c.query("update run_steps set result=$2 where id=$1", [s.id, clean]);
+      r.run_steps++;
+    }
+    const msgWhere = "direction='inbound' and (body is not null or subject is not null) and ($1::uuid is null or company_id=$1)";
+    r.messages = dryRun ? Number((await c.query(`select count(*) from messages where ${msgWhere}`, [co])).rows[0].count) : (await c.query(`update messages set body=null, subject=null where ${msgWhere}`, [co])).rowCount ?? 0;
+    const runWhere = `($1::uuid is null or company_id=$1) and jsonb_typeof(context->'reply')='object' and (context->'reply' ? 'inbound_since_send'
+      or (jsonb_typeof(context->'reply'->'last_inbound')='object' and (context->'reply'->'last_inbound' ? 'body' or context->'reply'->'last_inbound' ? 'subject')))`;
+    r.runs = dryRun ? Number((await c.query(`select count(*) from runs where ${runWhere}`, [co])).rows[0].count)
+      : (await c.query(`update runs set context = context #- '{reply,inbound_since_send}' #- '{reply,last_inbound,body}' #- '{reply,last_inbound,subject}' where ${runWhere}`, [co])).rowCount ?? 0;
+    const evWhere = `($1::uuid is null or company_id=$1) and ((event_type='message.received' and data ? 'body') or (event_type='reply.classified' and data ? 'input'))`;
+    r.events = dryRun ? Number((await c.query(`select count(*) from events where ${evWhere}`, [co])).rows[0].count)
+      : (await c.query(`update events set data = case when event_type='reply.classified' then (data - 'input') || jsonb_build_object('input_chars', length(coalesce(data->>'input',''))) else data - 'body' end where ${evWhere}`, [co])).rowCount ?? 0;
+    return r;
+  });
 }
