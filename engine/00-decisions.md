@@ -2604,3 +2604,19 @@ its GHL half (D76) looked at outcomes.
   one we wrote, its booking id or slot, or the same person at the same minute (the old process carries its own ids).
 - A day drops off the reminder once nothing on it is owed. Names from the old "Name · day · time" labels read as the name.
 
+## D83. The hourly sweep copies GHL's outcome too (2026-10-11)
+
+Tyler: attendance is showed / no-show; the outcome is closed, follow up and so on. GHL is the truth and the engine is
+there to see what's going on. The drift check (D73) copied a Sales Call's attendance into the ledger, never its outcome,
+so the engine had Lynton as "showed" while GHL had him closed won.
+
+- In GHL the field keyed `outcome` is labelled **Attendance** and the one keyed `disposition` is labelled **Outcome**
+  (labels renamed 2026-10-11; keys unchanged, so nothing reading them moved).
+- Every hour, for each Sales Call matched to a booking in the last 7 days: a call GHL says showed takes GHL's outcome on
+  the ledger (`call_outcome_term`); a call GHL says did not happen (no-show, cancelled, rescheduled) has none. A deposit
+  the engine filed stays a deposit when GHL holds closed won (the field has no deposit). Nothing fires; the ledger only
+  follows. Every change is in the audit log.
+- What each disposition value means is `sales_call.dispositions` (JSON {value: closed | deposit | follow_up | lost |
+  unqualified}; install `salesCall.dispositions`). Unbound, it is the values the engine itself writes (closed_won,
+  follow_up, lost, dq). A value with no meaning is asked about in the sweep's alert, never guessed.
+

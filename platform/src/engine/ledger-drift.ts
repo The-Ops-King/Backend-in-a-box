@@ -36,6 +36,7 @@ export async function crmPresence(get: (id: string) => Promise<ContactSnapshot |
 }
 
 const WORDS: Record<string, string> = { showed: "showed", noshow: "no-show", cancelled: "cancelled", rescheduled: "rescheduled" };
+const RESULT_WORDS: Record<string, string> = { closed: "closed", deposit: "deposit", follow_up: "follow up", lost: "lost", unqualified: "DQ", qualified: "qualified" };
 const snapName = (k: ContactSnapshot) => `${k.firstName ?? ""} ${k.lastName ?? ""}`.trim() || k.email || k.phone || k.id;
 const why = (e: unknown) => String((e as Error).message).slice(0, 160);
 /** "German Arellano, Mon Oct 5 at 10:00 AM": the record's own label carries the time after a dot; the person is what comes first. */
@@ -111,6 +112,29 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     await audit("appointment", k.appt!.id, { outcome: k.appt!.outcome }, { repair: reason, outcome: cat, sales_call: k.id });
     repaired(`${k.id}:ledger`, `${callLabel(k)}: the ledger said ${WORDS[k.appt!.outcome ?? ""] ?? "nothing"}, now ${WORDS[cat]} as ${reason === "booking_cancelled" ? `${k.booking_source} cancelled it before the call` : "GHL says"}`, { appointment_id: k.appt!.id, sales_call: k.id, outcome: cat }, k.ghl || k.id);
   };
+  // D83: GHL's outcome (the record's disposition) is copied the same way: a call that showed takes it; a call GHL says did
+  // not happen (no-show, cancelled, rescheduled) has none. Nothing fires: the ledger only follows GHL
+  const followResult = async (k: SalesCall, attended: string | null = k.filed) => {
+    const label = callLabel(k), a = k.appt!;
+    const cur = (await one<{ cat: string | null }>(c, "select t.category as cat from appointments a left join company_terms t on t.id=a.call_outcome_term where a.id=$1", [a.id]))?.cat ?? null;
+    if (attended && attended !== "showed") {
+      if (!cur) return;
+      await c.query("update appointments set call_outcome_term=null where id=$1", [a.id]);
+      await audit("appointment", a.id, { call_outcome: cur }, { repair: "ghl_outcome", call_outcome: null, sales_call: k.id });
+      repaired(`${k.id}:result`, `${label}: the ledger had ${RESULT_WORDS[cur] ?? cur}, but it was ${WORDS[attended]}; outcome cleared`, { appointment_id: a.id, sales_call: k.id }, k.ghl || k.id);
+      return;
+    }
+    if (!k.disposition.trim()) return;
+    const meaning = cfg!.dispositions[k.disposition.trim().toLowerCase()];
+    if (!meaning) { cannot(`${label}: GHL's outcome is "${k.disposition}", and the engine hasn't been told what that means yet. That's a setup fix on our side.`, { kind: "disposition_unmapped", record_id: k.id, disposition: k.disposition }); return; }
+    // the engine files a deposit as closed won (the field has no deposit), so a deposit already says what GHL says
+    if (cur === meaning || (cur === "deposit" && meaning === "closed")) return;
+    const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2 and active order by is_default desc, sort limit 1", [company.id, meaning]))?.id;
+    if (!term) { cannot(`${label}: GHL says ${RESULT_WORDS[meaning]}, but the engine has no "${meaning}" outcome set up, so it can't follow. That's a setup fix on our side.`, { kind: "call_outcome_term", record_id: k.id }); return; }
+    await c.query("update appointments set call_outcome_term=$2 where id=$1", [a.id, term]);
+    await audit("appointment", a.id, { call_outcome: cur }, { repair: "ghl_outcome", call_outcome: meaning, sales_call: k.id });
+    repaired(`${k.id}:result`, `${label}: the ledger said ${cur ? RESULT_WORDS[cur] ?? cur : "no outcome"}, now ${RESULT_WORDS[meaning]} as GHL says`, { appointment_id: a.id, sales_call: k.id, call_outcome: meaning }, k.ghl || k.id);
+  };
   // D76: every Sales Call is linked to its contact and the closer card (fields and associations); repaired when the one right card and contact are certain
   const linkRecord = async (k: SalesCall) => {
     if (!cfg) return;
@@ -156,10 +180,12 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
         await audit("sales_call", k.id, { outcome: k.filed }, { repair: "booking_cancelled", outcome: cfg!.cancelledValue, appointment_id: a.id });
         repaired(`${k.id}:ghl`, `${label}: ${k.booking_source} cancelled it before the call; GHL said ${k.filed ? WORDS[k.filed] : "nothing"}, now cancelled`, { sales_call: k.id, outcome: cfg!.cancelledValue }, k.ghl || k.id);
       } else cannot(`${label}: ${k.booking_source} cancelled it before the call, but GHL still says ${k.filed ? WORDS[k.filed] : "nothing"} and I couldn't change it (${r}). Set it to cancelled in GHL?`, { kind: "cancel_not_written", record_id: k.id, why: r });
+      await guarded(() => followResult(k, "cancelled"), (e) => cannot(`${label}: the engine couldn't clear its outcome (${why(e)}). I'll try again next hour.`, { kind: "ledger_write", record_id: k.id }));
       if (a.outcome !== "cancelled") await guarded(() => setLedgerOutcome(k, "cancelled", "booking_cancelled"), (e) => cannot(`${label}: the engine couldn't record it as cancelled (${why(e)}). I'll try again next hour.`, { kind: "ledger_write", record_id: k.id }));
       continue;
     }
-    if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), (e) => cannot(`${label}: the engine couldn't copy GHL's outcome (${why(e)}). I'll try again next hour.`, { kind: "ledger_write", record_id: k.id })); continue; }
+    if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), (e) => cannot(`${label}: the engine couldn't copy GHL's outcome (${why(e)}). I'll try again next hour.`, { kind: "ledger_write", record_id: k.id })); }
+    await guarded(() => followResult(k), (e) => cannot(`${label}: the engine couldn't copy GHL's outcome (${why(e)}). I'll try again next hour.`, { kind: "ledger_write", record_id: k.id }));
     if (!k.filed && a.outcome && k.cls === "missing") cannot(`${label}: the engine has ${WORDS[a.outcome] ?? a.outcome} but GHL's Sales Call has no outcome. Should GHL say ${WORDS[a.outcome] ?? a.outcome}?`, { kind: "ghl_unfiled", record_id: k.id });
   }
 

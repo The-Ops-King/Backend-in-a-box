@@ -21,7 +21,12 @@ export const GHL_SOURCE = "GHL, read just now";
 export type GhlEntity = "lead" | "close" | "call" | "payment";
 export type CallClass = "showed" | "noshow" | "cancelled" | "rescheduled";
 export const CALL_CLASSES: CallClass[] = ["showed", "noshow", "cancelled", "rescheduled"];
-export type SalesCallConfig = { object: string; outcomes: Record<string, CallClass>; cancelledValue: string | null; dqDispositions: string[] };
+export type SalesCallConfig = { object: string; outcomes: Record<string, CallClass>; cancelledValue: string | null; dqDispositions: string[]; dispositions: Record<string, CallResult> };
+/** What a showed call ended as, in the engine's call_outcome categories (a Sales Call's `disposition`). */
+export const CALL_RESULTS = ["closed", "deposit", "follow_up", "lost", "unqualified"] as const;
+export type CallResult = (typeof CALL_RESULTS)[number];
+/** The disposition keys the engine itself writes (eod.ts), read back the same way when the company has not mapped its own. */
+const DEFAULT_DISPOSITIONS: Record<string, CallResult> = { closed_won: "closed", follow_up: "follow_up", lost: "lost", dq: "unqualified" };
 export type CallMismatch = { name: string; ghl_contact_id: string; record_id: string; ghl: CallClass; booking_source: string };
 export type ShowBreakdown = { booked: number; showed: number; noshow: number; cancelled: number; rescheduled: number; missing: number; missing_names: string[]; mismatches: CallMismatch[] };
 export type Qualification = "mql" | "dq" | "unanswered" | "unrecognized";
@@ -43,7 +48,8 @@ export function qualifyConfig(bindings: Record<string, string>): QualifyConfig |
 /**
  * The Sales Call object and what its values mean: `crm.object_sales_call`; `sales_call.outcomes` as JSON {value: showed |
  * noshow | cancelled | rescheduled} (values not in the map, and blanks, are not filed); `sales_call.dq_dispositions` as a JSON
- * list of the `disposition` values that are a sales DQ. The value written when a repair cancels a record is the map's
+ * list of the `disposition` values that are a sales DQ; `sales_call.dispositions` as JSON {value: closed | deposit | follow_up |
+ * lost | unqualified}, what each `disposition` value means (unbound: the keys the engine writes). The value written when a repair cancels a record is the map's
  * "cancelled" key when it has one, else its first cancelled value.
  */
 export function salesCallConfig(bindings: Record<string, string>): SalesCallConfig | null {
@@ -54,7 +60,12 @@ export function salesCallConfig(bindings: Record<string, string>): SalesCallConf
   const valid = Object.entries(map).filter(([, v]) => CALL_CLASSES.includes(v as CallClass)) as [string, CallClass][];
   const cancels = valid.filter(([, v]) => v === "cancelled").map(([k]) => k);
   return { object, outcomes: Object.fromEntries(valid.map(([k, v]) => [norm(k), v])), cancelledValue: cancels.find((k) => norm(k) === "cancelled") ?? cancels[0] ?? null,
-    dqDispositions: answerList(bindings["sales_call.dq_dispositions"]).map(norm) };
+    dqDispositions: answerList(bindings["sales_call.dq_dispositions"]).map(norm), dispositions: dispositionMap(bindings) };
+}
+function dispositionMap(bindings: Record<string, string>): Record<string, CallResult> {
+  let map: Record<string, unknown> = DEFAULT_DISPOSITIONS;
+  if (bindings["sales_call.dispositions"]) { try { map = JSON.parse(bindings["sales_call.dispositions"]) as Record<string, unknown>; } catch { map = {}; } }
+  return Object.fromEntries(Object.entries(map).filter(([, v]) => CALL_RESULTS.includes(v as CallResult)).map(([k, v]) => [norm(k), v as CallResult]));
 }
 export const filedClass = (outcome: unknown, cfg: SalesCallConfig): CallClass | null => cfg.outcomes[norm(answerText(outcome))] ?? null;
 /**

@@ -204,4 +204,40 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       const n = linkWrites.length; await sweep(); expect(linkWrites.length).toBe(n);   // a link is written once
     } finally { await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('crm.pipeline_closer','crm.assoc_sales_call_opportunity','crm.assoc_sales_call_contact')", [companyId])); }
   });
+  it("D83: GHL's outcome (the disposition) is copied too: a showed call takes it, a call GHL says did not happen has none, a deposit stays a deposit, a value nobody mapped is asked about until it is", async () => {
+    const resultOf = (ext: string) => asOperator(async (c) => (await one<{ category: string | null }>(c, "select t.category from appointments a left join company_terms t on t.id=a.call_outcome_term where a.company_id=$1 and a.external_id=$2", [companyId, ext]))?.category ?? null);
+    await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const term = async (domain: string, cat: string) => (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain=$2 and category=$3", [companyId, domain, cat]))!.id;
+      const k3 = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, ghl_added_at) values ($1,'G-K3','G-K3',$2) returning id", [companyId, ago({ days: 3 }).toJSDate()]))!.id;
+      const appt = async (ext: string, hoursAgo: number, outcome: string, result: string | null) => c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status, outcome_term, call_outcome_term) values ($1,$2,'calendly',$3,$4,$5,$5,$6,'confirmed',$7,$8)",
+        [companyId, k3, ext, closing, ago({ hours: hoursAgo }).startOf("minute").toJSDate(), ago({ days: 8 }).toJSDate(), await term("appointment_outcome", outcome), result ? await term("call_outcome", result) : null]);
+      await appt("AP8", 30, "showed", null);            // the old process filed closed won in GHL; the ledger only knows showed
+      await appt("AP9", 40, "showed", "follow_up");     // GHL says it was a no-show after all
+      await appt("AP10", 50, "showed", "deposit");      // the engine filed a deposit, which GHL holds as closed won
+      await appt("AP11", 60, "showed", null);           // a disposition the engine has no meaning for
+    });
+    const rec = (id: string, ext: string, hoursAgo: number, outcome: string, disposition: string) => { const r = sc(id, ext, "G-K3", ago({ hours: hoursAgo }).startOf("minute"), outcome); r.properties.disposition = disposition; return r; };
+    records.push(rec("R8", "Z-8", 30, "showed", "closed_won"), rec("R9", "Z-9", 40, "no_show", ""), rec("R10", "Z-10", 50, "showed", "closed_won"), rec("R11", "Z-11", 60, "showed", "financing_denied"));
+    try {
+      const fs = drift((await sweep()).findings);
+      expect(await resultOf("AP8")).toBe("closed");
+      expect(await resultOf("AP9")).toBeNull();
+      expect(await outcomeOf("AP9")).toBe("noshow");
+      expect(await resultOf("AP10")).toBe("deposit");
+      expect(await resultOf("AP11")).toBeNull();
+      expect(fs.filter((f) => f.ok).map((f) => f.item)).toEqual(expect.arrayContaining(["repair:R8:result", "repair:R9:result"]));
+      expect(fs.some((f) => f.item === "repair:R10:result")).toBe(false);
+      expect(fs.find((f) => !f.ok)!.text).toContain(`GHL's outcome is "financing_denied", and the engine hasn't been told what that means yet.`);
+      // the company says what it means; the next sweep follows
+      await asOperator((c) => c.query("insert into bindings (company_id, key, kind, value) values ($1,'sales_call.dispositions','text',$2)", [companyId, Buffer.from(JSON.stringify({ closed_won: "closed", follow_up: "follow_up", lost: "lost", dq: "unqualified", financing_denied: "lost" }))]));
+      const again = drift((await sweep()).findings);
+      expect(await resultOf("AP11")).toBe("lost");
+      expect(again.some((f) => !f.ok && f.text.includes("financing_denied"))).toBe(false);
+      expect(again.some((f) => f.item === "repair:R8:result")).toBe(false);   // nothing repeated
+    } finally {
+      for (const id of ["R8", "R9", "R10", "R11"]) records.splice(records.findIndex((r) => r.id === id), 1);
+      await asOperator(async (c) => { await c.query("delete from bindings where company_id=$1 and key='sales_call.dispositions'", [companyId]); await c.query("delete from audit_log where company_id=$1", [companyId]); await c.query("delete from appointments where company_id=$1 and external_id in ('AP8','AP9','AP10','AP11')", [companyId]); });
+    }
+  });
 });
