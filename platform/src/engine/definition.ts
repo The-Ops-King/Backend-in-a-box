@@ -116,7 +116,10 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("create_task"), title: z.string(), body: z.string().optional(), due: z.string().default("+1d"), assign_to: z.string().optional() }),
   z.object({ ...base, type: z.literal("note"), template: z.string() }),
   z.object({ ...base, type: z.literal("update_appointment"), set: z.record(z.unknown()) }),
-  z.object({ ...base, type: z.literal("update_opportunity"), set: z.record(z.unknown()) }),
+  // Our ledger's opportunity (the run's, else the contact's open one). `set`: contract_value, installments (and the older status). D85: `status` open | won | lost (templated),
+  // `lost_reason` (a lost_reason term, by key or name), each change to won or lost one opportunity.won / opportunity.lost event that starts workflows; `card` marks (and with
+  // `stage` moves) the contact's card on that board the same way, through the pipeline_card step's own machinery.
+  z.object({ ...base, type: z.literal("update_opportunity"), set: z.record(z.unknown()).default({}), status: z.string().optional(), lost_reason: z.string().optional(), card: z.object({ pipeline: z.string(), stage: z.string().optional() }).optional() }),
   // A card on a CRM pipeline board. One open card per contact per pipeline: re-firing moves/renames it instead of duplicating. Cards hang off the contact's one open opportunity.
   // `status` closes the card (won/lost): the board's terminal column. A closed card no longer counts as the contact's open card on that board.
   z.object({ ...base, type: z.literal("pipeline_card"), pipeline: z.string(), stage: z.string().optional(), name: z.string().optional(), assign_to: z.string().optional(), status: z.enum(["open", "won", "lost", "abandoned"]).optional(), if_missing: z.enum(["create", "skip"]).default("create"), pick: z.enum(["open", "latest"]).default("open"), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]) }),

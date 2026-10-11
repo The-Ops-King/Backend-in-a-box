@@ -840,6 +840,21 @@ ever created twice.
   "properties": { "disposition": "{{vars.outcome}}" }, "clear": ["cash_collected", "next_step"] }
 ```
 
+**`update_opportunity`: won, lost, and the card.** `{ status?, lost_reason?, set?, card? }` on our ledger's
+opportunity (the run's, else the contact's open one). `status` (templated) is `open`, `won` or `lost`; `lost_reason`
+is one of the company's `lost_reason` terms by key or name (one it lacks is kept on the event and named in the
+step's result); `set` keeps `contract_value` and `installments` (the older `set.status` still works). Each change to
+won or lost is one `opportunity.won` / `opportunity.lost` event (`{ by: "workflow", node, from, lost_reason? }`),
+dispatched to the workflows that start on it; the row and the event are one transaction, so a retry finds the status
+set and emits nothing again. `card: { pipeline, stage? }` marks the contact's card on that board the same way (and
+moves it when a stage is given) through the pipeline card step's own code: the CRM read first, a hand that moved it
+wins, shadow writes nothing, an open card only (reopening picks the latest). Ours, so the ledger part runs in shadow.
+
+```json
+{ "id": "o_lost", "type": "update_opportunity", "status": "lost", "lost_reason": "{{vars.reason}}",
+  "card": { "pipeline": "{{crm.pipeline_closer}}", "stage": "{{crm.stage_closer_lost | default:}}" } }
+```
+
 ## Seeing what will happen (and when)
 
 Every live run shows its plan: the contact page ("What happens next"), the run page, and the workflow

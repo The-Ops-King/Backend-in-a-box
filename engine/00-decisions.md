@@ -2652,3 +2652,10 @@ steps. Nothing existing moves onto them yet; that is the next piece of work, don
   old process's Sales Calls, a record a person made). It only ever updates; everything else is the keyed update's rules:
   shadow and test write nothing, unknown properties are left out and named, `clear` empties what this answer does not set.
   An update is idempotent, so it takes no create claim; nothing can be created twice.
+- **Opportunities won and lost.** `update_opportunity` takes `status` (open, won, lost) and a `lost_reason` from the
+  company's terms, writes our ledger, and each change to won or lost is one `opportunity.won` / `opportunity.lost` event
+  that starts the workflows listening for it (once: the row and the event are written together). `card` marks the
+  contact's card on a board the same way through the pipeline card step's own code, not a second copy of it.
+- Each block is classified for the failure policy like the rest (D77): the event wait and the opportunity are blocking (the
+  run waits on one; the other is the ledger), a lookup is blocking when a later step reads it, a record by id is not unless
+  a later step reads `record.*`.

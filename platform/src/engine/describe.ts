@@ -185,7 +185,12 @@ export function describeNode(n: Node): NodeText {
     case "update_appointment": return "pending_read" in n.set && Object.keys(n.set).length === 1
       ? { title: n.set.pending_read === null ? "Clear the pending read on the appointment" : "Note Jev's pending read on the appointment", detail: n.set.pending_read === null ? "A person decided; the appointment no longer carries an open question" : "What Jev read, how sure it was and when, kept until a person decides; a no-show after it is a possible cancel" }
       : { title: `Mark appointment ${Object.entries(n.set).filter(([k]) => k !== "pending_read").map(([k, v]) => `${humanWords(k)} → ${value(v)}`).join(", ")}` };
-    case "update_opportunity": return { title: `Update opportunity: ${Object.entries(n.set).map(([k, v]) => `${humanWords(k)} → ${value(v)}`).join(", ")}` };
+    case "update_opportunity": {
+      const st = n.status ?? (typeof n.set.status === "string" ? n.set.status : undefined), rest = Object.entries(n.set).filter(([k]) => k !== "status").map(([k, v]) => `${humanWords(k)} → ${value(v)}`);
+      const w = (t: string) => (/\{\{/.test(t) ? templateWords(t) : t);
+      return { title: st ? `Mark the opportunity ${w(st)}` : `Update opportunity: ${rest.join(", ")}`,
+        detail: [st && n.lost_reason ? `lost reason ${w(n.lost_reason)}` : "", st && rest.length ? `also ${rest.join(", ")}` : "", n.card ? `the ${pathWords(n.card.pipeline).replace(/^pipeline /, "")} card marked the same way${n.card.stage ? `, moved to ${pathWords(n.card.stage)}` : ""}` : "", st ? "a change to won or lost is recorded as Deal won or Opportunity lost and starts the workflows that listen for it" : ""].filter(Boolean).join("; ") || undefined };
+    }
     case "pipeline_card": return {
       title: n.stage ? `${n.if_missing === "skip" ? "Move" : "Create or move"} pipeline card${n.name ? ` “${templateWords(n.name)}”` : ""}` : `Update the ${pathWords(n.pipeline)} card`,
       detail: `${n.stage ? `In the ${pathWords(n.pipeline)}, stage ${pathWords(n.stage)}` : "Card stays where it is"}${n.status ? `; marked ${n.status}` : ""}${n.assign_to ? `; owner → ${pathWords(n.assign_to)}` : ""}${n.fields.length ? `; set ${n.fields.map((f) => `${pathWords(f.id)} = ${templateWords(f.value)}`).join(", ")}` : ""}${n.if_missing === "skip" ? "; only if the card already exists" : ""}` };

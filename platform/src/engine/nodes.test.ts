@@ -26,11 +26,14 @@ const TZ = "America/Chicago";
 const base = fakeAdapters();
 const recordCalls: { op: string; object: string; id?: string; props?: Record<string, unknown> }[] = [];
 let recordDown = 0;   // the next N record writes answer 503
+const cardCalls: { id: string; status?: string; stageId?: string }[] = [];
+let cardDown = 0;     // the next N card writes answer 503
 const fake: Adapters = { ...base,
   read: { ...base.read, objectFields: async () => ["outcome", "disposition", "next_step", "cash_collected"] },
   write: { ...base.write,
     updateRecord: async (_c, object, id, props) => { if (recordDown > 0) { recordDown--; throw new GhlError(503, "upstream unavailable", `/objects/${object}/records/${id}`); } recordCalls.push({ op: "update", object, id, props }); },
     createRecord: async (_c, object, props) => { recordCalls.push({ op: "create", object, props }); return { id: `REC-NEW-${recordCalls.length}` }; },
+    updateOpportunity: async (_c, id, input) => { if (cardDown > 0) { cardDown--; throw new GhlError(503, "no healthy upstream", `/opportunities/${id}`); } cardCalls.push({ id, status: input.status, stageId: input.stageId }); },
     relateRecords: async (_c, assoc, first, second) => { recordCalls.push({ op: "relate", object: assoc, id: `${first}→${second}` }); } } };
 
 const TABLES = ["alerts", "slack_posts", "sends", "step_effects", "runs", "events", "slack_connections", "workflow_triggers", "workflows", "messages", "crm_records", "payments", "recordings", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log", "health_checks", "rollups_daily", "wrapups"];
@@ -88,6 +91,10 @@ const DEFS = [
   // D85: a record the engine did not make, by the CRM's own id
   flow("By id", [trig("byid"), { id: "n1", type: "crm_record", object: "custom_objects.sales_call", record_id: "{{event.record | default:}}", properties: { outcome: "{{event.outcome}}", disposition: "{{event.disp | default:}}", not_a_field: "x" },
     clear: ["disposition", "next_step"], relate: [{ association: "ASSOC-1", first: "{{record.id}}", second: "{{contact.ghl_contact_id}}" }] }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
+  // D85: an opportunity won or lost, its event, its card
+  flow("Close it", [trig("close"), { id: "n1", type: "update_opportunity", status: "{{event.status}}", lost_reason: "{{event.reason | default:}}", set: { contract_value: "{{event.value | default:}}" }, card: { pipeline: "{{crm.pipeline_x}}" } }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
+  flow("Old form", [trig("oldform"), { id: "n1", type: "update_opportunity", set: { status: "lost", installments: 3, name: "ignored" } }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
+  flow("On won", [{ id: "t1", type: "trigger", event: "opportunity.won" }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "x1" }]),
   flow("Bad lookup", [trig("badlookup"), { id: "l1", type: "lookup", query: "appointments_for_contact", params: { booked_since: "{{event.when}}" }, into: "x" }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "l1" }, { from: "l1", to: "x1" }]),
 ];
 
@@ -154,7 +161,7 @@ describe.skipIf(!HAS_DB)("building blocks (D85)", () => {
       }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode, send_window_start, send_window_end) values ('Nodes Co','nodes',$1,'live','00:00','23:59') returning id", [TZ]))!.id;
       await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories", [companyId]);
-      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3)", [companyId, Buffer.from("LOC"), encrypt("p1")]);
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'crm.pipeline_x','id',$4)", [companyId, Buffer.from("LOC"), encrypt("p1"), Buffer.from("PIPE1")]);
       for (const k of ["closing", "qualifying"]) terms[k] = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category=$2", [companyId, k]))!.id;
       calId = (await one<{ id: string }>(c, "insert into calendars (company_id, external_id, name, appointment_term, active) values ($1,'CAL1','Closer',$2,true) returning id", [companyId, terms.closing]))!.id;
       for (const d of DEFS) {
@@ -393,6 +400,61 @@ describe.skipIf(!HAS_DB)("building blocks (D85)", () => {
         expect(await ledger("REC-12")).toEqual([]);
         expect((await steps(id, "n1"))[0]).toMatchObject({ status: "ok", result: { shadow: true, would_update: { outcome: "showed" }, crm_id: "REC-12" } });
       } finally { await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId])); }
+    });
+  });
+  describe("update_opportunity", () => {
+    const opp = (contactId: string) => asOperator(async (c) => (await one<{ id: string }>(c, "insert into opportunities (company_id, contact_id, opened_by) values ($1,$2,'test') returning id", [companyId, contactId]))!.id);
+    const card = (contactId: string, oppId: string, ghl: string) => asOperator((c) => c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, status) values ($1,$2,$3,$4,'PIPE1','STAGE1','Card','open')", [companyId, oppId, contactId, ghl]));
+    const row = (id: string) => asOperator((c) => one<{ status: string; won_at: Date | null; lost_at: Date | null; contract_value: string | null; installments: number | null; reason: string | null }>(c, "select o.status, o.won_at, o.lost_at, o.contract_value::text, o.installments, t.category as reason from opportunities o left join company_terms t on t.id=o.lost_reason_term where o.id=$1", [id]));
+    const events = (oppId: string) => asOperator((c) => many<{ event_type: string; data: Record<string, unknown> }>(c, "select event_type, data from events where opportunity_id=$1 and event_type like 'opportunity.%' order by id", [oppId]));
+    const wonRuns = (contactId: string) => asOperator((c) => many(c, "select r.id from runs r join workflows w on w.id=r.workflow_id where w.company_id=$1 and w.name='On won' and r.contact_id=$2", [companyId, contactId]));
+
+    it("won: the ledger, one opportunity.won that starts the workflows listening for it, the card marked won; saying it again changes nothing", async () => {
+      const ct = await newContact("Vic"), o = await opp(ct); await card(ct, o, "GO-1"); cardCalls.length = 0;
+      const id = await fire(ct, "close", { status: "won", value: "2999" });
+      await tickAt(DateTime.now());
+      expect(await run(id)).toMatchObject({ status: "completed" });
+      expect(await row(o)).toMatchObject({ status: "won", won_at: expect.any(Date), contract_value: "2999.00" });
+      expect(await events(o)).toEqual([{ event_type: "opportunity.won", data: { by: "workflow", node: "n1", from: "open" } }]);
+      expect(await wonRuns(ct)).toHaveLength(1);
+      expect(cardCalls).toEqual([{ id: "GO-1", status: "won", stageId: "STAGE1" }]);
+      expect((await steps(id, "n1"))[0]).toMatchObject({ status: "ok", result: { status: { from: "open", to: "won" }, card: { card: "moved", card_status: "won" } } });
+      await fire(ct, "close", { status: "won" }); await tickAt(DateTime.now());
+      expect(await events(o)).toHaveLength(1);
+      expect(await wonRuns(ct)).toHaveLength(1);
+    });
+
+    it("lost with a reason the company has (by key or name) is kept on the ledger; one it lacks is kept on the event and named; no card is nothing to mark", async () => {
+      const a = await newContact("Wes"), oa = await opp(a);
+      await fire(a, "close", { status: "lost", reason: "Price" }); await tickAt(DateTime.now());
+      expect(await row(oa)).toMatchObject({ status: "lost", lost_at: expect.any(Date), reason: "price" });
+      expect(await events(oa)).toEqual([{ event_type: "opportunity.lost", data: { by: "workflow", node: "n1", from: "open", lost_reason: "price" } }]);
+      const b = await newContact("Xan"), ob = await opp(b);
+      const id = await fire(b, "close", { status: "lost", reason: "weather" }); await tickAt(DateTime.now());
+      expect(await row(ob)).toMatchObject({ status: "lost", reason: null });
+      expect(await events(ob)).toEqual([{ event_type: "opportunity.lost", data: { by: "workflow", node: "n1", from: "open", lost_reason: "weather", lost_reason_unknown: true } }]);
+      expect((await steps(id, "n1"))[0]).toMatchObject({ status: "ok", result: { lost_reason_unknown: expect.stringMatching(/no lost reason "weather"/), card: { kind: "noop" } } });
+    });
+
+    it("a card the CRM cannot take is retried in place: the event is not emitted twice and the card is written once", async () => {
+      const ct = await newContact("Yul"), o = await opp(ct); await card(ct, o, "GO-2"); cardCalls.length = 0; cardDown = 1;
+      const id = await fire(ct, "close", { status: "lost" });
+      await tickAt(DateTime.now());
+      expect(await run(id)).toMatchObject({ status: "waiting", current_node: "n1" });
+      await wake(id); await tickAt(DateTime.now().plus({ minutes: 1 }));
+      expect(await run(id)).toMatchObject({ status: "completed" });
+      expect(await events(o)).toHaveLength(1);
+      expect(cardCalls).toEqual([{ id: "GO-2", status: "lost", stageId: "STAGE1" }]);
+    });
+
+    it("a status that is not open, won or lost is a fault on the step; the older `set` form still writes the ledger, and its status change is an event now too", async () => {
+      const a = await newContact("Zed"); await opp(a);
+      const id = await fire(a, "close", { status: "maybe" }); await tickAt(DateTime.now());
+      expect(await run(id)).toMatchObject({ status: "paused", exit_reason: expect.stringMatching(/status is open, won or lost, not "maybe"/) });
+      const b = await newContact("Abe"), ob = await opp(b);
+      await fire(b, "oldform"); await tickAt(DateTime.now());
+      expect(await row(ob)).toMatchObject({ status: "lost", installments: 3 });
+      expect(await events(ob)).toEqual([{ event_type: "opportunity.lost", data: { by: "workflow", node: "n1", from: "open" } }]);
     });
   });
 });
