@@ -657,15 +657,16 @@ One standing link per closer (`/eod/<token>`, no login), today by default, arrow
 alone: no nav, no link to the dashboard (its own layout; the dashboard pages live under `app/(dash)`). It opens
 prefilled from the engine's own ledger: calls on their calendar that day; for each, what happened (no-show or
 rescheduled from the appointment's status; closed, deposit, follow up, lost or DQ from a recorded outcome, else from
-money that day, else from Jev's read of the transcript), contract value and cash, next step and date, "about this
+money that day, else from Jev's read of the transcript), cash collected and revenue generated, next step and date, "about this
 prospect" (Jev's summary with the pains, goals and objections), notes, links to the CRM contact and the recording;
-at the top, calls, closes, deposits, cash collected and revenue. Every value is editable.
+at the top, calls, closes, deposits, cash collected and revenue generated. Every value is editable.
 
 Each call asks one thing first, what happened, and the questions that follow appear once it is picked: closed or
-deposit show contract value and cash; follow up shows the next date and steps; DQ shows a reason (a select) and a
+deposit show cash collected, then revenue generated (a call with more cash than revenue is not filed until it
+is fixed); follow up shows the next date and steps; DQ shows a reason (a select) and a
 note; the held outcomes show "about this prospect"; notes follow any outcome. A deposit is a payment short of the
 contract value (prefilled when what was paid that day is less than the contract or the program price); it is counted
-on its own, not as a close, and its cash and contract value are in the totals. Attendance is implied by the outcome:
+on its own, not as a close, and its cash and revenue are in the totals. Attendance is implied by the outcome:
 no-show and rescheduled record the appointment outcome, everything else records showed plus the call outcome
 (`call_outcome` terms: closed, deposit, follow_up, lost, unqualified for DQ).
 

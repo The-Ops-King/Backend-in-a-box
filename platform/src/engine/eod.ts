@@ -10,7 +10,7 @@ import { effectiveMode } from "./mode";
 import { raise } from "./alerts";
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
-import { mergeEodFields, missingAnswers, totalsOf, outcomeLabel, MONEY, type CallEntry, type CallOutcome, type DayTotals, type EodField } from "./eod-form";
+import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, MONEY, type CallEntry, type CallOutcome, type DayTotals, type EodField } from "./eod-form";
 
 /**
  * D34. The closer's end-of-day report: one link per closer, no login. Opening it shows their day prefilled from what the
@@ -187,8 +187,8 @@ export type Change = { field: string; from: unknown; to: unknown; contact?: stri
  * What the closer corrected, as lines a person reads: "calls today 6 → 7", "Sarah: Follow up → Closed", "Sarah: cash $1,500 → $2,000".
  * Only a value the engine HAD and the closer changed is a correction; a blank they filled in is just their answer (D80).
  */
-const TOTAL_WORDS = { calls_count: "calls today", closes: "closes", deposits: "deposits", cash: "cash collected", revenue: "revenue" } as const;
-const CALL_WORDS = { revenue: "contract value", cash: "cash", next_date: "follow-up date" } as const;
+const TOTAL_WORDS = { calls_count: "calls today", closes: "closes", deposits: "deposits", cash: "cash collected", revenue: "revenue generated" } as const;
+const CALL_WORDS = { cash: "cash collected", revenue: "revenue generated", next_date: "follow-up date" } as const;
 const money = (v: unknown) => `$${num(v).toLocaleString("en-US")}`;
 const dayWords = (v: unknown) => { const d = DateTime.fromISO(String(v ?? "")); return d.isValid ? d.toFormat("ccc LLL d") : String(v ?? ""); };
 export function diffAnswers(pre: EodPrefill, ans: EodAnswers): Change[] {
@@ -197,7 +197,7 @@ export function diffAnswers(pre: EodPrefill, ans: EodAnswers): Change[] {
   for (const call of ans.calls) {
     const p = pre.calls.find((x) => x.appointment_id === call.appointment_id); if (!p) continue;
     if (p.outcome && p.outcome !== call.outcome) out.push({ field: "", from: outcomeLabel(p.outcome), to: outcomeLabel(call.outcome), contact: p.contact });
-    for (const k of ["revenue", "cash", "next_date"] as const) {
+    for (const k of ["cash", "revenue", "next_date"] as const) {
       const a = p[k] ?? "", b = call[k] ?? "";
       if (a === "" || String(a) === String(b)) continue;
       const show = k === "next_date" ? dayWords : money;
@@ -215,7 +215,7 @@ function dispositionNotes(call: CallEntry, fields: EodField[]): string {
     call.notes,
     call.outcome === "dq" && (call.dq_reason || call.dq_note) ? `DQ: ${[call.dq_reason, call.dq_note].filter(Boolean).join(" - ")}` : "",
     call.outcome === "follow_up" && (call.next_steps || call.next_date) ? `Next: ${call.next_steps}${call.next_date ? ` by ${call.next_date}` : ""}` : "",
-    MONEY.includes(call.outcome) ? `${outcomeLabel(call.outcome)}: contract ${call.revenue ?? "?"}, cash ${call.cash ?? "?"}` : "",
+    MONEY.includes(call.outcome) ? `${outcomeLabel(call.outcome)}: ${call.cash == null ? "?" : money(call.cash)} collected, ${call.revenue == null ? "?" : money(call.revenue)} revenue generated` : "",
     ...fields.filter((f) => f.scope === "call" && !f.builtin && call.extra?.[f.key]).map((f) => `${f.label}: ${call.extra[f.key]}`),
   ];
   return lines.filter(Boolean).join("\n");
@@ -228,6 +228,8 @@ export async function submitEod(c: PoolClient, adapters: Adapters, args: { token
   const fields = await loadEodForm(c, company.id);
   const missing = missingAnswers(fields, args.answers.calls, args.answers.day_answers ?? {});
   if (missing.length) return { ok: false, why: `Still needed: ${missing.join("; ")}` };
+  const impossible = impossibleAnswers(args.answers.calls);
+  if (impossible.length) return { ok: false, why: `Check ${impossible.join("; ")}` };
   const pre = await prefill(c, company, closer, args.day, DateTime.now(), adapters);
   // a GHL row the form did not offer this closer is dropped before anything is stored or written (D77)
   args = { ...args, answers: { ...args.answers, calls: args.answers.calls.filter((x) => !x.appointment_id.startsWith(GHL_ROW) || pre.calls.some((p) => p.appointment_id === x.appointment_id)) } };
@@ -270,8 +272,8 @@ export async function submitEod(c: PoolClient, adapters: Adapters, args: { token
 }
 const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") : String(v ?? "blank"));
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-/** "3 calls, 1 close, 1 deposit, $1,500 cash, $4,000 revenue" (deposits only when there are any). */
-export const totalsLine = (t: DayTotals) => [plural(t.calls_count, "call"), plural(t.closes, "close"), t.deposits ? plural(t.deposits, "deposit") : "", `$${t.cash.toLocaleString("en-US")} cash`, `$${t.revenue.toLocaleString("en-US")} revenue`].filter(Boolean).join(", ");
+/** "3 calls, 1 close, 1 deposit, $1,500 collected, $4,000 revenue generated" (deposits only when there are any). */
+export const totalsLine = (t: DayTotals) => [plural(t.calls_count, "call"), plural(t.closes, "close"), t.deposits ? plural(t.deposits, "deposit") : "", `$${t.cash.toLocaleString("en-US")} collected`, `$${t.revenue.toLocaleString("en-US")} revenue generated`].filter(Boolean).join(", ");
 
 export const reportFor = (c: PoolClient, companyId: string, userId: string, day: string) => one<{ id: string; submitted_at: Date | null; answers: EodAnswers | null; changes: Change[]; reminded_at: Date | null }>(c, "select id, submitted_at, answers, changes, reminded_at from eod_reports where company_id=$1 and user_id=$2 and day=$3", [companyId, userId, day]);
 export const companyReports = (c: PoolClient, companyId: string, limit = 60) => many<{ id: string; day: string; closer: string; submitted_at: Date | null; reminded_at: Date | null; answers: EodAnswers | null; changes: Change[] }>(c, "select r.id, r.day::text as day, u.name as closer, r.submitted_at, r.reminded_at, r.answers, r.changes from eod_reports r join users u on u.id=r.user_id where r.company_id=$1 order by r.day desc, u.name limit $2", [companyId, limit]);

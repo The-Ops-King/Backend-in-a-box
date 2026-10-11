@@ -35,8 +35,8 @@ export const DQ_REASONS = ["Can't afford it", "Not the decision maker", "Not a f
 
 export const BUILTIN_FIELDS: EodField[] = [
   { key: "outcome", label: "What happened on the call?", type: "select", scope: "call", required: true, builtin: true },
-  { key: "revenue", label: "Contract value ($)", type: "money", scope: "call", when: ["closed", "deposit"], required: true, builtin: true },
   { key: "cash", label: "Cash collected ($)", type: "money", scope: "call", when: ["closed", "deposit"], required: true, builtin: true },
+  { key: "revenue", label: "Revenue generated ($)", type: "money", scope: "call", when: ["closed", "deposit"], required: true, builtin: true },
   { key: "next_date", label: "Next follow-up", type: "date", scope: "call", when: ["follow_up"], required: true, builtin: true },
   { key: "next_steps", label: "Next steps", type: "text", scope: "call", when: ["follow_up"], required: true, builtin: true },
   { key: "dq_reason", label: "Why were they a DQ?", type: "select", scope: "call", when: ["dq"], required: true, options: DQ_REASONS, builtin: true },
@@ -46,11 +46,13 @@ export const BUILTIN_FIELDS: EodField[] = [
   { key: "general_notes", label: "Anything else about today?", type: "textarea", scope: "day", required: false, builtin: true },
 ];
 const BUILTIN = new Map(BUILTIN_FIELDS.map((f) => [f.key, f]));
+// a default label we later renamed: a company that saved the form with it never chose it, so it follows the new default
+const RETIRED_LABELS: Record<string, string[]> = { revenue: ["Contract value ($)"] };
 
 /** The company's list over the defaults: every builtin present (their label, required, options kept; key, type, scope, when fixed), extras kept as stored. */
 export function mergeEodFields(stored: EodField[] | null | undefined): EodField[] {
   const own = new Map((stored ?? []).map((f) => [f.key, f]));
-  const out: EodField[] = BUILTIN_FIELDS.map((b) => { const s = own.get(b.key); return s ? { ...b, label: s.label || b.label, required: !!s.required, help: s.help || undefined, options: b.type === "select" ? (s.options?.length ? s.options : b.options) : undefined } : { ...b }; });
+  const out: EodField[] = BUILTIN_FIELDS.map((b) => { const s = own.get(b.key); return s ? { ...b, label: s.label && !RETIRED_LABELS[b.key]?.includes(s.label) ? s.label : b.label, required: !!s.required, help: s.help || undefined, options: b.type === "select" ? (s.options?.length ? s.options : b.options) : undefined } : { ...b }; });
   for (const f of stored ?? []) if (!BUILTIN.has(f.key) && f.key) out.push({ ...f, builtin: false, when: f.scope === "call" && f.when?.length ? f.when : undefined, options: f.type === "select" ? f.options ?? [] : undefined });
   return out;
 }
@@ -100,4 +102,9 @@ export function missingAnswers(fields: EodField[], calls: CallEntry[], day: Reco
   }
   for (const f of dayFields(fields)) if (f.required && (day[f.key] ?? "").trim() === "") out.push(f.label);
   return out;
+}
+
+/** Answers that can't both be true: more cash collected on a call than the revenue it generated (a typo, or revenue left low). */
+export function impossibleAnswers(calls: CallEntry[]): string[] {
+  return calls.filter((x) => x.cash != null && x.revenue != null && x.cash > x.revenue).map((x) => `${x.contact}: cash collected is more than revenue generated`);
 }

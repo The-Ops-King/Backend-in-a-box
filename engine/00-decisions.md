@@ -2577,3 +2577,15 @@ guess a hurried closer submits unchanged, so a failed recording or a call taken 
   source or the CRM), money (a payment or a won card that day), or a recording (showed, with Jev's read of how it ended).
 - Otherwise it opens **blank**, required, with the hint "No recording found for this call." Nothing is marked until the
   closer answers (unchanged).
+
+## D81. Collected before revenue, one name for each (2026-10-11)
+
+Tyler: money is "collected / revenue", and the deal's value is "revenue generated". The end-of-day form asked each
+closed call for "Contract value" then "Cash collected", while the day's totals asked cash then revenue.
+
+- Everywhere the two sit together, cash collected comes first: the per-call fields, the call's disposition note
+  ("Closed: $1,500 collected, $2,999 revenue generated"), the filed summary and the correction lines.
+- The per-call field is **Revenue generated ($)**, the same name as the day's total. A company that saved its form with
+  the old default label ("Contract value ($)") follows the rename; a label the company chose stays theirs.
+- A call with more cash collected than revenue generated is not filed: the form says "Check <person>: cash collected is
+  more than revenue generated". If someone really paid more than the deal (an add-on), revenue is raised to match.
