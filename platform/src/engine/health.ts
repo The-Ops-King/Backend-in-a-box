@@ -245,6 +245,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
           case "binding": {
             const v = bindings[r.value];
             if (!v) {
+              if (r.optional) break;   // the step has a default for it (D79's setter DQ / not-interested stages)
               const post = def.nodes.find((n) => n.id === r.node); const fbs = post?.type === "slack_post" ? fallbacksOf(post.fallback_channel).map((f) => f.replace(/[{}\s]/g, "")) : [];
               if (fbs.some((fb) => bindings[fb])) break;   // D58: the post falls back to a bound channel
               if (r.value.startsWith("slack.channel.")) miss(`step ${r.node} posts to ${r.value}, which is not bound; those posts are skipped.`, "warning"); else miss(`step ${r.node} needs ${r.value}, which is not bound.`); break; }

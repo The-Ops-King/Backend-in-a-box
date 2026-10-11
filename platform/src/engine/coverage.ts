@@ -19,7 +19,8 @@ export type RefKind = "webhook"
   | "slack"              // a Slack connection (DMs; channel is a binding)
   | "url";               // a literal http(s) link in copy that a person will click
 
-export type Ref = { kind: RefKind; value: string; node: string; what: string };
+// optional: the template gives the binding a default ("{{crm.stage_x | default:}}"), so the step runs without it and an unbound one is not a fault
+export type Ref = { kind: RefKind; value: string; node: string; what: string; optional?: boolean };
 export const VERIFIES: Record<RefKind, "live" | "unverifiable"> = {
   binding: "live", custom_object: "live", workflow: "live", classify_domain: "live", event: "live", anthropic: "live", slack: "live", url: "live",
   ghl_template: "unverifiable",   // GHL has no cheap "does template X exist" read for snippets/builder templates
@@ -30,7 +31,7 @@ export const VERIFIES: Record<RefKind, "live" | "unverifiable"> = {
 const refsIn = (v: unknown, node: string, what: string, out: Ref[]) => {
   const walk = (x: unknown) => {
     if (typeof x === "string") {
-      for (const m of x.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)/g)) { const p = m[1]; if (/^(crm|calendar|slack\.channel|prompt|secret)\./.test(p)) out.push({ kind: "binding", value: p.startsWith("calendar.") || p.startsWith("prompt.") ? p.split(".").slice(0, 2).join(".") : p.startsWith("slack.channel.") ? p.split(".").slice(0, 3).join(".") : p.split(" ")[0], node, what }); }
+      for (const m of x.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)([^}]*)\}\}/g)) { const p = m[1]; if (/^(crm|calendar|slack\.channel|prompt|secret)\./.test(p)) out.push({ kind: "binding", value: p.startsWith("calendar.") || p.startsWith("prompt.") ? p.split(".").slice(0, 2).join(".") : p.startsWith("slack.channel.") ? p.split(".").slice(0, 3).join(".") : p.split(" ")[0], node, what, ...(/\|\s*default\b/.test(m[2]) ? { optional: true } : {}) }); }
       for (const m of x.matchAll(/https?:\/\/[^\s<>|"')\]]+/g)) if (!/\{\{/.test(m[0])) out.push({ kind: "url", value: m[0].replace(/[.,;:]+$/, ""), node, what });
     } else if (Array.isArray(x)) x.forEach(walk);
     else if (x && typeof x === "object") Object.values(x).forEach(walk);

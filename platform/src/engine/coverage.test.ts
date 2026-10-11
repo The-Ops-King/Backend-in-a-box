@@ -26,6 +26,13 @@ describe("coverage (D33)", () => {
     const cr = workflowRefs(parseDefinition(templates.find((t) => t.slug === "call-recorded")!.definition));
     expect(cr.some((r) => r.kind === "classify_domain" || r.kind === "anthropic")).toBe(true);
   });
+  it("a binding the template gives a default is optional: the step runs without it, so leaving it unbound is not a fault", () => {
+    const refs = workflowRefs(parseDefinition(templates.find((t) => t.slug === "setter-call-logged")!.definition)).filter((r) => r.kind === "binding");
+    const opt = (v: string) => refs.filter((r) => r.value === v).map((r) => !!r.optional);
+    expect(opt("crm.stage_setter_not_interested")).toEqual([true]);
+    expect(opt("crm.stage_setter_dq")).toEqual([true]);
+    expect(opt("crm.pipeline_setter").every((o) => !o)).toBe(true);
+  });
   it("a fixed link in copy is a url ref; a templated one is not", () => {
     const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "contact_exists" }, nodes: [{ id: "t", type: "trigger", event: "lead.created" }, { id: "s", type: "send_sms", template: "Book here: https://cal.example.com/book?x=1. Or {{calendar.booking.url}}" }, { id: "x", type: "exit", reason: "done" }], edges: [{ from: "t", to: "s" }, { from: "s", to: "x" }] });
     const refs = workflowRefs(def);
