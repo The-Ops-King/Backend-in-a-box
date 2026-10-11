@@ -8,6 +8,7 @@ import { latestAgreement, facts as agreementFacts, type AgreementRow } from "./a
 import { eodFacts } from "./eod";
 import type { ContactTruth } from "./contact-truth";
 import { salesCallValues, bookingSourceValues } from "./sales-call";
+import { BOOKED_WITHIN_MIN, discoveryResultValues, setterResultActs } from "./setter-result";
 import { leadSourceSql, sourceFields, sourceFieldsParam, UNKNOWN_SOURCE } from "./lead-source";
 
 export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string | null; user_id?: string | null; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date; resume_node?: string | null; resume_at?: Date | null; step_attempt?: number; step_error?: string | null; step_held?: boolean };
@@ -64,7 +65,9 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     reaction: run.context.reaction,   // what a wait_for_reaction stored (D53); carried so the steps after it can say who decided even across a park
     calendar: {}, slack: { channel: {} }, crm: {}, prompt: {},
     // the company's own option keys for what the engine writes on a picklist (a Sales Call's outcome)
-    picklist: { sales_call_outcome: salesCallValues(bindings), sales_call_booking_source: bookingSourceValues(bindings) },
+    picklist: { sales_call_outcome: salesCallValues(bindings), sales_call_booking_source: bookingSourceValues(bindings), discovery_call_result: discoveryResultValues(bindings) },
+    // company switches a template reads (D79: whether a setter call's result acts, or only says what it would do)
+    setting: { setter_result: { act: setterResultActs(bindings) } },
   };
   // the recording a run was started by (recording.received) — read from the ledger every tick, never copied into the run's context
   const recId = (run.context.event as { recording_id?: string } | undefined)?.recording_id;
@@ -76,7 +79,10 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       // phone calls (D28): the dialer's facts, who dialed, and whether a booking followed — read live, so a 15-minute wait sees the booking the setter made after hanging up
       kind: r.raw.kind === "phone" ? "phone" : "meeting", direction: r.raw.direction, status: r.raw.call_status, connected: r.raw.call_status === "connected", duration_sec: r.raw.duration_sec ?? (r.duration_min != null ? r.duration_min * 60 : undefined),
       caller: r.closer_name ? { name: r.closer_name, first_name: r.closer_name.split(" ")[0], ghl_user_id: r.closer_ghl } : undefined,
-      led_to_booking: r.contact_id ? !!(await one(c, "select 1 from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled' and booked_at >= $3 limit 1", [r.company_id, r.contact_id, r.started_at])) : false };
+      led_to_booking: r.contact_id ? !!(await one(c, "select 1 from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled' and booked_at >= $3 limit 1", [r.company_id, r.contact_id, r.started_at])) : false,
+      // D79: a closing call booked from the start of the call to 30 minutes after it ended means the call set it
+      booked_within_30m: r.contact_id ? !!(await one(c, `select 1 from appointments a left join company_terms t on t.id=a.appointment_term where a.company_id=$1 and a.contact_id=$2 and a.status<>'cancelled'
+        and coalesce(t.category,'closing')='closing' and a.booked_at >= $3 and a.booked_at <= $4::timestamptz + make_interval(mins => $5) limit 1`, [r.company_id, r.contact_id, r.started_at, r.ended_at ?? r.started_at, BOOKED_WITHIN_MIN])) : false };
   }
   if (run.appointment_id) {
     const a = await one<Record<string, unknown>>(c, `

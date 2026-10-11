@@ -39,6 +39,8 @@ export type InstallInput = {
   qualify?: { mqlAnswers?: string[]; dqAnswers?: string[]; unansweredIsMql?: boolean };
   /** D73: the Sales Call custom object the show rate reads (crm.object_sales_call), what each of its `outcome` values means (sales_call.outcomes; also what the engine writes there, inverted: a new booking's `scheduled`, a no-show, a late cancel), and which `disposition` values are a sales DQ (sales_call.dq_dispositions). */
   salesCall?: { object?: string; outcomes?: Record<string, "showed" | "noshow" | "cancelled" | "rescheduled" | "scheduled">; dqDispositions?: string[]; bookingSources?: { setter?: string; self?: string } };
+  /** D79: the Discovery Call record's `call_result` option keys, {key: set | follow_up | dq | not_interested} (discovery_call.results; unbound, the keys are those four), and whether Jev's read of a setter call acts (setter_result.act, default off: it only says what it would do). */
+  discoveryCall?: { results?: Record<string, "set" | "follow_up" | "dq" | "not_interested">; act?: boolean };
   testDomains?: string[];                // bound as test.domains: email domains whose contacts pass in test (D52), e.g. ["jtylerray.com"]
   jevKey?: string;                       // bound as secret.jev_key; the classify node reads replies with it (env JEV_API_KEY is the fallback)
   /** Where the engine says what broke (D33): a Slack channel id, email addresses (needs resendKey + emailFrom), a webhook (a Zap). */
@@ -155,6 +157,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (input.salesCall?.outcomes) await bind("sales_call.outcomes", "text", JSON.stringify(input.salesCall.outcomes));
     if (input.salesCall?.bookingSources) await bind("sales_call.booking_sources", "text", JSON.stringify(input.salesCall.bookingSources));
     if (input.salesCall?.dqDispositions) await bind("sales_call.dq_dispositions", "text", answers(input.salesCall.dqDispositions));
+    if (input.discoveryCall?.results) await bind("discovery_call.results", "text", JSON.stringify(input.discoveryCall.results));
+    if (input.discoveryCall?.act !== undefined) await bind("setter_result.act", "text", String(input.discoveryCall.act));
     if (input.whop?.webhookSecret) await bind("secret.whop_webhook", "secret", input.whop.webhookSecret);
     if (input.whop?.apiKey) await bind("secret.whop_api_key", "secret", input.whop.apiKey);
     for (const [name, id] of Object.entries(input.slack ?? {})) await bind(`slack.channel.${name}`, "channel", id);

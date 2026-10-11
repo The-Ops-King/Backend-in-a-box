@@ -55,7 +55,7 @@ const fake: Adapters = {
     createRecord: async (_c, _o, props) => { recordWrites.push({ op: "create", ...props }); return { id: `rec-${recordWrites.length}` }; }, updateRecord: async (_c, _o, id, props) => { recordWrites.push({ op: "update", id, ...props }); },
     sendDocumentTemplate: async (_c, input) => { docSends.push(input); return { id: `doc-${docSends.length}` }; } },
   sender: { ...base.sender, sendSms: async (_c, to, body) => { sent.push({ kind: "sms", to, body }); return { externalId: `s${sent.length}`, accepted: true }; }, sendEmail: async (_c, to, subject, html) => { sent.push({ kind: "email", to, body: `${subject}|${html}` }); return { externalId: `e${sent.length}`, accepted: true }; } },
-  classifier: { choice: async (_s, _input, options): Promise<Classification> => { const value = options.includes("setting") ? "setting" : options.includes("sales_call") ? "sales_call" : options.includes("closed_won") ? "closed_won" : replyIntent; return { value, confidence: 0.95, distribution: { [value]: 0.95 }, unclear: false }; } },
+  classifier: { choice: async (_s, _input, options): Promise<Classification> => { const value = options.includes("setting") ? "setting" : options.includes("not_interested") ? "follow_up" : options.includes("budget") ? "other" : options.includes("sales_call") ? "sales_call" : options.includes("closed_won") ? "closed_won" : replyIntent; return { value, confidence: 0.95, distribution: { [value]: 0.95 }, unclear: false }; } },
   notifier: { ...base.notifier, post: async (_t, channel, text, as, threadTs) => { posts.push({ channel, text, threadTs, as }); return { ts: `ts${posts.length}` }; }, react: async (_t, channel, ts, emoji) => { reactions.push({ channel, ts, emoji }); return true; } },
   analyst: { analyze: async (_k, req) => { const parsed = /setter phone calls/.test(req.system) ? { digest: "Thinning for a year; took Thursday.", pains: "a year of thinning", goals: "keep it", fit_quality: 8 }
     : { notes: { summary: "Decided to start.", pain: ["crown"], objections: [], disposition: "closed_won", primary_objection: "price", next_step: "onboarding" }, rubric: { overall_score: 8, scores: {}, strengths: [], misses: [], coaching: [] } };
@@ -143,17 +143,17 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await lastRun("speed-to-lead", jordan)).toMatchObject({ status: "waiting", current_node: "n3" });
     });
 
-    it("setter call logged: a connected 3-minute dial with a transcript, read 15 minutes after it ended → Discovery Call record linked, note, Slack; nothing moves on the cards", async () => {
+    it("setter call logged: a connected 3-minute dial with a transcript, read 15 minutes after it ended, its result 35 minutes after → Discovery Call record linked, note, Slack; nothing moves on the cards (the actions are off)", async () => {
       const nRec = recordWrites.length, nCards = JSON.stringify(await cardsOf(jordan));
       await asOperator(async (c) => {
-        const { recording } = await recordPhoneCall(c, companyId, { externalId: "dial-1", contactId: jordan, startedAt: T0.minus({ minutes: 25 }).toJSDate(), durationSec: 184, direction: "outbound", status: "completed", callerGhlUserId: "U1" });
+        const { recording } = await recordPhoneCall(c, companyId, { externalId: "dial-1", contactId: jordan, startedAt: T0.minus({ minutes: 40 }).toJSDate(), durationSec: 184, direction: "outbound", status: "completed", callerGhlUserId: "U1" });
         const { recording: row, event } = await settlePhoneCall(c, recording, { transcript: [{ speaker: "0", text: "Hey Jordan, two minutes?" }, { speaker: "1", text: "Sure, it has been thinning for a year." }] });
         await dispatchEvent(c, event!, { contact: { id: jordan }, recording: { id: row.id, ...phoneFacts(row) } });
       });
       await tickAt(T0); await tickAt(T0);
       expect(await lastRun("setter-call-logged", jordan)).toMatchObject({ status: "completed", exit_reason: "posted" });
       expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "create", external_id: "dial-1", contact_id: "JV1", setter: "Sam Closer" })]);
-      expect(posts.filter((p) => p.channel === "CSET").at(-1)?.text).toContain("No booking yet");
+      expect(posts.filter((p) => p.channel === "CSET").at(-1)?.text).toContain("*Outcome:* Follow up (Jev is 95% sure)\n*Would have (actions are off):* a task for Sam Closer to call back Jordan Vale, due next business day.");   // D79: Jev's read of the result; the actions are off until the company turns them on
       expect(JSON.stringify(await cardsOf(jordan))).toBe(nCards);
     });
 

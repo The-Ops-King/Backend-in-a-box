@@ -328,7 +328,7 @@ insert into event_types values
   ('call.held','call'),
   ('message.sent','message'), ('message.received','message'), ('reply.classified','message'), ('intent.reviewed','message'), ('intent.unanswered','message'), ('intent.unanswered_no_show','message'),
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
-  ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'),
+  ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'), ('setter_call.result','call'),
   ('agreement.sent','agreement'), ('agreement.signed','agreement'),
   ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'), ('card.moved','crm'),
   ('schedule','clock'), ('eod.filed','report'), ('slack.reaction','slack'),

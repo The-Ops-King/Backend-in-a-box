@@ -158,6 +158,13 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
       ('setter_call_type','setting','Setting call',1), ('setter_call_type','confirmation','Confirmation call',2), ('setter_call_type','other','Other',3),
       ('sales_call_disposition','closed_won','Closed won',1), ('sales_call_disposition','close_pending','Close pending',2), ('sales_call_disposition','follow_up','Follow-up',3), ('sales_call_disposition','lost','Lost',4), ('sales_call_disposition','dq','Disqualified',5), ('sales_call_disposition','financing_denied','Financing denied',6), ('sales_call_disposition','unclear','Unclear',7)
       on conflict (domain, value) do nothing`);
+    // D79: what a setter call achieved, Jev's reason for a DQ, and the read as a ledger fact
+    await c.query(`insert into core_categories (domain, value, label, sort) values
+      ('setter_call_result','set','Set',1), ('setter_call_result','follow_up','Follow up',2), ('setter_call_result','dq','Disqualified',3), ('setter_call_result','not_interested','Not interested',4),
+      ('setter_dq_reason','budget','Budget',1), ('setter_dq_reason','age','Age',2), ('setter_dq_reason','geo','Location',3), ('setter_dq_reason','medical','Medical',4), ('setter_dq_reason','timeline','Timeline',5),
+      ('setter_dq_reason','no_problem','No problem to solve',6), ('setter_dq_reason','competitor','Competitor',7), ('setter_dq_reason','bad_contact','Bad contact',8), ('setter_dq_reason','other','Other',9)
+      on conflict (domain, value) do nothing`);
+    await c.query(`insert into event_types values ('setter_call.result','call') on conflict do nothing`);
     await c.query(`alter table sends drop constraint if exists sends_channel_check`);
     await c.query(`alter table sends add constraint sends_channel_check check (channel in ('sms','email','slack','webhook'))`);
     await ownsOrAbsent(c, "slack_posts", "tag");

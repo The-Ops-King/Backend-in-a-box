@@ -228,11 +228,11 @@ export async function healthPage(c: PoolClient, co: CompanyHead) {
     starts: await startsCatalog(c, co.id), jev: await jevScore(c, co.id, co.timezone) };
 }
 
-/** D55: how often a person agreed with Jev's read of a reply this month (company time), from the intent.reviewed events, and the same split by what Jev predicted. */
+/** D55: how often a person agreed with Jev's read of a reply this month (company time), from the intent.reviewed events, and the same split by what Jev predicted. A setter call's review (D79) is scored by jev_setter_accuracy instead. */
 async function jevScore(c: PoolClient, companyId: string, tz: string) {
   const rows = await many<{ predicted: string; reviewed: number; agreed: number }>(c, `
     select coalesce(data->>'predicted', '') as predicted, count(*)::int as reviewed, count(*) filter (where (data->>'agreed')::boolean)::int as agreed
-    from events where company_id=$1 and event_type='intent.reviewed' and occurred_at >= date_trunc('month', now() at time zone $2) at time zone $2
+    from events where company_id=$1 and event_type='intent.reviewed' and coalesce(data->>'domain','reply_intent')='reply_intent' and occurred_at >= date_trunc('month', now() at time zone $2) at time zone $2
     group by 1 order by 2 desc, 1`, [companyId, tz]);
   const reviewed = rows.reduce((n, r) => n + r.reviewed, 0), agreed = rows.reduce((n, r) => n + r.agreed, 0);
   return { reviewed, agreed, by_intent: rows };

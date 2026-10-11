@@ -51,7 +51,7 @@ const fake: Adapters = {
     deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null,
   },
   classifier: { choice: async (_s, _input, options): Promise<Classification> => {   // Jev, faked by vocabulary (D48)
-    const value = options.includes("setting") ? setterCallType : options.includes("sales_call") ? (salesCall ? "sales_call" : "other") : options.includes("closed_won") ? "closed_won" : replyIntent;
+    const value = options.includes("setting") ? setterCallType : options.includes("not_interested") ? "set" : options.includes("budget") ? "other" : options.includes("sales_call") ? (salesCall ? "sales_call" : "other") : options.includes("closed_won") ? "closed_won" : replyIntent;
     return { value, confidence: 0.95, distribution: { [value]: 0.95 }, unclear: false }; } },
   notifier: { post: async (_t, channel, text, _as, threadTs) => { slackPosts.push({ channel, text, threadTs }); return { ts: `ts${slackPosts.length}` }; }, lookupUserByEmail: async () => null, react: async (_t, _ch, ts, emoji) => { reacted.push(`${ts}:${emoji}`); return true; }, unreact: async (_t, _ch, ts, emoji) => { unreacted.push(`${ts}:${emoji}`); return true; }, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
   // answers by which prompt is asked, the way the real model would: classify → is it a sales call, notes → the write-up, rubric → the score
@@ -658,7 +658,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const lastRun = async () => (await runsFor("setter-call-logged")).filter((x) => x.contact_id === id).at(-1)!;
     // 1. the real thing: 3 minutes, 20 minutes ago, transcript present
     const nRec = recordWrites.length, nRel = relations.length, nAn = analyses.length;
-    const row = await logCall("call-1", 184, 20, true);
+    const row = await logCall("call-1", 184, 40, true);   // D79: a setting call's result is read 35 minutes after it ends
     expect(row.raw).toMatchObject({ kind: "phone", call_status: "connected", duration_sec: 184, transcript_status: "ready" });
     expect(row.recorded_by_name).toBe("Sam Closer");
     await tick(fake, undefined, companyId); await tick(fake, undefined, companyId);
@@ -666,11 +666,11 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(run).toMatchObject({ status: "completed", exit_reason: "posted" });
     expect(analyses.slice(nAn)).toHaveLength(1);   // the digest; the kind of call is Jev's (D48)
     const rw = recordWrites.slice(nRec); expect(rw).toHaveLength(1);
-    expect(rw[0]).toMatchObject({ op: "create", external_id: "call-1", contact_id: "CCB2", direction: "outbound", duration_sec: 184, setter: "Sam Closer", outcome: "connected", recording_url: "https://ghl.test/call-1/recording" });
+    expect(rw[0]).toMatchObject({ op: "create", external_id: "call-1", contact_id: "CCB2", direction: "outbound", duration_sec: 184, setter: "Sam Closer", outcome: "connected", recording_url: "https://ghl.test/call-1/recording", call_result: "set" });
     expect(rw[0].led_to_booking).toEqual(["yes"]);   // Leo's appointment was booked (by this test run) after the call started → the checkbox is written as the CRM wants it
     expect(relations.slice(nRel)).toEqual([`ASSOC-DC:CCB2>rec-${nRec + 1}`]);
     const slack = await asOperator((c) => one<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [run.id]));
-    expect(slack?.rendered_body).toContain("setting"); expect(slack?.rendered_body).toContain("Fit: 8/10"); expect(slack?.rendered_body).toContain("Set — a booking followed this call");
+    expect(slack?.rendered_body).toContain("setting"); expect(slack?.rendered_body).toContain("Fit: 8/10"); expect(slack?.rendered_body).toContain("*Outcome:* Set (Jev is 95% sure)");
     const stored = await asOperator((c) => one<{ analysis: Record<string, unknown> }>(c, "select analysis from recordings where id=$1", [row.id]));
     expect(Object.keys(stored!.analysis).sort()).toEqual(["classify", "notes"]);
     // 2. a 30-second connect stops before the wait; 3. a connected call nobody recorded stops too; neither reaches the AI
