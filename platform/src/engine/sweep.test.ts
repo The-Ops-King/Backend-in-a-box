@@ -33,7 +33,7 @@ const relations: string[] = [];
 let opps = 0;
 const noBooking = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] };
 const fake: Adapters = {
-  read: { openCards: async () => [], contactsChangedSince: async (c) => (c.id === companyId ? ghlContacts : []), inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [],
+  read: { openCards: async () => [], contactsChangedSince: async (c) => (c.id === companyId ? ghlContacts : []), inboundSince: async () => [], messageBodies: async () => new Map(), callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [],
     objectRecords: async (_c, key) => (key === "custom_objects.sales_call" ? ghlSalesCalls : []), documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [],
     getContact: async (_c, id) => ghlContacts.find((k) => k.id === id) ?? null, listUsers: async () => [] },
   booking: { ghl: noBooking, calendly: { listCalendars: async () => [], getAppointment: async (_c, id) => events.find((e) => e.id === id) ?? null, appointmentsInWindow: async (c, cal) => (c.id === companyId ? events.filter((e) => e.calendarId === cal) : []) } },

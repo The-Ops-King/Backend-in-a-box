@@ -19,7 +19,7 @@ afterAll(async () => { await asOperator(async (c) => { for (const t of ["message
 describe("D38 retention", () => {
   it("drops old replies and finished runs' old sends, keeps the recent and the live", async () => {
     await asOperator(async (c) => {
-      await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'old','sms','inbound','yes',now()-interval '8 days'),($1,$2,'new','sms','inbound','yes',now()-interval '1 hour')", [companyId, contactId]);
+      await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, occurred_at) values ($1,$2,'old','sms','inbound',now()-interval '8 days'),($1,$2,'new','sms','inbound',now()-interval '1 hour')", [companyId, contactId]);
       await c.query("insert into sends (company_id, contact_id, channel, idempotency_key, rendered_body, status, sent_at) values ($1,$2,'sms','k-old','hi','shadow',now()-interval '40 days'),($1,$2,'sms','k-new','hi','shadow',now()-interval '2 days')", [companyId, contactId]);
     });
     const r = await asOperator((c) => purgeOld(c));

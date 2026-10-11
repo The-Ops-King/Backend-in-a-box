@@ -12,7 +12,7 @@ import { applyPayment } from "@/engine/lifecycle";
 import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { replicaSnapshot } from "@/engine/test-install";
+import { fakeMessageBodies, ghlMessages, inboundForTest, replicaSnapshot } from "@/engine/test-install";
 import { templates } from "@/templates";
 import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from "@/adapters/types";
 import { recordRecording, linkRecording, recordPhoneCall, settlePhoneCall, phoneFacts, type RecordingInput } from "@/engine/recordings";
@@ -36,7 +36,7 @@ const docSends: { templateId: string; contactId: string; userId?: string }[] = [
 const liveCards = new Map<string, import("@/adapters/types").LiveCard[]>();   // what the CRM "has" for a contact: cards the engine never made (D41)
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], openCards: async (_c, id) => liveCards.get(id) ?? [], pipelineCards: async (_c, pipelineId) => [...liveCards.entries()].flatMap(([cid, cards]) => cards.filter((k) => k.pipelineId === pipelineId).map((k) => ({ ...k, contactId: cid }))), inboundSince: async () => [], callMedia: async (_c, id) => callMedia.get(id) ?? { transcript: null }, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
+    contactsChangedSince: async () => [], openCards: async (_c, id) => liveCards.get(id) ?? [], pipelineCards: async (_c, pipelineId) => [...liveCards.entries()].flatMap(([cid, cards]) => cards.filter((k) => k.pipelineId === pipelineId).map((k) => ({ ...k, contactId: cid }))), inboundSince: async () => [], messageBodies: fakeMessageBodies, callMedia: async (_c, id) => callMedia.get(id) ?? { transcript: null }, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [],
     getContact: async (c, id) => (await replicaSnapshot(c.id, id)) ?? { id, firstName: id, email: `${id.toLowerCase()}@x.com`, phone: phoneFor(id), tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() },
     listUsers: async () => [{ id: "U1", name: "Sam Closer", email: "sam@x.com" }],
   },
@@ -91,7 +91,7 @@ const newContact = async (ghlId: string, email: string, phone: string | null = p
   return id;
 });
 const withPhone = (contactId: string, phone: string) => asOperator((c) => c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'phone',$3)", [companyId, contactId, phone]));
-const inbound = (contactId: string, body: string) => asOperator((c) => c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,$3,'sms','inbound',$4,now())", [companyId, contactId, `m${Math.random()}`, body]));
+const inbound = (contactId: string, body: string) => asOperator((c) => inboundForTest(c, companyId, contactId, body));   // D89: the row says it came in; GHL (the fake) holds the words
 let companyId: string;
 /** A closing call five days out for a new contact, as the poll would record it. */
 const bookClosing = async (ghl: string) => {

@@ -15,7 +15,7 @@ import { applyAppointment } from "@/engine/poll";
 import { applyPayment } from "@/engine/lifecycle";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { fakeAdapters } from "@/engine/test-install";
+import { fakeAdapters, inboundForTest } from "@/engine/test-install";
 import { recordRecording, type RecordingInput } from "@/engine/recordings";
 import { companyReadiness } from "@/engine/readiness";
 import { parseDefinition, extractManifest } from "@/engine/definition";
@@ -244,7 +244,7 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     const run = (await runsFor("pre-call-sequence")).find((r) => r.contact_id === id)!;
     const TS = "1700000000.000100";
     await asOperator((c) => c.query("insert into slack_posts (company_id, tag, channel, ts, run_id) values ($1,$2,'C1',$3,$4)", [companyId, `decision:${run.appointment_id}`, TS, run.id]));
-    await asOperator((c) => c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'ME7','sms','inbound','hmm',now())", [companyId, id]));   // the reply the question was about
+    await asOperator((c) => inboundForTest(c, companyId, id, "hmm", { id: "ME7" }));   // the reply the question was about
     const before = Number((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from events where company_id=$1 and event_type='slack.reaction'", [companyId])))!.n);
     expect((await knock(reaction("U1", TS), "EvForged", true)).status).toBe(401);
     expect((await knock(reaction("UBOT", TS), "EvBot")).body).toMatchObject({ ignored: "own reaction" });

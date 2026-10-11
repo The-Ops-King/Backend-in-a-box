@@ -1,4 +1,5 @@
-import type { Adapters, BookingRead, ContactSnapshot } from "@/adapters/types";
+import type { Adapters, BookingRead, ContactSnapshot, CrmRead, MessageText } from "@/adapters/types";
+import { GhlError } from "@/adapters/ghl/client";
 import type { PoolClient } from "pg";
 import { asOperator, currentClient, one } from "@/db/client";
 import { templates } from "@/templates";
@@ -47,9 +48,27 @@ export async function replicaSnapshot(companyId: string, ghlId: string): Promise
     tags: ct.tags, customFields: ct.ghl_fields, dateUpdated: (ct.ghl_updated_at ?? new Date()).toISOString(), dateAdded: (ct.ghl_added_at ?? ct.created_at).toISOString(), ...(ct.attribution && Object.keys(ct.attribution).length ? { attribution: ct.attribution } : {}) };
 }
 
+/**
+ * D89: what GHL "has" for each inbound message a test writes; the engine stores only that it came in and reads the words back by id.
+ * `down` makes the read fail as GHL would when it does not answer; `reads` counts the reads (one per call, with the ids asked for).
+ */
+export const ghlMessages = { texts: new Map<string, string>(), down: false, reads: [] as string[][] };
+export const fakeMessageBodies: CrmRead["messageBodies"] = async (_c, msgs) => {
+  ghlMessages.reads.push(msgs.map((m) => m.id));
+  if (ghlMessages.down) throw new GhlError(503, "Service Unavailable", "/conversations/messages");
+  return new Map(msgs.filter((m) => ghlMessages.texts.has(m.id)).map((m): [string, MessageText] => [m.id, { body: ghlMessages.texts.get(m.id)! }]));
+};
+/** An inbound text as the poll records it (D89: no words; GHL holds them, here `ghlMessages`). */
+export async function inboundForTest(c: PoolClient, companyId: string, contactId: string, text: string, opts: { id?: string; at?: Date; channel?: string } = {}): Promise<string> {
+  const id = opts.id ?? `m${Math.random().toString(36).slice(2)}`;
+  ghlMessages.texts.set(id, text);
+  await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, occurred_at) values ($1,$2,$3,$4,'inbound',$5)", [companyId, contactId, id, opts.channel ?? "sms", opts.at ?? new Date()]);
+  return id;
+}
+
 /** Tests: adapters that never touch a vendor; every send is accepted, every classify answers "confirmed". `crm`: the fixture's own CRM (an id it lacks is a 404); without one, `getContact` echoes the replica. */
 export const fakeAdapters = (opts: { crm?: Map<string, ContactSnapshot> } = {}): Adapters => ({
-  read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [],
+  read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], messageBodies: fakeMessageBodies, callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [],
     getContact: async (c, id) => (opts.crm ? opts.crm.get(id) ?? null : replicaSnapshot(c.id, id)), listUsers: async () => [] },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [{ id: "CAL", name: "Closer", teamMemberIds: [] }] }; return { ghl: b, calendly: b }; })(),
   write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "doc-x" }) },

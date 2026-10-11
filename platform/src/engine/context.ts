@@ -33,17 +33,26 @@ export async function loadCompany(c: PoolClient, companyId: string): Promise<{ r
 
 /**
  * D84: what a run keeps between wakes. Only what buildContext reads back (vars, with the wait pins and an armed listener under
- * vars.__*; reply; event; reaction) and when the CRM was last read for the run page (contact.fetched_at / stale). The contact,
+ * vars.__*; reply, without a reply's words (D89); event; reaction) and when the CRM was last read for the run page (contact.fetched_at / stale). The contact,
  * appointment, recording, cards and the rest are read fresh at every wake, so a copy of them here would only be a stale duplicate.
  */
 export const KEPT_KEYS = ["vars", "reply", "event", "reaction"] as const;
 export function persistedContext(ctx: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of KEPT_KEYS) if (ctx[k] !== undefined) out[k] = ctx[k];
+  if (out.reply && typeof out.reply === "object") out.reply = replyWithoutText(out.reply as Record<string, unknown>);
   const ct = ctx.contact as { fetched_at?: unknown; stale?: unknown } | null | undefined, read: Record<string, unknown> = {};
   if (ct && typeof ct === "object") { if (ct.fetched_at != null) read.fetched_at = ct.fetched_at; if (ct.stale != null) read.stale = ct.stale; }
   if (Object.keys(read).length) out.contact = read;
   return out;
+}
+
+/** D89: a run's reply as it is kept: what came in and Jev's read of it, never the words (`inbound_since_send`, `last_inbound.body` / `.subject`). */
+export function replyWithoutText(reply: Record<string, unknown>): Record<string, unknown> {
+  const { inbound_since_send: _words, ...rest } = reply;
+  const last = rest.last_inbound;
+  if (last && typeof last === "object" && !Array.isArray(last)) { const { body: _b, subject: _s, ...l } = last as Record<string, unknown>; rest.last_inbound = l; }
+  return rest;
 }
 
 /** Builds what `{{…}}` resolves against. Secrets are never placed in the context. */
@@ -59,14 +68,16 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     from contacts ct where ct.id=$1`, [run.contact_id, sourceFieldsParam(sourceFields(bindings))]);
   const contactZone = typeof contact?.timezone === "string" && DateTime.now().setZone(contact.timezone).isValid ? contact.timezone : undefined;   // G20: a zone Luxon cannot use never reaches the window math
   // D13: the reply the run is reacting to is whatever the contact last sent after this run started; what we last sent is the classifier's state.
-  const lastIn = await one<{ body: string | null; occurred_at: Date }>(c, "select body, occurred_at from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at >= $3 order by occurred_at desc limit 1", [company.id, run.contact_id, run.started_at ?? new Date(0)]);
+  // D89: which messages, never their words; a step that reads the words gets them from GHL by these ids (replies.ts)
+  const lastIn = await one<{ ghl_message_id: string; channel: string; occurred_at: Date }>(c, "select ghl_message_id, channel, occurred_at from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at >= $3 order by occurred_at desc limit 1", [company.id, run.contact_id, run.started_at ?? new Date(0)]);
   // what we last said to THEM: a text or an email; a Slack post about them (the question to the team) is not a message they saw
   const lastOut = await one<{ rendered_body: string; sent_at: Date }>(c, "select rendered_body, sent_at from sends where company_id=$1 and contact_id=$2 and channel in ('sms','email') and status='sent' order by sent_at desc limit 1", [company.id, run.contact_id]);
-  const sinceSend = await many<{ body: string | null }>(c, "select body from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at > $3 order by occurred_at", [company.id, run.contact_id, lastOut?.sent_at ?? run.started_at ?? new Date(0)]);
+  const sinceSend = await many<{ ghl_message_id: string }>(c, "select ghl_message_id from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at > $3 order by occurred_at, id", [company.id, run.contact_id, lastOut?.sent_at ?? run.started_at ?? new Date(0)]);
   const derivedReply: Record<string, unknown> = {
-    last_inbound: lastIn ? { body: lastIn.body, at: lastIn.occurred_at.toISOString() } : undefined,
+    last_inbound: lastIn ? { message_id: lastIn.ghl_message_id, channel: lastIn.channel, at: lastIn.occurred_at.toISOString() } : undefined,
     last_outbound: lastOut ? { body: lastOut.rendered_body, at: lastOut.sent_at?.toISOString() } : undefined,
-    inbound_since_send: sinceSend.map((m) => m.body ?? "").filter(Boolean).join("\n") || undefined, count: sinceSend.length,   // D47: everything they sent since we last did, in order
+    // D47: everything they sent since we last did, in order; `inbound_since_send` is those messages' words, filled only for the step that reads them (D89)
+    message_ids: sinceSend.length ? sinceSend.map((m) => m.ghl_message_id) : undefined, inbound_since_send: undefined, count: sinceSend.length,
   };
   // CRM custom fields by the name the company bound them under: crm.field_contact_hair_loss = <id> → contact.fields.hair_loss
   const fields: Record<string, unknown> = {};

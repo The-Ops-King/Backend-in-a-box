@@ -15,7 +15,7 @@ import { buildContext, loadCompany, persistedContext, type RunRow } from "@/engi
 import { slimRunContexts } from "@/engine/retention";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { encrypt } from "@/engine/crypto";
-import { fakeAdapters } from "@/engine/test-install";
+import { fakeAdapters, inboundForTest } from "@/engine/test-install";
 import { GhlError } from "@/adapters/ghl/client";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
 
@@ -138,11 +138,12 @@ describe.skipIf(!HAS_DB)("D84: a run keeps its own state, not a copy of the cont
     expect((await runRow(id)).context.vars).toMatchObject({ __wait_for_reply: { r1: { deadline } } });
 
     // they reply: on to the blocking reaction wait
-    await asOperator((c) => c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'M-SLIM','sms','inbound','yes please',now()-interval '5 minutes')", [companyId, contactId]));
+    await asOperator((c) => inboundForTest(c, companyId, contactId, "yes please", { id: "M-SLIM", at: new Date(Date.now() - 5 * 60e3) }));
     await wake(id); await tickOnce();
     r = await runRow(id);
     expect(r).toMatchObject({ status: "waiting", current_node: "b1", wake_on_tag: "slim:k1" });
-    expect((r.context.reply as Record<string, any>).last_inbound).toMatchObject({ body: "yes please" });
+    expect((r.context.reply as Record<string, any>).last_inbound).toMatchObject({ message_id: "M-SLIM" });   // D89: which message, never its words
+    expect(JSON.stringify(r.context)).not.toContain("yes please");
     expectSlim(r.context);
 
     // the team taps ✅ while the CRM is down: the tag step is tried three times, then the run is held on it

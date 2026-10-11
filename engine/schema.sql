@@ -548,8 +548,8 @@ create table messages (
   ghl_conversation_id  text,
   channel              text not null check (channel in ('sms','email')),
   direction            text not null check (direction in ('inbound','outbound')),
-  body                 text,                               -- null for email
-  subject              text,
+  body                 text,                               -- D89: not written; a reply's words are read from GHL by id
+  subject              text,                               -- D89: not written either
   sent_by              text check (sent_by in ('engine','human','other')),
   send_id              uuid references sends(id),
   status               text,

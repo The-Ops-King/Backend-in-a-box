@@ -2825,3 +2825,39 @@ workflow now), D76's fixed eod_due rules and wrap-up words in code, D77's direct
 its fixed DISPOSITION map, D73's CRM writes inside the sweep, and D29's claim that nothing about wrap-ups was in code
 (true now). D82's "a call already answered is not owed" gains one exception: a loss or DQ a card move filed is owed until
 the day is filed.
+
+## D89. A reply is kept as "it came in" plus Jev's read, never its text (2026-10-11)
+
+Tyler: GHL is the source of truth; store as little as possible while keeping what we use. "We can keep that the reply came
+in as long as we're also storing the Jev score of that reply. If we say Jev is 80% sure that this is a cancellation message
+or a confirmation message, that's fine." He does not want the engine keeping the text of people's texts and emails. D38
+already dropped the outbound side and kept a reply's body for 7 days; the body was also copied into the run's saved
+`reply`, the `message.received` event (texts) and the `reply.classified` event (`input`), and those were never dropped.
+
+- The poll stores an inbound message as a row with no words: GHL's message and thread ids, channel, direction, when, who.
+  Waking a reply wait, the settle (D47), counting replies and the "since our last send" boundary need nothing more and
+  work as before. `message.received` carries the channel and the message id.
+- A step whose settings read the words (`{{reply.inbound_since_send}}`, `{{reply.last_inbound.body}}` or `.subject`: today
+  pre-call's classify, the question to the closer and the three decision lines that quote the reply) gets them from GHL by
+  message id just before it runs and the context drops them after it, the way D87 treats a transcript. The adapter read is
+  `CrmRead.messageBodies`: one read of the thread for all of its messages (`GET /conversations/{id}/messages`, the newest
+  100), else the message by id (`GET /conversations/messages/{id}`, the read the delivery status already used); a message
+  GHL no longer has is left out. An email reply's body is not read, as the poll never read it; its subject is.
+- The run keeps which messages (`reply.message_ids`, `reply.last_inbound.message_id`), never their words: `persistedContext`
+  strips them too. A step's result and a var it set are scrubbed of the words before they are saved (a skipped Slack post's
+  `would_post` preview says "[their reply]"); a `record` step never writes them. The `reply.classified` event keeps
+  `input_chars` instead of `input`.
+- Jev's read is what is kept: `reply.intent`, `reply.intent_confidence` and `reply.top_guesses` on the run (as D58), and on
+  the `reply.classified` event the intent, confidence, whether it was unclear and now also `top_guesses` and `ambiguity`, so
+  "Jev was 80% sure this was a cancel" can be reported from the event alone. `intent.reviewed` and `intent.unanswered` keep
+  `predicted` and `predicted_confidence`; the appointment's `pending_read` is unchanged.
+- GHL down when the words are needed: the step fails and is retried in place under the normal policy (D66, D77). Jev is
+  never asked to read an empty text.
+- The engine's own sends keep their words (`sends.rendered_body`, D38), including a Slack post that quotes the reply: that
+  is the engine's record of what it said, kept 30 days by default.
+- What was stored before is cleared once by `POST /api/admin/clear-reply-texts` (operator bearer, a dry run unless
+  `dryRun: false`, optionally one company): inbound `messages` lose `body` and `subject`, saved runs lose the reply's words,
+  `message.received` loses `body`, `reply.classified`'s `input` becomes `input_chars` (every classify that was not of a
+  transcript read a reply), and a step result quoting a reply still held in `messages` has the quote replaced. It reports
+  the rows each part changes and a rerun changes nothing. Written, not yet run against production.
+- To verify live: the `body` and `subject` fields on GHL's single-message read (the thread listing's shape is verified).

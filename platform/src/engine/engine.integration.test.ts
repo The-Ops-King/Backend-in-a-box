@@ -14,7 +14,7 @@ import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from 
 import { applyAppointment } from "@/engine/poll";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { fakeProbes, replicaSnapshot } from "@/engine/test-install";
+import { fakeProbes, replicaSnapshot, fakeMessageBodies, inboundForTest } from "@/engine/test-install";
 import { recordDisposition } from "@/engine/disposition";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -30,7 +30,7 @@ const relations: string[] = [];
 const classified: string[] = [];
 const fake: Adapters = {
   read: {
-    contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [],
+    contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], messageBodies: fakeMessageBodies, callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [],
     getContact: async (c, id) => replicaSnapshot(c.id, id), listUsers: async () => [{ id: "GHLU1", name: "Sam Closer", email: "sam@x.com" }],
   },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], listCalendars: async () => [],
@@ -104,13 +104,13 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
   it("reply → classify → branch → tag confirmed → on to the reminders; idempotency ledger has every send once", async () => {
     // a reply arrives AFTER the booking text → the poller wakes the run (simulated: next_run_at=now) → handled on the very next tick, not at hour four
     await asOperator(async (c) => {
-      await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'M2','sms','inbound','yes see you then',now())", [companyId, contactId]);
+      await inboundForTest(c, companyId, contactId, "yes see you then", { id: "M2" });
       await c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting'", [companyId]);
     });
     const r3a = await tick(fake, undefined, companyId, fakeProbes);                     // w1 sees the reply and waits 90 s for the rest of what they are typing (D47)
     expect(r3a.waiting).toBe(1); expect(tags).not.toContain("stat-confirmed");
     await asOperator(async (c) => {
-      await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, occurred_at) values ($1,$2,'M3','sms','inbound','🙏',now())", [companyId, contactId]);   // a second piece, after the first
+      await inboundForTest(c, companyId, contactId, "🙏", { id: "M3" });   // a second piece, after the first
       await c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting'", [companyId]);
     });
     const r3 = await tick(fake, DateTime.now().plus({ minutes: 2 }), companyId, fakeProbes);   // settled: c1 classify on both → b1 branch → tag confirmed → the 3-day text is stale (call in 2 days) → parks on the next reminder

@@ -84,6 +84,12 @@ distinguishable from sends made by a human in the UI.
 That is an account provisioning gap, not an API limit. A number must be purchased
 in each sub-account before SMS sends. Email needed no provisioning.
 
+The same read is how the engine gets a reply's words back when a step needs them (D89): it
+stores only the message id. Its `message` carries `body`, `messageType` and `subject`; the
+`body` and `subject` fields on this single-message read are taken on the shape of the thread
+listing below and are **to verify live**. The engine reads a thread once for all of its
+messages and falls back to this read per message (a 404 is a message GHL no longer has).
+
 `GET /conversations/{conversationId}/messages` lists the thread. Email `status` came
 back `null` at send time; SMS populated immediately. Don't rely on email `status` —
 poll the message, or take delivery truth from the email provider.
