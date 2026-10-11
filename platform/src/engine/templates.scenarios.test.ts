@@ -13,6 +13,7 @@ import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
 import { replicaSnapshot } from "@/engine/test-install";
+import { templates } from "@/templates";
 import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from "@/adapters/types";
 import { recordRecording, linkRecording, recordPhoneCall, settlePhoneCall, phoneFacts, type RecordingInput } from "@/engine/recordings";
 import { simulate } from "@/engine/simulate";
@@ -133,7 +134,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator((c) => c.query("update companies set mode='live', send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
     // (ticks below are scoped to this company: the test database is shared with the other suites)
     // the test database is shared with the other suites; park their leftover runs so this file's ticks only ever send for this company
-    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(23);
+    expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(templates.length);
   });
 
   it("speed-to-lead: email + SMS now; a reply → tag engaged; silence → second email", async () => {
