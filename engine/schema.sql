@@ -478,7 +478,7 @@ create table runs (
   wake_on_tag         text,                                 -- set while parked on wait_for_reaction, or while a non-blocking listener is armed: the tag of the Slack post whose tap wakes it (D53, D58)
   resume_node         text,                                 -- D58: where a run with an armed listener was parked, so `resume` can return it there after the decision path
   resume_at           timestamptz,                          -- D58: that parked step's own due time, kept intact across the jump
-  context             jsonb not null default '{}',         -- resolved vars, last reply, etc.
+  context             jsonb not null default '{}',         -- what the run keeps between wakes (D84): vars (incl. wait pins, listener), reply, event, reaction, contact.fetched_at/stale
   exit_reason         text,
   reentry_key         text not null,                       -- computed per policy; unique prevents double runs
   pending_events      jsonb not null default '[]',          -- triggers that arrived while this run held the once-per key; replayed if the run stops at a gate (D30)
