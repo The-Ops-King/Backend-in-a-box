@@ -1,6 +1,7 @@
 import { METRICS, type Availability, type ClosesList, type MetricResult, type MetricRow, type Unit } from "./metric-registry";
 import { NO_ANSWER, type Analysis, type Group } from "./ghl-graph";
 import { NO_PAYMENTS } from "./ghl-metrics";
+import { accuracyWords } from "./setter-result";
 
 /**
  * Everything the Slack bot posts is rendered here from tool results, never written by the model (D70): key numbers first
@@ -40,7 +41,7 @@ export function keyLine(r: MetricResult): string {
 
 export function metricTable(r: MetricResult): string | null {
   if (!r.rows?.length || r.unavailable) return null;
-  const by = r.group_by ?? "group";
+  const by = r.group_by ?? r.rows_by ?? "group";
   const rate = r.unit === "rate";
   const head = rate ? [cap(by), r.label, cap(r.numerator_label ?? ""), cap(r.denominator_label ?? "")] : [cap(by), r.label];
   const row = (x: MetricRow) => (rate ? [x.label, fmt("rate", x.value), fmt("count", x.numerator), fmt("count", x.denominator)] : [x.label, fmt(r.unit, x.value)]);
@@ -60,6 +61,7 @@ export function detailLines(r: MetricResult): string[] {
   const L: string[] = [];
   const q = r.qualification;
   if (q) L.push(`MQLs: ${fmt("count", q.mql)} matched the employment standard · ${fmt("count", q.unanswered)} didn't answer${q.unanswered_is_mql && q.unanswered ? " (counted as MQLs)" : ""}${q.unrecognized ? ` · ${q.unrecognized} unrecognized answer${q.unrecognized === 1 ? "" : "s"} (${q.unrecognized_answers.map((a) => `"${a}"`).join(", ")})` : ""}`);
+  if (r.setter_accuracy) L.push(accuracyWords(r.setter_accuracy));
   const b = r.shows_breakdown;
   if (b) {
     L.push(`Calls booked: ${b.booked} · Showed ${b.showed} · No-show ${b.noshow} · Cancelled ${b.cancelled} · Missing from EOD disposition ${b.missing}${b.missing ? ` (${names(b.missing_names)})` : ""}${b.rescheduled ? ` · Rescheduled ${b.rescheduled} (outside the rate)` : ""}`);
@@ -75,7 +77,7 @@ export function formatAnswer(results: MetricResult[], opts: { note?: string; ava
   for (const a of opts.availability ?? []) L.push(availabilityKey(a));
   for (const a of opts.analyses ?? []) L.push(...analysisKey(a));
   if (opts.note) L.push(opts.note);
-  for (const r of results) { const t = metricTable(r); if (t) L.push("", `*${r.label} by ${r.group_by}*`, t); }
+  for (const r of results) { const t = metricTable(r); if (t) L.push("", `*${r.label} by ${r.group_by ?? r.rows_by}*`, t); }
   for (const a of opts.availability ?? []) L.push("", availabilityBody(a));
   for (const k of opts.closes ?? []) L.push("", ...closesBody(k));
   for (const a of opts.analyses ?? []) L.push("", ...analysisBody(a));

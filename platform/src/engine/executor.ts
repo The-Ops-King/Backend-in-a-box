@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
-import { onwardEdge, type Edge, type Node } from "./definition";
+import { fallbacksOf, onwardEdge, type Edge, type Node } from "./definition";
 import { evaluate } from "./predicate";
 import { render, resolveExpr, resolvePath, parseDuration, StaleTemplateError, UnknownPathError } from "./template";
 import { predicateWords, durationWords } from "./describe";
@@ -350,7 +350,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const { decrypt } = await import("./crypto");
       if (conn) await resolveMentions(d, decrypt(conn.bot_token));   // also fills user.slack_user_id, which a DM step uses as its channel
       const channelOf = (c: string) => { const ref = /^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/.exec(c); return ref ? (resolvePath(d.ctx, ref[1]) as string | undefined) : c; };
-      const channelId = channelOf(node.channel) || (node.fallback_channel ? channelOf(node.fallback_channel) : undefined);
+      const channelId = [node.channel, ...fallbacksOf(node.fallback_channel)].map(channelOf).find(Boolean);
       // render first even when it cannot post: the dashboard shows what WOULD have gone to Slack, which is the whole point of shadow
       const text = render(node.template, d.ctx, env(d));
       if (!conn || !channelId) { await recordSend(d, node, "slack", text, "suppressed", conn ? "unbound: slack channel" : "unbound: slack"); return { status: "skipped", next, result: { kind: "blocked", why: conn ? "slack channel not bound" : "slack not connected", would_post: text.slice(0, 160) } }; }
@@ -407,7 +407,12 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const top = Object.entries(r.distribution).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, p]) => `${k} ${(p * 100).toFixed(0)}%`).join(", ");
       setPath(d.ctx, node.into, r.value); setPath(d.ctx, "reply.confidence", r.confidence); setPath(d.ctx, "reply.intent_confidence", Math.round(r.confidence * 100)); setPath(d.ctx, "reply.top_guesses", top || "none");
       const recId = (d.ctx.recording as { id?: string } | undefined)?.id; const intoKey = node.into.replace(/^vars\./, "").split(".");
-      if (recId && node.input.includes("recording.")) { const nested = intoKey.reduceRight<unknown>((acc, k) => ({ [k]: acc }), { value: r.value, confidence: r.confidence, ambiguity: r.ambiguity ?? null }); await d.c.query("update recordings set analysis = analysis || $2::jsonb where id=$1", [recId, JSON.stringify(nested)]); }
+      // merged in depth: a second read into vars.classify.* keeps the first (D79: the setter call's kind, then its result)
+      if (recId && node.input.includes("recording.")) {
+        const prior = (await one<{ a: unknown }>(d.c, "select analysis->$2 as a from recordings where id=$1", [recId, intoKey[0]]))?.a ?? null;
+        const merged = deepSet(prior, intoKey.slice(1), { value: r.value, confidence: r.confidence, ambiguity: r.ambiguity ?? null });
+        await d.c.query("update recordings set analysis = jsonb_set(analysis, $2::text[], $3::jsonb, true) where id=$1", [recId, [intoKey[0]], JSON.stringify(merged)]);
+      }
       await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, input } });
       return { status: "ok", next, result: { value: r.value, confidence: r.confidence, ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(r.unclear ? { why: r.confidence < node.threshold ? "not confident enough" : "a careful person would doubt it" } : {}) } };
     }
@@ -494,7 +499,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
         if (hand) return { status: "skipped", next, result: { kind: "noop", why: `moved by hand since this step first tried${hand.mover ? ` (${hand.mover}` : " ("}${hand.to_name ? `to ${hand.to_name})` : ")"}; a hand wins`, crm_card: card.ghl_opportunity_id } };
       }
       // stage and name are optional on an update: a step that only stamps fields leaves the card where it is
-      const stageId = node.stage ? render(node.stage, d.ctx, env(d)) : card?.ghl_stage_id ?? "";
+      // a stage binding left unbound (`{{crm.stage_x | default:}}`) leaves the card on its stage, like no stage at all
+      const stageId = (node.stage ? render(node.stage, d.ctx, env(d)) : "") || (card?.ghl_stage_id ?? "");
       // G13: a person with no name in the CRM is named on the card by an address they do have, never " -- New"
       const who = d.ctx.contact as { name?: string | null; email?: string | null; phone?: string | null; ghl_contact_id?: string | null } | undefined;
       const nameCtx = who && !who.name ? { ...d.ctx, contact: { ...who, name: who.email ?? who.phone ?? who.ghl_contact_id ?? null } } : d.ctx;
@@ -557,6 +563,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const known = await objectKeys(d, objectKey);
       const dropped = known ? [...Object.keys(properties), ...Object.keys(cleared)].filter((k) => !known.has(k)) : [];
       for (const k of dropped) { delete properties[k]; delete cleared[k]; }
+      if (dropped.length && !Object.keys(properties).length && !Object.keys(cleared).length) return { status: "skipped", next, result: { kind: "noop", why: `nothing to write: the ${objectKey} object has no ${dropped.join(", ")} field yet`, not_on_object: dropped } };
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
       let ghlId = existing?.ghl_record_id ?? null;
       // an update-only step: nothing to update when we never made the record, or made it only in shadow (no CRM id); a bare record keyed by an id alone would be a duplicate
@@ -617,7 +624,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     case "create_task": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
       const title = render(node.title, d.ctx, env(d)), body = node.body ? render(node.body, d.ctx, env(d)) : undefined;
-      const dueAt = d.now.plus(parseDuration(node.due)).toJSDate();
+      const dueAt = d.now.plus(parseDuration(render(node.due, d.ctx, env(d)) || "+1d")).toJSDate();
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
       if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_create_task: { title, body, due: dueAt.toISOString(), assignedUserId } } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "create_task: contact has no CRM id yet" };
@@ -832,6 +839,13 @@ function deepRender(v: unknown, ctx: Record<string, unknown>, e: ReturnType<type
   if (Array.isArray(v)) return v.map((x) => deepRender(x, ctx, e));
   if (v && typeof v === "object") return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, deepRender(x, ctx, e)]));
   return v;
+}
+/** `base` with `value` at `keys` (a copy; objects on the way are kept, anything else is replaced). */
+function deepSet(base: unknown, keys: string[], value: unknown): unknown {
+  if (!keys.length) return value;
+  const o = base && typeof base === "object" && !Array.isArray(base) ? { ...(base as Record<string, unknown>) } : {};
+  o[keys[0]] = deepSet(o[keys[0]], keys.slice(1), value);
+  return o;
 }
 export function setPath(obj: Record<string, unknown>, path: string, value: unknown) {
   const parts = path.split("."); let cur = obj;

@@ -2514,3 +2514,55 @@ Tyler's rulings, relayed the same day and built together.
   with an outcome never appears, except a row the closer filed here, which stays for refiling. `eod_due` (the
   End-of-day reminder) reads the same records through the same function (`eod.ts › blankSalesCalls`) and counts, per
   day, the ledger's unfiled calls plus the blank records the form adds, so its number is the form's rows.
+
+## D79. Jev reads what a setter call achieved (2026-10-11)
+
+The owner: "We should have a Jev call to see if the setter call was set, follow up, or DQ."
+
+- **Four results.** After Jev calls a dialer call a setting call (D48), Setter call logged asks Jev a second question of the
+  transcript (`a3`, a classify over the core vocabulary `setter_call_result`): **set** (a call was booked on this call),
+  **follow_up** (interested, not booked; a callback agreed or implied), **dq** (does not qualify) or **not_interested**
+  (declined), each with its criteria on the step. A DQ also gets Jev's reason (`a4`, `setter_dq_reason`: budget, age, geo,
+  medical, timeline, no_problem, competitor, bad_contact, other), read only when the result is dq or Jev is unsure. Jev's
+  value and confidence land on the recording's analysis (`classify.result`, `classify.dq_reason`, merged in depth so the
+  call type stays) and every read is one `setter_call.result` event (predicted, confidence, top guesses, the result
+  written, who decided it, whether a booking came within 30 minutes, whether Jev agreed, the DQ reason, whether actions
+  were on). A confirmation call is not read.
+- **Booked within 30 minutes is Set.** The read waits until 35 minutes after the call ends (`w2`; the 5 extra minutes let
+  the poll bring in a booking made at minute 29). A closing call booked for the person from the start of the call to 30
+  minutes after it ended (`recording.booked_within_30m`, read live from our appointments) makes the result **set**
+  whatever Jev read; the event says whether Jev agreed.
+- **Where it is written.** The Discovery Call record gets `call_result`, a single option whose keys are the company's own
+  (`discovery_call.results`, `{key: meaning}` like `sales_call.outcomes`, install `discoveryCall.results`; unbound, the
+  keys are `set`, `follow_up`, `dq`, `not_interested`; `picklist.discovery_call_result.<meaning>` in a template). Until the
+  owner adds the field in GHL the write leaves it out and names it (`not_on_object`, D76); an update with nothing else to
+  write is skipped the same way, never a failure. The Slack post's outcome line is the result ("Follow up (Jev is 88%
+  sure)", "Set — a closing call was booked within 30 minutes of the call (Jev read: …)").
+- **Unsure reads ask the setters.** Under 70% sure, or a read a careful person would doubt (D47's ambiguity rule), nothing
+  is written. The setters' channel (`slack.channel.setter_calls`, else `slack.channel.ops`, else `slack.channel.bookings`:
+  `slack_post.fallback_channel` now takes a list, tried in order) gets one question naming the person and the setter with
+  Jev's top guesses, offering ✅ Set, 🔁 Follow up, ❌ DQ, 🚫 Not interested. D58's non-blocking listener holds it two days
+  while the run waits; the first tap writes `call_result`, is recorded as the team's answer (`intent.reviewed` with
+  `domain: setter_call_result`, the same event the pre-call tap writes; the Health page's reply score leaves it out) and
+  replies in the question's thread; two days unanswered records `intent.unanswered` (same domain), closes the question in
+  its thread and writes nothing.
+- **Suggest first.** The actions are built and off: `setter_result.act` (install `discoveryCall.act`, default false).
+  Follow up → a GHL task "Call back <name>" for the setter who dialed, due the next business day (Friday → Monday), with
+  the call notes' suggested next step in the body (`next_step`, added to the setter-notes prompt: Jev picks among fixed
+  options, it does not write text); DQ → the tag Jev's reason maps to (`dq-budget`, `dq-age`, `dq-geo`, `dq-medical`,
+  `dq-timeline`, `dq-no-problem`, `dq-competitor`, `dq-bad-contact`; any other reason → plain `dq`) and the setter card
+  marked lost (moved to `crm.stage_setter_dq` when bound; a stage binding left unbound now leaves a card where it is);
+  not interested → the setter card lost (`crm.stage_setter_not_interested` when bound); set → nothing (Call booked has
+  the booking). Off, the post (or the thread reply after a tap) says "Would have (actions are off): a task for Allan to
+  call back Tyler, due next business day." and the steps are skipped; on, it says "Next: …". Test mode and shadow (D52)
+  write nothing to the CRM either way.
+- **Accuracy.** `jev_setter_accuracy` in the bot's registry: of Jev's committed reads with a known outcome, how many
+  matched, split by Jev's read (or by setter). What happened, strongest first: the Discovery Call's `call_result` changed
+  in GHL after the engine wrote it (read live; when GHL cannot be read that rule is skipped and the answer says so); a
+  team member's tap; a booking within 30 minutes, then within 7 days → set; a `dq`/`dq-*` tag added in the CRM → dq; the
+  setter card marked lost in the CRM → not interested; a set read with no booking in 7 days → missed. Only what a person
+  or the CRM did counts, never the engine's own actions. Reads with no outcome yet and reads Jev was unsure of are said
+  under the number, not counted in it; test contacts never count. The owner turns the actions on when this says Jev is
+  right often enough.
+- Blocking (D77): the result read `a3` holds the run when Jev is down (the record, the post and the actions read it);
+  the DQ-reason read does not (a plain `dq` tag stands in).

@@ -72,8 +72,8 @@ export const Node = z.discriminatedUnion("type", [
   // thread_of: the id of an earlier slack_post in this run; this one goes into that message's thread (the scorecard under the call post)
   // tag: remember this post under a name (rendered, e.g. "eod-reminder:{{user.id}}:{{user.eod.day}}") so a later run can thread under it: thread_of "tag:<that name>"
   // react: an emoji put on the parent post (thread_of) once this reply is up, e.g. white_check_mark
-  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), fallback_channel: z.string().optional(), template: z.string(), as: Persona.optional(), thread_of: z.string().optional(), thread_only: z.boolean().default(false), tag: z.string().optional(), edit: z.boolean().default(false), react: z.union([z.string(), z.array(z.string())]).optional(),
-    offer: z.array(z.string().min(1)).optional(), unreact: z.object({ of: z.string(), emojis: z.array(z.string().min(1)).min(1) }).optional(), react_on: z.object({ of: z.string(), emojis: z.array(z.string().min(1)).min(1) }).optional() }),   // react_on: reactions put on ANOTHER post ("tag:…" or a node id), e.g. the outcome on the question the team was asked (D58)   // fallback_channel: posts there when `channel` is an unbound binding (an attention channel that falls back to the bookings channel, D58)   // offer: reactions added to this post for a person to tap (D45); unreact: the bot's own reactions taken off that post ("tag:…" or a node id) once a person has decided   // thread_only: a reaction or note on an existing post; nothing when that post is not there
+  z.object({ ...base, type: z.literal("slack_post"), channel: z.string(), fallback_channel: z.union([z.string(), z.array(z.string()).min(1)]).optional(), template: z.string(), as: Persona.optional(), thread_of: z.string().optional(), thread_only: z.boolean().default(false), tag: z.string().optional(), edit: z.boolean().default(false), react: z.union([z.string(), z.array(z.string())]).optional(),
+    offer: z.array(z.string().min(1)).optional(), unreact: z.object({ of: z.string(), emojis: z.array(z.string().min(1)).min(1) }).optional(), react_on: z.object({ of: z.string(), emojis: z.array(z.string().min(1)).min(1) }).optional() }),   // react_on: reactions put on ANOTHER post ("tag:…" or a node id), e.g. the outcome on the question the team was asked (D58)   // fallback_channel: posts there when `channel` is an unbound binding (an attention channel that falls back to the bookings channel, D58); a list is tried in order (D79)   // offer: reactions added to this post for a person to tap (D45); unreact: the bot's own reactions taken off that post ("tag:…" or a node id) once a person has decided   // thread_only: a reaction or note on an existing post; nothing when that post is not there
   // An HTTP call out: Airtable, a Zap or Make scenario, Apps Script, anything with a URL. Headers and body are templates; {{secret.<key>}} resolves
   // in headers and body only here and is never written to the ledger. The response (JSON when it is) lands in vars.<into>.
   z.object({ ...base, type: z.literal("webhook"), url: z.string(), method: z.enum(["POST", "PUT", "PATCH", "GET", "DELETE"]).default("POST"), headers: z.record(z.string()).default({}), body: z.unknown().optional(), into: z.string().optional(), on_error: z.enum(["fail", "skip"]).default("fail") }),
@@ -132,6 +132,8 @@ export type Node = z.infer<typeof Node>;
 
 export const Edge = z.object({ from: z.string(), to: z.string(), when: Predicate.optional(), else: z.boolean().optional(), label: z.string().optional() });
 export type Edge = z.infer<typeof Edge>;
+/** A slack_post's fallback channels in the order they are tried (D58, D79). */
+export const fallbacksOf = (f?: string | string[]): string[] => (f === undefined ? [] : Array.isArray(f) ? f : [f]);
 /** Edge labels that are not "go on": the reply wait's `timeout`, a listener's `tap` and `until` (D58). */
 export const SIDE_LABELS = new Set(["timeout", "tap", "until"]);
 /** The edge a step follows when it simply finishes: the first one not labelled as a side path (else the first at all). */
@@ -198,7 +200,7 @@ export function extractManifest(def: Definition): { bindings: ManifestEntry[] } 
   // a channel that every post falls back from is optional twice over: unbound, the posts still land in the fallback
   const chan = (t?: string) => t && /^\{\{\s*slack\.channel\.[a-zA-Z0-9_]+\s*\}\}$/.test(t) ? t.replace(/[{}\s]/g, "") : undefined;
   const fallbackOf = new Map<string, string | null>();
-  for (const n of def.nodes) { if (n.type !== "slack_post") continue; const c = chan(n.channel), f = chan(n.fallback_channel); if (!c) continue; fallbackOf.set(c, fallbackOf.has(c) && fallbackOf.get(c) !== f ? null : f ?? null); }
+  for (const n of def.nodes) { if (n.type !== "slack_post") continue; const c = chan(n.channel), f = fallbacksOf(n.fallback_channel).map(chan).find(Boolean); if (!c) continue; fallbackOf.set(c, fallbackOf.has(c) && fallbackOf.get(c) !== f ? null : f ?? null); }
   for (const [key, fb] of fallbackOf) { const e = out.get(key); if (e && fb && !def.nodes.some((n) => n.type !== "slack_post" && JSON.stringify(n).includes(key)) && !JSON.stringify(def.edges).includes(key)) e.fallback = fb; }
   return { bindings: [...out.values()].sort((a, b) => a.key.localeCompare(b.key)) };
 }

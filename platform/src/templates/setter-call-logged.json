@@ -5,7 +5,7 @@
   "stage": "call",
   "sort": 20,
   "origin": "spec",
-  "description": "The dialer logged a connected phone call: calls shorter than the minimum stop here, so do calls with no recording (nothing to read). Fifteen minutes after the call ends (so a booking the setter makes right after hanging up counts) Jev decides whether it was a setting call or a confirmation call (anything else — 'are you joining?', voicemails, wrong numbers — stops here), writes the digest with pains, goals, triage and a fit score, records whether a booking followed, writes the Discovery Call record and links it to the contact, leaves the digest as a note, and posts it to Slack. Every call, answered or not, is kept in the recordings ledger regardless.",
+  "description": "The dialer logged a connected phone call: calls shorter than the minimum stop here, so do calls with no recording (nothing to read). Fifteen minutes after the call ends Jev decides whether it was a setting call or a confirmation call (anything else — 'are you joining?', voicemails, wrong numbers — stops here) and the AI writes the digest. For a setting call, 35 minutes after it ends Jev reads what it achieved: set, follow up, DQ or not interested; a closing call booked within 30 minutes of hanging up is Set whatever Jev read; when Jev is under 70% sure nothing is written and the setters are asked to tap the answer (two days). The Discovery Call record (with the result), the note and the Slack post follow. The actions a result implies (a callback task, a DQ tag, the setter card lost) are built but off until the company turns them on (setter_result.act); until then the post says what they would have done. Every read is logged so Jev's accuracy can be asked for. Every call, answered or not, is kept in the recordings ledger regardless.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -135,6 +135,262 @@
         "else_value": "No booking yet"
       },
       {
+        "id": "b_type",
+        "type": "branch",
+        "title": "A setting call: what did it achieve?"
+      },
+      {
+        "id": "w2",
+        "type": "wait",
+        "rule": {
+          "anchor": "recording.ended_at",
+          "offset": "+35m",
+          "tz": "company"
+        },
+        "title": "35 minutes after the call ends (a call booked within 30 minutes of hanging up counts as Set)"
+      },
+      {
+        "id": "a3",
+        "type": "classify",
+        "input": "{{recording.transcript_text}}",
+        "domain": "setter_call_result",
+        "question": "What did this setting call between a setter and a lead achieve?",
+        "criteria": {
+          "set": "A call with the closer or specialist was booked on this call: a day and time were agreed, or the setter booked it while they were on the phone.",
+          "follow_up": "The lead is interested but nothing was booked: a callback, a later conversation or sending them information was agreed or clearly implied.",
+          "dq": "The lead does not qualify: the setter or the lead established they are not a fit (budget, age, location, medical, timeline, no real problem to solve, already with a competitor, or a bad or wrong contact).",
+          "not_interested": "The lead declined: they said they are not interested, do not want a call, or asked not to be contacted."
+        },
+        "threshold": 0.7,
+        "ambiguity_max": 0.8,
+        "into": "vars.classify.result",
+        "title": "Jev: set, follow up, DQ or not interested?"
+      },
+      {
+        "id": "v_conf",
+        "type": "set_var",
+        "key": "jev_confidence",
+        "value": "{{reply.intent_confidence}}"
+      },
+      {
+        "id": "v_guess",
+        "type": "set_var",
+        "key": "jev_guesses",
+        "value": "{{reply.top_guesses | words}}"
+      },
+      {
+        "id": "v_by",
+        "type": "set_var",
+        "key": "decided_by",
+        "value": "jev",
+        "when": {
+          "in": [
+            "{{vars.classify.result}}",
+            [
+              "set",
+              "follow_up",
+              "dq",
+              "not_interested"
+            ]
+          ]
+        },
+        "else_value": ""
+      },
+      {
+        "id": "v_by30",
+        "type": "set_var",
+        "key": "decided_by",
+        "value": "booking",
+        "when": {
+          "eq": [
+            "{{recording.booked_within_30m}}",
+            true
+          ]
+        },
+        "else_value": "{{vars.decided_by}}",
+        "title": "A closing call booked within 30 minutes of the call: Set, whatever Jev read"
+      },
+      {
+        "id": "v_res",
+        "type": "set_var",
+        "key": "result",
+        "value": "{{vars.decided_by}}",
+        "pick": {
+          "booking": "set",
+          "jev": "{{vars.classify.result}}"
+        },
+        "else_value": ""
+      },
+      {
+        "id": "v_agree",
+        "type": "set_var",
+        "key": "jev_agreed",
+        "value": true,
+        "when": {
+          "eq": [
+            "{{vars.classify.result}}",
+            "{{vars.result}}"
+          ]
+        },
+        "else_value": false
+      },
+      {
+        "id": "v_ask",
+        "type": "set_var",
+        "key": "asking",
+        "value": true,
+        "when": {
+          "eq": [
+            "{{vars.decided_by}}",
+            ""
+          ]
+        },
+        "else_value": false
+      },
+      {
+        "id": "a4",
+        "type": "classify",
+        "input": "{{recording.transcript_text}}",
+        "domain": "setter_dq_reason",
+        "only_if": {
+          "in": [
+            "{{vars.result}}",
+            [
+              "dq",
+              ""
+            ]
+          ]
+        },
+        "blocking": false,
+        "question": "If this lead was disqualified on the call, what was the reason?",
+        "criteria": {
+          "budget": "They cannot afford it or have no money for it right now.",
+          "age": "They are too young or too old for the program.",
+          "geo": "They are outside the area the company serves.",
+          "medical": "A medical condition or treatment rules them out.",
+          "timeline": "Their timing does not work: not for a long while, or no urgency at all.",
+          "no_problem": "They do not actually have the problem the program solves.",
+          "competitor": "They are already working with, or committed to, a competitor.",
+          "bad_contact": "A wrong number, a fake or duplicate contact, or someone who never asked to be contacted.",
+          "other": "Any other reason, or the transcript does not say."
+        },
+        "threshold": 0.6,
+        "ambiguity_max": 0.8,
+        "into": "vars.classify.dq_reason",
+        "title": "Jev: why disqualified?"
+      },
+      {
+        "id": "v_dqtag",
+        "type": "set_var",
+        "key": "dq_tag",
+        "value": "{{vars.classify.dq_reason | default:}}",
+        "pick": {
+          "budget": "dq-budget",
+          "age": "dq-age",
+          "geo": "dq-geo",
+          "medical": "dq-medical",
+          "timeline": "dq-timeline",
+          "no_problem": "dq-no-problem",
+          "competitor": "dq-competitor",
+          "bad_contact": "dq-bad-contact"
+        },
+        "else_value": "dq"
+      },
+      {
+        "id": "rec_read",
+        "type": "record",
+        "event": "setter_call.result",
+        "data": {
+          "recording_id": "{{recording.id}}",
+          "external_id": "{{recording.external_id}}",
+          "setter": "{{recording.caller.name | default:}}",
+          "predicted": "{{vars.classify.result}}",
+          "predicted_confidence": "{{vars.jev_confidence}}",
+          "top_guesses": "{{vars.jev_guesses}}",
+          "result": "{{vars.result}}",
+          "decided_by": "{{vars.decided_by}}",
+          "booked_within_30m": "{{recording.booked_within_30m}}",
+          "jev_agreed": "{{vars.jev_agreed}}",
+          "dq_reason": "{{vars.classify.dq_reason | default:}}",
+          "acts": "{{setting.setter_result.act}}"
+        },
+        "title": "Log Jev's read, to score it later"
+      },
+      {
+        "id": "v_due",
+        "type": "set_var",
+        "key": "task_due",
+        "value": "{{now | date_company:c}}",
+        "pick": {
+          "5": "+3d",
+          "6": "+2d"
+        },
+        "else_value": "+1d",
+        "title": "Next business day"
+      },
+      {
+        "id": "v_mode",
+        "type": "set_var",
+        "key": "act_word",
+        "value": "*Next:*",
+        "when": {
+          "eq": [
+            "{{setting.setter_result.act}}",
+            true
+          ]
+        },
+        "else_value": "*Would have (actions are off):*"
+      },
+      {
+        "id": "v_key",
+        "type": "set_var",
+        "key": "result_key",
+        "value": "{{vars.result}}",
+        "pick": {
+          "set": "{{picklist.discovery_call_result.set}}",
+          "follow_up": "{{picklist.discovery_call_result.follow_up}}",
+          "dq": "{{picklist.discovery_call_result.dq}}",
+          "not_interested": "{{picklist.discovery_call_result.not_interested}}"
+        },
+        "else_value": ""
+      },
+      {
+        "id": "v_words",
+        "type": "set_var",
+        "key": "result_words",
+        "value": "{{vars.result}}",
+        "pick": {
+          "set": "Set",
+          "follow_up": "Follow up",
+          "dq": "DQ",
+          "not_interested": "Not interested"
+        },
+        "else_value": ""
+      },
+      {
+        "id": "v_act",
+        "type": "set_var",
+        "key": "act_line",
+        "value": "{{vars.result}}",
+        "pick": {
+          "follow_up": "{{vars.act_word}} a task for {{recording.caller.name | default:the setter}} to call back {{contact.name | default:them}}, due next business day.",
+          "dq": "{{vars.act_word}} tag {{vars.dq_tag}} and mark the setter card lost.",
+          "not_interested": "{{vars.act_word}} mark the setter card lost."
+        },
+        "else_value": ""
+      },
+      {
+        "id": "v_line",
+        "type": "set_var",
+        "key": "outcome_line",
+        "value": "{{vars.decided_by}}",
+        "pick": {
+          "booking": "Set — a closing call was booked within 30 minutes of the call (Jev read: {{vars.classify.result | words}}, {{vars.jev_confidence}}% sure)",
+          "jev": "{{vars.result_words}} (Jev is {{vars.jev_confidence}}% sure)"
+        },
+        "else_value": "Jev isn't sure (its guesses: {{vars.jev_guesses}}); the team is asked"
+      },
+      {
         "id": "r1",
         "type": "crm_record",
         "object": "custom_objects.discovery_call",
@@ -150,7 +406,8 @@
           "setter": "{{recording.caller.name | default:}}",
           "outcome": "{{recording.status}}",
           "recording_url": "{{recording.url | default:}}",
-          "led_to_booking": "{{vars.booked_flag}}"
+          "led_to_booking": "{{vars.booked_flag}}",
+          "call_result": "{{vars.result_key | default:}}"
         },
         "relate": [
           {
@@ -169,7 +426,7 @@
         "id": "s1",
         "type": "slack_post",
         "channel": "{{slack.channel.setter_calls}}",
-        "template": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{recording.duration_min}} min · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | default:}}|Open the conversation in GHL>",
+        "template": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{recording.duration_min}} min · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}{{vars.act_line | line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | default:}}|Open the conversation in GHL>",
         "as": {
           "name": "Setter call",
           "icon": [
@@ -179,6 +436,360 @@
           ]
         },
         "title": "Post setter call in Slack"
+      },
+      {
+        "id": "b_ask",
+        "type": "branch",
+        "title": "Was Jev sure?"
+      },
+      {
+        "id": "q1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.setter_calls}}",
+        "fallback_channel": [
+          "{{slack.channel.ops}}",
+          "{{slack.channel.bookings}}"
+        ],
+        "as": {
+          "name": "Set, follow up or DQ?",
+          "icon": ":grey_question:"
+        },
+        "template": "{{recording.caller.name | default:The setter}}'s call with <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> ({{recording.started_at | date_company}}): what did it achieve? Jev isn't sure (its guesses: {{vars.jev_guesses}}).\nTap ✅ Set · 🔁 Follow up · ❌ DQ · 🚫 Not interested. Nothing is written until someone does; the question closes in two days.",
+        "tag": "setter-result:{{recording.id}}",
+        "offer": [
+          "white_check_mark",
+          "repeat",
+          "x",
+          "no_entry_sign"
+        ],
+        "title": "Ask the setters: set, follow up, DQ or not interested?"
+      },
+      {
+        "id": "l1",
+        "type": "wait_for_reaction",
+        "of": "tag:setter-result:{{recording.id}}",
+        "emojis": [
+          "white_check_mark",
+          "repeat",
+          "x",
+          "no_entry_sign"
+        ],
+        "blocking": false,
+        "until": {
+          "anchor": "now",
+          "offset": "+2d",
+          "tz": "company"
+        },
+        "title": "Listen for the tap for two days"
+      },
+      {
+        "id": "w_hold",
+        "type": "wait",
+        "rule": {
+          "anchor": "now",
+          "offset": "+2d",
+          "tz": "company"
+        },
+        "only_if": {
+          "and": [
+            {
+              "eq": [
+                "{{vars.asking}}",
+                true
+              ]
+            },
+            {
+              "exists": "vars.__listen"
+            }
+          ]
+        },
+        "title": "Keep the question open two days"
+      },
+      {
+        "id": "tv_res",
+        "type": "set_var",
+        "key": "result",
+        "value": "{{reaction.reaction | default:}}",
+        "pick": {
+          "white_check_mark": "set",
+          "repeat": "follow_up",
+          "x": "dq",
+          "no_entry_sign": "not_interested"
+        },
+        "else_value": ""
+      },
+      {
+        "id": "tv_by",
+        "type": "set_var",
+        "key": "decided_by",
+        "value": "human"
+      },
+      {
+        "id": "tv_agree",
+        "type": "set_var",
+        "key": "jev_agreed",
+        "value": true,
+        "when": {
+          "eq": [
+            "{{vars.classify.result}}",
+            "{{vars.result}}"
+          ]
+        },
+        "else_value": false
+      },
+      {
+        "id": "tv_ask",
+        "type": "set_var",
+        "key": "asking",
+        "value": false
+      },
+      {
+        "id": "rec_rev",
+        "type": "record",
+        "event": "intent.reviewed",
+        "data": {
+          "domain": "setter_call_result",
+          "predicted": "{{vars.classify.result}}",
+          "predicted_confidence": "{{vars.jev_confidence}}",
+          "decided": "{{vars.result}}",
+          "agreed": "{{vars.jev_agreed}}",
+          "decided_by": "{{reaction.user_name}}",
+          "recording_id": "{{recording.id}}"
+        },
+        "title": "Score Jev: what the team said the call achieved"
+      },
+      {
+        "id": "tv_key",
+        "type": "set_var",
+        "key": "result_key",
+        "value": "{{vars.result}}",
+        "pick": {
+          "set": "{{picklist.discovery_call_result.set}}",
+          "follow_up": "{{picklist.discovery_call_result.follow_up}}",
+          "dq": "{{picklist.discovery_call_result.dq}}",
+          "not_interested": "{{picklist.discovery_call_result.not_interested}}"
+        },
+        "else_value": ""
+      },
+      {
+        "id": "tv_words",
+        "type": "set_var",
+        "key": "result_words",
+        "value": "{{vars.result}}",
+        "pick": {
+          "set": "Set",
+          "follow_up": "Follow up",
+          "dq": "DQ",
+          "not_interested": "Not interested"
+        },
+        "else_value": ""
+      },
+      {
+        "id": "tv_act",
+        "type": "set_var",
+        "key": "act_line",
+        "value": "{{vars.result}}",
+        "pick": {
+          "follow_up": "{{vars.act_word}} a task for {{recording.caller.name | default:the setter}} to call back {{contact.name | default:them}}, due next business day.",
+          "dq": "{{vars.act_word}} tag {{vars.dq_tag}} and mark the setter card lost.",
+          "not_interested": "{{vars.act_word}} mark the setter card lost."
+        },
+        "else_value": ""
+      },
+      {
+        "id": "rs",
+        "type": "resume",
+        "title": "Back to where the run was"
+      },
+      {
+        "id": "ru1",
+        "type": "record",
+        "event": "intent.unanswered",
+        "data": {
+          "domain": "setter_call_result",
+          "predicted": "{{vars.classify.result}}",
+          "predicted_confidence": "{{vars.jev_confidence}}",
+          "top_guesses": "{{vars.jev_guesses}}",
+          "recording_id": "{{recording.id}}"
+        },
+        "title": "Record that nobody answered in two days"
+      },
+      {
+        "id": "ru2",
+        "type": "slack_post",
+        "channel": "{{slack.channel.setter_calls}}",
+        "fallback_channel": [
+          "{{slack.channel.ops}}",
+          "{{slack.channel.bookings}}"
+        ],
+        "thread_of": "tag:setter-result:{{recording.id}}",
+        "thread_only": true,
+        "as": {
+          "name": "Set, follow up or DQ?",
+          "icon": ":grey_question:"
+        },
+        "template": "Nobody answered in two days, so no result was written for {{contact.name | default:them}}.",
+        "unreact": {
+          "of": "tag:setter-result:{{recording.id}}",
+          "emojis": [
+            "white_check_mark",
+            "repeat",
+            "x",
+            "no_entry_sign"
+          ]
+        },
+        "title": "Close the question in its thread"
+      },
+      {
+        "id": "rs2",
+        "type": "resume",
+        "title": "Back to where the run was"
+      },
+      {
+        "id": "r2",
+        "type": "crm_record",
+        "object": "custom_objects.discovery_call",
+        "key": "{{recording.external_id}}",
+        "if_missing": "skip",
+        "only_if": {
+          "eq": [
+            "{{vars.decided_by}}",
+            "human"
+          ]
+        },
+        "properties": {
+          "call_result": "{{vars.result_key}}"
+        },
+        "title": "Write the team's answer on the Discovery Call record"
+      },
+      {
+        "id": "q_reply",
+        "type": "slack_post",
+        "channel": "{{slack.channel.setter_calls}}",
+        "fallback_channel": [
+          "{{slack.channel.ops}}",
+          "{{slack.channel.bookings}}"
+        ],
+        "thread_of": "tag:setter-result:{{recording.id}}",
+        "thread_only": true,
+        "only_if": {
+          "eq": [
+            "{{vars.decided_by}}",
+            "human"
+          ]
+        },
+        "as": {
+          "name": "Set, follow up or DQ?",
+          "icon": ":grey_question:"
+        },
+        "template": "{{vars.result_words}}, per {{reaction.user_name | default:the team}}.{{vars.act_line | line}}",
+        "unreact": {
+          "of": "tag:setter-result:{{recording.id}}",
+          "emojis": [
+            "white_check_mark",
+            "repeat",
+            "x",
+            "no_entry_sign"
+          ]
+        },
+        "title": "Say who decided, in the question's thread"
+      },
+      {
+        "id": "k_task",
+        "type": "create_task",
+        "only_if": {
+          "and": [
+            {
+              "eq": [
+                "{{setting.setter_result.act}}",
+                true
+              ]
+            },
+            {
+              "eq": [
+                "{{vars.result}}",
+                "follow_up"
+              ]
+            }
+          ]
+        },
+        "title": "Call back {{contact.name | default:the lead}}",
+        "body": "Follow-up from {{recording.caller.name | default:the setter}}'s call on {{recording.started_at | date_company}}.\nSuggested next step: {{vars.notes.next_step | default:—}}\n\n{{vars.notes.digest | default:}}",
+        "due": "{{vars.task_due}}",
+        "assign_to": "{{recording.caller.ghl_user_id | default:}}"
+      },
+      {
+        "id": "k_tag",
+        "type": "tags",
+        "only_if": {
+          "and": [
+            {
+              "eq": [
+                "{{setting.setter_result.act}}",
+                true
+              ]
+            },
+            {
+              "eq": [
+                "{{vars.result}}",
+                "dq"
+              ]
+            }
+          ]
+        },
+        "add": [
+          "{{vars.dq_tag}}"
+        ]
+      },
+      {
+        "id": "k_lost_dq",
+        "type": "pipeline_card",
+        "only_if": {
+          "and": [
+            {
+              "eq": [
+                "{{setting.setter_result.act}}",
+                true
+              ]
+            },
+            {
+              "eq": [
+                "{{vars.result}}",
+                "dq"
+              ]
+            }
+          ]
+        },
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_dq | default:}}",
+        "status": "lost",
+        "if_missing": "skip",
+        "title": "Setter card lost (DQ)"
+      },
+      {
+        "id": "k_lost_ni",
+        "type": "pipeline_card",
+        "only_if": {
+          "and": [
+            {
+              "eq": [
+                "{{setting.setter_result.act}}",
+                true
+              ]
+            },
+            {
+              "eq": [
+                "{{vars.result}}",
+                "not_interested"
+              ]
+            }
+          ]
+        },
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_not_interested | default:}}",
+        "status": "lost",
+        "if_missing": "skip",
+        "title": "Setter card lost (not interested)"
       },
       {
         "id": "x1",
@@ -225,6 +836,95 @@
       },
       {
         "from": "y2",
+        "to": "b_type"
+      },
+      {
+        "from": "b_type",
+        "to": "w2",
+        "when": {
+          "eq": [
+            "{{vars.classify.call_type}}",
+            "setting"
+          ]
+        },
+        "label": "setting call"
+      },
+      {
+        "from": "b_type",
+        "to": "r1",
+        "else": true,
+        "label": "confirmation call"
+      },
+      {
+        "from": "w2",
+        "to": "a3"
+      },
+      {
+        "from": "a3",
+        "to": "v_conf"
+      },
+      {
+        "from": "v_conf",
+        "to": "v_guess"
+      },
+      {
+        "from": "v_guess",
+        "to": "v_by"
+      },
+      {
+        "from": "v_by",
+        "to": "v_by30"
+      },
+      {
+        "from": "v_by30",
+        "to": "v_res"
+      },
+      {
+        "from": "v_res",
+        "to": "v_agree"
+      },
+      {
+        "from": "v_agree",
+        "to": "v_ask"
+      },
+      {
+        "from": "v_ask",
+        "to": "a4"
+      },
+      {
+        "from": "a4",
+        "to": "v_dqtag"
+      },
+      {
+        "from": "v_dqtag",
+        "to": "rec_read"
+      },
+      {
+        "from": "rec_read",
+        "to": "v_due"
+      },
+      {
+        "from": "v_due",
+        "to": "v_mode"
+      },
+      {
+        "from": "v_mode",
+        "to": "v_key"
+      },
+      {
+        "from": "v_key",
+        "to": "v_words"
+      },
+      {
+        "from": "v_words",
+        "to": "v_act"
+      },
+      {
+        "from": "v_act",
+        "to": "v_line"
+      },
+      {
+        "from": "v_line",
         "to": "r1"
       },
       {
@@ -237,6 +937,118 @@
       },
       {
         "from": "s1",
+        "to": "b_ask"
+      },
+      {
+        "from": "b_ask",
+        "to": "q1",
+        "when": {
+          "eq": [
+            "{{vars.asking}}",
+            true
+          ]
+        },
+        "label": "Jev unsure: ask the team"
+      },
+      {
+        "from": "b_ask",
+        "to": "k_task",
+        "else": true,
+        "label": "result known"
+      },
+      {
+        "from": "q1",
+        "to": "l1"
+      },
+      {
+        "from": "l1",
+        "to": "w_hold",
+        "label": "the run goes on"
+      },
+      {
+        "from": "l1",
+        "to": "tv_res",
+        "label": "tap"
+      },
+      {
+        "from": "l1",
+        "to": "ru1",
+        "label": "until"
+      },
+      {
+        "from": "tv_res",
+        "to": "tv_by"
+      },
+      {
+        "from": "tv_by",
+        "to": "tv_agree"
+      },
+      {
+        "from": "tv_agree",
+        "to": "tv_ask"
+      },
+      {
+        "from": "tv_ask",
+        "to": "rec_rev"
+      },
+      {
+        "from": "rec_rev",
+        "to": "tv_key"
+      },
+      {
+        "from": "tv_key",
+        "to": "tv_words"
+      },
+      {
+        "from": "tv_words",
+        "to": "tv_act"
+      },
+      {
+        "from": "tv_act",
+        "to": "rs"
+      },
+      {
+        "from": "rs",
+        "to": "w_hold"
+      },
+      {
+        "from": "ru1",
+        "to": "ru2"
+      },
+      {
+        "from": "ru2",
+        "to": "rs2"
+      },
+      {
+        "from": "rs2",
+        "to": "w_hold"
+      },
+      {
+        "from": "w_hold",
+        "to": "r2"
+      },
+      {
+        "from": "r2",
+        "to": "q_reply"
+      },
+      {
+        "from": "q_reply",
+        "to": "k_task"
+      },
+      {
+        "from": "k_task",
+        "to": "k_tag"
+      },
+      {
+        "from": "k_tag",
+        "to": "k_lost_dq"
+      },
+      {
+        "from": "k_lost_dq",
+        "to": "k_lost_ni"
+      },
+      {
+        "from": "k_lost_ni",
         "to": "x1"
       }
     ]

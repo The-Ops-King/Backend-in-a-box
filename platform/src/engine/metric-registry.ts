@@ -7,6 +7,7 @@ import { AvailabilityUnreadable, readAvailability, type Availability, type Healt
 import { loadCompany } from "./context";
 import { testContactSql, testDomains } from "./mode";
 import { leadSourceSql, sourceFields, sourceFieldsParam } from "./lead-source";
+import { accuracyOf, accuracyWords, setterReads, type SetterAccuracy } from "./setter-result";
 import { GHL_SOURCE, closesFor, ghlRows, showBreakdown, type GhlCtx, type GhlEntity, type QualificationSummary, type ShowBreakdown } from "./ghl-metrics";
 
 /**
@@ -32,6 +33,10 @@ export type MetricResult = {
   qualification?: QualificationSummary;
   /** Show rate: every due call by outcome, who has none filed, and where GHL and the booking source disagree. */
   shows_breakdown?: ShowBreakdown;
+  /** What the rows are split by when it is not one of the group-bys (D79: Jev's accuracy by what Jev read). */
+  rows_by?: string;
+  /** Jev's setter-call accuracy (D79): how many reads, how many still waiting on an outcome, how many Jev left to the team. */
+  setter_accuracy?: SetterAccuracy;
   /** Said instead of a number when GHL holds nothing to count yet (D75: no Payment records is never $0). */
   unavailable?: string;
 };
@@ -151,7 +156,9 @@ type Rate = { kind: "rate"; label: string; definition: string; num: string; den:
 type Setter = { kind: "setter"; label: string; unit: Unit; definition: string; pick: (s: SetterStats) => number | null; count: (s: SetterStats) => number };
 /** Read live from GHL (D73): the computation is in ghl-metrics.ts, keyed by the metric's name. */
 type Ghl = { kind: "ghl"; label: string; unit: Unit; definition: string; entity: GhlEntity };
-type Def = Base | Rate | Setter | Ghl;
+/** Jev's reads scored against what happened (D79), from the ledger with the Discovery Call records read live. */
+type Jev = { kind: "jev"; label: string; definition: string };
+type Def = Base | Rate | Setter | Ghl | Jev;
 
 const DUE = "a.starts_at < $6 and a.status not in ('cancelled','invalid') and coalesce(ot.category,'') not in ('cancelled','rescheduled')";
 
@@ -181,15 +188,16 @@ export const METRICS: Record<string, Def> = {
   refunds: { kind: "ghl", label: "Refunds", unit: "money", entity: "payment", definition: "refunds and chargebacks in GHL's Payment records in the period" },
   speed_to_lead: { kind: "setter", label: "Speed to lead", unit: "minutes", pick: (s) => s.stl_median_min, count: (s) => s.leads_dialled_first, definition: "median minutes from a lead arriving to the first outbound dial, credited to whoever dialled (leads never dialled are not counted)" },
   dials: { kind: "setter", label: "Dials", unit: "count", pick: (s) => s.dials, count: (s) => s.dials, definition: "outbound dialer calls made in the period" },
+  jev_setter_accuracy: { kind: "jev", label: "Jev's setter-call accuracy", definition: `how often Jev's read of a setter call (set, follow up, DQ, not interested) matched what happened, by Jev's read: a booking within 7 days (or 30 minutes) means set, a dq tag added in the CRM means DQ, the setter card marked lost in the CRM means not interested, a team member's tap or a later change of the Discovery Call record's result wins; a set read with no booking in 7 days missed; reads whose outcome is not known yet, and reads Jev was unsure of (asked the team), are left out of the rate` },
   connected: { kind: "setter", label: "Connected calls", unit: "count", pick: (s) => s.connected, count: (s) => s.connected, definition: "outbound dials the CRM marked connected and at least the company's reached-seconds long" },
 };
 export const METRIC_NAMES = Object.keys(METRICS);
 
-const unitOf = (d: Def): Unit => (d.kind === "rate" ? "rate" : d.unit);
+const unitOf = (d: Def): Unit => (d.kind === "rate" || d.kind === "jev" ? "rate" : d.unit);
 /** Which ways a metric can be split. */
 export function dimsOf(name: string): GroupBy[] {
   const d = METRICS[name]; if (!d) return [];
-  if (d.kind === "setter") return ["setter"];
+  if (d.kind === "setter" || d.kind === "jev") return ["setter"];
   if (d.kind === "rate") { const a = dimsOf(d.num), b = dimsOf(d.den); return a.filter((x) => b.includes(x)); }
   if (d.kind === "ghl") return GROUP_BYS.filter((g) => (g !== "setter" || d.entity === "payment") && (g !== "closer" || d.entity !== "lead"));
   const e = ENTITIES[d.entity];
@@ -243,6 +251,16 @@ export async function getMetric(c: PoolClient, companyId: string, q: MetricQuery
     const value = filters.setter ? (only ? def.pick(only) : def.unit === "minutes" ? null : 0) : def.pick(m.totals);
     const rows = q.groupBy === "setter" ? m.setters.filter((s) => !filters.setter || s.id === filters.setter).map((s) => ({ key: s.id, label: s.name, value: def.pick(s), numerator: def.count(s) })) : undefined;
     return { ...head, value, rows };
+  }
+  if (def.kind === "jev") {
+    if (filters.closer || filters.source) throw new MetricError(`${def.label} can only be filtered by setter`);
+    const { reads: list, crm_unread } = await setterReads(c, companyId, { start, end, now, domains, bindings, ac, reads });
+    const setterName = filters.setter ? nameOf(filters.setter)?.toLowerCase() : undefined;
+    const mine = setterName ? list.filter((r) => (r.setter ?? "").toLowerCase() === setterName) : list;
+    const a = accuracyOf(mine, q.groupBy === "setter" ? "setter" : "result", crm_unread);
+    const rate = (n: number, d: number) => (d > 0 ? n / d : null);
+    return { ...head, source: `${LEDGER} and ${GHL_SOURCE}`, value: rate(a.agreed, a.scored), numerator: a.agreed, denominator: a.scored, numerator_label: "matched", denominator_label: "reads with a known outcome",
+      rows: a.groups.map((g) => ({ key: g.key, label: g.label, value: rate(g.agreed, g.scored), numerator: g.agreed, denominator: g.scored })), ...(q.groupBy ? {} : { rows_by: "Jev's read" }), setter_accuracy: a };
   }
   let qualification: QualificationSummary | undefined, unavailable: string | undefined;
   const runBase = async (name: string, groupBy?: GroupBy): Promise<Map<string, number>> => {
