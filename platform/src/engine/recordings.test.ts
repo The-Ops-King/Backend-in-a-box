@@ -50,6 +50,17 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     const far = await asOperator((c) => resolveRecording(c, companyId, rec("r5", { startedAt: new Date(at.getTime() + 5 * 3600e3), invitees: [{ name: "Guest", email: "guest@phone.com" }] })));
     expect(far.match).toBeNull(); expect(far.reason).toMatch(/nobody in the CRM matches guest@phone.com.*no appointment on the closer's calendar/);
   });
+  it("back-to-back calls: the recording belongs to the call it started on when the next is clearly another slot; too close to call stays unlinked", async () => {
+    const add = (contact: string, ext: string, startsAt: Date) => asOperator(async (c) => { const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 limit 1", [companyId]))!.id;
+      return (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, booked_at, status) values ($1,$2,'ghl',$3,$4,$5,$6,$7,$7,now(),'confirmed') returning id", [companyId, contact, ext, cal, term, closer, startsAt]))!.id; });
+    const base = new Date(at.getTime() + 24 * 3600e3);
+    const ten = await add(ann, "BB-1", base); await add(bob, "BB-2", new Date(base.getTime() + 60 * 60e3)); await add(bob, "BB-3", new Date(base.getTime() + 120 * 60e3));
+    const r = await asOperator((c) => resolveRecording(c, companyId, rec("r6", { startedAt: new Date(base.getTime() + 60e3), invitees: [{ name: "Guest", email: "guest@phone.com" }] })));
+    expect(r.match).toEqual({ contactId: ann, by: "calendar", appointmentId: ten });
+    await add(bob, "BB-4", new Date(base.getTime() + 30 * 60e3));   // a call half an hour in: no longer clearly the 10:00 one
+    const tie = await asOperator((c) => resolveRecording(c, companyId, rec("r7", { startedAt: new Date(base.getTime() + 60e3), invitees: [{ name: "Guest", email: "guest@phone.com" }] })));
+    expect(tie.match).toBeNull(); expect(tie.reason).toMatch(/none clearly the one it started on/);
+  });
   it("two different contacts on one recording is ambiguous, not a guess; all-staff is named as such", async () => {
     const amb = await asOperator((c) => resolveRecording(c, companyId, rec("r6", { invitees: [{ email: "ann@x.com" }, { email: "bob@x.com" }] })));
     expect(amb.match).toBeNull(); expect(amb.reason).toMatch(/2 different contacts/);

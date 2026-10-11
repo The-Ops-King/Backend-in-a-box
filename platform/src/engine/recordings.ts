@@ -7,7 +7,7 @@ import { normEmail } from "./payments";
  * Call recordings (D22). Same shape as the payments ledger: every recording the provider reports becomes a row, linked
  * to a person or not. The ladder, most reliable first: an invitee email on a known contact; an invitee name that matches
  * exactly one contact; the closer's own calendar (the recorder is a user we know, and they had one appointment within
- * two hours of the recording start). One unambiguous hit or nothing. A miss is an unlinked row the team fixes by hand.
+ * two hours of the recording start, or one starting within 15 minutes of it with every other at least 40 minutes away). One unambiguous hit or nothing. A miss is an unlinked row the team fixes by hand.
  */
 export type RecordingInput = {
   provider?: string; externalId: string;
@@ -26,6 +26,8 @@ export type RecordResult =
   | { outcome: "unlinked"; recording: RecordingRow; event: EventRow; reason: string };
 
 const CALENDAR_WINDOW_MIN = 120;      // the closer's appointment must start within this of the recording
+const ON_TIME_MIN = 15;               // a recording starting this close to a call's start is that call…
+const CLEAR_GAP_MIN = 40;             // …when no other call of the closer's starts within this of the recording
 const APPOINTMENT_WINDOW_H = 24;      // once the person is known, their appointment nearest the recording, if this close
 
 /** The transcript as one readable document: "Speaker: text" lines. */
@@ -66,9 +68,11 @@ export async function resolveRecording(c: PoolClient, companyId: string, input: 
   // 3. the closer's calendar: the recorder is a user we know, with one appointment near the recording start
   const closer = input.recordedBy?.email ? await one<{ id: string }>(c, "select id from users where company_id=$1 and lower(email)=$2 and active", [companyId, input.recordedBy.email.toLowerCase()]) : null;
   if (closer) {
-    const near = await many<{ id: string; contact_id: string }>(c, `select id, contact_id from appointments where company_id=$1 and assigned_user_id=$2 and status<>'cancelled' and abs(extract(epoch from (starts_at - $3::timestamptz))) <= $4 order by abs(extract(epoch from (starts_at - $3::timestamptz)))`, [companyId, closer.id, input.startedAt, CALENDAR_WINDOW_MIN * 60]);
+    const near = await many<{ id: string; contact_id: string; off: number }>(c, `select id, contact_id, abs(extract(epoch from (starts_at - $3::timestamptz)))::float as off from appointments where company_id=$1 and assigned_user_id=$2 and status<>'cancelled' and abs(extract(epoch from (starts_at - $3::timestamptz))) <= $4 order by 3`, [companyId, closer.id, input.startedAt, CALENDAR_WINDOW_MIN * 60]);
     if (near.length === 1) return { match: { contactId: near[0].contact_id, by: "calendar", appointmentId: near[0].id } };
-    if (near.length > 1) return { match: null, reason: `the closer had ${near.length} appointments within ${CALENDAR_WINDOW_MIN / 60} hours of this recording` };
+    // back-to-back calls are normal: the call the recording started on is the one beginning right then, when the next nearest is clearly another slot
+    if (near.length > 1 && near[0].off <= ON_TIME_MIN * 60 && near[1].off >= CLEAR_GAP_MIN * 60) return { match: { contactId: near[0].contact_id, by: "calendar", appointmentId: near[0].id } };
+    if (near.length > 1) return { match: null, reason: `the closer had ${near.length} appointments within ${CALENDAR_WINDOW_MIN / 60} hours of this recording, none clearly the one it started on` };
   }
   const seen = [...emails, ...names].join(", ");
   return { match: null, reason: emails.length || names.length ? `nobody in the CRM matches ${seen}${closer ? "; no appointment on the closer's calendar near the start" : ""}` : staffDropped.length ? `every attendee is staff (${staffDropped.join(", ")})` : "no attendees on the recording" };
