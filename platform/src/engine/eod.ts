@@ -55,6 +55,8 @@ const str = (v: unknown): string => (typeof v === "string" ? v : Array.isArray(v
 
 /** A closer's Sales Call in GHL that is due and blank: its call time has passed and nobody filed an outcome or a disposition. */
 export type BlankSalesCall = { id: string; day: string; at: DateTime | null; name: string; ghl_contact_id: string | null; engine: boolean };
+/** One of the closer's Sales Calls in GHL: filed or not, due or not, and the engine's booking it is, when it is one. */
+export type CloserSalesCall = BlankSalesCall & { filed: boolean; due: boolean; appointment_id: string | null };
 /** A row on the form for a Sales Call the engine has no booking for: keyed by the record, so filing it writes to that record. */
 export const GHL_ROW = "ghl:";
 /** What a held call puts on its Sales Call; a no-show or a call rescheduled on the call empties it (D77). */
@@ -62,34 +64,44 @@ export const HELD_CALL_PROPS = ["disposition", "cash_collected", "objection_prim
 const DISPOSITION: Partial<Record<CallOutcome, string>> = { closed: "closed_won", deposit: "closed_won", follow_up: "follow_up", lost: "lost", dq: "dq" };
 
 /**
- * D76/D77: the closer's Sales Calls in GHL (matched by the record's `closer` to their roster name) that are due and blank:
- * the call time has passed (a record with only a day counts from the next day) and the outcome means nothing filed (blank, or
- * the company's "scheduled") with no disposition. `engine` marks a record that is one of the engine's own bookings (we wrote
- * or matched it, it carries a booking's id, or it is the person's booking that same minute); the rest were booked before
- * the engine was installed, and only the form can file them. Throws when GHL cannot be read.
+ * D76/D77: the closer's Sales Calls in GHL (matched by the record's `closer` to their roster name), each with whether it is
+ * filed (an outcome that means something other than "scheduled", or a disposition) and due (the call time has passed; a
+ * record with only a day counts from the next day). `appointment_id` is the engine's booking the record is: one we wrote,
+ * one carrying a booking's id or slot, or the person's booking that same minute (that same day when the record has no
+ * time); `engine` is true for any of those. The rest were booked before the engine was installed. Throws when GHL cannot be read.
  */
-export async function blankSalesCalls(c: PoolClient, adapters: Adapters, adapterCompany: Company, companyId: string, bindings: Record<string, string>, closerName: string, tz: string, now: DateTime): Promise<BlankSalesCall[]> {
+export async function closerSalesCalls(c: PoolClient, adapters: Adapters, adapterCompany: Company, companyId: string, bindings: Record<string, string>, closerName: string, tz: string, now: DateTime): Promise<CloserSalesCall[]> {
   const object = bindings["crm.object_sales_call"];
   if (!object || !closerName.trim()) return [];
   const today = now.setZone(tz).toISODate()!, who = closerName.trim().toLowerCase();
-  const due: Omit<BlankSalesCall, "engine">[] = [];
-  const recs = new Map<string, Record<string, unknown>>();
+  const recs: (Omit<CloserSalesCall, "engine" | "appointment_id"> & { ext: string })[] = [];
   for (const r of await adapters.read.objectRecords(adapterCompany, object)) {
     const p = r.properties;
-    if (String(p.closer ?? "").trim().toLowerCase() !== who || filedMeaning(p.outcome, bindings) || String(p.disposition ?? "").trim()) continue;
+    if (String(p.closer ?? "").trim().toLowerCase() !== who) continue;
     const cd = String(p.call_date ?? ""), dayOf = /^\d{4}-\d{2}-\d{2}$/.test(cd) ? DateTime.fromISO(cd, { zone: tz }) : null;
     const timed = callTime(p.scheduled_at, dayOf, tz), at = timed ?? dayOf;
-    if (!at || (timed ? at > now : at.toISODate()! >= today)) continue;   // not due yet
-    due.push({ id: r.id, day: at.setZone(tz).toISODate()!, at: timed, name: String(p.display_label ?? "").split(" — ")[0].trim() || r.id, ghl_contact_id: String(p.contact_id ?? "").trim() || null }); recs.set(r.id, p);
+    if (!at) continue;
+    recs.push({ id: r.id, day: at.setZone(tz).toISODate()!, at: timed, name: String(p.display_label ?? "").split(" — ")[0].split(" · ")[0].trim() || r.id, ghl_contact_id: String(p.contact_id ?? "").trim() || null,
+      filed: !!filedMeaning(p.outcome, bindings) || !!String(p.disposition ?? "").trim(), due: timed ? at <= now : at.toISODate()! < today, ext: String(p.external_id ?? "").trim() });
   }
-  if (!due.length) return [];
-  const ours = new Set((await many<{ v: string }>(c, "select ghl_record_id as v from crm_records where company_id=$1 and object_key=$2 and ghl_record_id = any($3::text[])", [companyId, object, due.map((r) => r.id)])).map((r) => r.v));
-  const ext = due.map((r) => String(recs.get(r.id)!.external_id ?? "").trim()).filter(Boolean);
-  const booked = new Set((await many<{ v: string }>(c, "select external_id as v from appointments where company_id=$1 and external_id = any($2::text[]) union select slot_key from appointments where company_id=$1 and slot_key = any($2::text[])", [companyId, ext])).map((r) => r.v));
-  const people = due.map((r) => r.ghl_contact_id).filter((x): x is string => !!x);
-  const theirs = await many<{ ghl: string; starts_at: Date }>(c, `select x.ghl, a.starts_at from appointments a join (select id as contact_id, ghl_contact_id as ghl from contacts where company_id=$1 and ghl_contact_id = any($2::text[])
+  if (!recs.length) return [];
+  const ours = await many<{ rec: string; appt: string | null }>(c, `select cr.ghl_record_id as rec, a.id::text as appt from crm_records cr
+      left join appointments a on a.company_id=cr.company_id and (a.external_id=cr.record_key or a.slot_key=cr.record_key)
+      where cr.company_id=$1 and cr.object_key=$2 and cr.ghl_record_id = any($3::text[])`, [companyId, object, recs.map((r) => r.id)]);
+  const ext = recs.map((r) => r.ext).filter(Boolean);
+  const booked = await many<{ k: string; appt: string }>(c, "select external_id as k, id::text as appt from appointments where company_id=$1 and external_id = any($2::text[]) union all select slot_key, id::text from appointments where company_id=$1 and slot_key = any($2::text[])", [companyId, ext]);
+  const people = [...new Set(recs.map((r) => r.ghl_contact_id).filter((x): x is string => !!x))];
+  const theirs = await many<{ ghl: string; appt: string; starts_at: Date }>(c, `select x.ghl, a.id::text as appt, a.starts_at from appointments a join (select id as contact_id, ghl_contact_id as ghl from contacts where company_id=$1 and ghl_contact_id = any($2::text[])
       union select contact_id, value from contact_identifiers where company_id=$1 and kind='ghl_contact' and value = any($2::text[])) x on x.contact_id=a.contact_id where a.company_id=$1`, [companyId, people]);
-  return due.map((r) => ({ ...r, engine: ours.has(r.id) || booked.has(String(recs.get(r.id)!.external_id ?? "").trim()) || theirs.some((t) => t.ghl === r.ghl_contact_id && (r.at ? DateTime.fromJSDate(t.starts_at).startOf("minute").toMillis() === r.at.startOf("minute").toMillis() : DateTime.fromJSDate(t.starts_at).setZone(tz).toISODate() === r.day)) }));
+  return recs.map(({ ext: e, ...r }) => {
+    const mine = ours.find((o) => o.rec === r.id), byId = e ? booked.find((b) => b.k === e) : undefined;
+    const same = theirs.find((t) => t.ghl === r.ghl_contact_id && (r.at ? DateTime.fromJSDate(t.starts_at).startOf("minute").toMillis() === r.at.startOf("minute").toMillis() : DateTime.fromJSDate(t.starts_at).setZone(tz).toISODate() === r.day));
+    return { ...r, appointment_id: mine?.appt ?? byId?.appt ?? same?.appt ?? null, engine: !!(mine || byId || same) };
+  });
+}
+/** The closer's Sales Calls in GHL that are due and blank (D76/D77). */
+export async function blankSalesCalls(c: PoolClient, adapters: Adapters, adapterCompany: Company, companyId: string, bindings: Record<string, string>, closerName: string, tz: string, now: DateTime): Promise<BlankSalesCall[]> {
+  return (await closerSalesCalls(c, adapters, adapterCompany, companyId, bindings, closerName, tz, now)).filter((r) => r.due && !r.filed).map(({ id, day, at, name, ghl_contact_id, engine }) => ({ id, day, at, name, ghl_contact_id, engine }));
 }
 
 /** Their day as the engine saw it. Every value here is a prefill the closer may correct. With `adapters`, the day's blank Sales Calls booked before the engine (D77) are rows too. */
@@ -165,21 +177,26 @@ async function fileGhlRow(c: PoolClient, adapters: Adapters, company: CompanyRow
 }
 
 /** The closer's end-of-day picture for a run about them (context root user.eod): today's calls and whether today is filed, and every earlier day in the last week with calls and no report. Lines are ready to post. */
-export async function eodFacts(c: PoolClient, company: CompanyRow, userId: string, base: string, now = DateTime.now()): Promise<{ day: string; url: string; today: { calls: number; filed: boolean; line: string }; earlier: { day: string; label: string; calls: number; url: string }[]; earlier_count: number; earlier_lines: string; all_lines: string }> {
+export async function eodFacts(c: PoolClient, company: CompanyRow, userId: string, base: string, now = DateTime.now()): Promise<{ day: string; url: string; today: { calls: number; filed: boolean; line: string; open: string[] }; earlier: { day: string; label: string; calls: number; url: string; open: string[] }[]; earlier_count: number; earlier_lines: string; all_lines: string }> {
   const tz = company.timezone, local = now.setZone(tz), day = local.toFormat(DAY_FMT);
   const token = await tokenFor(c, userId), url = `${base}/eod/${token}`;
-  const rows = await many<{ day: string; calls: number; filed: boolean }>(c, `
-    select d.day::text as day, count(a.id)::int as calls, exists (select 1 from eod_reports r where r.company_id=$1 and r.user_id=$2 and r.day=d.day and r.submitted_at is not null) as filed
+  // calls: the day's held calls with no answer on the ledger yet (a no-show, a call rescheduled on the call or a call
+  // outcome is an answer; "showed" alone is not); open: those calls, for the reminder to check against GHL (D76)
+  const rows = await many<{ day: string; calls: number; open: string[]; filed: boolean }>(c, `
+    select d.day::text as day, count(a.id)::int as calls, coalesce(array_agg(a.id::text) filter (where a.id is not null), '{}') as open,
+           exists (select 1 from eod_reports r where r.company_id=$1 and r.user_id=$2 and r.day=d.day and r.submitted_at is not null) as filed
     from (select generate_series(($3::date - interval '7 days')::date, $3::date, interval '1 day')::date as day) d
-    left join appointments a on a.company_id=$1 and a.assigned_user_id=$2 and ${HELD_CALL} and (a.starts_at at time zone $4)::date = d.day
+    left join (appointments a left join company_terms ot on ot.id=a.outcome_term)
+      on a.company_id=$1 and a.assigned_user_id=$2 and ${HELD_CALL} and (a.starts_at at time zone $4)::date = d.day
+         and a.call_outcome_term is null and coalesce(ot.category, '') not in ('noshow', 'rescheduled', 'cancelled')
     group by d.day order by d.day`, [company.id, userId, day, tz]);
   const label = (d: string) => DateTime.fromFormat(d, DAY_FMT, { zone: tz }).toFormat("ccc LLL d");
-  const today = rows.find((r) => r.day === day) ?? { day, calls: 0, filed: false };
-  const earlier = rows.filter((r) => r.day < day && r.calls > 0 && !r.filed).map((r) => ({ day: r.day, label: label(r.day), calls: r.calls, url: `${url}?day=${r.day}` }));
+  const today = rows.find((r) => r.day === day) ?? { day, calls: 0, open: [], filed: false };
+  const earlier = rows.filter((r) => r.day < day && r.calls > 0 && !r.filed).map((r) => ({ day: r.day, label: label(r.day), calls: r.calls, url: `${url}?day=${r.day}`, open: r.open }));
   const line = (d: { label: string; calls: number; url: string }, when: string) => `• <${d.url}|${when}>: ${d.calls} call${d.calls === 1 ? "" : "s"}`;
   const todayLine = today.calls && !today.filed ? line({ label: "today", calls: today.calls, url }, "today") : "";
   const earlierLines = earlier.map((d) => line(d, d.label)).join("\n");
-  return { day, url, today: { calls: today.calls, filed: today.filed, line: todayLine }, earlier, earlier_count: earlier.length, earlier_lines: earlierLines, all_lines: [todayLine, earlierLines].filter(Boolean).join("\n") };
+  return { day, url, today: { calls: today.calls, filed: today.filed, line: todayLine, open: today.open }, earlier, earlier_count: earlier.length, earlier_lines: earlierLines, all_lines: [todayLine, earlierLines].filter(Boolean).join("\n") };
 }
 
 export type Change = { field: string; from: unknown; to: unknown; contact?: string };

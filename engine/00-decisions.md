@@ -2589,3 +2589,18 @@ closed call for "Contract value" then "Cash collected", while the day's totals a
   the old default label ("Contract value ($)") follows the rename; a label the company chose stays theirs.
 - A call with more cash collected than revenue generated is not filed: the form says "Check <person>: cash collected is
   more than revenue generated". If someone really paid more than the deal (an add-on), revenue is raised to match.
+
+## D82. A call already answered is not owed (2026-10-11)
+
+Found live: James's morning reminder listed Oct 5, 6, 8 and 9 (6 calls). Every one was already filed in GHL through the
+old process (Lynton showed / closed won, the rest no-shows or close pending), and the ledger held a no-show for four of
+them. The reminder's ledger half counted every held call on a day with no end-of-day form filed, answered or not; only
+its GHL half (D76) looked at outcomes.
+
+- The ledger counts a call as owed only when it holds no answer: a no-show, a call rescheduled on the call, or a call
+  outcome is an answer; "showed" alone is not.
+- With the Sales Call object bound, GHL decides: a ledger call whose Sales Call is filed (an outcome other than
+  scheduled, or a disposition) is answered, whatever the ledger holds. A record is matched to its booking the D77 way:
+  one we wrote, its booking id or slot, or the same person at the same minute (the old process carries its own ids).
+- A day drops off the reminder once nothing on it is owed. Names from the old "Name · day · time" labels read as the name.
+

@@ -268,6 +268,48 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes','bot.escalate_to')", [companyId]));
     }
   });
+  it("a call already answered is not owed: a no-show on the ledger, or a Sales Call filed in GHL before the engine (another booking id, the old label style), matched by person and minute; only the call with no answer anywhere is", async () => {
+    const d4 = DateTime.now().setZone(TZ).minus({ days: 4 }), at = (h: number) => d4.set({ hour: h, minute: 0, second: 0, millisecond: 0 });
+    const ids = await asOperator(async (c) => {
+      const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 and external_id='CAL'", [companyId]))!.id;
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const outcome = async (cat: string) => (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_outcome' and category=$2", [companyId, cat]))!.id;
+      const person = async (g: string, first: string) => (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,$2,$3,'Old') returning id", [companyId, g, first]))!.id;
+      const book = async (who: string, ext: string, h: number, cat: string) => (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id, outcome_term) values ($1,$2,$3,$4,$5,$6,now(),'confirmed',$7,$8,$9) returning id", [companyId, who, cal, ext, at(h).toJSDate(), at(h + 1).toJSDate(), term, allan, await outcome(cat)]))!.id;
+      return { lyn: await book(await person("GLYN", "Lyn"), "OLD-1", 9, "showed"), jo: await book(await person("GJO", "Jo"), "OLD-2", 11, "noshow"), kim: await book(await person("GKIM", "Kim"), "OLD-3", 13, "showed") };
+    });
+    // Lyn's Sales Call was filed through the old process: its own booking id, a "Name · day · time" label, an ISO time
+    const filed = { id: "LYN", createdAt: at(9).toISO()!, properties: { display_label: `Lyn Old · ${at(9).toFormat("ccc LLL d")} · 9:00 AM`, closer: "Allan P", contact_id: "GLYN", external_id: "zap-uuid", outcome: "showed", disposition: "closed_won", scheduled_at: at(9).toUTC().toISO(), call_date: d4.toISODate() } };
+    const before = fake.read.objectRecords;
+    fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [filed] : []);
+    await asOperator(async (c) => {
+      for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'id',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]);
+      await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]);
+      await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]);
+      await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='End-of-day reminder')", [companyId]);
+    });
+    try {
+      // the ledger alone: Jo's no-show is an answer; Lyn's "showed" is not, and Kim has none
+      const facts = await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, allan, "https://engine.test"));
+      expect(facts.earlier.find((e) => e.day === d4.toISODate())).toMatchObject({ calls: 2 });
+      expect(facts.earlier.find((e) => e.day === d4.toISODate())!.open.sort()).toEqual([ids.lyn, ids.kim].sort());
+      // GHL is the truth: Lyn's call is filed there, so only Kim's is owed
+      const when = DateTime.now().setZone(TZ).set({ hour: 17, minute: 1 }) as DateTime<true>;
+      await asOperator((c) => dispatchSchedules(c, when, companyId));
+      const n = posts.length; await tick(fake, when, companyId);
+      const dm = posts.slice(n).filter((p) => p.channel === "UALLAN").map((p) => p.text).join("\n");
+      expect(dm).toContain(`|${d4.toFormat("ccc LLL d")}>: 1 call\n`);
+      // and once Kim's is filed there too, the day is gone
+      fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [filed, { id: "KIM", createdAt: at(13).toISO()!, properties: { display_label: "Kim Old", closer: "Allan P", contact_id: "GKIM", outcome: "no_show", scheduled_at: at(13).toUTC().toISO(), call_date: d4.toISODate() } }] : []);
+      await asOperator(async (c) => { await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]); await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]); await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='End-of-day reminder')", [companyId]); });
+      await asOperator((c) => dispatchSchedules(c, when, companyId));
+      const m = posts.length; await tick(fake, when, companyId);
+      expect(posts.slice(m).filter((p) => p.channel === "UALLAN").map((p) => p.text).join("\n")).not.toContain(d4.toFormat("ccc LLL d"));
+    } finally {
+      fake.read.objectRecords = before;
+      await asOperator(async (c) => { await c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes')", [companyId]); await c.query("delete from appointments where id = any($1::uuid[])", [Object.values(ids)]); });
+    }
+  });
   it("D77: the form lists the closer's Sales Calls booked before the engine only while they are blank in GHL (no outcome, no disposition) and due; filing one writes to that record by its id, a changed answer empties what the old one set, the same answer is not written again", async () => {
     const d1 = DateTime.now().setZone(TZ).minus({ days: 1 }), dayStr = d1.toISODate()!;
     const at = (h: number) => d1.set({ hour: h, minute: 0, second: 0, millisecond: 0 }).toUTC().toISO()!;

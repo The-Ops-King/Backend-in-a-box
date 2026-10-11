@@ -717,31 +717,35 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       return { status: "ok", next, result: { calendars: r.findings.length, low: low.length, raised: r.raised, resolved: r.resolved, ...(cal ? { only: cal.external_id } : {}), ...(low.length ? { problems: low.map((f) => f.text) } : {}) } };
     }
     case "eod_due": {
-      // D76: the closer is reminded every day until each of their calls is filed; GHL's Sales Calls are the truth, the ledger fills in the days GHL has not seen
-      type Day = { day: string; label: string; calls: number; url: string };
-      const user = d.ctx.user as { name?: string; eod?: { day: string; url: string; today: { calls: number; filed: boolean }; earlier: Day[] } } | undefined;
+      // D76: the closer is reminded every day until each of their calls is filed. GHL's Sales Calls are the truth: a call
+      // filed there is answered whatever the ledger holds, and a blank one is owed; the ledger fills in the calls GHL has no record of
+      type Day = { day: string; label: string; calls: number; url: string; open: string[] };
+      const user = d.ctx.user as { name?: string; eod?: { day: string; url: string; today: { calls: number; filed: boolean; open: string[] }; earlier: Day[] } } | undefined;
       if (!user?.eod) { setPath(d.ctx, `vars.${node.into}`, ""); return { status: "ok", next, result: { kind: "noop", why: "the run is not about a closer" } }; }
       const tz = d.company.timezone, today = d.now.setZone(tz).toISODate()!, eod = user.eod, label = (day: string) => DateTime.fromISO(day, { zone: tz }).toFormat("ccc LLL d");
-      // blank: every blank Sales Call that day (the operator hears their names); extra: the ones the line adds to the ledger's count, so the line counts what the form shows (D77)
-      const days = new Map<string, { ledger?: number; blank: string[]; extra: number }>();
-      for (const e of eod.earlier) days.set(e.day, { ledger: e.calls, blank: [], extra: 0 });
-      if (node.period === "evening" && eod.today.calls && !eod.today.filed) days.set(eod.day, { ledger: eod.today.calls, blank: [], extra: 0 });
+      // ledger: the day's calls with no answer on the ledger; blank: every blank Sales Call that day (the operator hears their
+      // names); extra: blank ones the ledger does not already count, so the line counts what the form shows (D77)
+      const days = new Map<string, { ledger: Set<string>; blank: string[]; extra: number }>();
+      for (const e of eod.earlier) days.set(e.day, { ledger: new Set(e.open), blank: [], extra: 0 });
+      if (node.period === "evening" && eod.today.calls && !eod.today.filed) days.set(eod.day, { ledger: new Set(eod.today.open), blank: [], extra: 0 });
       let ghl: string | undefined;
       if (d.bindings["crm.object_sales_call"] && user.name) {
         try {
-          const { blankSalesCalls } = await import("./eod");
-          for (const r of await blankSalesCalls(d.c, d.adapters, d.adapterCompany, d.company.id, d.bindings, user.name, tz, d.now)) {
-            if (node.period === "morning" && r.day >= today) continue;
-            const e = days.get(r.day) ?? { blank: [], extra: 0 }; e.blank.push(r.name);
-            if (!(r.engine && e.ledger)) e.extra++;   // one of the engine's own bookings on a day the ledger already counts is that same call
+          const { closerSalesCalls } = await import("./eod");
+          const recs = await closerSalesCalls(d.c, d.adapters, d.adapterCompany, d.company.id, d.bindings, user.name, tz, d.now);
+          for (const r of recs) if (r.filed && r.appointment_id) for (const e of days.values()) e.ledger.delete(r.appointment_id);
+          for (const r of recs) {
+            if (r.filed || !r.due || (node.period === "morning" && r.day >= today)) continue;
+            const e = days.get(r.day) ?? { ledger: new Set<string>(), blank: [], extra: 0 }; e.blank.push(r.name);
+            if (!(r.appointment_id && e.ledger.has(r.appointment_id))) e.extra++;
             days.set(r.day, e);
           }
         } catch (e) { ghl = String((e as Error).message).slice(0, 200); }   // GHL unread: the ledger's days still go out
       }
       const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-      const lines = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).filter(([, e]) => e.ledger || e.extra).map(([day, e]) => {
+      const lines = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).filter(([, e]) => e.ledger.size || e.extra).map(([day, e]) => {
         const url = day === eod.day ? eod.url : `${eod.url}?day=${day}`, when = day === eod.day ? "today" : label(day);
-        return `• <${url}|${when}>: ${e.ledger ? plural(e.ledger, "call") : ""}${e.ledger && e.extra ? ", " : ""}${e.extra ? `${plural(e.extra, "call")} with no outcome in GHL` : ""}`;
+        return `• <${url}|${when}>: ${e.ledger.size ? plural(e.ledger.size, "call") : ""}${e.ledger.size && e.extra ? ", " : ""}${e.extra ? `${plural(e.extra, "call")} with no outcome in GHL` : ""}`;
       });
       const twoDaysAgo = d.now.setZone(tz).minus({ days: 2 }).toISODate()!;
       const overdue = node.period === "evening" ? [...days.entries()].filter(([day, e]) => e.blank.length && day <= twoDaysAgo).sort(([a], [b]) => a.localeCompare(b)).map(([day, e]) => `• ${label(day)}: ${e.blank.join(", ")}`) : [];
