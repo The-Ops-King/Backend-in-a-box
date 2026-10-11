@@ -4,7 +4,7 @@ import { DateTime } from "luxon";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
-import { prefill, submitEod, tokenFor, closerByToken, diffAnswers, todayFor, loadEodForm, saveEodForm, eodFacts } from "@/engine/eod";
+import { prefill, submitEod, tokenFor, closerByToken, diffAnswers, changeLine, todayFor, loadEodForm, saveEodForm, eodFacts } from "@/engine/eod";
 import { dispatchSchedules } from "@/engine/clock";
 import { tick } from "@/engine/runner";
 import { installTemplateForTest, replicaSnapshot } from "@/engine/test-install";
@@ -124,7 +124,12 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(await asOperator((c) => submitEod(c, fake, { token, day: todayFor(TZ), answers: half }))).toEqual({ ok: false, why: "Still needed: Sarah Kim: Call notes" });
     const answers = { ...half, calls: calls.map((x) => (x.contact === "Sarah Kim" ? { ...x, notes: "warm, wants her partner on the next one" } : x)) };
     const changes = diffAnswers(pre, answers);
-    expect(changes.map((ch) => `${ch.contact ? `${ch.contact}: ` : ""}${ch.field} ${ch.from} → ${ch.to}`)).toEqual(["calls count 2 → 3", "closes 0 → 1", "deposits 1 → 0", "cash 1500 → 2000", "Leo Ortiz: outcome Deposit → Closed", "Leo Ortiz: cash 1500 → 2000"]);
+    expect(changes.map(changeLine)).toEqual(["calls today 2 → 3", "closes 0 → 1", "deposits 1 → 0", "cash collected $1,500 → $2,000", "Leo Ortiz: Deposit → Closed", "Leo Ortiz: cash $1,500 → $2,000"]);
+    // a blank the closer fills in is their answer, not a correction; a date the engine had and they moved is
+    const p2 = { ...pre, calls: pre.calls.map((x) => ({ ...x, next_date: null, outcome: "" as const })) };
+    expect(diffAnswers(p2, { ...answers, calls: answers.calls.map((x) => ({ ...x, next_date: "2026-10-21" })) }).filter((ch) => ch.field === "follow-up date" || ch.field === "").map(changeLine)).toEqual([]);
+    const p3 = { ...pre, calls: pre.calls.map((x) => ({ ...x, next_date: "2026-10-21" })) };
+    expect(diffAnswers(p3, { ...answers, calls: answers.calls.map((x) => ({ ...x, next_date: "2026-10-29" })) }).filter((ch) => ch.field === "follow-up date").map(changeLine)[0]).toMatch(/: follow-up date Wed Oct 21 → Thu Oct 29$/);
     const n = posts.length;
     const r = await asOperator((c) => submitEod(c, fake, { token, day: todayFor(TZ), answers }));
     expect(r).toMatchObject({ ok: true, recorded: 2 });
@@ -142,7 +147,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(reactions).toEqual([{ channel: "UALLAN", ts: reminderTs, emoji: "white_check_mark" }]);
     const reply = posts.slice(n).find((p) => p.threadTs === reminderTs)!; expect(reply.text).toBe("✅ Got it. 3 calls, 1 close, $2,000 cash, $4,000 revenue.");
     const summary = posts.slice(n).find((p) => p.channel === "CALERTS")!;
-    expect(summary.text).toMatch(/📝 \*Allan P\* filed .*: 3 calls, 1 close, \$2,000 cash, \$4,000 revenue\.\n\*Corrected from what the engine had:\*\n• calls count 2 → 3\n• closes 0 → 1\n• deposits 1 → 0\n• cash 1,500 → 2,000\n• Leo Ortiz: outcome Deposit → Closed\n• Leo Ortiz: cash 1,500 → 2,000\n\*What did I do well\?\* Stayed on the objection$/);
+    expect(summary.text).toMatch(/📝 \*Allan P\* filed .*: 3 calls, 1 close, \$2,000 cash, \$4,000 revenue\.\n\*Corrected from what the engine had:\*\n• calls today 2 → 3\n• closes 0 → 1\n• deposits 1 → 0\n• cash collected \$1,500 → \$2,000\n• Leo Ortiz: Deposit → Closed\n• Leo Ortiz: cash \$1,500 → \$2,000\n\*What did I do well\?\* Stayed on the objection$/);
     const filed = await asOperator((c) => one<{ submitted_at: Date | null; changes: unknown[] }>(c, "select submitted_at, changes from eod_reports where company_id=$1 and user_id=$2", [companyId, allan]));
     expect(filed?.submitted_at).toBeTruthy(); expect(filed?.changes).toHaveLength(6);
     // filed: the clock finds nothing more to send for that day

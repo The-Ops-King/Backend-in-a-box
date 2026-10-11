@@ -183,17 +183,30 @@ export async function eodFacts(c: PoolClient, company: CompanyRow, userId: strin
 }
 
 export type Change = { field: string; from: unknown; to: unknown; contact?: string };
-/** What the closer corrected, as lines a person reads: "calls today 6 → 7", "Sarah: outcome Follow up → Closed". */
+/**
+ * What the closer corrected, as lines a person reads: "calls today 6 → 7", "Sarah: Follow up → Closed", "Sarah: cash $1,500 → $2,000".
+ * Only a value the engine HAD and the closer changed is a correction; a blank they filled in is just their answer (D80).
+ */
+const TOTAL_WORDS = { calls_count: "calls today", closes: "closes", deposits: "deposits", cash: "cash collected", revenue: "revenue" } as const;
+const CALL_WORDS = { revenue: "contract value", cash: "cash", next_date: "follow-up date" } as const;
+const money = (v: unknown) => `$${num(v).toLocaleString("en-US")}`;
+const dayWords = (v: unknown) => { const d = DateTime.fromISO(String(v ?? "")); return d.isValid ? d.toFormat("ccc LLL d") : String(v ?? ""); };
 export function diffAnswers(pre: EodPrefill, ans: EodAnswers): Change[] {
   const out: Change[] = [];
-  for (const k of ["calls_count", "closes", "deposits", "cash", "revenue"] as const) if (num(pre[k]) !== num(ans[k])) out.push({ field: k.replace(/_/g, " "), from: pre[k], to: ans[k] });
+  for (const k of ["calls_count", "closes", "deposits", "cash", "revenue"] as const) if (num(pre[k]) !== num(ans[k])) out.push({ field: TOTAL_WORDS[k], from: k === "cash" || k === "revenue" ? money(pre[k]) : num(pre[k]), to: k === "cash" || k === "revenue" ? money(ans[k]) : num(ans[k]) });
   for (const call of ans.calls) {
     const p = pre.calls.find((x) => x.appointment_id === call.appointment_id); if (!p) continue;
-    if (p.outcome !== call.outcome) out.push({ field: "outcome", from: outcomeLabel(p.outcome), to: outcomeLabel(call.outcome), contact: p.contact });
-    for (const k of ["revenue", "cash", "next_date"] as const) { const a = p[k] ?? "", b = call[k] ?? ""; if (String(a) !== String(b) && !(a === "" && b === "")) out.push({ field: k.replace(/_/g, " "), from: a || "blank", to: b || "blank", contact: p.contact }); }
+    if (p.outcome && p.outcome !== call.outcome) out.push({ field: "", from: outcomeLabel(p.outcome), to: outcomeLabel(call.outcome), contact: p.contact });
+    for (const k of ["revenue", "cash", "next_date"] as const) {
+      const a = p[k] ?? "", b = call[k] ?? "";
+      if (a === "" || String(a) === String(b)) continue;
+      const show = k === "next_date" ? dayWords : money;
+      out.push({ field: CALL_WORDS[k], from: show(a), to: b === "" ? "removed" : show(b), contact: p.contact });
+    }
   }
   return out;
 }
+export const changeLine = (ch: Change) => `${ch.contact ? `${ch.contact}: ` : ""}${ch.field ? `${ch.field} ` : ""}${fmt(ch.from)} → ${fmt(ch.to)}`;
 
 /** The disposition note for one call: everything the closer said about it, one line per thing. */
 function dispositionNotes(call: CallEntry, fields: EodField[]): string {
@@ -246,7 +259,7 @@ export async function submitEod(c: PoolClient, adapters: Adapters, args: { token
   const row = await one<{ id: string }>(c, `insert into eod_reports (company_id, user_id, day, prefill, answers, changes, submitted_at) values ($1,$2,$3,$4,$5,$6,now())
     on conflict (company_id, user_id, day) do update set prefill=excluded.prefill, answers=excluded.answers, changes=excluded.changes, submitted_at=now() returning id`, [company.id, closer.id, args.day, JSON.stringify(pre), JSON.stringify(args.answers), JSON.stringify(changes)]);
   // the report is an event: the eod-filed workflow posts the summary, threads under the reminder, sends it wherever else the company wants it
-  const corrections = changes.map((ch) => `${ch.contact ? `${ch.contact}: ` : ""}${ch.field} ${fmt(ch.from)} → ${fmt(ch.to)}`);
+  const corrections = changes.map(changeLine);
   const dayAnswers = fields.filter((f) => f.scope === "day" && args.answers.day_answers?.[f.key]).map((f) => ({ key: f.key, label: f.label, answer: args.answers.day_answers[f.key] }));
   const ev = await emitEvent(c, { company_id: company.id, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "eod.filed", source: "user",
     data: { user_id: closer.id, report_id: row?.id, day: args.day, day_label: DateTime.fromFormat(args.day, DAY_FMT).toFormat("ccc LLL d"), totals_line: totalsLine(args.answers), calls_count: args.answers.calls_count, closes: args.answers.closes, deposits: args.answers.deposits, cash: args.answers.cash, revenue: args.answers.revenue,
