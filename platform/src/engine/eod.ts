@@ -112,18 +112,18 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     const won = await one<{ v: string | null }>(c, "select contract_value::text as v from opportunities where company_id=$1 and contact_id=$2 and status='won' and won_at between $3 and $4 order by won_at desc limit 1", [company.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
     const paid = num(pay?.total), contract = won?.v ? num(won.v) : price;
     const disp = str(notes.disposition);
-    // D54: a call whose time has passed with no recording, no outcome and no money is presumed a no-show on the form only; nothing is marked until the closer answers
+    // D80 (replaces D54's presumption): only evidence pre-fills. A past call with no recording, no outcome and no money opens BLANK with a hint, so a
+    // failed recording or a phone call never becomes a no-show because nobody changed a default
     const over = DateTime.fromJSDate(a.ends_at ?? a.starts_at) < now;
-    // what the ledger says first (a recorded outcome, then money), then the presumption, then Jev's read of the transcript as the tentative pre-set
+    // what the ledger says first (a recorded or marked outcome, then money), then Jev's read of the transcript as the tentative pre-set
     const outcome: CallOutcome = a.outcome_cat === "noshow" || a.status === "noshow" ? "no_show" : a.outcome_cat === "rescheduled" ? "rescheduled"
       : a.call_outcome_cat === "closed" ? "closed" : a.call_outcome_cat === "deposit" ? "deposit" : a.call_outcome_cat === "follow_up" ? "follow_up" : a.call_outcome_cat === "lost" ? "lost" : a.call_outcome_cat === "unqualified" ? "dq"
       : paid > 0 ? (contract > 0 && paid < contract ? "deposit" : "closed") : won ? "closed"
-      : over && !rec && !a.outcome_cat ? "no_show"
       : disp === "closed_won" ? "closed" : disp === "follow_up" || disp === "close_pending" ? "follow_up" : disp === "lost" ? "lost" : disp === "dq" ? "dq" : "";
     const money = MONEY.includes(outcome);
     const aboutParts = [str(notes.summary), str(notes.pain) && `Pains: ${str(notes.pain)}`, str(notes.desire) && `Goals: ${str(notes.desire)}`, str(notes.objections) && `Objections: ${str(notes.objections)}`].filter(Boolean);
     calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null, recording_url: rec?.share_url ?? null,
-      outcome, revenue: money ? contract || paid || null : null, cash: money ? paid || null : null,
+      outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), revenue: money ? contract || paid || null : null, cash: money ? paid || null : null,
       next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {} });
   }
   // D77: Sales Calls booked before the engine was installed, blank in GHL: their own rows, filed straight to the record; a row filed here before stays on the form after GHL has its answer

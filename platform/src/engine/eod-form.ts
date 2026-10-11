@@ -62,6 +62,7 @@ export const dayFields = (fields: EodField[]) => fields.filter((f) => f.scope ==
 export type CallEntry = {
   appointment_id: string; contact_id: string; contact: string; starts_at: string; href_contact: string | null; recording_url: string | null;
   outcome: CallOutcome;
+  hint?: string;                                       // why the outcome is blank (no evidence to pre-fill from)
   revenue: number | null; cash: number | null;        // closed, deposit
   next_date: string | null; next_steps: string;        // follow up
   dq_reason: string; dq_note: string;                  // dq

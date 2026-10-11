@@ -2514,3 +2514,15 @@ Tyler's rulings, relayed the same day and built together.
   with an outcome never appears, except a row the closer filed here, which stays for refiling. `eod_due` (the
   End-of-day reminder) reads the same records through the same function (`eod.ts › blankSalesCalls`) and counts, per
   day, the ledger's unfiled calls plus the blank records the form adds, so its number is the form's rows.
+
+## D80. The end-of-day form pre-fills only from evidence (2026-10-11)
+
+Was (D54): a past call with no recording, no outcome and no money opened the form as **No-show**, for the closer to
+correct. Found in the hand test: three test calls with no recording all opened as No-show. Tyler agreed the default is a
+guess a hurried closer submits unchanged, so a failed recording or a call taken by phone would quietly become a no-show.
+
+- A call's outcome is pre-filled only from evidence: an outcome the ledger holds (filed, or marked no-show by the booking
+  source or the CRM), money (a payment or a won card that day), or a recording (showed, with Jev's read of how it ended).
+- Otherwise it opens **blank**, required, with the hint "No recording found for this call." Nothing is marked until the
+  closer answers (unchanged).
+

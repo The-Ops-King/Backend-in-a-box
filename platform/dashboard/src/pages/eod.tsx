@@ -70,6 +70,7 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
       return <div key={c.appointment_id} className="call">
         <div className="hd"><b>{i + 1}. {c.contact}</b><span className="note">{time(c.starts_at)}</span>{c.href_contact ? <a href={c.href_contact} target="_blank" rel="noreferrer">CRM ↗</a> : null}{c.recording_url ? <a href={c.recording_url} target="_blank" rel="noreferrer">Recording ↗</a> : null}{c.appointment_id.startsWith("ghl:") ? <span className="note">booked before the engine; your answer goes straight to its Sales Call</span> : null}</div>
         <label>{outcomeField.label}{outcomeField.required ? <span className="req"> *</span> : null}<select value={c.outcome} required={outcomeField.required} onChange={(e) => set(i, { outcome: e.target.value as CallOutcome })}><option value="">—</option>{d.outcomes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
+        {c.hint && !c.outcome ? <p className="hint">{c.hint}</p> : null}
         {after.length ? <div className="after">{after.map((f) => <Field key={f.key} f={f} value={valueOf(c, f.key)} onChange={(v) => setField(i, f.key, v)} />)}</div> : null}
       </div>; })}
     {dayFields(d.fields).map((f) => <div key={f.key} className="call"><Field f={f} value={dayAnswers[f.key] ?? ""} onChange={(v) => setDayAnswers((x) => ({ ...x, [f.key]: v }))} /></div>)}

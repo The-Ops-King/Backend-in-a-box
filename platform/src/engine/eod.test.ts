@@ -149,7 +149,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect((await asOperator((c) => dispatchSchedules(c, DateTime.now().setZone(TZ).set({ hour: 18 }) as DateTime<true>, companyId))).started).toEqual([]);
   });
 
-  it("presumed no-show (D54): a call whose time has passed with no recording, no outcome and no money opens the form as no-show; a call still ahead opens blank; nothing is marked", async () => {
+  it("no presumption (D80): a call whose time has passed with no recording, no outcome and no money opens BLANK with a hint, never as a no-show; a call still ahead opens blank too; nothing is marked", async () => {
     const day = DateTime.now().setZone(TZ).minus({ days: 1 }).toFormat("yyyy-MM-dd");
     const at = (h: number) => DateTime.fromFormat(day, "yyyy-MM-dd", { zone: TZ }).set({ hour: h }).toJSDate();
     await asOperator(async (c) => {
@@ -171,9 +171,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     // opened at 9am that day, before any call: nothing is presumed yet
     const morning = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, day, DateTime.fromFormat(day, "yyyy-MM-dd", { zone: TZ }).set({ hour: 9 })));
     expect(morning.calls.map((x) => [x.contact, x.outcome])).toEqual([["Mia Chen", ""], ["Noah Reyes", "follow_up"], ["Theo Park", ""]]);   // Jev's read stands regardless of the clock: a recording exists
-    // opened at the end of the day: the two unrecorded calls are over and presumed no-shows for the closer to confirm or correct
+    // opened at the end of the day: the two unrecorded calls are over, and with no evidence they stay blank for the closer to answer, saying why
     const evening = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, day, DateTime.fromFormat(day, "yyyy-MM-dd", { zone: TZ }).set({ hour: 23 })));
-    expect(evening.calls.map((x) => [x.contact, x.outcome])).toEqual([["Mia Chen", "no_show"], ["Noah Reyes", "follow_up"], ["Theo Park", "no_show"]]);
+    expect(evening.calls.map((x) => [x.contact, x.outcome, x.hint ?? null])).toEqual([["Mia Chen", "", "No recording found for this call."], ["Noah Reyes", "follow_up", null], ["Theo Park", "", "No recording found for this call."]]);
     expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from appointments where company_id=$1 and outcome_term is not null and id in ($2,$3,$4)", [companyId, apptMia, apptNoah, apptTheo])))!.n).toBe("0");   // nothing marked: the closer decides
   });
 
@@ -183,7 +183,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const token = await asOperator((c) => tokenFor(c, allan));
     const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, day));
     // Theo is left out of the filing (the CRM will mark him below); Mia confirmed no-show, Noah confirmed follow-up
-    const calls = pre.calls.filter((x) => x.contact !== "Theo Park").map((x) => ({ ...x, notes: x.contact === "Mia Chen" ? "never joined" : "wants Friday", next_date: x.contact === "Mia Chen" ? null : DateTime.now().plus({ days: 2 }).toISODate() }));
+    const calls = pre.calls.filter((x) => x.contact !== "Theo Park").map((x) => ({ ...x, outcome: x.contact === "Mia Chen" ? "no_show" as const : x.outcome, notes: x.contact === "Mia Chen" ? "never joined" : "wants Friday", next_date: x.contact === "Mia Chen" ? null : DateTime.now().plus({ days: 2 }).toISODate() }));
     const n = posts.length, nr = reactions.length;
     expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} } }))).toEqual({ ok: true, recorded: 2, changes: expect.any(Array) });
     const runs = await asOperator((c) => many<{ id: string; appointment_id: string }>(c, "select r.id, r.appointment_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Call outcome filed'", [companyId]));
@@ -211,8 +211,8 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const token = await asOperator((c) => tokenFor(c, allan));
     const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, day));
     // as the form opens: Mia and Noah as filed, Theo as the CRM marked him
-    expect(pre.calls.map((x) => [x.contact, x.outcome])).toEqual([["Mia Chen", "no_show"], ["Noah Reyes", "follow_up"], ["Theo Park", "no_show"]]);
-    const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "never joined either", next_date: x.next_date ?? (x.outcome === "follow_up" ? DateTime.now().plus({ days: 2 }).toISODate() : null), next_steps: x.next_steps || (x.outcome === "follow_up" ? "call back" : "") }));
+    expect(pre.calls.map((x) => [x.contact, x.outcome])).toEqual([["Mia Chen", "no_show"], ["Noah Reyes", "follow_up"], ["Theo Park", "no_show"]]);   // now evidence: Mia filed, Theo marked by the CRM
+    const calls = pre.calls.map((x) => ({ ...x, outcome: x.outcome || "no_show" as const, notes: x.notes || "never joined either", next_date: x.next_date ?? (x.outcome === "follow_up" ? DateTime.now().plus({ days: 2 }).toISODate() : null), next_steps: x.next_steps || (x.outcome === "follow_up" ? "call back" : "") }));
     const outcomeRuns = () => asOperator(async (c) => Number((await one<{ n: string }>(c, "select count(*)::text as n from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Call outcome filed'", [companyId]))!.n));
     const before = await outcomeRuns(), n = posts.length;
     expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });   // all three are on the ledger
@@ -281,7 +281,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       expect(pre.calls.find((x) => x.contact === "Sol Before")).toMatchObject({ appointment_id: "ghl:Sol", record_id: "Sol", outcome: "" });
       expect((await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, dayStr))).calls).toHaveLength(3);   // without the vendors, the ledger's rows alone
       const token = await asOperator((c) => tokenFor(c, allan));
-      const answer = (o: "no_show" | "follow_up") => { const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "n", next_date: x.outcome === "follow_up" || (x.contact === "Sol Before" && o === "follow_up") ? DateTime.now().plus({ days: 2 }).toISODate() : x.next_date, next_steps: x.next_steps || "call back", outcome: x.contact === "Sol Before" ? o : x.outcome })); return { ...pre, ...totalsOf(calls), calls, day_answers: {} }; };
+      const answer = (o: "no_show" | "follow_up") => { const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "n", next_date: x.outcome === "follow_up" || (x.contact === "Sol Before" && o === "follow_up") ? DateTime.now().plus({ days: 2 }).toISODate() : x.next_date, next_steps: x.next_steps || "call back", outcome: x.contact === "Sol Before" ? o : x.outcome || "no_show" as const })); return { ...pre, ...totalsOf(calls), calls, day_answers: {} }; };
       // a row the form never offered is refused: nothing written
       const forged = answer("no_show"); forged.calls = [...forged.calls, { ...forged.calls[1], appointment_id: "ghl:Uri", contact: "Uri" }];
       expect(await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: forged }))).toMatchObject({ ok: true });
