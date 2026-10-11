@@ -81,6 +81,13 @@ const filters: Record<string, Filter> = {
   line: (v, arg) => (v === undefined || v === null || v === "" ? "" : `\n${arg ? `${arg} ` : ""}${v}`),
   // a refund is stored negative; the sign is written by the template ("−$500"), the number by this
   abs: (v) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? "" : Math.abs(Number(v))),
+  // D88: words for counts in lists. nonzero: 0 is nothing (so `default`, `each`, `then` treat it as absent); plural: 1 → "1 call", 3 → "3 calls" (plural:call or plural:"person|people")
+  nonzero: (v) => (v === 0 || v === "0" ? undefined : v),
+  plural: (v, arg) => { if (absent(v) || isNaN(Number(v))) return ""; const [one, many] = (arg ?? "").split("|"); const n = Number(v); return `${n} ${n === 1 ? one : many ?? `${one}s`}`; },
+  // the argument when the value is there (not absent, not false, not 0, not an empty list), else nothing: {{item.both | then:", "}}
+  then: (v, arg) => (absent(v) || v === false || v === 0 || (Array.isArray(v) && !v.length) ? "" : arg ?? ""),
+  // the value with the argument after it, or nothing: {{n | plural:call | suffix:" with no outcome"}}
+  suffix: (v, arg) => (absent(v) ? "" : `${v}${arg ?? ""}`),
   // a number with a fixed count of decimals, no thousands separator: 1500 | fixed:2 → 1500.00 ; nothing → ""
   fixed: (v, arg) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? "" : Number(v).toFixed(Number(arg ?? 0))),
   // 2999 → 2,999 ; 2999.5 → 2,999.50 ; nothing → ""

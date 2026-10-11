@@ -5,7 +5,7 @@
   "stage": "team",
   "sort": 10,
   "origin": "spec",
-  "description": "DMs each closer their end-of-day link every evening, and again the next morning, until every call is filed: days with calls and no report in the engine, and days whose Sales Calls in GHL still have no outcome (GHL is the truth). A call still blank in GHL two days on is also told to the operator (D76).",
+  "description": "DMs each closer their end-of-day link every evening, and again the next morning, until every call is filed: days with calls and no report in the engine, and days whose Sales Calls in GHL still have no outcome (GHL is the truth). A call still blank in GHL two days on is also told to the operator (D76). How far back it looks (lookback_days, 7), whether today counts (include_today: the evening yes, the morning no) and when the operator hears (overdue_after_days, 2) are settings on each eod_due step; every word of the DM is the template's (D88).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -35,23 +35,29 @@
         "id": "v_evening",
         "type": "eod_due",
         "period": "evening",
-        "into": "lines",
-        "title": "Today and every earlier day still to file (the ledger and GHL's Sales Calls)"
+        "into": "due",
+        "title": "Today and every earlier day still to file (the ledger and GHL's Sales Calls)",
+        "lookback_days": 7,
+        "include_today": true,
+        "overdue_after_days": 2
       },
       {
         "id": "v_morning",
         "type": "eod_due",
         "period": "morning",
-        "into": "lines",
-        "title": "Every earlier day still to file"
+        "into": "due",
+        "title": "Every earlier day still to file",
+        "lookback_days": 7,
+        "include_today": false,
+        "overdue_after_days": null
       },
       {
         "id": "c_due",
         "type": "check",
         "when": {
-          "neq": [
-            "{{vars.lines}}",
-            ""
+          "gt": [
+            "{{vars.due.count}}",
+            0
           ]
         },
         "else_exit": "nothing_to_file"
@@ -65,7 +71,7 @@
           "icon": ":clipboard:"
         },
         "tag": "eod-reminder:{{user.id}}:{{user.eod.day}}",
-        "template": "Hey {{user.first_name}}, your end-of-day is waiting:\n{{vars.lines}}\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.",
+        "template": "Hey {{user.first_name}}, your end-of-day is waiting:\n{{vars.due.days | each:\"• <{{item.url}}|{{item.when}}>: {{item.calls | nonzero | plural:call}}{{item.both | then:\\\", \\\"}}{{item.ghl_blank | nonzero | plural:call | suffix:\\\" with no outcome in GHL\\\"}}\" | join:\"\\n\"}}\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.",
         "title": "DM the closer their link"
       },
       {
@@ -78,9 +84,9 @@
               "exists": "company.operator_slack_id"
             },
             {
-              "neq": [
-                "{{vars.overdue_lines | default:}}",
-                ""
+              "gt": [
+                "{{vars.due.overdue_count}}",
+                0
               ]
             }
           ]
@@ -89,7 +95,7 @@
           "name": "End of day",
           "icon": ":clipboard:"
         },
-        "template": "{{user.name}} still has Sales Calls with no outcome in GHL after two days:\n{{vars.overdue_lines}}",
+        "template": "{{user.name}} still has Sales Calls with no outcome in GHL after two days:\n{{vars.due.overdue | each:\"• {{item.label}}: {{item.names | join}}\" | join:\"\\n\"}}",
         "title": "Tell the operator about calls blank for two days"
       },
       {

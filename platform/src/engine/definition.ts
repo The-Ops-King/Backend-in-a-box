@@ -96,8 +96,12 @@ export const Node = z.discriminatedUnion("type", [
   // Bookable slots on the calendars: fewer than min_slots in the next days is a low-availability alert. In a run about a booking, only that booking's calendar is read.
   z.object({ ...base, type: z.literal("availability_check"), min_slots: z.number().int().min(0).default(3), days: z.number().int().min(1).max(7).default(7) }),
   // A wrap-up (daily / weekly / monthly numbers) rendered into vars.<into> = { body, period, numbers } and kept in the wrapups ledger; a slack_post after it sends it.
-  // D76: the closer's outstanding days for the end-of-day reminder: unfiled days in the ledger and days whose GHL Sales Calls have no outcome
-  z.object({ ...base, type: z.literal("eod_due"), period: z.enum(["evening", "morning"]), into: z.string().default("lines") }),
+  // D76: the closer's outstanding days for the end-of-day reminder: unfiled days in the ledger and days whose GHL Sales Calls have no outcome.
+  // D88 (A4): lookback_days (the ledger's days looked back over), include_today (today counts; the morning run leaves it out), overdue_after_days
+  // (a blank Sales Call this many days old is also told to the operator; null: never). vars.<into> = { days: [{ day, label, when, url, today, calls,
+  // ghl_blank, both }], count, overdue: [{ day, label, names }], overdue_count, overdue_after_days }; the words are the template's. A copy with none of
+  // the three set is a copy from before D88: it still gets vars.<into> and vars.overdue_lines as the lines it always got.
+  z.object({ ...base, type: z.literal("eod_due"), period: z.enum(["evening", "morning"]), into: z.string().default("lines"), lookback_days: z.number().int().min(0).max(60).optional(), include_today: z.boolean().optional(), overdue_after_days: z.number().int().min(0).nullable().optional() }),
   z.object({ ...base, type: z.literal("report"), kind: z.string(), breakdowns: z.array(z.string()).default([]), sections: z.record(z.boolean()).default({}), into: z.string().default("report") }),
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string(),
     question: z.string().optional(), criteria: z.record(z.string()).optional(), ambiguity_max: z.number().min(0).max(1).default(0.8) }),   // question: what Jev is asked about `input`; `state` is context (what we sent)   // criteria: what each option means, in words; ambiguity_max: a reply a careful person would doubt this much goes to a human (D47)

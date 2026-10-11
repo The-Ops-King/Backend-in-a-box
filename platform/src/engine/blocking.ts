@@ -40,7 +40,7 @@ function outputsOf(n: Node): { re: RegExp; what: string }[] {
     case "lookup": return [{ re: pathRe(`vars.${n.into}`), what: "what it looked up" }];
     case "webhook": return n.into ? [{ re: pathRe(`vars.${n.into}`), what: "the response" }] : [];
     case "report": return [{ re: pathRe(`vars.${n.into}`), what: "the wrap-up" }];
-    case "eod_due": return [{ re: pathRe(`vars.${n.into}`), what: "the lines" }, { re: pathRe("vars.overdue_lines"), what: "the overdue lines" }];
+    case "eod_due": return [{ re: pathRe(`vars.${n.into}`), what: "the days still to file" }, { re: pathRe("vars.overdue_lines"), what: "the overdue lines" }];
     case "update_appointment": return Object.keys(n.set).map((k) => ({ re: pathRe(`appointment.${k}`), what: `the appointment's ${humanWords(k)}` }));
     default: return [];
   }

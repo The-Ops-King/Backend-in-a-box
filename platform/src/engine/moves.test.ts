@@ -294,3 +294,56 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: won and lost are workflow steps
     expect(await oppEvents("opportunity.won")).toEqual([{ data: expect.objectContaining({ by: "workflow", node: "o_won" }) }]);   // once
   });
 });
+
+describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day reminder's days and words are the template's (A4)", () => {
+  let sam: string;
+  const TZ = "America/Phoenix";
+  beforeAll(async () => {
+    await migrate(); companyId = await freshCompany("mvs-a4");
+    await asOperator(async (c) => {
+      sam = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, slack_user_id) values ($1,'sam@x.test','Sam Closer','closer','USAM') returning id", [companyId]))!.id;
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const cal = (await one<{ id: string }>(c, "insert into calendars (company_id, external_id, name, appointment_term, active) values ($1,'CAL','Closer',$2,true) returning id", [companyId, term]))!.id;
+      for (const [i, daysAgo] of [[1, 0], [2, 3], [3, 9]] as const) {
+        const ct = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,$2,$3) returning id", [companyId, `G${i}`, `P${i}`]))!.id;
+        const at = DateTime.now().setZone(TZ).minus({ days: daysAgo }).set({ hour: daysAgo ? 10 : 0, minute: 30 });
+        await c.query("insert into appointments (company_id, contact_id, calendar_id, external_id, appointment_term, starts_at, ends_at, status, booked_at, assigned_user_id) values ($1,$2,$3,$4,$5,$6,$7,'confirmed',now() - interval '20 days',$8)", [companyId, ct, cal, `A${i}`, term, at.toJSDate(), at.plus({ minutes: 30 }).toJSDate(), sam]);
+      }
+    });
+  });
+  beforeEach(() => { posts.length = 0; });
+  const evening = async (wf: string) => { const { fireNow } = await import("@/engine/clock"); await asOperator((c) => fireNow(c, companyId, wf, "t_evening")); await run(); return posts.filter((p) => p.channel === "USAM").map((p) => p.text); };
+  const off = () => asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
+
+  it("as shipped: today and the last 7 days, one line each, in the template's words", async () => {
+    const wf = await install("eod-reminder");
+    const token = await asOperator((c) => tokenFor(c, sam));
+    const d3 = DateTime.now().setZone(TZ).minus({ days: 3 });
+    expect(await evening(wf)).toEqual([`Hey Sam, your end-of-day is waiting:\n• <https://engine.test/eod/${token}?day=${d3.toISODate()}|${d3.toFormat("ccc LLL d")}>: 1 call\n• <https://engine.test/eod/${token}|today>: 1 call\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`]);
+    await off();
+  });
+
+  it("the company's settings and words: 10 days back, today left out, its own line", async () => {
+    const wf = await install("eod-reminder", (d) => {
+      const n = d.nodes.find((x) => x.id === "v_evening")!; if (n.type === "eod_due") { n.lookback_days = 10; n.include_today = false; }
+      const dm = d.nodes.find((x) => x.id === "n_dm")!; if (dm.type === "slack_post") dm.template = "Still to file: {{vars.due.days | each:\"{{item.label}} ({{item.calls | plural:\\\"call|calls\\\"}})\" | join:\"; \"}}";
+    });
+    const [d3, d9] = [3, 9].map((n) => DateTime.now().setZone(TZ).minus({ days: n }).toFormat("ccc LLL d"));
+    expect(await evening(wf)).toEqual([`Still to file: ${d9} (1 call); ${d3} (1 call)`]);
+    await off();
+  });
+
+  it("a copy edited before D88 (no settings on its step) still gets its lines as text, word for word", async () => {
+    const wf = await install("eod-reminder", (d) => {
+      for (const id of ["v_evening", "v_morning"]) { const n = d.nodes.find((x) => x.id === id)!; if (n.type === "eod_due") { n.into = "lines"; delete n.lookback_days; delete n.include_today; delete n.overdue_after_days; } }
+      const c = d.nodes.find((x) => x.id === "c_due")!; if (c.type === "check") c.when = { neq: ["{{vars.lines}}", ""] };
+      const dm = d.nodes.find((x) => x.id === "n_dm")!; if (dm.type === "slack_post") dm.template = "Hey {{user.first_name}}, your end-of-day is waiting:\n{{vars.lines}}\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.";
+      const op = d.nodes.find((x) => x.id === "n_op")!; if (op.type === "slack_post") { op.only_if = { and: [{ exists: "company.operator_slack_id" }, { neq: ["{{vars.overdue_lines | default:}}", ""] }] }; op.template = "{{user.name}}: {{vars.overdue_lines}}"; }
+    });
+    const token = await asOperator((c) => tokenFor(c, sam));
+    const d3 = DateTime.now().setZone(TZ).minus({ days: 3 });
+    await asOperator((c) => c.query("delete from runs where workflow_id=$1", [wf]));
+    expect(await evening(wf)).toEqual([`Hey Sam, your end-of-day is waiting:\n• <https://engine.test/eod/${token}?day=${d3.toISODate()}|${d3.toFormat("ccc LLL d")}>: 1 call\n• <https://engine.test/eod/${token}|today>: 1 call\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`]);
+    await off();
+  });
+});
