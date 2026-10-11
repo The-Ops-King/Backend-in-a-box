@@ -490,3 +490,18 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the health sweep's constants ar
     expect(fathom(await sweep(30))).toMatchObject({ ok: true, text: "Last Fathom delivery 20 days ago." });
   });
 });
+
+describe.skipIf(!process.env.DATABASE_URL)("the steps check reads an object named through a binding", () => {
+  it("{{crm.object_sales_call}} is checked as the object it is bound to, not as the placeholder", async () => {
+    await migrate(); companyId = await freshCompany("mvs-objref");
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.object_sales_call','id',$2)", [companyId, Buffer.from("custom_objects.sales_call")]));
+    await install("eod-call-filed");
+    const { runHealthStep } = await import("@/engine/health");
+    const { fakeProbes } = await import("@/engine/test-install");
+    const run = (objects: { key: string }[]) => asOperator(async (c) => runHealthStep(c, (await loadCompany(c, companyId)).row, fake, { ...fakeProbes, ghlCatalog: async () => ({ users: [], pipelines: [], contactFields: [], opportunityFields: [], associations: [], objects, tags: [], errors: [] }) } as never, { checks: { steps: true } as never, min_slots: 0, slots_days: 7 } as never));
+    const steps = (r: Awaited<ReturnType<typeof run>>) => r.findings.filter((f) => f.check === "steps" && !f.ok).map((f) => f.text);
+    expect(steps(await run([{ key: "custom_objects.sales_call" }]))).toEqual([]);
+    expect(steps(await run([])).join("\n")).toContain("writes custom_objects.sales_call, which no longer exists in the CRM");
+    expect(steps(await run([])).join("\n")).not.toContain("{{");
+  });
+});

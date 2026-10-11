@@ -262,7 +262,11 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
             else verified++;
             break;
           }
-          case "custom_object": if (catalog && !objects.has(r.value)) miss(`step ${r.node} writes ${r.value}, which no longer exists in the CRM.`); else verified++; break;
+          case "custom_object": {
+            // the object can be named through a binding ({{crm.object_sales_call}}): check what it points at; an unbound one is the binding check's to report
+            const obj = r.value.replace(/^\{\{\s*([\w.]+)\s*\}\}$/, (_, k: string) => bindings[k] ?? "");
+            if (!obj) break;
+            if (catalog && !objects.has(obj)) miss(`step ${r.node} writes ${obj}, which no longer exists in the CRM.`); else verified++; break; }
           case "workflow": { const target = allWfs.find((w) => w.slug === r.value || w.name.toLowerCase() === r.value.toLowerCase()); if (!target) miss(`step ${r.node} hands off to "${r.value}", which is not installed.`); else if (!target.enabled) miss(`step ${r.node} hands off to "${r.value}", which is off.`, "warning"); else verified++; break; }
           case "classify_domain": if (!domains.has(r.value)) miss(`step ${r.node} classifies into "${r.value}", which has no options.`); else verified++; break;
           case "event": if (!events.has(r.value)) miss(r.what === "the event it records" ? `step ${r.node} records "${r.value}", which is not an event type the ledger accepts.` : r.what === "the event it waits for" ? `step ${r.node} waits for "${r.value}", which the engine never emits.` : `trigger ${r.node} listens for "${r.value}", which the engine never emits.`); else verified++; break;
