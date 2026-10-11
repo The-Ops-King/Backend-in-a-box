@@ -102,6 +102,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D66: a failed step is retried in place; the create ledger keeps a retry from making a second note, task, document, card or record
     await c.query(`alter table runs add column if not exists step_attempt int not null default 0`);
     await c.query(`alter table runs add column if not exists step_error text`);
+    await c.query(`alter table runs add column if not exists step_held boolean not null default false`);   // D77: held on a blocking step that is down, re-checked alone
     await c.query(`alter table pipeline_cards add column if not exists created_by_run uuid references runs(id) on delete set null`);
     await c.query(`alter table run_steps drop constraint if exists run_steps_status_check`);
     await c.query(`alter table run_steps add constraint run_steps_status_check check (status in ('ok','skipped','stale','failed','waiting','paused'))`);

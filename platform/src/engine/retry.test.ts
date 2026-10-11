@@ -18,7 +18,7 @@ import { applyAppointment } from "@/engine/poll";
 import { recordRecording } from "@/engine/recordings";
 import { loadCompany } from "@/engine/context";
 import { parseDefinition, extractManifest } from "@/engine/definition";
-import { classifyError, RETRY_SCHEDULE, VendorError } from "@/engine/failures";
+import { classifyError, plainError, RETRY_SCHEDULE, VendorError } from "@/engine/failures";
 import { GhlError } from "@/adapters/ghl/client";
 import type { Adapters, AppointmentSnapshot } from "@/adapters/types";
 
@@ -29,16 +29,21 @@ const TZ = "America/New_York";
 // what the fakes record, and the switches that make the CRM misbehave on cue
 const tags: string[] = [], notes: string[] = [], texts: string[] = [], cards: Record<string, unknown>[] = [];
 let tagMode: "ok" | "503" | "401" = "ok";
-let cardMode: "ok" | "400" = "ok";
-let noteCrash = false;      // the CRM wrote the note, then the socket died before it answered
+let cardMode: "ok" | "400" | "503" = "ok";
+const tries = { addTag: 0, createOpportunity: 0 };
+let oppSeq = 0;   // card ids stay unique across the file
+let noteCrash = false;
+// the body GHL sent Hair's Call booked (2026-10-10): a Sales Call whose External ID another record already has
+const DUPLICATE = '{"message":"A record with the same value for External ID - test-20254447 already exists.","errors":[{"errorCode":"duplicate_record","message":"A record with the same value for External ID - test-20254447 already exists.","field":"external_id"}],"statusCode":400}';      // the CRM wrote the note, then the socket died before it answered
 let smsMode: "ok" | "503" = "ok";
 const base = fakeAdapters();
 const fake: Adapters = {
   ...base,
   write: { ...base.write,
-    addTag: async (_c, id, t) => { if (tagMode === "503") throw new GhlError(503, "upstream connect error", `/contacts/${id}/tags`); if (tagMode === "401") throw new GhlError(401, "Invalid Private Integration token", `/contacts/${id}/tags`); tags.push(t); },
+    addTag: async (_c, id, t) => { tries.addTag++; if (tagMode === "503") throw new GhlError(503, "upstream connect error", `/contacts/${id}/tags`); if (tagMode === "401") throw new GhlError(401, "Invalid Private Integration token", `/contacts/${id}/tags`); tags.push(t); },
     addNote: async (_c, _id, body) => { notes.push(body); if (noteCrash) throw new Error("socket hang up"); },
-    createOpportunity: async (_c, input) => { if (cardMode === "400") throw new GhlError(400, '{"message":"stageId is invalid"}', "/opportunities/"); cards.push(input); return { id: `ghl-opp-${cards.length}` }; } },
+    createRecord: async (_c, object) => { if (object === "custom_objects.sales_call") throw new GhlError(400, DUPLICATE, "/objects/custom_objects.sales_call/records"); return { id: "rec-x" }; },
+    createOpportunity: async (_c, input) => { tries.createOpportunity++; if (cardMode === "503") throw new GhlError(503, "no healthy upstream", "/opportunities/"); if (cardMode === "400") throw new GhlError(400, '{"message":"stageId is invalid"}', "/opportunities/"); cards.push(input); return { id: `ghl-opp-${++oppSeq}` }; } },
   sender: { ...base.sender, sendSms: async (_c, _to, body) => { if (smsMode === "503") return { externalId: "", accepted: false, error: "GHL 503 on /conversations/messages: upstream unavailable" }; texts.push(body); return { externalId: `s${texts.length}`, accepted: true }; } },
 };
 
@@ -67,10 +72,20 @@ const workflow = (name: string, tag: string, step: Record<string, unknown>, extr
   nodes: [{ id: "t1", type: "trigger", ...(extra.trigger ?? { event: "tag.added", match: { eq: ["{{event.tag}}", tag] } }) }, { id: "n1", ...step }, { id: "x1", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }], name });
 const DEFS = [
   workflow("Tag it", "tag", { type: "set_tag", tag: ["stat-x"] }),
-  workflow("Card it", "card", { type: "pipeline_card", pipeline: "{{crm.pipeline_x}}", stage: "{{crm.stage_x}}", name: "{{contact.name}} card" }),
+  // nothing after the card reads it, so it would be skipped (D77); marked blocking to keep the pause-for-a-person path under test
+  workflow("Card it", "card", { type: "pipeline_card", pipeline: "{{crm.pipeline_x}}", stage: "{{crm.stage_x}}", name: "{{contact.name}} card", blocking: true }),
   workflow("Note it", "note", { type: "note", template: "Hello {{contact.first_name}}" }),
   workflow("Text it", "text", { type: "send_sms", template: "Hi {{contact.first_name}}", kind: "transactional" }),
   workflow("Book it", "book", { type: "set_tag", tag: ["booked"] }, { trigger: { event: "appointment.booked" } }),
+  workflow("Call booked", "record", { type: "crm_record", object: "custom_objects.sales_call", key: "{{event.tag}}", properties: { external_id: "test-20254447" }, blocking: true }),
+  // D77: a tag nothing reads, then a note: the tag is non-blocking
+  { schema: 1, reentry: "always", premise: { check: "contact_exists" }, name: "Tag then note",
+    nodes: [{ id: "t1", type: "trigger", event: "tag.added", match: { eq: ["{{event.tag}}", "tagnote"] } }, { id: "n1", type: "set_tag", tag: ["stat-x"] }, { id: "n2", type: "note", template: "Noted {{contact.first_name}}" }, { id: "x1", type: "exit", reason: "done" }],
+    edges: [{ from: "t1", to: "n1" }, { from: "n1", to: "n2" }, { from: "n2", to: "x1" }] },
+  // D77: a card a later step reads (the note names it): the card is blocking
+  { schema: 1, reentry: "always", premise: { check: "contact_exists" }, name: "Card then note",
+    nodes: [{ id: "t1", type: "trigger", event: "tag.added", match: { eq: ["{{event.tag}}", "cardnote"] } }, { id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_x}}", stage: "{{crm.stage_x}}", name: "{{contact.name}} card" }, { id: "n2", type: "note", template: "Card {{cards.x.id}}" }, { id: "x1", type: "exit", reason: "done" }],
+    edges: [{ from: "t1", to: "n1" }, { from: "n1", to: "n2" }, { from: "n2", to: "x1" }] },
 ];
 
 describe("failure classes (pure)", () => {
@@ -98,6 +113,15 @@ describe("failure classes (pure)", () => {
     expect(classifyError("update_contact: contact has no CRM id yet")).toMatchObject({ cls: "permanent" });
     expect(classifyError("record_outcome: no appointment_outcome term for \"shown\"")).toMatchObject({ cls: "unknown" });
     expect(RETRY_SCHEDULE).toEqual([1, 5]);   // D76: no loops; at most three tries of a step in all
+  });
+  it("D77: an alert says what the vendor said in its own words, never its JSON", () => {
+    expect(plainError(classifyError(new GhlError(400, DUPLICATE, "/objects/custom_objects.sales_call/records")))).toBe("GHL says a record with the same value for External ID - test-20254447 already exists");
+    expect(plainError(classifyError(`GHL 400 on /objects/custom_objects.sales_call/records: ${DUPLICATE.slice(0, 120)}`))).toBe("GHL says a record with the same value for External ID - test-20254447 already exists");   // a body cut short still reads
+    expect(plainError(classifyError(new GhlError(503, "<html><body>Bad gateway</body></html>", "/contacts/x/tags")))).toBe("GHL is unavailable");
+    expect(plainError(classifyError(new VendorError("calendly", 404, "/scheduled_events/x", '{"title":"Resource Not Found","message":"The server could not find the requested resource.","details":[]}')))).toBe("Calendly says the server could not find the requested resource");
+    expect(plainError(classifyError(new Error("slack: channel_not_found")))).toBe("Slack says channel not found");
+    expect(plainError(classifyError(new Error("socket hang up")))).toBe("socket hang up");
+    expect(plainError(classifyError("note: contact has no CRM id yet"))).toBe("note: contact has no CRM id yet");
   });
 });
 
@@ -159,29 +183,53 @@ describe.skipIf(!HAS_DB)("a failed step is retried in place (D66)", () => {
     } finally { tagMode = "ok"; tags.length = 0; }
   });
 
-  it("after the last scheduled try the run pauses with one alert; Retry this step gives it a fresh set of tries and the alert closes", async () => {
+  it("D77: a non-blocking step that keeps failing makes exactly three tries, is skipped, and the rest of the run runs; one alert for that step and person; Retry this step re-runs only that step, once", async () => {
     const ct = await newContact("R2", "Ben");
-    tagMode = "503";
+    tagMode = "503"; tries.addTag = 0;
     try {
-      const { runId } = await fire(ct, "tag");
+      const { runId } = await fire(ct, "tagnote");
       let at = DateTime.now();
-      for (let i = 0; i <= RETRY_SCHEDULE.length; i++) { await wake(runId); await tickAt(at); at = at.plus({ minutes: RETRY_SCHEDULE[i] ?? 1 }); }
-      const r = (await run(runId))!;
-      expect(r).toMatchObject({ status: "paused", current_node: "n1", step_attempt: RETRY_SCHEDULE.length + 1, exit_reason: expect.stringMatching(/^transient:ghl: GHL 503 .* \(3 tries over 6 minutes\)$/) });
-      expect((await steps(runId, "n1")).map((s) => s.status)).toEqual(["failed", "failed", "failed"]);
-      const a = await alerts(`run:${runId}:paused`);
-      expect(a).toHaveLength(1); expect(a[0].resolved_at).toBeNull(); expect(a[0].text).toMatch(/"Tag it" needs a hand at step n1 for Ben Retry: GHL 503 .* \(gave up after 3 tries\)\. Retry or skip the step on the run page\./);
+      for (let i = 0; i < 6; i++) { await wake(runId); await tickAt(at); at = at.plus({ minutes: 10 }); }   // more looks than tries: no loop
+      expect(tries.addTag).toBe(3);
+      expect(await run(runId)).toMatchObject({ status: "completed", step_attempt: 0, step_error: null });
+      expect(await steps(runId, "n1")).toMatchObject([{ status: "failed" }, { status: "failed" }, { status: "skipped", result: { kind: "gave_up", tries: 3, class: "transient", vendor: "ghl" }, error: expect.stringMatching(/^GHL 503/) }]);
+      expect(notes).toEqual(["Noted Ben"]);   // everything else ran
       expect(tags).toHaveLength(0);
-      // a person retries: counter reset, due now; the CRM is back; the step passes once
-      tagMode = "ok";
-      expect(await asOperator((c) => retryStep(c, runId, "Tyler"))).toMatchObject({ ok: true, node: "n1" });
-      expect(await run(runId)).toMatchObject({ status: "waiting", step_attempt: 0, exit_reason: null });
-      expect((await alerts(`run:${runId}:paused`))[0].resolved_at).not.toBeNull();
-      await tickAt(at);
+      const key = `skipped:${wfIds["Tag then note"]}:n1:${ct}`;
+      let a = await alerts(key);
+      expect(a).toHaveLength(1);
+      expect(a[0].text).toBe("Couldn't add the tag “stat-x” for Ben Retry after 3 tries (GHL says upstream connect error); everything else in Tag then note ran.");
+      expect(await alerts(`run:${runId}:paused`)).toHaveLength(0);
+      // the same person through the same step again: the same alert, touched, not a second
+      const again = await fire(ct, "tagnote");
+      for (let i = 0; i < 3; i++) { await wake(again.runId); await tickAt(at); }
+      expect(await run(again.runId)).toMatchObject({ status: "completed" });
+      expect(await alerts(key)).toHaveLength(1);
+      // the CRM is back: Retry this step on the first run runs n1 alone, once
+      tagMode = "ok"; const before = await asOperator((c) => many(c, "select 1 from run_steps where run_id=$1", [runId]));
+      expect(await asOperator((c) => retryStep(c, runId, "Tyler", { node: "n1", adapters: fake }))).toMatchObject({ ok: true, node: "n1" });
+      expect(tags).toEqual(["stat-x"]); expect(notes).toEqual(["Noted Ben", "Noted Ben"]);   // the second note is the second run's, not the retry's
+      expect(await asOperator((c) => many(c, "select 1 from run_steps where run_id=$1", [runId]))).toHaveLength(before.length + 1);
+      expect((await steps(runId, "n1")).at(-1)).toMatchObject({ status: "ok", result: { retried_by: "Tyler" } });
       expect(await run(runId)).toMatchObject({ status: "completed" });
+      a = await alerts(key); expect(a[0].resolved_at).not.toBeNull();
+      // a second press finds the step done: refused, nothing written
+      expect(await asOperator((c) => retryStep(c, runId, "Tyler", { node: "n1", adapters: fake }))).toMatchObject({ ok: false, status: 409 });
       expect(tags).toEqual(["stat-x"]);
-      expect(await asOperator((c) => one(c, "select 1 from audit_log where company_id=$1 and action='run.retried' and target_id=$2 and after->>'by'='Tyler'", [companyId, runId]))).toBeTruthy();
-    } finally { tagMode = "ok"; tags.length = 0; }
+      expect(await asOperator((c) => one(c, "select 1 from audit_log where company_id=$1 and action='run.step_retried' and target_id=$2 and after->>'by'='Tyler'", [companyId, runId]))).toBeTruthy();
+      // a step that never gave up cannot be retried on its own
+      expect(await asOperator((c) => retryStep(c, runId, "Tyler", { node: "n2", adapters: fake }))).toMatchObject({ ok: false, status: 409 });
+    } finally { tagMode = "ok"; tags.length = 0; notes.length = 0; }
+  });
+
+  it("D77: the owner's alert, in plain words: the workflow, what the step does, for whom, and GHL's own message; the raw body stays in the detail and on the run", async () => {
+    const ct = await newContact("R2c", "Tyler");
+    const { runId } = await fire(ct, "record");
+    await tickAt(DateTime.now());
+    expect(await run(runId)).toMatchObject({ status: "paused", current_node: "n1", step_error: expect.stringContaining('"errorCode":"duplicate_record"') });
+    const a = await asOperator((c) => one<{ text: string; detail: { error: string } }>(c, "select text, detail from alerts where company_id=$1 and key=$2", [companyId, `run:${runId}:paused`]));
+    expect(a!.text).toBe("Call booked couldn't create the Sales Call record for Tyler Retry: GHL says a record with the same value for External ID - test-20254447 already exists. Retry or skip it on the run page.");
+    expect(a!.detail.error).toContain('"errorCode":"duplicate_record"');
   });
 
   it("a 401: paused at once, one auth:ghl alert for the company; a new token wakes it (the same token again does not) and it completes", async () => {
@@ -192,7 +240,7 @@ describe.skipIf(!HAS_DB)("a failed step is retried in place (D66)", () => {
       expect(await tickAt(DateTime.now())).toMatchObject({ claimed: 1, paused: 1, failed: 0 });
       expect(await run(runId)).toMatchObject({ status: "paused", current_node: "n1", step_attempt: 1, exit_reason: expect.stringMatching(/^auth:ghl: GHL 401/) });
       let a = await alerts("auth:ghl");
-      expect(a).toHaveLength(1); expect(a[0].resolved_at).toBeNull(); expect(a[0].text).toMatch(/GHL rejected the company's token \(401\).*"Tag it" at step n1 for Cal Retry/);
+      expect(a).toHaveLength(1); expect(a[0].resolved_at).toBeNull(); expect(a[0].text).toBe("GHL rejected the company's token: runs that reach it pause until the token is replaced in settings. First seen when Tag it couldn't add the tag “stat-x” for Cal Retry: GHL says invalid Private Integration token.");
       expect(await alerts(`run:${runId}:paused`)).toHaveLength(0);   // one dead token is one message, not one per run
       // a second run hits the same dead token: the alert is touched, not doubled
       const second = await fire((await newContact("R3b", "Cat")), "tag");
@@ -224,7 +272,7 @@ describe.skipIf(!HAS_DB)("a failed step is retried in place (D66)", () => {
       expect(await run(runId)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/^permanent:ghl: GHL 400 on \/opportunities\/: .*stageId is invalid/) });
       expect(cards).toHaveLength(0);
       expect(await asOperator((c) => many(c, "select 1 from pipeline_cards where company_id=$1 and contact_id=$2", [companyId, ct]))).toHaveLength(0);
-      const a = await alerts(`run:${runId}:paused`); expect(a).toHaveLength(1); expect(a[0].text).toMatch(/"Card it" needs a hand at step n1 for Dee Retry: GHL 400/); expect(a[0].text).not.toMatch(/gave up/);
+      const a = await alerts(`run:${runId}:paused`); expect(a).toHaveLength(1); expect(a[0].text).toBe("Card it couldn't move the x card for Dee Retry: GHL says stageId is invalid. Retry or skip it on the run page."); expect(a[0].text).not.toMatch(/gave up/);
       // the CRM answered, so the create claim is released: the retry may ask again
       expect(await asOperator((c) => many(c, "select 1 from step_effects where run_id=$1", [runId]))).toHaveLength(0);
       cardMode = "ok";
@@ -304,6 +352,46 @@ describe.skipIf(!HAS_DB)("a failed step is retried in place (D66)", () => {
     expect(await tickAt(DateTime.now())).toMatchObject({ failed: 1, paused: 0 });
     expect(await run(runId)).toMatchObject({ status: "failed", exit_reason: "unknown node ghost" });
     tags.length = 0;
+  });
+
+  it("D77: a blocking step that keeps failing makes three fast tries, then the run is held on that step and only it is re-checked (15 minutes, then hourly); nothing after it runs, no side effect twice; it carries on by itself when the step passes", async () => {
+    const ct = await newContact("R2b", "Bo");
+    cardMode = "503"; tries.createOpportunity = 0;
+    try {
+      const { runId } = await fire(ct, "cardnote");
+      let at = DateTime.now();
+      for (let i = 0; i < 3; i++) { await wake(runId); await tickAt(at); at = at.plus({ minutes: 5 }); }
+      expect(tries.createOpportunity).toBe(3);
+      let r = (await run(runId))!;
+      expect(r).toMatchObject({ status: "paused", current_node: "n1", step_attempt: 3, exit_reason: expect.stringMatching(/^transient:ghl: GHL 503 .*\(3 tries; this step alone is re-checked every 15 minutes, then hourly\)$/) });
+      const held = DateTime.fromJSDate(r.next_run_at!).diff(at.minus({ minutes: 5 }), "minutes").minutes;
+      expect(held).toBeGreaterThan(14); expect(held).toBeLessThan(16);
+      expect(await asOperator((c) => one<{ step_held: boolean }>(c, "select step_held from runs where id=$1", [runId]))).toEqual({ step_held: true });
+      const key = `run:${runId}:paused`;
+      let a = await alerts(key);
+      expect(a).toHaveLength(1); expect(a[0].text).toBe("Card then note is paused: it couldn't move the x card for Bo Retry after 3 tries (GHL says no healthy upstream). Nothing after it runs without it, so the engine re-checks only this step every 15 minutes, then hourly, and carries on by itself when it passes. Retry or skip it on the run page.");
+      // not due yet: a tick leaves it alone
+      expect(await tickAt(at)).toMatchObject({ claimed: 0 });
+      // the first re-check: still down; the next is an hour away; still one alert
+      await wake(runId); await tickAt(at);
+      expect(tries.createOpportunity).toBe(4);
+      r = (await run(runId))!;
+      expect(r).toMatchObject({ status: "paused", current_node: "n1" });
+      const hour = DateTime.fromJSDate(r.next_run_at!).diff(at, "minutes").minutes; expect(hour).toBeGreaterThan(59); expect(hour).toBeLessThan(61);
+      expect(await alerts(key)).toHaveLength(1);
+      expect(notes).toHaveLength(0); expect(cards).toHaveLength(0);
+      // the CRM is back: the re-check passes, the card is made once, the run carries on to the note and finishes
+      cardMode = "ok"; at = at.plus({ hours: 1 });
+      await wake(runId); await tickAt(at);
+      expect(await run(runId)).toMatchObject({ status: "completed", step_attempt: 0 });
+      expect(cards).toHaveLength(1); expect(notes).toEqual([`Card ghl-opp-${oppSeq}`]);
+      expect(tries.createOpportunity).toBe(5);
+      a = await alerts(key); expect(a[0].resolved_at).not.toBeNull();
+      expect(await asOperator((c) => one<{ resolved_announced: boolean }>(c, "select resolved_announced from alerts where company_id=$1 and key=$2", [companyId, key]))).toEqual({ resolved_announced: true });   // never announced in this test, so it closes quietly; announced, it posts ✅ Resolved
+      // only the held step was re-run: one trigger row, n1's five rows, one note row
+      const all = await asOperator((c) => many<{ step: string; n: number }>(c, "select node_id||':'||status as step, count(*)::int as n from run_steps where run_id=$1 group by 1 order by 1", [runId]));
+      expect(all).toEqual([{ step: "n1:failed", n: 4 }, { step: "n1:ok", n: 1 }, { step: "n2:ok", n: 1 }, { step: "t1:ok", n: 1 }, { step: "x1:ok", n: 1 }]);
+    } finally { cardMode = "ok"; cards.length = 0; notes.length = 0; }
   });
 
   describe("a second delivery starts nothing", () => {

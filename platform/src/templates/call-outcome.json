@@ -5,7 +5,7 @@
   "stage": "post_call",
   "sort": 4,
   "origin": "spec",
-  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed or deposit → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A call filed as rescheduled or cancelled on the call only updates its Sales Call record (Call booked reacts 🔁 to a real reschedule). The Sales Call record is updated with the outcome in the company's own option keys and, for a show, the disposition the closer confirmed; a booking whose record the engine never wrote is found in GHL by the booking's id, else the person and the start minute, never made. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54). A refiled answer edits, never adds (D76): the thread line is edited in place, the earlier answer's reaction and tags come off where they differ, and the cards follow the new answer (the most recent card on each board, whatever the last answer left it as).",
+  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed or deposit → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A call filed as rescheduled or cancelled on the call only updates its Sales Call record (Call booked reacts 🔁 to a real reschedule). The Sales Call record is updated with the outcome in the company's own option keys and, for a show, the disposition the closer confirmed; a booking whose record the engine never wrote is found in GHL by the booking's id, else the person and the start minute, never made. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54). A refiled answer edits, never adds (D76): the thread line is edited in place, the earlier answer's reaction and tags come off where they differ, and the cards follow the new answer (the most recent card on each board, whatever the last answer left it as, reopened where the new answer leaves it open). What the earlier answer left on the Sales Call record and the new one does not say is emptied (D77): a no-show or a call rescheduled on the call empties the disposition, cash, objection, next step and payment terms; a show with no call outcome empties the disposition.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -197,7 +197,8 @@
         "stage": "{{crm.stage_closer_cancelled}}",
         "if_missing": "skip",
         "title": "Closer card → No Show / Cancelled (move only: they can rebook)",
-        "pick": "latest"
+        "pick": "latest",
+        "status": "open"
       },
       {
         "id": "g3",
@@ -315,7 +316,8 @@
             }
           ]
         },
-        "title": "A changed answer to closed: the closer card leaves No Show / Follow Up / Lost / Disqualified for Scheduled (Payment recorded and Deal closed move it on)"
+        "title": "A changed answer to closed: the closer card leaves No Show / Follow Up / Lost / Disqualified for Scheduled (Payment recorded and Deal closed move it on)",
+        "status": "open"
       },
       {
         "id": "c2",
@@ -331,7 +333,8 @@
         "stage": "{{crm.stage_closer_follow_up}}",
         "if_missing": "skip",
         "title": "Closer card → Follow Up",
-        "pick": "latest"
+        "pick": "latest",
+        "status": "open"
       },
       {
         "id": "c3",
@@ -387,7 +390,15 @@
           "external_id": "{{appointment.external_id}}",
           "outcome": "{{picklist.sales_call_outcome.noshow}}"
         },
-        "title": "Sales Call record: no-show"
+        "title": "Sales Call record: no-show (what a held call carried is emptied)",
+        "clear": [
+          "disposition",
+          "cash_collected",
+          "objection_primary",
+          "next_step",
+          "next_step_date",
+          "payment_terms"
+        ]
       },
       {
         "id": "v_disp",
@@ -415,7 +426,40 @@
           "outcome": "{{picklist.sales_call_outcome.showed}}",
           "disposition": "{{vars.disposition | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}"
         },
-        "title": "Sales Call record: showed, with the disposition"
+        "title": "Sales Call record: showed, with the disposition",
+        "clear": [
+          "disposition"
+        ]
+      },
+      {
+        "id": "r3s",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "as": {
+          "name": "Rescheduled",
+          "icon": ":repeat:"
+        },
+        "template": "🔁 Rescheduled or cancelled on the call, per {{appointment.closer.name | default:the closer}}.",
+        "title": "A changed answer: the thread line says rescheduled and the earlier reaction comes off",
+        "tag": "outcome:{{appointment.id}}",
+        "edit": true,
+        "unreact": {
+          "of": "tag:appointment:{{appointment.id}}",
+          "emojis": [
+            "{{vars.undo_emoji | default:}}"
+          ]
+        },
+        "only_if": {
+          "in": [
+            "{{event.previous_outcome | default:}}",
+            [
+              "showed",
+              "noshow"
+            ]
+          ]
+        }
       },
       {
         "id": "r3",
@@ -427,7 +471,15 @@
           "external_id": "{{appointment.external_id}}",
           "outcome": "{{picklist.sales_call_outcome.on_call}}"
         },
-        "title": "Sales Call record: rescheduled or cancelled on the call"
+        "title": "Sales Call record: rescheduled or cancelled on the call (what a held call carried is emptied)",
+        "clear": [
+          "disposition",
+          "cash_collected",
+          "objection_primary",
+          "next_step",
+          "next_step_date",
+          "payment_terms"
+        ]
       }
     ],
     "edges": [
@@ -479,7 +531,7 @@
       },
       {
         "from": "b1",
-        "to": "r3",
+        "to": "r3s",
         "when": {
           "eq": [
             "{{event.outcome}}",
@@ -630,6 +682,10 @@
       {
         "from": "kc",
         "to": "x1"
+      },
+      {
+        "from": "r3s",
+        "to": "r3"
       }
     ]
   }

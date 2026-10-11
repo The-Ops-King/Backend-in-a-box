@@ -13,8 +13,9 @@ import type { HealthProbes } from "./health";
 import { deferIntoWindow } from "./waitrule";
 import { emitEvent, startRun, type EventRow } from "./dispatch";
 import { raise, resolve } from "./alerts";
-import { classifyError, pauseReason, RETRY_SCHEDULE, type Classified } from "./failures";
+import { classifyError, HOLD_RECHECK_MIN, pauseReason, plainError, RETRY_SCHEDULE, type Classified } from "./failures";
 import { releasePending } from "./effects";
+import { dependentsWords, doingWords, failureRoles } from "./blocking";
 
 const LEASE_MIN = 5, MAX_STEPS = 50, BATCH = 100;
 export const RECOVERY_AFTER_MIN = 10;          // D5b: a gap longer than this means we were down
@@ -24,7 +25,7 @@ const CONTACT_WRITES = new Set(["set_tag", "remove_tag", "tags", "note", "update
 const RECOVERY_SEND_CAP = 20;                  // per company per tick while catching up: never burst one client's inbox, never let one client's backlog starve another's
 
 type PendingTrigger = { event_id: number; trigger_id: string | null; trigger_node_id: string; contact_id: string; appointment_id: string | null; opportunity_id: string | null };
-export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number; replayed?: number; deferred?: number; retries?: number };
+export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number; replayed?: number; deferred?: number; retries?: number; gave_up?: number; held?: number };
 
 /** D5b premise check — reads the booking source live, never the replica. */
 async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ctx" | "now" | "effective">): Promise<{ ok: true } | { ok: false; why: string }> {
@@ -71,7 +72,7 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
     // Due-ness is decided by the database clock, the same clock that wrote next_run_at. Comparing against a JS
     // timestamp (ms) lost a race against Postgres now() (µs) when a wake and a tick landed in the same millisecond.
     return many<RunRow>(c, `update runs set claimed_at=now(), claimed_by=$1 where id in (
-        select id from runs where status in ('active','waiting') and next_run_at <= now()
+        select id from runs where (status in ('active','waiting') or (status='paused' and step_held)) and next_run_at <= now()
           and (claimed_at is null or claimed_at < now() - interval '${LEASE_MIN} minutes') and ($2::uuid is null or company_id=$2)
         order by next_run_at limit ${BATCH} for update skip locked) returning *`, [claimedBy, onlyCompanyId ?? null]);
   });
@@ -86,11 +87,14 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
         const ver = await one<{ definition: unknown }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [run.workflow_id, run.workflow_version]);
         const def = parseDefinition(ver!.definition);
         const { nodes, edgesFrom } = indexDefinition(def);
+        const roles = failureRoles(def);
         const finish = async (status: string, exit_reason?: string, next_run_at?: Date | null, current_node?: string | null, ctx?: Record<string, unknown>, wake: { reply?: boolean; tag?: string } = {}) => {
           // D58: a run parking with a listener armed also wakes on that post's tag and no later than the listener's until; where it parked (and when it was due) is kept for `resume`
           const lis = status === "waiting" && ctx ? listenerOf(ctx) : undefined;
           const due = lis?.until && (!next_run_at || new Date(lis.until) < next_run_at) ? new Date(lis.until) : next_run_at ?? null;
-          return c.query("update runs set status=$2, exit_reason=coalesce($3, exit_reason), next_run_at=$4, current_node=coalesce($5,current_node), context=coalesce($6,context), wake_on_reply=$7, wake_on_tag=$8, resume_node=case when $9 then coalesce($5,current_node) else resume_node end, resume_at=case when $9 then $10 else resume_at end, claimed_at=null, claimed_by=null, finished_at=case when $2 in ('completed','exited','failed') then now() end where id=$1",
+          if (run.step_held && status !== "paused") { await resolve(c, run.company_id, `run:${run.id}:paused`, now.toJSDate(), true); run.step_held = false; }   // held, then moot or turned off: nothing left to say
+          // D77: a run held on a step stays held only while it is paused there; any other way out ends the hold
+          return c.query("update runs set status=$2, exit_reason=coalesce($3, exit_reason), next_run_at=$4, current_node=coalesce($5,current_node), context=coalesce($6,context), wake_on_reply=$7, wake_on_tag=$8, resume_node=case when $9 then coalesce($5,current_node) else resume_node end, resume_at=case when $9 then $10 else resume_at end, claimed_at=null, claimed_by=null, finished_at=case when $2 in ('completed','exited','failed') then now() end, step_held=($2='paused' and step_held) where id=$1",
             [run.id, status, exit_reason ?? null, due, current_node ?? null, ctx ?? null, !!wake.reply, wake.tag ?? lis?.tag ?? null, !!lis, next_run_at ?? null]);
         };
 
@@ -141,15 +145,17 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
         const wakeFlags = { reply: !!(run as RunRow & { wake_on_reply?: boolean }).wake_on_reply, tag: (run as RunRow & { wake_on_tag?: string | null }).wake_on_tag ?? undefined };
         /**
          * D66: a step that failed is retried in place, never the run from the top, and never past a side effect twice.
-         * transient (or the first unknown): wait RETRY_SCHEDULE[attempt] minutes on this very node, wake flags kept, nothing else moves;
-         * after the last try, or at once for auth and permanent: the run pauses for a person (Retry / Skip on the run page), one alert.
+         * transient (or the first unknown): wait RETRY_SCHEDULE[attempt] minutes on this very node, wake flags kept, nothing else moves.
+         * D77, once the tries are spent (three at most; one for permanent): auth pauses for the token as before; a non-blocking step is
+         * written `skipped` and the run goes on (the next node is returned); a blocking one that is down holds the run on that step,
+         * re-checked alone on HOLD_RECHECK_MIN until it passes; anything else blocking pauses for a person (Retry / Skip on the run page).
          */
-        const failStep = async (node: Node, stepId: string, f: Classified, thrown: boolean) => {
+        const failStep = async (node: Node, stepId: string, f: Classified, thrown: boolean): Promise<string | null> => {
           const attempt = run.current_node === node.id ? run.step_attempt ?? 0 : 0;
           // a 404 that names the contact, from a write to the contact, is the sends' path (G21): the replica learns it, one alert, and the premise exits the run moot at its next look
           if (f.status === 404 && f.vendor === "ghl" && run.contact_id && CONTACT_WRITES.has(node.type) && /\bcontact (with id \S+ )?not found\b/i.test(f.message) && (await markGone(c, company, run, ctx, f.message, now))) {
             await c.query("update run_steps set status='failed', result=$2, error=$3, finished_at=now() where id=$1", [stepId, { class: f.cls, vendor: f.vendor, contact_gone: true }, f.message]);
-            await finish("waiting", undefined, now.toJSDate(), node.id, ctx, wakeFlags); report.waiting++; return;
+            await finish("waiting", undefined, now.toJSDate(), node.id, ctx, wakeFlags); report.waiting++; return null;
           }
           const retryable = f.cls === "transient" || (f.cls === "unknown" && attempt === 0);
           // the vendor answered (a status, a refusal): nothing was written, so a pending create claim comes off and the next try starts clean
@@ -159,23 +165,49 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
             await c.query("update run_steps set status='failed', result=$2, error=$3, finished_at=now() where id=$1", [stepId, { attempt: attempt + 1, of: RETRY_SCHEDULE.length + 1, class: f.cls, vendor: f.vendor, retry_at: at.toISO() }, f.message]);
             await c.query("update runs set step_attempt=$2, step_error=$3 where id=$1", [run.id, attempt + 1, f.message]);
             await finish("waiting", undefined, at.toJSDate(), node.id, ctx, wakeFlags);
-            report.waiting++; report.retries = (report.retries ?? 0) + 1; return;
+            report.waiting++; report.retries = (report.retries ?? 0) + 1; return null;
           }
-          const tries = attempt + 1;
-          const reason = pauseReason(f, retryable ? `(${tries} tries over ${RETRY_SCHEDULE.slice(0, attempt).reduce((a, b) => a + b, 0)} minutes)` : undefined);
-          await c.query("update run_steps set status='failed', result=$2, error=$3, finished_at=now() where id=$1", [stepId, { attempt: tries, class: f.cls, vendor: f.vendor, paused: true }, f.message]);
-          await c.query("update runs set step_attempt=$2, step_error=$3 where id=$1", [run.id, tries, f.message]);
-          await finish("paused", reason, null, node.id, ctx, wakeFlags);
-          const who = (ctx.contact as { name?: string } | undefined)?.name;
+          const tries = attempt + 1, triesWords = `${tries} ${tries === 1 ? "try" : "tries"}`;
+          const who = (ctx.contact as { name?: string } | undefined)?.name || (ctx.user as { name?: string } | undefined)?.name;
           const wfName = (await one<{ name: string }>(c, "select name from workflows where id=$1", [run.workflow_id]))?.name ?? "workflow";
           const href = `/app/c/${company.slug}/r/${run.id}`;
+          const role = roles.get(node.id) ?? { blocking: true, why: "" };
+          // D77: alerts say what the step does, for whom, and what the vendor said in its own words; the raw error stays in the detail and on the run page
+          const doing = doingWords(node), forWho = who ? ` for ${who}` : "", said = plainError(f);
+          const way = f.cls !== "auth" && !role.blocking ? onwardEdge(edgesFrom(node.id)) : undefined;
+          if (way) {
+            // D77: the rest of the run is worth more than this one step: written down, one alert per step and person, a person can retry just this step later
+            await c.query("update run_steps set status='skipped', result=$2, error=$3, finished_at=now() where id=$1", [stepId, { kind: "gave_up", tries, class: f.cls, vendor: f.vendor, why: `couldn't ${doingWords(node)} after ${triesWords}; the run went on without it`, blocking: false }, f.message]);
+            await c.query("update runs set step_attempt=0, step_error=null where id=$1", [run.id]); run.step_attempt = 0;
+            const deps = await dependentsWords(c, run.company_id, run.workflow_id, node);
+            await raise(c, { companyId: run.company_id, key: `skipped:${run.workflow_id}:${node.id}:${run.contact_id ?? run.user_id ?? run.id}`, level: "warning", source: "step", href,
+              text: `Couldn't ${doing}${forWho} after ${triesWords} (${said}); everything else in ${wfName} ran.${deps}`,
+              detail: { run_id: run.id, node: node.id, class: f.cls, vendor: f.vendor, error: f.message, tries, link: `${(process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "")}${href}#retry-${node.id}`, link_label: "Retry this step" } }, now.toJSDate());
+            report.gave_up = (report.gave_up ?? 0) + 1;
+            return way.to;
+          }
+          if (role.blocking && f.cls === "transient") {
+            // D77: down, and the run cannot go on without it: the run is held on this step, which alone is looked at again, slowly, until it passes
+            const wasHeld = !!run.step_held, at = now.plus({ minutes: HOLD_RECHECK_MIN[wasHeld ? 1 : 0] });
+            await c.query("update run_steps set status='failed', result=$2, error=$3, finished_at=now() where id=$1", [stepId, { attempt: tries, class: f.cls, vendor: f.vendor, held: true, recheck_at: at.toISO() }, f.message]);
+            await c.query("update runs set step_attempt=$2, step_error=$3, step_held=true where id=$1", [run.id, tries, f.message]); run.step_held = true;
+            await finish("paused", pauseReason(f, `(${triesWords}; this step alone is re-checked every ${HOLD_RECHECK_MIN[0]} minutes, then hourly)`), at.toJSDate(), node.id, ctx, wakeFlags);
+            await raise(c, { companyId: run.company_id, key: `run:${run.id}:paused`, level: "error", source: "step", href,
+              text: `${wfName} is paused: it couldn't ${doing}${forWho} after ${triesWords} (${said}). Nothing after it runs without it, so the engine re-checks only this step every ${HOLD_RECHECK_MIN[0]} minutes, then hourly, and carries on by itself when it passes. Retry or skip it on the run page.`,
+              detail: { run_id: run.id, node: node.id, class: f.cls, vendor: f.vendor, error: f.message, tries, held: true } }, now.toJSDate());
+            report.held = (report.held ?? 0) + 1; report.paused++; return null;
+          }
+          const reason = pauseReason(f, retryable ? `(${tries} tries over ${RETRY_SCHEDULE.slice(0, attempt).reduce((a, b) => a + b, 0)} minutes)` : undefined);
+          await c.query("update run_steps set status='failed', result=$2, error=$3, finished_at=now() where id=$1", [stepId, { attempt: tries, class: f.cls, vendor: f.vendor, paused: true }, f.message]);
+          await c.query("update runs set step_attempt=$2, step_error=$3, step_held=false where id=$1", [run.id, tries, f.message]); run.step_held = false;
+          await finish("paused", reason, null, node.id, ctx, wakeFlags);
           if (f.cls === "auth") {
             // one alert per company per vendor: twenty runs stopped by one dead token are one message, and a new token wakes them all
-            await raise(c, { companyId: run.company_id, key: `auth:${f.vendor ?? "vendor"}`, level: "error", source: "step", href, text: `${(f.vendor ?? "a vendor").toUpperCase()} rejected the company's token (${f.status ?? "auth"}): runs that reach it pause until the token is replaced in settings. First seen on "${wfName}" at step ${node.id}${who ? ` for ${who}` : ""}: ${f.message.slice(0, 200)}`, detail: { run_id: run.id, node: node.id, vendor: f.vendor, error: f.message } }, now.toJSDate());
+            await raise(c, { companyId: run.company_id, key: `auth:${f.vendor ?? "vendor"}`, level: "error", source: "step", href, text: `${(f.vendor ?? "a vendor").toUpperCase()} rejected the company's token: runs that reach it pause until the token is replaced in settings. First seen when ${wfName} couldn't ${doing}${forWho}: ${said}.`, detail: { run_id: run.id, node: node.id, vendor: f.vendor, error: f.message } }, now.toJSDate());
           } else {
-            await raise(c, { companyId: run.company_id, key: `run:${run.id}:paused`, level: "error", source: "step", href, text: `"${wfName}" needs a hand at step ${node.id}${who ? ` for ${who}` : ""}: ${f.message.slice(0, 300)}${retryable ? ` (gave up after ${tries} tries)` : ""}. Retry or skip the step on the run page.`, detail: { run_id: run.id, node: node.id, class: f.cls, vendor: f.vendor, error: f.message, tries } }, now.toJSDate());
+            await raise(c, { companyId: run.company_id, key: `run:${run.id}:paused`, level: "error", source: "step", href, text: `${wfName} couldn't ${doing}${forWho}: ${said}${retryable ? ` (gave up after ${tries} tries)` : ""}. Retry or skip it on the run page.`, detail: { run_id: run.id, node: node.id, class: f.cls, vendor: f.vendor, error: f.message, tries } }, now.toJSDate());
           }
-          report.paused++;
+          report.paused++; return null;
         };
         let nodeId: string | null = run.current_node ?? def.nodes.find((n) => n.type === "trigger")!.id;
         // D58: a listener armed on this run fires wherever the run is parked: the run jumps to its "tap" (or "until") edge, remembering where it was for `resume`
@@ -211,9 +243,13 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           if (out.status === "failed") {
             // a failure the step itself returned is its verdict on its config or data (an unbound binding, a term that does not exist): a person's, not a retry's, unless its words carry a vendor's status
             const f = classifyError(thrown ?? out.error); if (thrown === undefined && f.cls === "unknown") f.cls = "permanent";
-            await failStep(node, step!.id, f, thrown !== undefined); return;
+            const on = await failStep(node, step!.id, f, thrown !== undefined);
+            if (on === null) return;
+            nodeId = on; continue;
           }
           if (run.step_attempt) { await c.query("update runs set step_attempt=0, step_error=null where id=$1", [run.id]); run.step_attempt = 0; }   // the step passed on a retry: the counter is for that step only
+          // D77: the step a run was held on passed a re-check: the hold ends and its alert closes with a ✅ Resolved
+          if (run.step_held) { await c.query("update runs set step_held=false where id=$1", [run.id]); run.step_held = false; await resolve(c, run.company_id, `run:${run.id}:paused`, now.toJSDate()); }
           await c.query("update run_steps set status=$2, result=$3, error=$4, finished_at=now() where id=$1",
             [step!.id, out.status === "exit" || out.status === "resume" ? "ok" : out.status === "waiting" ? "waiting" : out.status, "result" in out ? out.result ?? {} : {}, "error" in out ? out.error : null]);
           if (out.status === "ok" && (node.type === "send_sms" || node.type === "send_email")) { sendsThisTick.set(run.company_id, (sendsThisTick.get(run.company_id) ?? 0) + 1); report.sends++; }
@@ -253,4 +289,39 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
   }
   for (const co of premiseRead) if (!premiseDown.has(co)) await asOperator((c) => resolve(c, co, PREMISE_ALERT_KEY, now.toJSDate())).catch(() => {});
   return report;
+}
+
+/**
+ * D77: Retry this step, for a step a run skipped after its tries (`gave_up`) and went on without. Only that node runs, once,
+ * now, against the run's saved context; nothing before or after it moves and the run keeps its own place. Idempotent through
+ * the ledgers (the sends key, step_effects): a send already out or a note already written is not done again, and a step that
+ * already passed is refused. Passing closes the step's alert.
+ */
+export async function rerunStep(c: import("pg").PoolClient, adapters: Adapters, runId: string, nodeId: string, by: string, now = DateTime.now()): Promise<{ ok: true; run_id: string; node: string; status: string } | { ok: false; status: number; error: string }> {
+  const run = await one<RunRow>(c, "select * from runs where id=$1", [runId]);
+  if (!run) return { ok: false, status: 404, error: "no such run" };
+  const last = await one<{ status: string; result: { kind?: string } }>(c, "select status, result from run_steps where run_id=$1 and node_id=$2 order by started_at desc, id desc limit 1", [runId, nodeId]);
+  if (!last || last.status !== "skipped" || last.result?.kind !== "gave_up") return { ok: false, status: 409, error: last?.status === "ok" ? `step ${nodeId} already passed on a retry` : `step ${nodeId} was not skipped after its tries in this run; only such a step can be retried on its own` };
+  const { row: company, adapterCompany, bindings } = await loadCompany(c, run.company_id);
+  const ver = await one<{ definition: unknown }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [run.workflow_id, run.workflow_version]);
+  const def = parseDefinition(ver!.definition); const { nodes, edgesFrom } = indexDefinition(def);
+  const node = nodes.get(nodeId); if (!node) return { ok: false, status: 409, error: `step ${nodeId} is not in this run's workflow version` };
+  const effective = await effectiveMode(c, run.company_id, run.contact_id, company.mode, bindings);
+  const truth = run.contact_id ? await refreshContact(c, company, adapterCompany, adapters, bindings, run.contact_id, now) : undefined;
+  if (truth && !truth.ok) return { ok: false, status: 409, error: `nothing to retry: ${truth.why}` };
+  const ctx = await buildContext(c, run, company, bindings, truth);
+  const step = await one<{ id: string }>(c, "insert into run_steps (run_id,node_id,node_type,status) values ($1,$2,$3,'waiting') returning id", [run.id, node.id, node.type]);
+  let out: Awaited<ReturnType<typeof executeNode>>, thrown: unknown;
+  try { out = await executeNode({ c, adapters, company, adapterCompany, bindings, run: { ...run, step_attempt: 0 }, ctx, edgesFrom, now, effective }, node); } catch (e) { thrown = e; out = { status: "failed", error: String((e as Error).message).slice(0, 500) }; }
+  if (out.status === "failed" || out.status === "waiting" || out.status === "paused") {
+    const error = out.status === "failed" ? out.error : `the step asked to ${out.status === "waiting" ? "wait" : "pause"}, which a retry on its own cannot do`;
+    if (out.status === "failed" && (thrown === undefined || classifyError(thrown).answered)) await releasePending(c, run.id, node.id);
+    await c.query("update run_steps set status='skipped', result=$2, error=$3, finished_at=now() where id=$1", [step!.id, { kind: "gave_up", tries: 1, retried_by: by, why: `retried by ${by}: still couldn't ${doingWords(node)}` }, error]);
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'run.step_retried','run',$2,$3)", [run.company_id, run.id, { node: node.id, by, ok: false, error }]);
+    return { ok: false, status: 502, error };
+  }
+  await c.query("update run_steps set status=$2, result=$3, finished_at=now() where id=$1", [step!.id, out.status === "exit" || out.status === "resume" ? "ok" : out.status, { ...("result" in out ? out.result ?? {} : {}), retried_by: by }]);
+  await resolve(c, run.company_id, `skipped:${run.workflow_id}:${node.id}:${run.contact_id ?? run.user_id ?? run.id}`, now.toJSDate());
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'run.step_retried','run',$2,$3)", [run.company_id, run.id, { node: node.id, by, ok: true }]);
+  return { ok: true, run_id: run.id, node: node.id, status: out.status === "exit" || out.status === "resume" ? "ok" : out.status };
 }

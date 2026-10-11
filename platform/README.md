@@ -574,10 +574,13 @@ after the response (`after()` from `next/server`); deliveries are deduplicated b
 ## Alerts and the health sweep (D33)
 
 The engine says what broke the minute it breaks, and nothing while it works. A step that fails is retried in
-place (never the run from the top, never a side effect twice: a transient error at 1 and 5 minutes (three tries in all, D76); a dead
-token or a refusal pauses at once, D66), and a run that pauses becomes an alert with the workflow, the step in
-words, the contact, the error and the link to its page, where **Retry this step** / **Skip this step** are the two
-hands; a dead token is one `auth:<vendor>` alert per company that a new token in settings closes while waking the
+place (never the run from the top, never a side effect twice: a transient error at 1 and 5 minutes, three tries in all, D76; a dead
+token pauses at once, D66). Then (D77): a step nothing later reads (a tag, a note, a send, a post) is skipped and the run
+goes on, with one alert "Couldn't <what> for <name> after 3 tries (<error>); everything else in <workflow> ran." and a
+**Retry this step** link that re-runs only that step; a step the run cannot go on without holds the run on itself and is
+re-checked alone (15 minutes, then hourly) until it passes, one alert, ✅ Resolved when it does; a run that pauses for a
+person becomes an alert with the workflow, the step in words, the contact, the error and the link to its page, where
+**Retry this step** / **Skip this step** are the two hands; a dead token is one `auth:<vendor>` alert per company that a new token in settings closes while waking the
 runs it stopped; a poll cursor that has failed twice in a row becomes one; a workflow copy the engine cannot parse
 becomes one; a run the engine itself broke (`failed`) becomes one. One open alert per
 (company, key): the first time it is posted to the company's destinations (`alerts.slack_channel`,
@@ -671,6 +674,14 @@ disposition note carries about, notes, DQ reason, next step, money and the compa
 to the company's alerts channel with the corrections ("Leo Ortiz: outcome Deposit → Closed") and the day's answers,
 because a wrong prefill is a data gap to fix at the source, and puts a ✅ and a "Got it" reply on the reminder DM.
 Submitting again replaces the day.
+
+Calls booked before the engine was installed (D77): the form also lists the closer's Sales Calls in GHL (the record's
+`closer` matches their roster name) whose call time has passed and that have neither an outcome nor a disposition,
+when the engine has no booking for them. Such a row is filed straight to its record by id (the outcome in the
+company's own keys, the disposition for a held call, `null` for what a held call carries on a no-show or a call
+rescheduled on the call), in live, or for a test contact in test; a record with an outcome never appears, and a row
+filed here stays on the form for refiling. The reminder counts the same rows. A changed answer, on any row, empties on
+the Sales Call what the earlier answer set and the new one does not (`crm_record.clear`, sent as `null`).
 
 Who is a closer is a role on the roster (settings § Team; install input `closers`: emails or CRM user ids). The CRM
 roster comes in as `staff`; only `closer` rows get a link and the DM.

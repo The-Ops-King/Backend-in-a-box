@@ -486,6 +486,7 @@ create table runs (
   born_in             text not null default 'live' check (born_in in ('shadow','test','live')),   -- the company's mode when the run started; runs not born live are cleared at Go live (D51)
   step_attempt        int not null default 0,              -- D66: tries of the current step so far (a transient failure retries in place; reset when the step passes or a person retries)
   step_error          text,                                 -- D66: the last error of the current step, as the vendor said it
+  step_held           boolean not null default false,       -- D77: paused ON its step because a blocking step is down; the scheduler re-checks only that step (next_run_at) until it passes
   started_at          timestamptz not null default now(),
   finished_at         timestamptz,
   unique (workflow_id, reentry_key)

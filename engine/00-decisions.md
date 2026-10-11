@@ -2406,3 +2406,83 @@ Tyler's rulings on the sweep of 2026-10-10 (06-journey-sweep.md §4), relayed th
 - **The company's own picklist keys** (D-1, S9), **cancels after the start** (D-3, S11), **gone cards** (D-4, S12), **records
   found by booking** (D-7, S13), **the CRM id wait** (D-5, S14), **wrap-ups without test contacts** (D-8, S15) and
   **Cancellation rebook for closing calls** (D-9) are the sweep's, decided by the owner the same day.
+
+## D77. Three tries, then the rest of the run goes on; a changed answer clears; calls booked before the engine (2026-10-10)
+
+Tyler's rulings, relayed the same day and built together.
+
+- **Three tries, then skip or hold.** "A 3-attempt cap to failing steps is important. If anything is down, we just check
+  every once in a while, and we only check that one specific step. We pause and wait on that specific step. If we can
+  pass without pausing, that's even better, so that if something fails, we still get a 90% result. It alerts me and says
+  'Hey, by the way, we couldn't complete this step, so they missed the tag or whatever it is, but everything else still
+  ran.' If it's [blocking], it should pause." D66's classes stay (transient / auth / permanent / unknown; auth keeps its
+  one alert per vendor and its token-change wake); a step gets at most three tries (`RETRY_SCHEDULE` 1 and 5 minutes;
+  permanent is not retried, unknown once). Then:
+  - a **non-blocking** step is written `skipped` (`result.kind: gave_up`, the tries, the error) and the run goes on to the
+    next node, with one alert per step and person (`skipped:<workflow>:<node>:<contact>`): **"Couldn't <what the step
+    does> for <name> after 3 tries (<what the vendor said>); everything else in <workflow> ran."** and a **Retry this
+    step** link. Where another workflow leans on what the step does (it updates the record or card the step makes, or
+    starts on the booking status the step sets), the alert says so by name.
+  - a **blocking** step that is down (transient) holds the run ON that step (`status 'paused'`, `runs.step_held`, claimed
+    by the scheduler when `next_run_at` comes): only that step is re-checked, 15 minutes after the hold, then hourly
+    (`HOLD_RECHECK_MIN`), until it passes and the run carries on by itself. One alert (`run:<id>:paused`, headline "Run
+    paused on a step"): **"<workflow> is paused: it couldn't <what> for <name> after 3 tries (<what the vendor said>).
+    Nothing after it runs without it, so the engine re-checks only this step every 15 minutes, then hourly, and carries
+    on by itself when it passes. Retry or skip it on the run page."**, closed with ✅ Resolved when the step passes (quietly
+    when the run is mooted or turned off meanwhile). A blocking step refused for good (permanent) pauses for a person:
+    **"<workflow> couldn't <what> for <name>: <what the vendor said>. Retry or skip it on the run page."**
+- **The blocking rule** (`platform/src/engine/blocking.ts › failureRoles`, from the definition alone): a step is blocking
+  when it decides or waits (trigger, branch, check, the waits, set_var, record, record_outcome, update_opportunity,
+  start_workflow, pause_runs, resume, exit) or a later step on its path reads what it produced: `cards.<board>` /
+  `opportunity.*` after a pipeline_card, `record.*` after a crm_record (a later record step's own `relate` reads its own
+  record, not this one), the `into` of a classify / analyze / webhook / report / eod_due, `appointment.<field>` after an
+  update_appointment that sets it, a post a blocking wait_for_reaction waits on (a listener goes on without it).
+  Everything else is non-blocking: tags, notes, tasks, contact updates, sends, Slack posts and reactions, documents, cards
+  and records nothing later reads, an `optional` analyze. `blocking: true|false` on any step overrides it (on
+  wait_for_reaction the field keeps its D58 meaning; a wait is always blocking). In Hair's enabled templates the
+  blocking vendor steps are: setter-call-logged `a1` (classify, read by `c3`) and `a2` (analyze, read by `m1`);
+  call-booked `s4` and `b5` (the closer card, named by the Sales Call record `k4`); pre-call-sequence `c1` (Jev's read of
+  the reply, read by `b1`); call-recorded `a1`, `a2`, `a3` (the classifications and the notes the branches and the
+  record read); eod-reminder `v_evening`, `v_morning` (eod_due, read by `c_due`); wrap-ups `n_build` (the report the
+  post sends). Every other step in them (every tag, note, task, send, Slack post, Sales Call / Payment record and card in
+  call-outcome, call-cancelled, payment-recorded, deal-closed, …) is non-blocking (`blocking.test.ts`).
+- **Alerts in plain words** (the owner's review of "\"Call booked\" needs a hand at step k4 for Tyler TEST: GHL 400 on
+  /objects/…: {\"message\":…}"): every step-failure alert (paused, held, skipped, auth, the sweep's could-not-run and
+  failed) says what the step does (`doingWords`, never the node id), for whom, and the vendor's own message out of its
+  body (`failures.ts › plainError`: GHL `message` / `errors[].message`, Calendly `message` / `details`, Slack `error`, the
+  status in words only when nothing else), never raw JSON: "Call booked couldn't create the Sales Call record for Tyler
+  TEST: GHL says a record with the same value for External ID - test-20254447 already exists. Retry or skip it on the
+  run page." The raw error stays in the alert's detail and on the run page.
+- **Retry this step** re-runs only that step: `POST /api/v1/runs/<id>/retry` with `{ node }` (`runner.ts › rerunStep`)
+  takes a step whose last row is a `gave_up` skip, runs that node once, now, against the run's saved context, whatever
+  the run is doing since; nothing before or after it moves, the run keeps its place. Idempotent through the ledgers (a
+  send already out, a note or task already written, a card already made are not done again); a step that already
+  passed is refused (409). Passing closes its alert; `audit_log` `run.step_retried`. The run page lists each skipped
+  step with its own button, and shows a held run as "Paused on <step>" with when it is re-checked next.
+- **No loop anywhere**, proven in `retry.test.ts`: a permanently failing non-blocking tag makes exactly three tries over
+  six looks, is skipped, the note after it is written and the run completes; a blocking card makes three fast tries, is
+  held, re-checked alone at 15 minutes and then an hour, nothing after it runs, and when the CRM is back the card is
+  made once, the note after it once, the run completes, and the run's rows are the trigger, five tries of the card, the
+  note and the exit.
+- **A changed EOD answer clears what the old one set.** "Changing an EOD shouldn't leave the old disposition." A
+  `crm_record` step takes `clear`: properties an update writes as `null` unless this answer sets them (GHL ignores an
+  empty string for some field types; `ghl/02-api-facts.md`, **to verify live** on a test record). Call outcome filed:
+  the no-show record (`r2`) and the rescheduled-on-the-call record (`r3`) clear `disposition`, `cash_collected`,
+  `objection_primary`, `next_step`, `next_step_date`, `payment_terms`; the showed record (`r1`) clears `disposition` when
+  the answer has no call outcome. The closer card steps that leave a card open (`gn2` No Show, `k2` Follow Up, `kc`
+  Scheduled) now say `status: open`, so a lost card the earlier answer closed is reopened; a change to rescheduled on
+  the call edits the thread line (`r3s`, "🔁 Rescheduled or cancelled on the call, per <closer>.") and takes the earlier
+  👻 / ✅ back. Tags and the thread line already followed the new answer (D76). Not changed: the cards after a change to
+  "rescheduled on the call" stay where the earlier answer put them (no template has a stage for it).
+- **Calls booked before the engine.** "Calls booked before the engine was installed: only have [those] that have an
+  empty disposition in the Sales Call object." The end-of-day form for a closer also lists their GHL Sales Calls
+  (`closer` = their roster name) whose call time has passed and that carry neither a filed outcome (blank, or a value
+  the company's map does not call filed, such as `scheduled`) nor a disposition, when the record is not one of the
+  engine's own bookings (we wrote or matched it, it carries a booking's id, or it is the person's booking that same
+  minute). The row is `ghl:<record id>`; filing it writes to that record directly with the same properties Call outcome
+  filed writes (outcome in the company's keys, disposition for a held call, the clears above), in live or for a test
+  contact in test (otherwise noted in `audit_log` `eod.sales_call_filed`, not written); a row the form did not offer the
+  closer is dropped before anything is stored; a write GHL refuses is one alert and is retried by filing again. A record
+  with an outcome never appears, except a row the closer filed here, which stays for refiling. `eod_due` (the
+  End-of-day reminder) reads the same records through the same function (`eod.ts › blankSalesCalls`) and counts, per
+  day, the ledger's unfiled calls plus the blank records the form adds, so its number is the form's rows.

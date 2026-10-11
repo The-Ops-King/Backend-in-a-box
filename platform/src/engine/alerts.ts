@@ -5,7 +5,7 @@ import type { PollReport } from "./poll";
 import type { TickReport } from "./runner";
 import { decrypt } from "./crypto";
 import { resendSend } from "@/adapters/email/resend";
-import { classifyError } from "./failures";
+import { classifyError, plainError } from "./failures";
 
 /**
  * D33. The engine tells the operator the minute something fails, and says so once.
@@ -78,8 +78,8 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
      from runs r join workflows w on w.id=r.workflow_id join companies co on co.id=r.company_id left join contacts ct on ct.id=r.contact_id
      where r.status='failed' and r.finished_at > $1 and r.finished_at <= $2 order by r.finished_at`, [since, now]);
   for (const f of failed) {
-    const step = f.current_node ? await stepWords(c, f.workflow_id, f.current_node) : "the start";
-    const r = await raise(c, { companyId: f.company_id, key: `step:${f.workflow_id}:${f.current_node ?? "start"}`, level: "error", source: "step", text: `"${f.workflow}" failed at ${step}${f.contact ? ` for ${f.contact}` : ""}: ${(f.exit_reason ?? "unknown error").slice(0, 300)}`, detail: { run_id: f.id, node: f.current_node, error: f.exit_reason }, href: `/app/c/${f.slug}/r/${f.id}` }, now);
+    const step = f.current_node ? await stepWords(c, f.workflow_id, f.current_node) : "start";
+    const r = await raise(c, { companyId: f.company_id, key: `step:${f.workflow_id}:${f.current_node ?? "start"}`, level: "error", source: "step", text: `${f.workflow} failed when it tried to ${step}${f.contact ? ` for ${f.contact}` : ""}: ${plainError(classifyError(f.exit_reason ?? "unknown error"))}.`, detail: { run_id: f.id, node: f.current_node, error: f.exit_reason }, href: `/app/c/${f.slug}/r/${f.id}` }, now);
     if (r.isNew) raised++;
   }
   // a step that could not do its job (Slack not connected, no AI key) is not a failure of the run, but you want to know the minute it happens
@@ -92,15 +92,15 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
     // D66: a vendor rejecting its token is one alert per vendor, however many steps it blocks (a Slack post is never the point of a run, so the run went on)
     const f = classifyError(b.why ?? "");
     const r = f.cls === "auth" && f.vendor
-      ? await raise(c, { companyId: b.company_id, key: `auth:${f.vendor}`, level: "error", source: "step", text: `${f.vendor.toUpperCase()} rejected the company's token: its steps are recorded as blocked and runs go on without them until the token is replaced. First seen on "${b.workflow}" at ${step}${b.contact ? ` for ${b.contact}` : ""}: ${(b.why ?? "").slice(0, 200)}`, detail: { run_id: b.run_id, node: b.node_id, vendor: f.vendor, why: b.why }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now)
-      : await raise(c, { companyId: b.company_id, key: `blocked:${b.workflow_id}:${b.node_id}`, level: "warning", source: "step", text: `"${b.workflow}" could not run ${step}${b.contact ? ` for ${b.contact}` : ""}: ${(b.why ?? "blocked").slice(0, 200)}. The run went on without it.`, detail: { run_id: b.run_id, node: b.node_id, why: b.why }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now);
+      ? await raise(c, { companyId: b.company_id, key: `auth:${f.vendor}`, level: "error", source: "step", text: `${f.vendor.toUpperCase()} rejected the company's token: its steps are recorded as blocked and runs go on without them until the token is replaced. First seen when ${b.workflow} couldn't ${step}${b.contact ? ` for ${b.contact}` : ""}: ${plainError(f)}.`, detail: { run_id: b.run_id, node: b.node_id, vendor: f.vendor, why: b.why }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now)
+      : await raise(c, { companyId: b.company_id, key: `blocked:${b.workflow_id}:${b.node_id}`, level: "warning", source: "step", text: `${b.workflow} couldn't ${step}${b.contact ? ` for ${b.contact}` : ""}: ${plainError(classifyError(b.why ?? "blocked"))}. The run went on without it.`, detail: { run_id: b.run_id, node: b.node_id, why: b.why }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now);
     if (r.isNew) raised++;
   }
   await c.query("insert into engine_state (key, value, updated_at) values ('alerts_cursor', $1, now()) on conflict (key) do update set value=$1, updated_at=now()", [{ since: now.toISOString() }]);
   // a step alert (failed or blocked) is over once a later run of that workflow gets past that step
   const openSteps = await many<AlertRow>(c, "select * from alerts where source='step' and resolved_at is null");
   for (const a of openSteps) {
-    if (!a.key.startsWith("step:") && !a.key.startsWith("blocked:")) continue;   // D66: `run:<id>:paused` closes on Retry/Skip, `auth:<vendor>` when the token is replaced
+    if (!a.key.startsWith("step:") && !a.key.startsWith("blocked:")) continue;   // D66: `run:<id>:paused` closes on Retry/Skip (D77: or when its held step passes), `auth:<vendor>` when the token is replaced, D77's `skipped:` when that step is retried
     const [, wf, node] = a.key.split(":");
     const passed = await one(c, "select 1 from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_id=$2 and s.status='ok' and s.started_at > $3 limit 1", [wf, node, a.last_seen]);
     if (passed && (await resolve(c, a.company_id, a.key, now))) resolved++;
@@ -111,10 +111,10 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
 async function stepWords(c: PoolClient, workflowId: string, nodeId: string): Promise<string> {
   try {
     const v = await one<{ definition: unknown }>(c, "select v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.id=$1", [workflowId]);
-    const { parseDefinition } = await import("./definition"); const { describeNode } = await import("./describe");
+    const { parseDefinition } = await import("./definition"); const { doingWords } = await import("./blocking");
     const n = v ? parseDefinition(v.definition).nodes.find((x) => x.id === nodeId) : undefined;
-    return n ? `step ${nodeId} (${describeNode(n).title})` : `step ${nodeId}`;
-  } catch { return `step ${nodeId}`; }
+    return n ? doingWords(n) : `do step ${nodeId}`;   // D77: what the step does, never its id
+  } catch { return `do step ${nodeId}`; }
 }
 
 /** Where a company wants to hear about problems: Slack channel, email addresses, a webhook (a Zap). The sweep may have its own channel and face. */
@@ -156,7 +156,7 @@ export async function announceDue(c: PoolClient, adapters: Adapters, now = new D
       if (repeat && a.slack_ts) { const thread = (a.detail as { thread?: string }).thread; said = !!(await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} Still open after ${hoursOpen(a.first_seen, now)}h: ${a.text.slice(0, 300)}${thread ? `\n${thread}` : ""}`, as, a.slack_ts).catch(() => null)); }   // the hourly repeat carries the fresh breakdown
       else {
         const fix = (a.detail as { fix?: { label: string } }).fix; const extra = (a.detail as { link?: string; link_label?: string });
-        const r = await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} *${where}${a.source === "step" ? (a.key.startsWith("blocked:") ? "Step could not run" : a.key.startsWith("run:") ? "Run needs a hand" : a.key.startsWith("auth:") ? "Token rejected" : "Run failed") : a.source === "health" ? "Health check" : a.source === "poll" ? "Polling" : "Engine"}*\n${a.text}${link ? `\n<${link}|Open>${fix ? ` · <${link}#fix|${fix.label}>` : ""}` : ""}${extra.link ? `${link ? " · " : "\n"}<${extra.link}|${extra.link_label ?? "Open"}>` : ""}`, as).catch(() => null);
+        const r = await adapters.notifier.post(dest.slackToken, channel, `${mark(a.level)} *${where}${a.source === "step" ? (a.key.startsWith("blocked:") ? "Step could not run" : a.key.startsWith("skipped:") ? "Step skipped" : a.key.startsWith("run:") ? ((a.detail as { held?: boolean }).held ? "Run paused on a step" : "Run needs a hand") : a.key.startsWith("auth:") ? "Token rejected" : "Run failed") : a.source === "health" ? "Health check" : a.source === "poll" ? "Polling" : "Engine"}*\n${a.text}${link ? `\n<${link}|Open>${fix ? ` · <${link}#fix|${fix.label}>` : ""}` : ""}${extra.link ? `${link ? " · " : "\n"}<${extra.link}|${extra.link_label ?? "Open"}>` : ""}`, as).catch(() => null);
         if (r) {
           said = true; await c.query("update alerts set slack_channel=$2, slack_ts=$3 where id=$1", [a.id, channel, r.ts]);
           // the detail that belongs under the post, not in it: the next days' availability at a glance

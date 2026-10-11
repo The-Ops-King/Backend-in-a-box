@@ -160,12 +160,16 @@ const strip = (t: string | undefined) => t === undefined ? undefined : t.replace
 
 type StepRow = { node_id: string; node_type: string; status: string; started_at: Date; finished_at: Date | null; result: Record<string, unknown>; error: string | null };
 type SendRow = { idempotency_key: string; channel: string; status: string; rendered_body: string; sent_at: Date | null; suppressed_reason: string | null; error: string | null };
-type RunLike = { id: string; status: string; current_node: string | null; next_run_at: Date | null; exit_reason: string | null; started_at: Date };
+type RunLike = { id: string; status: string; current_node: string | null; next_run_at: Date | null; exit_reason: string | null; started_at: Date; step_held?: boolean };
 
 /** A step's one-line fact, in words: why it was skipped, what failed, when they replied. */
 function noteOf(s: StepRow, tz: string): string | undefined {
   const r = s.result ?? {};
+  // D77: skipped after its tries (the run went on without it), or held: the run waits on this step, which alone is re-checked
+  if (r.kind === "gave_up") return `Couldn't do it after ${r.tries ?? "its"} ${r.tries === 1 ? "try" : "tries"}${s.error ? ` (${s.error})` : ""}; the rest of the run went on without it${r.retried_by ? ` · retried by ${r.retried_by}, still failing` : " · Retry this step from the top of this page"}`;
+  if (s.error && r.held) return `${s.error} · the run is paused on this step; it alone is re-checked ${typeof r.recheck_at === "string" ? stamp(r.recheck_at, tz) : "soon"} and the run carries on when it passes`;
   if (s.error) return typeof r.retry_at === "string" ? `${s.error} · trying again ${stamp(r.retry_at, tz)} (try ${r.attempt ?? 1} of ${r.of ?? "?"})` : r.paused ? `${s.error} · needs a hand: retry or skip this step` : s.error;
+  if (typeof r.retried_by === "string") return `Done on a retry by ${r.retried_by}`;
   if (s.status === "stale" || s.status === "skipped") {
     if (typeof r.why === "string") return `Didn't go out: ${r.why}`;
     if (r.kind === "noop") return "Nothing to do here";
@@ -217,7 +221,7 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
     const last = i === steps.length - 1;
     let state: StepState = s.status === "ok" ? "ok" : s.status === "skipped" || s.status === "stale" ? "skip" : s.status === "failed" ? "warn" : s.status === "waiting" ? (live && run.current_node === s.node_id && !steps.slice(i + 1).some((x) => x.node_id === s.node_id) ? "here" : "ok") : s.status === "paused" ? "stop" : "ok";
     if (s.node_type === "wait" && state === "ok" && last && live && run.current_node === s.node_id) state = "here";
-    if (state === "skip" && s.result?.kind === "blocked") state = "blocked";
+    if (state === "skip" && (s.result?.kind === "blocked" || s.result?.kind === "gave_up")) state = "blocked";
     if (state === "ok" && s.result?.shadow) state = "ghost";
     void last;
     // a wait row that already fired reads as done; a wait row the run still sits on reads as "here" with when it moves
@@ -259,7 +263,7 @@ export function runState(run: RunLike, path: PathItem[], tz: string): { state: "
   if (run.status === "completed") { const words = exitWords(run.exit_reason ?? "done"); return { state: "ok", at: words.startsWith("Stop: ") ? `done · ${words.replace(/^Stop: /, "").toLowerCase()}` : "done", done: true }; }
   if (run.status === "failed") { const w = path.find((x) => x.state === "warn"); return { state: "warn", at: `failed: ${w ? w.title : run.exit_reason ?? "a step"}`, done: true }; }
   if (run.status === "exited") return { state: "ok", at: `done · ${(run.exit_reason ?? "").replace(/^moot: /, "").replace(/_/g, " ")}`, done: true };
-  if (run.status === "paused") { const w = path.find((x) => x.state === "warn"); return { state: "warn", at: `paused: ${w ? w.title : run.exit_reason ?? "a step"}`, done: true }; }
+  if (run.status === "paused") { const w = path.find((x) => x.state === "warn"); return { state: "warn", at: `${run.step_held ? "held: " : "paused: "}${w ? w.title : run.exit_reason ?? "a step"}`, done: true }; }
   const here = path.find((x) => x.state === "here");
   return { state: "here", at: here ? `${here.title}${here.meta ? ` · ${here.meta}` : ""}` : "in flight", done: false };
 }

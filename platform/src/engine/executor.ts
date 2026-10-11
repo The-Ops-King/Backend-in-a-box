@@ -17,7 +17,7 @@ import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } fro
 import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports";
 import { classifyError } from "./failures";
 import { claimEffect, markEffect, PENDING_WHY, type EffectKind } from "./effects";
-import { callTime, filedMeaning } from "./sales-call";
+import { callTime } from "./sales-call";
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
@@ -550,6 +550,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const properties: Record<string, unknown> = {};
       // a rendered `["yes"]` is a checkbox / multi-option value (the CRM wants an array); numbers go as numbers on amount-like keys
       for (const [k, v] of Object.entries(node.properties)) { const r = render(v, d.ctx, env(d)); if (r === "") continue; properties[k] = /^\[.*\]$/s.test(r) ? jsonArrayOr(r) : /^-?\d+(\.\d+)?$/.test(r) && /amount|total|count|score|duration|min$/i.test(k) ? Number(r) : r; }
+      // D77: what an earlier answer set and this one does not is emptied with null (the CRM ignores "" on some field types); only an update has anything to empty
+      const cleared = Object.fromEntries([...new Set(node.clear.map((k) => render(k, d.ctx, env(d)).trim()).filter((k) => k && !(k in properties)))].map((k) => [k, null]));
       const owner = node.owner ? render(node.owner, d.ctx, env(d)) || undefined : undefined;
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
       let ghlId = existing?.ghl_record_id ?? null;
@@ -564,9 +566,11 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
         // D66: a create the CRM answered but our row never recorded becomes an update of that record; one it never answered is not asked twice
         const cl = ghlId ? null : await claim(d, node, "record");
         if (cl && !cl.fresh) { if (cl.done && cl.external_id) ghlId = cl.external_id; else return { status: "skipped", next, result: { kind: "blocked", why: `${objectKey} record not created twice: ${PENDING_WHY}` } }; }
-        if (ghlId) await d.adapters.write.updateRecord(d.adapterCompany, objectKey, ghlId, properties, owner);
+        if (ghlId) await d.adapters.write.updateRecord(d.adapterCompany, objectKey, ghlId, { ...properties, ...cleared }, owner);
         else { ghlId = (await d.adapters.write.createRecord(d.adapterCompany, objectKey, properties, owner)).id; await done(d, node, "record", ghlId); }
       }
+      const updating = !!(existing || matched);
+      if (updating) Object.assign(properties, cleared);
       const row = await one<{ id: string }>(d.c, `insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,$5,$6)
         on conflict (company_id, object_key, record_key) do update set ghl_record_id=coalesce(excluded.ghl_record_id, crm_records.ghl_record_id), properties=crm_records.properties || excluded.properties, updated_at=now() returning id`,
         [d.company.id, objectKey, key, ghlId, d.run.contact_id, properties]);
@@ -698,29 +702,26 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const user = d.ctx.user as { name?: string; eod?: { day: string; url: string; today: { calls: number; filed: boolean }; earlier: Day[] } } | undefined;
       if (!user?.eod) { setPath(d.ctx, `vars.${node.into}`, ""); return { status: "ok", next, result: { kind: "noop", why: "the run is not about a closer" } }; }
       const tz = d.company.timezone, today = d.now.setZone(tz).toISODate()!, eod = user.eod, label = (day: string) => DateTime.fromISO(day, { zone: tz }).toFormat("ccc LLL d");
-      const days = new Map<string, { ledger?: number; blank: string[] }>();
-      for (const e of eod.earlier) days.set(e.day, { ledger: e.calls, blank: [] });
-      if (node.period === "evening" && eod.today.calls && !eod.today.filed) days.set(eod.day, { ledger: eod.today.calls, blank: [] });
+      // blank: every blank Sales Call that day (the operator hears their names); extra: the ones the line adds to the ledger's count, so the line counts what the form shows (D77)
+      const days = new Map<string, { ledger?: number; blank: string[]; extra: number }>();
+      for (const e of eod.earlier) days.set(e.day, { ledger: e.calls, blank: [], extra: 0 });
+      if (node.period === "evening" && eod.today.calls && !eod.today.filed) days.set(eod.day, { ledger: eod.today.calls, blank: [], extra: 0 });
       let ghl: string | undefined;
-      const object = d.bindings["crm.object_sales_call"];
-      if (object && user.name) {
+      if (d.bindings["crm.object_sales_call"] && user.name) {
         try {
-          for (const r of await d.adapters.read.objectRecords(d.adapterCompany, object)) {
-            const p = r.properties;
-            if (String(p.closer ?? "").trim().toLowerCase() !== user.name.trim().toLowerCase() || filedMeaning(p.outcome, d.bindings)) continue;
-            const cd = String(p.call_date ?? ""), dayOf = /^\d{4}-\d{2}-\d{2}$/.test(cd) ? DateTime.fromISO(cd, { zone: tz }) : null;
-            const at = callTime(p.scheduled_at, dayOf, tz) ?? dayOf;
-            if (!at || (callTime(p.scheduled_at, dayOf, tz) ? at > d.now : at.toISODate()! >= today)) continue;   // not due yet
-            const day = at.setZone(tz).toISODate()!;
-            if (node.period === "morning" && day >= today) continue;
-            const e = days.get(day) ?? { blank: [] }; e.blank.push(String(p.display_label ?? "").split(" — ")[0].trim() || r.id); days.set(day, e);
+          const { blankSalesCalls } = await import("./eod");
+          for (const r of await blankSalesCalls(d.c, d.adapters, d.adapterCompany, d.company.id, d.bindings, user.name, tz, d.now)) {
+            if (node.period === "morning" && r.day >= today) continue;
+            const e = days.get(r.day) ?? { blank: [], extra: 0 }; e.blank.push(r.name);
+            if (!(r.engine && e.ledger)) e.extra++;   // one of the engine's own bookings on a day the ledger already counts is that same call
+            days.set(r.day, e);
           }
         } catch (e) { ghl = String((e as Error).message).slice(0, 200); }   // GHL unread: the ledger's days still go out
       }
       const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-      const lines = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, e]) => {
+      const lines = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).filter(([, e]) => e.ledger || e.extra).map(([day, e]) => {
         const url = day === eod.day ? eod.url : `${eod.url}?day=${day}`, when = day === eod.day ? "today" : label(day);
-        return `• <${url}|${when}>: ${e.ledger ? plural(e.ledger, "call") : ""}${e.ledger && e.blank.length ? ", " : ""}${e.blank.length ? `${plural(e.blank.length, "call")} with no outcome in GHL` : ""}`;
+        return `• <${url}|${when}>: ${e.ledger ? plural(e.ledger, "call") : ""}${e.ledger && e.extra ? ", " : ""}${e.extra ? `${plural(e.extra, "call")} with no outcome in GHL` : ""}`;
       });
       const twoDaysAgo = d.now.setZone(tz).minus({ days: 2 }).toISODate()!;
       const overdue = node.period === "evening" ? [...days.entries()].filter(([day, e]) => e.blank.length && day <= twoDaysAgo).sort(([a], [b]) => a.localeCompare(b)).map(([day, e]) => `• ${label(day)}: ${e.blank.join(", ")}`) : [];

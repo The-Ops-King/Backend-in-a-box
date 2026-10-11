@@ -256,4 +256,41 @@ describe.skipIf(!process.env.DATABASE_URL)("sweep 2026-10-10 on a Calendly compa
     // filing the same answer again changes nothing anywhere
     const m = slack.length; await tick(fake, undefined, companyId); expect(slack.length).toBe(m);
   });
+  it("D77: a changed answer leaves nothing of the old one: closed → no-show empties the disposition, cash, objection, next step and payment terms on the Sales Call (null, which the CRM clears), the ✅ and the closed tags come off, the closer card leaves Scheduled; lost → follow-up reopens the card; → rescheduled on the call edits the line and takes the reaction back", async () => {
+    const ray = await apptId("EV-RAY");
+    const booking = slack.find((m) => m.op === "post" && m.channel === "CBOOK" && !m.thread)!;
+    const line = slack.find((m) => m.op === "post" && m.thread === booking.ts)!;
+    const rec = (await asOperator((c) => one<{ ghl_record_id: string }>(c, "select ghl_record_id from crm_records where company_id=$1 and record_key='EV-RAY'", [companyId])))!.ghl_record_id;
+    const closer = (await asOperator((c) => one<{ ghl_opportunity_id: string }>(c, "select p.ghl_opportunity_id from pipeline_cards p join contacts ct on ct.id=p.contact_id where ct.ghl_contact_id='GC-RAY' and p.ghl_pipeline_id='PIPE-C'", [])))!.ghl_opportunity_id;
+    const held = { disposition: null, cash_collected: null, objection_primary: null, next_step: null, next_step_date: null, payment_terms: null };
+    const sc = (from: number) => records.slice(from).filter((r) => r.object === "custom_objects.sales_call");
+
+    let n = slack.length, nt = tagOps.length, nc = cardOps.length, nr = records.length;
+    await file(ray, "noshow"); await tick(fake, undefined, companyId);
+    expect(sc(nr)).toEqual([{ op: "update", object: "custom_objects.sales_call", id: rec, props: { external_id: "EV-RAY", outcome: "no_show", ...held } }]);
+    expect(slack.slice(n).find((m) => m.op === "update")).toMatchObject({ ts: line.ts, text: expect.stringMatching(/^👻 No-show/) });
+    expect(slack.slice(n)).toContainEqual(expect.objectContaining({ op: "unreact", ts: booking.ts, emoji: "white_check_mark" }));
+    expect(tagOps.slice(nt).filter((t) => t.op === "remove").map((t) => t.tag).sort()).toEqual(["stat-closed-won", "stat-showed"]);
+    expect(cardOps.slice(nc)).toContainEqual({ id: closer, stageId: "ST-C-CX", status: "open" });
+    const tags = (await asOperator((c) => one<{ tags: string[] }>(c, "select tags from contacts where company_id=$1 and ghl_contact_id='GC-RAY'", [companyId])))!.tags;
+    expect(tags).toContain("stat-no-show"); expect(tags).not.toContain("stat-showed"); expect(tags).not.toContain("stat-closed-won");
+
+    await file(ray, "showed", "lost"); await tick(fake, undefined, companyId);
+    expect(cardOps.at(-1)).toEqual({ id: closer, stageId: "ST-LOST", status: "lost" });
+    nc = cardOps.length; nr = records.length;
+    await file(ray, "showed", "follow_up"); await tick(fake, undefined, companyId);
+    expect(cardOps.slice(nc)).toContainEqual({ id: closer, stageId: "ST-FU", status: "open" });   // a lost card is reopened, not left lost
+    expect(sc(nr)).toEqual([expect.objectContaining({ id: rec, props: expect.objectContaining({ outcome: "showed", disposition: "follow_up" }) })]);
+
+    n = slack.length; nr = records.length;
+    await file(ray, "rescheduled"); await tick(fake, undefined, companyId);
+    expect(sc(nr)).toEqual([{ op: "update", object: "custom_objects.sales_call", id: rec, props: { external_id: "EV-RAY", outcome: "rescheduled", ...held } }]);
+    expect(slack.slice(n).filter((m) => m.op === "post")).toEqual([]);
+    expect(slack.slice(n).find((m) => m.op === "update")).toMatchObject({ ts: line.ts, text: "🔁 Rescheduled or cancelled on the call, per James Closer." });
+    expect(slack.slice(n)).toContainEqual(expect.objectContaining({ op: "unreact", ts: booking.ts, emoji: "white_check_mark" }));
+    // a show with no call outcome empties the disposition the follow-up set
+    nr = records.length;
+    await file(ray, "showed"); await tick(fake, undefined, companyId);
+    expect(sc(nr)).toEqual([expect.objectContaining({ id: rec, props: { external_id: "EV-RAY", outcome: "showed", disposition: null } })]);
+  });
 });
