@@ -104,7 +104,7 @@ export function doingWords(n: Node): string {
     case "send_document": return "send the agreement for signature";
     case "slack_post": return n.title ? lower(n.title) : n.thread_of ? "reply in the Slack thread" : `post to Slack (${pathWords(n.channel)})`;
     case "pipeline_card": return `move the ${pathWords(n.pipeline).replace(/^pipeline /, "")} card${n.title ? ` (${n.title})` : ""}`;
-    case "crm_record": return `${n.if_missing === "create" ? "create" : "update"} the ${humanWords(n.object.replace(/^custom_objects\./, "")).replace(/\b[a-z]/g, (c) => c.toUpperCase())} record`;
+    case "crm_record": return `${n.if_missing === "create" && !n.record_id ? "create" : "update"} the ${humanWords(n.object.replace(/^custom_objects\./, "")).replace(/\b[a-z]/g, (c) => c.toUpperCase())} record`;
     case "update_appointment": return "update the booking in the CRM";
     case "webhook": return `call ${n.url.replace(/^https?:\/\//, "").split(/[/?]/)[0] || "the webhook"}`;
     default: return lower(n.title ?? describeNode(n).title);
@@ -120,11 +120,11 @@ export async function dependentsWords(c: PoolClient, companyId: string, workflow
   const events = n.type === "update_appointment" && "status" in n.set ? ["appointment.status_changed"] : [];
   const names = new Set<string>();
   if (events.length) for (const r of await many<{ name: string }>(c, "select distinct w.name from workflow_triggers t join workflows w on w.id=t.workflow_id where t.company_id=$1 and t.enabled and w.enabled and w.id<>$2 and t.event_type = any($3::text[])", [companyId, workflowId, events])) names.add(r.name);
-  if ((n.type === "crm_record" && n.if_missing === "create") || (n.type === "pipeline_card" && n.if_missing === "create")) {
+  if ((n.type === "crm_record" && n.if_missing === "create" && !n.record_id) || (n.type === "pipeline_card" && n.if_missing === "create")) {
     const others = await many<{ name: string; definition: unknown }>(c, "select w.name, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 and w.enabled and w.id<>$2", [companyId, workflowId]);
     for (const o of others) {
       let def: Definition; try { def = parseDefinition(o.definition); } catch { continue; }
-      if (def.nodes.some((m) => (n.type === "crm_record" && m.type === "crm_record" && m.object === n.object && m.if_missing !== "create") || (n.type === "pipeline_card" && m.type === "pipeline_card" && m.pipeline === n.pipeline && m.if_missing === "skip"))) names.add(o.name);
+      if (def.nodes.some((m) => (n.type === "crm_record" && m.type === "crm_record" && m.object === n.object && m.if_missing !== "create" && !m.record_id) || (n.type === "pipeline_card" && m.type === "pipeline_card" && m.pipeline === n.pipeline && m.if_missing === "skip"))) names.add(o.name);
     }
   }
   if (!names.size) return "";

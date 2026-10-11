@@ -562,8 +562,11 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card && !goneCard ? "moved" : "created", ...(goneCard ? { replaced_gone_card: goneCard } : {}), ...(card && !goneCard ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), fields: customFields } };
     }
     case "crm_record": {
-      const objectKey = render(node.object, d.ctx, env(d)), key = render(node.key, d.ctx, env(d));
-      if (!objectKey || !key) return { status: "failed", error: `crm_record ${node.id}: object or key rendered empty` };
+      const objectKey = render(node.object, d.ctx, env(d)), key = node.key ? render(node.key, d.ctx, env(d)) : "";
+      // D85: a record the engine did not make, addressed by the CRM's own id; an id that renders empty is nothing to update, not a fault
+      const byId = node.record_id !== undefined ? render(node.record_id, d.ctx, env(d)).trim() : undefined;
+      if (byId === "") return { status: "skipped", next, result: { kind: "noop", why: "no record to update: its CRM id rendered empty" } };
+      if (!objectKey || (!key && !byId)) return { status: "failed", error: `crm_record ${node.id}: object or key rendered empty` };
       const properties: Record<string, unknown> = {};
       // a rendered `["yes"]` is a checkbox / multi-option value (the CRM wants an array); numbers go as numbers on amount-like keys
       for (const [k, v] of Object.entries(node.properties)) { const r = render(v, d.ctx, env(d)); if (r === "") continue; properties[k] = /^\[.*\]$/s.test(r) ? jsonArrayOr(r) : /^-?\d+(\.\d+)?$/.test(r) && /amount|total|count|score|duration|min$/i.test(k) ? Number(r) : r; }
@@ -575,6 +578,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const dropped = known ? [...Object.keys(properties), ...Object.keys(cleared)].filter((k) => !known.has(k)) : [];
       for (const k of dropped) { delete properties[k]; delete cleared[k]; }
       if (dropped.length && !Object.keys(properties).length && !Object.keys(cleared).length) return { status: "skipped", next, result: { kind: "noop", why: `nothing to write: the ${objectKey} object has no ${dropped.join(", ")} field yet`, not_on_object: dropped } };
+      if (byId) return recordById(d, node, next, objectKey, key, byId, properties, cleared, owner, dropped);
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
       let ghlId = existing?.ghl_record_id ?? null;
       // an update-only step: nothing to update when we never made the record, or made it only in shadow (no CRM id); a bare record keyed by an id alone would be a duplicate
@@ -597,13 +601,7 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
         on conflict (company_id, object_key, record_key) do update set ghl_record_id=coalesce(excluded.ghl_record_id, crm_records.ghl_record_id), properties=crm_records.properties || excluded.properties, updated_at=now() returning id`,
         [d.company.id, objectKey, key, ghlId, d.run.contact_id, properties]);
       d.ctx.record = { id: ghlId ?? "", key, object: objectKey, properties };
-      const related: string[] = [];
-      for (const r of node.relate) {
-        const assoc = render(r.association, d.ctx, env(d)), first = render(r.first, d.ctx, env(d)), second = render(r.second, d.ctx, env(d));
-        if (!assoc || !first || !second) continue;
-        if (!shadow(d)) await d.adapters.write.relateRecords(d.adapterCompany, assoc, first, second);
-        related.push(`${first}→${second}`);
-      }
+      const related = await relate(d, node);
       return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
     }
     case "update_contact": {
@@ -803,6 +801,41 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       return started ? { status: "exit", reason: `started:${node.workflow}`, result: { run_id: started } } : { status: "exit", reason: `handoff_suppressed:${node.workflow}`, result: { why: "target disabled or re-entry blocked" } };
     }
   }
+}
+
+/** A crm_record step's `relate`, after the record is in `record.*`: each link both ends of which rendered. */
+async function relate(d: ExecDeps, node: Extract<Node, { type: "crm_record" }>): Promise<string[]> {
+  const related: string[] = [];
+  for (const r of node.relate) {
+    const assoc = render(r.association, d.ctx, env(d)), first = render(r.first, d.ctx, env(d)), second = render(r.second, d.ctx, env(d));
+    if (!assoc || !first || !second) continue;
+    if (!shadow(d)) await d.adapters.write.relateRecords(d.adapterCompany, assoc, first, second);
+    related.push(`${first}→${second}`);
+  }
+  return related;
+}
+
+/**
+ * D85: crm_record addressed by the CRM's own record id, for a record the engine did not make (booked before install, made by
+ * a person or a CRM workflow). Always an update, so it is idempotent as a retry (the same values written again) and needs no
+ * create claim; `clear` empties what this answer does not set; properties the object lacks were already dropped and are named.
+ * Shadow writes nothing, not even our ledger's copy (we did not write the CRM, so the ledger must not say we did).
+ */
+async function recordById(d: ExecDeps, node: Extract<Node, { type: "crm_record" }>, next: string | null, objectKey: string, key: string, ghlId: string, properties: Record<string, unknown>, cleared: Record<string, null>, owner: string | undefined, dropped: string[]): Promise<StepOutcome> {
+  const write = { ...properties, ...cleared };
+  if (!Object.keys(write).length) return { status: "skipped", next, result: { kind: "noop", why: "nothing to write: every value rendered empty", crm_id: ghlId } };
+  const ours = await one<{ id: string; record_key: string }>(d.c, "select id, record_key from crm_records where company_id=$1 and object_key=$2 and ghl_record_id=$3 order by updated_at desc limit 1", [d.company.id, objectKey, ghlId]);
+  const recordKey = ours?.record_key ?? (key || `ghl:${ghlId}`);
+  let ourId: string | null = ours?.id ?? null;
+  if (!shadow(d)) {
+    await d.adapters.write.updateRecord(d.adapterCompany, objectKey, ghlId, write, owner);
+    ourId = (await one<{ id: string }>(d.c, `insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,$5,$6)
+      on conflict (company_id, object_key, record_key) do update set ghl_record_id=excluded.ghl_record_id, properties=crm_records.properties || excluded.properties, updated_at=now() returning id`,
+      [d.company.id, objectKey, recordKey, ghlId, d.run.contact_id, write]))!.id;
+  }
+  d.ctx.record = { id: ghlId, key: recordKey, object: objectKey, properties: write };
+  const related = await relate(d, node);
+  return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true, would_update: write } : {}), record: "updated", by_crm_id: true, our_id: ourId, crm_id: ghlId, properties: write, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
 }
 
 type EventPin = { entered?: string; after_id?: number; since?: string | null; until?: string | null; consumed?: number[] };

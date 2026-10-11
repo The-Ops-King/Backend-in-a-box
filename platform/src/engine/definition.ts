@@ -132,7 +132,8 @@ export const Node = z.discriminatedUnion("type", [
   // `match`: the same, but a booking's record the engine never wrote is first looked for in the CRM by the booking's id, else the person and start minute.
   // `clear` (D77): properties an update writes as null, so the CRM empties them (an empty string is ignored for some field types), unless `properties` gives
   // them a value this time; entries are templates and one that renders empty is dropped. A changed answer takes off what the earlier one set.
-  z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string(), properties: z.record(z.string()), owner: z.string().optional(), if_missing: z.enum(["create", "skip", "match"]).default("create"),
+  // `record_id` (D85): the CRM's own id of a record the engine did not make (templated); the step updates that record and never creates one. `key`, when given too, names it on our ledger.
+  z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string().optional(), record_id: z.string().optional(), properties: z.record(z.string()), owner: z.string().optional(), if_missing: z.enum(["create", "skip", "match"]).default("create"),
     relate: z.array(z.object({ association: z.string(), first: z.string(), second: z.string() })).default([]), clear: z.array(z.string()).default([]) }),
   // with `when`: value if it holds, else_value otherwise. With `pick`: value is rendered and looked up in it ("{{reply.intent}}" → pick.cancelled), else_value when no key matches.
   z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown(), when: Predicate.optional(), pick: z.record(z.unknown()).optional(), else_value: z.unknown().optional() }),
@@ -183,6 +184,7 @@ export const Definition = z.object({
     if (!labels.includes("tap")) ctx.addIssue({ code: "custom", message: `node ${n.id} (wait_for_reaction, blocking: false) has no edge labeled "tap"` });
     if (!labels.some((l) => l !== "tap" && l !== "until")) ctx.addIssue({ code: "custom", message: `node ${n.id} (wait_for_reaction, blocking: false) has no edge to go on by` });
   }
+  for (const n of d.nodes) if (n.type === "crm_record" && !n.key && !n.record_id) ctx.addIssue({ code: "custom", message: `node ${n.id} (crm_record) needs a key (our own) or a record_id (the CRM's)` });
   for (const n of d.nodes) if (n.type === "lookup") for (const k of Object.keys(n.params)) if (!(LOOKUP_QUERIES[n.query] as readonly string[]).includes(k)) ctx.addIssue({ code: "custom", message: `node ${n.id} (lookup ${n.query}) takes ${LOOKUP_QUERIES[n.query].join(", ")}, not ${k}` });
   for (const n of d.nodes) if (n.type === "wait_for_event") {
     const outs = d.edges.filter((e) => e.from === n.id);

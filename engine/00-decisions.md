@@ -2648,3 +2648,7 @@ steps. Nothing existing moves onto them yet; that is the next piece of work, don
   calls (by when, provider, caller, phone or meeting, connected) and the last event of a type. A template picks a question and
   its filters, never SQL. The facts "booked within 30 minutes of the call", "led to a booking" and "has an upcoming call" are
   each one lookup now, proven equal to the engine's own; the facts stay until the templates move.
+- **A CRM record by its own id.** `crm_record` takes `record_id`, the CRM's id of a record the engine did not make (the
+  old process's Sales Calls, a record a person made). It only ever updates; everything else is the keyed update's rules:
+  shadow and test write nothing, unknown properties are left out and named, `clear` empties what this answer does not set.
+  An update is idempotent, so it takes no create claim; nothing can be created twice.

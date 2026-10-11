@@ -102,7 +102,7 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "analyze": { const w: Record<string, string> = { classify: "is it a sales call?", notes: "call notes", rubric: "scorecard", objections: "objections" }; const keys = Array.isArray(n.into) ? n.into : [n.into]; return { title: `AI: ${keys.map((k) => w[k] ?? humanWords(k)).join(" and ")}` }; }
     case "update_contact": return { title: "Update the contact" };
     case "pipeline_card": return { title: n.stage ? (n.if_missing === "skip" ? "Move the card" : "Move the card") : n.status ? `Mark the card ${n.status}` : "Update the card", meta: n.stage ? stageChip(n.stage, n.pipeline) : pipelineChip(n.pipeline) };
-    case "crm_record": return { title: `Write the ${humanWords(n.object.replace(/^custom_objects\./, ""))} record` };
+    case "crm_record": return { title: `${n.record_id ? "Update" : "Write"} the ${humanWords(n.object.replace(/^custom_objects\./, ""))} record` };
     case "create_task": { const t = taskWords(n.title); return { title: `Task: ${t[0].toLowerCase()}${t.slice(1)}` }; }
     case "note": return { title: "Leave a note" };
     case "record_outcome": return { title: `Record the call as ${n.outcome.replace(/_/g, " ")}` };

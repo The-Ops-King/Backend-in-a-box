@@ -17,13 +17,21 @@ import { KNOWN_ROOTS, referencedPaths } from "@/engine/template";
 import { saveStepEdit } from "@/engine/edits";
 import { failureRoles } from "@/engine/blocking";
 import type { Adapters } from "@/adapters/types";
+import { GhlError } from "@/adapters/ghl/client";
 
 const HAS_DB = !!process.env.DATABASE_URL;
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const TZ = "America/Chicago";
 
 const base = fakeAdapters();
-const fake: Adapters = { ...base };
+const recordCalls: { op: string; object: string; id?: string; props?: Record<string, unknown> }[] = [];
+let recordDown = 0;   // the next N record writes answer 503
+const fake: Adapters = { ...base,
+  read: { ...base.read, objectFields: async () => ["outcome", "disposition", "next_step", "cash_collected"] },
+  write: { ...base.write,
+    updateRecord: async (_c, object, id, props) => { if (recordDown > 0) { recordDown--; throw new GhlError(503, "upstream unavailable", `/objects/${object}/records/${id}`); } recordCalls.push({ op: "update", object, id, props }); },
+    createRecord: async (_c, object, props) => { recordCalls.push({ op: "create", object, props }); return { id: `REC-NEW-${recordCalls.length}` }; },
+    relateRecords: async (_c, assoc, first, second) => { recordCalls.push({ op: "relate", object: assoc, id: `${first}→${second}` }); } } };
 
 const TABLES = ["alerts", "slack_posts", "sends", "step_effects", "runs", "events", "slack_connections", "workflow_triggers", "workflows", "messages", "crm_records", "payments", "recordings", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log", "health_checks", "rollups_daily", "wrapups"];
 let companyId: string;
@@ -77,6 +85,9 @@ const DEFS = [
     { id: "l6", type: "lookup", query: "appointments_for_contact", params: { booking_source: "{{event.source_filter | default:}}", order: "booked_at" }, into: "all" },
     { id: "x1", type: "exit", reason: "done" }],
     [{ from: "t1", to: "o1" }, { from: "o1", to: "o2" }, { from: "o2", to: "o3" }, { from: "o3", to: "l1" }, { from: "l1", to: "l2" }, { from: "l2", to: "l3" }, { from: "l3", to: "l4" }, { from: "l4", to: "l5" }, { from: "l5", to: "l6" }, { from: "l6", to: "x1" }]),
+  // D85: a record the engine did not make, by the CRM's own id
+  flow("By id", [trig("byid"), { id: "n1", type: "crm_record", object: "custom_objects.sales_call", record_id: "{{event.record | default:}}", properties: { outcome: "{{event.outcome}}", disposition: "{{event.disp | default:}}", not_a_field: "x" },
+    clear: ["disposition", "next_step"], relate: [{ association: "ASSOC-1", first: "{{record.id}}", second: "{{contact.ghl_contact_id}}" }] }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
   flow("Bad lookup", [trig("badlookup"), { id: "l1", type: "lookup", query: "appointments_for_contact", params: { booked_since: "{{event.when}}" }, into: "x" }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "l1" }, { from: "l1", to: "x1" }]),
 ];
 
@@ -91,6 +102,16 @@ describe("lookup (pure)", () => {
     expect(failureRoles(read).get("l1")).toEqual({ blocking: true, why: "step b1 reads what it looked up" });
     expect(failureRoles(parseDefinition(def({}))).get("l1")).toMatchObject({ blocking: false });
     expect(describeNode(n)).toEqual({ title: "Look up their recorded calls", detail: "since [the call started] -1d; kind phone; saved as calls for the steps after it (the engine's own question, read-only)" });
+  });
+});
+
+describe("crm_record by id (pure)", () => {
+  it("needs our key or the CRM's id, and says which record it updates", () => {
+    const def = (n: Record<string, unknown>) => ({ schema: 1, reentry: "always", nodes: [{ id: "t1", type: "trigger", event: "tag.added" }, { id: "r1", type: "crm_record", object: "custom_objects.sales_call", properties: { outcome: "x" }, ...n }, { id: "x", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "r1" }, { from: "r1", to: "x" }] });
+    expect(() => parseDefinition(def({}))).toThrow(/needs a key \(our own\) or a record_id/);
+    const n = parseDefinition(def({ record_id: "{{vars.found.id}}" })).nodes[1];
+    expect(describeNode(n).title).toBe("Update sales call record");
+    expect(describeNode(n).detail).toMatch(/^The CRM's own record \[found id\], made outside the engine; never creates one; 1 fields/);
   });
 });
 
@@ -326,6 +347,52 @@ describe.skipIf(!HAS_DB)("building blocks (D85)", () => {
       expect(await run(id)).toMatchObject({ status: "completed" });
       const rows = await asOperator((c) => many<{ status: string; result: Record<string, unknown>; error: string }>(c, "select status, result, error from run_steps where run_id=$1 and node_id='l1'", [id]));
       expect(rows).toMatchObject([{ status: "skipped", result: { kind: "gave_up", class: "permanent" }, error: expect.stringMatching(/booked_since "next tuesday" is not a time/) }]);
+    });
+  });
+  describe("crm_record by the CRM's id", () => {
+    const ledger = (ghl: string) => asOperator((c) => many<{ record_key: string; ghl_record_id: string; properties: Record<string, unknown> }>(c, "select record_key, ghl_record_id, properties from crm_records where company_id=$1 and ghl_record_id=$2", [companyId, ghl]));
+    it("updates that record: unknown properties dropped and named, clear empties what this answer does not set, relate links it; never a create", async () => {
+      const ct = await newContact("Rae"); recordCalls.length = 0;
+      const id = await fire(ct, "byid", { record: "REC-9", outcome: "showed" });
+      await tickAt(DateTime.now());
+      expect(await run(id)).toMatchObject({ status: "completed" });
+      expect(recordCalls).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-9", props: { outcome: "showed", disposition: null, next_step: null } }, { op: "relate", object: "ASSOC-1", id: expect.stringMatching(/^REC-9→GN\d+$/) }]);
+      expect((await steps(id, "n1"))[0]).toMatchObject({ status: "ok", result: { record: "updated", by_crm_id: true, crm_id: "REC-9", not_on_object: ["not_a_field"] } });
+      expect(await ledger("REC-9")).toEqual([{ record_key: "ghl:REC-9", ghl_record_id: "REC-9", properties: { outcome: "showed", disposition: null, next_step: null } }]);
+      // a second answer: the ledger row is the same one, a set value is not cleared
+      await fire(ct, "byid", { record: "REC-9", outcome: "showed", disp: "closed_won" }); await tickAt(DateTime.now());
+      expect(recordCalls.filter((r) => r.op === "update").at(-1)!.props).toEqual({ outcome: "showed", disposition: "closed_won", next_step: null });
+      expect(await ledger("REC-9")).toMatchObject([{ record_key: "ghl:REC-9", properties: { disposition: "closed_won" } }]);
+    });
+    it("a record the engine already keeps under its own key is updated under that key, not a second ledger row", async () => {
+      const ct = await newContact("Sol");
+      await asOperator((c) => c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,'custom_objects.sales_call','booking:B1','REC-10',$2,'{}')", [companyId, ct]));
+      await fire(ct, "byid", { record: "REC-10", outcome: "noshow" }); await tickAt(DateTime.now());
+      expect(await ledger("REC-10")).toMatchObject([{ record_key: "booking:B1", properties: { outcome: "noshow" } }]);
+    });
+    it("an id that renders empty is nothing to update; a CRM outage is retried in place and writes once when it is back", async () => {
+      const ct = await newContact("Tia"); recordCalls.length = 0;
+      const a = await fire(ct, "byid", { outcome: "showed" });
+      await tickAt(DateTime.now());
+      expect((await steps(a, "n1"))[0]).toMatchObject({ status: "skipped", result: { kind: "noop", why: expect.stringMatching(/rendered empty/) } });
+      recordDown = 1;
+      const b = await fire(ct, "byid", { record: "REC-11", outcome: "showed" });
+      await tickAt(DateTime.now());
+      expect(await run(b)).toMatchObject({ status: "waiting", current_node: "n1" });
+      await wake(b); await tickAt(DateTime.now().plus({ minutes: 1 }));
+      expect(await run(b)).toMatchObject({ status: "completed" });
+      expect(recordCalls.filter((r) => r.op === "update" || r.op === "create")).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-11", props: { outcome: "showed", disposition: null, next_step: null } }]);
+    });
+    it("in shadow nothing reaches the CRM and the ledger is not told it did", async () => {
+      const ct = await newContact("Uma"); recordCalls.length = 0;
+      await asOperator((c) => c.query("update companies set mode='shadow' where id=$1", [companyId]));
+      try {
+        const id = await fire(ct, "byid", { record: "REC-12", outcome: "showed" });
+        await tickAt(DateTime.now());
+        expect(recordCalls).toEqual([]);
+        expect(await ledger("REC-12")).toEqual([]);
+        expect((await steps(id, "n1"))[0]).toMatchObject({ status: "ok", result: { shadow: true, would_update: { outcome: "showed" }, crm_id: "REC-12" } });
+      } finally { await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId])); }
     });
   });
 });

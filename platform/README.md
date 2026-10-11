@@ -826,6 +826,20 @@ starts_since: "{{now}}", exclude: "{{appointment.id | default:}}" }` → `.any`.
   "params": { "kind": "closing", "status_not": "cancelled", "booked_since": "{{recording.started_at}}", "booked_until": "{{recording.ended_at}} +30m" } }
 ```
 
+**`crm_record` by the CRM's id.** `record_id` (a template, e.g. `"{{vars.found.id}}"` from a lookup or a webhook)
+addresses a record the engine did not make, instead of the engine's own `key`. The step only ever updates that
+record (an id that renders empty is skipped, never a create); the rules are the ones a keyed update has: shadow
+and a test-mode contact that does not pass write nothing (and our ledger is not told they did), properties the
+object lacks are left out and named (`not_on_object`, D76), `clear` empties what this answer does not set (D77),
+`relate` links it. Our ledger keeps it under the key of the row that already has that CRM id, else `key` when
+given, else `ghl:<id>`. An update by id is idempotent, so a retry writes the same values once more and nothing is
+ever created twice.
+
+```json
+{ "id": "r_sc", "type": "crm_record", "object": "{{crm.object_sales_call}}", "record_id": "{{vars.sales_call.id}}",
+  "properties": { "disposition": "{{vars.outcome}}" }, "clear": ["cash_collected", "next_step"] }
+```
+
 ## Seeing what will happen (and when)
 
 Every live run shows its plan: the contact page ("What happens next"), the run page, and the workflow
