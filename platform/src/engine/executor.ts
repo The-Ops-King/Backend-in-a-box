@@ -18,6 +18,7 @@ import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports
 import { classifyError } from "./failures";
 import { claimEffect, markEffect, PENDING_WHY, type EffectKind } from "./effects";
 import { callTime } from "./sales-call";
+import { APPOINTMENT_FACTS, APPOINTMENT_JOINS, appointmentRow, runLookup } from "./lookup";
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
@@ -320,6 +321,14 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     }
 
     case "wait_for_event": return waitForEvent(d, node);
+    case "lookup": {
+      // D85: a fixed read-only question of the ledger, its filters templated; a blank filter is none
+      const params = Object.fromEntries(Object.entries(node.params).map(([k, v]) => [k, render(v, d.ctx, env(d)).trim()]).filter(([, v]) => v !== ""));
+      const r = await runLookup(d.c, { companyId: d.company.id, contactId: d.run.contact_id, appointmentId: d.run.appointment_id, now: d.now }, node.query, params);
+      if ("error" in r) return { status: "failed", error: `lookup ${node.id} (${node.query}): ${r.error}` };
+      setPath(d.ctx, `vars.${node.into}`, r.value);
+      return { status: "ok", next, result: { query: node.query, params, ...("count" in r.value ? { count: r.value.count } : {}), ...("found" in r.value ? { found: r.value.found } : {}) } };
+    }
 
     case "wait_for_reaction": {
       // the message: a post remembered under a tag, or a post this run made (by node id). The door matches taps to it by tag; the step by the message itself (channel + ts).
@@ -795,12 +804,6 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
     }
   }
 }
-
-/** What a booking is, in the words a template filters on (D85): its kind (the calendar's call type; none is a closing call, as D79 counts), how it was booked, and when. */
-export const APPOINTMENT_FACTS = `a.id, a.starts_at, a.ends_at, a.booked_at, a.status, coalesce(t.category, 'closing') as kind,
-  case when a.self_booked then 'self' when a.self_booked = false then 'setter' end as booking_source, a.set_by, a.source, u.name as closer, ot.category as outcome`;
-export const APPOINTMENT_JOINS = "left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id left join company_terms ot on ot.id=a.outcome_term";
-export const appointmentRow = (r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v]));
 
 type EventPin = { entered?: string; after_id?: number; since?: string | null; until?: string | null; consumed?: number[] };
 /**

@@ -44,6 +44,13 @@ const base = { id: z.string().min(1), title: z.string().optional(), only_if: Pre
 export const Schedule = z.object({ every: z.string().regex(/^\d+(m|h|d)$/).optional(), at: z.string().regex(/^\d{2}:\d{2}$/).optional(), days: z.array(z.number().int().min(1).max(7)).optional(), day_of_month: z.number().int().min(1).max(28).optional(), for: z.enum(["company", "closer"]).default("company") })
   .refine((s) => !!s.every !== !!s.at, { message: "a schedule is either every <interval> or at <time>, not both, not neither" });
 export type Schedule = z.infer<typeof Schedule>;
+/** D85: the read-only questions a `lookup` step may ask, with the filters each takes (rendered templates; the SQL is the engine's, lookup.ts). */
+export const LOOKUP_QUERIES = {
+  appointments_for_contact: ["booked_since", "booked_until", "starts_since", "starts_until", "kind", "booking_source", "status", "status_not", "exclude", "order"],
+  calls_for_contact: ["since", "until", "provider", "caller", "kind", "connected"],
+  last_event: ["type", "since", "until", "about"],
+} as const;
+export type LookupQuery = keyof typeof LOOKUP_QUERIES;
 export const Node = z.discriminatedUnion("type", [
   // event: what starts it. "schedule" starts it from the clock instead: `every` ("60m", "2h", "1d") or `at` ("18:00" company time, with `days`
   // 1..7 Mon..Sun and/or `day_of_month`); `for` says what each run is about: the company (one run) or each closer (one run per closer).
@@ -64,6 +71,8 @@ export const Node = z.discriminatedUnion("type", [
   // data under `data` and the whole event under vars.<into>); `since` (a time, "<time> +30m" allowed) lets one that already happened count at once, else only those after the step
   // began. The run is woken the moment one is emitted (runs.wake_on_event), never polled; `until` is a wait rule pinned on entry, moved into the send window like `wait` unless
   // respect_send_window is false. vars.<into> gets { matched, id, type, at, source, data, appointment? } or { matched: false }; edges labelled "event" and "until" (else the plain one).
+  // D85: reads facts into vars.<into> for later steps: one of the engine's named queries (LOOKUP_QUERIES), never SQL; `params` are templates, a blank one is no filter
+  z.object({ ...base, type: z.literal("lookup"), query: z.enum(Object.keys(LOOKUP_QUERIES) as [LookupQuery, ...LookupQuery[]]), params: z.record(z.string()).default({}), into: z.string().min(1) }),
   z.object({ ...base, type: z.literal("wait_for_event"), event: z.string().min(1), match: Predicate.optional(), about: z.enum(["contact", "appointment"]).default("contact"), since: z.string().optional(), until: WaitRule.optional(), into: z.string().min(1).default("waited"), respect_send_window: z.boolean().default(true) }),
   // kind: "human" reads like a person wrote it and always respects dark hours; "transactional" is an automated receipt ("you're booked") the company may let through at any hour
   // ghl_template: the CRM's own SMS snippet / email builder template id (or a {{crm.*}} binding); when set and found, the team's copy in the CRM wins over `template` (D30)
@@ -174,6 +183,7 @@ export const Definition = z.object({
     if (!labels.includes("tap")) ctx.addIssue({ code: "custom", message: `node ${n.id} (wait_for_reaction, blocking: false) has no edge labeled "tap"` });
     if (!labels.some((l) => l !== "tap" && l !== "until")) ctx.addIssue({ code: "custom", message: `node ${n.id} (wait_for_reaction, blocking: false) has no edge to go on by` });
   }
+  for (const n of d.nodes) if (n.type === "lookup") for (const k of Object.keys(n.params)) if (!(LOOKUP_QUERIES[n.query] as readonly string[]).includes(k)) ctx.addIssue({ code: "custom", message: `node ${n.id} (lookup ${n.query}) takes ${LOOKUP_QUERIES[n.query].join(", ")}, not ${k}` });
   for (const n of d.nodes) if (n.type === "wait_for_event") {
     const outs = d.edges.filter((e) => e.from === n.id);
     if (!labelledEdge(outs, "event")) ctx.addIssue({ code: "custom", message: `node ${n.id} (wait_for_event) has no edge labeled "event" (or a plain one) for when the event comes` });

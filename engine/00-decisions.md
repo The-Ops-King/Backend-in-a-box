@@ -2643,3 +2643,8 @@ steps. Nothing existing moves onto them yet; that is the next piece of work, don
   `{{number}}`) and `join` puts the lines together; an empty list falls to `default:`. The smallest change to the filter
   grammar that allows it: a filter argument in double quotes is read whole, so it may hold `|`, `}}` and expressions of
   its own. Nothing written before uses a quoted argument, so every existing template renders as it did.
+- **Lookups.** `lookup` reads facts into a var for the steps after it, from a fixed set of named, read-only questions the
+  engine owns: a person's bookings (by when booked, when they start, call type, setter or self, status), their recorded
+  calls (by when, provider, caller, phone or meeting, connected) and the last event of a type. A template picks a question and
+  its filters, never SQL. The facts "booked within 30 minutes of the call", "led to a booking" and "has an upcoming call" are
+  each one lookup now, proven equal to the engine's own; the facts stay until the templates move.

@@ -91,6 +91,7 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "wait": { const w = waitWords(n.rule).replace(/^Wait (until )?/, "").replace(/\s*\(.*\)$/, "").replace(/^(\d+) hours?/, (_, h) => (+h >= 48 && +h % 24 === 0 ? `${+h / 24} days` : `${h} hour${+h === 1 ? "" : "s"}`)); return { title: w.replace(/^./, (c) => c.toUpperCase()) }; }
     case "wait_for_reply": return { title: "Wait for a reply", meta: `up to ${durationWords(n.timeout)}` };
     case "wait_for_reaction": return { title: n.blocking ? "Wait for a tap in Slack" : "Listen for a tap in Slack", meta: `${n.emojis.map((e) => `:${e}:`).join(" ")}${n.timeout ? ` · up to ${durationWords(n.timeout)}` : ""}${!n.blocking ? " · the run goes on" : ""}` };
+    case "lookup": return { title: describeNode(n).title };
     case "wait_for_event": return { title: `Wait for ${eventWords(n.event)}`, meta: n.until ? untilWords(n.until) : undefined };
     case "resume": return { title: "Go back to where the run was" };
     case "branch": { const outs = def.edges.filter((e) => e.from === n.id); const whens = outs.filter((e) => e.when); const reply = whens.length && whens.every((e) => JSON.stringify(e.when).includes("reply.")); return { title: reply ? "What did they say?" : whens.length === 1 ? `${edgeWords(whens[0]).replace(/^./, (c) => c.toUpperCase())}?` : branchTitle(def, n.id) }; }
@@ -133,7 +134,7 @@ export function logoOf(n: Node, bookingSource: "ghl" | "calendly" = "ghl"): stri
     case "exit": return "end";
     case "webhook": return "webhook";
     case "send_document": return "doc";
-    case "health_check": case "availability_check": case "report": case "record": return "engine";
+    case "health_check": case "availability_check": case "report": case "record": case "lookup": return "engine";
     case "update_appointment": return bookingSource;
     default: return "ghl";
   }

@@ -9,7 +9,7 @@ import { describeNode, humanWords, pathWords, templateWords } from "./describe";
  * A step is BLOCKING when the run cannot go on without it: it decides where the run goes or waits (trigger, branch, check,
  * the waits (wait_for_event too), set_var, record, record_outcome, update_opportunity, start_workflow, pause_runs, resume, exit), or a later
  * step on its path reads what it produced (`cards.<board>` / `opportunity.*` after a pipeline_card, `record.*` after a
- * crm_record, the `into` of a classify / analyze / webhook / report / eod_due, `appointment.<field>` after an
+ * crm_record, the `into` of a classify / analyze / webhook / report / eod_due / lookup, `appointment.<field>` after an
  * update_appointment that sets it, a slack_post a later blocking wait_for_reaction waits on). Everything else is
  * NON-BLOCKING: its effect lives outside the run (tags, notes, tasks, contact updates, sends, Slack posts and reactions,
  * documents, records and cards nothing later reads, an `optional` analyze). Derived from the definition alone;
@@ -37,6 +37,7 @@ function outputsOf(n: Node): { re: RegExp; what: string }[] {
     case "crm_record": return [{ re: pathRe("record"), what: "the record's id" }];
     case "classify": return [n.into, "reply.confidence", "reply.intent_confidence", "reply.top_guesses"].map((p) => ({ re: pathRe(p), what: pathWords(p) }));
     case "analyze": return (Array.isArray(n.into) ? n.into : [n.into]).map((k) => ({ re: pathRe(`vars.${k}`), what: `the AI's ${humanWords(k)}` }));
+    case "lookup": return [{ re: pathRe(`vars.${n.into}`), what: "what it looked up" }];
     case "webhook": return n.into ? [{ re: pathRe(`vars.${n.into}`), what: "the response" }] : [];
     case "report": return [{ re: pathRe(`vars.${n.into}`), what: "the wrap-up" }];
     case "eod_due": return [{ re: pathRe(`vars.${n.into}`), what: "the lines" }, { re: pathRe("vars.overdue_lines"), what: "the overdue lines" }];

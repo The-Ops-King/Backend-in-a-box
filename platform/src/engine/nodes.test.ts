@@ -15,6 +15,7 @@ import { parseDefinition, extractManifest } from "@/engine/definition";
 import { describeNode, edgeWords, templateWords } from "@/engine/describe";
 import { KNOWN_ROOTS, referencedPaths } from "@/engine/template";
 import { saveStepEdit } from "@/engine/edits";
+import { failureRoles } from "@/engine/blocking";
 import type { Adapters } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -65,7 +66,33 @@ const DEFS = [
   flow("Twice", [trig("wfe-loop"), { id: "n1", type: "wait_for_event", event: "appointment.booked", since: "{{event.since}}", until: TWO_HOURS }, { id: "b1", type: "branch" }, { id: "s1", type: "set_var", key: "seen", value: "yes" },
     { id: "x2", type: "exit", reason: "twice" }, { id: "xu", type: "exit", reason: "no_event" }],
     [{ from: "t1", to: "n1" }, { from: "n1", to: "b1", label: "event" }, { from: "n1", to: "xu", label: "until" }, { from: "b1", to: "x2", when: { exists: "vars.seen" } }, { from: "b1", to: "s1", else: true }, { from: "s1", to: "n1" }]),
+  // D85: the three context facts, said by a template with lookup instead (the facts stay; this proves the step can stand in for them)
+  flow("Facts", [trig("facts"),
+    { id: "o1", type: "set_var", key: "old_30m", value: "{{recording.booked_within_30m}}" }, { id: "o2", type: "set_var", key: "old_led", value: "{{recording.led_to_booking}}" }, { id: "o3", type: "set_var", key: "old_up", value: "{{contact.has_upcoming_call}}" },
+    { id: "l1", type: "lookup", query: "appointments_for_contact", params: { kind: "closing", status_not: "cancelled", booked_since: "{{recording.started_at}}", booked_until: "{{recording.ended_at}} +30m" }, into: "b30" },
+    { id: "l2", type: "lookup", query: "appointments_for_contact", params: { status_not: "cancelled", booked_since: "{{recording.started_at}}" }, into: "led" },
+    { id: "l3", type: "lookup", query: "appointments_for_contact", params: { kind: "closing", status_not: "cancelled,noshow", starts_since: "{{now}}", exclude: "{{appointment.id | default:}}" }, into: "up" },
+    { id: "l4", type: "lookup", query: "calls_for_contact", params: { since: "{{recording.started_at}} -1d", kind: "phone", connected: "true", caller: "sam@x.com" }, into: "calls" },
+    { id: "l5", type: "lookup", query: "last_event", params: { type: "appointment.booked" }, into: "last_booking" },
+    { id: "l6", type: "lookup", query: "appointments_for_contact", params: { booking_source: "{{event.source_filter | default:}}", order: "booked_at" }, into: "all" },
+    { id: "x1", type: "exit", reason: "done" }],
+    [{ from: "t1", to: "o1" }, { from: "o1", to: "o2" }, { from: "o2", to: "o3" }, { from: "o3", to: "l1" }, { from: "l1", to: "l2" }, { from: "l2", to: "l3" }, { from: "l3", to: "l4" }, { from: "l4", to: "l5" }, { from: "l5", to: "l6" }, { from: "l6", to: "x1" }]),
+  flow("Bad lookup", [trig("badlookup"), { id: "l1", type: "lookup", query: "appointments_for_contact", params: { booked_since: "{{event.when}}" }, into: "x" }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "l1" }, { from: "l1", to: "x1" }]),
 ];
+
+describe("lookup (pure)", () => {
+  it("takes only the filters its query has, and reads in plain words", () => {
+    const def = (params: Record<string, string>) => ({ schema: 1, reentry: "always", nodes: [{ id: "t1", type: "trigger", event: "tag.added" }, { id: "l1", type: "lookup", query: "calls_for_contact", params, into: "calls" }, { id: "x", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "l1" }, { from: "l1", to: "x" }] });
+    expect(() => parseDefinition(def({ sql: "select 1" }))).toThrow(/takes since, until, provider, caller, kind, connected, not sql/);
+    expect(() => parseDefinition({ ...def({}), nodes: [{ id: "t1", type: "trigger", event: "tag.added" }, { id: "l1", type: "lookup", query: "anything", into: "x" }, { id: "x", type: "exit", reason: "done" }] })).toThrow();
+    const n = parseDefinition(def({ since: "{{recording.started_at}} -1d", kind: "phone" })).nodes[1];
+    const read = parseDefinition({ schema: 1, reentry: "always", nodes: [{ id: "t1", type: "trigger", event: "tag.added" }, { id: "l1", type: "lookup", query: "calls_for_contact", into: "calls" }, { id: "b1", type: "branch" }, { id: "x", type: "exit", reason: "done" }, { id: "y", type: "exit", reason: "none" }],
+      edges: [{ from: "t1", to: "l1" }, { from: "l1", to: "b1" }, { from: "b1", to: "x", when: { eq: ["{{vars.calls.any}}", true] } }, { from: "b1", to: "y", else: true }] });
+    expect(failureRoles(read).get("l1")).toEqual({ blocking: true, why: "step b1 reads what it looked up" });
+    expect(failureRoles(parseDefinition(def({}))).get("l1")).toMatchObject({ blocking: false });
+    expect(describeNode(n)).toEqual({ title: "Look up their recorded calls", detail: "since [the call started] -1d; kind phone; saved as calls for the steps after it (the engine's own question, read-only)" });
+  });
+});
 
 describe("wait_for_event (pure)", () => {
   it("needs a way on for the event and, with a deadline, for the deadline; one plain edge serves both", () => {
@@ -249,6 +276,56 @@ describe.skipIf(!HAS_DB)("building blocks (D85)", () => {
       expect(await asOperator((c) => saveStepEdit(c, { workflowId: wf, nodeId: "n1", edit: { type: "wait_for_event", until_offset: "+3h" } }))).toMatchObject({ ok: true, version: 2, changed: ["until"] });
       const def = (await asOperator((c) => one<{ definition: { nodes: { id: string; until?: unknown }[] } }>(c, "select definition from workflow_versions where workflow_id=$1 and version=2", [wf])))!.definition;
       expect(def.nodes.find((n) => n.id === "n1")!.until).toEqual({ ...TWO_HOURS, offset: "+3h" });
+    });
+  });
+
+  describe("lookup", () => {
+    const record = (contactId: string, started: DateTime) => asOperator(async (c) => (await one<{ id: string }>(c, `insert into recordings (company_id, contact_id, provider, external_id, started_at, ended_at, duration_min, recorded_by_email, raw, link_status)
+      values ($1,$2,'ghl_dialer',$3,$4,$5,30,'sam@x.com',$6,'linked') returning id`, [companyId, contactId, `R${++seq}`, started.toJSDate(), started.plus({ minutes: 30 }).toJSDate(), { kind: "phone", call_status: "connected", direction: "outbound" }]))!.id);
+    type Vars = Record<string, { any?: boolean; count?: number; items?: Record<string, unknown>[]; found?: boolean; type?: string } & Record<string, unknown>>;
+    const facts = async (contactId: string, recId: string, extra: Record<string, unknown> = {}) => { const id = await fire(contactId, "facts", { recording_id: recId, ...extra }); await tickAt(DateTime.now()); const r = (await run(id))!; expect(r).toMatchObject({ status: "completed" }); return r.context.vars as Vars; };
+    const same = (v: Vars) => { expect(String(v.b30.any)).toBe(v.old_30m); expect(String(v.led.any)).toBe(v.old_led); expect(String(v.up.any)).toBe(v.old_up); };
+
+    it("booked within 30 minutes, led to a booking, has an upcoming call: each said with lookup, and each agrees with the engine's own fact", async () => {
+      await asOperator((c) => c.query("insert into users (company_id, name, email, role) values ($1,'Sam Setter','sam@x.com','setter') on conflict do nothing", [companyId]));
+      const t = DateTime.now().minus({ hours: 3 });
+      const cases: { first: string; setup: (ct: string) => Promise<unknown>; want: [boolean, boolean, boolean] }[] = [
+        { first: "Ja", setup: (ct) => book(ct, { at: t.plus({ minutes: 40 }).toJSDate(), self: false }), want: [true, true, true] },          // a closing call booked 10 minutes after the call ended
+        { first: "Ka", setup: (ct) => book(ct, { at: t.plus({ minutes: 70 }).toJSDate() }), want: [false, true, true] },                       // forty minutes after: not this call's
+        { first: "Lu", setup: (ct) => book(ct, { at: t.plus({ minutes: 10 }).toJSDate(), kind: "qualifying" }), want: [false, true, false] },  // not a closing call
+        { first: "Mo", setup: (ct) => book(ct, { at: t.plus({ minutes: 10 }).toJSDate(), status: "cancelled" }), want: [false, false, false] }, // cancelled
+        { first: "Ny", setup: (ct) => book(ct, { at: t.minus({ days: 3 }).toJSDate(), starts: DateTime.now().minus({ days: 1 }) }), want: [false, false, false] }, // booked before, and already past
+        { first: "Os", setup: async () => {}, want: [false, false, false] },
+      ];
+      for (const k of cases) {
+        const ct = await newContact(k.first); await k.setup(ct);
+        const v = await facts(ct, await record(ct, t));
+        same(v);
+        expect([v.b30.any, v.led.any, v.up.any], k.first).toEqual(k.want);
+      }
+    });
+
+    it("answers plain data: the items with their facts, first and last, the calls, the last event", async () => {
+      const ct = await newContact("Pia");
+      const t = DateTime.now().minus({ hours: 2 });
+      const a1 = await book(ct, { at: t.plus({ minutes: 5 }).toJSDate(), self: false, starts: DateTime.now().plus({ days: 1 }) });
+      const a2 = await book(ct, { at: t.plus({ minutes: 75 }).toJSDate(), self: true, starts: DateTime.now().plus({ days: 3 }) });
+      const v = await facts(ct, await record(ct, t));
+      expect(v.up).toMatchObject({ count: 2, any: true, first: { id: a1, kind: "closing", booking_source: "setter", status: "confirmed" }, last: { id: a2, booking_source: "self" } });
+      expect(v.b30).toMatchObject({ count: 1, first: { id: a1 } });
+      expect(v.calls).toMatchObject({ count: 1, items: [{ kind: "phone", connected: true, caller: "Sam Setter", provider: "ghl_dialer", duration_min: 30 }] });
+      expect(v.last_booking).toMatchObject({ found: true, count: 2, type: "appointment.booked", data: { self_booked: true } });
+      const s = await facts(ct, await record(ct, t), { source_filter: "setter" });
+      expect(s.all).toMatchObject({ count: 1, first: { id: a1 } });
+    });
+
+    it("a filter that is not a time fails the step with the reason, never a guess (nothing reads it here, so the run goes on without it, D77)", async () => {
+      const ct = await newContact("Quin");
+      const id = await fire(ct, "badlookup", { when: "next tuesday" });
+      await tickAt(DateTime.now());
+      expect(await run(id)).toMatchObject({ status: "completed" });
+      const rows = await asOperator((c) => many<{ status: string; result: Record<string, unknown>; error: string }>(c, "select status, result, error from run_steps where run_id=$1 and node_id='l1'", [id]));
+      expect(rows).toMatchObject([{ status: "skipped", result: { kind: "gave_up", class: "permanent" }, error: expect.stringMatching(/booked_since "next tuesday" is not a time/) }]);
     });
   });
 });

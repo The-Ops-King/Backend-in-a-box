@@ -802,6 +802,30 @@ so the existing `default:` gives the fallback. Works in Slack text, notes, task 
 {{vars.days | each:"• {{item.label}}: {{item.count}} calls" | join:"\n" | default:No calls today}}
 ```
 
+**`lookup`: facts into vars for the steps after it.** `{ query, params, into }`. `query` is one of the engine's
+own read-only questions (`LOOKUP_QUERIES` in `definition.ts`, the SQL in `lookup.ts`; never SQL in a template),
+always about the run's company and its contact (or appointment); `params` are templates, and one that renders blank is no filter.
+Times take an ISO time, `now`, either with an offset (`"{{recording.ended_at}} +30m"`), or an offset from now
+(`"-7d"`). A list answer is `{ count, any, items, first, last }`; `last_event` answers `{ found, count, id, type,
+at, source, data }`. A later step that reads `vars.<into>` makes the lookup blocking (D77).
+
+| query | params | each item |
+|---|---|---|
+| `appointments_for_contact` | `booked_since`, `booked_until`, `starts_since`, `starts_until`, `kind` (call types, e.g. `closing`; a booking with none is closing), `booking_source` (`setter` / `self`), `status`, `status_not` (comma lists), `exclude` (an appointment id), `order` (`starts_at` / `booked_at`) | `id, starts_at, ends_at, booked_at, status, kind, booking_source, set_by, source, closer, outcome` |
+| `calls_for_contact` | `since`, `until` (call start), `provider`, `caller` (name or email), `kind` (`phone` / `meeting`), `connected` (`true` / `false`) | `id, provider, kind, started_at, ended_at, duration_min, duration_sec, direction, status, connected, caller, caller_email, title, appointment_id` |
+| `last_event` | `type` (comma list), `since`, `until`, `about` (`contact` / `appointment`) | (one event) |
+
+The context facts `recording.booked_within_30m`, `recording.led_to_booking` and `contact.has_upcoming_call` are each
+one lookup (`nodes.test.ts` proves they agree): `{ kind: closing, status_not: cancelled, booked_since:
+"{{recording.started_at}}", booked_until: "{{recording.ended_at}} +30m" }` → `.any`; `{ status_not: cancelled,
+booked_since: "{{recording.started_at}}" }` → `.any`; `{ kind: closing, status_not: "cancelled,noshow",
+starts_since: "{{now}}", exclude: "{{appointment.id | default:}}" }` → `.any`.
+
+```json
+{ "id": "l_booked", "type": "lookup", "query": "appointments_for_contact", "into": "booked",
+  "params": { "kind": "closing", "status_not": "cancelled", "booked_since": "{{recording.started_at}}", "booked_until": "{{recording.ended_at}} +30m" } }
+```
+
 ## Seeing what will happen (and when)
 
 Every live run shows its plan: the contact page ("What happens next"), the run page, and the workflow

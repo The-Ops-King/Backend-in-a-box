@@ -19,7 +19,7 @@ export function kindOf(n: Node): NodeKind {
     case "check": case "branch": return "decision";
     case "wait": case "wait_for_reply": case "wait_for_reaction": case "wait_for_event": return "wait";
     case "classify": case "analyze": return "ai";
-    case "set_var": case "start_workflow": case "pause_runs": case "record": case "resume": return "control";
+    case "set_var": case "start_workflow": case "pause_runs": case "record": case "resume": case "lookup": return "control";
     case "webhook": return "message";
     case "health_check": case "availability_check": case "report": case "eod_due": return "control";
     case "exit": return "exit";
@@ -158,6 +158,11 @@ export function describeNode(n: Node): NodeText {
       : { title: `Listen for a reaction on ${n.of.startsWith("tag:") ? "that Slack post" : "the post before"}: ${n.emojis.map((e) => `:${e}:`).join(" ")}`, detail: `The run goes on at once; a tap on that very message, whenever it comes, pulls the run to the tap path and \"go back\" returns it to where it was${n.until ? `; nobody by ${waitWords(n.until).replace(/^Wait until /, "").replace(/^Wait /, "")} and it takes the no-answer path` : ""}` };
     case "wait_for_event": return { title: `Wait for ${eventWords(n.event)}${n.until ? `, ${untilWords(n.until)}` : ""}`,
       detail: [`About ${n.about === "appointment" ? "this booking" : "this person"}${n.match ? `, when ${predicateWords(n.match)}` : ""}; moves on the moment one arrives`, n.since ? `one already there from ${templateWords(n.since)} counts at once` : "only one after this step begins counts", n.until ? `nothing by then and it takes the no-event path${n.respect_send_window ? " (the deadline waits for the send window)" : ""}` : "without a deadline it waits for the event alone"].join("; ") };
+    case "lookup": {
+      const what = { appointments_for_contact: "their bookings", calls_for_contact: "their recorded calls", last_event: `the last ${n.params.type ? n.params.type.split(",").map((t) => eventWords(t.trim())).join(" or ") : "event"}` }[n.query];
+      const filters = Object.entries(n.params).filter(([k]) => n.query !== "last_event" || k !== "type").map(([k, v]) => `${humanWords(k)} ${/\{\{/.test(v) ? templateWords(v) : humanWords(v)}`);
+      return { title: `Look up ${what}`, detail: `${filters.length ? `${filters.join("; ")}; ` : ""}saved as ${humanWords(n.into)} for the steps after it (the engine's own question, read-only)` };
+    }
     case "resume": return { title: "Go back to where the run was", detail: "The step the listener pulled the run away from, with its own due time; nothing to go back to, and the run simply goes on" };
     case "send_sms": return { title: n.kind === "transactional" ? "Send text (automated receipt, may go out in dark hours)" : "Send text", quote: templateWords(n.template), detail: n.validity?.min_lead ? `Only if at least ${durationWords(n.validity.min_lead)} before the call; otherwise ${n.on_stale === "skip" ? "skip it" : n.on_stale === "substitute" ? "send the fallback" : "pause for a human"}` : undefined };
     case "send_email": return { title: `Send email: “${templateWords(n.subject)}”`, quote: templateWords(n.template), detail: n.kind === "transactional" ? "Automated receipt: may go out in dark hours if the company allows it" : undefined };
