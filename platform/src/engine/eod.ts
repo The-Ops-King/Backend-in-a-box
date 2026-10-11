@@ -5,9 +5,7 @@ import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 import { decrypt } from "./crypto";
 import { loadCompany, type CompanyRow } from "./context";
-import { callTime, filedMeaning, salesCallValues } from "./sales-call";
-import { effectiveMode } from "./mode";
-import { raise } from "./alerts";
+import { callTime, filedMeaning } from "./sales-call";
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, choiceOf, valueFor, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
@@ -59,9 +57,6 @@ export type BlankSalesCall = { id: string; day: string; at: DateTime | null; nam
 export type CloserSalesCall = BlankSalesCall & { filed: boolean; due: boolean; appointment_id: string | null };
 /** A row on the form for a Sales Call the engine has no booking for: keyed by the record, so filing it writes to that record. */
 export const GHL_ROW = "ghl:";
-/** What a held call puts on its Sales Call; a no-show or a call rescheduled on the call empties it (D77). */
-export const HELD_CALL_PROPS = ["disposition", "cash_collected", "objection_primary", "next_step", "next_step_date", "payment_terms"];
-const DISPOSITION: Partial<Record<CallMeaning, string>> = { closed: "closed_won", deposit: "closed_won", follow_up: "follow_up", lost: "lost", unqualified: "dq", pending: "close_pending" };
 
 /**
  * D76/D77: the closer's Sales Calls in GHL (matched by the record's `closer` to their roster name), each with whether it is
@@ -161,27 +156,6 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
   return { day, closer, company: { id: company.id, name: company.name, slug: company.slug, timezone: tz }, ...totalsOf(calls, fields), calls, ...(ghlUnread ? { ghl_unread: ghlUnread } : {}) };
 }
 
-/**
- * D77: a form row for a Sales Call the engine never booked is written to that record directly, the same properties Call
- * outcome filed writes: the outcome in the company's own keys, the disposition for a held call, and null for what a held call
- * carried when the answer is a no-show or rescheduled on the call. Not in live (or for a non-test contact in test): noted, not written.
- */
-async function fileGhlRow(c: PoolClient, adapters: Adapters, company: CompanyRow, call: CallEntry, fields: EodField[]): Promise<"written" | "would" | "unchanged"> {
-  const { adapterCompany, bindings } = await loadCompany(c, company.id);
-  const object = bindings["crm.object_sales_call"], recordId = call.appointment_id.slice(GHL_ROW.length);
-  const v = salesCallValues(bindings), choice = choiceOf(call.outcome, fields);
-  const outcome = choice?.attendance === "noshow" ? v.noshow : choice?.attendance === "rescheduled" ? v.on_call : v.showed;
-  const props: Record<string, unknown> = { ...(outcome ? { outcome } : {}) };
-  const disposition = choice?.attendance === "showed" && choice.call_outcome ? DISPOSITION[choice.call_outcome] : undefined;
-  if (disposition) props.disposition = disposition;
-  else for (const k of HELD_CALL_PROPS) props[k] = null;
-  const effective = await effectiveMode(c, company.id, call.contact_id || null, company.mode, bindings);
-  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'eod.sales_call_filed','crm_record',$2,$3)", [company.id, recordId, { object, properties: props, written: effective === "real" }]);
-  if (effective !== "real") return "would";
-  await adapters.write.updateRecord(adapterCompany, object, recordId, props);
-  return "written";
-}
-
 /** The closer's end-of-day picture for a run about them (context root user.eod): today's calls and whether today is filed, and every earlier day in the last week with calls and no report. Lines are ready to post. */
 export async function eodFacts(c: PoolClient, company: CompanyRow, userId: string, base: string, now = DateTime.now(), lookbackDays = 7): Promise<{ day: string; url: string; today: { calls: number; filed: boolean; line: string; open: string[]; moved: string[] }; earlier: { day: string; label: string; calls: number; url: string; open: string[]; moved: string[] }[]; earlier_count: number; earlier_lines: string; all_lines: string }> {
   const tz = company.timezone, local = now.setZone(tz), day = local.toFormat(DAY_FMT);
@@ -272,8 +246,12 @@ export async function submitEod(c: PoolClient, adapters: Adapters, args: { token
       // a row this form offered (the closer's own blank record, or one they filed here before); one GHL already holds this answer for is not written again
       const offered = pre.calls.find((x) => x.appointment_id === call.appointment_id)!;
       if (!offered.record_id && before.find((x) => x.appointment_id === call.appointment_id)?.outcome === call.outcome) { recorded++; continue; }
-      try { await fileGhlRow(c, adapters, company, call, fields); recorded++; }
-      catch (e) { await raise(c, { companyId: company.id, key: `eod:sales_call:${call.appointment_id.slice(GHL_ROW.length)}`, level: "warning", source: "engine", href: `/app/c/${company.slug}`, text: `Couldn't write ${closer.name}'s answer for ${call.contact} (${outcomeLabel(call.outcome, fields)}) to its Sales Call in GHL: ${String((e as Error).message).slice(0, 200)}. Filing the day again retries it.`, detail: { record_id: call.appointment_id.slice(GHL_ROW.length), outcome: call.outcome } }); }
+      // A3 (D88): the answer is an event; the "Sales Call filed from the end-of-day form" workflow writes it to that record by its id
+      const choice = choiceOf(call.outcome, fields);
+      const ev = await emitEvent(c, { company_id: company.id, contact_id: call.contact_id || null, opportunity_id: null, appointment_id: null, event_type: "eod.call_filed", source: "user",
+        data: { user_id: closer.id, record_id: call.appointment_id.slice(GHL_ROW.length), day: args.day, contact: call.contact, outcome: call.outcome, outcome_label: outcomeLabel(call.outcome, fields), attendance: choice?.attendance ?? null, meaning: choice?.attendance === "showed" ? choice.call_outcome ?? null : null } });
+      await dispatchEvent(c, ev, { contact: { id: call.contact_id || null }, user: { id: closer.id } });
+      recorded++;
       continue;
     }
     // B6: what the company's answer means decides what is filed, whatever the answer is called

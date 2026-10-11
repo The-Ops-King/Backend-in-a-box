@@ -190,3 +190,40 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day form's outcomes 
     expect((await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, sam, "https://engine.test"))).today).toMatchObject({ filed: true });
   });
 });
+
+describe.skipIf(!process.env.DATABASE_URL)("D88: an end-of-day answer for a Sales Call booked before the engine is a workflow (A3)", () => {
+  let sam: string;
+  const writes: { id: string; props: Record<string, unknown> }[] = [];
+  beforeAll(async () => {
+    await migrate(); companyId = await freshCompany("mvs-a3");
+    await asOperator(async (c) => {
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.object_sales_call','id','custom_objects.sales_call'),($1,'sales_call.outcomes','text',$2)", [companyId, Buffer.from(JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" }))]);
+      sam = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role) values ($1,'sam@x.test','Sam Closer','closer') returning id", [companyId]))!.id;
+    });
+    fake.write.updateRecord = async (_c, _o, id, props) => { writes.push({ id, props }); };
+  });
+  const filed = (data: Record<string, unknown>) => asOperator(async (c) => { const { emitEvent } = await import("@/engine/dispatch"); return dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "eod.call_filed", source: "user", data: { user_id: sam, ...data } }), { user: { id: sam } }); });
+
+  it("the record is written by its id with the company's keys; a no-show empties what a held call carried; an edited copy writes what it says", async () => {
+    await install("eod-call-filed");
+    expect(await filed({ record_id: "REC1", outcome: "lost", attendance: "showed", meaning: "lost" })).toHaveLength(1);
+    await filed({ record_id: "REC2", outcome: "no_show", attendance: "noshow", meaning: null });
+    await run();
+    expect([...writes].sort((a, b) => a.id.localeCompare(b.id))).toEqual([{ id: "REC1", props: { outcome: "showed", disposition: "lost" } }, { id: "REC2", props: { outcome: "no_show", disposition: null, cash_collected: null, objection_primary: null, next_step: null, next_step_date: null, payment_terms: null } }]);
+    await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
+    await install("eod-call-filed", (d) => { const v = d.nodes.find((n) => n.id === "v_disp")!; if (v.type === "set_var") v.pick = { ...v.pick, lost: "lost_other" }; });
+    await filed({ record_id: "REC3", outcome: "lost", attendance: "showed", meaning: "lost" });
+    await run();
+    expect(writes.at(-1)).toEqual({ id: "REC3", props: { outcome: "showed", disposition: "lost_other" } });
+  });
+
+  it("before live the record is not written (shadow): the run says what it would have written", async () => {
+    await asOperator((c) => c.query("update companies set mode='shadow' where id=$1", [companyId]));
+    const n = writes.length;
+    await filed({ record_id: "REC4", outcome: "lost", attendance: "showed", meaning: "lost" });
+    await run();
+    expect(writes).toHaveLength(n);
+    expect(await asOperator((c) => one(c, "select 1 from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and s.node_id='r_held' and s.result->>'shadow'='true'", [companyId]))).toBeTruthy();
+    await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
+  });
+});

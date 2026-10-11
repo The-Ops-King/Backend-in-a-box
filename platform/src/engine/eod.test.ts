@@ -332,6 +332,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     try {
       const who = { id: allan, name: "Allan P", email: "allan@eod.test" };
       const open = () => asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, dayStr, DateTime.now(), fake));
+      await asOperator((c) => installTemplateForTest(c, companyId, "eod-call-filed"));   // A3 (D88): the write is that workflow's
       const pre = await open();
       expect(pre.calls.map((x) => x.contact)).toEqual(["Mia Chen", "Sol Before", "Noah Reyes", "Theo Park"]);
       expect(pre.calls.find((x) => x.contact === "Sol Before")).toMatchObject({ appointment_id: "ghl:Sol", record_id: "Sol", outcome: "" });
@@ -341,6 +342,8 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       // a row the form never offered is refused: nothing written
       const forged = answer("no_show"); forged.calls = [...forged.calls, { ...forged.calls[1], appointment_id: "ghl:Uri", contact: "Uri" }];
       expect(await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: forged }))).toMatchObject({ ok: true });
+      expect(writes).toEqual([]);   // the answer is an event; the workflow writes it on the next tick
+      await tick(fake, DateTime.now(), companyId);
       expect(writes.map((w) => w.id)).toEqual(["Sol"]);
       expect(writes[0]).toEqual({ object: "custom_objects.sales_call", id: "Sol", props: { outcome: "no_show", disposition: null, cash_collected: null, objection_primary: null, next_step: null, next_step_date: null, payment_terms: null } });
       // GHL has its answer now: no longer blank, still on the form because it was filed here, and a changed answer edits the same record
@@ -349,8 +352,10 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       expect(again.calls.find((x) => x.appointment_id === "ghl:Sol")!.record_id).toBeUndefined();
       expect(again.calls.some((x) => x.appointment_id === "ghl:Uri")).toBe(false);   // the forged row was never stored
       await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: answer("follow_up") }));
+      await tick(fake, DateTime.now(), companyId);
       expect(writes.slice(1)).toEqual([{ object: "custom_objects.sales_call", id: "Sol", props: { outcome: "showed", disposition: "follow_up" } }]);
       await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: answer("follow_up") }));
+      await tick(fake, DateTime.now(), companyId);
       expect(writes).toHaveLength(2);   // the same answer is not written again
       // the reminder no longer counts it: nothing blank is left for that day
       expect((await open()).calls.filter((x) => x.record_id)).toEqual([]);

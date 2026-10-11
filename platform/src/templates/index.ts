@@ -24,4 +24,5 @@ import callOutcome from "./call-outcome.json";
 import paymentUnlinked from "./payment-unlinked.json";
 import recordingUnlinked from "./recording-unlinked.json";
 import cardMoved from "./card-moved.json";
-export const templates = [preCall, speedToLead, noShow, cancellation, postCall, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, healthCheck, calendarAvailability, wrapUps, callOutcome, paymentUnlinked, recordingUnlinked, cardMoved] as const;
+import eodCallFiled from "./eod-call-filed.json";
+export const templates = [preCall, speedToLead, noShow, cancellation, postCall, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, healthCheck, calendarAvailability, wrapUps, callOutcome, paymentUnlinked, recordingUnlinked, cardMoved, eodCallFiled] as const;

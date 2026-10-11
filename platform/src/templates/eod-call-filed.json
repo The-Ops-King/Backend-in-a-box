@@ -1,0 +1,131 @@
+{
+  "slug": "eod-call-filed",
+  "name": "Sales Call filed from the end-of-day form",
+  "category": "team",
+  "stage": "team",
+  "sort": 12,
+  "origin": "spec",
+  "engine_default": true,
+  "description": "A closer answered, on their end-of-day form, a Sales Call booked before the engine was installed (a record GHL holds that the engine has no booking for, D77). The answer is written to that record by its own id: the attendance in the company's own option keys and, for a call that happened, the disposition the answer means (closed or deposit → closed_won, follow up, lost, DQ → dq, close pending). A no-show, a call rescheduled on the call or a show with no call outcome empties what a held call carries (disposition, cash, objection, next step and date, payment terms). Shadow and a test-mode contact that does not pass write nothing. Was the engine's own write (D88).",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "none"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "eod.call_filed"
+      },
+      {
+        "id": "v_outcome",
+        "type": "set_var",
+        "key": "outcome",
+        "value": "{{event.attendance}}",
+        "pick": {
+          "showed": "{{picklist.sales_call_outcome.showed}}",
+          "noshow": "{{picklist.sales_call_outcome.noshow}}",
+          "rescheduled": "{{picklist.sales_call_outcome.on_call}}"
+        },
+        "else_value": "",
+        "title": "The attendance in the company's own option keys"
+      },
+      {
+        "id": "v_disp",
+        "type": "set_var",
+        "key": "disposition",
+        "value": "{{event.meaning | default:}}",
+        "pick": {
+          "closed": "closed_won",
+          "deposit": "closed_won",
+          "pending": "close_pending",
+          "follow_up": "follow_up",
+          "lost": "lost",
+          "unqualified": "dq"
+        },
+        "else_value": "",
+        "title": "The answer as the CRM's disposition"
+      },
+      {
+        "id": "b1",
+        "type": "branch",
+        "title": "Did the call happen with an outcome?"
+      },
+      {
+        "id": "r_held",
+        "type": "crm_record",
+        "object": "{{crm.object_sales_call}}",
+        "record_id": "{{event.record_id}}",
+        "properties": {
+          "outcome": "{{vars.outcome}}",
+          "disposition": "{{vars.disposition}}"
+        },
+        "title": "Sales Call record: the attendance and the disposition"
+      },
+      {
+        "id": "r_empty",
+        "type": "crm_record",
+        "object": "{{crm.object_sales_call}}",
+        "record_id": "{{event.record_id}}",
+        "properties": {
+          "outcome": "{{vars.outcome}}"
+        },
+        "clear": [
+          "disposition",
+          "cash_collected",
+          "objection_primary",
+          "next_step",
+          "next_step_date",
+          "payment_terms"
+        ],
+        "title": "Sales Call record: the attendance; what a held call carries is emptied"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "filed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "v_outcome"
+      },
+      {
+        "from": "v_outcome",
+        "to": "v_disp"
+      },
+      {
+        "from": "v_disp",
+        "to": "b1"
+      },
+      {
+        "from": "b1",
+        "to": "r_held",
+        "when": {
+          "neq": [
+            "{{vars.disposition}}",
+            ""
+          ]
+        },
+        "label": "a call outcome"
+      },
+      {
+        "from": "b1",
+        "to": "r_empty",
+        "else": true,
+        "label": "no-show, rescheduled, or no call outcome"
+      },
+      {
+        "from": "r_held",
+        "to": "x1"
+      },
+      {
+        "from": "r_empty",
+        "to": "x1"
+      }
+    ]
+  }
+}
