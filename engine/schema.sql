@@ -324,6 +324,7 @@ insert into event_types values
   ('agreement.sent','agreement'), ('agreement.signed','agreement'),
   ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'), ('card.moved','crm'),
   ('schedule','clock'), ('eod.filed','report'), ('eod.call_filed','report'), ('slack.reaction','slack'),
+  ('alert.raised','engine'), ('alert.repeated','engine'), ('alert.resolved','engine'),
   ('run.started','engine'), ('run.exited','engine'), ('send.suppressed','engine');
 
 create table events (

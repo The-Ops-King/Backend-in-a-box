@@ -31,6 +31,9 @@ const definition = { schema: 1, reentry: "always", premise: { check: "contact_ex
 let companyId: string, contactId: string;
 const pollRep = { companies: 1, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, calls: 0, agreements: 0, cardsMoved: 0, eventsDispatched: 0, baselined: 0, errors: [] as { company: string; entity: string; error: string }[] };
 const tickRep = { claimed: 0, completed: 0, waiting: 0, exited: 0, failed: 0, paused: 0, recovery: false, staleExits: 0, sends: 0 };
+/** D88 (A7): the engine hands what is due to the Health check workflow as events; the next tick says it. */
+const alertsThenSay = async (poll = pollRep, tk = tickRep, at = new Date()) => { const a = await asOperator((c) => tickAlerts(c, fake, poll, tk, at, companyId)); await tick(fake, undefined, companyId); return a; };
+const tagRuns = (status: string) => asOperator((c) => many(c, "select 1 from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Tag it' and r.status=$2", [companyId, status]));
 const fire = () => asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: null, event_type: "tag.added", source: "test", data: { tag: "x" } }), { contact: { id: contactId } }));
 
 describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
@@ -54,13 +57,14 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
       const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Tag it','always',true) returning id", [companyId]))!;
       await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [wf.id, definition, manifest]);
       for (const trig of indexDefinition(def).triggers) await c.query("insert into workflow_triggers (company_id, workflow_id, node_id, event_type, match) values ($1,$2,$3,$4,$5)", [companyId, wf.id, trig.id, trig.event, trig.match ?? {}]);
+      await installTemplateForTest(c, companyId, "health-check");   // D88 (A7): the Health check workflow says every alert
     });
   });
 
   it("a dead token pauses the run at once and is announced the minute it happens, once per vendor, with the step and the reason; a second run pauses quietly; an hour on, one line in the thread; a new token wakes the runs, the step passes and the thread closes with a ✅ (D33, D66)", async () => {
     await fire(); const t = await tick(fake, undefined, companyId);
     expect(t).toMatchObject({ paused: 1, failed: 0 });
-    let a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));
+    let a = await alertsThenSay();
     // counts are engine-wide and other suites run alongside, so the assertions are on this company's posts and open alerts
     expect(a.posted, JSON.stringify({ a, posts })).toBe(1); expect(a.repeated).toBe(0);
     expect(posts).toHaveLength(1);
@@ -69,20 +73,20 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(posts[0].text).toMatch(/\/c\/alrt\/r\//);
     // minutes later a second run hits the same dead token: it pauses too, and nothing new is said
     await fire(); await tick(fake, undefined, companyId);
-    a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));
+    a = await alertsThenSay();
     expect(a.posted).toBe(0); expect(a.repeated).toBe(0); expect(posts).toHaveLength(1);
     expect(await asOperator((c) => openAlerts(c, companyId))).toHaveLength(1);
-    expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and status='paused'", [companyId]))).toHaveLength(2);
+    expect(await tagRuns("paused")).toHaveLength(2);
     // an hour on, still broken: one line in the thread
     await asOperator((c) => c.query("update alerts set announced_at = now() - interval '61 minutes', first_seen = first_seen - interval '61 minutes' where company_id=$1 and resolved_at is null", [companyId]));
-    a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));
+    a = await alertsThenSay();
     expect(a.repeated).toBe(1); expect(posts).toHaveLength(2); expect(posts[1].threadTs).toBe("ts1"); expect(posts[1].text).toMatch(/Still open after 1h/);
     // fixed: a new token in settings wakes both paused runs for one more try of their step; the alert closes in the thread, ✅ on the first post
     tagFails = false; await asOperator((c) => setBinding(c, companyId, "secret.ghl_pit", "secret", "p-new", "test"));
-    expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and status='waiting'", [companyId]))).toHaveLength(2);
+    expect(await tagRuns("waiting")).toHaveLength(2);
     await tick(fake, undefined, companyId);
-    expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and status='completed'", [companyId]))).toHaveLength(2);
-    a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));
+    expect(await tagRuns("completed")).toHaveLength(2);
+    a = await alertsThenSay();
     expect(a.closed).toBeGreaterThanOrEqual(1);
     expect(posts).toHaveLength(3); expect(posts[2].threadTs).toBe("ts1"); expect(posts[2].text).toMatch(/^✅ Resolved after 1h/);
     expect(reactions).toEqual([{ channel: "CALERTS", ts: "ts1", emoji: "white_check_mark" }]);
@@ -93,13 +97,13 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     posts.length = 0;
     const t = new Date();
     await asOperator((c) => c.query("insert into poll_cursors (company_id, entity, cursor, consecutive_failures) values ($1,'contacts','0',2)", [companyId]));
-    let a = await asOperator((c) => tickAlerts(c, fake, { ...pollRep, errors: [{ company: "alrt", entity: "contacts", error: "GHL 500" }] }, { ...tickRep, recovery: true, staleExits: 3 }, t, companyId));
+    let a = await alertsThenSay({ ...pollRep, errors: [{ company: "alrt", entity: "contacts", error: "GHL 500" }] }, { ...tickRep, recovery: true, staleExits: 3 }, t);
     expect(a.posted, JSON.stringify({ a, posts })).toBe(1);   // the engine-wide notice has nowhere to go without an operator webhook; the company's poll alert is posted
     expect((await asOperator((c) => openAlerts(c, companyId))).map((x) => x.key)).toEqual(["poll:contacts"]);
     expect((await asOperator((c) => openAlerts(c, null))).map((x) => x.key)).toEqual(["engine:recovery"]);
     expect(posts[0].text).toMatch(/Polling\*\nPolling contacts has failed 2 times in a row: GHL 500/);
     await asOperator((c) => c.query("update poll_cursors set consecutive_failures=0 where company_id=$1", [companyId]));
-    a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));   // real time: a cursor a minute ahead would hide the next test's steps
+    a = await alertsThenSay();   // real time: a cursor a minute ahead would hide the next test's steps
     expect(a.resolved).toBeGreaterThanOrEqual(2);
     expect(await asOperator((c) => openAlerts(c, companyId))).toHaveLength(0); expect(await asOperator((c) => openAlerts(c, null))).toHaveLength(0);
     expect(posts).toHaveLength(2); expect(posts[1].text).toMatch(/^✅ Resolved/);   // the poll alert closes in its thread; the recovery notice closes quietly
@@ -118,6 +122,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
       whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }), urlOk: async () => ({ ok: true, status: 200 }),
     };
     // the sweep and the availability watch are workflows: this company's copies post as "Health check" in CHEALTH and alert under 10 slots
+    await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1 and name='Health check'", [companyId]));
     const healthWf = await asOperator((c) => installTemplateForTest(c, companyId, "health-check", { patch: (d) => { const n = d.nodes.find((x) => x.type === "health_check"); if (n && n.type === "health_check") { n.channel = "CHEALTH"; n.as = { name: "Health check", icon: ":stethoscope:" }; } } }));
     const availWf = await asOperator((c) => installTemplateForTest(c, companyId, "calendar-availability", { patch: (d) => { const n = d.nodes.find((x) => x.type === "availability_check"); if (n && n.type === "availability_check") n.min_slots = 10; } }));
     // one "sweep" = both workflows fired now and run; what they found is on the health row, raised/resolved on their steps
@@ -137,6 +142,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(CHECKS.map((c) => c.id)).toContain("anthropic");
     const ann = await asOperator((c) => announceDue(c, fake, new Date(), companyId));
     expect(ann.posted).toBe(3);
+    await tick(fake, undefined, companyId, probes);   // D88: the workflow says them
     expect(posts.every((p) => p.channel === "CHEALTH" && p.as?.name === "Health check" && p.as?.icon === ":stethoscope:")).toBe(true);
     expect(posts.find((p) => /Closer B/.test(p.text))!.text).toMatch(/🟡 \*Alert Co · Health check\*/);
     expect(posts.find((p) => /stage that no longer exists/.test(p.text))!.text).toMatch(/^🔴/);
@@ -147,6 +153,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(r2.resolved).toBe(2); expect(r2.findings.filter((f) => !f.ok).map((f) => `${f.check}:${f.item}`).sort()).toEqual(["availability:CAL2", "slack:CNOTIN"]);   // 9 slots is bookable, but under the company's threshold of 10
     expect(r2.findings.find((f) => f.check === "availability")!.text).toMatch(/"Closer B" has only 9 bookable slots in the next 7 days \(alert below 10\)/);
     const ann2 = await asOperator((c) => announceDue(c, fake, new Date(), companyId));
+    await tick(fake, undefined, companyId, probes);
     expect(ann2, JSON.stringify({ ann2, posts })).toMatchObject({ resolved: 2, repeated: 1, posted: 1 });   // the low-availability warning is new
     expect(reactions).toHaveLength(2);
     expect((await asOperator((c) => one<{ last_result: unknown[] }>(c, "select last_result from health_checks where company_id=$1", [companyId])))!.last_result.length).toBeGreaterThan(5);
@@ -191,13 +198,13 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     await fireRemove(); const t = await tick(fake, undefined, companyId);
     expect(t.failed).toBe(0); expect(t.completed).toBe(1);   // the run completes: the post was skipped, not fatal
     expect((await asOperator((c) => one<{ result: { kind: string } }>(c, "select result from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_id='s1'", [wfId])))!.result.kind).toBe("blocked");
-    const a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));
+    const a = await alertsThenSay();
     expect(a.posted).toBe(1);
-    expect(posts.at(-1)!.text).toMatch(/🟡 \*Alert Co · Step could not run\*\nSay hi couldn't post to Slack \(channel nope\) for Leo Ortiz: slack channel not bound\. The run went on without it\./);
+    expect(posts.find((p) => /Step could not run/.test(p.text))!.text).toMatch(/🟡 \*Alert Co · Step could not run\*\nSay hi couldn't post to Slack \(channel nope\) for Leo Ortiz: slack channel not bound\. The run went on without it\./);
     await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.nope','channel',$2)", [companyId, Buffer.from("CNOPE")]));
     await fireRemove(); await tick(fake, undefined, companyId);
-    const a2 = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));
-    expect(a2.resolved).toBeGreaterThanOrEqual(1); expect(posts.at(-1)!.text).toMatch(/^✅ Resolved/);
+    const a2 = await alertsThenSay();
+    expect(a2.resolved).toBeGreaterThanOrEqual(1); expect(posts.at(-1)!.text).toMatch(/^✅ Resolved after 0h: Say hi couldn't post/);
     expect((await asOperator((c) => openAlerts(c, companyId))).filter((x) => x.key.startsWith("blocked:"))).toHaveLength(0);
   });
 

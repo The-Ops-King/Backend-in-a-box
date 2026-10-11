@@ -43,8 +43,8 @@ export type InstallInput = {
   discoveryCall?: { results?: Record<string, "set" | "follow_up" | "dq" | "not_interested">; act?: boolean };
   testDomains?: string[];                // bound as test.domains: email domains whose contacts pass in test (D52), e.g. ["jtylerray.com"]
   jevKey?: string;                       // bound as secret.jev_key; the classify node reads replies with it (env JEV_API_KEY is the fallback)
-  /** Where the engine says what broke (D33): a Slack channel id, email addresses (needs resendKey + emailFrom), a webhook (a Zap). */
-  alerts?: { slackChannel?: string; email?: string; emailFrom?: string; webhook?: string; resendKey?: string; asName?: string; asIcon?: string };
+  /** Where the Health check workflow says what broke (D33, D88: Slack only): the channel, the face, how often an open alert is said again (minutes, 60), how many failed polls in a row make an alert (2). */
+  alerts?: { slackChannel?: string; asName?: string; asIcon?: string; repeatMinutes?: number; pollFailures?: number };
   prompts?: Record<string, string>;      // prompt.<name> overrides; defaults from src/prompts fill the rest
   slackToken?: string;                   // the Slack app's bot token (xoxb-…); verified with Slack, stored encrypted; "disconnect" removes it
   slackSigningSecret?: string;           // the Slack app's signing secret, so the reactions door can trust what Slack sends (D45)
@@ -181,10 +181,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (input.anthropicKey) await bind("secret.anthropic_key", "secret", input.anthropicKey);
     if (input.jevKey) await bind("secret.jev_key", "secret", input.jevKey);
     if (input.alerts?.slackChannel) await bind("alerts.slack_channel", "channel", input.alerts.slackChannel);
-    if (input.alerts?.email) await bind("alerts.email", "text", input.alerts.email);
-    if (input.alerts?.emailFrom) await bind("alerts.email_from", "text", input.alerts.emailFrom);
-    if (input.alerts?.webhook) await bind("alerts.webhook", "text", input.alerts.webhook);
-    if (input.alerts?.resendKey) await bind("secret.resend_key", "secret", input.alerts.resendKey);
+    if (input.alerts?.repeatMinutes !== undefined) await bind("alerts.repeat_minutes", "number", String(input.alerts.repeatMinutes));
+    if (input.alerts?.pollFailures !== undefined) await bind("alerts.poll_failures", "number", String(input.alerts.pollFailures));
     if (input.alerts?.asName) await bind("alerts.as_name", "text", input.alerts.asName);
     if (input.alerts?.asIcon) await bind("alerts.as_icon", "text", input.alerts.asIcon);
     // prompts: the company's own text wins; a default fills any prompt a template needs that nobody wrote yet

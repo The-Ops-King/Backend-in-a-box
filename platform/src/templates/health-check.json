@@ -5,7 +5,7 @@
   "stage": "engine",
   "sort": 10,
   "origin": "spec",
-  "description": "Every hour, a read-only sweep of every connection and every step's dependencies. Silent while everything works; a failed check is an alert that clears itself.",
+  "description": "Every hour, a read-only sweep of every connection and every step's dependencies; a failed check is an alert that clears itself. Every alert is said here (D88): the engine collects and dedupes them and emits alert.raised, alert.repeated (every alerts.repeat_minutes, 60) and alert.resolved; this workflow posts the alert to the alerts channel (the sweep's own channel for its findings), its still-open line in the thread, and the resolved line with a ✅. Silent while everything works. Slack only.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -28,6 +28,159 @@
         "checks": {}
       },
       {
+        "id": "t_raised",
+        "type": "trigger",
+        "event": "alert.raised"
+      },
+      {
+        "id": "t_repeated",
+        "type": "trigger",
+        "event": "alert.repeated"
+      },
+      {
+        "id": "t_resolved",
+        "type": "trigger",
+        "event": "alert.resolved"
+      },
+      {
+        "id": "a_mark",
+        "type": "set_var",
+        "key": "mark",
+        "value": "{{event.level}}",
+        "pick": {
+          "error": "🔴",
+          "warning": "🟡"
+        },
+        "else_value": "🟡",
+        "title": "The mark: red for an error, yellow for a warning"
+      },
+      {
+        "id": "a_icon",
+        "type": "set_var",
+        "key": "icon",
+        "value": "{{event.level}}",
+        "pick": {
+          "error": ":rotating_light:",
+          "warning": ":warning:"
+        },
+        "else_value": ":warning:",
+        "title": "The face by level"
+      },
+      {
+        "id": "a_icon2",
+        "type": "set_var",
+        "key": "icon",
+        "when": {
+          "exists": "event.as_icon"
+        },
+        "value": "{{event.as_icon}}",
+        "else_value": "{{vars.icon}}",
+        "title": "The company's own alert face, when it set one"
+      },
+      {
+        "id": "a_head",
+        "type": "set_var",
+        "key": "head",
+        "value": "{{event.kind}}",
+        "pick": {
+          "blocked": "Step could not run",
+          "skipped": "Step skipped",
+          "held": "Run paused on a step",
+          "paused": "Run needs a hand",
+          "auth": "Token rejected",
+          "failed": "Run failed",
+          "health": "Health check",
+          "poll": "Polling",
+          "engine": "Engine"
+        },
+        "else_value": "Engine",
+        "title": "The headline for each kind of alert"
+      },
+      {
+        "id": "a_body",
+        "type": "set_var",
+        "key": "body",
+        "value": "{{event.text}}",
+        "title": "What the alert says"
+      },
+      {
+        "id": "b_alert",
+        "type": "branch",
+        "title": "New, still open, or cleared?"
+      },
+      {
+        "id": "a_post",
+        "type": "slack_post",
+        "channel": "{{event.channel}}",
+        "only_if": {
+          "exists": "event.channel"
+        },
+        "label": "none",
+        "as": {
+          "name": "{{event.as_name | default:Engine alerts}}",
+          "icon": "{{vars.icon}}"
+        },
+        "tag": "alert:{{event.alert_id}}",
+        "template": "{{vars.mark}} *{{event.company}} · {{vars.head}}*\n{{vars.body}}{{event.link | link:Open | line}}{{event.fix_link | each:\" · <{{item}}|{{event.fix_label}}>\"}}{{event.extra_link | each:\"{{event.link | then:\\\" · \\\" | default:\\\"\\\\n\\\"}}<{{item}}|{{event.extra_label | default:Open}}>\"}}",
+        "title": "Post the alert"
+      },
+      {
+        "id": "a_thread",
+        "type": "slack_post",
+        "channel": "{{event.channel}}",
+        "only_if": {
+          "exists": "event.thread"
+        },
+        "thread_of": "a_post",
+        "thread_only": true,
+        "label": "none",
+        "as": {
+          "name": "{{event.as_name | default:Engine alerts}}",
+          "icon": "{{vars.icon}}"
+        },
+        "template": "{{event.thread}}",
+        "title": "The detail under it (the next days' availability)"
+      },
+      {
+        "id": "a_repeat",
+        "type": "slack_post",
+        "channel": "{{event.channel}}",
+        "only_if": {
+          "exists": "event.channel"
+        },
+        "thread_of": "tag:alert:{{event.alert_id}}",
+        "label": "none",
+        "as": {
+          "name": "{{event.as_name | default:Engine alerts}}",
+          "icon": "{{vars.icon}}"
+        },
+        "template": "{{vars.mark}} Still open after {{event.hours_open}}h: {{vars.body | truncate:300}}{{event.thread | line}}",
+        "title": "Still open: a line in its thread"
+      },
+      {
+        "id": "a_resolve",
+        "type": "slack_post",
+        "channel": "{{event.channel}}",
+        "only_if": {
+          "exists": "event.channel"
+        },
+        "thread_of": "tag:alert:{{event.alert_id}}",
+        "thread_only": true,
+        "react": "white_check_mark",
+        "label": "none",
+        "as": {
+          "name": "{{event.as_name | default:Engine alerts}}",
+          "icon": "{{vars.icon}}"
+        },
+        "template": "✅ Resolved after {{event.hours_open}}h: {{event.text | truncate:200}}",
+        "title": "Cleared: resolved in its thread, ✅ on the first post"
+      },
+      {
+        "id": "x_alert",
+        "type": "exit",
+        "reason": "said"
+      },
+      {
         "id": "x_done",
         "type": "exit",
         "reason": "done"
@@ -41,6 +194,82 @@
       {
         "from": "n1",
         "to": "x_done"
+      },
+      {
+        "from": "t_raised",
+        "to": "a_mark"
+      },
+      {
+        "from": "t_repeated",
+        "to": "a_mark"
+      },
+      {
+        "from": "t_resolved",
+        "to": "a_mark"
+      },
+      {
+        "from": "a_mark",
+        "to": "a_icon"
+      },
+      {
+        "from": "a_icon",
+        "to": "a_icon2"
+      },
+      {
+        "from": "a_icon2",
+        "to": "a_head"
+      },
+      {
+        "from": "a_head",
+        "to": "a_body"
+      },
+      {
+        "from": "a_body",
+        "to": "b_alert"
+      },
+      {
+        "from": "b_alert",
+        "to": "a_post",
+        "when": {
+          "eq": [
+            "{{event._type}}",
+            "alert.raised"
+          ]
+        },
+        "label": "new"
+      },
+      {
+        "from": "b_alert",
+        "to": "a_repeat",
+        "when": {
+          "eq": [
+            "{{event._type}}",
+            "alert.repeated"
+          ]
+        },
+        "label": "still open"
+      },
+      {
+        "from": "b_alert",
+        "to": "a_resolve",
+        "else": true,
+        "label": "cleared"
+      },
+      {
+        "from": "a_post",
+        "to": "a_thread"
+      },
+      {
+        "from": "a_thread",
+        "to": "x_alert"
+      },
+      {
+        "from": "a_repeat",
+        "to": "x_alert"
+      },
+      {
+        "from": "a_resolve",
+        "to": "x_alert"
       }
     ]
   }

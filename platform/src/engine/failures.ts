@@ -56,7 +56,7 @@ export function classifyError(e: unknown): Classified {
 
 /** The vendor whose token a binding holds, so replacing it can wake the runs paused on that vendor's auth. */
 export function vendorOfBinding(key: string): string | null {
-  return ({ "secret.ghl_pit": "ghl", "secret.calendly_token": "calendly", "secret.jev_key": "jev", "secret.anthropic_key": "anthropic", "secret.whop_api_key": "whop", "secret.fathom_api_key": "fathom", "secret.resend_key": "resend" } as Record<string, string>)[key] ?? null;
+  return ({ "secret.ghl_pit": "ghl", "secret.calendly_token": "calendly", "secret.jev_key": "jev", "secret.anthropic_key": "anthropic", "secret.whop_api_key": "whop", "secret.fathom_api_key": "fathom" } as Record<string, string>)[key] ?? null;
 }
 
 /** The exit_reason a paused run carries: `<class>[:<vendor>]: <what the vendor said>`, so the wake below can find the runs by vendor. */

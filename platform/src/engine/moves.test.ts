@@ -389,3 +389,49 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the wrap-ups workflow words its
     expect((await asOperator((c) => one<{ body: string; numbers: { registry: Record<string, unknown> } }>(c, "select body, numbers from wrapups where company_id=$1", [companyId])))).toMatchObject({ body: "Today\n\nCalls\n0 dials", numbers: { registry: { booked: 0, dials: 0 } } });
   });
 });
+
+describe.skipIf(!process.env.DATABASE_URL)("D88: alerts are said by the Health check workflow; the cadence is a setting (A7)", () => {
+  beforeAll(async () => { await migrate(); companyId = await freshCompany("mvs-a7"); await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'alerts.slack_channel','channel','CALERTS')", [companyId])); });
+  beforeEach(() => { posts.length = 0; reactions.length = 0; });
+  const say = async (at = new Date()) => { const { announceDue } = await import("@/engine/alerts"); const a = await asOperator((c) => announceDue(c, fake, at, companyId)); await run(); return a; };
+  const raiseOne = async (key: string, text: string) => { const { raise } = await import("@/engine/alerts"); await asOperator((c) => raise(c, { companyId, key, level: "error", source: "engine", text, href: "/app/c/mvs-a7" })); };
+
+  it("nothing is posted by the engine itself: with no workflow listening the alert is only recorded", async () => {
+    await raiseOne("x:quiet", "Something broke");
+    expect(await say()).toEqual({ posted: 0, repeated: 0, resolved: 0 });
+    expect(posts).toEqual([]);
+  });
+
+  it("the company's copy says it its own way, where it wants", async () => {
+    await install("health-check", (d) => {
+      const h = d.nodes.find((n) => n.id === "a_head")!; if (h.type === "set_var") h.pick = { ...h.pick, engine: "Heads up" };
+      const p = d.nodes.find((n) => n.id === "a_post")!; if (p.type === "slack_post") { p.channel = "{{slack.channel.bookings}}"; p.template = "{{vars.head}}: {{vars.body}}"; }
+    });
+    await raiseOne("x:loud", "The CRM is slow");
+    expect(await say()).toMatchObject({ posted: 1 });
+    expect(posts).toEqual([expect.objectContaining({ channel: "CBOOK", text: "Heads up: The CRM is slow" })]);
+    await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
+  });
+
+  it("alerts.repeat_minutes decides when an open alert is said again; alerts.poll_failures how many failed polls make one", async () => {
+    await install("health-check");
+    await raiseOne("x:open", "Still broken");
+    await say();
+    expect(posts.map((p) => p.text)).toEqual([expect.stringMatching(/^🔴 \*Moves Co · Engine\*\nStill broken\n<https:\/\/engine\.test\/app\/c\/mvs-a7\|Open>$/)]);
+    await asOperator((c) => c.query("update alerts set announced_at=now() - interval '31 minutes' where company_id=$1 and key='x:open'", [companyId]));
+    expect(await say()).toMatchObject({ repeated: 0 });   // the default: an hour
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'alerts.repeat_minutes','number','30')", [companyId]));
+    expect(await say()).toMatchObject({ repeated: 1 });
+    expect(posts.at(-1)).toMatchObject({ threadTs: "ts1", text: expect.stringMatching(/^🔴 Still open after 0h: Still broken$/) });
+    const { tickAlerts } = await import("@/engine/alerts");
+    const poll = { companies: 1, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, calls: 0, agreements: 0, cardsMoved: 0, eventsDispatched: 0, baselined: 0, errors: [] };
+    const tk = { claimed: 0, completed: 0, waiting: 0, exited: 0, failed: 0, paused: 0, recovery: false, staleExits: 0, sends: 0 };
+    await asOperator((c) => c.query("insert into poll_cursors (company_id, entity, cursor, consecutive_failures) values ($1,'contacts','0',2)", [companyId]));
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'alerts.poll_failures','number','3')", [companyId]));
+    await asOperator((c) => tickAlerts(c, fake, poll, tk, new Date(), companyId));
+    expect((await asOperator((c) => many<{ key: string }>(c, "select key from alerts where company_id=$1 and resolved_at is null", [companyId]))).map((a) => a.key)).not.toContain("poll:contacts");
+    await asOperator((c) => c.query("update poll_cursors set consecutive_failures=3 where company_id=$1", [companyId]));
+    await asOperator((c) => tickAlerts(c, fake, poll, tk, new Date(), companyId));
+    expect((await asOperator((c) => many<{ key: string }>(c, "select key from alerts where company_id=$1 and resolved_at is null", [companyId]))).map((a) => a.key)).toContain("poll:contacts");
+  });
+});

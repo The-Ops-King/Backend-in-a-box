@@ -33,7 +33,8 @@ export async function POST(req: Request) {
   });
   if ("error" in fired) return NextResponse.json(fired, { status: 404 });
   const runs = await tick(liveAdapters, undefined, fired.companyId);
-  const a = await asOperator((c) => announceDue(c, liveAdapters));
+  const a = await asOperator((c) => announceDue(c, liveAdapters, new Date(), fired.companyId));
+  await tick(liveAdapters, undefined, fired.companyId);   // D88 (A7): the Health check workflow says what is due
   const findings = await asOperator((c) => one<{ last_result: unknown }>(c, "select last_result from health_checks where company_id=$1", [fired.companyId]));
   return NextResponse.json({ ok: true, company: body.company, workflow: fired.workflow, runs: fired.started, ticked: runs, posted: a.posted, closed: a.resolved, findings: findings?.last_result ?? [] });
 }
