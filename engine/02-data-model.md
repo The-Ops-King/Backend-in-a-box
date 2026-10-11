@@ -548,6 +548,7 @@ create table runs (
   claimed_by          text,
   step_attempt        int not null default 0,              -- D66: tries of the current step so far; reset when it passes or a person retries
   step_error          text,                                 -- D66: the last error of the current step, as the vendor said it
+  step_held           boolean not null default false,       -- D77: paused ON its step because a blocking step is down; the scheduler re-checks only that step (next_run_at) until it passes
   started_at          timestamptz not null default now(),
   finished_at         timestamptz,
   unique (workflow_id, reentry_key)

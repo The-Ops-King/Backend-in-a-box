@@ -3,9 +3,10 @@
  * to fail per method — `fail("addTag", { status: 503, times: 2 })`, `fail("createOpportunity", { after: true })` for a
  * crash after the vendor already did the thing — and that count every call, so a test can say "asked once", "one card",
  * "one message". The catalogue is engine/07-step-failures.md; every test here is one of its rows, written to the
- * policy there (transient → retried in place at 1 min, 5 min, 15 min, 1 h, then paused; auth → paused at once, one
- * alert per vendor; permanent → paused with the vendor's words; unknown → one try, then permanent; a retry never
- * repeats a side effect; nothing re-runs from the top). Where today's engine does something else the test is
+ * policy there (transient → retried in place at 1 min, then 5 min, three tries in all; auth → paused at once, one
+ * alert per vendor; permanent → no retry; unknown → one retry, then permanent; then, D77, a non-blocking step is skipped
+ * with one alert and the run goes on, a blocking one holds or pauses the run on itself; a retry never repeats a side
+ * effect; nothing re-runs from the top). Where today's engine does something else the test is
  * `it.fails` and its title says what today does; the retry work flips them.
  *
  * The four bad bugs Tyler named — 20 runs, 20 cards, 20 messages, 20 charges — each have a test that asserts
@@ -105,7 +106,7 @@ const fake: Adapters = {
 const CRM = { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_closer_scheduled: "STAGE-SCHED", default_closer: "U1" };
 const TABLES = ["alerts", "slack_posts", "sends", "runs", "events", "slack_connections", "workflow_triggers", "workflows", "messages", "crm_records", "payments", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"];
 let companyId: string, closingTerm: string;
-let wfNewLead: string, wfS2L: string, wfTag: string, wfCard: string, wfCardSkip: string, wfCardStatus: string, wfNote: string, wfTask: string, wfRecord: string, wfContact: string, wfSlack: string, wfNotify: string, wfClassify: string, wfAnalyze: string, wfAnalyzeOpt: string, wfAppt: string, wfBranch: string, wfRecordEv: string, wfCheck: string, wfRecordUpdate: string, wfCardMove: string;
+let wfNewLead: string, wfS2L: string, wfTag: string, wfTagHeld: string, wfCard: string, wfCardSkip: string, wfCardStatus: string, wfNote: string, wfTask: string, wfRecord: string, wfContact: string, wfSlack: string, wfNotify: string, wfClassify: string, wfAnalyze: string, wfAnalyzeOpt: string, wfAppt: string, wfBranch: string, wfRecordEv: string, wfCheck: string, wfRecordUpdate: string, wfCardMove: string;
 
 const wipe = (slug: string) => asOperator(async (c) => {
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [slug]); if (!co) return;
@@ -180,6 +181,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
     });
     wfNewLead = await templateWf("new-lead"); wfS2L = await templateWf("speed-to-lead");
     wfTag = await probe("Probe: tag", [{ id: "n1", type: "set_tag", tag: "stat-probe" }]);
+    wfTagHeld = await probe("Probe: tag, blocking", [{ id: "n1", type: "set_tag", tag: "stat-probe", blocking: true }]);
     wfCard = await probe("Probe: card", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", name: "{{contact.name}} -- New" }]);
     wfCardMove = await probe("Probe: card to another stage", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "STAGE-ELSEWHERE", name: "{{contact.name}} -- Moved" }]);
     wfCardSkip = await probe("Probe: card, skip when missing", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", if_missing: "skip" }]);
@@ -335,20 +337,21 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(await openAlerts()).toHaveLength(1);
     });
 
-    it("400: never retried — three looks, one call, one run (true today because the run fails for good)", async () => {
+    it("400: never retried — three looks, one call, one run; the tag (nothing later reads it) is skipped and the run completes (D77)", async () => {
       fail("addTag", { status: 400, times: 99 });
       const ct = await person("BAD400");
       const id = await start(wfTag, ct);
       await spin(id, 3);
       expect(callsTo("addTag")).toBe(1);
-      expect((await runRow(id)).status).not.toBe("completed");
+      expect((await runRow(id)).status).toBe("completed");
+      expect((await steps(id)).filter((s) => s.node_id === "n1")).toMatchObject([{ status: "skipped", result: { kind: "gave_up", tries: 1, class: "permanent" } }]);
       expect(await runsOf(wfTag, ct)).toHaveLength(1);
     });
 
-    it("400: the run pauses at the step with the vendor's words, never fails — today it is failed", async () => {
+    it("400 on a step marked blocking: the run pauses at the step with the vendor's words for a person, never fails, never re-checked by itself", async () => {
       fail("addTag", { status: 400, times: 99 });
       const ct = await person("BAD400P");
-      const id = await start(wfTag, ct);
+      const id = await start(wfTagHeld, ct);
       await tickOnce();
       expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/Invalid request|400/), next_run_at: null });
       expect(callsTo("addTag")).toBe(1);
@@ -363,7 +366,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("addTag")).toBe(1);
     });
 
-    it("503 that never clears: retried at 1 min and 5 min on the same step, then paused with one alert; three calls in all, one run (D76: no loops)", async () => {
+    it("503 that never clears: retried at 1 min and 5 min on the same step, then skipped with one alert and the run completes; three calls in all, one run (D76: no loops; D77)", async () => {
       fail("addTag", { status: 503, times: 99 });
       const ct = await person("DOWN503");
       const id = await start(wfTag, ct);
@@ -374,9 +377,9 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
         await wake(id);
       }
       await tickOnce();
-      expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1" });
+      expect(await runRow(id)).toMatchObject({ status: "completed" });
       expect(callsTo("addTag")).toBe(3);
-      expect((await openAlerts()).filter((a) => a.key === `run:${id}:paused`)).toHaveLength(1);
+      expect((await openAlerts()).filter((a) => a.key === `skipped:${wfTag}:n1:${ct}`)).toMatchObject([{ level: "warning", text: expect.stringMatching(/^Couldn't add the tag “stat-probe” for .* after 3 tries \(GHL [^{}]*\); everything else in Probe: tag ran\.$/) }]);
       expect(await runsOf(wfTag, ct)).toHaveLength(1);
     });
 
@@ -402,14 +405,15 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("addTag")).toBe(2);
     });
 
-    it("an error nobody classified (no status, not a network word): one retry a minute later, then the run pauses — today the run fails at once", async () => {
+    it("an error nobody classified (no status, not a network word): one retry a minute later, then the step is skipped (D77) — before D66 the run failed at once", async () => {
       fail("addTag", { message: "TypeError: Cannot read properties of undefined (reading 'id')", times: 99 });
       const ct = await person("UNK1");
       const id = await start(wfTag, ct);
       await tickOnce();
       const r = await runRow(id); expect(r).toMatchObject({ status: "waiting", current_node: "n1" }); expect(dueIn(r)).toBeGreaterThan(0.7); expect(dueIn(r)).toBeLessThan(1.3);
       await wake(id); await tickOnce();
-      expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1" });
+      expect(await runRow(id)).toMatchObject({ status: "completed" });
+      expect((await steps(id)).filter((s) => s.node_id === "n1").at(-1)).toMatchObject({ status: "skipped", result: { kind: "gave_up", tries: 2 } });
       expect(callsTo("addTag")).toBe(2);
     });
 
@@ -426,11 +430,12 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(tagsOn.get("HAND1")).toEqual(["stat-probe"]);
     });
 
-    it("a contact with no CRM id yet: a tag step pauses with the reason (nothing to write to), never fails — today the run is failed", async () => {
+    it("a contact with no CRM id yet: the tag step is skipped with the reason (nothing to write to), the run goes on, never fails (D77)", async () => {
       const ct = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name) values ($1,'Form','Only') returning id", [companyId]))!.id);
       const id = await start(wfTag, ct);
       await tickOnce();
-      expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/no CRM id/) });
+      expect(await runRow(id)).toMatchObject({ status: "completed" });
+      expect((await steps(id)).find((s) => s.node_id === "n1")).toMatchObject({ status: "skipped", error: expect.stringMatching(/no CRM id/) });
       expect(callsTo("addTag")).toBe(0);
     });
   });
@@ -747,7 +752,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("createRecord")).toBe(1);
     });
 
-    it("the record our row points at was deleted in the CRM (updateRecord 404): the run pauses with the CRM's words, asked once — today the run is failed", async () => {
+    it("the record our row points at was deleted in the CRM (updateRecord 404): asked once, the step is skipped with the CRM's words (nothing later reads it, D77), never a second record", async () => {
       const ct = await person("RECGONE");
       const first = await start(wfRecord, ct, { key: "rec-gone" }); await tickOnce();
       expect((await runRow(first)).status).toBe("completed"); calls.clear();   // the create is the first run's; the second must not make one
@@ -755,15 +760,17 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       records.delete(ours.ghl_record_id);
       const second = await start(wfRecord, ct, { key: "rec-gone" });
       await spin(second, 2);
-      expect(await runRow(second)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/not found|404/) });
+      expect(await runRow(second)).toMatchObject({ status: "completed" });
+      expect((await steps(second)).find((s) => s.node_id === "n1")).toMatchObject({ status: "skipped", error: expect.stringMatching(/not found|404/) });
       expect(callsTo("updateRecord")).toBe(1); expect(callsTo("createRecord")).toBe(0);
     });
 
-    it("a note for a contact with no CRM id yet pauses with the reason: the CRM is never asked about contact 'undefined', nobody is stamped gone (sweep 2026-10-10)", async () => {
+    it("a note for a contact with no CRM id yet is skipped with the reason: the CRM is never asked about contact 'undefined', nobody is stamped gone (sweep 2026-10-10, D77)", async () => {
       const ct = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name) values ($1,'Note','Nobody') returning id", [companyId]))!.id);
       const id = await start(wfNote, ct);
       await tickOnce();
-      expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/no CRM id/) });
+      expect(await runRow(id)).toMatchObject({ status: "completed" });
+      expect((await steps(id)).find((s) => s.node_id === "n1")).toMatchObject({ status: "skipped", error: expect.stringMatching(/no CRM id/) });
       expect(callsTo("addNote")).toBe(0);
       expect(await asOperator((c) => one<{ gone_at: Date | null }>(c, "select gone_at from contacts where id=$1", [ct]))).toMatchObject({ gone_at: null });
     });
@@ -888,11 +895,12 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("updateAppointment")).toBe(2);
     });
 
-    it("update_appointment on a run with no appointment: a definition problem, so the run pauses with the reason, never fails — today it is failed", async () => {
+    it("update_appointment on a run with no appointment: a definition problem, so the step is skipped with the reason (nothing later reads it, D77), never fails", async () => {
       const ct = await person("NOAPPT");
       const id = await start(wfAppt, ct);
       await tickOnce();
-      expect(await runRow(id)).toMatchObject({ status: "paused", current_node: "n1", exit_reason: expect.stringMatching(/no appointment/) });
+      expect(await runRow(id)).toMatchObject({ status: "completed" });
+      expect((await steps(id)).find((s) => s.node_id === "n1")).toMatchObject({ status: "skipped", error: expect.stringMatching(/no appointment/) });
     });
   });
 

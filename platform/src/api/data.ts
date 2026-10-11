@@ -147,11 +147,19 @@ export async function runPage(c: PoolClient, id: string) {
     run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, co.mode, bindings)) === "shadow",
       // D66: where it stopped and why, and whether a person can retry or skip that step (a step with no plain way on can only be retried)
       current_node: r.current_node, step_error: r.step_error ?? null, step_attempt: r.step_attempt ?? 0, can_skip: !!(r.current_node && def && onwardEdge(indexDefinition(def).edgesFrom(r.current_node))) ,
+      // D77: held on a blocking step that is down (re-checked alone at next_run_at), and the steps it skipped after their tries, each retryable on its own
+      held: !!r.step_held, gave_up: gaveUp(steps, path),
       // D68: when the CRM was last read for this person before the run acted, or why the engine's copy stood in (as the run's saved context carries it)
       contact_truth: truthOf(r.context) },
     feed: path.filter((p) => p.state !== "next"), next: path.filter((p) => p.state === "next"), chart, states,
     raw: { steps: steps.map((s) => ({ node_id: s.node_id, node_type: s.node_type, status: s.status, started_at: s.started_at, result: s.result, error: s.error })), context: r.context } };
 }
+
+/** The steps whose latest row is a skip after the tries: one Retry button each. */
+const gaveUp = (steps: { node_id: string; status: string; result: Record<string, unknown>; error: string | null }[], path: PathItem[]) => {
+  const latest = new Map<string, (typeof steps)[number]>(); for (const s of steps) latest.set(s.node_id, s);
+  return [...latest.values()].filter((s) => s.status === "skipped" && s.result?.kind === "gave_up").map((s) => ({ node: s.node_id, title: path.find((p) => p.node_id === s.node_id)?.title ?? s.node_id, error: s.error, tries: Number(s.result.tries ?? 0) }));
+};
 
 const truthOf = (context: Record<string, unknown>): { fetched_at: string | null; stale: string | null } | null => {
   const ct = context?.contact as { fetched_at?: string; stale?: string } | undefined;

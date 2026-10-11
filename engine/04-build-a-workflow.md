@@ -157,10 +157,22 @@ when to actually re-test that step, and when to just alert."
 - **Only the step is retried, never the run.** A run parks on the failed node (`waiting`, `next_run_at`, wake flags
   kept); nothing before it runs again, nothing after it moves. Each try is its own `run_steps` row (`result.attempt`).
 - **Four classes, one place** (`platform/src/engine/failures.ts`): *transient* (a network error, a timeout, 408/425/429/5xx
-  from any vendor, a database connection) retries at 1 and 5 minutes (three tries in all, D76) (`RETRY_SCHEDULE`: five tries over 81
-  minutes), then pauses; *auth* (401/403) pauses at once; *permanent* (400/404/422, "not found" / "invalid", an unbound
-  binding, a term the company does not have, a step's own config) pauses at once; *unknown* gets one retry, then is
-  permanent. A failure the step returned itself (its verdict on its config or data) is permanent.
+  from any vendor, a database connection) retries at 1 and 5 minutes (`RETRY_SCHEDULE`: three tries in all, D76); *auth*
+  (401/403) pauses at once; *permanent* (400/404/422, "not found" / "invalid", an unbound binding, a term the company does
+  not have, a step's own config) is not retried; *unknown* gets one retry, then is permanent. A failure the step returned
+  itself (its verdict on its config or data) is permanent.
+- **Then it depends on whether the run can go on without the step (D77, `platform/src/engine/blocking.ts`).** A step is
+  *blocking* when it decides or waits (trigger, branch, check, the waits, set_var, record, record_outcome,
+  update_opportunity, start_workflow, pause_runs, resume, exit) or a later step on its path reads what it produced
+  (`cards.<board>` / `opportunity.*` after a card step, `record.*` after a record step, the `into` of classify / analyze /
+  webhook / report / eod_due, `appointment.<field>` after update_appointment, a post a blocking wait_for_reaction waits on);
+  everything else is *non-blocking* (tags, notes, tasks, contact updates, sends, Slack posts, documents, cards and records
+  nothing reads, an `optional` analyze). `blocking: true|false` on a step overrides the derivation. Once the tries are
+  spent, a non-blocking step is written `skipped` (`result.kind: gave_up`) and the run goes on, with one `skipped:` alert
+  per step and person ("Couldn't … for … after 3 tries (…); everything else in … ran.") and **Retry this step** on the run
+  page, which re-runs that step alone. A blocking step that is down (transient) holds the run on itself (`status
+  'paused'`, `step_held`): only that step is re-checked, 15 minutes later and then hourly, and the run carries on by itself
+  when it passes (one alert, ✅ Resolved when it passes). A blocking step refused for good pauses for a person.
 - **Paused means a person.** `runs.status = 'paused'`, `exit_reason` = `<class>[:<vendor>]: <what the vendor said>`,
   the step row `failed`, one alert `run:<id>:paused` (the step, the contact, the error, the Open link). The run page
   offers **Retry this step** (fresh tries, due now) and **Skip this step** (a `skipped by <who>` row, on along the

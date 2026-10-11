@@ -278,6 +278,17 @@ the poll interval.
   written as `["yes"]`). Association `6aa08fc3b1739b9f7dd9f337` is contact → discovery_call.
 
 
+## Clearing a custom object property (D77, 2026-10-10; to verify live)
+
+A record update (`PUT /objects/{key}/records/{id}`) that sends a property as `""` is ignored for some field types
+(the same caution as contact custom fields, where the Zap the engine replaced warned that an empty value may be
+accepted and dropped). The engine therefore clears with JSON `null` per property: a Sales Call whose answer changed
+from a held call to a no-show (or rescheduled on the call) is sent `disposition`, `cash_collected`,
+`objection_primary`, `next_step`, `next_step_date`, `payment_terms` as `null`. **To verify live** on a test record:
+that `null` empties a single-option (`disposition`), a monetary (`cash_collected`), a text and a date field, and that
+the PUT is not refused for it. If GHL refuses or ignores `null` for a type, that type needs its own clear and this
+note says which.
+
 ## Reads behind the Slack bot's numbers (D73, 2026-10-10; from the published API v2 spec, not yet re-verified live)
 
 | Read | Call | Paging / fields |

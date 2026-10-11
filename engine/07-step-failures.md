@@ -15,22 +15,46 @@ code does now, read from the executor, the runner and the adapters, with the lin
 `platform/src/engine/step-failures.test.ts` (company `stepf`); a test written to Expected that today's engine fails
 is marked `it.fails` there and says so in its title, so the retry work flips it to green. `not yet` means no test.
 
-## The policy (D67)
+## The policy (D67, D76, D77)
 
 Every step error is classified:
 
 | Class | What it is | What happens |
 |---|---|---|
-| **transient** | network error, timeout, 408 / 425 / 429 / 5xx | the same step is retried in place at 1 min, 5 min, 15 min, 1 h; the run waits on that node between tries; after the fourth miss the run pauses |
-| **auth** | 401 / 403 | the run pauses at once; one alert per vendor (not per step, not per run); the paused runs are woken when the token is replaced |
-| **permanent** | 400 / 404 / 422, a body that says "not found" / "invalid" | the run pauses at once, showing the vendor's words |
-| **unknown** | anything else (a TypeError, an SDK error with no status) | one transient try a minute later, then permanent |
+| **transient** | network error, timeout, 408 / 425 / 429 / 5xx | the same step is retried in place at 1 min, then 5 min (`RETRY_SCHEDULE`, three tries in all, D76); the run waits on that node between tries |
+| **auth** | 401 / 403 | the run pauses at once, blocking or not; one alert per vendor (not per step, not per run); the paused runs are woken when the token is replaced |
+| **permanent** | 400 / 404 / 422, a body that says "not found" / "invalid", the step's own verdict on its config | no retry |
+| **unknown** | anything else (a TypeError, an SDK error with no status) | one retry a minute later, then permanent |
 
-A paused run shows the step and the error, with **Retry this step** and **Skip this step** for a person. Nothing ever
-re-runs a workflow from the top because a step failed. No side effect happens twice on a retry: sends are keyed per
-run + node (`sends.idempotency_key`), cards are read live before any write (D41), records are keyed by external id,
-notes and tasks go through an effects ledger, tags are idempotent in the CRM. The engine never charges anyone — Whop
-does; the engine records (D21).
+Once its tries are spent (three at most, one for permanent), what happens depends on the step (D77, `platform/src/engine/blocking.ts`):
+
+| The step is | What happens | The alert |
+|---|---|---|
+| **non-blocking**: nothing later in the run reads what it does (tags, notes, tasks, contact updates, sends, Slack posts and reactions, documents, cards and records nothing reads, an `optional` analyze) | the step row is `skipped` (`result.kind: gave_up`, the tries, the error) and the run goes on to the next node: "a 90% result" | one per step and person, key `skipped:<workflow>:<node>:<contact>`: "Couldn't <what the step does> for <name> after 3 tries (<what the vendor said>); everything else in <workflow> ran." with a **Retry this step** link; when another workflow updates the record or card the step makes, or starts on the booking status it sets, the alert names it |
+| **blocking**, down (transient) | the run is held ON that step (`status 'paused'`, `runs.step_held`): only that step is re-checked, 15 minutes later and then every hour (`HOLD_RECHECK_MIN`), until it passes; then the run carries on by itself | one, key `run:<id>:paused`: "<workflow> is paused: it couldn't <what> for <name> after 3 tries (<what the vendor said>). Nothing after it runs without it, so the engine re-checks only this step every 15 minutes, then hourly, and carries on by itself when it passes. Retry or skip it on the run page."; ✅ Resolved when the step passes |
+| **blocking**, refused (permanent) | the run pauses for a person | "<workflow> couldn't <what> for <name>: <what the vendor said>. Retry or skip it on the run page." |
+
+A step is **blocking** when it decides or waits (trigger, branch, check, wait, wait_for_reply, wait_for_reaction,
+set_var, record, record_outcome, update_opportunity, start_workflow, pause_runs, resume, exit) or when a later step
+on its path reads what it produced: `cards.<board>` / `opportunity.*` after a pipeline_card, `record.*` after a
+crm_record (a later record step's own `relate` reads its own record), the `into` of a classify / analyze / webhook /
+report / eod_due, `appointment.<field>` after an update_appointment that sets it, a post a blocking wait_for_reaction
+waits on (a listener goes on without it). `blocking: true|false` on a step overrides the derivation. Alerts say
+what the step does (never its id), for whom, and the vendor's own message out of its body (`plainError`: GHL
+`message` / `errors[].message`, Calendly `message` / `details`, Slack `error`, the status in words only when nothing
+else); the raw error stays in the alert's detail and on the run page.
+
+**Retry this step** (`POST /api/v1/runs/<id>/retry` with `{ node }`) re-runs only a step whose last row is a
+`gave_up` skip, once, now, against the run's saved context, whatever the run is doing since; nothing before or after
+it moves. It is idempotent through the ledgers (a send already out, a note already written, a card already made are
+not done again) and refused once the step has passed. A paused run keeps **Retry this step** (fresh tries, due now)
+and **Skip this step**. Nothing ever re-runs a workflow from the top because a step failed. No side effect happens
+twice on a retry: sends are keyed per run + node (`sends.idempotency_key`), cards are read live before any write
+(D41), records are keyed by external id, notes and tasks go through an effects ledger, tags are idempotent in the
+CRM. The engine never charges anyone — Whop does; the engine records (D21).
+
+The rows below were written against D67's first cut (paused after the tries); where a row's step is non-blocking,
+"paused" now reads "skipped, the run goes on, one alert" (`step-failures.test.ts` says which).
 
 Today, before that work: a step that throws fails the run for good (`runner.ts:156,183`; the outer catch at
 `runner.ts:189-192`), the failed run is one `step:<workflow>:<node>` alert (`alerts.ts:75-83`), and a stopped run's

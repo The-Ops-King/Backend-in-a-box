@@ -15,7 +15,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     const { row: company } = await loadCompany(c, closer.company_id);
     const day = q && DateTime.fromFormat(q, DAY_FMT).isValid ? q : todayFor(company.timezone);
     const filed = await reportFor(c, company.id, closer.id, day);
-    const pre = await prefill(c, company, closer, day);
+    const pre = await prefill(c, company, closer, day, DateTime.now(), liveAdapters);   // D77: with the day's blank Sales Calls booked before the engine
     const fields = await loadEodForm(c, company.id);
     const shown: EodPrefill = filed?.answers ? { ...pre, ...pickAnswers(filed.answers, pre) } : pre;
     const d = DateTime.fromFormat(day, DAY_FMT, { zone: company.timezone });

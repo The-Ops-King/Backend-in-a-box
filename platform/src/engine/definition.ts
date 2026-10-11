@@ -39,7 +39,8 @@ export const OnStale = z.enum(["skip", "substitute", "escalate"]);
 /** Who a Slack post appears from: a name and an emoji / image URL, or a list of icons one is picked from per post. */
 const Persona = z.object({ name: z.string().optional(), icon: z.union([z.string(), z.array(z.string())]).optional() });
 const TagList = z.union([z.string(), z.array(z.string()).min(1)]);
-const base = { id: z.string().min(1), title: z.string().optional(), only_if: Predicate.optional() };   // only_if: the step runs when this holds, else it is skipped (a sometimes-step on the chart)   // title: the words the dashboard shows for this step, when the generic ones are not good enough
+// blocking (D77): overrides what blocking.ts derives (true: a failure holds the run on this step; false: after its tries the step is skipped and the run goes on). wait_for_reaction keeps its own D58 meaning.
+const base = { id: z.string().min(1), title: z.string().optional(), only_if: Predicate.optional(), blocking: z.boolean().optional() };   // only_if: the step runs when this holds, else it is skipped (a sometimes-step on the chart)   // title: the words the dashboard shows for this step, when the generic ones are not good enough
 export const Schedule = z.object({ every: z.string().regex(/^\d+(m|h|d)$/).optional(), at: z.string().regex(/^\d{2}:\d{2}$/).optional(), days: z.array(z.number().int().min(1).max(7)).optional(), day_of_month: z.number().int().min(1).max(28).optional(), for: z.enum(["company", "closer"]).default("company") })
   .refine((s) => !!s.every !== !!s.at, { message: "a schedule is either every <interval> or at <time>, not both, not neither" });
 export type Schedule = z.infer<typeof Schedule>;
@@ -115,8 +116,10 @@ export const Node = z.discriminatedUnion("type", [
   // `properties` values are templates; an empty rendered value is left out. `relate` links the record to other records by association id.
   // `if_missing: skip` makes it an update of a record the CRM already holds (one we made, with its CRM id); it never creates one.
   // `match`: the same, but a booking's record the engine never wrote is first looked for in the CRM by the booking's id, else the person and start minute.
+  // `clear` (D77): properties an update writes as null, so the CRM empties them (an empty string is ignored for some field types), unless `properties` gives
+  // them a value this time; entries are templates and one that renders empty is dropped. A changed answer takes off what the earlier one set.
   z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string(), properties: z.record(z.string()), owner: z.string().optional(), if_missing: z.enum(["create", "skip", "match"]).default("create"),
-    relate: z.array(z.object({ association: z.string(), first: z.string(), second: z.string() })).default([]) }),
+    relate: z.array(z.object({ association: z.string(), first: z.string(), second: z.string() })).default([]), clear: z.array(z.string()).default([]) }),
   // with `when`: value if it holds, else_value otherwise. With `pick`: value is rendered and looked up in it ("{{reply.intent}}" → pick.cancelled), else_value when no key matches.
   z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown(), when: Predicate.optional(), pick: z.record(z.unknown()).optional(), else_value: z.unknown().optional() }),
   // A fact for the ledger: one event of type `event` with `data` rendered (a whole "{{path}}" keeps its type, so a boolean stays a boolean). Ours, never the CRM; runs in shadow too. Starts nothing by itself.

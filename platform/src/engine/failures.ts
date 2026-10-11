@@ -5,16 +5,20 @@ import { resolve } from "./alerts";
 /**
  * D66. One failure policy for every step, decided here and applied by the runner.
  *
- *   transient  network error, timeout, 408/425/429/5xx, Postgres connection trouble → retried in place on RETRY_SCHEDULE (three tries in all, D76), then paused
+ *   transient  network error, timeout, 408/425/429/5xx, Postgres connection trouble → retried in place on RETRY_SCHEDULE (three tries in all, D76)
  *   auth       401/403: the token is wrong or lost a scope → paused at once; one alert per company per vendor; a new token wakes every run paused on it
- *   permanent  400/404/422, "not found" / "invalid" from the vendor, a step's own config error → paused at once
+ *   permanent  400/404/422, "not found" / "invalid" from the vendor, a step's own config error → no retry
  *   unknown    anything else → one retry as if transient, then permanent
+ * Once the tries are spent (D77): a non-blocking step (blocking.ts) is skipped, one alert, and the run goes on; a blocking one holds
+ * the run on that step, re-checked alone on HOLD_RECHECK_MIN while it is down (transient), or paused for a person (permanent).
  */
 export type FailureClass = "transient" | "auth" | "permanent" | "unknown";
 export type Classified = { cls: FailureClass; vendor: string | null; status: number | null; answered: boolean; message: string };
 
 /** Minutes after each failed try before the next; the length is the number of retries. D76: no loops, at most three tries of a step in all, then one alert. */
 export const RETRY_SCHEDULE = [1, 5];
+/** D77: a blocking step that is down after its three tries is looked at again alone: 15 minutes after the hold, then every hour, until it passes. */
+export const HOLD_RECHECK_MIN = [15, 60];
 
 /** A vendor's refusal with its shape kept: the adapters that can afford it throw this; the rest throw strings this module parses. */
 export class VendorError extends Error {
@@ -68,4 +72,30 @@ export async function wakePausedOnAuth(c: PoolClient, companyId: string, vendor:
   await resolve(c, companyId, `auth:${vendor}`, now);
   for (const r of woken) await resolve(c, companyId, `run:${r.id}:paused`, now, true);
   return woken.map((r) => r.id);
+}
+
+const VENDOR_NAME: Record<string, string> = { ghl: "GHL", slack: "Slack", calendly: "Calendly", jev: "Jev", anthropic: "The AI (Anthropic)", whop: "Whop", fathom: "Fathom", resend: "Resend" };
+const STATUS_WORDS: Record<number, string> = { 400: "refused the request", 401: "rejected the token", 403: "refused access", 404: "has no such record", 408: "timed out", 409: "says it conflicts with what is there", 422: "refused the data", 425: "asked us to wait", 429: "is rate-limiting us", 500: "had an internal error", 502: "is unavailable", 503: "is unavailable", 504: "timed out" };
+const unescape = (s: string) => { try { return JSON.parse(`"${s}"`) as string; } catch { return s; } };
+const sentence = (s: string) => s.trim().replace(/\s+/g, " ").replace(/[.\s]+$/, "");
+
+/**
+ * D77: a step's error as a person reads it in an alert: the vendor's own message out of its body (GHL `message` /
+ * `errors[].message`, Calendly `message` / `details`, Slack `error`), else the status as words, never raw JSON; no final
+ * period. "GHL says a record with the same value for External ID - test-20254447 already exists". The raw error stays in the
+ * alert's detail and on the run page.
+ */
+export function plainError(f: Pick<Classified, "vendor" | "status" | "message">): string {
+  const raw = f.message.trim();
+  const who = f.vendor ? VENDOR_NAME[f.vendor] ?? f.vendor : null;
+  // "GHL 400 on /path: <body>", "slack: invalid_auth", "fathom: create webhook 500 <body>", "POST url → 502: <body>"
+  const prefixed = f.vendor ? new RegExp(`^${f.vendor}:\\s*(?:[a-z ]*?\\d{3}\\s*)?([\\s\\S]*)$`, "i").exec(raw)?.[1] : undefined;
+  const body = /\b[A-Za-z]+ \d{3} on \S+:\s*([\s\S]*)$/.exec(raw)?.[1] ?? /→\s*\d{3}:\s*([\s\S]*)$/.exec(raw)?.[1] ?? prefixed ?? raw;
+  const said = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(body)?.[1] ?? /"details"\s*:\s*\[\s*\{[^}]*?"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(body)?.[1] ?? /"error"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(body)?.[1];
+  if (said) return sentence(`${who ?? "The vendor"} says ${unescape(said).replace(/^[A-Z](?![A-Z])/, (c) => c.toLowerCase())}`);
+  const text = body.trim();
+  if (who === "Slack" && /^[a-z_]+$/.test(text)) return sentence(`Slack says ${text.replace(/_/g, " ")}`);
+  if (f.status !== null && (!text || /^[[{<]/.test(text) || text === raw)) return sentence(`${who ?? "The vendor"} ${STATUS_WORDS[f.status] ?? `answered ${f.status}`}`);
+  if (text && text !== raw && !/^[[{<]/.test(text)) return sentence(`${who ?? "The vendor"} says ${text.slice(0, 200).replace(/^[A-Z](?![A-Z])/, (c) => c.toLowerCase())}`);
+  return sentence(raw.slice(0, 200));
 }

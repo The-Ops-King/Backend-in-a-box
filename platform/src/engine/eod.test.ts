@@ -248,9 +248,59 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       expect(dm).toContain(`Hey Allan, your end-of-day is waiting:\n• <https://engine.test/eod/${token}?day=${day(3).toISODate()}|${label(day(3))}>: 1 call with no outcome in GHL\n• <https://engine.test/eod/${token}|today>: 1 call with no outcome in GHL\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`);
       expect(dm.some((t) => t.includes("Walt") || t.includes("Zoe"))).toBe(false);
       expect(posts.slice(n).filter((p) => p.channel === "UOPS").map((p) => p.text)).toEqual([`Allan P still has Sales Calls with no outcome in GHL after two days:\n• ${label(day(3))}: Xena Person`]);   // once a day, from the evening reminder
+      // D77: the count is what the form shows: that day's form has Xena's row and nothing else to file
+      const form = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, day(3).toISODate()!, DateTime.now(), fake));
+      expect(form.calls.map((x) => [x.appointment_id, x.contact])).toEqual([["ghl:Xena", "Xena Person"]]);
     } finally {
       fake.read.objectRecords = before;
       await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes','bot.escalate_to')", [companyId]));
+    }
+  });
+  it("D77: the form lists the closer's Sales Calls booked before the engine only while they are blank in GHL (no outcome, no disposition) and due; filing one writes to that record by its id, a changed answer empties what the old one set, the same answer is not written again", async () => {
+    const d1 = DateTime.now().setZone(TZ).minus({ days: 1 }), dayStr = d1.toISODate()!;
+    const at = (h: number) => d1.set({ hour: h, minute: 0, second: 0, millisecond: 0 }).toUTC().toISO()!;
+    const rec = (id: string, iso: string, props: Record<string, unknown> = {}) => ({ id, createdAt: iso, properties: { display_label: `${id} Before — ${dayStr}`, scheduled_at: iso, call_date: dayStr, outcome: "", closer: "Allan P", ...props } });
+    let store = [
+      rec("Sol", at(12)),                                         // booked before the engine, blank: a row
+      rec("Pia", at(12), { disposition: "follow_up" }),           // a disposition is an answer: not a row
+      rec("Quinn", at(13), { outcome: "no_show" }),               // filed: not a row
+      rec("Rae", at(10), { contact_id: "GM" }),                   // Mia's own booking (same person, same minute): the engine's row covers it
+      rec("Uri", at(12), { closer: "Someone Else" }),             // another closer's
+      rec("Tom", DateTime.now().plus({ hours: 2 }).toUTC().toISO()!),   // not due yet
+    ];
+    const writes: { object: string; id: string; props: Record<string, unknown> }[] = [];
+    const before = { read: fake.read.objectRecords, write: fake.write.updateRecord };
+    fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? store : []);
+    fake.write.updateRecord = async (_c, object, id, props) => { writes.push({ object, id, props }); store = store.map((r) => (r.id === id ? { ...r, properties: { ...r.properties, ...props } } : r)); };
+    await asOperator(async (c) => { for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]); });
+    try {
+      const who = { id: allan, name: "Allan P", email: "allan@eod.test" };
+      const open = () => asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, dayStr, DateTime.now(), fake));
+      const pre = await open();
+      expect(pre.calls.map((x) => x.contact)).toEqual(["Mia Chen", "Sol Before", "Noah Reyes", "Theo Park"]);
+      expect(pre.calls.find((x) => x.contact === "Sol Before")).toMatchObject({ appointment_id: "ghl:Sol", record_id: "Sol", outcome: "" });
+      expect((await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, dayStr))).calls).toHaveLength(3);   // without the vendors, the ledger's rows alone
+      const token = await asOperator((c) => tokenFor(c, allan));
+      const answer = (o: "no_show" | "follow_up") => { const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "n", next_date: x.outcome === "follow_up" || (x.contact === "Sol Before" && o === "follow_up") ? DateTime.now().plus({ days: 2 }).toISODate() : x.next_date, next_steps: x.next_steps || "call back", outcome: x.contact === "Sol Before" ? o : x.outcome })); return { ...pre, ...totalsOf(calls), calls, day_answers: {} }; };
+      // a row the form never offered is refused: nothing written
+      const forged = answer("no_show"); forged.calls = [...forged.calls, { ...forged.calls[1], appointment_id: "ghl:Uri", contact: "Uri" }];
+      expect(await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: forged }))).toMatchObject({ ok: true });
+      expect(writes.map((w) => w.id)).toEqual(["Sol"]);
+      expect(writes[0]).toEqual({ object: "custom_objects.sales_call", id: "Sol", props: { outcome: "no_show", disposition: null, cash_collected: null, objection_primary: null, next_step: null, next_step_date: null, payment_terms: null } });
+      // GHL has its answer now: no longer blank, still on the form because it was filed here, and a changed answer edits the same record
+      const again = await open();
+      expect(again.calls.find((x) => x.appointment_id === "ghl:Sol")).toMatchObject({ contact: "Sol Before" });
+      expect(again.calls.find((x) => x.appointment_id === "ghl:Sol")!.record_id).toBeUndefined();
+      expect(again.calls.some((x) => x.appointment_id === "ghl:Uri")).toBe(false);   // the forged row was never stored
+      await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: answer("follow_up") }));
+      expect(writes.slice(1)).toEqual([{ object: "custom_objects.sales_call", id: "Sol", props: { outcome: "showed", disposition: "follow_up" } }]);
+      await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: answer("follow_up") }));
+      expect(writes).toHaveLength(2);   // the same answer is not written again
+      // the reminder no longer counts it: nothing blank is left for that day
+      expect((await open()).calls.filter((x) => x.record_id)).toEqual([]);
+    } finally {
+      fake.read.objectRecords = before.read; fake.write.updateRecord = before.write;
+      await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes')", [companyId]));
     }
   });
 });

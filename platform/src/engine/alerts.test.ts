@@ -65,7 +65,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(a.posted, JSON.stringify({ a, posts })).toBe(1); expect(a.repeated).toBe(0);
     expect(posts).toHaveLength(1);
     expect(posts[0].channel).toBe("CALERTS"); expect(posts[0].as).toMatchObject({ name: "Engine alerts", icon: ":rotating_light:" });
-    expect(posts[0].text).toMatch(/🔴 \*Alert Co · Token rejected\*\nGHL rejected the company's token \(401\): runs that reach it pause until the token is replaced in settings\. First seen on "Tag it" at step g1 for Leo Ortiz: .*Invalid Private Integration token/);
+    expect(posts[0].text).toMatch(/🔴 \*Alert Co · Token rejected\*\nGHL rejected the company's token: runs that reach it pause until the token is replaced in settings\. First seen when Tag it couldn't add the tag “.*” for Leo Ortiz: GHL says invalid Private Integration token\.\n/);
     expect(posts[0].text).toMatch(/\/c\/alrt\/r\//);
     // minutes later a second run hits the same dead token: it pauses too, and nothing new is said
     await fire(); await tick(fake, undefined, companyId);
@@ -193,7 +193,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect((await asOperator((c) => one<{ result: { kind: string } }>(c, "select result from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_id='s1'", [wfId])))!.result.kind).toBe("blocked");
     const a = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));
     expect(a.posted).toBe(1);
-    expect(posts.at(-1)!.text).toMatch(/🟡 \*Alert Co · Step could not run\*\n"Say hi" could not run step s1 \(Post to Slack \(channel nope\)\) for Leo Ortiz: slack channel not bound\. The run went on without it\./);
+    expect(posts.at(-1)!.text).toMatch(/🟡 \*Alert Co · Step could not run\*\nSay hi couldn't post to Slack \(channel nope\) for Leo Ortiz: slack channel not bound\. The run went on without it\./);
     await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.nope','channel',$2)", [companyId, Buffer.from("CNOPE")]));
     await fireRemove(); await tick(fake, undefined, companyId);
     const a2 = await asOperator((c) => tickAlerts(c, fake, pollRep, tickRep, new Date(), companyId));

@@ -67,6 +67,7 @@ export type CallEntry = {
   dq_reason: string; dq_note: string;                  // dq
   about: string; notes: string;
   extra: Record<string, string>;                       // the company's own questions, by key
+  record_id?: string;                                  // D77: a Sales Call booked before the engine, still blank in GHL (appointment_id is "ghl:<record id>")
 };
 export type DayTotals = { calls_count: number; closes: number; deposits: number; cash: number; revenue: number };
 export const totalsOf = (calls: CallEntry[]): DayTotals => ({
