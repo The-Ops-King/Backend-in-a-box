@@ -2,12 +2,12 @@ import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
-import { fallbacksOf, onwardEdge, type Edge, type Node } from "./definition";
+import { fallbacksOf, labelledEdge, onwardEdge, type Edge, type Node } from "./definition";
 import { evaluate } from "./predicate";
 import { render, resolveExpr, resolvePath, parseDuration, StaleTemplateError, UnknownPathError } from "./template";
 import { predicateWords, durationWords } from "./describe";
 import { syncCards, pickCard, latestCard } from "./cards";
-import { computeWaitUntil, deferIntoWindow } from "./waitrule";
+import { computeWaitUntil, deferIntoWindow, timeParam } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
 import type { Effective } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
@@ -318,6 +318,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       const timeoutEdge = d.edgesFrom(node.id).find((e) => e.label === "timeout");
       return timeoutEdge ? { status: "ok", next: timeoutEdge.to, result: { timed_out: true } } : { status: "exit", reason: "no_reply", result: { timed_out: true } };
     }
+
+    case "wait_for_event": return waitForEvent(d, node);
 
     case "wait_for_reaction": {
       // the message: a post remembered under a tag, or a post this run made (by node id). The door matches taps to it by tag; the step by the message itself (channel + ts).
@@ -792,6 +794,56 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
       return started ? { status: "exit", reason: `started:${node.workflow}`, result: { run_id: started } } : { status: "exit", reason: `handoff_suppressed:${node.workflow}`, result: { why: "target disabled or re-entry blocked" } };
     }
   }
+}
+
+/** What a booking is, in the words a template filters on (D85): its kind (the calendar's call type; none is a closing call, as D79 counts), how it was booked, and when. */
+export const APPOINTMENT_FACTS = `a.id, a.starts_at, a.ends_at, a.booked_at, a.status, coalesce(t.category, 'closing') as kind,
+  case when a.self_booked then 'self' when a.self_booked = false then 'setter' end as booking_source, a.set_by, a.source, u.name as closer, ot.category as outcome`;
+export const APPOINTMENT_JOINS = "left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id left join company_terms ot on ot.id=a.outcome_term";
+export const appointmentRow = (r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v]));
+
+type EventPin = { entered?: string; after_id?: number; since?: string | null; until?: string | null; consumed?: number[] };
+/**
+ * D85: an event about this person (or booking) or a deadline, whichever comes first. Parked, the run carries runs.wake_on_event =
+ * the type, and emitEvent wakes it the moment one is written (dispatch.ts), the way an inbound text wakes a reply wait; the
+ * deadline is next_run_at like any wait. What it counts: events after the step began (by id, so a clock skew never hides one), or at
+ * or after `since`; never one this step already took (a loop back, or `resume`, does not see the same event twice).
+ */
+async function waitForEvent(d: ExecDeps, node: Extract<Node, { type: "wait_for_event" }>): Promise<StepOutcome> {
+  const about = node.about === "appointment" ? d.run.appointment_id : d.run.contact_id;
+  if (!about) return { status: "failed", error: `wait_for_event ${node.id}: the run is not about ${node.about === "appointment" ? "an appointment" : "a contact"}` };
+  const key = `vars.__wait_for_event.${node.id}`;
+  const pin: EventPin = { ...((resolvePath(d.ctx, key) as EventPin | undefined) ?? {}) };
+  if (!pin.entered) {
+    if (!(await one(d.c, "select 1 from event_types where name=$1", [node.event]))) return { status: "failed", error: `wait_for_event ${node.id}: "${node.event}" is not an event type the engine knows` };
+    let since: DateTime | null = null;
+    if (node.since) { const raw = render(node.since, d.ctx, env(d)); since = timeParam(raw, d.now); if (raw.trim() && !since) return { status: "failed", error: `wait_for_event ${node.id}: since "${raw}" is not a time` }; }
+    let until: DateTime | null = null;
+    if (node.until) { until = computeWaitUntil(node.until, { now: d.now, contactTz: contactTz(d), companyTz: d.company.timezone, ctx: d.ctx }).at; if (node.respect_send_window) until = deferIntoWindow(until, contactTz(d), d.company.send_window_start, d.company.send_window_end).at; }
+    Object.assign(pin, { entered: d.now.toISO(), after_id: Number((await one<{ id: string }>(d.c, "select coalesce(max(id),0)::text as id from events"))!.id), since: since?.toISO() ?? null, until: until?.toISO() ?? null });
+  }
+  const consumed = pin.consumed ?? [];
+  const rows = await many<{ id: string; event_type: string; occurred_at: Date; source: string; data: Record<string, unknown>; appointment_id: string | null }>(d.c,
+    `select id::text, event_type, occurred_at, source, data, appointment_id from events where company_id=$1 and event_type=$2 and ${node.about === "appointment" ? "appointment_id" : "contact_id"}=$3
+      and (case when $4::timestamptz is not null then occurred_at >= $4 else (id > $5 or occurred_at >= $6) end) and not (id = any($7::bigint[])) order by occurred_at, id limit 200`,
+    [d.company.id, node.event, about, pin.since ?? null, pin.after_id ?? 0, pin.entered, consumed]);
+  const prior = resolvePath(d.ctx, `vars.${node.into}`);
+  const leave = async (into: unknown, label: "event" | "until", result: Record<string, unknown>): Promise<StepOutcome> => {
+    setPath(d.ctx, `vars.${node.into}`, into); setPath(d.ctx, key, { consumed: pin.consumed ?? consumed });
+    await d.c.query("update runs set wake_on_event=null where id=$1", [d.run.id]);
+    return { status: "ok", next: labelledEdge(d.edgesFrom(node.id), label)?.to ?? null, result };
+  };
+  for (const ev of rows) {
+    const appt = ev.appointment_id ? await one<Record<string, unknown>>(d.c, `select ${APPOINTMENT_FACTS} from appointments a ${APPOINTMENT_JOINS} where a.id=$1`, [ev.appointment_id]) : null;
+    const found = { matched: true, id: Number(ev.id), type: ev.event_type, at: ev.occurred_at.toISOString(), source: ev.source, data: ev.data, ...(appt ? { appointment: appointmentRow(appt) } : {}) };
+    if (node.match) { setPath(d.ctx, `vars.${node.into}`, found); const ok = evaluate(node.match, { ...d.ctx, data: ev.data }); setPath(d.ctx, `vars.${node.into}`, prior); if (!ok) continue; }
+    pin.consumed = [...consumed, found.id];
+    return leave(found, "event", { event: found.type, event_id: found.id, at: found.at });
+  }
+  if (pin.until && DateTime.fromISO(pin.until) <= d.now) return leave({ matched: false }, "until", { timed_out: true, until: pin.until });
+  setPath(d.ctx, key, pin);
+  await d.c.query("update runs set wake_on_event=$2 where id=$1", [d.run.id, node.event]);
+  return { status: "waiting", until: pin.until ? DateTime.fromISO(pin.until) : undefined, stay: true, result: { waiting_for: node.event, about: node.about, until: pin.until ?? null, ...(pin.since ? { since: pin.since } : {}) } };
 }
 
 /**

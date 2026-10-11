@@ -60,6 +60,11 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("wait_for_reaction"), of: z.string(), emojis: z.array(z.string().min(1)).min(1), timeout: z.string().optional(), into: z.string().default("reaction"), blocking: z.boolean().default(true), until: WaitRule.optional() }),
   // Returns a run its listener pulled away (D58) to the step it was parked on, with that step's own due time; with nothing to return to, follows its edge like any step.
   z.object({ ...base, type: z.literal("resume") }),
+  // D85: an event or a deadline, whichever comes first. `event` about this run's contact (or its appointment, `about`), passing `match` (read against the run's context, the event's
+  // data under `data` and the whole event under vars.<into>); `since` (a time, "<time> +30m" allowed) lets one that already happened count at once, else only those after the step
+  // began. The run is woken the moment one is emitted (runs.wake_on_event), never polled; `until` is a wait rule pinned on entry, moved into the send window like `wait` unless
+  // respect_send_window is false. vars.<into> gets { matched, id, type, at, source, data, appointment? } or { matched: false }; edges labelled "event" and "until" (else the plain one).
+  z.object({ ...base, type: z.literal("wait_for_event"), event: z.string().min(1), match: Predicate.optional(), about: z.enum(["contact", "appointment"]).default("contact"), since: z.string().optional(), until: WaitRule.optional(), into: z.string().min(1).default("waited"), respect_send_window: z.boolean().default(true) }),
   // kind: "human" reads like a person wrote it and always respects dark hours; "transactional" is an automated receipt ("you're booked") the company may let through at any hour
   // ghl_template: the CRM's own SMS snippet / email builder template id (or a {{crm.*}} binding); when set and found, the team's copy in the CRM wins over `template` (D30)
   z.object({ ...base, type: z.literal("send_sms"), template: z.string(), ghl_template: z.string().optional(), kind: z.enum(["human", "transactional"]).default("human"), validity: Validity.optional(), on_stale: OnStale.default("skip"), substitute_template: z.string().optional() }),
@@ -134,8 +139,10 @@ export const Edge = z.object({ from: z.string(), to: z.string(), when: Predicate
 export type Edge = z.infer<typeof Edge>;
 /** A slack_post's fallback channels in the order they are tried (D58, D79). */
 export const fallbacksOf = (f?: string | string[]): string[] => (f === undefined ? [] : Array.isArray(f) ? f : [f]);
-/** Edge labels that are not "go on": the reply wait's `timeout`, a listener's `tap` and `until` (D58). */
-export const SIDE_LABELS = new Set(["timeout", "tap", "until"]);
+/** Edge labels that are not "go on": the reply wait's `timeout`, a listener's `tap` and `until` (D58), an event wait's `event` (D85). */
+export const SIDE_LABELS = new Set(["timeout", "tap", "until", "event"]);
+/** The edge labelled `label`, else the plain onward one (an event wait whose two outcomes go the same way needs one edge). */
+export const labelledEdge = (edges: Edge[], label: string): Edge | undefined => edges.find((e) => e.label === label) ?? edges.find((e) => !SIDE_LABELS.has(e.label ?? ""));
 /** The edge a step follows when it simply finishes: the first one not labelled as a side path (else the first at all). */
 export const onwardEdge = (edges: Edge[]): Edge | undefined => edges.find((e) => !SIDE_LABELS.has(e.label ?? "")) ?? edges[0];
 
@@ -166,6 +173,11 @@ export const Definition = z.object({
     const labels = d.edges.filter((e) => e.from === n.id).map((e) => e.label);
     if (!labels.includes("tap")) ctx.addIssue({ code: "custom", message: `node ${n.id} (wait_for_reaction, blocking: false) has no edge labeled "tap"` });
     if (!labels.some((l) => l !== "tap" && l !== "until")) ctx.addIssue({ code: "custom", message: `node ${n.id} (wait_for_reaction, blocking: false) has no edge to go on by` });
+  }
+  for (const n of d.nodes) if (n.type === "wait_for_event") {
+    const outs = d.edges.filter((e) => e.from === n.id);
+    if (!labelledEdge(outs, "event")) ctx.addIssue({ code: "custom", message: `node ${n.id} (wait_for_event) has no edge labeled "event" (or a plain one) for when the event comes` });
+    if (n.until && !labelledEdge(outs, "until")) ctx.addIssue({ code: "custom", message: `node ${n.id} (wait_for_event) has no edge labeled "until" (or a plain one) for the deadline` });
   }
 });
 export type Definition = z.infer<typeof Definition>;

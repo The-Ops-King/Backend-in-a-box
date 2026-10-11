@@ -38,12 +38,16 @@ export function projectRun(def: Definition, run: Pick<RunRow, "status" | "curren
     } else if (n.type === "wait_for_reaction" && n.blocking) {
       out.push({ node_id: id, title: d.title, kind: "wait", at: null, note: n.timeout ? `moves on the moment the team taps, or after ${n.timeout}` : "moves on the moment the team taps" });
       break;
+    } else if (n.type === "wait_for_event") {
+      const until = resolvePath(ctx, `vars.__wait_for_event.${n.id}.until`) as string | undefined;
+      out.push({ node_id: id, title: d.title, kind: "wait", at: until ?? null, note: `moves on the moment it arrives${n.until ? ", or at the deadline" : ""}` });
+      break;
     } else if (n.type === "send_sms" || n.type === "send_email") {
       const dark = n.kind === "transactional" && company.quiet_allow_transactional ? { at: cursor, deferred: false } : deferIntoWindow(cursor, contactTz, company.send_window_start, company.send_window_end);
       if (dark.deferred) cursor = dark.at;
       out.push({ node_id: id, title: d.title, kind: "send", at: cursor.toISO(), note: dark.deferred ? "held until the send window opens" : undefined });
     } else if (n.type === "branch" || n.type === "check") {
-      out.push({ node_id: id, title: d.title, kind: "decision", at: cursor.toISO(), note: n.type === "check" ? `if not → ${describeNode(n).detail?.replace(/^If not → /, "") ?? "stops"}` : next(id).map(edgeWords).filter(Boolean).join(" / ") });
+      out.push({ node_id: id, title: d.title, kind: "decision", at: cursor.toISO(), note: n.type === "check" ? `if not → ${describeNode(n).detail?.replace(/^If not → /, "") ?? "stops"}` : next(id).map((e) => edgeWords(e, n)).filter(Boolean).join(" / ") });
       break;
     } else if (n.type === "exit") {
       out.push({ node_id: id, title: d.title, kind: "exit", at: cursor.toISO() }); break;

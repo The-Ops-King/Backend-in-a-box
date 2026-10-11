@@ -764,6 +764,34 @@ A run about the company or a person has no contact; the dashboard shows the pers
 Nothing on a timer lives outside a workflow: the end-of-day reminders, the health sweep, the availability
 watch and the wrap-ups are templates like any other, installed and edited like any other.
 
+## Building blocks (D85)
+
+Generic steps a template combines instead of the engine hardcoding a business rule. Each is data in the
+definition, says what it does in plain words on the chart, is listed in the coverage map and has a failure role.
+
+**`wait_for_event`: an event or a deadline, whichever comes first.** `{ event, match?, about?, since?, until?,
+into?, respect_send_window? }`. Waits for an `event` (a type from `event_types`, checked by the sweep like a
+trigger's) about the run's contact (`about: "contact"`, the default) or its appointment (`"appointment"`).
+`match` is the trigger's predicate, read against the run's context plus the event's data under `data` and the
+whole event under `vars.<into>` (`{{vars.booking.appointment.kind}}`: a booking event carries the booking's
+`kind`, `booking_source` setter | self, `status`, `starts_at`, `booked_at`). `since` (a template time, with an
+optional offset: `"{{recording.started_at}}"`, `"{{recording.ended_at}} -5m"`) lets an event that already
+happened count at once; without it only events after the step began count. `until` is a `wait` rule on any
+context time (`{ anchor: "recording.ended_at", offset: "+15m" }`), pinned when the step begins and moved into
+the send window as `wait` is, unless `respect_send_window: false` (a deadline nobody hears about). The result
+lands in `vars.<into>` (default `waited`): `{ matched: true, id, type, at, source, data, appointment? }` or
+`{ matched: false }`. Edges: `label: "event"` and `label: "until"` (a plain edge stands in for either). Nothing
+polls: parked, the run carries `runs.wake_on_event` = the type, and `emitEvent` (`dispatch.ts`) sets
+`next_run_at = now()` on every waiting run of the company with that type for that contact or appointment, the
+way an inbound text wakes a reply wait; the deadline is `next_run_at`. An event the step took is never taken
+again when the run comes back to the step. Deadline editable on the step (`until_offset`).
+
+```json
+{ "id": "w_booked", "type": "wait_for_event", "event": "appointment.booked", "since": "{{recording.started_at}}",
+  "match": { "eq": ["{{vars.booking.appointment.kind}}", "closing"] }, "into": "booking",
+  "until": { "anchor": "recording.ended_at", "offset": "+30m", "tz": "company" }, "respect_send_window": false }
+```
+
 ## Seeing what will happen (and when)
 
 Every live run shows its plan: the contact page ("What happens next"), the run page, and the workflow

@@ -2625,3 +2625,18 @@ so the engine had Lynton as "showed" while GHL had him closed won.
 - **Pending** is a new call outcome: a close that has not gone through (the agreement or the rest of the money is
   outstanding). It is not a close. Hair's `close_pending` means pending.
 
+## D85. Workflow building blocks: wait for an event, lists, lookups, records by id, opportunities (2026-10-11)
+
+The owner: "I want these all in individual workflows. I don't want this to be a custom build that we have to continue to
+build every single time. I want to be able to adjust and adapt the existing workflows ... I do not want you to hard code it."
+An audit found business behaviour held in engine code because a workflow had no generic step to say it with. These are the
+steps. Nothing existing moves onto them yet; that is the next piece of work, done separately.
+
+- **Wait for an event, or a deadline.** `wait_for_event` waits for one event type about the run's contact (or its
+  appointment), optionally passing a condition, and goes on by the edge labelled `event` the moment one is written, or by
+  `until` at the deadline. Nothing polls: a parked run is marked with the type it waits for (`runs.wake_on_event`) and writing
+  any event wakes the runs of that company waiting for that type about that person or booking, the way a reply wakes a reply
+  wait. `since` lets an event that already happened count ("a booking made during the call"); without it only events after the
+  step began count, and an event the step took once is not taken again. The deadline is pinned when the step begins and waits
+  for the send window as `wait` does, unless the step says it is internal.
+

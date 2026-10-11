@@ -7,7 +7,7 @@ import { describeNode, humanWords, pathWords, templateWords } from "./describe";
  * D77. Which steps hold the run when they keep failing, and which are skipped so the rest still runs.
  *
  * A step is BLOCKING when the run cannot go on without it: it decides where the run goes or waits (trigger, branch, check,
- * the waits, set_var, record, record_outcome, update_opportunity, start_workflow, pause_runs, resume, exit), or a later
+ * the waits (wait_for_event too), set_var, record, record_outcome, update_opportunity, start_workflow, pause_runs, resume, exit), or a later
  * step on its path reads what it produced (`cards.<board>` / `opportunity.*` after a pipeline_card, `record.*` after a
  * crm_record, the `into` of a classify / analyze / webhook / report / eod_due, `appointment.<field>` after an
  * update_appointment that sets it, a slack_post a later blocking wait_for_reaction waits on). Everything else is
@@ -19,7 +19,7 @@ export type Role = { blocking: boolean; why: string };
 
 const CONTROL: Partial<Record<Node["type"], string>> = {
   trigger: "it starts the run", exit: "it ends the run", branch: "it decides where the run goes", check: "it decides whether the run goes on",
-  wait: "the run waits on it", wait_for_reply: "the run waits on it", wait_for_reaction: "the run waits on it", resume: "it decides where the run goes",
+  wait: "the run waits on it", wait_for_reply: "the run waits on it", wait_for_reaction: "the run waits on it", wait_for_event: "the run waits on it", resume: "it decides where the run goes",
   set_var: "later steps read what it remembers", record: "it is the run's own ledger", record_outcome: "it is the run's own ledger",
   update_opportunity: "it is the run's own ledger", start_workflow: "it hands the run on", pause_runs: "it stops the person's other runs",
 };

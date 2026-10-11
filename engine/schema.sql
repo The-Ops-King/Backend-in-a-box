@@ -476,6 +476,7 @@ create table runs (
   next_run_at         timestamptz,                         -- THE clock. Null when not waiting.
   wake_on_reply       boolean not null default false,       -- true only while parked on wait_for_reply; an inbound message wakes these and nothing else
   wake_on_tag         text,                                 -- set while parked on wait_for_reaction, or while a non-blocking listener is armed: the tag of the Slack post whose tap wakes it (D53, D58)
+  wake_on_event       text,                                 -- D85: set while parked on wait_for_event: the event type whose arrival for this contact or appointment wakes it
   resume_node         text,                                 -- D58: where a run with an armed listener was parked, so `resume` can return it there after the decision path
   resume_at           timestamptz,                          -- D58: that parked step's own due time, kept intact across the jump
   context             jsonb not null default '{}',         -- resolved vars, last reply, etc.
@@ -493,6 +494,7 @@ create table runs (
   unique (workflow_id, reentry_key)
 );
 create index on runs (status, next_run_at) where status in ('active','waiting');
+create index on runs (company_id, wake_on_event) where wake_on_event is not null;   -- D85: emitEvent wakes the runs parked on wait_for_event for that type
 create index on runs (company_id, contact_id);
 -- D66: the run whose card step made the card, so a retry of that step finds its own card (runs is declared after pipeline_cards)
 alter table pipeline_cards add column created_by_run uuid references runs(id) on delete set null;

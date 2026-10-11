@@ -17,6 +17,7 @@ export type StepEdit =
   | { type: "create_task"; assign_to?: string; due?: string }
   | { type: "set_var"; value?: string }          // a knob the workflow reads (minimum call length, a threshold); numbers stay numbers
   | { type: "wait"; offset?: string }            // how long the wait is ("+15m", "+2h", "day_of@08:00")
+  | { type: "wait_for_event"; until_offset?: string }   // D85: how long it waits for the event before the deadline path ("+15m", "+2d")
   | { type: "send_sms" | "send_email"; ghl_template?: string };   // the CRM's own snippet / email template id; empty = use the copy on the step
 const OFFSET = /^[+-]?\d+\s*(s|m|h|d|w)$|^(day_of|day_before|day_after)@\d{2}:\d{2}$/;
 
@@ -50,6 +51,7 @@ export async function saveStepEdit(c: PoolClient, args: { workflowId: string; no
   else if (e.type === "send_sms" || e.type === "send_email") { if (e.ghl_template !== undefined) set("ghl_template", e.ghl_template); }
   else if (e.type === "set_var") { if (e.value !== undefined) { const v: unknown = /^-?\d+(\.\d+)?$/.test(e.value) ? Number(e.value) : e.value; if (JSON.stringify(node.value) !== JSON.stringify(v)) { node.value = v; changed.push("value"); } } }
   else if (e.type === "wait") { if (e.offset) { const offset = e.offset.replace(/\s+/g, ""); if (!OFFSET.test(offset)) return { ok: false, why: `"${e.offset}" is not a wait: use +15m, +2h, -1d, or day_of@08:00` }; const rule = { ...(node.rule as Record<string, unknown>), offset }; if (JSON.stringify(rule) !== JSON.stringify(node.rule)) { node.rule = rule; changed.push("offset"); } } }
+  else if (e.type === "wait_for_event") { if (e.until_offset) { const offset = e.until_offset.replace(/\s+/g, ""); if (!OFFSET.test(offset)) return { ok: false, why: `"${e.until_offset}" is not a wait: use +15m, +2h, +2d, or day_of@08:00` }; const rule = { ...((node.until as Record<string, unknown>) ?? { anchor: "now", tz: "contact" }), offset }; if (JSON.stringify(rule) !== JSON.stringify(node.until)) { node.until = rule; changed.push("until"); } } }
   if (!changed.length) return { ok: true, version: w.current_version, changed };
   try { parseDefinition(def); } catch (err) { return { ok: false, why: `the change does not validate: ${String((err as Error).message).slice(0, 200)}` }; }
   const next = w.current_version + 1;

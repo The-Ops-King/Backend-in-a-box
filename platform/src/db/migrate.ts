@@ -18,6 +18,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table companies add column if not exists mode text not null default 'shadow'`);
     await c.query(`alter table runs add column if not exists wake_on_reply boolean not null default false`);
     await c.query(`alter table runs add column if not exists wake_on_tag text`);   // D53: the Slack post whose tap wakes a run parked on wait_for_reaction
+    await c.query(`alter table runs add column if not exists wake_on_event text`);   // D85: the event type whose arrival wakes a run parked on wait_for_event
+    await c.query(`create index if not exists runs_company_id_wake_on_event_idx on runs (company_id, wake_on_event) where wake_on_event is not null`);
     // D58: a non-blocking listener; where the run was parked (and when it was due) so `resume` can put it back after the decision path
     await c.query(`alter table runs add column if not exists resume_node text`);
     await c.query(`alter table runs add column if not exists resume_at timestamptz`);

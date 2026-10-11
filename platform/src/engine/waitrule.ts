@@ -54,3 +54,13 @@ export function deferIntoWindow(at: DateTime, tz: string, start: string, end: st
   if (local < open) return { at: open, deferred: true };
   return { at: open.plus({ days: 1 }), deferred: true };
 }
+
+/** A time a step is given as text (D85): an ISO time or "now", either with an offset ("<time> +30m"), or an offset alone from now ("-7d"). Null when blank or unreadable. */
+export function timeParam(v: unknown, now: DateTime): DateTime | null {
+  if (v instanceof Date) return DateTime.fromJSDate(v);
+  if (typeof v !== "string" || !v.trim()) return null;
+  const m = /^(.*?)\s*([+-]\s*\d+\s*[smhdw])?$/.exec(v.trim())!;
+  const base = !m[1] || m[1] === "now" ? now : DateTime.fromISO(m[1], { setZone: true });
+  if (!base.isValid) return null;
+  return m[2] ? base.plus(parseDuration(m[2].replace(/\s+/g, ""))) : base;
+}
