@@ -136,6 +136,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table users drop constraint if exists users_role_check`);
     await c.query(`alter table users add constraint users_role_check check (role in ('operator','owner','manager','closer','setter','staff'))`);
     await c.query(`insert into core_categories (domain, value, label, sort) values ('call_outcome','deposit','Deposit',4) on conflict (domain, value) do nothing`);
+    // D83: a close that has not gone through yet (agreement or the rest of the money outstanding); not a close
+    await c.query(`insert into core_categories (domain, value, label, sort) values ('call_outcome','pending','Close pending',7) on conflict (domain, value) do nothing`);
+    await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select co.id, 'call_outcome', 'Close pending', 'pending', true, 7 from companies co where exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome') and not exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome' and t.category='pending') on conflict (company_id, domain, name) do nothing`);
     await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select co.id, 'call_outcome', 'Deposit', 'deposit', true, 4 from companies co where exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome' and t.category='closed') and not exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome' and t.category='deposit') on conflict (company_id, domain, name) do nothing`);
     await ownsOrAbsent(c, "eod_reports", "prefill");
     // D35: everything on a clock is a workflow. Runs may be about the company or a person; schedule and eod.filed start them.

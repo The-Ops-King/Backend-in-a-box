@@ -21,9 +21,9 @@ export const GHL_SOURCE = "GHL, read just now";
 export type GhlEntity = "lead" | "close" | "call" | "payment";
 export type CallClass = "showed" | "noshow" | "cancelled" | "rescheduled";
 export const CALL_CLASSES: CallClass[] = ["showed", "noshow", "cancelled", "rescheduled"];
-export type SalesCallConfig = { object: string; outcomes: Record<string, CallClass>; cancelledValue: string | null; dqDispositions: string[]; dispositions: Record<string, CallResult> };
-/** What a showed call ended as, in the engine's call_outcome categories (a Sales Call's `disposition`). */
-export const CALL_RESULTS = ["closed", "deposit", "follow_up", "lost", "unqualified"] as const;
+export type SalesCallConfig = { object: string; outcomes: Record<string, CallClass>; cancelledValue: string | null; dqDispositions: string[]; dispositions: Record<string, { meaning: CallResult; reason?: string }> };
+/** What a showed call ended as, in the engine's call_outcome categories (a Sales Call's `disposition`). Pending is a close not gone through yet; not a close. */
+export const CALL_RESULTS = ["closed", "deposit", "pending", "follow_up", "lost", "unqualified"] as const;
 export type CallResult = (typeof CALL_RESULTS)[number];
 /** The disposition keys the engine itself writes (eod.ts), read back the same way when the company has not mapped its own. */
 const DEFAULT_DISPOSITIONS: Record<string, CallResult> = { closed_won: "closed", follow_up: "follow_up", lost: "lost", dq: "unqualified" };
@@ -62,10 +62,17 @@ export function salesCallConfig(bindings: Record<string, string>): SalesCallConf
   return { object, outcomes: Object.fromEntries(valid.map(([k, v]) => [norm(k), v])), cancelledValue: cancels.find((k) => norm(k) === "cancelled") ?? cancels[0] ?? null,
     dqDispositions: answerList(bindings["sales_call.dq_dispositions"]).map(norm), dispositions: dispositionMap(bindings) };
 }
-function dispositionMap(bindings: Record<string, string>): Record<string, CallResult> {
+/** `sales_call.dispositions`: {value: meaning} or {value: {meaning, reason}}; the reason names the company's own term under that meaning ("Financing denied" under lost). */
+function dispositionMap(bindings: Record<string, string>): Record<string, { meaning: CallResult; reason?: string }> {
   let map: Record<string, unknown> = DEFAULT_DISPOSITIONS;
   if (bindings["sales_call.dispositions"]) { try { map = JSON.parse(bindings["sales_call.dispositions"]) as Record<string, unknown>; } catch { map = {}; } }
-  return Object.fromEntries(Object.entries(map).filter(([, v]) => CALL_RESULTS.includes(v as CallResult)).map(([k, v]) => [norm(k), v as CallResult]));
+  const out: Record<string, { meaning: CallResult; reason?: string }> = {};
+  for (const [k, v] of Object.entries(map)) {
+    const o = typeof v === "string" ? { meaning: v } : (v as { meaning?: unknown; reason?: unknown } | null) ?? {};
+    if (!CALL_RESULTS.includes(o.meaning as CallResult)) continue;
+    out[norm(k)] = { meaning: o.meaning as CallResult, ...(typeof o.reason === "string" && o.reason.trim() ? { reason: o.reason.trim() } : {}) };
+  }
+  return out;
 }
 export const filedClass = (outcome: unknown, cfg: SalesCallConfig): CallClass | null => cfg.outcomes[norm(answerText(outcome))] ?? null;
 /**

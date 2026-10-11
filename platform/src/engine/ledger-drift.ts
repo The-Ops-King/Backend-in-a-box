@@ -36,7 +36,7 @@ export async function crmPresence(get: (id: string) => Promise<ContactSnapshot |
 }
 
 const WORDS: Record<string, string> = { showed: "showed", noshow: "no-show", cancelled: "cancelled", rescheduled: "rescheduled" };
-const RESULT_WORDS: Record<string, string> = { closed: "closed", deposit: "deposit", follow_up: "follow up", lost: "lost", unqualified: "DQ", qualified: "qualified" };
+const RESULT_WORDS: Record<string, string> = { closed: "closed", deposit: "deposit", pending: "close pending", follow_up: "follow up", lost: "lost", unqualified: "DQ", qualified: "qualified" };
 const snapName = (k: ContactSnapshot) => `${k.firstName ?? ""} ${k.lastName ?? ""}`.trim() || k.email || k.phone || k.id;
 const why = (e: unknown) => String((e as Error).message).slice(0, 160);
 /** "German Arellano, Mon Oct 5 at 10:00 AM": the record's own label carries the time after a dot; the person is what comes first. */
@@ -116,7 +116,8 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
   // not happen (no-show, cancelled, rescheduled) has none. Nothing fires: the ledger only follows GHL
   const followResult = async (k: SalesCall, attended: string | null = k.filed) => {
     const label = callLabel(k), a = k.appt!;
-    const cur = (await one<{ cat: string | null }>(c, "select t.category as cat from appointments a left join company_terms t on t.id=a.call_outcome_term where a.id=$1", [a.id]))?.cat ?? null;
+    const held = await one<{ cat: string | null; name: string | null }>(c, "select t.category as cat, t.name from appointments a left join company_terms t on t.id=a.call_outcome_term where a.id=$1", [a.id]);
+    const cur = held?.cat ?? null;
     if (attended && attended !== "showed") {
       if (!cur) return;
       await c.query("update appointments set call_outcome_term=null where id=$1", [a.id]);
@@ -125,15 +126,16 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       return;
     }
     if (!k.disposition.trim()) return;
-    const meaning = cfg!.dispositions[k.disposition.trim().toLowerCase()];
-    if (!meaning) { cannot(`${label}: GHL's outcome is "${k.disposition}", and the engine hasn't been told what that means yet. That's a setup fix on our side.`, { kind: "disposition_unmapped", record_id: k.id, disposition: k.disposition }); return; }
+    const mapped = cfg!.dispositions[k.disposition.trim().toLowerCase()], meaning = mapped?.meaning;
+    if (!mapped || !meaning) { cannot(`${label}: GHL's outcome is "${k.disposition}", and the engine hasn't been told what that means yet. That's a setup fix on our side.`, { kind: "disposition_unmapped", record_id: k.id, disposition: k.disposition }); return; }
     // the engine files a deposit as closed won (the field has no deposit), so a deposit already says what GHL says
-    if (cur === meaning || (cur === "deposit" && meaning === "closed")) return;
-    const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2 and active order by is_default desc, sort limit 1", [company.id, meaning]))?.id;
+    if ((cur === meaning && (!mapped.reason || held?.name === mapped.reason)) || (cur === "deposit" && meaning === "closed")) return;
+    // the reason's own term when the company has it (Lost: Financing denied), else the meaning's default
+    const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2 and active order by (name = $3) desc, is_default desc, sort limit 1", [company.id, meaning, mapped.reason ?? ""]))?.id;
     if (!term) { cannot(`${label}: GHL says ${RESULT_WORDS[meaning]}, but the engine has no "${meaning}" outcome set up, so it can't follow. That's a setup fix on our side.`, { kind: "call_outcome_term", record_id: k.id }); return; }
     await c.query("update appointments set call_outcome_term=$2 where id=$1", [a.id, term]);
-    await audit("appointment", a.id, { call_outcome: cur }, { repair: "ghl_outcome", call_outcome: meaning, sales_call: k.id });
-    repaired(`${k.id}:result`, `${label}: the ledger said ${cur ? RESULT_WORDS[cur] ?? cur : "no outcome"}, now ${RESULT_WORDS[meaning]} as GHL says`, { appointment_id: a.id, sales_call: k.id, call_outcome: meaning }, k.ghl || k.id);
+    await audit("appointment", a.id, { call_outcome: cur }, { repair: "ghl_outcome", call_outcome: meaning, ...(mapped.reason ? { reason: mapped.reason } : {}), sales_call: k.id });
+    repaired(`${k.id}:result`, `${label}: the ledger said ${cur ? RESULT_WORDS[cur] ?? cur : "no outcome"}, now ${RESULT_WORDS[meaning]}${mapped.reason ? ` (${mapped.reason})` : ""} as GHL says`, { appointment_id: a.id, sales_call: k.id, call_outcome: meaning, ...(mapped.reason ? { reason: mapped.reason } : {}) }, k.ghl || k.id);
   };
   // D76: every Sales Call is linked to its contact and the closer card (fields and associations); repaired when the one right card and contact are certain
   const linkRecord = async (k: SalesCall) => {

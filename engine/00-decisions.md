@@ -2617,6 +2617,11 @@ so the engine had Lynton as "showed" while GHL had him closed won.
   the engine filed stays a deposit when GHL holds closed won (the field has no deposit). Nothing fires; the ledger only
   follows. Every change is in the audit log.
 - What each disposition value means is `sales_call.dispositions` (JSON {value: closed | deposit | follow_up | lost |
-  unqualified}; install `salesCall.dispositions`). Unbound, it is the values the engine itself writes (closed_won,
-  follow_up, lost, dq). A value with no meaning is asked about in the sweep's alert, never guessed.
+  unqualified | pending}, or {value: {meaning, reason}}; install `salesCall.dispositions`). Unbound, it is the values the
+  engine itself writes (closed_won, follow_up, lost, dq). A value with no meaning is asked about in the sweep's alert,
+  never guessed.
+- A reason is the company's own term under that meaning, made at install: Hair's `financing_denied` is lost with the
+  reason "Financing denied" (they applied for financing and nothing offered works).
+- **Pending** is a new call outcome: a close that has not gone through (the agreement or the rest of the money is
+  outstanding). It is not a close. Hair's `close_pending` means pending.
 

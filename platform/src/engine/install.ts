@@ -38,7 +38,7 @@ export type InstallInput = {
   /** D73: financial qualification from the CRM's work-situation field (bound through `crm` as field_contact_work_situation): the answers that make an MQL and a DQ (qualify.mql_answers, qualify.dq_answers), matched exactly; a blank answer is an MQL only with unansweredIsMql (qualify.unanswered_is_mql). */
   qualify?: { mqlAnswers?: string[]; dqAnswers?: string[]; unansweredIsMql?: boolean };
   /** D73: the Sales Call custom object the show rate reads (crm.object_sales_call), what each of its `outcome` values means (sales_call.outcomes; also what the engine writes there, inverted: a new booking's `scheduled`, a no-show, a late cancel), and which `disposition` values are a sales DQ (sales_call.dq_dispositions). */
-  salesCall?: { object?: string; outcomes?: Record<string, "showed" | "noshow" | "cancelled" | "rescheduled" | "scheduled">; dqDispositions?: string[]; dispositions?: Record<string, "closed" | "deposit" | "follow_up" | "lost" | "unqualified">; bookingSources?: { setter?: string; self?: string } };
+  salesCall?: { object?: string; outcomes?: Record<string, "showed" | "noshow" | "cancelled" | "rescheduled" | "scheduled">; dqDispositions?: string[]; dispositions?: Record<string, "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified" | { meaning: "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified"; reason?: string }>; bookingSources?: { setter?: string; self?: string } };
   /** D79: the Discovery Call record's `call_result` option keys, {key: set | follow_up | dq | not_interested} (discovery_call.results; unbound, the keys are those four), and whether Jev's read of a setter call acts (setter_result.act, default off: it only says what it would do). */
   discoveryCall?: { results?: Record<string, "set" | "follow_up" | "dq" | "not_interested">; act?: boolean };
   testDomains?: string[];                // bound as test.domains: email domains whose contacts pass in test (D52), e.g. ["jtylerray.com"]
@@ -156,7 +156,12 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (input.salesCall?.object) await bind("crm.object_sales_call", "id", input.salesCall.object);
     if (input.salesCall?.outcomes) await bind("sales_call.outcomes", "text", JSON.stringify(input.salesCall.outcomes));
     if (input.salesCall?.bookingSources) await bind("sales_call.booking_sources", "text", JSON.stringify(input.salesCall.bookingSources));
-    if (input.salesCall?.dispositions) await bind("sales_call.dispositions", "text", JSON.stringify(input.salesCall.dispositions));
+    if (input.salesCall?.dispositions) {
+      await bind("sales_call.dispositions", "text", JSON.stringify(input.salesCall.dispositions));
+      // a reason is the company's own term under its meaning: made here so the hourly sweep can file it
+      for (const v of Object.values(input.salesCall.dispositions)) if (typeof v === "object" && v.reason?.trim())
+        await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) values ($1,'call_outcome',$2,$3,false,50) on conflict (company_id, domain, name) do nothing", [companyId, v.reason.trim(), v.meaning]);
+    }
     if (input.salesCall?.dqDispositions) await bind("sales_call.dq_dispositions", "text", answers(input.salesCall.dqDispositions));
     if (input.discoveryCall?.results) await bind("discovery_call.results", "text", JSON.stringify(input.discoveryCall.results));
     if (input.discoveryCall?.act !== undefined) await bind("setter_result.act", "text", String(input.discoveryCall.act));
