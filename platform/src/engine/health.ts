@@ -30,7 +30,7 @@ export type Finding = { check: string; item?: string; ok: boolean; level: Level;
 
 export type HealthRow = { company_id: string; channel: string | null; as_name: string | null; as_icon: string | null; last_run_at: Date | null; last_result: Finding[] };
 /** What a sweep is told by the step that runs it: which checks, the availability threshold, the channel its alerts announce in, and its run (the ledger_drift repair records its CRM writes against it, D66). */
-export type HealthConfig = { checks: Record<string, boolean>; min_slots: number; slots_days: number; channel?: string | null; run_id?: string };
+export type HealthConfig = { checks: Record<string, boolean>; min_slots: number; slots_days: number; channel?: string | null; run_id?: string; fathom_silent_days?: number; drift_days?: number; poll_lag_min?: number };
 
 export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "ghl_token", label: "GoHighLevel token", about: "the private integration token still opens the location" },
@@ -143,7 +143,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
 
   // Duplicates: one person the CRM holds twice (D63). Replica reads plus one CRM read per suspect record; nothing is merged here
   if (on("duplicates")) out.push(...(await findDuplicates(c, company, ac, adapters, connected)));
-  if (on("ledger_drift") && connected && probes.ghl) out.push(...(await ledgerDrift(c, company, ac, bindings, probes.ghl, adapters, row.run_id, now)));
+  if (on("ledger_drift") && connected && probes.ghl) out.push(...(await ledgerDrift(c, company, ac, bindings, probes.ghl, adapters, row.run_id, now, { days: row.drift_days, pollLagMin: row.poll_lag_min })));
 
   // Calendly
   if (ac.booking.source === "calendly") {
@@ -185,7 +185,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
       const last = await one<{ at: Date | null }>(c, "select max(received_at) as at from webhook_deliveries where company_id=$1 and provider='fathom'", [company.id]);
       const days = last?.at ? Math.round((now.toMillis() - last.at.getTime()) / 864e5) : null;
       if (days === null) ok("fathom_webhook", "Registered; no delivery yet (Fathom does not list webhooks, so this is as far as the sweep can see).");
-      else if (days > 14) bad("fathom_webhook", "warning", `No Fathom delivery in ${days} days (Fathom does not list webhooks, so this is the only signal).`);
+      else if (days > (row.fathom_silent_days ?? 14)) bad("fathom_webhook", "warning", `No Fathom delivery in ${days} days (Fathom does not list webhooks, so this is the only signal).`);
       else ok("fathom_webhook", `Last Fathom delivery ${days} day${days === 1 ? "" : "s"} ago.`);
     }
   }

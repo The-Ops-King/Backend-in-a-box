@@ -30,7 +30,7 @@ const fake: Adapters = {
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 let companyId: string;
-const TABLES = ["slack_posts", "alerts", "sends", "runs", "events", "form_submissions", "forms", "eod_reports", "crm_records", "recordings", "payments", "pipeline_cards", "appointments", "opportunities", "contact_identifiers", "contacts", "workflow_triggers", "workflows", "slack_connections", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log", "step_effects", "wrapups", "health_checks", "rollups_daily"];
+const TABLES = ["webhook_deliveries", "slack_posts", "alerts", "sends", "runs", "events", "form_submissions", "forms", "eod_reports", "crm_records", "recordings", "payments", "pipeline_cards", "appointments", "opportunities", "contact_identifiers", "contacts", "workflow_triggers", "workflows", "slack_connections", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log", "step_effects", "wrapups", "health_checks", "rollups_daily"];
 const freshCompany = async (slug: string, mode = "live") => asOperator(async (c) => {
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [slug]);
   if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
@@ -433,5 +433,60 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: alerts are said by the Health c
     await asOperator((c) => c.query("update poll_cursors set consecutive_failures=3 where company_id=$1", [companyId]));
     await asOperator((c) => tickAlerts(c, fake, poll, tk, new Date(), companyId));
     expect((await asOperator((c) => many<{ key: string }>(c, "select key from alerts where company_id=$1 and resolved_at is null", [companyId]))).map((a) => a.key)).toContain("poll:contacts");
+  });
+});
+
+describe.skipIf(!process.env.DATABASE_URL)("D88: the drift sweep's findings are events; its questions are worded by the workflow; its window is a setting (A6, B)", () => {
+  const ago = (o: Record<string, number>) => DateTime.now().minus(o);
+  let added: { id: string; when: DateTime }[] = [];
+  const ghl = { contactsAdded: async () => added.map((a) => ({ id: a.id, firstName: a.id, tags: [], customFields: {}, dateAdded: a.when.toUTC().toISO()!, dateUpdated: a.when.toUTC().toISO()! })),
+    wonCards: async () => [{ id: "W1", pipelineId: "P-C", status: "won", wonAt: ago({ days: 1 }).toUTC().toISO()!, contactId: "G-WON", contactName: "Wendy Won", contactTags: [] }],
+    objectRecords: async (_c: unknown, key: string) => (key === "custom_objects.payment" ? [{ id: "PAY1", createdAt: ago({ days: 1 }).toISO()!, properties: { contact_id: "G-OTHER", amount: 100, type: "deposit", status: "succeeded", occurred_at: ago({ days: 40 }).toUTC().toISO() } }] : []),
+    cards: async () => [], pipelines: async () => [], users: async () => [], getContact: async () => null, recordContact: async () => null, fieldCatalog: async () => [] };
+  beforeAll(async () => { await migrate(); companyId = await freshCompany("mvs-a6"); await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'alerts.slack_channel','channel','CALERTS'),($1,'crm.pipeline_closer','id','P-C')", [companyId])); });
+  beforeEach(() => { posts.length = 0; });
+  const sweepWith = async (patch?: (d: Definition) => void) => {
+    const { fakeProbes } = await import("@/engine/test-install");
+    await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
+    const wf = await install("health-check", (d) => { const n = d.nodes.find((x) => x.type === "health_check")!; if (n.type === "health_check") n.checks = Object.fromEntries(["ghl_token", "ghl_calendars", "ghl_pipelines", "ghl_fields", "ghl_users", "slack", "steps", "urls", "anthropic", "duplicates"].map((k) => [k, false])); patch?.(d); });
+    const { fireNow } = await import("@/engine/clock");
+    await asOperator((c) => fireNow(c, companyId, wf));
+    await tick(fake, undefined, companyId, { ...fakeProbes, ghl });
+    const { announceDue } = await import("@/engine/alerts");
+    await asOperator((c) => announceDue(c, fake, new Date(), companyId)); await tick(fake, undefined, companyId, { ...fakeProbes, ghl });
+    return asOperator((c) => many<{ kind: string; count: number }>(c, "select data->>'kind' as kind, (data->>'count')::int as count from events where company_id=$1 and event_type='drift.found' order by id", [companyId]));
+  };
+
+  it("each kind of finding is one drift.found event; a won card with no payment is asked in the template's words; the window is the step's", async () => {
+    added = [{ id: "G-NINE", when: ago({ days: 9 }) }];
+    const found = await sweepWith();
+    expect(found).toEqual([{ kind: "won_no_payment", count: 1 }]);   // nine days ago is outside the 7-day window
+    expect(posts.find((p) => /match GHL/.test(p.text))!.text).toContain("One thing in the engine doesn't match GHL and I have a question about it:\n• Wendy Won: their closer card was won");
+    await asOperator((c) => c.query("delete from events where company_id=$1 and event_type='drift.found'", [companyId]));
+    await asOperator((c) => c.query("update alerts set resolved_at=now(), resolved_announced=true where company_id=$1", [companyId]));
+    const wider = await sweepWith((d) => {
+      const n = d.nodes.find((x) => x.type === "health_check")!; if (n.type === "health_check") n.drift_days = 10;
+      const b = d.nodes.find((x) => x.id === "a_body")!; if (b.type === "set_var") b.else_value = String(b.else_value).replace("their closer card was won", "card won");
+    });
+    expect(wider).toEqual(expect.arrayContaining([{ kind: "pulled_in", count: 1 }, { kind: "won_no_payment", count: 1 }]));
+    expect(posts.filter((p) => /match GHL/.test(p.text)).at(-1)!.text).toMatch(/• Wendy Won: card won \w{3} \w{3} \d{1,2}, but GHL has no payment/);
+  });
+});
+
+describe.skipIf(!process.env.DATABASE_URL)("D88: the health sweep's constants are the step's settings (B)", () => {
+  beforeAll(async () => {
+    await migrate(); companyId = await freshCompany("mvs-b");
+    await asOperator(async (c) => {
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'secret.fathom_api_key','secret',$2),($1,'fathom.webhook_id','id','WH1')", [companyId, encrypt("fk")]);
+      await c.query("insert into webhook_deliveries (company_id, provider, delivery_id, received_at) values ($1,'fathom','d-old', now() - interval '20 days')", [companyId]);
+    });
+  });
+  it("fathom_silent_days: twenty quiet days are a warning at 14, nothing at 30", async () => {
+    const { fakeProbes } = await import("@/engine/test-install");
+    const { runHealthStep } = await import("@/engine/health");
+    const sweep = (days?: number) => asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return runHealthStep(c, row, fake, fakeProbes, { checks: { fathom_webhook: true }, min_slots: 0, slots_days: 7, ...(days ? { fathom_silent_days: days } : {}) }); });
+    const fathom = (r: Awaited<ReturnType<typeof sweep>>) => r.findings.find((f) => f.check === "fathom_webhook")!;
+    expect(fathom(await sweep())).toMatchObject({ ok: false, text: "No Fathom delivery in 20 days (Fathom does not list webhooks, so this is the only signal)." });
+    expect(fathom(await sweep(30))).toMatchObject({ ok: true, text: "Last Fathom delivery 20 days ago." });
   });
 });

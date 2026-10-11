@@ -325,6 +325,7 @@ insert into event_types values
   ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'), ('card.moved','crm'),
   ('schedule','clock'), ('eod.filed','report'), ('eod.call_filed','report'), ('slack.reaction','slack'),
   ('alert.raised','engine'), ('alert.repeated','engine'), ('alert.resolved','engine'),
+  ('drift.found','engine'), ('drift.sales_call_cancelled','engine'), ('drift.sales_call_unlinked','engine'),
   ('run.started','engine'), ('run.exited','engine'), ('send.suppressed','engine');
 
 create table events (
