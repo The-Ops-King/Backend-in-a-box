@@ -479,19 +479,6 @@
         "else_value": "{{vars.unsure_line}}; the team is asked"
       },
       {
-        "id": "v_flag",
-        "type": "set_var",
-        "key": "booked_flag",
-        "value": "[\"yes\"]",
-        "when": {
-          "eq": [
-            "{{vars.result}}",
-            "set"
-          ]
-        },
-        "else_value": ""
-      },
-      {
         "id": "l_now",
         "type": "lookup",
         "query": "call_conversation",
@@ -529,7 +516,6 @@
           "setter": "{{recording.caller.name | default:}}",
           "outcome": "{{recording.status}}",
           "recording_url": "{{recording.url | default:}}",
-          "led_to_booking": "{{vars.booked_flag | default:}}",
           "call_result": "{{vars.result_key | default:}}"
         },
         "relate": [
@@ -721,8 +707,7 @@
         "key": "{{vars.convo.key}}",
         "if_missing": "skip",
         "properties": {
-          "call_result": "{{vars.result_key}}",
-          "led_to_booking": "[\"yes\"]"
+          "call_result": "{{vars.result_key}}"
         },
         "title": "The Discovery Call record becomes Set"
       },
@@ -1278,10 +1263,6 @@
       },
       {
         "from": "v_line",
-        "to": "v_flag"
-      },
-      {
-        "from": "v_flag",
         "to": "l_now"
       },
       {

@@ -308,3 +308,10 @@ and `lastAttributionSource` (the latest). The spec's `AttributionSource` keys: `
 adapter reads that form too (`isFirst` / `isLast`, else first and last). Hair, October's 60 leads: `utmSource` fb 38, ig 17;
 the rest have only `medium` (zapier 4, manual 1). The top-level `source` is the record's origin label ("Optin Form").
 
+
+- **CHECKBOX on a custom object record (verified 2026-10-11, Discovery Call `led_to_booking`):** create accepts the
+  option keys as an array (`["yes"]`). Update (`PUT /objects/{key}/records/{id}`) refuses every format we tried: an array
+  of keys or labels → 422 "unexpected format"; a bare string or `true` → 200 but nothing saved; `[]` does not clear it.
+  So a checkbox on a custom object can only be set when the record is made. The engine does not write checkboxes on
+  later updates; use a single-option field for anything that changes (e.g. `call_result`).
+- **Deleting a custom object record:** `DELETE /objects/{key}/records/{id}` with no `locationId` query (it 422s with one).

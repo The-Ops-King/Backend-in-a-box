@@ -181,7 +181,7 @@ describe.skipIf(!HAS_DB)("setter call result (D79, D87)", () => {
     await run();
     const r = (await runOf(k.contactId))!;
     expect(r).toMatchObject({ status: "completed", exit_reason: "posted" });   // posted at the transcript: no wait
-    expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "create", external_id: k.external, call_result: "set", led_to_booking: ["yes"] })]);
+    expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "create", external_id: k.external, call_result: "set" })]);   // no led_to_booking: GHL cannot update a checkbox; call_result carries Set
     expect(await digestOf(r.id)).toContain("*Outcome:* Set — booked through a setter link during the call (Jev read: follow up, 88% sure)");
     expect(await digestOf(r.id)).not.toMatch(/Would have/);
     const analysis = await analysisOf(k.recordingId);
@@ -371,7 +371,7 @@ describe.skipIf(!HAS_DB)("D87: one setter result, posted when the booking lands;
     const edit = edits.filter((e) => e.ts === post.ts).at(-1)!;
     expect(edit.text).toContain("*Outcome:* Set — booked through a setter link after the call (Jev read: follow up, 88% sure)");
     expect(edit.text).not.toContain("Would have");
-    expect(recordWrites.at(-1)).toEqual({ op: "update", object: "custom_objects.discovery_call", id: expect.stringMatching(/^rec-/), call_result: "set", led_to_booking: ["yes"] });
+    expect(recordWrites.at(-1)).toEqual({ op: "update", object: "custom_objects.discovery_call", id: expect.stringMatching(/^rec-/), call_result: "set" });
     expect((await eventsOf(k.contactId, "setter_call.result")).map((e) => [e.result, e.decided_by])).toEqual([["follow_up", "jev"], ["set", "booking"]]);
     const name = (await asOperator((c) => one<{ n: string }>(c, "select first_name||' '||last_name as n from contacts where id=$1", [k.contactId])))!.n;
     expect(posts.filter((p) => p.text.includes(`|${name}>`))).toHaveLength(1);   // one post, edited
