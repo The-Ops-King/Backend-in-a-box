@@ -419,3 +419,39 @@ The bot counts MQLs and marketing DQs from the answer itself (D73), so nothing d
 later, with a Typeform automation: when the "What best describes your current work situation?" answer arrives, tag the
 contact `mql` (an MQL answer) or `dq-budget` (a DQ answer), using the same answer lists (`qualify.mql_answers`,
 `qualify.dq_answers`). Blank answers get no tag.
+
+## 40. Switch-over from GHL workflows and Zaps to the engine (Tyler starts 2026-10-13)
+
+Found in the closing-chain test (D90): Hair's GHL workflows start on the same tags the engine writes, so both ran
+(two welcome texts, the agreement sent again). Every engine workflow must take over from its GHL twin at one moment:
+the GHL trigger gets a filter nobody new matches (e.g. "tag includes legacy-closed"; contacts already inside finish),
+the engine workflow goes real for everyone, and the GHL workflow is turned off once its enrolled count is zero. A
+Zap with no delay is turned off at that moment; one with a delay gets a first Filter "run started before <time>".
+
+Pairs as read from GHL's names (to confirm with Tyler; the API gives names, not triggers):
+New lead ↔ 01 -- New Lead · Card moved by hand ↔ 08 -- Closer Stage Change · Send agreement manually ↔ 09 · Payment
+recorded ↔ 10 -- Payment Received · Agreement signed ↔ 11 · Deal closed ↔ 13 -- Deal Closed · Unsigned agreement chase
+↔ 14 -- Paid, Not Signed · Pre-call sequence ↔ WF02. Precall MQL WF / 04 -- Setter Confirmed (?) · No-show recovery ↔
+06 -- No-show sweep (?). Zaps: list from Tyler.
+
+Order: the short, event-shaped pairs first (09, 10, 11, 13, 14), then 01, then the long-running ones (pre-call, no-show)
+last. Prove the "filter nobody new matches" behaviour on Tyler TEST before relying on it.
+
+Blocker: live is company-wide today (`companies.mode`: shadow | test | live). Going live one pair at a time needs a
+per-workflow "real for everyone" switch, else the whole company flips at once.
+
+## 41. Queue after the switch-over (2026-10-12)
+
+- Team roles on the dashboard Setup page (closer, setter, manager, owner, staff); today only the install file sets them.
+- "Try it": run any workflow on a GHL test contact or a made-up one (email, phone, any variables), nothing sent.
+- The AI on each page and a general one: build and change workflows by asking; every change a version, rollback.
+- Settings page that says what each setting does.
+- From the Top 20 (Oct 10), Tyler's picks: 1 revenue leak report, 3 closer scorecards, 4 objection library, 5
+  source-to-cash ROI, 7 speed-to-lead alert, 8 follow-up hygiene, 9 cash forecast, 11 buyer's-remorse warning, 12
+  capacity planning, 14 commissions (a commission tracker), 16 post-call follow-up draft, 18 owner's weekly digest.
+  Coaching (3, 4) may live in CloserMetrix instead. Recommended before texts go live: 20 opt-out guard.
+- Operator actions the AI can run with a confirmation: onboard / offboard a person (GHL user and calendars, Calendly
+  invite, Slack channels once they've joined, roster, welcome email; Fathom and Slack invites stay manual off Enterprise
+  Grid), booking links with UTMs ("a link for Instagram"), GHL calendar booking windows; Calendly's to verify.
+- Delete James's test tasks in GHL; the Tyler TEST / Test * records when testing is done.
+- An outside check that pages if the engine hasn't ticked in 5 minutes.
