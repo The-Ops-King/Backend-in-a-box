@@ -15,8 +15,8 @@ import type { GhlReads } from "@/adapters/ghl/metrics";
 import type { Adapters, BookingRead } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
-/** D88 (A8): the body is the shipped template's layout over the numbers; these are the words renderReport used to hold, unchanged. */
-const renderReport = (a: Parameters<typeof reportFacts>[0]) => renderLayout(shippedLayout(), reportFacts(a), {}, { tz: a.tz, companyTz: a.tz });
+/** D88 (A8): the body is the shipped template's layout over the numbers. D95: one narrow table a phone can read, a warning only when there is something to fix, one footer. */
+const renderReport = (a: Parameters<typeof reportFacts>[0]) => renderLayout(shippedLayout(), reportFacts({ readAt: new Date("2026-10-10T19:00:00Z"), ...a }), {}, { tz: a.tz, companyTz: a.tz });
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 
 describe("report periods and due-ness (pure)", () => {
@@ -44,18 +44,19 @@ describe("report periods and due-ness (pure)", () => {
   const day = { start: "2026-10-10", end: "2026-10-10" };
   it("D76: only what happened: a day with one self-booking is the booking section and nothing else", () => {
     expect(renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: { leads: 0, booked: 1, booked_self: 1, booked_set: 0, dials: 0, cash_collected: 0, cash_gross: 0, refunds: 0 }, calls: { booked: 0, showed: 0, noshow: 0, cancelled: 0, missing: 0, rescheduled: 0 } }))
-      .toBe("*What happened today — Saturday, Oct 10*\n\n*Bookings*\nCalls booked: 1 · self-booked 1");
+      .toBe("📊 *Today, Sat Oct 10*\n\n```\nNew bookings  1\n```\n\n_From GHL and the engine, read 7:00 PM UTC_");
   });
   it("D76: nothing at all is one line; a GHL read that failed says so instead of a 0", () => {
     expect(renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: {}, calls: null })).toBe("Nothing today: no leads, bookings, calls or payments.");
     expect(renderReport({ kind: "weekly", period: { start: "2026-09-28", end: "2026-10-04" }, tz: "UTC", toDate: false, said: [], numbers: {} })).toBe("Nothing last week: no leads, bookings, calls or payments.");
     const failed = renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: { leads: null, booked: 2, booked_set: 2 }, ghlError: "(contacts, 503): GHL 503" });
-    expect(failed).toBe("*What happened today — Saturday, Oct 10*\n\n*Bookings*\nCalls booked: 2 · setter-booked 2\n\n_couldn't read GHL: (contacts, 503): GHL 503_");
-    expect(failed).not.toMatch(/New leads: 0/);
+    expect(failed).toBe("📊 *Today, Sat Oct 10*\n\n```\nNew bookings  2\n  by setters  2\n```\n\n_couldn't read GHL: (contacts, 503): GHL 503_\n\n_From GHL and the engine, read 7:00 PM UTC_");
+    expect(failed).not.toMatch(/Leads +0/);
   });
   it("D76: a rate only with its denominator; calls, deals and cash by the registry's words", () => {
     const text = renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: { leads: 4, mqls: 2, dials: 10, connected: 4, speed_to_lead: 7.4, closes: 1, revenue: 3000, cash_collected: 800, cash_gross: 1000, refunds: 200 }, calls: { booked: 4, showed: 2, noshow: 1, cancelled: 0, missing: 1, rescheduled: 1 } });
-    expect(text).toBe("*What happened today — Saturday, Oct 10*\n\n*Leads*\nNew leads: 4 · MQLs 2\n\n*Sales calls*\nCalls due: 4 · showed 2 · no-show 1 · not filed 1 · show rate 50%\nRescheduled away: 1\n\n*Setter calls*\nDials: 10 · connected 4\nSpeed to lead: 7 min\n\n*Deals*\nCloses: 1 · revenue $3,000 · close rate 50%\n\n*Cash*\nCash collected: $800 · refunds $200");
+    expect(text).toBe("📊 *Today, Sat Oct 10*\n\n```\nLeads               4\nMQLs                2\nCalls due           4\nShowed              2\nNo-shows            1\nShow rate         50%\nCloses              1\nClose rate        50%\nRevenue        $3,000\nCash             $800\nRefunds          $200\nDials              10\nConnected           4\nSpeed to lead   7 min\n```\n⚠️ Calls with no EOD outcome: 1\n\n_From GHL and the engine, read 7:00 PM UTC_");
+    expect(renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: { speed_to_lead: 614 } })).toContain("Speed to lead  10 h 14 min");
   });
 });
 
@@ -109,11 +110,13 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
     expect((await asOperator((c) => readMetrics(c, companyId, day, day))).totals.dials).toBe(3);
   });
   it("builds the daily wrap-up; the wrap-ups workflow fires it at 7pm once per day and the post is recorded (suppressed: no Slack here)", async () => {
-    const r = await asOperator(async (c) => buildReport(c, (await loadCompany(c, companyId)).row, "daily", { start: day, end: day }, { reads: ghl }));
+    const r = await asOperator(async (c) => buildReport(c, (await loadCompany(c, companyId)).row, "daily", { start: day, end: day }, { reads: ghl, now: new Date("2026-10-11T23:05:00Z") }));
     // D76: GHL's two leads, the ledger's booking and dials; no Sales Calls, closes or Payment records in GHL, so nothing about them
-    expect(r.body).toBe(`*What happened today — ${DateTime.fromISO(day).toFormat("cccc, LLL d")}*\n\n*Leads*\nNew leads: 2\n\n*Bookings*\nCalls booked: 1 · setter-booked 1\n\n*Setter calls*\nDials: 3 · connected 2\nSpeed to lead: 15 min`);
+    const body = r.body.split("\n");
+    expect(body.slice(0, -1)).toEqual([`📊 *Today, ${DateTime.fromISO(day).toFormat("ccc LLL d")}*`, "", "```", "Leads               2", "New bookings        1", "  by setters        1", "Dials               3", "Connected           2", "Speed to lead  15 min", "```", ""]);
+    expect(body.at(-1)).toMatch(/^_From GHL and the engine, read \d{1,2}:05 [AP]M [A-Z]+_$/);
     const down = await asOperator(async (c) => buildReport(c, (await loadCompany(c, companyId)).row, "daily", { start: day, end: day }, { reads: { ...ghl, contactsAdded: async () => { throw Object.assign(new Error("GHL 503 on /contacts/search"), { status: 503 }); } } }));
-    expect(down.body).toContain("_couldn't read GHL: (contacts, 503)"); expect(down.body).not.toContain("New leads");
+    expect(down.body).toContain("_couldn't read GHL: (contacts, 503)"); expect(down.body).not.toMatch(/Leads +\d/);
     const fake: Adapters = {
       read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], messageBodies: async () => new Map(), callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async (c, id) => replicaSnapshot(c.id, id), listUsers: async () => [] },
       booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }; return { ghl: b, calendly: b }; })(),
@@ -137,7 +140,7 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
     const step = await asOperator((c) => one<{ result: { kind: string; period: { start: string } } }>(c, "select s.result from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and s.node_type='report'", [companyId]));
     expect(step?.result).toMatchObject({ kind: "daily", period: { start: day } });
     // no Slack connection in this company: the post is recorded and suppressed, with the text it would have carried (D31)
-    expect(await asOperator((c) => one(c, "select 1 from sends where company_id=$1 and channel='slack' and status='suppressed' and rendered_body like '%What happened today%'", [companyId]))).toBeTruthy();
+    expect(await asOperator((c) => one(c, "select 1 from sends where company_id=$1 and channel='slack' and status='suppressed' and rendered_body like '%📊 *Today, %'", [companyId]))).toBeTruthy();
   });
 
 });

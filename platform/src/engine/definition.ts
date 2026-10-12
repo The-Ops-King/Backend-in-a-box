@@ -107,11 +107,11 @@ export const Node = z.discriminatedUnion("type", [
   // the three set is a copy from before D88: it still gets vars.<into> and vars.overdue_lines as the lines it always got.
   z.object({ ...base, type: z.literal("eod_due"), period: z.enum(["evening", "morning"]), into: z.string().default("lines"), lookback_days: z.number().int().min(0).max(60).optional(), include_today: z.boolean().optional(), overdue_after_days: z.number().int().min(0).nullable().optional() }),
   // D88 (A8): metrics: the registry numbers it reads (default the wrap-up's list); breakdowns: "closer" / "setter" for per-person numbers under report.by;
-  // layout: every word of the body (heading and empty line by kind, sections of lines, the GHL-failed line; see reports.ts renderLayout); period: weekly /
+  // layout: every word of the body (heading and empty line by kind, sections of lines or of [label, value] table rows, the GHL-failed line, the footer; see reports.ts renderLayout); period: weekly /
   // monthly "just_ended" (the default: last week, last month) or "in_progress" (so far). A copy with no layout is worded by the shipped template's.
   z.object({ ...base, type: z.literal("report"), kind: z.string(), breakdowns: z.array(z.enum(["closer", "setter"])).default([]), sections: z.record(z.boolean()).default({}), into: z.string().default("report"),
     metrics: z.array(z.string().min(1)).optional(), period: z.enum(["just_ended", "in_progress"]).optional(),
-    layout: z.object({ heading: z.record(z.string()), sections: z.array(z.object({ title: z.string(), lines: z.array(z.string()) })), empty: z.record(z.string()), failed: z.string().optional() }).optional() }),
+    layout: z.object({ heading: z.record(z.string()), sections: z.array(z.object({ title: z.string(), lines: z.array(z.string()).default([]), table: z.array(z.tuple([z.string(), z.string()])).optional() })), empty: z.record(z.string()), failed: z.string().optional(), footer: z.string().optional() }).optional() }),
   z.object({ ...base, type: z.literal("classify"), input: z.string(), state: z.string().optional(), domain: z.string(), threshold: z.number().min(0).max(1).default(0.8), into: z.string(),
     question: z.string().optional(), criteria: z.record(z.string()).optional(), ambiguity_max: z.number().min(0).max(1).default(0.8) }),   // question: what Jev is asked about `input`; `state` is context (what we sent)   // criteria: what each option means, in words; ambiguity_max: a reply a careful person would doubt this much goes to a human (D47)
   z.object({ ...base, type: z.literal("branch"), on: z.string().optional() }),

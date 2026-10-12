@@ -6,6 +6,7 @@ import { readMetrics, rollupRange, type Breakdown, type Totals } from "./metrics
 import { testContactSql, testDomains } from "./mode";
 import type { GhlReads } from "@/adapters/ghl/metrics";
 import { render, type RenderEnv } from "./template";
+import { table } from "./bot-format";
 import wrapUps from "@/templates/wrap-ups.json";
 
 /**
@@ -30,14 +31,15 @@ export function periodFor(kind: ReportKind, now: DateTime<boolean>, toDate = fal
 export type Numbers = Record<string, number | null>;
 export type CallsSeen = { booked: number; showed: number; noshow: number; cancelled: number; missing: number; rescheduled: number };
 /** The report step's `layout` (definition.ts): the heading and the empty line by kind, the sections with their lines, the line when GHL could not be read. */
-export type Layout = { heading: Record<string, string>; sections: { title: string; lines: string[] }[]; empty: Record<string, string>; failed?: string };
+/** D95: a section is lines, or a `table` of [label, value] rows set as one narrow monospace block (a row whose value renders blank is left out); a blank title prints none. */
+export type Layout = { heading: Record<string, string>; sections: { title: string; lines?: string[]; table?: [string, string][] }[]; empty: Record<string, string>; failed?: string; footer?: string };
 /**
  * What a layout's templates read under `report.*`. Every count the template words is here: `n` (a registry number, null when it is
  * zero or unread, so a line about it says nothing), `raw` (the same with 0), `calls` (the show-rate breakdown, null when zero), `rates`
  * (show and close rate in whole percent, null without a denominator), `money_moved` (cash came in or went out), `said` (the first ten
  * booking questions, each with its top four answers and the rest counted), `by` (per closer / setter, when the step asks for it).
  */
-export type ReportFacts = { kind: ReportKind; to_date: boolean; start: string; end: string; period: Period; n: Numbers; raw: Record<string, number>; calls: Record<keyof CallsSeen, number | null> | null; rates: { show_rate: number | null; close_rate: number | null }; money_moved: true | null;
+export type ReportFacts = { kind: ReportKind; to_date: boolean; start: string; end: string; read_at: string; period: Period; n: Numbers; raw: Record<string, number>; calls: Record<keyof CallsSeen, number | null> | null; rates: { show_rate: number | null; close_rate: number | null }; money_moved: true | null;
   said: { label: string; answered: number; top: { answer: string; count: number }[]; rest: number; rest_kinds: number }[]; by: { closer: Breakdown[]; setter: Breakdown[] }; ghl_error: string | null };
 
 export type Said = { label: string; answered: number; top: [string, number][]; rest: number; restKinds: number }[];
@@ -58,13 +60,13 @@ export async function whatTheySaid(c: PoolClient, companyId: string, period: Per
 }
 
 /** The facts a layout reads, from the period's numbers. Pure. */
-export function reportFacts(args: { kind: ReportKind; period: Period; tz: string; toDate: boolean; numbers: Numbers; calls?: CallsSeen | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] } }): ReportFacts {
+export function reportFacts(args: { kind: ReportKind; period: Period; tz: string; toDate: boolean; numbers: Numbers; calls?: CallsSeen | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] }; readAt?: Date }): ReportFacts {
   const { numbers } = args, k = args.calls ?? null;
   const v = (key: string) => numbers[key] ?? 0, nz = (x: number | null | undefined) => (x ? x : null);
   const pct = (a: number, of: number) => (a > 0 && of > 0 ? Math.round((a / of) * 100) : null);
   const at = (d: string) => DateTime.fromISO(d, { zone: args.tz }).toISO()!;
   return {
-    kind: args.kind, to_date: args.toDate, start: at(args.period.start), end: at(args.period.end), period: args.period,
+    kind: args.kind, to_date: args.toDate, start: at(args.period.start), end: at(args.period.end), read_at: DateTime.fromJSDate(args.readAt ?? new Date()).setZone(args.tz).toISO()!, period: args.period,
     n: Object.fromEntries(Object.entries(numbers).map(([key, x]) => [key, nz(x)])), raw: Object.fromEntries(Object.entries(numbers).map(([key]) => [key, v(key)])),
     calls: k ? { booked: nz(k.booked), showed: nz(k.showed), noshow: nz(k.noshow), cancelled: nz(k.cancelled), missing: nz(k.missing), rescheduled: nz(k.rescheduled) } : null,
     rates: { show_rate: k && k.booked > 0 ? Math.round((k.showed / k.booked) * 100) : null, close_rate: k ? pct(v("closes"), k.showed) : null },
@@ -82,11 +84,13 @@ export function reportFacts(args: { kind: ReportKind; period: Period; tz: string
 export function renderLayout(layout: Layout, facts: ReportFacts, ctx: Record<string, unknown>, env: RenderEnv): string {
   const c = { ...ctx, report: facts }, r = (t: string) => render(t, c, env);
   const pick = (m: Record<string, string>) => m[`${facts.kind}${facts.to_date ? "_to_date" : ""}`] ?? m[facts.kind] ?? "";
-  const sections = layout.sections.map((sec) => ({ title: r(sec.title), lines: sec.lines.map(r).filter((l) => l.trim() !== "") })).filter((sec) => sec.lines.length);
+  const rows = (t: [string, string][]) => t.map(([label, value]) => [r(label), r(value)]).filter(([, v]) => v.trim() !== "");
+  const sections = layout.sections.map((sec) => { const t = sec.table ? rows(sec.table) : [];
+    return { title: r(sec.title), lines: [...(t.length ? [table(null, t)] : []), ...(sec.lines ?? []).map(r).filter((l) => l.trim() !== "")] }; }).filter((sec) => sec.lines.length);
   const failed = facts.ghl_error && layout.failed ? r(layout.failed) : "";
-  const heading = r(pick(layout.heading));
+  const heading = r(pick(layout.heading)), foot = layout.footer ? r(layout.footer) : "";
   if (!sections.length) return failed ? `${heading}\n${failed}` : r(pick(layout.empty));
-  return [heading, ...sections.map((sec) => `\n${sec.title}\n${sec.lines.join("\n")}`), ...(failed ? [`\n${failed}`] : [])].join("\n");
+  return [heading, ...sections.map((sec) => `\n${sec.title.trim() ? `${sec.title}\n` : ""}${sec.lines.join("\n")}`), ...(failed ? [`\n${failed}`] : []), ...(foot ? [`\n${foot}`] : [])].join("\n");
 }
 /** A report step with no layout of its own (a copy from before D88) is worded by the shipped template's. */
 export function shippedLayout(): Layout {
@@ -119,7 +123,7 @@ export async function buildReport(c: PoolClient, company: CompanyRow, kind: Repo
   const ghlError = [...new Set(errors.filter((x) => /GHL could not be read/.test(x)))][0]?.replace(/^GHL could not be read /, "").slice(0, 200);
   // breakdowns: per closer and per setter from the ledger's rollups, for a layout that words them (D29: totals by default, per person switchable)
   const want = new Set(opts.breakdowns ?? []);
-  const facts = reportFacts({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, said, ghlError, by: { closer: want.has("closer") ? closers : [], setter: want.has("setter") ? setters : [] } });
+  const facts = reportFacts({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, said, ghlError, by: { closer: want.has("closer") ? closers : [], setter: want.has("setter") ? setters : [] }, readAt: opts.now });
   const body = renderLayout(opts.layout ?? shippedLayout(), facts, opts.ctx ?? {}, { tz: company.timezone, companyTz: company.timezone });
   const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers) values ($1,$2,$3,$4,$5,$6,$7) returning id",
     [company.id, kind, period.start, period.end, !!opts.onDemand, body, { totals, setters, closers, registry: numbers }]);

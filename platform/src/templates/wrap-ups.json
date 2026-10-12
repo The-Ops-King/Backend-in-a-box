@@ -87,68 +87,101 @@
         ],
         "layout": {
           "heading": {
-            "daily": "*What happened today — {{report.start | date:cccc, LLL d}}*",
-            "weekly": "*Last week — {{report.start | date:LLL d}} to {{report.end | date:LLL d}}*",
-            "weekly_to_date": "*This week so far — {{report.start | date:LLL d}} to {{report.end | date:LLL d}}*",
-            "monthly": "*{{report.start | date:LLLL yyyy}}*",
-            "monthly_to_date": "*{{report.start | date:LLLL}} so far*"
+            "daily": "📊 *Today, {{report.start | date:\"ccc LLL d\"}}*",
+            "weekly": "📊 *Last week, {{report.start | date:\"LLL d\"}} to {{report.end | date:\"LLL d\"}}*",
+            "weekly_to_date": "📊 *This week so far, {{report.start | date:\"LLL d\"}} to {{report.end | date:\"LLL d\"}}*",
+            "monthly": "📊 *{{report.start | date:\"LLLL yyyy\"}}*",
+            "monthly_to_date": "📊 *{{report.start | date:\"LLLL\"}} so far*"
           },
           "sections": [
             {
-              "title": "*Leads*",
+              "title": "",
+              "table": [
+                [
+                  "Leads",
+                  "{{report.n.leads | default:\"\"}}"
+                ],
+                [
+                  "MQLs",
+                  "{{report.n.mqls | default:\"\"}}"
+                ],
+                [
+                  "New bookings",
+                  "{{report.n.booked | default:\"\"}}"
+                ],
+                [
+                  "  by setters",
+                  "{{report.n.booked_set | default:\"\"}}"
+                ],
+                [
+                  "Calls due",
+                  "{{report.calls.booked | default:\"\"}}"
+                ],
+                [
+                  "Showed",
+                  "{{report.calls.showed | default:\"\"}}"
+                ],
+                [
+                  "No-shows",
+                  "{{report.calls.noshow | default:\"\"}}"
+                ],
+                [
+                  "Show rate",
+                  "{{report.rates.show_rate | suffix:%}}"
+                ],
+                [
+                  "Closes",
+                  "{{report.n.closes | default:\"\"}}"
+                ],
+                [
+                  "Close rate",
+                  "{{report.rates.close_rate | suffix:%}}"
+                ],
+                [
+                  "Revenue",
+                  "{{report.n.revenue | default:\"\" | then:\"$\"}}{{report.n.revenue | default:\"\" | money:0}}"
+                ],
+                [
+                  "Cash",
+                  "{{report.money_moved | then:\"$\"}}{{report.money_moved | each:\"{{report.raw.cash_collected | default:0 | money:0}}\"}}"
+                ],
+                [
+                  "Refunds",
+                  "{{report.n.refunds | default:\"\" | then:\"$\"}}{{report.n.refunds | default:\"\" | money:0}}"
+                ],
+                [
+                  "Dials",
+                  "{{report.n.dials | default:\"\"}}"
+                ],
+                [
+                  "Connected",
+                  "{{report.n.connected | default:\"\"}}"
+                ],
+                [
+                  "Speed to lead",
+                  "{{report.n.speed_to_lead | default:\"\" | duration}}"
+                ]
+              ],
               "lines": [
-                "{{report.n.leads | each:\"New leads: {{item}}\"}}{{report.n.mqls | each:\" · MQLs {{item}}\"}}"
-              ]
-            },
-            {
-              "title": "*Bookings*",
-              "lines": [
-                "{{report.n.booked | each:\"Calls booked: {{item}}\"}}{{report.n.booked_self | each:\" · self-booked {{item}}\"}}{{report.n.booked_set | each:\" · setter-booked {{item}}\"}}",
-                "{{report.n.reschedules | each:\"Rescheduled: {{item}}\"}}"
-              ]
-            },
-            {
-              "title": "*Sales calls*",
-              "lines": [
-                "{{report.calls.booked | each:\"Calls due: {{item}}\"}}{{report.calls.showed | each:\" · showed {{item}}\"}}{{report.calls.noshow | each:\" · no-show {{item}}\"}}{{report.calls.cancelled | each:\" · cancelled {{item}}\"}}{{report.calls.missing | each:\" · not filed {{item}}\"}}{{report.rates.show_rate | each:\" · show rate {{item}}%\"}}",
-                "{{report.calls.rescheduled | each:\"Rescheduled away: {{item}}\"}}"
-              ]
-            },
-            {
-              "title": "*Setter calls*",
-              "lines": [
-                "{{report.n.dials | each:\"Dials: {{item}}\"}}{{report.n.connected | each:\" · connected {{item}}\"}}",
-                "{{report.n.speed_to_lead | each:\"Speed to lead: {{item | fixed:0}} min\"}}"
-              ]
-            },
-            {
-              "title": "*Deals*",
-              "lines": [
-                "{{report.n.closes | each:\"Closes: {{item}}\"}}{{report.n.revenue | each:\" · revenue ${{item | money:0}}\"}}{{report.rates.close_rate | each:\" · close rate {{item}}%\"}}"
-              ]
-            },
-            {
-              "title": "*Cash*",
-              "lines": [
-                "{{report.money_moved | each:\"Cash collected: ${{report.raw.cash_collected | default:0 | money:0}}\"}}{{report.n.refunds | each:\" · refunds ${{item | money:0}}\"}}"
+                "{{report.calls.missing | each:\"⚠️ Calls with no EOD outcome: {{item}}\"}}"
               ]
             },
             {
               "title": "*What they said*",
               "lines": [
-                "{{report.said | each:\"*{{item.label}}*{{item.top | each:\\\"\\\\n    • {{item.answer}}: {{item.count}}\\\" | join:\\\"\\\"}}{{item.rest | nonzero | each:\\\"\\\\n    • {{item}} spread across {{parent.rest_kinds | plural:\\\\\\\"other answer\\\\\\\"}}\\\"}}\" | join:\"\\n\"}}"
+                "{{report.said | each:\"*{{item.label}}*{{item.top | each:\\\"\\\\n• {{item.count}} — {{item.answer}}\\\" | join:\\\"\\\"}}{{item.rest | nonzero | each:\\\"\\\\n• {{item}} — other answers\\\"}}\" | join:\"\\n\\n\"}}"
               ]
             },
             {
               "title": "*By closer*",
               "lines": [
-                "{{report.by.closer | each:\"{{item.name}}: {{item.values.booked | default:0}} booked · {{item.values.showed | default:0}} showed · {{item.values.deals_won | default:0}} won · ${{item.values.revenue | default:0 | money:0}} revenue\" | join:\"\\n\"}}"
+                "{{report.by.closer | each:\"• {{item.name}}: {{item.values.showed | default:0}} showed · {{item.values.deals_won | default:0}} won · ${{item.values.revenue | default:0 | money:0}}\" | join:\"\\n\"}}"
               ]
             },
             {
               "title": "*By setter*",
               "lines": [
-                "{{report.by.setter | each:\"{{item.name}}: {{item.values.dials | default:0}} dials · {{item.values.connects | default:0}} connected · {{item.values.calls_set | default:0}} set · {{item.values.booked_set | default:0}} booked\" | join:\"\\n\"}}"
+                "{{report.by.setter | each:\"• {{item.name}}: {{item.values.dials | default:0}} dials · {{item.values.calls_set | default:0}} set\" | join:\"\\n\"}}"
               ]
             }
           ],
@@ -159,7 +192,8 @@
             "monthly": "Nothing last month: no leads, bookings, calls or payments.",
             "monthly_to_date": "Nothing this month: no leads, bookings, calls or payments."
           },
-          "failed": "_couldn't read GHL: {{report.ghl_error}}_"
+          "failed": "_couldn't read GHL: {{report.ghl_error}}_",
+          "footer": "_From GHL and the engine, read {{report.read_at | date:\"h:mm a ZZZZ\"}}_"
         },
         "title": "Read the numbers and word the wrap-up (the layout: sections, lines, headings)"
       },

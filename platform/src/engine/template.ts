@@ -92,6 +92,8 @@ const filters: Record<string, Filter> = {
   // the value with the argument after it, or nothing: {{n | plural:call | suffix:" with no outcome"}}
   suffix: (v, arg) => (absent(v) ? "" : `${v}${arg ?? ""}`),
   // a number with a fixed count of decimals, no thousands separator: 1500 | fixed:2 → 1500.00 ; nothing → ""
+  // minutes as a person says them: 7.4 → "7 min", 614 → "10 h 14 min"
+  duration: (v) => { if (v === undefined || v === null || v === "" || isNaN(Number(v))) return ""; const n = Number(v); return n >= 90 ? `${Math.floor(n / 60)} h ${Math.round(n % 60)} min` : `${Math.round(n)} min`; },
   fixed: (v, arg) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? "" : Number(v).toFixed(Number(arg ?? 0))),
   // 2999 → 2,999 ; 2999.5 → 2,999.50 ; nothing → ""
   // money:0 rounds to whole dollars (2999.5 → 3,000)
