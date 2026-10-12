@@ -218,6 +218,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(month()).toMatchObject({ from: "2026-10-01", to: "2026-10-10", label: "Oct 1–10" });
       expect(parsePeriod("last month", TZ, NOW)).toMatchObject({ from: "2026-09-01", to: "2026-09-30" });
       expect(parsePeriod("last week", TZ, NOW)).toMatchObject({ from: "2026-09-28", to: "2026-10-04" });
+      expect(parsePeriod("all time", TZ, NOW)).toMatchObject({ from: "2000-01-01", to: "2026-10-10", name: "All time", label: "All time" });   // a question about one person with no period: their whole history
       expect(parsePeriod("last 30 days", TZ, NOW)).toMatchObject({ from: "2026-09-11", to: "2026-10-10" });
       expect(parsePeriod("Sep 1 to Sep 15", TZ, NOW)).toMatchObject({ from: "2026-09-01", to: "2026-09-15" });
       expect(parsePeriod("2026-09-01..2026-09-30", TZ, NOW)).toMatchObject({ from: "2026-09-01", to: "2026-09-30" });

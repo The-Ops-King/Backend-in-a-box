@@ -85,7 +85,7 @@ export function parsePeriod(text: string | null | undefined, tz: string, now: Da
     if (b > today) b = today;
     if (a > b) return null;
     const from = a.toISODate()!, to = b.toISODate()!;
-    return { from, to, name, label: rangeLabel(from, to, tz, now) };
+    return { from, to, name, label: name === "All time" ? "All time" : rangeLabel(from, to, tz, now) };
   };
   if (t === "today") return mk(today, today, "Today");
   if (t === "yesterday") return mk(today.minus({ days: 1 }), today.minus({ days: 1 }), "Yesterday");
@@ -96,6 +96,7 @@ export function parsePeriod(text: string | null | undefined, tz: string, now: Da
   if (/^(this quarter|qtd|quarter to date)$/.test(t)) return mk(today.startOf("quarter"), today, "This quarter");
   if (/^(last quarter|previous quarter)$/.test(t)) { const q = today.startOf("quarter").minus({ quarters: 1 }); return mk(q, q.endOf("quarter").startOf("day"), "Last quarter"); }
   if (/^(this year|ytd|year to date)$/.test(t)) return mk(today.startOf("year"), today, "This year");
+  if (/^(all time|all-time|ever|lifetime|since the start)$/.test(t)) return mk(DateTime.fromISO("2000-01-01", { zone: tz }), today, "All time");
   if (/^(last year|previous year)$/.test(t)) { const y = today.startOf("year").minus({ years: 1 }); return mk(y, y.endOf("year").startOf("day"), "Last year"); }
   let m = /^(?:last|past|previous|trailing) (\d{1,3}) days?$/.exec(t);
   if (m && +m[1] >= 1) return mk(today.minus({ days: +m[1] - 1 }), today, `Last ${m[1]} days`);
