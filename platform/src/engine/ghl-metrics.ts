@@ -293,8 +293,12 @@ export async function salesCallsFor(x: Omit<GhlCtx, "filters" | "memo">): Promis
 }
 
 /** The closes of a period, newest first: who, credited to whom, when won (the /closes list). */
-export async function closesFor(x: GhlCtx): Promise<{ ghl: string; name: string; closer: string; at: DateTime; value: number }[]> {
-  return (await closes(x)).filter((k) => !x.filters.closer || k.closer === x.filters.closer).sort((a, b) => b.at.toMillis() - a.at.toMillis()).map((k) => ({ ghl: k.ghl, name: k.name, closer: k.closer, at: k.at, value: k.value }));
+/** `cash`: what the person has paid in all (GHL's Payment records, refunds out); null when GHL holds no Payment records (never $0, D75). */
+export async function closesFor(x: GhlCtx): Promise<{ ghl: string; name: string; closer: string; at: DateTime; value: number; cash: number | null }[]> {
+  const list = (await closes(x)).filter((k) => !x.filters.closer || k.closer === x.filters.closer).sort((a, b) => b.at.toMillis() - a.at.toMillis());
+  const pays = list.length ? await payments(x) : [];
+  const paid = (ghl: string) => (pays.length ? pays.filter((p) => p.ghl === ghl).reduce((s, p) => s + signed(p), 0) : null);
+  return list.map((k) => ({ ghl: k.ghl, name: k.name, closer: k.closer, at: k.at, value: k.value, cash: paid(k.ghl) }));
 }
 
 const timeKey = (g: GroupBy, at: DateTime) => (g === "day" ? at.toISODate()! : g === "week" ? at.startOf("week").toISODate()! : at.toFormat("yyyy-MM"));

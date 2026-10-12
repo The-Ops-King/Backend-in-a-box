@@ -10,7 +10,7 @@ import {
   GROUP_BYS, METRIC_NAMES, MetricError, catalogue, getAvailability, getCloses, getMetric, parsePeriod, previousPeriod,
   type Availability, type ClosesList, type Filters, type GroupBy, type MetricResult, type Period,
 } from "./metric-registry";
-import { ESCALATE_PING, ESCALATE_UNSURE, fmt, formatAnswer, formatAvailability, formatCloses, formatCombined, formatSummary, helpText } from "./bot-format";
+import { DETAILS, ESCALATE_PING, ESCALATE_UNSURE, allNumbersText, fmt, formatAnswer, formatAvailability, formatCloses, formatCombined, formatSplits, formatSummary, helpText, type AnswerParts, type Detail, type Foot } from "./bot-format";
 import { RATES, UNITS, analyze, listColumns, memoReads, type Analysis, type GraphUnit, type Rate } from "./ghl-graph";
 import { sourceFields, sourceOrderWords, type SourceFields } from "./lead-source";
 
@@ -156,14 +156,15 @@ export const BOT_TOOLS: BotToolDef[] = [
     input_schema: { type: "object", additionalProperties: false, required: ["question"], properties: { question: { type: "string" } } } },
   { name: "cannot_answer", description: "Say the tools cannot answer this (no metric or table holds it, or the data could not be read). Ends your turn; the team is pinged.",
     input_schema: { type: "object", additionalProperties: false, required: ["reason"], properties: { reason: { type: "string" } } } },
-  { name: "reply", description: "Finish: show these tool results to the asker. The message is rendered from the results; `note` is your reading of them (up to four short sentences), with no number that is not in the results, or empty.",
-    input_schema: { type: "object", additionalProperties: false, required: ["result_ids", "note"], properties: { result_ids: { type: "array", items: { type: "string" } }, note: { type: "string" } } } },
+  { name: "reply", description: "Finish: show these tool results to the asker. `headline` is the answer itself in one short line (\"Lynton Thompson paid $750\", \"3 people showed this month\", \"Close rate is 33% this month\"), using only numbers that are in the results. `detail` is what goes under it: none (the headline is the whole answer), breakdown (counted bullets per answer, or the people when nothing is split), table (only when the asker asks for a table, a chart or rates per answer), list (the people by name, only when the asker asks who), issues (what is off in GHL: missing answers, missing links, records that disagree; only when the asker asks what is wrong or missing). `note`: empty, or one short sentence only when something changes how the answer reads.",
+    input_schema: { type: "object", additionalProperties: false, required: ["result_ids", "headline", "detail", "note"], properties: { result_ids: { type: "array", items: { type: "string" } }, headline: { type: "string" }, detail: { type: "string", enum: DETAILS }, note: { type: "string" } } } },
 ];
 
 export const BOT_SYSTEM = `You answer a sales team's questions about their own numbers in Slack. Correct before clever: no answer beats a wrong answer.
 
 How you work:
-- Numbers come only from your tools. You never write a number yourself: the message the asker sees is rendered from the tool results you pick with \`reply\`. Your optional note may only repeat numbers that are in those results.
+- Numbers come only from your tools. You never make a number up: the detail the asker sees is rendered from the tool results you pick with \`reply\`, and your headline and note may only repeat numbers that are in those results.
+- The asker reads on a phone and wants the answer, nothing else. The headline answers exactly what was asked, in plain words, in one line. Pick the smallest detail that answers it: a single number or a single person is detail none; "how did they describe…", "what did they say…" is breakdown (counts per answer, no names); names only when the asker asks for the people ("who said X", "name them", "which ones") (list): "who showed this month and how did they describe their hair loss?" is a breakdown (3 people said this, 1 said that), not names; a table only when they ask for a table, a chart, or rates per answer. They can ask for more in the thread ("who?", "as a table", "by source"), so never add what wasn't asked.
 - Use get_metric for anything the metric list covers. Split with group_by when the asker wants a breakdown ("by closer", "by source", "per day"). Several calls are fine; then \`reply\` with the ids you want shown, most important first.
 - The period: pass the asker's own words. If the question has no period and the context gives no default, call ask_clarification for the period. Never assume one. "This month" means the calendar month so far in the company's time zone.
 - "My", "me", "I": set filters.me = true. If the context says the asker is not on the roster, ask who they are in the CRM.
@@ -171,12 +172,12 @@ How you work:
 - GHL is the truth for people, deals and calls. Those numbers are read live from GHL; if GHL cannot be read the tool says so and you call cannot_answer with that reason. Never answer them from run_readonly_query over the ledger.
 - GHL's records for one person link up: the contact (the booking form's answers, tags, source) → their setter card (Setter pipeline) → their Sales Calls (one per booked call, filed from the EOD form: outcome, disposition, objections, booking source, closer, setter, score) → their closer card (Closer pipeline; won = a close) → their Payment records (cash) and Discovery Calls. analyze joins them live for one answer: a row is a lead, a call or a close, and a column can come from any record of that person.
 - Questions that cross records go to analyze. Show rate by the hair-loss answer: unit call, split_by the contact's hair-loss column. Close rate by objection: call, split_by call.objection_primary, rate close_rate. Show rate for setter-booked vs direct: call, split_by call.booking_source. Cash by source: close (or lead), split_by contact.source. A single answer only ("show rate of people who said X"): filter on it.
-- A term no metric covers (hair loss stage, goals, age, objections, a call's score…): call list_columns for the unit and pick the column by meaning. One column clearly fits: use it; the answer's header names it, so do not ask. Ask (ask_clarification, naming the candidate columns) only on a real tie (two columns that would give different answers) or when nothing fits. Prefer a column with fixed options over free text. If the one you picked is mostly unanswered, try the other column that fits and show the one people answered, saying so in the note.
+- A term no metric covers (hair loss stage, goals, age, objections, a call's score…): call list_columns for the unit and pick the column by meaning. One column clearly fits: use it; the answer's header names it, so do not ask. Ask (ask_clarification, naming the candidate columns) only on a real tie (two columns that would give different answers) or when nothing fits. Prefer a column with fixed options over free text. If the one you picked is mostly unanswered, try the other column that fits and show the one people answered; the headline names what it shows ("How the 3 who showed describe their hair loss"), with no note about the one you tried.
 - In \`reply\`, show only the results that answer the question: leave out one you tried that turned out empty or mostly unanswered (mention it in the note instead).
-- Your note may be up to four short sentences reasoning through the results the way an analyst would ("Of the 10 who showed, 7 said noticeable thinning: 70% of shows…"). Every number in it must already be in the results, and a pattern is only called a pattern when the test in the results says so; otherwise say the numbers are too few or could be chance.
+- The note is almost always empty: only when the answer can't be trusted as it stands (GHL could not give a number, most people never answered). Never restate the headline or the detail in it. Call something a pattern only when the test in the results says so.
 - There are exactly two kinds of DQ: a marketing DQ (marketing_dqs; also called a DQL: filtered out before a sales call on financial signals, from the work-situation answer) and a sales DQ (sales_dqs: got on the call and was disqualified for any reason). "DQ" alone: ask which, unless the asker made it clear.
 - Glossary: a lead is a person who entered their information (a GHL contact, by the date GHL added them). An MQL is a lead whose answer to the work-situation question ("What best describes your current work situation?") meets the employment standard; "Currently between jobs" or "Employed part-time" is a marketing DQ; a blank answer is not an MQL. A sales DQ is a Sales Call in GHL with a DQ disposition. Calls booked (for show rate) are the Sales Call records in GHL whose call time has passed in the period, cancellations included; show rate = shows ÷ those calls; a call with no outcome filed is "missing from EOD disposition". A close is a new person we collected cash from: a won card on the Closer pipeline (the setter pipeline's won is a show, not a sale); close rate = closes ÷ shows. Cash is GHL's Payment records (succeeded payments in, refunds and chargebacks out, by when they occurred); when GHL has no Payment records yet the tool says so, and so do you: never $0. Test contacts never count.
-- Answers show numbers and the period, not definitions. When the asker asks what a number means, get the metric and reply with a one-sentence note restating its definition from the list below, with no number of your own.
+- Answers show numbers and the period, not definitions. When the asker asks what a number means, get the metric and reply with the definition from the list below as the headline (detail none), with no number of your own.
 - Calendar availability: get_availability.
 - run_readonly_query only when no metric and no GHL column fits, e.g. a ledger-only detail. Write one SELECT against the tables described in the context; describe in \`why\` what it returns.
 - If the tools cannot answer — no metric or table holds it, a tool keeps failing, or you would have to guess — call cannot_answer with the reason.
@@ -227,7 +228,7 @@ export async function converse(deps0: BotDeps, ctx: Ctx, q: { question: string; 
   const now = deps.now ?? DateTime.now();
   const held: Held[] = [];
   const failed: string[] = [];
-  let noteRetried = false;
+  let wordsRetried = false;
   const up = (reason: string) => escalation(ctx, reason, failed);
   try {
     const messages: BotMessage[] = [];
@@ -238,7 +239,7 @@ export async function converse(deps0: BotDeps, ctx: Ctx, q: { question: string; 
       const r = await model.next(ctx.apiKey, { system: BOT_SYSTEM, tools: BOT_TOOLS, messages });
       if (r.stop === "refusal") return up("the model declined");
       messages.push({ role: "assistant", content: r.content });
-      if (!r.calls.length) return held.length ? render(held, held.map((h) => h.id), "") : up(`the model ended without a tool${r.text ? `: ${r.text.slice(0, 200)}` : ""}`);
+      if (!r.calls.length) return held.length ? render(held, held.map((h) => h.id), { now, tz: ctx.tz }) : up(`the model ended without a tool${r.text ? `: ${r.text.slice(0, 200)}` : ""}`);
       const results: unknown[] = [];
       // data first, so a reply in the same turn can name what was just computed
       for (const call of r.calls.filter((x) => !["ask_clarification", "cannot_answer", "reply"].includes(x.name))) {
@@ -252,16 +253,18 @@ export async function converse(deps0: BotDeps, ctx: Ctx, q: { question: string; 
       if (end?.name === "reply") {
         const ids = Array.isArray(end.input.result_ids) ? end.input.result_ids.map(String) : [];
         if (!held.length) return up("replied with no results");
-        const pickIds = ids.length ? ids : held.map((h) => h.id), note = String(end.input.note ?? "");
-        // a note with a number the answer does not show goes back once to be rewritten, rather than vanishing
-        const stray = strayNumbers(held, pickIds, note);
-        if (stray.length && !noteRetried && turn < MAX_TURNS - 1) {
-          noteRetried = true;
-          results.push({ type: "tool_result", tool_use_id: end.id, is_error: true, content: `Your note uses numbers the answer does not show: ${stray.join(", ")}. Call reply again with the note rewritten using only numbers that appear in the chosen results (or none).` });
+        const pickIds = ids.length ? ids : held.map((h) => h.id);
+        const headline = oneLine(String(end.input.headline ?? ""), 200), note = oneLine(String(end.input.note ?? ""), 300);
+        const detail = (DETAILS as string[]).includes(String(end.input.detail)) ? (String(end.input.detail) as Detail) : "breakdown";
+        // words with a number the results do not hold go back once to be rewritten; a second time they are dropped and our own answer lines stand
+        const stray = strayNumbers(held, pickIds, `${headline} ${note}`);
+        if (stray.length && !wordsRetried && turn < MAX_TURNS - 1) {
+          wordsRetried = true;
+          results.push({ type: "tool_result", tool_use_id: end.id, is_error: true, content: `Your headline or note uses numbers the results do not hold: ${stray.join(", ")}. Call reply again using only numbers that appear in the chosen results.` });
           messages.push({ role: "user", content: results });
           continue;
         }
-        return render(held, pickIds, stray.length ? "" : note);
+        return render(held, pickIds, stray.length ? { detail: detail === "none" ? "breakdown" : detail, now, tz: ctx.tz } : { headline, detail, note, now, tz: ctx.tz });
       }
       messages.push({ role: "user", content: results });
     }
@@ -333,32 +336,28 @@ async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, inpu
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 const pctStr = (x: number | null) => (x === null ? null : `${Math.round(x * 100)}%`);
 
-/** Our rendering of the chosen results. The note survives only if every number in it is already in the message. */
-function bodyOf(held: Held[], ids: string[]): string {
+/** The chosen results, as the formatter takes them. */
+function partsOf(held: Held[], ids: string[]): { metrics: MetricResult[]; parts: AnswerParts } {
   const pick = ids.map((i) => held.find((h) => h.id === i)).filter((h): h is Held => !!h);
   const chosen = pick.length ? pick : held;
-  return formatAnswer(chosen.flatMap((h) => (h.kind === "metric" ? [h.r] : [])), {
+  return { metrics: chosen.flatMap((h) => (h.kind === "metric" ? [h.r] : [])), parts: {
     availability: chosen.flatMap((h) => (h.kind === "availability" ? [h.a] : [])),
     closes: chosen.flatMap((h) => (h.kind === "closes" ? [h.k] : [])),
     analyses: chosen.flatMap((h) => (h.kind === "analysis" ? [h.a] : [])),
     adhoc: chosen.flatMap((h) => (h.kind === "adhoc" ? [{ why: h.why, columns: h.columns, rows: h.rows, truncated: h.truncated }] : [])),
-  });
+  } };
 }
-const cleanNote = (note: string) => note.trim().replace(/\s*\n+\s*/g, " ").slice(0, 700);
-/** The numbers in the note that the rendered answer does not show: the model may only repeat numbers, never make them. */
-export function strayNumbers(held: Held[], ids: string[], note: string): string[] {
-  const flat = bodyOf(held, ids).replace(/,/g, "");
-  return [...new Set((cleanNote(note).match(/\d[\d,.]*/g) ?? []).map((n) => n.replace(/,/g, "").replace(/\.$/, "")).filter((n) => !flat.includes(n)))];
+const oneLine = (s: string, max: number) => s.trim().replace(/\s*\n+\s*/g, " ").slice(0, max);
+/** The numbers in the model's words that no view of the results holds: the model may only repeat numbers, never make them. */
+export function strayNumbers(held: Held[], ids: string[], words: string): string[] {
+  const { metrics, parts } = partsOf(held, ids);
+  const flat = allNumbersText(metrics, parts).replace(/,/g, "");
+  return [...new Set((oneLine(words, 1000).match(/\d[\d,.]*/g) ?? []).map((n) => n.replace(/,/g, "").replace(/\.$/, "")).filter((n) => !flat.includes(n)))];
 }
-
-/** Our rendering of the chosen results; the note, already checked, as its own paragraph under the key lines. */
-function render(held: Held[], ids: string[], note: string): Out {
-  const body = bodyOf(held, ids), clean = cleanNote(note);
-  if (!clean || strayNumbers(held, ids, clean).length) return { kind: "answer", text: body };
-  const lines = body.split("\n");
-  const keyEnd = lines.findIndex((l) => l === "");   // the key lines end at the first blank line
-  lines.splice(keyEnd < 0 ? lines.length : keyEnd, 0, "", clean);
-  return { kind: "answer", text: lines.join("\n").replace(/\n{3,}/g, "\n\n") };
+/** Our rendering of the chosen results under the model's headline (already checked), D95. */
+function render(held: Held[], ids: string[], o: Pick<AnswerParts, "headline" | "detail" | "note" | "now" | "tz">): Out {
+  const { metrics, parts } = partsOf(held, ids);
+  return { kind: "answer", text: formatAnswer(metrics, { ...parts, ...o }) };
 }
 
 // ---- slash commands ----------------------------------------------------------------------------------------------------
@@ -391,9 +390,10 @@ export function planCommand(cmd: SlashCommand, tz: string, now: DateTime = DateT
 // people, calls, deals (D73) and cash (D75) from GHL
 const SUMMARY = ["leads", "mqls", "calls_booked_due", "show_rate", "close_rate", "cash_collected"];
 /** The body of a shortcut: deterministic, from the registry alone. */
-export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan): Promise<string> {
+export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan, askedBy?: string): Promise<string> {
   const now = deps.now ?? DateTime.now();
-  if (plan.shortcut === "availability") return formatAvailability(await asOperator((c) => getAvailability(c, companyId, deps.probes ?? liveProbes, plan.days ?? 7, now)));
+  const foot: Foot = { now, askedBy };
+  if (plan.shortcut === "availability") return `📊 ${formatAvailability(await asOperator((c) => getAvailability(c, companyId, deps.probes ?? liveProbes, plan.days ?? 7, now)), foot)}`;
   const reads = memoReads(deps.ghl ?? liveGhlReads);
   return asCompany(companyId, async (c) => {
     const tz = (await one<{ timezone: string }>(c, "select timezone from companies where id=$1", [companyId]))!.timezone;
@@ -406,22 +406,22 @@ export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan)
         const prev = []; for (const x of SUMMARY) prev.push(await m(x, undefined, prevP));
         const bySource = await m("cash_collected", "source");
         const top = (bySource.rows ?? []).filter((r) => (r.value ?? 0) > 0).sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0];
-        return formatSummary(cur, prev, bySource.unavailable ? [] : [top ? `*Top source by cash: ${top.label}* (${fmt("money", top.value)})` : "*Top source by cash:* none yet"]);
+        return formatSummary(plan.title, cur, prev, bySource.unavailable || !top ? [] : [`Top source: ${top.label} (${fmt("money", top.value)})`], foot);
       }
       case "show-rate": case "close-rate": {
         const metric = plan.shortcut === "show-rate" ? "show_rate" : "close_rate";
         const a = await m(metric, "closer"), b = await m(metric, "source");
-        return formatAnswer([a, b]);
+        return formatSplits([a, b], foot);
       }
       case "cash": {
-        const rs = [await m("cash_gross", "closer"), await m("refunds", "closer"), await m("cash_collected", "closer")];
-        return formatCombined(rs);
+        const rs = [await m("cash_collected", "closer"), await m("cash_gross", "closer"), await m("refunds", "closer")];
+        return formatCombined(rs, foot);
       }
       case "leads": {
         const rs = [await m("leads", "source"), await m("mqls", "source"), await m("marketing_dqs", "source")];
-        return formatCombined(rs);
+        return formatCombined(rs, foot);
       }
-      case "closes": return formatCloses(await getCloses(c, companyId, { period: p, now: at }, reads));
+      case "closes": return formatCloses(await getCloses(c, companyId, { period: p, now: at }, reads), foot);
     }
     throw new Error(`no body for ${plan.shortcut}`);
   });
@@ -432,13 +432,13 @@ export async function runCommand(deps: BotDeps, companyId: string, cmd: SlashCom
   const ctx = await asOperator((c) => loadCtx(c, companyId));
   if (!ctx) return { failed: "no Slack connection" };
   let body: string, escalated = false;
-  try { body = await shortcutBody(deps, companyId, plan); }
+  try { body = await shortcutBody(deps, companyId, plan, cmd.userId); }
   catch (e) {
     const why = String((e as Error).message).slice(0, 300);
     body = escalation(ctx, `/${plan.shortcut} failed: ${why}`, plan.shortcut === "availability" || /^GHL /.test(why) ? [why] : undefined).text;
     escalated = true;
   }
-  const text = `📊 *${plan.title}* — asked by <@${cmd.userId}>\n${body}`;
+  const text = escalated ? `📊 *${plan.title}* — asked by <@${cmd.userId}>\n${body}` : body;
   const dm = cmd.channelId.startsWith("D") || cmd.channelName === "directmessage";
   let posted: { ts: string; channel?: string } | null = null, where = cmd.channelId;
   try { posted = await deps.adapters.notifier.post(ctx.token, where, text); }

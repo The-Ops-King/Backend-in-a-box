@@ -98,10 +98,10 @@ describe.skipIf(!process.env.DATABASE_URL)("availability per closer on Calendly 
     ]);
     expect(a.days.map((d) => d.total)).toEqual([1, 1, 7]); expect(a.total).toBe(9);
     expect(reads.sort()).toEqual([JOSH.uri, JAMES.uri].sort());   // one busy read per host, shared by both event types
-    expect(formatAvailability(a)).toBe([
-      "*Open slots, next 3 days: 9*  · _from Calendly, read just now_", "",
-      "```", "Day         James Open  Josh Open  Total Open", "Sat Oct 10           0          1           1", "Sun Oct 11           0          1           1", "Mon Oct 12           4          3           7", "Total                4          5           9", "```", "",
-      "_Period: Sat Oct 10 to Mon Oct 12, read just now (America/New_York)_"].join("\n"));
+    expect(formatAvailability(a, { now: NOW })).toBe([
+      "*Open slots, next 3 days: 9*",
+      "```", "Day         James  Josh  All", "Sat Oct 10      0     1    1", "Sun Oct 11      0     1    1", "Mon Oct 12      4     3    7", "Total           4     5    9", "```",
+      `_Sat Oct 10 to Mon Oct 12 · From Calendly, read ${NOW.setZone("America/New_York").toFormat("h:mm a ZZZZ")}_`].join("\n"));
   });
 
   it("self-check: an offered time no host is free for drops the per-closer columns, keeps the distinct offered times per day, and says so", async () => {
@@ -110,7 +110,7 @@ describe.skipIf(!process.env.DATABASE_URL)("availability per closer on Calendly 
     expect(a.closers).toEqual([]); expect(a.split_error).toBe("Could not split by closer: 1 offered time matched no host's schedule");
     expect(a.days.map((d) => d.total)).toEqual([1, 1, 5, 1]); expect(a.total).toBe(8);
     const text = formatAvailability(a);
-    expect(text).toContain("Day         Total Open\nSat Oct 10           1"); expect(text).toContain("Could not split by closer: 1 offered time matched no host's schedule");
+    expect(text).toContain("Day         All\nSat Oct 10    1"); expect(text).toContain("Could not split by closer: 1 offered time matched no host's schedule");
     // a read the split needs that fails is the same: no columns, the reason named
     const b = await asOperator((c) => getAvailability(c, companyId, { ...probes, calendlyEventTypeSchedules: async () => ({ ok: false, error: "Calendly 403" }) }, 3, NOW));
     expect(b.closers).toEqual([]); expect(b.split_error).toMatch(/^Could not split by closer: the schedule of "45 Min Strategy Call" could not be read \(Calendly 403\)$/); expect(b.total).toBe(7);
@@ -123,7 +123,7 @@ describe.skipIf(!process.env.DATABASE_URL)("availability per closer on Calendly 
     try {
       const a = await asOperator((c) => getAvailability(c, companyId, solo, 3, NOW));
       expect(a.closers.map((x) => [x.short, x.per_day])).toEqual([["Josh Harris", [1, 1, 4]], ["Pat", [0, 0, 3]]]);
-      expect(formatAvailability(a)).toContain("Day         Josh Harris Open  Pat Open  Total Open");
+      expect(formatAvailability(a)).toContain("Day         Josh Harris  Pat  All");
     } finally { await asOperator((c) => c.query("delete from users where company_id=$1 and email='josh.s@hair.co'", [companyId])); }
   });
 });

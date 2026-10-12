@@ -632,10 +632,10 @@ describe.skipIf(!HAS_DB)("Jev's setter-call accuracy (jev_setter_accuracy)", () 
     expect(r.rows!.map((x) => [x.key, x.numerator, x.denominator])).toEqual([["set", 1, 2], ["follow_up", 0, 2], ["dq", 1, 1], ["not_interested", 1, 1]]);
     expect(r.setter_accuracy).toMatchObject({ reads: 8, confident: 7, scored: 6, agreed: 3, pending: 1, unsure: 1, unsure_answered: 1 });
     const text = formatAnswer([r]);
-    expect(text).toContain("*Jev's setter-call accuracy: 50%*  ·  3 matched ÷ 6 reads with a known outcome");
+    expect(text).toContain("*Jev's setter-call accuracy: 50%* (3 of 6 reads with a known outcome)");
     expect(text).toContain("8 setter calls read · 6 with a known outcome · 1 still waiting on one");
     expect(text).toContain("Jev was unsure on 1 and asked the team (1 answered)");
-    expect(text).toContain("*Jev's setter-call accuracy by Jev's read*");
+    expect(text).toContain("*By Jev's read*");
     // by setter, and the GHL read failing only drops the change made there (said, not hidden)
     const bySetter = await asOperator((c) => getMetric(c, co, { metric: "jev_setter_accuracy", period, groupBy: "setter" }, { objectRecords: async () => { throw new Error("GHL 503"); } } as unknown as GhlReads));
     expect(bySetter.rows).toEqual([{ key: "Allan Setter", label: "Allan Setter", value: 0.6, numerator: 3, denominator: 5 }]);   // h has no known outcome without GHL

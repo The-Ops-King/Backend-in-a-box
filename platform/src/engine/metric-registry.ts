@@ -289,8 +289,8 @@ export async function getMetric(c: PoolClient, companyId: string, q: MetricQuery
 }
 
 export type ClosesList = { metric: "closes_list"; label: string; source: string; period_label: string; period_name: string; timezone: string; count: number; filters?: Record<string, string>;
-  closes: { name: string; closer: string; won: string; value: number }[] };
-/** Each close of a period, newest first: the person, the closer credited, the day it was won. The same people `closes` counts. */
+  closes: { name: string; closer: string; won: string; value: number; cash: number | null }[] };
+/** Each close of a period, newest first: the person, the closer credited, the day it was won, what they paid and the card's value (revenue). The same people `closes` counts. */
 export async function getCloses(c: PoolClient, companyId: string, q: { period: Period; filters?: Filters; now?: Date }, reads: GhlReads = liveGhlReads): Promise<ClosesList> {
   const { row, adapterCompany: ac, bindings } = await loadCompany(c, companyId);
   const tz = row.timezone;
@@ -301,7 +301,7 @@ export async function getCloses(c: PoolClient, companyId: string, q: { period: P
   const list = await closesFor(x);
   const nameOf = (id: string) => (id ? roster.find((u) => u.id === id)?.name ?? id : "unassigned");
   return { metric: "closes_list", label: "Closes", source: GHL_SOURCE, period_label: q.period.label, period_name: q.period.name, timezone: tz, count: list.length,
-    ...(filters.closer ? { filters: { closer: nameOf(filters.closer) } } : {}), closes: list.map((k) => ({ name: k.name, closer: nameOf(k.closer), won: k.at.toFormat("ccc LLL d"), value: k.value })) };
+    ...(filters.closer ? { filters: { closer: nameOf(filters.closer) } } : {}), closes: list.map((k) => ({ name: k.name, closer: nameOf(k.closer), won: k.at.toFormat("ccc LLL d"), value: k.value, cash: k.cash })) };
 }
 
 const sortRows = (rows: MetricRow[], g?: GroupBy) => (g === "day" || g === "week" || g === "month" ? rows.sort((a, b) => a.key.localeCompare(b.key)) : rows.sort((a, b) => (b.denominator ?? b.value ?? 0) - (a.denominator ?? a.value ?? 0) || a.label.localeCompare(b.label)));
