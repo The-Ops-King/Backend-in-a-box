@@ -53,6 +53,8 @@ export type InstallInput = {
   contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
   /** Who takes calls: emails (or CRM user ids) from the roster. Only closers get the end-of-day link and DM (D34); everyone else on the roster is staff. Omitted: roles stay as they are. */
   closers?: string[];
+  /** Everyone else's job, by email (or CRM user id): setter (makes setting calls), manager, owner, staff. Closers come from `closers`. Omitted: roles stay as they are. */
+  roles?: Record<string, "setter" | "manager" | "owner" | "staff">;
   templates?: string[];                  // slugs; default all
   enable?: boolean;                      // default false — Tyler's rule: build off, enable deliberately
   smsEnabled?: boolean;                  // default true; false when the sub-account has no number
@@ -205,6 +207,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       await c.query("update users set role='staff' where company_id=$1 and role='closer' and not (lower(email)=any($2) or ghl_user_id=any($2))", [companyId, who]);
       await c.query("update users set role='closer' where company_id=$1 and role in ('staff','closer') and (lower(email)=any($2) or ghl_user_id=any($2))", [companyId, who]);
     }
+    for (const [who, role] of Object.entries(input.roles ?? {}))
+      if (["setter", "manager", "owner", "staff"].includes(role)) await c.query("update users set role=$3 where company_id=$1 and (lower(email)=lower($2) or ghl_user_id=$2) and role<>'operator'", [companyId, who, role]);
     const terms = await many<{ id: string; category: string }>(c, "select id, category from company_terms where company_id=$1 and domain='appointment_type' and is_default", [companyId]);
     const calendarsOut: string[] = [];
     const listed = await bookingFor(adapters, ac).listCalendars(ac);

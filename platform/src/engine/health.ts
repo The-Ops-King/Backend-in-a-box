@@ -14,7 +14,8 @@ import { whopGetWebhook, whopPing } from "@/adapters/whop/client";
 import { fathomListWebhooks, fathomPing } from "@/adapters/fathom/client";
 import { anthropicPing } from "@/adapters/anthropic/health";
 import { jevPing } from "@/adapters/jev/classifier";
-import { workflowRefs, VERIFIES } from "./coverage";
+import { workflowRefs, workflowEmoji, VERIFIES } from "./coverage";
+import { SLACK_EMOJI } from "./emoji-names";
 import { fallbacksOf, parseDefinition } from "./definition";
 import { liveGhlReads, type GhlReads } from "@/adapters/ghl/metrics";
 import { crmPresence, ledgerDrift } from "./ledger-drift";
@@ -239,6 +240,8 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
       let def; try { def = parseDefinition(wf.definition); } catch (e) { bad("steps", "error", `"${wf.name}" no longer parses on this engine and is skipped: ${String((e as Error).message).slice(0, 120)}. Re-install upgrades it.`, wf.id); continue; }
       const before = out.length; let verified = 0;
       const miss = (text: string, level: Level = "error") => bad("steps", level, `"${wf.name}": ${text}`, wf.id);
+      // a name Slack does not know shows as raw text (":fountain_pen:" for 🖋); a workspace's own custom emoji is the one exception, so this is a warning
+      for (const e of workflowEmoji(def)) if (!SLACK_EMOJI.has(e.name)) miss(`step ${e.node} uses :${e.name}:, which isn't a standard Slack emoji (it shows as text unless it's a custom emoji in your workspace).`, "warning");
       for (const r of workflowRefs(def)) {
         if (VERIFIES[r.kind] === "unverifiable") { unverifiable.push(`${wf.name}: ${r.what} (${r.value})`); continue; }
         switch (r.kind) {

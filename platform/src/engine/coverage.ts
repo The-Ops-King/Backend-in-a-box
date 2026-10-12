@@ -74,3 +74,16 @@ export function workflowRefs(def: Definition): Ref[] {
 
 /** The node types the engine runs, from the schema itself. */
 export const NODE_TYPES: Node["type"][] = Node.options.map((o) => o.shape.type.value as Node["type"]);
+
+/** Every emoji a workflow puts in Slack by name (a persona's icon, reactions, the taps offered and waited for), as `node: name`, colons and skin tone off. Templated and image icons are left out. */
+export function workflowEmoji(def: Definition): { node: string; name: string }[] {
+  const out: { node: string; name: string }[] = [];
+  const take = (node: string, v: unknown) => { for (const x of Array.isArray(v) ? v : [v]) if (typeof x === "string" && /^:?[a-z0-9_+\-]+(::skin-tone-\d)?:?$/.test(x)) out.push({ node, name: x.replace(/::skin-tone-\d/, "").replace(/^:|:$/g, "") }); };
+  const walk = (node: string, v: unknown, key?: string) => {
+    if (Array.isArray(v)) { if (key && /^(icon|emojis|offer)$/.test(key)) take(node, v); else v.forEach((x) => walk(node, x, key)); return; }
+    if (v && typeof v === "object") { for (const [k, x] of Object.entries(v)) walk(node, x, k); return; }
+    if (key && /^(icon|react|emoji|emojis|offer)$/.test(key)) take(node, v);
+  };
+  for (const n of def.nodes) if (n.type === "slack_post" || n.type === "wait_for_reaction" || n.type === "notify_owner") walk(n.id, n);
+  return out;
+}

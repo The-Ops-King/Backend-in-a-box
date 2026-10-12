@@ -1,6 +1,7 @@
 /** Coverage by construction: every node type declares what it needs from outside; every shipped template's needs are kinds the sweep verifies or openly calls unverifiable. */
 import { describe, it, expect } from "vitest";
-import { NODE_NEEDS, NODE_TYPES, VERIFIES, workflowRefs } from "./coverage";
+import { NODE_NEEDS, NODE_TYPES, VERIFIES, workflowRefs, workflowEmoji } from "./coverage";
+import { SLACK_EMOJI } from "./emoji-names";
 import { parseDefinition } from "./definition";
 import { templates } from "@/templates";
 
@@ -32,6 +33,11 @@ describe("coverage (D33)", () => {
     expect(opt("crm.stage_setter_not_interested")).toEqual([true]);
     expect(opt("crm.stage_setter_dq")).toEqual([true]);
     expect(opt("crm.pipeline_setter").every((o) => !o)).toBe(true);
+  });
+  it("every emoji a shipped workflow puts in Slack is one Slack knows (a wrong name shows as raw text, as :fountain_pen: did)", () => {
+    const all = templates.flatMap((t) => workflowEmoji(parseDefinition(t.definition)).map((e) => ({ ...e, slug: t.slug })));
+    expect(all.length).toBeGreaterThan(20);
+    expect(all.filter((e) => !SLACK_EMOJI.has(e.name))).toEqual([]);
   });
   it("a fixed link in copy is a url ref; a templated one is not", () => {
     const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "contact_exists" }, nodes: [{ id: "t", type: "trigger", event: "lead.created" }, { id: "s", type: "send_sms", template: "Book here: https://cal.example.com/book?x=1. Or {{calendar.booking.url}}" }, { id: "x", type: "exit", reason: "done" }], edges: [{ from: "t", to: "s" }, { from: "s", to: "x" }] });
