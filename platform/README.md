@@ -68,6 +68,7 @@ Every template carries a `stage` on the customer's journey (`src/engine/stages.t
 | recording-unlinked | `recording.unlinked` | the "*Unmatched recording*" post in the alerts channel (else bookings) with why, who was on it and the link to match it (D88) |
 | eod-call-filed | `eod.call_filed` (an end-of-day answer for a Sales Call booked before the engine, D77) | the record by its own id (`crm_record` `record_id`): the attendance in the company's keys, the disposition the answer means, what a held call carries emptied for a no-show (D88). Needs `crm.object_sales_call` |
 | ledger-drift | `drift.sales_call_cancelled`, `drift.sales_call_unlinked` (the hourly sweep, D73/D76) | sets a Sales Call the booking source cancelled before its start to cancelled, links a Sales Call to its contact and its one closer card (field and association), each by the record's id (D88). Needs `crm.object_sales_call` |
+| weekly-leaderboard | schedule: Mondays 09:00 company time (D94) | a `leaderboard` step for last week (Mon–Sun): closers ranked by cash collected with closes and close rate, setters ranked by sets with the show rate of their sets, the same registry numbers the bot says; posted to `slack.channel.ops`, else `slack.channel.reports`, with the period under it. The day, time, period, channel and the line under the board are the workflow's |
 | new-lead | lead created | with a phone: setter-pipeline card "Name -- New" (stage New Lead, stage-entered date today) + tag `stat-new`; without a phone: exit `no_phone`. Needs `crm.pipeline_setter`, `crm.stage_setter_new_lead`, `crm.field_opportunity_stage_entered` (install `crm: {...}`) |
 
 Every message is a template on the workflow, editable per company once the editor exists; until
@@ -297,6 +298,11 @@ wrap-up is shown on `/app/c/<slug>/wrap-ups` exactly as sent (shadow: posted wit
 `POST /api/admin/reports { company, kind }` starts the workflow now for that kind (the trigger node `t_<kind>`)
 with the period in progress (today so far / this week so far / this month so far).
 
+**The weekly leaderboard** (D94) is its own workflow (`weekly-leaderboard`): a schedule trigger (Monday 09:00 company
+time), a `leaderboard` step (`period` in plain words, `last week` by default; `into` → `vars.<into>` with `closers`,
+`setters`, `period_label`, `period_name`, `timezone`, `source` and `body`, the phone-width text) and a `slack_post` of
+`{{vars.board.body}}` to `{{slack.channel.ops}}`, falling back to `{{slack.channel.reports}}`. `/leaderboard` answers the same.
+
 D76: the wrap-up's numbers are the bot's (`metric-registry.ts`: people, calls, deals and cash from GHL; bookings and dials
 from the ledger; test contacts out). Only what happened is said: a line for a number that is not zero, a section with a
 line, a rate with its denominator; nothing at all is one line, "Nothing today: no leads, bookings, calls or payments."; a
@@ -475,6 +481,7 @@ the bot is not in, only the asker sees it, with a note to invite the bot.
 | `/availability` | open bookable slots in one table: a row per day, a column per closer, the day's total and a total row; `/availability 3` for three days | next 7 days |
 | `/leads` | leads, MQLs (with how many matched the employment standard and how many didn't answer) and marketing DQs by source | this month |
 | `/closes` | every close, newest first: the person, their closer, the day won, with the count on top | this month |
+| `/leaderboard` | closers ranked by cash collected (closes and close rate beside), setters ranked by sets (the show rate of their sets beside); only people with something in the period; narrow monospace blocks that fit a phone (D94) | this week |
 | `/help` | every shortcut with a one-line description, and example questions (privately) | — |
 
 **Any GHL field, joined across a person's records** (D74, D75): a question about something no metric covers, or one that
@@ -600,6 +607,7 @@ features:
     - { command: /availability, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Open calendar slots per day and per closer", usage_hint: "[days, up to 7]", should_escape: false }
     - { command: /leads, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Leads, MQLs and marketing DQs by source", usage_hint: "[yesterday]", should_escape: false }
     - { command: /closes, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Every close in the period: who, closer, day won", usage_hint: "[last month]", should_escape: false }
+    - { command: /leaderboard, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Closers by cash, setters by sets", usage_hint: "[last week]", should_escape: false }
     - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "What the bot can answer", usage_hint: "", should_escape: false }
 oauth_config:
   scopes:
@@ -629,6 +637,9 @@ settings:
       - message.channels
       - message.groups
 ```
+
+`/leaderboard` (D94) is new: until it is added to the Slack app's slash commands (the same request URL as the others,
+`/api/webhooks/slack/<companyId>/commands`), Slack does not send it.
 
 `/help` is not one of Slack's built-in commands (checked against Slack's list of built-in slash commands, 2026-10-10),
 so it is registered as is. Slack lets several apps register the same command and the most recently installed one wins;
@@ -989,6 +1000,7 @@ possible, all data in the definition:
 - `update_opportunity.from`: the statuses the change is made from (`lost` only an open one).
 - `eod_due`: `lookback_days`, `include_today`, `overdue_after_days`; a list into `vars.<into>`.
 - `report`: `metrics`, `layout`, `period`, and `breakdowns` (`closer`, `setter`) that now do something.
+- `leaderboard` (D94): `period` (plain words, `last week`), `into`; the ranked board and its phone-width `body`.
 - `health_check`: `slots_days`, `fathom_silent_days`, `drift_days`, `poll_lag_min`.
 - Filters: `nonzero`, `plural:"word"` (or `"person|people"`), `then:"text"`, `suffix:"text"`, `fixed:2`, `first:10`,
   `money:0`; inside a nested `each`, `{{parent}}` is the outer item.

@@ -756,6 +756,17 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       setPath(d.ctx, `vars.${node.into}`, { ...b.facts, body: b.body, period: b.period, numbers: b.numbers, id: b.id });
       return { status: "ok", next, result: { kind, period: b.period, report_id: b.id, ...(toDate ? { to_date: true } : {}), ...(node.layout ? {} : { worded_by: "the shipped template's layout (this copy has none)" }) } };
     }
+    case "leaderboard": {
+      // D94: the period is the step's, in plain words; the numbers are the registry's; the words of the post are the template's
+      const words = render(node.period, d.ctx, env(d)).trim() || "last week";
+      const { parsePeriod } = await import("./metric-registry");
+      const period = parsePeriod(words, d.company.timezone, d.now);
+      if (!period) return { status: "failed", error: `leaderboard: "${words}" is not a period I can read (try "last week", "this month", "last 30 days")` };
+      const { formatLeaderboard, getLeaderboard } = await import("./leaderboard");
+      const lb = await getLeaderboard(d.c, d.company.id, { period, now: d.now.toJSDate() }, d.probes?.ghl);
+      setPath(d.ctx, `vars.${node.into}`, { ...lb, body: formatLeaderboard(lb) });
+      return { status: "ok", next, result: { period: { from: period.from, to: period.to }, closers: lb.closers.length, setters: lb.setters.length, ...(lb.cash_unavailable ? { cash: lb.cash_unavailable } : {}) } };
+    }
     case "set_var": {
       // a value chosen by a condition or picked by a fact: plumbing, not a fork on the chart
       const chosen = (raw: unknown) => (typeof raw === "string" ? render(raw, d.ctx, env(d)) : raw);

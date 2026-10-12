@@ -109,6 +109,7 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "update_appointment": return { title: `Mark the call ${Object.values(n.set).map((v) => String(v).replace(/_/g, " ")).join(", ")}` };
     case "exit": return { title: "Done" };
     case "report": return { title: "Build the wrap-up" };
+    case "leaderboard": return { title: "Build the leaderboard", meta: n.period };
     case "availability_check": return { title: "Check bookable slots", meta: `alert under ${n.min_slots} in ${n.days} day${n.days === 1 ? "" : "s"}` };
     case "health_check": return { title: "Run the health checks" };
     case "record": return { title: "Record it", meta: EVENT_LABELS[n.event] ?? humanWords(n.event) };
@@ -134,7 +135,7 @@ export function logoOf(n: Node, bookingSource: "ghl" | "calendly" = "ghl"): stri
     case "exit": return "end";
     case "webhook": return "webhook";
     case "send_document": return "doc";
-    case "health_check": case "availability_check": case "report": case "record": case "lookup": return "engine";
+    case "health_check": case "availability_check": case "report": case "leaderboard": case "record": case "lookup": return "engine";
     case "update_appointment": return bookingSource;
     default: return "ghl";
   }

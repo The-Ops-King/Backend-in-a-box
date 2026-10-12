@@ -10,7 +10,7 @@ const vocab = new Set([...schema.matchAll(/\('([a-z_.]+)','[a-z]+'\)/g)].map((m)
 
 describe("shipped templates", () => {
   it("has the full core set", () => expect(templates.map((t) => t.slug).sort()).toEqual([
-    "agreement-chase", "agreement-send-manually", "agreement-signed", "calendar-availability", "call-booked", "call-cancelled", "call-outcome", "call-recorded", "cancellation-rebook", "card-moved", "deal-closed", "eod-call-filed", "eod-filed", "eod-reminder", "health-check", "ledger-drift", "new-lead", "no-show-recovery", "payment-failed", "payment-recorded", "payment-unlinked", "post-call-follow-up", "pre-call-sequence", "reactivation", "recording-unlinked", "setter-call-logged", "speed-to-lead", "wrap-ups"]));
+    "agreement-chase", "agreement-send-manually", "agreement-signed", "calendar-availability", "call-booked", "call-cancelled", "call-outcome", "call-recorded", "cancellation-rebook", "card-moved", "deal-closed", "eod-call-filed", "eod-filed", "eod-reminder", "health-check", "ledger-drift", "new-lead", "no-show-recovery", "payment-failed", "payment-recorded", "payment-unlinked", "post-call-follow-up", "pre-call-sequence", "reactivation", "recording-unlinked", "setter-call-logged", "speed-to-lead", "weekly-leaderboard", "wrap-ups"]));
   for (const t of templates) {
     it(`${t.slug}: parses, triggers on a real event, references only known paths, and its manifest is sane`, () => {
       const def = parseDefinition(t.definition);
