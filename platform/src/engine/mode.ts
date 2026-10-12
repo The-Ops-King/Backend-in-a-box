@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { many } from "@/db/client";
+import { many, one } from "@/db/client";
 
 /**
  * The ladder a company climbs before anyone real hears from it (D52): shadow (everyone runs, nothing is written or
@@ -7,6 +7,8 @@ import { many } from "@/db/client";
  * email on a test domain, get everything for real: CRM writes, emails, texts; everyone else runs exactly as in
  * shadow, so the team still sees what would have happened), live (everyone). One rule carries the ladder,
  * `contactPasses`; `effectiveMode` turns it into what a run about a contact does: shadow or real.
+ * D92: a workflow may stand on its own rung (`workflows.mode`); null follows the company. `runMode` is that rule, and
+ * every decision about real or shadow starts from it, never from `companies.mode` alone.
  */
 export const MODES = ["shadow", "test", "live"] as const;
 export type Mode = (typeof MODES)[number];
@@ -36,7 +38,24 @@ export async function contactPasses(c: PoolClient, companyId: string, contactId:
   return { ok: false, why: `test mode: not tagged ${TEST_TAG} and no email on a test domain` };
 }
 
-/** What a run does, decided once per claim (D52 addendum 2): shadow when the company is in shadow, or in test and the contact does not pass; real otherwise.
+/** D92: the rung a workflow's runs stand on: its own when set, else the company's. */
+export const runMode = (company: Mode, workflow: Mode | null | undefined): Mode => workflow ?? company;
+/** The same rule in SQL over a workflows row `w` joined to its companies row `co`. */
+export const runModeSql = (w = "w", co = "co") => `coalesce(${w}.mode, ${co}.mode)`;
+export type WorkflowMode = { mode: Mode; own: Mode | null; company: Mode };
+export async function workflowMode(c: PoolClient, workflowId: string): Promise<WorkflowMode | null> {
+  const r = await one<{ own: Mode | null; company: Mode }>(c, "select w.mode as own, co.mode as company from workflows w join companies co on co.id=w.company_id where w.id=$1", [workflowId]);
+  return r ? { mode: runMode(r.company, r.own), own: r.own, company: r.company } : null;
+}
+/** The rung of the workflows an event starts, for the engine handing work to them (D88: a drift repair is as real as the run that makes it). Several: the least real; none: the company's. */
+export async function handlerMode(c: PoolClient, companyId: string, eventType: string): Promise<Mode> {
+  const rows = await many<{ mode: Mode }>(c, `select ${runModeSql()} as mode from workflow_triggers t join workflows w on w.id=t.workflow_id join companies co on co.id=w.company_id
+    where t.company_id=$1 and t.event_type=$2 and t.enabled and w.enabled`, [companyId, eventType]);
+  if (!rows.length) return (await one<{ mode: Mode }>(c, "select mode from companies where id=$1", [companyId]))!.mode;
+  return rows.map((r) => r.mode).sort((a, b) => MODES.indexOf(a) - MODES.indexOf(b))[0];
+}
+
+/** What a run does, decided once per claim (D52 addendum 2): shadow when its mode (`runMode`) is shadow, or test and the contact does not pass; real otherwise.
  *  D76: a run with no contact (end of day, wrap-ups, health) is shadow too until live: nothing outward reaches a person; the operator's alerts are not runs and still go. */
 export type Effective = "shadow" | "real";
 export async function effectiveMode(c: PoolClient, companyId: string, contactId: string | null, mode: Mode, bindings: Record<string, string>): Promise<Effective> {

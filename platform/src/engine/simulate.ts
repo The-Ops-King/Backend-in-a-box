@@ -7,13 +7,15 @@ import { dispatchEvent, emitEvent } from "./dispatch";
 import { ensureOpportunityForBooking, applyPayment } from "./lifecycle";
 import { phoneFacts, recordPhoneCall, recordRecording, settlePhoneCall } from "./recordings";
 import { applyDocument, facts as agreementFacts } from "./agreements";
+import { contactPasses, runModeSql, TEST_DOMAINS_KEY } from "./mode";
 
 /**
  * D23: the test harness lives in the engine, not in the CRM. A simulated step is a real event through the real
  * dispatcher and the real runs; what is synthetic is the FACT (a booking that exists only in our table, source 'test')
  * so nothing at the booking source, the CRM, Calendly or any Zap is touched. Triggered by a `sys-test-<action>` tag
  * the poll sees on a contact, by the admin API, or by a button on the contact page. Refused for a live company unless
- * forced: in live mode a run would write real tags and cards for the test person.
+ * forced: in live mode a run would write real tags and cards for the test person. D92: refused too, for anyone but a
+ * test contact, while a workflow that is on stands live on its own: its run about the staged fact would reach a real person.
  */
 export const SIM_ACTIONS = ["create", "book", "book-self", "reschedule", "cancel", "pay", "record", "call", "agreement", "sign", "reset"] as const;
 export type SimAction = (typeof SIM_ACTIONS)[number];
@@ -32,9 +34,20 @@ async function closerCalendar(c: PoolClient, companyId: string) {
 const openTestAppointment = (c: PoolClient, companyId: string, contactId: string) => one<{ id: string; starts_at: Date; status: string; external_id: string; slot_key: string | null; assigned_user_id: string | null; appointment_term: string; term_category: string; self_booked: boolean | null }>(c,
   "select a.id, a.starts_at, a.status, a.external_id, a.slot_key, a.assigned_user_id, a.appointment_term, t.category as term_category, a.self_booked from appointments a join company_terms t on t.id=a.appointment_term where a.company_id=$1 and a.contact_id=$2 and a.source='test' and a.status<>'cancelled' order by a.booked_at desc limit 1", [companyId, contactId]);
 
+/** Why the harness would act for real for this person, or null when it may stage a fact for them. */
+export async function harnessRefusal(c: PoolClient, company: Pick<CompanyRow, "id" | "mode">, contactId: string): Promise<string | null> {
+  if (company.mode === "live") return "company is live: a simulated run would write real tags and cards. Switch to shadow, or force it.";
+  const live = (await many<{ name: string }>(c, `select w.name from workflows w join companies co on co.id=w.company_id where w.company_id=$1 and w.enabled and ${runModeSql()}='live' order by w.name`, [company.id])).map((w) => w.name);
+  if (!live.length) return null;
+  const domains = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [company.id, TEST_DOMAINS_KEY]))?.value.toString("utf8");
+  if ((await contactPasses(c, company.id, contactId, "test", domains ? { [TEST_DOMAINS_KEY]: domains } : {})).ok) return null;
+  return `${live.join(", ")} ${live.length === 1 ? "is" : "are"} live: a simulated run would reach this person for real, and they are not a test contact (tagged sys-test or on a test domain). Use a test contact, or force it.`;
+}
+
 export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
   const { c, company, contactId } = x;
-  if (company.mode === "live" && !x.force) return { ok: false, why: "company is live: a simulated run would write real tags and cards. Switch to shadow, or force it." };
+  const refused = x.force ? null : await harnessRefusal(c, company, contactId);
+  if (refused) return { ok: false, why: refused };
   const contact = await one<{ id: string; ghl_contact_id: string | null; first_name: string | null; last_name: string | null; timezone: string | null }>(c, "select id, ghl_contact_id, first_name, last_name, timezone from contacts where company_id=$1 and id=$2", [company.id, contactId]);
   if (!contact) return { ok: false, why: "contact not found" };
   const ctx = { contact: { id: contact.id, ghl_contact_id: contact.ghl_contact_id } };

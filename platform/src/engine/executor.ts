@@ -9,7 +9,7 @@ import { predicateWords, durationWords } from "./describe";
 import { syncCards, pickCard, latestCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow, timeParam } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
-import type { Effective } from "./mode";
+import type { Effective, Mode } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { raise } from "./alerts";
 import { applyOutcome, outcomeTermFor, recordDisposition } from "./disposition";
@@ -24,8 +24,8 @@ import { dropReplies, hydrateReplies, mentionsReplyText, readsReplyText, scrubRe
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
-/** A post made before live says which rung it came from, so the team never reads a rehearsal as a real client; a run shadowed in test says shadow. */
-const modePrefix = (d: ExecDeps, label: "mode" | "shadow" | "none" = "mode") => (label === "none" || d.company.mode === "live" ? "" : label === "shadow" ? (d.company.mode === "shadow" ? SHADOW_PREFIX : "") : d.effective === "shadow" ? SHADOW_PREFIX : `🧪 *${d.company.mode}* — `);
+/** A post made before live says which rung it came from, so the team never reads a rehearsal as a real client; a run shadowed in test says shadow. The rung is the run's (D92). */
+const modePrefix = (d: ExecDeps, label: "mode" | "shadow" | "none" = "mode") => (label === "none" || d.mode === "live" ? "" : label === "shadow" ? (d.mode === "shadow" ? SHADOW_PREFIX : "") : d.effective === "shadow" ? SHADOW_PREFIX : `🧪 *${d.mode}* — `);
 /** The step's own name/icon, else the company's defaults (bindings slack.name / slack.icon), else the app. A list of icons is handed on whole; the notifier picks one per post.
  *  An icon that is one whole `{{expr}}` takes the value as it is, so a set_var can hand over a list of faces (a reschedule's 🔁 instead of the calendars). */
 const faces = (d: ExecDeps, icon: string): string[] => { const m = /^\s*\{\{([^}]+)\}\}\s*$/.exec(icon); const v = m ? resolveExpr(m[1], d.ctx, env(d)) : render(icon, d.ctx, env(d)); return (Array.isArray(v) ? v : [v]).map((x) => (x === undefined || x === null ? "" : String(x))).filter(Boolean); };
@@ -77,7 +77,7 @@ export type StepOutcome =
 export type Listener = { node: string; tag: string; channel: string; ts: string; emojis: string[]; into: string; until: string | null; armed_at: string };
 export const listenerOf = (ctx: Record<string, unknown>): Listener | undefined => resolvePath(ctx, "vars.__listen") as Listener | undefined;
 
-export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes; effective: Effective; cardsReadError?: string; /** D89: the reply words this step was given (replies.ts), for a step that writes what it rendered */ replyTexts?: string[] };
+export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes; /** the run's rung (D92: the workflow's own, else the company's) */ mode: Mode; effective: Effective; cardsReadError?: string; /** D89: the reply words this step was given (replies.ts), for a step that writes what it rendered */ replyTexts?: string[] };
 
 const contactTz = (d: ExecDeps) => { const tz = (d.ctx.contact as { timezone?: string } | undefined)?.timezone; return tz && DateTime.now().setZone(tz).isValid ? tz : d.company.timezone; };
 /** A shadowed run (shadow mode, or test with a contact that does not pass) proceeds exactly as it would live, but nothing is written to the CRM; sends are recorded as "would have sent". */
@@ -183,16 +183,16 @@ export async function markGone(c: PoolClient, company: Pick<CompanyRow, "id" | "
 /** A Slack user id (a DM), as opposed to a channel. */
 const isSlackUser = (id: string) => /^[UW][A-Z0-9]{2,}$/.test(id);
 /**
- * D76: until the company is live, a DM to a team member never reaches them. It goes to the company's ops channel
+ * D76: until the run is live (D92: the workflow's own mode, else the company's), a DM to a team member never reaches them. It goes to the company's ops channel
  * (`slack.channel.ops`), else the operator's DM (`bot.escalate_to`), "Would have sent to <name>:" first, unless the run is
  * about a test contact and the operator is the recipient. Neither bound: written down, posted nowhere.
  * Null: deliver as addressed (live, a channel, or the operator's own test DM).
  */
 async function dmRoute(d: ExecDeps, recipient: string | undefined): Promise<null | { to: string; prefix: string } | { blocked: string }> {
-  if (!recipient || !isSlackUser(recipient) || d.company.mode === "live") return null;
+  if (!recipient || !isSlackUser(recipient) || d.mode === "live") return null;
   const operator = d.bindings["bot.escalate_to"], target = d.bindings["slack.channel.ops"] || operator;
   if (operator && recipient === operator && d.effective === "real" && d.run.contact_id) return null;
-  if (!target) return { blocked: `${d.company.mode} mode: a DM to a team member goes to the ops channel until live, and neither it (slack.channel.ops) nor an operator (bot.escalate_to) is set` };
+  if (!target) return { blocked: `${d.mode} mode: a DM to a team member goes to the ops channel until live, and neither it (slack.channel.ops) nor an operator (bot.escalate_to) is set` };
   const name = (await one<{ name: string }>(d.c, "select name from users where company_id=$1 and slack_user_id=$2 limit 1", [d.company.id, recipient]))?.name ?? recipient;
   return { to: target, prefix: `Would have sent to ${name}:\n` };
 }

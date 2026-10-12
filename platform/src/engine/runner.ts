@@ -6,7 +6,7 @@ import { parseDefinition, indexDefinition, onwardEdge, type Definition } from ".
 import { buildContext, loadCompany, persistedContext, type RunRow } from "./context";
 import { syncCards } from "./cards";
 import { refreshContact } from "./contact-truth";
-import { effectiveMode } from "./mode";
+import { effectiveMode, workflowMode } from "./mode";
 import { executeNode, listenerOf, markGone, setPath, type ExecDeps, type Listener } from "./executor";
 import { releaseHeldTranscripts } from "./transcripts";
 import type { Node } from "./definition";
@@ -29,7 +29,7 @@ type PendingTrigger = { event_id: number; trigger_id: string | null; trigger_nod
 export type TickReport = { claimed: number; completed: number; waiting: number; exited: number; failed: number; paused: number; recovery: boolean; staleExits: number; sends: number; replayed?: number; deferred?: number; retries?: number; gave_up?: number; held?: number };
 
 /** D5b premise check — reads the booking source live, never the replica. */
-async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ctx" | "now" | "effective">): Promise<{ ok: true } | { ok: false; why: string }> {
+async function premiseAlive(def: Definition, d: Omit<ExecDeps, "edgesFrom" | "ctx" | "now" | "mode" | "effective">): Promise<{ ok: true } | { ok: false; why: string }> {
   const chk = def.premise.check;
   if (chk === "none") return { ok: true };
   if (chk === "contact_exists") return (await one(d.c, "select 1 from contacts where id=$1 and merged_into is null and gone_at is null", [d.run.contact_id])) ? { ok: true } : { ok: false, why: "contact gone" };
@@ -128,7 +128,9 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
         }
 
         // D52 addendum 2: decided once per claim, so a contact whose tag comes off mid-run shadows from its next step (and a run keeps going when the mode moves)
-        const effective = await effectiveMode(c, run.company_id, run.contact_id, company.mode, bindings);
+        // D92: from the workflow's own mode when it has one, else the company's
+        const mode = (await workflowMode(c, run.workflow_id))!.mode;
+        const effective = await effectiveMode(c, run.company_id, run.contact_id, mode, bindings);
         // D66: a card step reads the CRM itself under the failure policy; reading here too would double the call and swallow the outage it is about to meet
         const startsOnCard = nodes.get(run.current_node ?? "")?.type === "pipeline_card";
         let cardsReadError: string | undefined;   // the read failed: `cards.*` is the replica's last word, and the first card step this tick fails on it instead of asking again
@@ -144,7 +146,7 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           report.exited++; if (report.recovery) report.staleExits++; return;
         }
         const ctx = await buildContext(c, run, company, bindings, truth);
-        const deps: ExecDeps = { c, adapters, company, adapterCompany, bindings, run, ctx, edgesFrom, now, probes, effective, cardsReadError };
+        const deps: ExecDeps = { c, adapters, company, adapterCompany, bindings, run, ctx, edgesFrom, now, probes, mode, effective, cardsReadError };
         const wakeFlags = { reply: !!(run as RunRow & { wake_on_reply?: boolean }).wake_on_reply, tag: (run as RunRow & { wake_on_tag?: string | null }).wake_on_tag ?? undefined };
         /**
          * D66: a step that failed is retried in place, never the run from the top, and never past a side effect twice.
@@ -309,13 +311,14 @@ export async function rerunStep(c: import("pg").PoolClient, adapters: Adapters, 
   const ver = await one<{ definition: unknown }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [run.workflow_id, run.workflow_version]);
   const def = parseDefinition(ver!.definition); const { nodes, edgesFrom } = indexDefinition(def);
   const node = nodes.get(nodeId); if (!node) return { ok: false, status: 409, error: `step ${nodeId} is not in this run's workflow version` };
-  const effective = await effectiveMode(c, run.company_id, run.contact_id, company.mode, bindings);
+  const mode = (await workflowMode(c, run.workflow_id))!.mode;
+  const effective = await effectiveMode(c, run.company_id, run.contact_id, mode, bindings);
   const truth = run.contact_id ? await refreshContact(c, company, adapterCompany, adapters, bindings, run.contact_id, now) : undefined;
   if (truth && !truth.ok) return { ok: false, status: 409, error: `nothing to retry: ${truth.why}` };
   const ctx = await buildContext(c, run, company, bindings, truth);
   const step = await one<{ id: string }>(c, "insert into run_steps (run_id,node_id,node_type,status) values ($1,$2,$3,'waiting') returning id", [run.id, node.id, node.type]);
   let out: Awaited<ReturnType<typeof executeNode>>, thrown: unknown;
-  try { out = await executeNode({ c, adapters, company, adapterCompany, bindings, run: { ...run, step_attempt: 0 }, ctx, edgesFrom, now, effective }, node); } catch (e) { thrown = e; out = { status: "failed", error: String((e as Error).message).slice(0, 500) }; }
+  try { out = await executeNode({ c, adapters, company, adapterCompany, bindings, run: { ...run, step_attempt: 0 }, ctx, edgesFrom, now, mode, effective }, node); } catch (e) { thrown = e; out = { status: "failed", error: String((e as Error).message).slice(0, 500) }; }
   if (out.status === "failed" || out.status === "waiting" || out.status === "paused") {
     const error = out.status === "failed" ? out.error : `the step asked to ${out.status === "waiting" ? "wait" : "pause"}, which a retry on its own cannot do`;
     if (out.status === "failed" && (thrown === undefined || classifyError(thrown).answered)) await releasePending(c, run.id, node.id);

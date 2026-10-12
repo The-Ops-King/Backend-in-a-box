@@ -4,6 +4,7 @@ import { parseDefinition, indexDefinition, type Definition } from "./definition"
 import { evaluate } from "./predicate";
 import { reentryKey, windowInterval } from "./reentry";
 import { render } from "./template";
+import { runModeSql } from "./mode";
 
 const SUPERSEDES: ReadonlySet<Definition["reentry"]> = new Set(["once_per_contact", "once_per_appointment", "once_per_contact_per_window"]);
 
@@ -40,7 +41,7 @@ export async function startRun(c: PoolClient, args: { companyId: string; workflo
     }
   }
   const row = await one<{ id: string }>(c, `insert into runs (company_id, workflow_id, workflow_version, contact_id, user_id, opportunity_id, appointment_id, trigger_id, triggered_by_event, status, current_node, next_run_at, context, reentry_key, born_in)
-    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'active',$10,now(),$11,$12,(select mode from companies where id=$1))
+    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'active',$10,now(),$11,$12,(select ${runModeSql()} from workflows w join companies co on co.id=w.company_id where w.id=$2))
     on conflict (workflow_id, reentry_key) do nothing returning id`,
     [args.companyId, args.workflowId, wf.current_version, args.contactId, args.userId ?? null, args.opportunityId ?? null, args.appointmentId ?? null, args.triggerId ?? null, args.event.id, args.triggerNodeId, { event: { ...args.event.data, _type: args.event.event_type, _source: args.event.source }, vars: {} }, key]);
   if (!row) {

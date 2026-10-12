@@ -460,6 +460,7 @@ create table workflows (
   name              text not null,
   current_version   int not null default 1,
   enabled           boolean not null default false,
+  mode              text check (mode in ('shadow','test','live')),   -- D92: the workflow's own rung; null follows companies.mode. Install never writes it
   reentry_policy    text not null
                     check (reentry_policy in ('once_per_contact','once_per_appointment','once_per_opportunity','once_per_contact_per_window','always')),
   reentry_window    interval,                             -- for the per_window policy

@@ -2,12 +2,16 @@ import { NextResponse } from "next/server";
 import { asOperator, many, one } from "@/db/client";
 import { operatorAuthorized } from "@/engine/admin-auth";
 import { companyReadiness } from "@/engine/readiness";
+import { setWorkflowMode } from "@/engine/golive";
+import { isMode, type Mode } from "@/engine/mode";
 export const dynamic = "force-dynamic";
 
 /**
  * Turn a company's workflows on or off from outside the dashboard (a Zap, a script, a go-live checklist).
- * GET  ?company=<slug>                              → every workflow with its readiness
- * POST { company: <slug>, workflow: <template slug | name>, enabled: boolean }
+ * GET  ?company=<slug>                              → every workflow with its readiness, its own mode (null: the company's) and the mode its runs go by (runsIn)
+ * POST { company: <slug>, workflow: <template slug | name>, enabled?: boolean, mode?: "shadow" | "test" | "live" | null, by?: string }
+ *      at least one of enabled and mode. mode null (or "company") follows the company again (D92); a mode that puts the
+ *      workflow's runs live is refused with the blockers it has, and clears its runs not born live. Every change is audited.
  * DELETE { company: <slug>, workflow: <template slug | name> } removes a workflow a company no longer wants, with its versions,
  *        triggers, runs and their ledger rows; the events it emitted stay (the journal is history). Refused while it is on.
  * Turning ON a workflow with a missing required binding is refused: the dashboard would show it as blocking.
@@ -26,8 +30,11 @@ export async function GET(req: Request) {
 }
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const body = (await req.json().catch(() => null)) as { company?: string; workflow?: string; enabled?: boolean } | null;
-  if (!body?.company || !body.workflow || typeof body.enabled !== "boolean") return NextResponse.json({ error: "company, workflow and enabled are required" }, { status: 400 });
+  const body = (await req.json().catch(() => null)) as { company?: string; workflow?: string; enabled?: boolean; mode?: string | null; by?: string } | null;
+  const setsMode = !!body && "mode" in body;
+  if (!body?.company || !body.workflow || (body.enabled !== undefined && typeof body.enabled !== "boolean") || (body.enabled === undefined && !setsMode)) return NextResponse.json({ error: "company, workflow and enabled or mode are required" }, { status: 400 });
+  if (setsMode && body.mode !== null && body.mode !== "company" && !isMode(body.mode)) return NextResponse.json({ error: "mode must be shadow, test, live, or null to follow the company" }, { status: 400 });
+  const mode = setsMode ? (body.mode === "company" ? null : (body.mode as Mode | null)) : undefined;
   return asOperator(async (c) => {
     const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [body.company]);
     if (!co) return NextResponse.json({ error: "no such company" }, { status: 404 });
@@ -38,11 +45,15 @@ export async function POST(req: Request) {
       const r = await companyReadiness(c, co.id, `/app/c/${body.company}`); const mine = r.workflows.find((x) => x.id === w.id)!;
       if (mine.missing.length) return NextResponse.json({ error: `cannot turn on: missing ${mine.missing.join(", ")}`, missing: mine.missing }, { status: 409 });
     }
-    if (w.enabled !== body.enabled) {
-      await c.query("update workflows set enabled=$2 where id=$1", [w.id, body.enabled]);
-      await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,$2,'workflow',$3,$4,$5)", [co.id, body.enabled ? "workflow.enabled" : "workflow.disabled", w.id, { enabled: w.enabled }, { enabled: body.enabled, via: "api" }]);
+    const m = mode !== undefined ? await setWorkflowMode(c, w.id, mode, body.by || "operator", "api") : undefined;
+    if (m && !m.ok) return NextResponse.json({ error: m.error, blockers: m.blockers }, { status: m.status });
+    const enabled = body.enabled ?? w.enabled;
+    if (w.enabled !== enabled) {
+      await c.query("update workflows set enabled=$2 where id=$1", [w.id, enabled]);
+      await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,$2,'workflow',$3,$4,$5)", [co.id, enabled ? "workflow.enabled" : "workflow.disabled", w.id, { enabled: w.enabled }, { enabled, via: "api" }]);
     }
-    return NextResponse.json({ ok: true, workflow: w.name, slug: w.slug, enabled: body.enabled, changed: w.enabled !== body.enabled });
+    return NextResponse.json({ ok: true, workflow: w.name, slug: w.slug, enabled, changed: w.enabled !== enabled || !!m?.changed,
+      ...(m?.ok ? { mode: m.mode, runs_in: m.runs_in, mode_changed: m.changed, ...(m.cleared ? { cleared: m.cleared } : {}) } : {}) });
   });
 }
 

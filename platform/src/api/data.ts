@@ -14,7 +14,8 @@ import { chartOf, pathOf, runState, type PathItem } from "./words";
 import { companyReports } from "@/engine/reports";
 import { setterMetrics } from "@/engine/metrics";
 import { EVENT_LABELS } from "@/engine/describe";
-import { effectiveMode, type Mode } from "@/engine/mode";
+import { effectiveMode, workflowMode, type Mode } from "@/engine/mode";
+import { harnessRefusal } from "@/engine/simulate";
 
 /** The company header every page under a company carries. */
 export type CompanyHead = { id: string; name: string; slug: string; mode: Mode; timezone: string; status: string };
@@ -38,7 +39,7 @@ export async function companiesPage(c: PoolClient) {
   return { engine: { last_tick: state?.value.last_tick ?? null, recovery: !!state?.value.recovery, problems: probs.value.problems }, companies };
 }
 
-export type WorkflowRow = { id: string; name: string; enabled: boolean; stage: string | null; sort: number; origin: string | null; description: string | null; people: number; in_flight: number; needs_hand: number; last_ran: Date | null; schedule: string | null; ready: boolean; missing: string[]; gaps: string[]; parse_error?: string };
+export type WorkflowRow = { id: string; name: string; enabled: boolean; stage: string | null; sort: number; origin: string | null; description: string | null; people: number; in_flight: number; needs_hand: number; last_ran: Date | null; schedule: string | null; ready: boolean; missing: string[]; gaps: string[]; parse_error?: string; /** D92: its own mode (null: the company's) and the mode its runs go by */ mode: Mode | null; runs_in: Mode };
 
 /** The company page: the workflows on the rail with their counts and readiness. */
 export async function companyPage(c: PoolClient, co: CompanyHead) {
@@ -56,7 +57,7 @@ export async function companyPage(c: PoolClient, co: CompanyHead) {
     let schedule: string | null = null;
     try { const def = parseDefinition(w.definition); const trigs = def.nodes.filter((n) => n.type === "trigger" && n.schedule); if (trigs.length) schedule = trigs.map((t) => (t.type === "trigger" && t.schedule ? scheduleWords(t.schedule) : "")).join("; "); } catch { /* readiness says so */ }
     const r = readyOf.get(w.id);
-    return { id: w.id, name: w.name, enabled: w.enabled, stage: w.stage, sort: w.sort, origin: w.origin, description: w.description, people: w.people, in_flight: w.in_flight, needs_hand: w.needs_hand, last_ran: w.last_ran, schedule, ready: !!r?.ready, missing: r?.missing ?? [], gaps: r?.gaps ?? [], parse_error: r?.parseError };
+    return { id: w.id, name: w.name, enabled: w.enabled, stage: w.stage, sort: w.sort, origin: w.origin, description: w.description, people: w.people, in_flight: w.in_flight, needs_hand: w.needs_hand, last_ran: w.last_ran, schedule, ready: !!r?.ready, missing: r?.missing ?? [], gaps: r?.gaps ?? [], parse_error: r?.parseError, mode: r?.mode ?? null, runs_in: r?.runsIn ?? co.mode };
   }).sort((a, b) => stageIndex(a.stage) - stageIndex(b.stage) || a.sort - b.sort || a.name.localeCompare(b.name));
   const alerts = await one<{ n: number }>(c, "select count(*)::int as n from alerts where company_id=$1 and resolved_at is null", [co.id]);
   return { company: co, stages: STAGES, workflows, issues: ready.issues, alerts_open: alerts?.n ?? 0 };
@@ -121,7 +122,7 @@ export async function workflowPage(c: PoolClient, co: CompanyHead, id: string, l
   const runs = await many<RunFull>(c, `${runSelect} where r.workflow_id=$1 order by (r.status in ('active','waiting')) desc, r.started_at desc limit $2`, [id, Math.min(Math.max(1, Math.floor(limit) || 100), 1000)]);
   const rows = await runRows(c, co, runs);
   const schedule = def ? def.nodes.filter((n) => n.type === "trigger" && n.schedule).map((t) => (t.type === "trigger" && t.schedule ? scheduleWords(t.schedule) : "")).join("; ") : "";
-  return { company: co, workflow: { id: w.id, name: w.name, enabled: w.enabled, stage: w.stage, origin: w.origin, description: w.description, version: w.current_version, diverged: w.diverged, last_ran: stats?.last_ran ?? null, schedule: schedule || null, parse_error },
+  return { company: co, workflow: { id: w.id, name: w.name, enabled: w.enabled, stage: w.stage, origin: w.origin, description: w.description, version: w.current_version, diverged: w.diverged, last_ran: stats?.last_ran ?? null, schedule: schedule || null, parse_error, mode: mine?.mode ?? null, runs_in: mine?.runsIn ?? co.mode },
     tiles: { people: stats?.people ?? 0, in_flight: stats?.in_flight ?? 0, finished: stats?.finished ?? 0, needs_hand: stats?.needs_hand ?? 0 }, chart, runs: rows,
     ready: { ready: !!mine?.ready, missing: mine?.missing ?? [], gaps: mine?.gaps ?? [], issues: ready.issues.filter((i) => !i.href || i.href.endsWith(`/w/${id}`)) } };
 }
@@ -144,7 +145,7 @@ export async function runPage(c: PoolClient, id: string) {
   const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source) : null;
   const states: Record<string, PathItem["state"]> = {}; for (const p of path) if (!(p.node_id in states) || p.state !== "next") states[p.node_id] = p.state;
   return { company: co, workflow: { id: r.workflow_id, name: r.workflow },
-    run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, co.mode, bindings)) === "shadow",
+    run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, (await workflowMode(c, r.workflow_id))!.mode, bindings)) === "shadow",
       // D66: where it stopped and why, and whether a person can retry or skip that step (a step with no plain way on can only be retried)
       current_node: r.current_node, step_error: r.step_error ?? null, step_attempt: r.step_attempt ?? 0, can_skip: !!(r.current_node && def && onwardEdge(indexDefinition(def).edgesFrom(r.current_node))) ,
       // D77: held on a blocking step that is down (re-checked alone at next_run_at), and the steps it skipped after their tries, each retryable on its own
@@ -165,6 +166,8 @@ const truthOf = (context: Record<string, unknown>): { fetched_at: string | null;
   const ct = context?.contact as { fetched_at?: string; stale?: string } | undefined;
   return ct && (ct.fetched_at || ct.stale) ? { fetched_at: ct.fetched_at ?? null, stale: ct.stale ?? null } : null;
 };
+
+const harnessOf = async (c: PoolClient, co: CompanyHead, contactId: string) => { const why = await harnessRefusal(c, co, contactId); return { allowed: !why, why }; };
 
 /** The contact page: the CRM's facts, their workflows, what is next. No messages (D38). */
 export async function contactPage(c: PoolClient, id: string) {
@@ -195,7 +198,7 @@ export async function contactPage(c: PoolClient, id: string) {
     recordings: recordings.map((r) => ({ id: r.id, at: r.started_at, title: r.title, minutes: r.duration_min, url: r.share_url, provider: r.provider })),
   };
   return { company: co, contact: { id: ct.id, name: `${ct.first_name ?? ""} ${ct.last_name ?? ""}`.trim() || "Contact", phone, email, timezone: ct.timezone ?? co.timezone, tags: ct.tags, since: ct.created_at, crm_url: loc && ct.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${ct.ghl_contact_id}` : null },
-    facts, identifiers: idents.map((i) => [i.kind, i.value] as [string, string]), runs: rows, next, history, harness: { allowed: co.mode !== "live" } };
+    facts, identifiers: idents.map((i) => [i.kind, i.value] as [string, string]), runs: rows, next, history, harness: await harnessOf(c, co, id) };
 }
 
 /** Every wrap-up generated for this company, newest first, exactly as Slack got it (or would have, in shadow). */

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, usePage, useAction, type WorkflowPage, type RunListRow, type RunPage } from "~/api";
+import { api, usePage, useAction, modeLabel, MODES, MODE_ABOUT, type Mode, type WorkflowPage, type RunListRow, type RunPage } from "~/api";
 import { Crumb, Empty, Ic, NameLine, Sec, Sheet, Skeleton, Strip, Switch, Tag, Tiles, toast } from "~/ui/pieces";
 import { FlowChart, Legend, NodeWords, RunNodeWords } from "~/ui/chart";
 import { Ghost } from "~/ui/icons";
@@ -17,6 +17,7 @@ export function Workflow() {
   // the chosen person's run: the run page's own payload, so the chart wears exactly the states the run page draws
   const picked = usePage<RunPage>(["run", sel ?? ""], `/api/v1/runs/${sel}`, { enabled: !!sel, every: 30_000 });
   const flip = useAction<boolean>((enabled) => api(`/api/v1/workflows/${id}/enabled`, { method: "POST", json: { enabled } }), [key, ["company", slug]]);
+  const mode = useAction<{ mode: Mode | null }, { runs_in: Mode; cleared?: { runs: number } }>((v) => api(`/api/v1/workflows/${id}/mode`, { method: "POST", json: v }), [key, ["company", slug]]);
   const fire = useAction<void, { note: string }>(() => api(`/api/v1/workflows/${id}/fire`, { method: "POST" }), [key]);
   const [pop, setPop] = useState<{ id: string; el: Element } | null>(null);
   const popOpen = useRef(false); popOpen.current = !!pop;
@@ -34,6 +35,13 @@ export function Workflow() {
   if (!q.data) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton lines={8} />;
   const { company: co, workflow: w, tiles, chart, runs, ready } = q.data;
   const control = <Switch big word on={w.enabled} label="On or off" onChange={async (next) => { try { await flip.mutateAsync(next); } catch (e) { toast((e as Error).message, true); throw e; } }} />;
+  // D92: this workflow on its own rung, or following the company's; live passes this workflow's go-live gate and clears its rehearsal runs
+  const setMode = async (next: Mode | null) => {
+    if (next === w.mode) return;
+    const to = next ?? co.mode;
+    if (to === "live" && w.runs_in !== "live" && !confirm(`Put ${w.name} live? It will send real messages and write to the CRM for everyone, whatever the company's mode. Its runs born before live are cleared: they were rehearsal.`)) return;
+    try { const r = await mode.mutateAsync({ mode: next }); toast(`${w.name}: ${modeLabel({ mode: next, runs_in: r.runs_in })}.${r.cleared?.runs ? ` ${r.cleared.runs} rehearsal run${r.cleared.runs === 1 ? "" : "s"} cleared.` : ""}`); } catch (e) { toast((e as Error).message, true); }
+  };
   const run = sel && picked.data && picked.data.run.id === sel ? picked.data : null;
   const shown = run?.chart ?? chart;
   const narrow = typeof window !== "undefined" && window.innerWidth < 700;
@@ -41,7 +49,8 @@ export function Workflow() {
   return <>
     <Crumb items={[{ to: `/app/c/${slug}`, label: co.name }]} />
     <NameLine name={w.name} control={control} />
-    <div className="tagline">{w.stage ? <Tag>{w.stage.replace(/_/g, "-")}</Tag> : null}{w.origin === "spec" ? <Tag kind="spec">your spec</Tag> : <Tag kind="def">default</Tag>}{co.mode === "shadow" ? <Tag kind="shadow">shadow</Tag> : null}{!ready.ready ? <Tag kind="warn">{ready.missing.length ? `missing ${ready.missing.join(", ")}` : ready.gaps.length ? "not built yet" : "needs reinstall"}</Tag> : null}<span>{w.last_ran ? `last ran ${ago(w.last_ran)}` : "never ran"}</span>{w.schedule ? <><span>·</span><span>{w.schedule}</span>{w.enabled ? <button type="button" className="btn" style={{ padding: "3px 10px", fontSize: 12 }} disabled={fire.isPending} onClick={async () => { try { const r = await fire.mutateAsync(); toast(r.note); } catch (e) { toast((e as Error).message, true); } }}>Run now</button> : null}</> : null}</div>
+    <div className="tagline">{w.stage ? <Tag>{w.stage.replace(/_/g, "-")}</Tag> : null}{w.origin === "spec" ? <Tag kind="spec">your spec</Tag> : <Tag kind="def">default</Tag>}<Tag kind={w.runs_in}>{modeLabel(w)}</Tag>{!ready.ready ? <Tag kind="warn">{ready.missing.length ? `missing ${ready.missing.join(", ")}` : ready.gaps.length ? "not built yet" : "needs reinstall"}</Tag> : null}<span>{w.last_ran ? `last ran ${ago(w.last_ran)}` : "never ran"}</span>{w.schedule ? <><span>·</span><span>{w.schedule}</span>{w.enabled ? <button type="button" className="btn" style={{ padding: "3px 10px", fontSize: 12 }} disabled={fire.isPending} onClick={async () => { try { const r = await fire.mutateAsync(); toast(r.note); } catch (e) { toast((e as Error).message, true); } }}>Run now</button> : null}</> : null}</div>
+    <div className="tagline"><div className="steps" role="radiogroup" aria-label="mode">{([null, ...MODES] as (Mode | null)[]).map((m) => <button key={m ?? "company"} type="button" role="radio" aria-checked={w.mode === m} className={`step ${w.mode === m ? "on" : ""} ${m ?? ""}`} onClick={() => setMode(m)} disabled={mode.isPending} title={m ? MODE_ABOUT[m] : `follow the company: ${co.mode}`}>{m === null ? `company (${co.mode})` : m === "live" && w.runs_in !== "live" ? "Go live" : m}</button>)}</div><span>{MODE_ABOUT[w.runs_in]}</span></div>
     {w.description ? <p className="desc">{w.description}</p> : null}
     {ready.gaps.length || ready.issues.length ? <div style={{ marginTop: 10 }}>{[...ready.gaps.map((g) => ({ level: "warning", text: g })), ...ready.issues].map((i, k) => <div key={k} className="issue"><Tag kind={i.level === "blocker" ? "warn" : ""}>{i.level === "blocker" ? "blocks" : "note"}</Tag><span>{i.text}</span></div>)}</div> : null}
     <Tiles items={[{ n: tiles.people, word: "people" }, { n: tiles.in_flight, word: "in flight", kind: "h" }, { n: tiles.finished, word: "finished" }, { n: tiles.needs_hand, word: tiles.needs_hand === 1 ? "needs a hand" : "need a hand", kind: "f" }]} />

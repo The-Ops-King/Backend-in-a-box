@@ -39,6 +39,7 @@ a{color:inherit}
 .steps .step.on.live{background:var(--ok-bg);color:var(--ok)}
 .steps .step.live:not(.on){color:var(--ok)}
 .steps .step:disabled{opacity:.6;cursor:default}
+.steps[role=radiogroup]{display:inline-flex;flex-direction:row}   /* the mode control; the run feed below is also .steps */
 .tag.ok,.tag.live{background:var(--ok-bg);color:var(--ok)}
 .tag.warn{background:var(--warn-bg);color:var(--warn)}
 

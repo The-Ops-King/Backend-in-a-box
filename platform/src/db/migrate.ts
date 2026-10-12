@@ -35,6 +35,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`update companies set mode='test' where mode='rehearsal'`); await c.query(`update runs set born_in='test' where born_in='rehearsal'`);   // the rung existed for an hour (D52 addendum)
     await c.query(`alter table companies drop constraint if exists companies_mode_check`);
     await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','test','live'))`);
+    await c.query(`alter table workflows add column if not exists mode text`);   // D92: the workflow's own rung; null follows the company
+    await c.query(`alter table workflows drop constraint if exists workflows_mode_check`);
+    await c.query(`alter table workflows add constraint workflows_mode_check check (mode in ('shadow','test','live'))`);
     await c.query(`alter table runs drop constraint if exists runs_born_in_check`);
     await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('shadow','test','live'))`);
     // D88: alerts are Slack only, said by the Health check workflow; the email and webhook destinations are gone with their paths

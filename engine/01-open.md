@@ -437,8 +437,14 @@ recorded ↔ 10 -- Payment Received · Agreement signed ↔ 11 · Deal closed �
 Order: the short, event-shaped pairs first (09, 10, 11, 13, 14), then 01, then the long-running ones (pre-call, no-show)
 last. Prove the "filter nobody new matches" behaviour on Tyler TEST before relying on it.
 
-Blocker: live is company-wide today (`companies.mode`: shadow | test | live). Going live one pair at a time needs a
-per-workflow "real for everyone" switch, else the whole company flips at once.
+The switch (D92): each engine workflow goes live on its own while Hair stays in test. For each pair, at the same
+moment: put the filter on the GHL trigger, then on the engine workflow's page press **Go live** in its mode control
+(company · shadow · test · live), or `POST /api/admin/workflows` with `{ "company": "hair", "workflow": "<slug>", "mode":
+"live", "by": "Tyler" }`. It is refused with the reasons when the workflow is not ready (Slack not connected for one that
+posts, a missing setting); its runs born before live are cleared, so nobody already in the GHL workflow gets a second
+copy from the engine. The list then reads "Live (this workflow)" against "Test (company)" for the rest. Undo is the same
+control: **company** (or `"mode": null`) puts it back on test. Every change is in the audit log. The test harness refuses
+to stage a fact for anyone but a test contact while any workflow is live on its own.
 
 ## 41. Queue after the switch-over (2026-10-12)
 

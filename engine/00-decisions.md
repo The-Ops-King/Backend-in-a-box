@@ -2915,3 +2915,44 @@ the day's totals and then one line per call: the person, the outcome, money coll
 deposit, the next date on a follow up, the reason on a DQ or lost ("• Tyler TEST: Closed · $1,500 collected · $2,999
 revenue"). The corrections are still kept on the report (D34), not posted. Found writing it: a bare date ("2026-10-29")
 rendered as midnight UTC, the 28th in the US, in every template; a bare date is now that calendar day where it is shown.
+
+## D92. Live per workflow (2026-10-12)
+
+Tyler, before switching Hair from its GHL workflows and Zaps one pair at a time (01-open.md item 40): "we need to make
+sure we have per flow toggles." Live was company-wide (`companies.mode`), so putting one engine workflow live meant the
+whole company went live at once.
+
+- **A workflow has its own mode.** `workflows.mode` is shadow, test, live or null; null follows the company. A run goes by
+  its workflow's mode when set, else the company's (`mode.ts › runMode`), and the runner decides it once per claim as
+  before (D52 addendum 2): `effectiveMode` is given the run's mode, not the company's. Runs with no contact (end of day,
+  wrap-ups, health, alerts, drift, D76 and D88) follow the same rule: a no-contact run in a workflow live on its own is
+  real; in one on test it is shadow.
+- **Everything that decides real or shadow reads the run's mode.** CRM writes and sends (the effective mode), the 🧪 label
+  (`mode` and `shadow` labels name the run's rung), `born_in` (the run's mode at birth), the run page's "in shadow", and
+  the DM held back until live (D76 ruling 7): "until live" is the run's, so a workflow switched live DMs real people while
+  the company is still in test. The drift sweep hands its two GHL repairs to the Ledger drift workflow (D88), so the
+  repair goes by that workflow's mode (the least real of the workflows the event starts; none, the company's). Nothing
+  outside `mode.ts` decides from `companies.mode` alone, except two company-wide things: the readiness note "Company is
+  in test" and the harness refusal for a live company.
+- **Going live on one workflow passes the company's gate, narrowed to it** (`readiness.ts › workflowLiveBlockers`): its
+  stored definition runs, its required settings are bound (on or off: it is about to act for real), and Slack is
+  connected when it posts, DMs or waits on a tap. Refused with those reasons; the workflow keeps its mode. Anything that
+  puts a workflow's runs live counts, its own live or clearing back onto a live company.
+- **The clean slate is per workflow** (D51). Going live on one workflow clears its runs not born live, so a run shadowed
+  for a real person does not turn real halfway, and nobody already inside the GHL twin gets a second copy. The company's
+  Go live now clears only the runs of workflows that will be live; one held on its own shadow or test keeps rehearsing,
+  and the harness's synthetic bookings are cleared only by the company's.
+- **The operator's control.** The workflow page has the company's mode control: company (its mode in brackets), shadow,
+  test, live; `POST /api/v1/workflows/<id>/mode` `{ mode, by }` behind it. `POST /api/admin/workflows` takes
+  `{ company, workflow, mode, by }` (`enabled` optional alongside; `null` or `"company"` follows the company), and its GET
+  lists each workflow's `mode` and `runsIn`. Every change is a `workflow.mode` row in `audit_log`: by, the door, the mode
+  and the rung before and after, what was cleared, when. The workflow list and page say "Live (this workflow)" or
+  "Test (company)".
+- **Install never writes it.** A template upgrade keeps the workflow's mode, as it keeps `enabled`.
+- **The harness stays safe.** While any workflow that is on is live on its own, staging a fact (D23) for a contact who is
+  not a test contact is refused unless forced: that workflow's run would reach a real person about a made-up booking.
+- Tests: `flowmode.test.ts` (a company in test with New lead live: real for a real contact while Speed to lead's run for
+  the same contact is shadow; cleared back to the company's; a no-contact run's label and DM follow its workflow, both
+  ways; the 🧪 test and shadow labels by the run's rung; refused without Slack for a workflow that posts while one that
+  does not goes live; the audit rows; only that workflow's rehearsal runs cleared; the harness refusal; the hand-off's
+  mode; an install upgrade keeps the mode).

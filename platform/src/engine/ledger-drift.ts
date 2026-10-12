@@ -5,7 +5,7 @@ import type { Adapters, Company, ContactSnapshot } from "@/adapters/types";
 import type { GhlReads } from "@/adapters/ghl/metrics";
 import type { CompanyRow } from "./context";
 import type { Finding } from "./health";
-import { effectiveMode, isTestContact, testContactSql, testDomains } from "./mode";
+import { effectiveMode, handlerMode, isTestContact, testContactSql, testDomains } from "./mode";
 import { paymentRecords, salesCallConfig, salesCallsFor, type Payment, type SalesCall } from "./ghl-metrics";
 
 /**
@@ -168,8 +168,8 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       if (cards.length !== 1) { ask("link_card", { label, record_id: k.id, cards: cards.length }); return; }
       card = cards[0].v;
     }
-    // the mode decides, as for every repair (D52): a contact the company may not write to yet is linked once it may
-    if ((await effectiveMode(c, company.id, k.appt!.contact_id, company.mode, bindings)) === "shadow") return;
+    // the mode decides, as for every repair (D52): a contact the company may not write to yet is linked once it may; the mode is the workflow's that writes it (D92)
+    if ((await effectiveMode(c, company.id, k.appt!.contact_id, await handlerMode(c, company.id, "drift.sales_call_unlinked"), bindings)) === "shadow") return;
     if (await inFlight("drift.sales_call_unlinked", k.id)) return;
     const data = { object: cfg.object, ...(needContact ? { contact_field: ghlContact } : {}), ...(card ? { card_id: card } : {}), need_contact: needContact, need_card: !!card };
     if (!(await handOn("drift.sales_call_unlinked", k, data))) { ask("link_unhandled", { label, record_id: k.id }); return; }
@@ -192,7 +192,8 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       const asked = { label, booking_source: k.booking_source, ghl_said: ghlSaid, record_id: k.id };
       await guarded(async () => {
         if (!cfg!.cancelledValue) return ask("cancel_no_value", asked);
-        if ((await effectiveMode(c, company.id, a.contact_id, company.mode, bindings)) === "shadow") return ask("cancel_held_back", { ...asked, mode: company.mode, value: cfg!.cancelledValue });
+        const mode = await handlerMode(c, company.id, "drift.sales_call_cancelled");
+        if ((await effectiveMode(c, company.id, a.contact_id, mode, bindings)) === "shadow") return ask("cancel_held_back", { ...asked, mode, value: cfg!.cancelledValue });
         // a repair is made once, ever: a record GHL set back after the workflow wrote it is left for a person
         if (await one(c, "select 1 from crm_records where company_id=$1 and object_key=$2 and ghl_record_id=$3 and properties->>'outcome'=$4", [company.id, cfg!.object, k.id, cfg!.cancelledValue])) return ask("cancel_set_back", asked);
         if (await inFlight("drift.sales_call_cancelled", k.id)) return;

@@ -405,6 +405,7 @@ create table workflows (
   name              text not null,
   current_version   int not null default 1,
   enabled           boolean not null default false,
+  mode              text check (mode in ('shadow','test','live')),   -- D92: the workflow's own rung; null follows companies.mode. Install never writes it
   reentry_policy    text not null
                     check (reentry_policy in ('once_per_contact','once_per_appointment','once_per_opportunity','once_per_contact_per_window','always')),
   reentry_window    interval,                             -- for the per_window policy
@@ -479,7 +480,7 @@ create table runs (
   pending_events      jsonb not null default '[]',          -- triggers that arrived while this run held the once-per key; replayed if the run stops at a gate (D30)
   claimed_at          timestamptz,                         -- scheduler lease
   claimed_by          text,
-  born_in             text not null default 'live' check (born_in in ('shadow','test','live')),   -- the company's mode when the run started; runs not born live are cleared at Go live (D51)
+  born_in             text not null default 'live' check (born_in in ('shadow','test','live')),   -- the run's mode when it started (the workflow's own, else the company's, D92); runs not born live are cleared at Go live (D51)
   step_attempt        int not null default 0,              -- D66: tries of the current step so far (a transient failure retries in place; reset when the step passes or a person retries)
   step_error          text,                                 -- D66: the last error of the current step, as the vendor said it
   step_held           boolean not null default false,       -- D77: paused ON its step because a blocking step is down; the scheduler re-checks only that step (next_run_at) until it passes

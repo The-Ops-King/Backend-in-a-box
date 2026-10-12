@@ -572,7 +572,7 @@ as the key meaning rescheduled, else the late cancel (`late_cancel`). A meaning 
 id, the owner's DM from `notify_owner`, the end-of-day reminder) goes to the company's ops channel instead, bound as
 `slack.channel.ops` (install input `slack: { ops: "C…" }`; Hair's is C0C7QCTHL8L), else to the operator's DM
 (`bot.escalate_to`), prefixed "Would have sent to <name>:"; neither bound, it is recorded only. A run with no contact is
-shadow in test.
+shadow in test. "Until live" is the run's: a workflow live on its own (D92) DMs real people while the company is in test.
 
 **Setup, once per Slack app** (then **reinstall the app to the workspace**: Slack asks for the new scopes; the bot token
 normally stays the same, and if Slack shows a new one, re-run install with it as `slackToken`). App manifest fragment, with the
@@ -804,6 +804,12 @@ longer wants (off first; its runs and their sends go with it, the events it emit
 `Authorization: Bearer $CRON_SECRET`. Turning on a workflow that is missing a required binding is
 refused (409) — the same thing the readiness card calls blocking. Every flip and delete is in `audit_log`.
 
+The same POST sets a workflow's own mode (D92): `{ "company", "workflow", "mode": "shadow"|"test"|"live"|null, "by": "<who>" }`
+(`enabled` optional alongside; `null` or `"company"` follows the company again). A mode that puts the workflow's runs live
+is refused (409, with `blockers`) unless its definition runs, its required settings are bound and, when it posts, DMs or
+waits on a tap, Slack is connected; it then clears that workflow's runs not born live. The GET lists each workflow's
+`mode` (its own, null when it follows) and `runsIn`. Every change is a `workflow.mode` row in `audit_log` (by, from, to, when).
+
 ## Test harness: a real contact, behind the scenes (D23)
 
 To see what the engine would do for a real person without firing a single Zap or GHL workflow, stage
@@ -955,8 +961,8 @@ Sales call recorded this way.
 Business behaviour that lived in engine code now lives in workflows and settings (D88). The pieces that made it
 possible, all data in the definition:
 
-- `slack_post.label`: `mode` (the rung's mark before live, D31/D52, the default), `shadow` (only while the company is
-  in shadow) or `none` (an alert about the engine itself, never marked).
+- `slack_post.label`: `mode` (the rung's mark before live, D31/D52, the default), `shadow` (only while the run is
+  in shadow mode: the workflow's own, else the company's, D92) or `none` (an alert about the engine itself, never marked).
 - `record_outcome.source: disposition` (with `user` and `via`): a person's answer filed exactly as the end-of-day form
   files it, so Call outcome filed runs; `via` is kept on the submission (`card_moved`).
 - `update_opportunity.from`: the statuses the change is made from (`lost` only an open one).
@@ -1044,6 +1050,15 @@ written or sent: their runs start and go all the way through, every write and se
 the team still sees what the engine would do for real leads. Posts to Slack before live carry a 🧪 *mode*
 prefix (🧪 *shadow* for a run shadowed in test). Live is then taken in sections with the workflows' own switches: the simple ones first,
 then the ones that only note things, then one system at a time.
+
+**Live per workflow (D92).** A workflow can stand on its own rung: the mode control on its page (company · shadow · test ·
+live) or the admin route below. Unset, it follows the company. A run goes by its workflow's mode when set, else the
+company's, for everything that decides real or shadow: CRM writes, sends, the 🧪 label, DMs held back until live, runs
+with no contact. So a company in test can put New lead live for everyone while the rest stays in test, which is how a
+client is switched from its old GHL workflows one pair at a time. Going live on one workflow passes the company's gate
+narrowed to it (its definition runs, its settings are bound, Slack is connected if it posts) and clears that workflow's
+runs not born live; the company's own Go live clears only the runs of workflows that will be live. Install and template
+upgrades never touch a workflow's mode. The workflow list and page say whose mode it is: "Live (this workflow)", "Test (company)".
 
 Every company is in **shadow** until someone presses **Go live**. In shadow the engine polls,
 dispatches, runs and branches exactly as live, renders every message, and writes nothing to GHL:
