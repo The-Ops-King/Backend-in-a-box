@@ -2862,6 +2862,52 @@ already dropped the outbound side and kept a reply's body for 7 days; the body w
   the rows each part changes and a rerun changes nothing. Written, not yet run against production.
 - To verify live: the `body` and `subject` fields on GHL's single-message read (the thread listing's shape is verified).
 
+## D90. Found in the closing-chain test (2026-10-12)
+
+Tyler TEST on Hair: a $1,500 deposit (Payment recorded, then Deal closed in the same tick).
+
+- **A number goes to the CRM as a number.** Both Sales Call updates (Payment recorded `r2`, Deal closed `r1`) failed with
+  GHL's `"1500" isn't a valid number for Cash Collected (USD)`: a record property was sent as text unless its key looked like
+  an amount (`amount`, `total`, `count`, `score`, `duration`, `…min`), and `cash_collected` does not. The object's field
+  list the engine already reads to drop unknown properties (D76, ten minutes per company) now carries each field's GHL type,
+  and each property goes as its type wants (`executor.ts › propertyValue`): a number for NUMERICAL, MONETORY, FLOAT ("1,500"
+  is 1500), an array for MULTIPLE_OPTIONS and CHECKBOX ("price, timing" is two), text for the rest, so a text field named
+  like a number stays text. The key's name is only the fallback when the field list cannot be read. An empty value is left
+  out as before, never a 0. To verify live: that GHL takes a bare number for a MONETORY property (its words say it wants
+  "a valid number"; `null` already clears one, seen live on 2026-10-11).
+- **What moved the closer card was the CRM, not the engine; the engine then made a second card.** The `card.moved`
+  (Scheduled → Closed Won, won, no mover) was stamped by GHL at 01:07:53, between Payment recorded and Deal closed, and seen
+  by Deal closed's own read of the contact's cards when it started at 01:07:56. Nothing in the engine wrote that card: the
+  only engine card writes are the card step and `update_opportunity`'s card, which goes through it, and Payment recorded's
+  `o_won` has no card. A workflow in Hair's GHL moved it (GHL also added `stat-closed-won`, which the engine never wrote
+  that day), so the line was right by D61 ("a hand or a CRM workflow"). The harm was after it: Deal closed's step (Closed -
+  Won, won) found no open closer card, the card step only picks open ones, and it **made a new card** at Closed - Won
+  (`tA4hRWZtlhOQzWN3xI2w`, a duplicate now in Hair's CRM). A step that closes a card (status won or lost) and finds none
+  open now takes the board's latest card when it is already closed that way, and reads "already there" when it is on the
+  stage too: a closed card is never made twice.
+- **An engine write is never read as a hand, on every path.** Three ways it could have been, closed together: (1) the
+  replica kept the old status when a step without a status reopened a closed card it picked (`pick: latest`; the CRM is
+  told `open`), so the next poll saw open against lost; the replica now holds the status the CRM was told. (2) The replica
+  was stamped with the run's start, not the moment the CRM took the write, so a lagging snapshot from in between looked
+  newer than our write; it is stamped with `clock_timestamp()` after the write. (3) A fold in another transaction (the
+  poll, while a run started from the fire or admin routes, which run outside the tick lock, had written the CRM and not yet
+  committed) compared the CRM's new stage with the old replica; a contact's cards are now read, folded and written under
+  one transaction lock (`cards.ts › lockCards`), so the fold waits for the write to commit. Still a hand, once: a person's
+  drag, or a CRM workflow's move. Known limit, as D66 says of the ledger: a run killed between the CRM's answer and its
+  commit loses the replica's update, and the next look reads that move as the CRM's.
+- **The "active" Card moved by hand run was not stuck.** It was started by the `card.moved` inside Deal closed's tick
+  transaction (01:07:56, committed before the tick's alerts at 01:08:13), stood `active` on its trigger, unclaimed, while the
+  minute's tick was still running (the 01:08 cron most likely found the tick lock held), and was run by the 01:09 tick: completed `noted` at 01:09:06, the post at 01:09:11. Its run row and
+  its `sends` row commit together, so one never shows without the other; a query between 01:07:56 and 01:09 saw a run waiting
+  for its first tick. Runs about the company (D88) end the same way (completed, finished, let go; 193 of them on Hair, none
+  open). Nothing changed in the runner.
+- Tests: `closing-chain.test.ts` (the engine's own Closed - Won and setter-won moves, then the poll: no `card.moved`, and a
+  person's drag after it is one; the live order with a CRM workflow closing the card first: one `card.moved`, Deal closed
+  "already there", no second card, the Card moved by hand run active and unclaimed until the next tick, then completed; a
+  reopened closed card leaves no false move; an engine write in flight while the poll looks: the poll waits and sees no
+  hand); `nodes.test.ts` (each property by its field type, the name fallback, an empty value never written); `moves.test.ts`
+  (a run about the company ends completed).
+
 ## D91. The filed end-of-day post says what happened, not what was corrected (2026-10-12)
 
 Tyler: "I don't want it to say corrected, I want it to say what happened. x calls, x collected." The Slack summary is

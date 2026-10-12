@@ -38,6 +38,8 @@ export type MessageText = { body: string; subject?: string };
 export type CallMedia = { recordingUrl?: string; transcript: { speaker: string; text: string; timestamp?: string }[] | null };
 export type WonOpportunity = { id: string; contactId: string; pipelineId: string; stageId: string; wonAt: string; createdAt: string; monetaryValue?: number; customFields: Record<string, unknown> };
 export type ObjectRecord = { id: string; createdAt: string; properties: Record<string, unknown> };
+/** A custom object's property: its short key and the CRM's data type (GHL: TEXT, NUMERICAL, MONETORY, SINGLE_OPTIONS, MULTIPLE_OPTIONS, CHECKBOX, DATE, …) when it says. */
+export type ObjectField = { key: string; type?: string };
 /** A contact's card as the CRM shows it right now (D41: the CRM is the truth about cards). */
 export type LiveCard = { id: string; pipelineId: string; stageId: string; status: string; name: string; assignedUserId?: string; updatedAt: string; contactId?: string; /** who last touched it, when the CRM says (it usually does not) */ updatedBy?: string };
 export type OppSnapshot = { id: string; contactId: string; pipelineId: string; stageId: string; status: string; monetaryValue?: number; updatedAt: string };
@@ -57,8 +59,8 @@ export interface CrmRead {
   callsBetween(c: Company, from: Date, to: Date): Promise<MessageSnapshot[]>;
   wonOpportunities(c: Company, from: Date, to: Date): Promise<WonOpportunity[]>;
   objectRecords(c: Company, objectKey: string): Promise<ObjectRecord[]>;
-  /** The property keys a custom object has (the last segment of each field key); absent where the vendor has no schema read. */
-  objectFields?(c: Company, objectKey: string): Promise<string[]>;
+  /** The properties a custom object has: each key (the last segment of its field key) and the vendor's data type for it; absent where the vendor has no schema read. */
+  objectFields?(c: Company, objectKey: string): Promise<ObjectField[]>;
   documents(c: Company): Promise<DocumentSnapshot[]>;
   opportunitiesSince(c: Company, since: Date): Promise<OppSnapshot[]>;
   /** Every card the CRM holds for one contact, any status. */

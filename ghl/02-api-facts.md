@@ -284,6 +284,14 @@ the poll interval.
   written as `["yes"]`). Association `6aa08fc3b1739b9f7dd9f337` is contact → discovery_call.
 
 
+## A custom object property's type (D90, 2026-10-12)
+
+`GET /objects/{key}?locationId&fetchProperties=true` lists the object's `fields`, each with `fieldKey` and `dataType`
+(NUMERICAL, MONETORY (sic), FLOAT, SINGLE_OPTIONS, MULTIPLE_OPTIONS, CHECKBOX, DATE, TEXT, LARGE_TEXT, …). A record write
+must match it: a MONETORY property sent as the string `"1500"` is refused with 400 `"1500" isn't a valid number for Cash
+Collected (USD).` (Hair's Sales Call, seen live). The engine sends a number for the numeric and money types and an array
+for MULTIPLE_OPTIONS / CHECKBOX. **To verify live**: that a bare number (not `{currency, value}`) is accepted for MONETORY.
+
 ## Clearing a custom object property (D77, 2026-10-10; to verify live)
 
 A record update (`PUT /objects/{key}/records/{id}`) that sends a property as `""` is ignored for some field types

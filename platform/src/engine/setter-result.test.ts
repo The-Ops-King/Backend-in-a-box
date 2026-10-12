@@ -61,7 +61,7 @@ const adapters = (withResultField: boolean): Adapters => {
   return {
     ...base,
     read: { ...base.read, listUsers: async () => [{ id: "U1", name: "Allan Setter", email: "allan@x.com" }, { id: "U2", name: "Tyler Ray", email: "tyler@x.com" }, { id: "U3", name: "James Closer", email: "james@x.com" }],
-      openCards: async (_c, id) => liveCards.get(id) ?? [], objectFields: async (_c, o) => (o.endsWith("sales_call") ? SC_FIELDS : withResultField ? [...DC_FIELDS, "call_result"] : DC_FIELDS),
+      openCards: async (_c, id) => liveCards.get(id) ?? [], objectFields: async (_c, o) => (o.endsWith("sales_call") ? SC_FIELDS : withResultField ? [...DC_FIELDS, "call_result"] : DC_FIELDS).map((key) => ({ key })),
       callMedia: async (_c, id) => { mediaReads.push(id); return media.get(id) ?? { transcript: null }; } },
     booking: { ...base.booking, ghl: { ...base.booking.ghl, listCalendars: async () => [{ id: "CAL", name: "Setter link", teamMemberIds: [] }, { id: "CALSELF", name: "Self-booking link", teamMemberIds: [] }] } },
     write: { ...base.write, createRecord: async (_c, o, props) => { recordWrites.push({ op: "create", object: o, ...props }); return { id: `rec-${recordWrites.length}` }; }, updateRecord: async (_c, o, id, props) => { recordWrites.push({ op: "update", object: o, id, ...props }); },

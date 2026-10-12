@@ -508,7 +508,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       transcript: [{ speaker: "Sam Closer", text: "Thanks for hopping on." }, { speaker: "Leo Park", text: "I just want it to stop." }] };
     const nTags = tags.length, nOpp = oppWrites.length, nRec = recordWrites.length, nRel = relations.length, nAn = analyses.length;
     // this company's Sales Call object has no next-step fields (Hair's case, found live): they are left out and named, the rest is written
-    fake.read.objectFields = async (_c, key) => (key === "custom_objects.sales_call" ? ["display_label", "external_id", "contact_id", "opportunity_id", "scheduled_at", "call_date", "outcome", "recording_url", "transcript_ref", "closer", "setter", "duration_min", "disposition", "objection_primary", "objections_raised", "score_total", "rubric_version", "cash_collected", "booking_source"] : []);
+    fake.read.objectFields = async (_c, key) => (key === "custom_objects.sales_call" ? ["display_label", "external_id", "contact_id", "opportunity_id", "scheduled_at", "call_date", "outcome", "recording_url", "transcript_ref", "closer", "setter", "duration_min", "disposition", "objection_primary", "objections_raised", "score_total", "rubric_version", "cash_collected", "booking_source"].map((key) => ({ key })) : []);
     const r = await asOperator((c) => recordRecording(c, companyId, rec));
     expect(r.outcome).toBe("linked"); if (r.outcome !== "linked") return;
     expect(r.contactId).toBe(id); expect(r.recording.linked_by).toBe("email"); expect(r.appointmentId).toBe(appt.id);
