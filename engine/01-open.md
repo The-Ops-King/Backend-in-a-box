@@ -461,3 +461,6 @@ to stage a fact for anyone but a test contact while any workflow is live on its 
   Grid), booking links with UTMs ("a link for Instagram"), GHL calendar booking windows; Calendly's to verify.
 - Delete James's test tasks in GHL; the Tyler TEST / Test * records when testing is done.
 - An outside check that pages if the engine hasn't ticked in 5 minutes.
+- Ask the AI what a workflow sends ("what text goes out 2 hours before the call?") and change it by asking ("change it
+  to say …"), a new version each time. Not from Slack (Tyler, Oct 12): on the dashboard's AI.
+- The interactions and commands doors answer 500 to a company id that is not a uuid; a 404 is the right answer.
