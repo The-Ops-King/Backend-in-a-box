@@ -187,7 +187,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day form's outcomes 
     const calls = pre.calls.map((x) => ({ ...x, lost_reason: "Timing" }));
     expect(await asOperator((c) => submitEod(c, fake, { token, day: day(), answers: { ...pre, calls, day_answers: {} } }))).toMatchObject({ ok: true });
     await run();
-    expect(posts.find((p) => p.channel === "CEOD")!.text).toMatch(/\n\*Why lost or DQ:\* \n• Lee Park \(Lost\): Timing$/);
+    expect(posts.find((p) => p.channel === "CEOD")!.text).toMatch(/\n• Lee Park: Lost · Timing$/);
     expect((await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, sam, "https://engine.test"))).today).toMatchObject({ filed: true });
   });
 });

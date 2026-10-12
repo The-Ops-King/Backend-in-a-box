@@ -5,7 +5,7 @@
   "stage": "team",
   "sort": 20,
   "origin": "spec",
-  "description": "When a closer files their day: the summary and what they corrected to the team's channel, a ✅ on their reminder. Add a webhook step to send the report anywhere else. Filing the same day again edits the summary and the reply in place (D76).",
+  "description": "When a closer files their day: the summary (every call and what happened on it) to the team's channel, a ✅ on their reminder. Add a webhook step to send the report anywhere else. Filing the same day again edits the summary and the reply in place (D76).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -26,8 +26,8 @@
           "name": "End of day",
           "icon": ":clipboard:"
         },
-        "template": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.corrections_block | default:Nothing corrected: the prefill matched. | line}}{{event.day_answers_lines | line}}{{event.reasons | each:\"\\n• {{item.contact}} ({{item.outcome_label}}): {{item.reason}}\" | join:\"\" | line:*Why lost or DQ:*}}",
-        "title": "Post the day's summary in Slack",
+        "template": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.calls | each:\"\\n• {{item.contact}}: {{item.outcome_label | default:no answer}}{{item.cash | nonzero | then:\\\" · $\\\"}}{{item.cash | nonzero | money:0 | suffix:\\\" collected\\\"}}{{item.revenue | nonzero | then:\\\" · $\\\"}}{{item.revenue | nonzero | money:0 | suffix:\\\" revenue\\\"}}{{item.next_date | then:\\\" · next \\\"}}{{item.next_date | date:\\\"ccc LLL d\\\"}}{{item.dq_reason | then:\\\" · \\\"}}{{item.dq_reason}}{{item.lost_reason | then:\\\" · \\\"}}{{item.lost_reason}}\" | join:\"\"}}{{event.day_answers_lines | line}}",
+        "title": "Post what happened on each call",
         "tag": "eod-summary:{{event.user_id}}:{{event.day}}",
         "edit": true
       },

@@ -154,7 +154,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(reactions).toEqual([{ channel: "UALLAN", ts: reminderTs, emoji: "white_check_mark" }]);
     const reply = posts.slice(n).find((p) => p.threadTs === reminderTs)!; expect(reply.text).toBe("✅ Got it. 3 calls, 1 close, $2,000 collected, $4,000 revenue generated.");
     const summary = posts.slice(n).find((p) => p.channel === "CALERTS")!;
-    expect(summary.text).toMatch(/📝 \*Allan P\* filed .*: 3 calls, 1 close, \$2,000 collected, \$4,000 revenue generated\.\n\*Corrected from what the engine had:\*\n• calls today 2 → 3\n• closes 0 → 1\n• deposits 1 → 0\n• cash collected \$1,500 → \$2,000\n• Leo Ortiz: Deposit → Closed\n• Leo Ortiz: cash collected \$1,500 → \$2,000\n\*What did I do well\?\* Stayed on the objection$/);
+    expect(summary.text).toMatch(/^📝 \*Allan P\* filed .*: 3 calls, 1 close, \$2,000 collected, \$4,000 revenue generated\.\n• Sarah Kim: Follow up · next \w{3} \w{3} \d{1,2}\n• Leo Ortiz: Closed · \$2,000 collected · \$4,000 revenue\n\*What did I do well\?\* Stayed on the objection$/);   // what happened on each call, not what was corrected
     const filed = await asOperator((c) => one<{ submitted_at: Date | null; changes: unknown[] }>(c, "select submitted_at, changes from eod_reports where company_id=$1 and user_id=$2", [companyId, allan]));
     expect(filed?.submitted_at).toBeTruthy(); expect(filed?.changes).toHaveLength(6);
     // filed: the clock finds nothing more to send for that day

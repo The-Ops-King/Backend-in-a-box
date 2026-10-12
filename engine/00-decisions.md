@@ -2861,3 +2861,11 @@ already dropped the outbound side and kept a reply's body for 7 days; the body w
   transcript read a reply), and a step result quoting a reply still held in `messages` has the quote replaced. It reports
   the rows each part changes and a rerun changes nothing. Written, not yet run against production.
 - To verify live: the `body` and `subject` fields on GHL's single-message read (the thread listing's shape is verified).
+
+## D91. The filed end-of-day post says what happened, not what was corrected (2026-10-12)
+
+Tyler: "I don't want it to say corrected, I want it to say what happened. x calls, x collected." The Slack summary is
+the day's totals and then one line per call: the person, the outcome, money collected and revenue on a close or
+deposit, the next date on a follow up, the reason on a DQ or lost ("• Tyler TEST: Closed · $1,500 collected · $2,999
+revenue"). The corrections are still kept on the report (D34), not posted. Found writing it: a bare date ("2026-10-29")
+rendered as midnight UTC, the 28th in the US, in every template; a bare date is now that calendar day where it is shown.

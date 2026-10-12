@@ -89,4 +89,9 @@ describe("lists: one line per item (D85)", () => {
     expect(render("{{contact.missing | default:a:b}} {{ company.name }} {{x", { company: { name: "Hair" } }, env)).toBe("a:b Hair {{x");
     expect(render("{{}} plain", {}, env)).toBe("{{}} plain");
   });
+  it("a bare date is that calendar day wherever it is shown, not midnight UTC (a follow-up on the 29th never reads as the 28th)", () => {
+    expect(render("{{d | date:\"ccc LLL d\"}}", { d: "2026-10-29" }, { tz: "America/New_York" })).toBe("Thu Oct 29");
+    expect(render("{{d | date:\"ccc LLL d\"}}", { d: "2026-10-29" }, { tz: "Pacific/Honolulu" })).toBe("Thu Oct 29");
+    expect(render("{{d | date:\"ccc LLL d HH:mm\"}}", { d: "2026-10-29T02:00:00Z" }, { tz: "America/New_York" })).toBe("Wed Oct 28 22:00");   // an instant still moves
+  });
 });

@@ -140,6 +140,8 @@ export function renderLines(v: unknown): string {
   return out.join("\n");
 }
 function toDT(v: unknown, tz: string): DateTime {
+  // a bare date ("2026-10-29", a follow-up day) is that calendar day where it is shown, not midnight UTC (which is the 28th in the US)
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) { const d = DateTime.fromISO(v, { zone: tz }); if (!d.isValid) throw new Error(`not a datetime: ${v}`); return d; }
   const dt = v instanceof Date ? DateTime.fromJSDate(v) : typeof v === "string" ? DateTime.fromISO(v) : DateTime.invalid("not a date");
   if (!dt.isValid) throw new Error(`not a datetime: ${String(v)}`);
   return dt.setZone(tz);
