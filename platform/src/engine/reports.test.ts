@@ -61,7 +61,9 @@ describe("report periods and due-ness (pure)", () => {
 
 describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
   let companyId: string, setter: string, closer: string, c1: string, c2: string, c3: string, term: string;
-  const day = DateTime.now().setZone("UTC").toISODate()!;
+  // a day the weekly (Mondays) and monthly (the 1st) wrap-ups don't also fire on, so "before 7pm nothing fires" holds every day of the year
+  let d0 = DateTime.now().setZone("UTC"); while (d0.weekday === 1 || d0.day === 1) d0 = d0.minus({ days: 1 });
+  const day = d0.toISODate()!;
   // GHL as the wrap-up reads it (D76): the day's two leads, nothing else
   const ghl: GhlReads = { contactsAdded: async () => ["A", "B"].map((id) => ({ id, firstName: id, tags: [], customFields: {}, dateAdded: `${day}T09:00:00.000Z`, dateUpdated: `${day}T09:00:00.000Z` })),
     wonCards: async () => [], objectRecords: async () => [], cards: async () => [], pipelines: async () => [], users: async () => [], getContact: async () => null, recordContact: async () => null, fieldCatalog: async () => [] };
