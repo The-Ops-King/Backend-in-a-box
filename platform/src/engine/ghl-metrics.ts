@@ -5,7 +5,7 @@ import type { Company } from "@/adapters/types";
 import type { GhlObjectRecord, GhlReads } from "@/adapters/ghl/metrics";
 import { isTestContact, testContactSql } from "./mode";
 import { MetricError, type GroupBy } from "./metric-registry";
-import { callTime } from "./sales-call";
+import { bookingSourceValues, callTime } from "./sales-call";
 import { contactSource, sourceFields } from "./lead-source";
 export { callTime } from "./sales-call";
 
@@ -102,6 +102,7 @@ type Close = { ghl: string; name: string; at: DateTime; value: number; assignedT
 /** A due Sales Call with the ledger appointment it matched one-to-one (by external id, else by the person and the start minute), if any. */
 export type SalesCall = { id: string; ext: string; ghl: string; name: string; test: boolean; at: DateTime; filed: CallClass | null; disposition: string; cls: CallClass | "missing"; flipped: boolean; cancelUnknown: boolean;
   match: "one" | "none" | "many"; appt: { id: string; contact_id: string; status: string; source: string; outcome: string | null; starts_at: Date; cancelled_at: Date | null } | null; closer: string; utm: string | null; booking_source: string;
+  /** D94: the setter who booked it: the record's setter on the roster (else the name as written), blank when nobody set it or the record says self-booked (a self-booked link is never a set, D87) */ setter: string;
   /** the record's own booking_source value (setter or direct), as GHL keeps it */ booked: string;
   /** D76: the record's links as GHL holds them: its contact_id field, whether the contact came only from the association, its opportunity_id field */ links: { contact_field: boolean; opportunity: string } };
 type Call = SalesCall;
@@ -257,6 +258,8 @@ async function calls(x: GhlCtx): Promise<Call[]> {
     const facts = await ledgerFacts(x, [...new Set(due.map((d) => String(d.r.properties.contact_id ?? "")).filter(Boolean))]);
     const roster = await many<{ id: string; name: string }>(x.c, "select id::text as id, name from users where company_id=$1", [x.companyId]);
     const closerOf = (n: string) => { const w = n.trim().toLowerCase(); if (!w) return ""; const hit = roster.filter((u) => u.name.toLowerCase() === w); return hit.length === 1 ? hit[0].id : n.trim(); };
+    const selfValue = norm(bookingSourceValues(x.bindings).self);
+    const setterOf = (p: Record<string, unknown>) => (selfValue && norm(answerText(p.booking_source)) === selfValue ? "" : closerOf(answerText(p.setter)));
     const out: Call[] = [];
     for (const { r, at } of due) {
       const p = r.properties, ghlId = String(p.contact_id ?? "");
@@ -267,7 +270,7 @@ async function calls(x: GhlCtx): Promise<Call[]> {
       const { cls, flipped, cancelUnknown } = classifyCall(filed, a ? { status: a.status, cancelledAt: a.cancelled_at, startsAt: a.starts_at } : null);
       out.push({ id: r.id, ext: String(p.external_id ?? ""), ghl: ghlId, test: cand.some((h) => h.test) || !!facts.get(ghlId)?.test, name: a?.name ?? (String(p.display_label ?? "").trim() || ghlId || r.id), at, filed, disposition: norm(answerText(p.disposition)), cls, flipped, cancelUnknown,
         match: cand.length === 1 ? "one" : cand.length ? "many" : "none", appt: a ? { id: a.id, contact_id: a.contact_id, status: a.status, source: a.source, outcome: a.outcome, starts_at: a.starts_at, cancelled_at: a.cancelled_at } : null,
-        closer: closerOf(String(p.closer ?? "")), utm: facts.get(ghlId)?.utm ?? null, booking_source: a?.source === "calendly" ? "Calendly" : "the GHL calendar", booked: String(p.booking_source ?? ""),
+        closer: closerOf(String(p.closer ?? "")), setter: setterOf(p), utm: facts.get(ghlId)?.utm ?? null, booking_source: a?.source === "calendly" ? "Calendly" : "the GHL calendar", booked: String(p.booking_source ?? ""),
         links: { contact_field: ownField.has(r.id), opportunity: String(p.opportunity_id ?? "").trim() } });
     }
     return out.sort((a, b) => a.at.toMillis() - b.at.toMillis());
@@ -279,7 +282,7 @@ const mismatchOf = (k: Call): CallMismatch | null => (k.flipped && k.filed ? { n
 
 /** The show-rate breakdown the answer carries: every due call by class, the names nobody filed, and the mismatches to fix in GHL. */
 export async function showBreakdown(x: GhlCtx): Promise<ShowBreakdown> {
-  const list = (await counted(x)).filter((k) => !x.filters.closer || k.closer === x.filters.closer);
+  const list = (await counted(x)).filter((k) => (!x.filters.closer || k.closer === x.filters.closer) && (!x.filters.setter || k.setter === x.filters.setter));
   const pool = x.filters.source ? await (async () => { const s = await sourcesOf(x, list); return list.filter((k) => (s.get(k.ghl) ?? "unknown").toLowerCase() === x.filters.source!.toLowerCase()); })() : list;
   const n = (c: Call["cls"]) => pool.filter((k) => k.cls === c).length;
   // D76: a slot the call moved away from is listed, but it is no call that could show: outside the rate
@@ -301,7 +304,7 @@ const timeKey = (g: GroupBy, at: DateTime) => (g === "day" ? at.toISODate()! : g
 
 /** One GHL-read metric for the period, per group ("" when not split), with the work-situation summary for the MQL family. */
 export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, label: string, groupBy?: GroupBy): Promise<{ rows: Map<string, number>; qualification?: QualificationSummary; unavailable?: string }> {
-  if (x.filters.setter && entity !== "payment") throw new MetricError(`${label} cannot be filtered by setter`);
+  if (x.filters.setter && entity !== "payment" && entity !== "call") throw new MetricError(`${label} cannot be filtered by setter`);
   if (x.filters.closer && entity === "lead") throw new MetricError(`${label} cannot be filtered by closer`);
   const rows = new Map<string, number>();
   const add = (k: string, v: number) => rows.set(k, (rows.get(k) ?? 0) + v);
@@ -347,9 +350,9 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
     const sources = groupBy === "source" || x.filters.source ? await sourcesOf(x, list) : null;
     const counts = (k: Call) => (metric === "calls_booked_due" && k.cls !== "rescheduled") || (metric === "shows" ? k.cls === "showed" : metric === "no_shows" ? k.cls === "noshow" : metric === "sales_dqs" ? dqs.includes(k.disposition) : k.cls === "cancelled");
     for (const k of list) {
-      if (!counts(k) || (x.filters.closer && k.closer !== x.filters.closer)) continue;
+      if (!counts(k) || (x.filters.closer && k.closer !== x.filters.closer) || (x.filters.setter && k.setter !== x.filters.setter)) continue;
       if (x.filters.source && src(sources!.get(k.ghl)) !== src(x.filters.source)) continue;
-      add(!groupBy ? "" : groupBy === "source" ? sources!.get(k.ghl)! : groupBy === "closer" ? k.closer : groupBy === "setter" ? "" : timeKey(groupBy, k.at), 1);
+      add(!groupBy ? "" : groupBy === "source" ? sources!.get(k.ghl)! : groupBy === "closer" ? k.closer : groupBy === "setter" ? k.setter : timeKey(groupBy, k.at), 1);
     }
     return { rows };
   }

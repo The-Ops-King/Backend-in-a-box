@@ -214,6 +214,7 @@ export const SHORTCUTS: { command: string; about: string; example: string }[] = 
   { command: "/availability", about: "open bookable slots for the next 7 days, per day and per closer in one table (or a number of days, up to 7)", example: "/availability 3" },
   { command: "/leads", about: "leads, MQLs and marketing DQs by source (default this month)", example: "/leads yesterday" },
   { command: "/closes", about: "every close in the period, newest first: who, their closer, the day it was won (default this month)", example: "/closes last month" },
+  { command: "/leaderboard", about: "closers ranked by cash (closes and close rate beside), setters ranked by sets (show rate of their sets beside) (default this week)", example: "/leaderboard last week" },
 ];
 export function helpText(botMention = "@bot"): string {
   return [

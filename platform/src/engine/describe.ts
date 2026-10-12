@@ -21,7 +21,7 @@ export function kindOf(n: Node): NodeKind {
     case "classify": case "analyze": return "ai";
     case "set_var": case "start_workflow": case "pause_runs": case "record": case "resume": case "lookup": return "control";
     case "webhook": return "message";
-    case "health_check": case "availability_check": case "report": case "eod_due": return "control";
+    case "health_check": case "availability_check": case "report": case "eod_due": case "leaderboard": return "control";
     case "exit": return "exit";
   }
 }
@@ -153,6 +153,7 @@ export function describeNode(n: Node): NodeText {
     case "availability_check": return { title: `Check bookable slots: fewer than ${n.min_slots} in the next ${n.days} day${n.days === 1 ? "" : "s"} is an alert`, detail: "Every active calendar; in a run about a booking, that booking's calendar" };
     case "eod_due": return { title: `What the closer still has to file (${n.period === "evening" ? "today and earlier" : "earlier days"})`, detail: "Days with calls and no end-of-day report, and days whose Sales Calls in GHL still have no outcome; blank for two days or more, the operator is told too" };
     case "report": return { title: `Build the ${/^\{\{/.test(n.kind) ? pathWords(n.kind.replace(/^\{\{\s*|\s*\}\}$/g, "")) : n.kind} wrap-up`, detail: `${n.breakdowns.length ? `Broken down by ${n.breakdowns.join(", ")}; ` : ""}into ${n.into}: body, period, numbers` };
+    case "leaderboard": return { title: `Build the leaderboard for ${/^\{\{/.test(n.period) ? pathWords(n.period.replace(/^\{\{\s*|\s*\}\}$/g, "")) : n.period}`, detail: `Closers by cash collected (closes and close rate beside), setters by sets (the show rate of their sets beside); into ${n.into}: body, closers, setters, period` };
     case "check": return { title: `Check ${predicateWords(n.when)}`, detail: `${n.retry ? `Waits up to ${durationWords(n.retry.for)} for it, looking every ${durationWords(n.retry.every)}. ` : ""}Otherwise the run ${n.else_pause ? `pauses for a person: ${n.else_pause}` : exitWords(n.else_exit).replace(/^Stop: /, "stops: ").replace(/^Done: /, "ends: ").replace(/^Done$/, "ends")}` };
     case "branch": return { title: "Which way?" };
     case "wait": return { title: waitWords(n.rule), detail: `${n.rule.tz === "contact" ? "Contact's" : "Company's"} time zone${guardWords(n.rule)}` };

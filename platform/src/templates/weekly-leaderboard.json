@@ -1,0 +1,68 @@
+{
+  "slug": "weekly-leaderboard",
+  "name": "Weekly leaderboard",
+  "category": "reports",
+  "stage": "team",
+  "sort": 31,
+  "origin": "spec",
+  "description": "Every Monday at 9:00 company time, last full week's leaderboard (Monday to Sunday) in the ops channel, else the reports channel (D94): closers ranked by cash collected with their closes and close rate beside, setters ranked by sets (calls a setter booked) with the show rate of their sets beside. The same numbers the bot and the wrap-ups say (cash_collected and close_rate by closer, booked_set and show_rate by setter); only people with something in the week are listed. The period is the leaderboard step's (plain words: last week, this month); the day, time, channel and the line under the board are this workflow's. /leaderboard answers the same in Slack on demand.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "none"
+    },
+    "nodes": [
+      {
+        "id": "t_weekly",
+        "type": "trigger",
+        "event": "schedule",
+        "schedule": {
+          "at": "09:00",
+          "days": [
+            1
+          ],
+          "for": "company"
+        }
+      },
+      {
+        "id": "n_board",
+        "type": "leaderboard",
+        "period": "last week",
+        "into": "board",
+        "title": "Rank last week's closers by cash and setters by sets"
+      },
+      {
+        "id": "n_post",
+        "type": "slack_post",
+        "channel": "{{slack.channel.ops}}",
+        "fallback_channel": "{{slack.channel.reports}}",
+        "template": "{{vars.board.body}}\n_{{vars.board.period_name}} · {{vars.board.period_label}}_",
+        "as": {
+          "name": "Leaderboard",
+          "icon": ":trophy:"
+        },
+        "title": "Post the leaderboard in Slack"
+      },
+      {
+        "id": "x_done",
+        "type": "exit",
+        "reason": "done"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t_weekly",
+        "to": "n_board"
+      },
+      {
+        "from": "n_board",
+        "to": "n_post"
+      },
+      {
+        "from": "n_post",
+        "to": "x_done"
+      }
+    ]
+  }
+}

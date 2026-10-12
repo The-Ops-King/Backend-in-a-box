@@ -199,7 +199,8 @@ export function dimsOf(name: string): GroupBy[] {
   const d = METRICS[name]; if (!d) return [];
   if (d.kind === "setter" || d.kind === "jev") return ["setter"];
   if (d.kind === "rate") { const a = dimsOf(d.num), b = dimsOf(d.den); return a.filter((x) => b.includes(x)); }
-  if (d.kind === "ghl") return GROUP_BYS.filter((g) => (g !== "setter" || d.entity === "payment") && (g !== "closer" || d.entity !== "lead"));
+  // D94: a Sales Call carries the setter who booked it, so calls split by setter too
+  if (d.kind === "ghl") return GROUP_BYS.filter((g) => (g !== "setter" || d.entity === "payment" || d.entity === "call") && (g !== "closer" || d.entity !== "lead"));
   const e = ENTITIES[d.entity];
   return GROUP_BYS.filter((g) => (g === "closer" ? !!e.closer : g === "setter" ? !!e.setter : true));
 }

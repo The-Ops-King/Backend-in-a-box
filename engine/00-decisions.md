@@ -2956,3 +2956,42 @@ whole company went live at once.
   ways; the 🧪 test and shadow labels by the run's rung; refused without Slack for a workflow that posts while one that
   does not goes live; the audit rows; only that workflow's rehearsal runs cleared; the harness refusal; the hand-off's
   mode; an install upgrade keeps the mode).
+
+## D94. Leaderboard (2026-10-12)
+
+The owner: closers ranked by cash collected with their closes and close rate beside, setters ranked by sets with the show
+rate of their sets beside; on demand as `/leaderboard`, and every Monday at 9:00 company time for the last full week, in
+#ops. He reads it on a phone.
+
+- **No new numbers.** Every figure is a registry metric split by person (D70), so the board can never disagree with the
+  bot or the wrap-up: cash is `cash_collected` by closer (GHL Payment records, net of refunds, credited to the record's
+  closer, D75); closes and close rate are `close_rate` by closer (closes ÷ shows, both from GHL, D73: its numerator is
+  `closes` by closer, its denominator `shows` by closer); sets are `booked_set` by setter (bookings made in the period
+  through a setter link, by the setter the booking source named, from the ledger: the same "setter-booked" the wrap-up
+  says, D87); the show rate of sets is `show_rate` by setter (shows ÷ the setter's Sales Calls whose call time fell in the
+  period and has passed, cancellations in, rescheduled slots out, nothing filed counted as not showed, D73). Test
+  contacts never count (the registry's own rule).
+- **Calls split by setter.** A Sales Call already carries the setter who booked it (`setter`, written by Call booked from
+  the booking's `set_by`) and how it was booked (`booking_source`). The GHL call metrics (`calls_booked_due`, `shows`,
+  `no_shows`, `cancellations`, `sales_dqs`, `show_rate`) now split and filter by setter: the record's setter on the roster
+  (else the name as written), blank when the record says self-booked (`sales_call.booking_sources.self`; a self-booked link
+  is never a set). A setter's "my show rate" in the bot is now the show rate of their sets. Close rate still cannot be
+  split by setter (closes are credited to closers only).
+- **Who is listed.** Only people with something in the period: a closer with cash, a close or a show; a setter with a set
+  or a set call due. Nobody is "unassigned" on the board. Closers by cash, then closes, then close rate; setters by sets,
+  then show rate. With no Payment records in GHL yet cash is "—" (never $0, D75) and closers rank by closes.
+- **The words** (`leaderboard.ts › formatLeaderboard`, the body only, no source or period line: the caller adds its own).
+  `🏆 *Leaderboard*`, then `*Closers* (by cash)` and `*Setters* (by sets)`, each a monospace block no line of which is
+  wider than 34 characters (Slack on a phone wraps a code block at about that), names cut to fit (first name, the last
+  initial when two share one), whole percents, money from $100k up as $123k / $1.2M; a side with nobody is
+  `_No closes yet._` / `_No sets yet._`. No warnings, definitions or totals. A rate with nothing under it is left blank.
+- **`/leaderboard`** takes a period in plain words like the other shortcuts; default this week. It must be added to the
+  Slack app's slash commands (the same request URL as the others, `app/api/webhooks/slack/[companyId]/commands`).
+- **The weekly post is a workflow** (D88): `weekly-leaderboard`, a schedule trigger (Monday 09:00, for the company), the new
+  `leaderboard` step (`period`, plain words, `last week`; `into`) and a `slack_post` of `{{vars.board.body}}` with
+  `_Last week · Oct 5–11_` under it, to `slack.channel.ops` (the owner's #ops; install's `slack: { ops }`), else
+  `slack.channel.reports`. A step of its own rather than a `report` option: the wrap-up page and `/api/admin/reports`
+  find "the workflow with a report step", which a second one would confuse.
+- Tests: `leaderboard.test.ts` (the ranking, whole percents, idle people and test contacts out, a self-booked call no
+  one's set, every number equal to its registry metric, the exact body and every block line within 34 characters, no
+  Payment records, the slash plan defaulting to this week, the template firing Monday 9:00 and posting to ops).

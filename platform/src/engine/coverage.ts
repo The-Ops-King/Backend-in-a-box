@@ -43,7 +43,7 @@ const refsIn = (v: unknown, node: string, what: string, out: Ref[]) => {
 export const NODE_NEEDS: { [T in Node["type"]]: (n: Extract<Node, { type: T }>) => Ref[] } = {
   trigger: (n) => (n.schedule ? [] : [{ kind: "event", value: n.event, node: n.id, what: "the event it starts on" }]),
   webhook: (n) => [{ kind: "webhook", value: n.url, node: n.id, what: "the endpoint it calls" }],
-  health_check: () => [], availability_check: () => [], report: () => [], eod_due: () => [],
+  health_check: () => [], availability_check: () => [], report: () => [], eod_due: () => [], leaderboard: () => [],
   lookup: () => [],   // the ledger only (D85)
   wait_for_event: (n) => [{ kind: "event", value: n.event, node: n.id, what: "the event it waits for" }],
   wait: () => [], wait_for_reply: () => [], wait_for_reaction: () => [], resume: () => [], branch: () => [], check: () => [], exit: () => [], set_var: () => [], pause_runs: () => [],

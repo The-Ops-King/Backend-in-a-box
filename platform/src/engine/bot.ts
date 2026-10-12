@@ -13,6 +13,7 @@ import {
 import { ESCALATE_PING, ESCALATE_UNSURE, fmt, formatAnswer, formatAvailability, formatCloses, formatCombined, formatSummary, helpText } from "./bot-format";
 import { RATES, UNITS, analyze, listColumns, memoReads, type Analysis, type GraphUnit, type Rate } from "./ghl-graph";
 import { sourceFields, sourceOrderWords, type SourceFields } from "./lead-source";
+import { formatLeaderboard, getLeaderboard } from "./leaderboard";
 
 /**
  * The Slack bot (D70). Shortcuts are slash commands answered from the metric registry with no model in the way; anything
@@ -363,8 +364,8 @@ function render(held: Held[], ids: string[], note: string): Out {
 
 // ---- slash commands ----------------------------------------------------------------------------------------------------
 export type SlashCommand = { command: string; text: string; userId: string; channelId: string; channelName?: string; teamId?: string; responseUrl?: string };
-export type Shortcut = "mtd" | "weekly" | "monthly" | "show-rate" | "close-rate" | "cash" | "availability" | "leads" | "closes" | "help";
-export const COMMANDS: Record<string, Shortcut> = { mtd: "mtd", weekly: "weekly", monthly: "monthly", "show-rate": "show-rate", "close-rate": "close-rate", cash: "cash", availability: "availability", leads: "leads", closes: "closes", help: "help", "ops-help": "help", "bot-help": "help" };
+export type Shortcut = "mtd" | "weekly" | "monthly" | "show-rate" | "close-rate" | "cash" | "availability" | "leads" | "closes" | "leaderboard" | "help";
+export const COMMANDS: Record<string, Shortcut> = { mtd: "mtd", weekly: "weekly", monthly: "monthly", "show-rate": "show-rate", "close-rate": "close-rate", cash: "cash", availability: "availability", leads: "leads", closes: "closes", leaderboard: "leaderboard", help: "help", "ops-help": "help", "bot-help": "help" };
 export type Plan = { shortcut: Exclude<Shortcut, "help">; title: string; period?: Period; days?: number };
 
 /** What a command means before any work: its period from the text (or its default), or the reason it cannot be read. */
@@ -379,12 +380,12 @@ export function planCommand(cmd: SlashCommand, tz: string, now: DateTime = DateT
     const days = Math.min(7, Math.max(1, Number(m[1] ?? 7)));
     return { plan: { shortcut: name, title: `Availability, next ${days} days`, days } };
   }
-  const fallback = name === "mtd" ? "this month" : name === "weekly" ? "last week" : name === "monthly" ? "last month" : "this month";
+  const fallback = name === "mtd" ? "this month" : name === "weekly" ? "last week" : name === "monthly" ? "last month" : name === "leaderboard" ? "this week" : "this month";
   if (name === "mtd" && text && !/^(mtd|this month|month to date)$/i.test(text)) return { error: `\`/mtd\` is always month to date. For another period try \`/monthly ${text}\`.` };
   const period = parsePeriod(text || fallback, tz, now);
   if (!period) return { error: `I couldn't read "${text}" as a period. Try \`${cmd.command} last month\`, \`${cmd.command} last 30 days\` or \`${cmd.command} Sep 1 to Sep 15\`.` };
   const titles: Record<string, string> = { mtd: "Month to date", weekly: period.name === "This week" ? "This week" : period.name === "Last week" ? "Last week" : "Week", monthly: period.name === "This month" ? "This month" : period.name === "Last month" ? "Last month" : period.name,
-    "show-rate": "Show rate", "close-rate": "Close rate", cash: "Cash", leads: "Leads", closes: "Closes" };
+    "show-rate": "Show rate", "close-rate": "Close rate", cash: "Cash", leads: "Leads", closes: "Closes", leaderboard: `Leaderboard · ${period.name === "Custom" ? period.label : period.name}` };
   return { plan: { shortcut: name, title: titles[name], period } };
 }
 
@@ -422,6 +423,7 @@ export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan)
         return formatCombined(rs);
       }
       case "closes": return formatCloses(await getCloses(c, companyId, { period: p, now: at }, reads));
+      case "leaderboard": return formatLeaderboard(await getLeaderboard(c, companyId, { period: p, now: at }, reads));
     }
     throw new Error(`no body for ${plan.shortcut}`);
   });
