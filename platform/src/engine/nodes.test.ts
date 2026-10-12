@@ -16,6 +16,7 @@ import { describeNode, edgeWords, templateWords } from "@/engine/describe";
 import { KNOWN_ROOTS, referencedPaths } from "@/engine/template";
 import { saveStepEdit } from "@/engine/edits";
 import { failureRoles } from "@/engine/blocking";
+import { propertyValue } from "@/engine/executor";
 import type { Adapters } from "@/adapters/types";
 import { GhlError } from "@/adapters/ghl/client";
 
@@ -29,7 +30,7 @@ let recordDown = 0;   // the next N record writes answer 503
 const cardCalls: { id: string; status?: string; stageId?: string }[] = [];
 let cardDown = 0;     // the next N card writes answer 503
 const fake: Adapters = { ...base,
-  read: { ...base.read, objectFields: async () => ["outcome", "disposition", "next_step", "cash_collected"] },
+  read: { ...base.read, objectFields: async () => [{ key: "outcome", type: "SINGLE_OPTIONS" }, { key: "disposition", type: "SINGLE_OPTIONS" }, { key: "next_step", type: "TEXT" }, { key: "cash_collected", type: "MONETORY" }, { key: "duration_min", type: "NUMERICAL" }, { key: "objections_raised", type: "MULTIPLE_OPTIONS" }, { key: "score_total", type: "TEXT" }] },
   write: { ...base.write,
     updateRecord: async (_c, object, id, props) => { if (recordDown > 0) { recordDown--; throw new GhlError(503, "upstream unavailable", `/objects/${object}/records/${id}`); } recordCalls.push({ op: "update", object, id, props }); },
     createRecord: async (_c, object, props) => { recordCalls.push({ op: "create", object, props }); return { id: `REC-NEW-${recordCalls.length}` }; },
@@ -91,6 +92,7 @@ const DEFS = [
   // D85: a record the engine did not make, by the CRM's own id
   flow("By id", [trig("byid"), { id: "n1", type: "crm_record", object: "custom_objects.sales_call", record_id: "{{event.record | default:}}", properties: { outcome: "{{event.outcome}}", disposition: "{{event.disp | default:}}", not_a_field: "x" },
     clear: ["disposition", "next_step"], relate: [{ association: "ASSOC-1", first: "{{record.id}}", second: "{{contact.ghl_contact_id}}" }] }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
+  flow("Typed", [trig("typed"), { id: "n1", type: "crm_record", object: "custom_objects.sales_call", record_id: "{{event.record}}", properties: { cash_collected: "{{event.cash | default:}}", duration_min: "{{event.minutes}}", objections_raised: "{{event.objections}}", score_total: "{{event.score}}", next_step: "{{event.next}}" } }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
   // D85: an opportunity won or lost, its event, its card
   flow("Close it", [trig("close"), { id: "n1", type: "update_opportunity", status: "{{event.status}}", lost_reason: "{{event.reason | default:}}", set: { contract_value: "{{event.value | default:}}" }, card: { pipeline: "{{crm.pipeline_x}}" } }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
   flow("Old form", [trig("oldform"), { id: "n1", type: "update_opportunity", set: { status: "lost", installments: 3, name: "ignored" } }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
@@ -119,6 +121,30 @@ describe("crm_record by id (pure)", () => {
     const n = parseDefinition(def({ record_id: "{{vars.found.id}}" })).nodes[1];
     expect(describeNode(n).title).toBe("Update sales call record");
     expect(describeNode(n).detail).toMatch(/^The CRM's own record \[found id\], made outside the engine; never creates one; 1 fields/);
+  });
+});
+
+describe("a record property goes as its CRM field's type (pure; found live 2026-10-12: \"1500\" isn't a valid number for Cash Collected)", () => {
+  it("numbers for numeric and money fields whatever the key is called, arrays for multi-option and checkbox fields, text for the rest", () => {
+    expect(propertyValue("cash_collected", "1500", "MONETORY")).toBe(1500);
+    expect(propertyValue("cash_collected", "1,500.50", "MONETORY")).toBe(1500.5);
+    expect(propertyValue("refund", "-$750", "MONETARY")).toBe(-750);
+    expect(propertyValue("calls", "3", "NUMERICAL")).toBe(3);
+    expect(propertyValue("ratio", "0.25", "FLOAT")).toBe(0.25);
+    expect(propertyValue("cash_collected", "unknown", "MONETORY")).toBe("unknown");   // not a number: the CRM says so in its own words, the engine does not invent one
+    expect(propertyValue("objections_raised", '["price","timing"]', "MULTIPLE_OPTIONS")).toEqual(["price", "timing"]);
+    expect(propertyValue("objections_raised", "price, timing", "MULTIPLE_OPTIONS")).toEqual(["price", "timing"]);
+    expect(propertyValue("led_to_booking", "yes", "CHECKBOX")).toEqual(["yes"]);
+    expect(propertyValue("score_total", "8", "TEXT")).toBe("8");   // a text field named like a number stays text
+    expect(propertyValue("notes", "[draft]", "LARGE_TEXT")).toBe("[draft]");
+    expect(propertyValue("next_step_date", "2026-10-12", "DATE")).toBe("2026-10-12");
+    expect(propertyValue("disposition", "closed_won", "SINGLE_OPTIONS")).toBe("closed_won");
+  });
+  it("with no type (the object's fields could not be read) the key's name is the only hint, as before", () => {
+    expect(propertyValue("amount", "1500", undefined)).toBe(1500);
+    expect(propertyValue("duration_min", "41", undefined)).toBe(41);
+    expect(propertyValue("cash_collected", "1500", undefined)).toBe("1500");
+    expect(propertyValue("led_to_booking", '["yes"]', undefined)).toEqual(["yes"]);
   });
 });
 
@@ -389,6 +415,14 @@ describe.skipIf(!HAS_DB)("building blocks (D85)", () => {
       await wake(b); await tickAt(DateTime.now().plus({ minutes: 1 }));
       expect(await run(b)).toMatchObject({ status: "completed" });
       expect(recordCalls.filter((r) => r.op === "update" || r.op === "create")).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-11", props: { outcome: "showed", disposition: null, next_step: null } }]);
+    });
+    it("each property goes as the object's field type says: money and numbers as numbers, options as a list, text as text; an empty value is left out, never 0 (found live 2026-10-12)", async () => {
+      const ct = await newContact("Ivo"); recordCalls.length = 0;
+      await fire(ct, "typed", { record: "REC-20", cash: 1500, minutes: "41", objections: "price, timing", score: 8, next: "42" }); await tickAt(DateTime.now());
+      expect(recordCalls).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-20", props: { cash_collected: 1500, duration_min: 41, objections_raised: ["price", "timing"], score_total: "8", next_step: "42" } }]);
+      recordCalls.length = 0;
+      await fire(ct, "typed", { record: "REC-20", minutes: "12", objections: '["price"]', score: "", next: "call back" }); await tickAt(DateTime.now());
+      expect(recordCalls).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-20", props: { duration_min: 12, objections_raised: ["price"], next_step: "call back" } }]);
     });
     it("in shadow nothing reaches the CRM and the ledger is not told it did", async () => {
       const ct = await newContact("Uma"); recordCalls.length = 0;

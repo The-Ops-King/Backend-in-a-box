@@ -55,6 +55,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: unlinked payments and recording
     expect(posts).toHaveLength(1);
     expect(posts[0].channel).toBe("CALERTS");
     expect(posts[0].text).toBe("*Unlinked payment* · $1500.00 succeeded\nNobody in the CRM matched this buyer.\n*Email:* nobody@buyer.test · *Phone:* +16025550199 · *Whop member:* mem_1\nLink it: https://engine.test/c/mvs-a2/payments");
+    // a run about the company (no contact, no person) ends like any other: completed, finished, let go (D90, checked after a live run read as stuck)
+    expect(await asOperator((c) => many(c, "select r.status, r.contact_id, r.user_id, r.claimed_at, r.finished_at is not null as finished from runs r join workflows w on w.id=r.workflow_id where w.company_id=$1 and w.name='Unlinked payment'", [companyId])))
+      .toEqual([{ status: "completed", contact_id: null, user_id: null, claimed_at: null, finished: true }]);
   });
 
   it("an unmatched recording starts Unmatched recording, word for word; an edited copy says what the company wrote", async () => {

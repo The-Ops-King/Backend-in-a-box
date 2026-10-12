@@ -49,6 +49,20 @@ async function resolveMentions(d: ExecDeps, botToken: string): Promise<void> {
   }
 }
 const jsonArrayOr = (r: string): unknown => { try { const v = JSON.parse(r); return Array.isArray(v) ? v : r; } catch { return r; } };
+// GHL's custom field types (it spells monetary MONETORY); the CRM refuses a number sent as text, and an option list sent as anything but an array
+const NUMBER_TYPES = new Set(["NUMERICAL", "MONETORY", "MONETARY", "FLOAT", "NUMBER"]), LIST_TYPES = new Set(["MULTIPLE_OPTIONS", "CHECKBOX"]);
+/**
+ * A rendered record property as its CRM field wants it, by the field's type: a number for a numeric or money field ("1,500" → 1500),
+ * an array for a multi-option or checkbox field, text for the rest. With no type (the object's fields could not be read) the key's
+ * name is the only hint. Never called with an empty value: an empty property is left out, never written as 0.
+ */
+export function propertyValue(key: string, rendered: string, type: string | undefined): unknown {
+  if (!type) return /^\[.*\]$/s.test(rendered) ? jsonArrayOr(rendered) : /^-?\d+(\.\d+)?$/.test(rendered) && /amount|total|count|score|duration|min$/i.test(key) ? Number(rendered) : rendered;
+  const t = type.toUpperCase();
+  if (NUMBER_TYPES.has(t)) { const n = rendered.replace(/[\s$,]/g, ""); return /^-?\d+(\.\d+)?$/.test(n) ? Number(n) : rendered; }
+  if (LIST_TYPES.has(t)) { const v = /^\s*\[.*\]\s*$/s.test(rendered) ? jsonArrayOr(rendered.trim()) : rendered; return Array.isArray(v) ? v : rendered.split(",").map((x) => x.trim()).filter(Boolean); }
+  return rendered;
+}
 
 export type StepOutcome =
   | { status: "ok"; next: string | null; result?: Record<string, unknown> }
@@ -526,14 +540,14 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const byId = node.record_id !== undefined ? render(node.record_id, d.ctx, env(d)).trim() : undefined;
       if (byId === "") return { status: "skipped", next, result: { kind: "noop", why: "no record to update: its CRM id rendered empty" } };
       if (!objectKey || (!key && !byId)) return { status: "failed", error: `crm_record ${node.id}: object or key rendered empty` };
+      // the object's own fields and their types: a property it does not have would make the CRM refuse the whole write, and each value goes as its field's type wants
+      const known = await objectFields(d, objectKey);
       const properties: Record<string, unknown> = {};
-      // a rendered `["yes"]` is a checkbox / multi-option value (the CRM wants an array); numbers go as numbers on amount-like keys
-      for (const [k, v] of Object.entries(node.properties)) { const r = render(v, d.ctx, env(d)); if (r === "") continue; properties[k] = /^\[.*\]$/s.test(r) ? jsonArrayOr(r) : /^-?\d+(\.\d+)?$/.test(r) && /amount|total|count|score|duration|min$/i.test(k) ? Number(r) : r; }
+      for (const [k, v] of Object.entries(node.properties)) { const r = render(v, d.ctx, env(d)); if (!r.trim()) continue; properties[k] = propertyValue(k, r, known?.get(k)); }
       // D77: what an earlier answer set and this one does not is emptied with null (the CRM ignores "" on some field types); only an update has anything to empty
       const cleared = Object.fromEntries([...new Set(node.clear.map((k) => render(k, d.ctx, env(d)).trim()).filter((k) => k && !(k in properties)))].map((k) => [k, null]));
       const owner = node.owner ? render(node.owner, d.ctx, env(d)) || undefined : undefined;
-      // a property the company's object does not have would make the CRM refuse the whole write: it is left out and named
-      const known = await objectKeys(d, objectKey);
+      // a property the company's object does not have is left out and named
       const dropped = known ? [...Object.keys(properties), ...Object.keys(cleared)].filter((k) => !known.has(k)) : [];
       for (const k of dropped) { delete properties[k]; delete cleared[k]; }
       if (dropped.length && !Object.keys(properties).length && !Object.keys(cleared).length) return { status: "skipped", next, result: { kind: "noop", why: `nothing to write: the ${objectKey} object has no ${dropped.join(", ")} field yet`, not_on_object: dropped } };
@@ -837,7 +851,9 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   try { await syncCards(d.c, d.company, d.adapterCompany, d.adapters, d.run.contact_id, contact?.ghl_contact_id); }
   catch (e) { return { status: "failed", error: `pipeline_card ${node.id}: could not read the contact's cards in the CRM: ${(e as Error).message}` }; }
   // pick latest (D76): the board's most recent card whatever its status, so a changed answer can undo what the last one did (a lost card back to a stage)
-  const card = node.pick === "latest" ? await latestCard(d.c, d.company.id, d.run.contact_id, pipelineId) : await pickCard(d.c, d.company.id, d.run.contact_id, pipelineId);
+  let card = node.pick === "latest" ? await latestCard(d.c, d.company.id, d.run.contact_id, pipelineId) : await pickCard(d.c, d.company.id, d.run.contact_id, pipelineId);
+  // a step that closes the card finding none open: the board's latest card, already closed that way (a CRM workflow or a hand got there first), is this step's card; a second card is never made closed
+  if (!card && node.pick !== "latest" && (node.status === "won" || node.status === "lost")) { const last = await latestCard(d.c, d.company.id, d.run.contact_id, pipelineId); if (last?.status === node.status) card = last; }
   // D66: on a retry, a hand that moved this board's card since the step first tried wins; the step does not move it back
   if (card && (d.run.step_attempt ?? 0) > 0) {
     const hand = await one<{ to_name: string | null; mover: string | null }>(d.c, `select data->>'to_name' as to_name, data->>'mover' as mover from events where company_id=$1 and contact_id=$2 and event_type='card.moved' and data->>'pipeline_id'=$3 and data->>'by'='crm'
@@ -878,8 +894,9 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
       if (node.if_missing === "skip" || !node.stage) { await refreshCardsCtx(d, pipelineId); return { status: "skipped", next, result: { kind: "noop", why: `the card is gone from the CRM (${goneCard}); this step never creates one` } }; }
     }
   }
+  // the replica says what the CRM was told (a step with no status reopens a closed card it picked), stamped when the CRM took it, not when the run began: a snapshot from before this write is the past, never a hand
   if (card && !goneCard) {
-    await d.c.query("update pipeline_cards set name=$2, ghl_stage_id=$3, assigned_user_id=coalesce($4, assigned_user_id), status=coalesce($5, status), updated_at=now() where id=$1", [card.id, name, stageId, ownerRow?.id ?? null, node.status ?? null]);
+    await d.c.query(`update pipeline_cards set name=$2, ghl_stage_id=$3, assigned_user_id=coalesce($4, assigned_user_id), status=${shadow(d) ? "coalesce($5, status)" : "$5"}, updated_at=clock_timestamp() where id=$1`, [card.id, name, stageId, ownerRow?.id ?? null, shadow(d) ? node.status ?? null : write.status]);
   } else {
     let ghlId: string | null = null;
     if (!shadow(d)) {
@@ -889,7 +906,7 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
       if (!cl.fresh && cl.done && cl.external_id) ghlId = cl.external_id;
       else { ghlId = (await d.adapters.write.createOpportunity(d.adapterCompany, { ...write, contactId: contact.ghl_contact_id })).id; await done(d, node, "card", ghlId); }
     }
-    await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, assigned_user_id, status, created_by_run) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (company_id, ghl_opportunity_id) do update set ghl_stage_id=excluded.ghl_stage_id, name=excluded.name, status=excluded.status, updated_at=now()", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name, ownerRow?.id ?? null, node.status ?? "open", d.run.id]);
+    await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, assigned_user_id, status, created_by_run, updated_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,clock_timestamp()) on conflict (company_id, ghl_opportunity_id) do update set ghl_stage_id=excluded.ghl_stage_id, name=excluded.name, status=excluded.status, updated_at=clock_timestamp()", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name, ownerRow?.id ?? null, node.status ?? "open", d.run.id]);
   }
   if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
   d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
@@ -981,13 +998,13 @@ async function waitForEvent(d: ExecDeps, node: Extract<Node, { type: "wait_for_e
  * the record carrying the booking's own id, else the one of this person (any of their GHL ids) starting the same minute
  * (with no readable time, the same day). Never by name; a record already tied to another booking is not a candidate.
  */
-/** The object's own property keys, read from the CRM at most every ten minutes per company; null when it cannot be read (the write goes as is). */
-const objectKeyCache = new Map<string, { at: number; keys: Set<string> }>();
-async function objectKeys(d: ExecDeps, objectKey: string): Promise<Set<string> | null> {
+/** The object's own property keys and each one's type, read from the CRM at most every ten minutes per company; null when it cannot be read (the write goes as is). */
+const objectFieldCache = new Map<string, { at: number; fields: Map<string, string | undefined> }>();
+async function objectFields(d: ExecDeps, objectKey: string): Promise<Map<string, string | undefined> | null> {
   if (!objectKey.startsWith("custom_objects.") || !d.adapters.read.objectFields) return null;
-  const k = `${d.company.id}:${objectKey}`, hit = objectKeyCache.get(k);
-  if (hit && Date.now() - hit.at < 10 * 60e3) return hit.keys;
-  try { const keys = new Set(await d.adapters.read.objectFields(d.adapterCompany, objectKey)); if (!keys.size) return null; objectKeyCache.set(k, { at: Date.now(), keys }); return keys; }
+  const k = `${d.company.id}:${objectKey}`, hit = objectFieldCache.get(k);
+  if (hit && Date.now() - hit.at < 10 * 60e3) return hit.fields;
+  try { const fields = new Map((await d.adapters.read.objectFields(d.adapterCompany, objectKey)).map((f) => [f.key, f.type] as const)); if (!fields.size) return null; objectFieldCache.set(k, { at: Date.now(), fields }); return fields; }
   catch { return null; }
 }
 

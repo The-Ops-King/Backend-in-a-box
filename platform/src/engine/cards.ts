@@ -14,12 +14,20 @@ import { handMoved, type HandMove } from "./card-moves";
  */
 export type CardRow = { id: string; ghl_opportunity_id: string | null; opportunity_id: string; ghl_stage_id: string; name: string; status: string };
 
+/**
+ * A contact's cards are read-and-folded, and written by the engine, under one lock held to the end of the transaction: a fold
+ * (the poll's, or another run's) waits for an engine write in flight to commit, so it never compares the CRM's card with a
+ * replica row that has not yet heard what the engine just wrote, and reads that as a hand.
+ */
+export const lockCards = (c: PoolClient, companyId: string, contactId: string) => c.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`cards:${companyId}:${contactId}`]);
+
 /** One live card into the replica: adopted when unknown (and open), updated when known. Returns the hand move it revealed, if any. */
 export async function foldCard(c: PoolClient, companyId: string, contactId: string, card: LiveCard): Promise<HandMove | null> {
+  await lockCards(c, companyId, contactId);
   const owner = card.assignedUserId ? await one<{ id: string }>(c, "select id from users where company_id=$1 and ghl_user_id=$2", [companyId, card.assignedUserId]) : null;
   const known = await one<{ id: string; updated_at: Date; ghl_stage_id: string; status: string; opportunity_id: string }>(c, "select id, updated_at, ghl_stage_id, status, opportunity_id from pipeline_cards where company_id=$1 and ghl_opportunity_id=$2", [companyId, card.id]);
   if (known) {
-    // the CRM's search index lags its writes by a few seconds: a snapshot older than our last write to that card is the past, not the truth
+    // the CRM's search index lags its writes by a few seconds: a snapshot older than our last write to that card is the past, not the truth (the engine stamps a write when the CRM took it)
     const liveAt = Date.parse(card.updatedAt); if (Number.isFinite(liveAt) && liveAt < known.updated_at.getTime()) return null;
     // a card marked gone on a 404 that the CRM lists again was never a hand's move: the replica takes it back quietly
     const moved = known.status !== "gone" && (known.ghl_stage_id !== card.stageId || known.status !== card.status);
@@ -36,6 +44,7 @@ export async function foldCard(c: PoolClient, companyId: string, contactId: stri
 
 export async function syncCards(c: PoolClient, company: { id: string }, adapterCompany: Company, adapters: Adapters, contactId: string, ghlContactId: string | null | undefined): Promise<LiveCard[]> {
   if (!ghlContactId) return [];
+  await lockCards(c, company.id, contactId);
   const live = await adapters.read.openCards(adapterCompany, ghlContactId);
   for (const card of live) {
     const move = await foldCard(c, company.id, contactId, card);
