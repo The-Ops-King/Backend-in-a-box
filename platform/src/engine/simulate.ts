@@ -20,7 +20,7 @@ export type SimAction = (typeof SIM_ACTIONS)[number];
 export const simTag = (tag: string): SimAction | null => { const m = /^sys-test-([a-z-]+)$/.exec(tag.trim().toLowerCase()); return m && (SIM_ACTIONS as readonly string[]).includes(m[1]) ? (m[1] as SimAction) : null; };
 
 /** `closer`: the roster name or email to book with (else the calendar's host, the bound default, the first closer); `startsAt`: an exact start, e.g. earlier today so the call is already due for the end-of-day form. */
-type Ctx = { c: PoolClient; company: CompanyRow; contactId: string; force?: boolean; daysOut?: number; closer?: string; startsAt?: string };
+type Ctx = { c: PoolClient; company: CompanyRow; contactId: string; force?: boolean; daysOut?: number; closer?: string; startsAt?: string; amount?: number };
 export type SimResult = { ok: true; action: SimAction; detail: Record<string, unknown>; runsStarted: number } | { ok: false; why: string };
 
 async function closerCalendar(c: PoolClient, companyId: string) {
@@ -85,7 +85,7 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
     }
     case "pay": {
       const price = (await one<{ v: string | null }>(c, "select contract_value_default as v from companies where id=$1", [company.id]))?.v;
-      const ev = await applyPayment(c, company.id, contact.id, { whopPaymentId: `test-${randomUUID().slice(0, 8)}`, amount: price ? Number(price) : 1000, currency: "USD", status: "succeeded", paidAt: new Date(), raw: { simulated: true } });
+      const ev = await applyPayment(c, company.id, contact.id, { whopPaymentId: `test-${randomUUID().slice(0, 8)}`, amount: x.amount ?? (price ? Number(price) : 1000), currency: "USD", status: "succeeded", paidAt: new Date(), raw: { simulated: true } });
       return { ok: true, action, detail: { event: ev.id, amount: ev.data.amount, kind: ev.data.kind }, runsStarted: (await dispatchEvent(c, ev, ctx)).length };
     }
     case "record": {
