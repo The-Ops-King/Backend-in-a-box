@@ -114,11 +114,13 @@ export interface Classifier {
 /** Who the post appears to come from (Slack `chat:write.customize`): a display name and an emoji (":calendar:") or an image URL. Blank = the app itself. */
 /** Who a post appears from. `icon` is an emoji (`:tada:`), an image URL, or a list of either: one is picked at random per post. */
 export type SlackPersona = { name?: string; icon?: string | string[] };
+/** One Slack Block Kit block, as Slack takes it (D93: a section of text, the actions row of buttons, a context line). */
+export type SlackBlock = Record<string, unknown> & { type: string };
 export interface Notifier {
-  /** `threadTs` replies in that message's thread instead of posting to the channel. */
-  post(token: string, channelId: string, text: string, as?: SlackPersona, threadTs?: string): Promise<{ ts: string; channel?: string }>;
-  /** chat.update: rewrite a message the bot posted (needs chat:write). Optional: a notifier without it posts anew. */
-  update?(token: string, channelId: string, ts: string, text: string): Promise<void>;
+  /** `threadTs` replies in that message's thread instead of posting to the channel. `blocks` (D93): Block Kit layout; `text` stays the notification and fallback. */
+  post(token: string, channelId: string, text: string, as?: SlackPersona, threadTs?: string, blocks?: SlackBlock[]): Promise<{ ts: string; channel?: string }>;
+  /** chat.update: rewrite a message the bot posted (needs chat:write). Optional: a notifier without it posts anew. `blocks` replaces the message's blocks (an empty list takes them off). */
+  update?(token: string, channelId: string, ts: string, text: string, blocks?: SlackBlock[]): Promise<void>;
   /** Slack user id for an email (users.lookupByEmail; needs users:read.email), null when unknown. A DM is a post to that id. */
   lookupUserByEmail(token: string, email: string): Promise<string | null>;
   /** reactions.add on a message (needs reactions:write). Resolves false, never throws, when the scope is missing. */

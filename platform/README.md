@@ -442,6 +442,8 @@ tapped, the run's contact and appointment), and a workflow starts from it like f
 setup, once per app: scopes `reactions:write` and `reactions:read`; Event Subscriptions on, request URL
 `<PUBLIC_URL>/api/webhooks/slack/<companyId>` (the URL check is answered), bot event `reaction_added`; the signing
 secret from Basic Information goes to the install API as `slackSigningSecret`, the bot token as `slackToken`.
+Buttons are the other input (D93): an alert's Retry and Resolve come back through
+`/api/webhooks/slack/<companyId>/interactions` (Interactivity & Shortcuts → Request URL; see the Slack bot setup below).
 
 ## Slack bot (D70, D73, D74, D75)
 
@@ -613,6 +615,9 @@ oauth_config:
       - channels:history          # new: replies in a thread the bot is in
       - groups:history            # new: the same in private channels
 settings:
+  interactivity:                # D93: the Retry and Resolve buttons on alert posts
+    is_enabled: true
+    request_url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/interactions"
   event_subscriptions:
     request_url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>"
     bot_events:
@@ -628,6 +633,10 @@ so it is registered as is. Slack lets several apps register the same command and
 if another app in the workspace already owns `/help`, register `/ops-help` instead (the door treats `/help`,
 `/ops-help` and `/bot-help` the same). Slash commands do not run inside threads (Slack's rule), which is why follow-ups
 are plain replies.
+
+**Interactivity** (D93): Slack app → Interactivity & Shortcuts → on, Request URL
+`https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/interactions` (the `interactivity` block above). Without it the
+Retry and Resolve buttons on alert posts show, but Slack says the press failed. No new scope: editing the post is `chat:write`.
 
 The model needs `secret.anthropic_key` (bound at install; env `ANTHROPIC_API_KEY` is the fallback); without it every
 free question escalates, and the shortcuts still work. The escalation person is the install's `bot: { escalateTo }`:
@@ -659,7 +668,15 @@ thread with a ✅ on the first post (the Slack app needs `reactions:write`). Sla
 webhook any more (Tyler: "We definitely don't need to alert on an email"; a webhook step on the workflow is the way out
 if one is ever wanted); an alert about the engine itself (no company) still goes to `OPERATOR_WEBHOOK_URL`. A company
 with no enabled workflow on `alert.raised` (an edited Health check copy from before D88 is not upgraded) hears nothing;
-readiness says so. The dashboard home and each company page show what is open;
+readiness says so. The alert's post carries a **Resolve** button, and **Retry** when the alert is a step skipped after
+its tries (D93; the slack_post step's `buttons`, so the workflow decides which alerts get which). A press reaches
+`/api/webhooks/slack/<companyId>/interactions` (signed like the other Slack doors, acknowledged at once, handled after the
+response); only the company's owners and managers (by `slack_user_id`) and the operator (`bot.escalate_to`) may press,
+anyone else is told "Only a manager can do that." privately. Resolve closes the alert (`audit_log`
+`alert.resolved_by_operator`, why "resolved in Slack by <name>") and edits the post to "✅ Resolved by @who" without the
+buttons; Retry re-runs only that step (D77) and, when it passes, the alert resolves and the post reads "✅ Fixed — retried
+by @who"; when it fails again the buttons stay and the new error is said in the alert's thread. A second press says it is
+already done and changes nothing. The dashboard home and each company page show what is open;
 `/app/c/<slug>/health` shows open alerts, the last sweep check by check, what cleared recently, and (folded) every event a workflow can start from with the workflows that use it.
 
 The **health check** is a workflow (`health-check` template, D35): a schedule trigger (every 60 minutes) and a
@@ -963,6 +980,8 @@ possible, all data in the definition:
 
 - `slack_post.label`: `mode` (the rung's mark before live, D31/D52, the default), `shadow` (only while the run is
   in shadow mode: the workflow's own, else the company's, D92) or `none` (an alert about the engine itself, never marked).
+- `slack_post.buttons` (D93): Block Kit buttons under the post's words, each with its own `only_if`; Health check's
+  alert post uses them for Retry (a skipped step) and Resolve, handled by the Slack interactions door.
 - `record_outcome.source: disposition` (with `user` and `via`): a person's answer filed exactly as the end-of-day form
   files it, so Call outcome filed runs; `via` is kept on the submission (`card_moved`).
 - `update_opportunity.from`: the statuses the change is made from (`lost` only an open one).

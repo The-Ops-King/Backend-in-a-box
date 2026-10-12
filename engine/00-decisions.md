@@ -2956,3 +2956,47 @@ whole company went live at once.
   ways; the 🧪 test and shadow labels by the run's rung; refused without Slack for a workflow that posts while one that
   does not goes live; the audit rows; only that workflow's rehearsal runs cleared; the harness refusal; the hand-off's
   mode; an install upgrade keeps the mode).
+
+## D93. Retry and Resolve in Slack (2026-10-12)
+
+The operator's rule: "When you fix something, remove the alert." An alert's Slack post said what broke and linked to the
+dashboard (Open · Retry this step); fixing it meant leaving Slack. Now the post has the two hands on it.
+
+- **The buttons are the workflow's** (D88). A `slack_post` takes `buttons`: up to five, each `{ text, action, value, style?,
+  only_if? }`, `value` rendered, shown only when its `only_if` holds. With any, the post goes as Block Kit: the same words
+  as mrkdwn sections (cut at line ends at Slack's 3,000 characters), then one row of buttons; `text` is still sent as the
+  notification and the fallback, and an `edit` sends the blocks too. Health check's `a_post` carries **Retry** (only when
+  `event.kind` is `skipped`: a step D77 skipped after its tries, the one alert whose fix is one step run once) and
+  **Resolve** (every alert), both with the alert's id as the value. The Open and Retry this step links stay in the text.
+  The actions are the engine's: `alert_retry`, `alert_resolve` (`definition.ts › SLACK_ACTIONS`); a company changes the
+  words, which alerts get which button, or takes them off. An existing company gets them through the normal install
+  upgrade (an untouched Health check copy follows the template; an edited one does not, D16).
+- **The interactions door.** `POST /api/webhooks/slack/<companyId>/interactions`, Slack's Interactivity Request URL
+  (`https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/interactions`; Slack app → Interactivity &
+  Shortcuts on). Form-encoded `payload=`, the signature verified with the company's signing secret like the events and
+  commands doors (forged, stale or missing: 401). A `block_actions` press of one of the two actions is acknowledged at
+  once and handled after the response (`after()`, as the commands door does, since a retry can call GHL); anything else is
+  a quiet 200. A press from another workspace than the company's Slack connection is ignored.
+- **Who may press.** The company's owners and managers (`users` by `slack_user_id`, active) and the operator
+  (`bot.escalate_to`). Anyone else gets a private "Only a manager can do that." and nothing moves.
+- **Resolve** closes the alert through the same function as the operator's resolve route (`alerts.ts › resolveByPerson`):
+  `audit_log` `alert.resolved_by_operator` with why "resolved in Slack by <name>" and who (`by: { slack_user_id, name }`).
+  The post is edited in place (`chat.update`): the same words, the buttons gone, "✅ Resolved by @who" under them.
+- **Retry** is D77's Retry this step (`hand.ts › retryStep` with the alert's `run_id` and `node`, so `runner.ts ›
+  rerunStep`), by "<name> in Slack": that step alone, once, now. Passing resolves the alert in rerunStep, as from the
+  dashboard, and the post becomes "✅ Fixed — retried by @who" with the buttons gone. Failing again keeps the alert open
+  and the buttons on, and says so in the alert's thread under the alert's face: "Retry by @who didn't work: GHL says ….
+  The alert stays open; retry again once that's fixed, or press Resolve." Retry on an alert that is not a skipped step
+  (an old post, a hand-made payload) is refused in words.
+- **A second press is harmless.** The alert's row is locked for the press, so a double tap waits for the first and finds
+  it resolved: "Already done: this alert is resolved.", privately; the step is not run again and the post is not touched.
+  Retry on a step that already passed is the same.
+- Either way the next tick sees a resolved alert and Health check says "✅ Resolved after …" in its thread with the ✅ on
+  the post, as for any resolve. Not done: a Retry on a paused or held run (`run:<id>:paused`): its retry only wakes the run,
+  so whether it worked is known a tick later; those keep the run page's Retry and Skip, and the Resolve button.
+- Tests: `slack-actions.test.ts` (the door refuses a forged, stale or unsigned press and hands a signed one on after the
+  response; the skipped step's post carries Retry and Resolve under the same words; a closer and a stranger are told no; a
+  retry while GHL is still down says so in the thread and keeps the buttons; one after it is back writes the tag once,
+  resolves the alert and settles the post; a second press is "already done"; Resolve by a manager writes who and why and
+  settles the post, two presses at once resolve it once, the operator may press, another workspace is ignored, an alert
+  that is not a skipped step has no Retry; a long post is cut into sections Slack takes).

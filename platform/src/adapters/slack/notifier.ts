@@ -5,19 +5,19 @@ export const pickIcon = (icon: string | string[] | undefined): string | undefine
   return list.length ? list[Math.floor(Math.random() * list.length)] : undefined;
 };
 export const slackNotifier: Notifier = {
-  async post(token, channelId, text, as, threadTs) {
+  async post(token, channelId, text, as, threadTs, blocks) {
     const icon = pickIcon(as?.icon);
     const persona = { ...(as?.name?.trim() ? { username: as.name.trim() } : {}), ...(icon ? (/^https?:\/\//.test(icon) ? { icon_url: icon } : { icon_emoji: icon.startsWith(":") ? icon : `:${icon}:` }) : {}) };
     const res = await fetch("https://slack.com/api/chat.postMessage", {
       method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ channel: channelId, text, unfurl_links: false, unfurl_media: false, ...persona, ...(threadTs ? { thread_ts: threadTs } : {}) }),
+      body: JSON.stringify({ channel: channelId, text, unfurl_links: false, unfurl_media: false, ...persona, ...(threadTs ? { thread_ts: threadTs } : {}), ...(blocks?.length ? { blocks } : {}) }),
     });
     const data = (await res.json()) as { ok: boolean; ts?: string; channel?: string; error?: string };
     if (!data.ok) throw new Error(`slack: ${data.error}`);
     return { ts: data.ts!, channel: data.channel };
   },
-  async update(token, channelId, ts, text) {
-    const res = await fetch("https://slack.com/api/chat.update", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ channel: channelId, ts, text }) });
+  async update(token, channelId, ts, text, blocks) {
+    const res = await fetch("https://slack.com/api/chat.update", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ channel: channelId, ts, text, ...(blocks ? { blocks } : {}) }) });
     const data = (await res.json()) as { ok: boolean; error?: string };
     if (!data.ok) throw new Error(`slack: ${data.error}`);
   },

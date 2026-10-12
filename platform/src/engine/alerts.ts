@@ -40,6 +40,17 @@ export async function resolve(c: PoolClient, companyId: string | null, key: stri
   return (r.rowCount ?? 0) > 0;
 }
 
+/**
+ * A person closes an alert whose cause they fixed ("When you fix something, remove the alert"): the operator's resolve route and
+ * the Resolve button in Slack (D93). Health check says the ✅ in its thread like any resolve; `why` (and who, when known) is kept in
+ * `audit_log` `alert.resolved_by_operator` so the dashboard shows what fixed it. False when the alert was not open (already done).
+ */
+export async function resolveByPerson(c: PoolClient, companyId: string, alert: { id: string; key: string; text: string }, why: string, by?: Record<string, unknown>, now = new Date()): Promise<boolean> {
+  if (!(await resolve(c, companyId, alert.key, now))) return false;
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'alert.resolved_by_operator','alert',$2,$3,$4)", [companyId, alert.id, JSON.stringify({ text: alert.text }), JSON.stringify({ why, ...(by ? { by } : {}) })]);
+  return true;
+}
+
 /** For a live source: everything in `present` is open, every other open alert of that source and company (within `keyPrefix`) is resolved. */
 export async function reconcile(c: PoolClient, companyId: string | null, source: Source, present: AlertInput[], now = new Date(), keyPrefix?: string, except?: string): Promise<{ raised: number; resolved: number }> {
   let raised = 0, resolved = 0;
