@@ -354,13 +354,14 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day reminder's days 
 
 describe("D88: the wrap-up's words are the template's (A8)", () => {
   const day = { start: "2026-10-10", end: "2026-10-10" };
-  const facts = (over: Partial<Parameters<typeof reportFacts>[0]> = {}) => reportFacts({ kind: "daily", period: day, tz: "UTC", toDate: false, numbers: { leads: 3, booked: 0 }, calls: null, said: [], ...over });
+  const facts = (over: Partial<Parameters<typeof reportFacts>[0]> = {}) => reportFacts({ kind: "daily", period: day, tz: "UTC", toDate: false, numbers: { leads: 3, booked: 0 }, calls: null, said: [], readAt: new Date("2026-10-10T19:00:00Z"), ...over });
+  const FOOT = "\n\n_From GHL and the engine, read 7:00 PM UTC_";
   const body = (f: ReturnType<typeof reportFacts>, layout = shippedLayout()) => renderLayout(layout, f, {}, { tz: "UTC", companyTz: "UTC" });
 
   it("as shipped: what they said, the top four answers each, the rest counted, long answers cut", () => {
     const long = "Business owner or entrepreneur who runs several companies at once and travels";
     const said = [{ label: "work situation", answered: 9, top: [[long, 3], ["Employed full-time", 2], ["Investor", 1], ["Retired", 1]] as [string, number][], rest: 2, restKinds: 2 }, { label: "budget", answered: 2, top: [["$5k", 2]] as [string, number][], rest: 0, restKinds: 0 }];
-    expect(body(facts({ said }))).toBe(`*What happened today — Saturday, Oct 10*\n\n*Leads*\nNew leads: 3\n\n*What they said*\n*work situation*\n    • ${long.slice(0, 59)}…: 3\n    • Employed full-time: 2\n    • Investor: 1\n    • Retired: 1\n    • 2 spread across 2 other answers\n*budget*\n    • $5k: 2`);
+    expect(body(facts({ said }))).toBe(`📊 *Today, Sat Oct 10*\n\n\`\`\`\nLeads   3\n\`\`\`\n\n*What they said*\n*work situation*\n• 3 — ${long.slice(0, 59)}…\n• 2 — Employed full-time\n• 1 — Investor\n• 1 — Retired\n• 2 — other answers\n\n*budget*\n• 2 — $5k${FOOT}`);
   });
 
   it("the company's layout decides the words, the sections and the order; per-closer lines when the step asks for them", () => {
@@ -374,7 +375,7 @@ describe("D88: the wrap-up's words are the template's (A8)", () => {
 
   it("this week so far has its own heading and empty line; the shipped words are unchanged", () => {
     expect(body(facts({ kind: "weekly", toDate: true, period: { start: "2026-10-05", end: "2026-10-10" }, numbers: {} }))).toBe("Nothing this week: no leads, bookings, calls or payments.");
-    expect(body(facts({ kind: "weekly", toDate: true, period: { start: "2026-10-05", end: "2026-10-10" } }))).toBe("*This week so far — Oct 5 to Oct 10*\n\n*Leads*\nNew leads: 3");
+    expect(body(facts({ kind: "weekly", toDate: true, period: { start: "2026-10-05", end: "2026-10-10" } }))).toBe(`📊 *This week so far, Oct 5 to Oct 10*\n\n\`\`\`\nLeads   3\n\`\`\`${FOOT}`);
   });
 });
 

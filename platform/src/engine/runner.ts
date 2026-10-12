@@ -187,7 +187,7 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
             const deps = await dependentsWords(c, run.company_id, run.workflow_id, node);
             await raise(c, { companyId: run.company_id, key: `skipped:${run.workflow_id}:${node.id}:${run.contact_id ?? run.user_id ?? run.id}`, level: "warning", source: "step", href,
               text: `Couldn't ${doing}${forWho} after ${triesWords} (${said}); everything else in ${wfName} ran.${deps}`,
-              detail: { run_id: run.id, node: node.id, class: f.cls, vendor: f.vendor, error: f.message, tries, link: `${(process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "")}${href}#retry-${node.id}`, link_label: "Retry this step" } }, now.toJSDate());
+              detail: { run_id: run.id, node: node.id, class: f.cls, vendor: f.vendor, error: f.message, tries } }, now.toJSDate());   // D93: the Retry button on the post retries it; "Open" is the run
             report.gave_up = (report.gave_up ?? 0) + 1;
             return way.to;
           }

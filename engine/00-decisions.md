@@ -3000,3 +3000,35 @@ dashboard (Open · Retry this step); fixing it meant leaving Slack. Now the post
   resolves the alert and settles the post; a second press is "already done"; Resolve by a manager writes who and why and
   settles the post, two presses at once resolve it once, the operator may press, another workspace is ignored, an alert
   that is not a skipped step has no Retry; a long post is cut into sections Slack takes).
+
+## D95. Everything the bot posts is read on a phone (2026-10-12)
+
+The owner read `/mtd` and three questions on his phone and called them hard to read: every line carried its source
+("from GHL, read just now"), the comparison and a breakdown, so a number took three wrapped lines; a question's answer said
+the same fact three times (a header naming the column, the model's paragraph, a wide table that wrapped into soup); rates
+had decimals (33.3%) and data-quality lines nobody asked for came with every answer.
+
+- **The answer first, once.** The model's `reply` now gives a one-line `headline` (the answer, in plain words; its numbers
+  are checked against the results like the old note, sent back once, then dropped for our own answer line), a `detail`
+  (none | breakdown | table | list | issues) and a `note` that is almost always empty. With a headline our answer lines are
+  not repeated under it. Numbers are still only ever rendered from tool results (D70).
+- **Breakdowns are counted bullets** ("• 2 — I have significant thinning…"), most first, no answer last, no names: the
+  asker replies "who?" for names (list). A table only when asked ("as a table", "a chart"), and every monospace block is
+  cut to 34 characters, the width Slack's phone app shows without wrapping (`PHONE_WIDTH`).
+- **Only what someone has to fix** is warned about (calls with no EOD outcome, GHL vs the calendar, work-situation answers
+  nobody recognised). What is off behind an analysis (missing answers, missing links, records that disagree) shows only
+  when the asker asks (detail issues).
+- **One footer** under everything: the period, where it was read and when ("Oct 1–12 · From GHL, read 9:16 PM EDT"), and
+  who asked a shortcut. No time-zone name, no "Period:".
+- **Shortcuts:** `/mtd`, `/weekly`, `/monthly` are one narrow table (number and change, "▲ 18", "▼ 17 pts", "same"; no
+  change when last period had no rate), the top source, the warnings, the footer. `/closes` is grouped by closer, each
+  close "name — cash collected / revenue — won day" (cash: all of that person's GHL Payment records, refunds out, "—"
+  when GHL holds none; revenue: the won card's value). `/cash` and `/leads` lead with their main number, the others on one
+  line, then one table. Rates are whole percents everywhere (`fmt`).
+- **Wrap-ups** (D88's layout, still the workflow's words): a section can be a `table` of [label, value] rows the engine
+  sets as one narrow block, a row whose value is blank left out; a `footer`; a `duration` filter (614 → "10 h 14 min").
+  The shipped layout is one table (leads, MQLs, bookings, calls, shows, rates, closes, revenue, cash, dials, speed to
+  lead), the calls with no EOD outcome, what they said as counted bullets, the footer.
+- Event posts (a close, a payment, a setter call, an alert) were already one fact per line and are unchanged.
+- Tests: `bot.test.ts` (the formatter, every shortcut, the headline kept or dropped by its numbers, the breakdown, the
+  table width, issues only on request), `reports.test.ts`, `moves.test.ts`, `availability.test.ts`, `alerts.test.ts`.

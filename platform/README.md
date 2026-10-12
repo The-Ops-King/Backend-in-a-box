@@ -451,11 +451,13 @@ Anyone in the workspace can ask the ledger a question in Slack. Every number in 
 from the model: the metric registry (`src/engine/metric-registry.ts`, one definition per metric; people, won deals and
 calls and cash read live from GHL by `src/engine/ghl-metrics.ts`, bookings made and dials from the engine's ledger), the
 joined GHL records (`analyze`, `src/engine/ghl-graph.ts`, D75), the live calendar read (`get_availability`, the open times GHL free-slots / Calendly available-times offer,
-split per closer, D72; the same read as the low-availability thread) or, as a last resort, the read-only query door (D64), whose answers are labelled *ad hoc, from
-the raw ledger*. Each key line says where its number came from (`from the engine's ledger`, `from GHL, read just now`).
-A live read that fails is named in the answer, never filled with an estimate. The message is rendered by our formatter
-(`src/engine/bot-format.ts`): key numbers first in bold, tables as aligned monospace blocks (25 rows at most, totals
-row), then only the period in the company's time zone (definitions are for `/help` and the model, D73).
+split per closer, D72; the same read as the low-availability thread) or, as a last resort, the read-only query door (D64), whose answers say they come
+from the engine's own records. A live read that fails is named in the answer, never filled with an estimate. The message is
+rendered by our formatter (`src/engine/bot-format.ts`) for a phone (D95): the answer in one bold line (the model's
+`headline`, its numbers checked against the results, else ours), then only the detail asked for (counted bullets; a table
+when asked, never wider than 34 characters; names when asked who; what is off in GHL when asked), warnings only for what
+someone has to fix, and one footer: the period, where it was read and when, and who asked a shortcut. Rates are whole
+percents. Definitions are for `/help` and the model (D73).
 
 **Shortcuts** (slash commands, answered from the registry with no model in the way; each takes an optional period in
 plain words). A slash command leaves no message to thread under, so it posts its own visible message (`📊 *Month to

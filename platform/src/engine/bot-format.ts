@@ -191,7 +191,10 @@ export function formatAnswer(results: MetricResult[], o: AnswerParts = {}): stri
 /** Every number any view of these results shows: what the model's headline and note may repeat (they may never make one up). */
 export function allNumbersText(results: MetricResult[], o: AnswerParts): string {
   const an = o.analyses ?? [];
-  return [formatAnswer(results, { ...o, headline: undefined, note: undefined, detail: "breakdown" }),
+  // the footer's read time is not a number of the answer ("read 2:17 PM" must not let a made-up 17% through); its period is
+  const shown = formatAnswer(results, { ...o, headline: undefined, note: undefined, detail: "breakdown" }).split("\n").slice(0, -1).join("\n");
+  const periods = [...results, ...(o.closes ?? []), ...an].map((r) => r.period_label);
+  return [shown, ...periods,
     ...an.flatMap((a) => [...analysisTable(a), ...analysisList(a), ...analysisIssues(a), ...[a.total, ...a.rows].map((g) => `${g.count} ${g.calls} ${g.booked} ${g.showed} ${g.noshow} ${g.cancelled} ${g.closed} ${money(g.cash)} ${money(g.card_value)} ${pc(g.show_rate)} ${pc(g.close_rate)} ${pc(g.booked_rate)} ${pc(g.share)}`)])].join("\n");
 }
 

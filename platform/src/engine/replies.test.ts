@@ -54,7 +54,8 @@ const wipe = () => asOperator(async (c) => {
 const booked = async (ghl: string) => {
   const s: ContactSnapshot = { id: ghl, firstName: ghl, phone: `+1602555${String(crm.size).padStart(4, "0")}`, email: `${ghl.toLowerCase()}@x.com`, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() };
   crm.set(ghl, s);
-  const start = DateTime.now().setZone(TZ).plus({ days: 3 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 });
+  // 60 hours out at any time of day: the 72-hour reminder is already behind it, the 48-hour one ahead (3 days out at 2pm put it either side of 72 hours by the clock)
+  const start = DateTime.now().setZone(TZ).plus({ hours: 60 }).startOf("minute");
   const appt: AppointmentSnapshot = { id: `A-${ghl}`, calendarId: "CAL", contactId: ghl, assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 45 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {} };
   apptStore.set(appt.id, appt);
   await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, appt); });

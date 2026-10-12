@@ -163,9 +163,9 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     // and under it, in the thread, the same per-closer table /availability answers with (D72): a day per row, a column per closer, a total row
     const breakdown = posts.find((p) => p.threadTs === `ts${posts.indexOf(lowPost) + 1}` && /next 7 days/.test(p.text))!;
     const bl = breakdown.text.split("\n");
-    expect(bl[0]).toMatch(/^\*Open slots, next 7 days: \d+\*  · _from GHL, read just now_$/);
-    expect(bl[3]).toMatch(/^Day +Ann Open +Ben Open +Total Open$/); expect(bl.slice(4, 11).every((l) => /^\w{3} \w{3} \d{1,2} +\d+ +\d+ +\d+$/.test(l))).toBe(true);
-    expect(bl[11]).toMatch(/^Total +\d+ +\d+ +\d+$/); expect(bl[bl.length - 1]).toMatch(/^_Period: .* read just now \(America\/New_York\)_$/);
+    expect(bl[0]).toMatch(/^\*Open slots, next 7 days: \d+\*$/);
+    expect(bl[2]).toMatch(/^Day +Ann +Ben +All$/); expect(bl.slice(3, 10).every((l) => /^\w{3} \w{3} \d{1,2} +\d+ +\d+ +\d+$/.test(l))).toBe(true);
+    expect(bl[10]).toMatch(/^Total +\d+ +\d+ +\d+$/); expect(bl[bl.length - 1]).toMatch(/^_\w{3} \w{3} \d{1,2} to \w{3} \w{3} \d{1,2} · From GHL, read \d{1,2}:\d\d [AP]M [A-Z]+_$/);
     // a booking lands on Closer B: the availability workflow's booking trigger reads that calendar now, not at the next hour; availability moved above the threshold → resolved now
     slotsB = 20;
     const bookedAt = DateTime.now();
