@@ -301,7 +301,7 @@ export type Analysis = {
   links: { what: string; linked: number; of: number; missing: string[] }[];
   mismatches: Mismatch[];
   payments: boolean;
-  list?: { name: string; value: string; outcome: string }[];
+  list?: { name: string; value: string; values: string[]; outcome: string }[];
 };
 export type AnalyzeQuery = { unit: GraphUnit; period: Period; split_by?: string; filter?: { column: string; equals: string }[]; list?: boolean; rate?: Rate };
 
@@ -438,7 +438,7 @@ export async function analyze(c: PoolClient, companyId: string, q: AnalyzeQuery,
     rate, total: { ...strip(total), share: tShare ? 1 : null }, rows: out.map(strip), answered: answeredRows.length,
     unanswered: split ? rows.filter((r) => !split.get(r).length).map((r) => ({ name: r.name, date: day(r), booked: q.unit === "call" ? bookedAs(r) : "" })) : [],
     test, links, mismatches, payments: pays.exist,
-    ...(q.list ? { list: rows.slice(0, LIST_MAX).map((r) => ({ name: r.name, value: split ? split.get(r).join(", ") || NO_ANSWER : "", outcome: outcome(r) })) } : {}),
+    ...(q.list ? { list: rows.slice(0, LIST_MAX).map((r) => ({ name: r.name, value: split ? split.get(r).join(", ") || NO_ANSWER : "", values: split ? (split.get(r).length ? split.get(r) : [NO_ANSWER]) : [], outcome: outcome(r) })) } : {}),
   };
 }
 const strip = (x: Group & { showedPeople?: number; closedOfShowed?: number }): Group => { const { showedPeople: _a, closedOfShowed: _b, ...g } = x; void _a; void _b; return g; };

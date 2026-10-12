@@ -112,9 +112,15 @@ export function analysisTable(a: Analysis): string[] {
   const rows = a.rows.map((g) => [g.value === NO_ANSWER ? "no answer" : g.value, String(unitCount(a, g)), ...(rate ? [pc(g[rate])] : a.payments ? [money(g.cash)] : [])]);
   return [table(head, rows), ...(a.test ? [`_${a.test.verdict}_`] : [])];
 }
-/** Who: one bullet per person, with their answer when split, and their outcome unless every one is the same. */
+/** Who: split, the counted bullets with the names under each ("• 2 — answer" / "_Lynton Thompson, Lakshan Gunaratne_"); not split, one bullet per person with their outcome unless every one is the same. */
 export function analysisList(a: Analysis): string[] {
   if (!a.list?.length) return [];
+  if (a.split) {
+    const by = new Map<string, string[]>();
+    for (const x of a.list) for (const v of x.values.length ? x.values : [NO_ANSWER]) by.set(v, [...(by.get(v) ?? []), x.name]);
+    const order = [...by].sort(([x, p], [y, q]) => (x === NO_ANSWER ? 1 : 0) - (y === NO_ANSWER ? 1 : 0) || q.length - p.length);
+    return [...order.flatMap(([v, who]) => [`• ${who.length} — ${v === NO_ANSWER ? "no answer" : v}`, `      _${who.join(", ")}_`]), ...(a.list.length < a.total.count ? [`_First ${a.list.length} of ${a.total.count}._`] : [])];
+  }
   const sameOutcome = new Set(a.list.map((x) => x.outcome)).size <= 1;
   return [...a.list.map((x) => `• ${x.name}${x.value ? ` — ${x.value}` : ""}${sameOutcome ? "" : ` — ${x.outcome}`}`), ...(a.list.length < a.total.count ? [`_First ${a.list.length} of ${a.total.count}._`] : [])];
 }
@@ -181,7 +187,7 @@ export function formatAnswer(results: MetricResult[], o: AnswerParts = {}): stri
     for (const k of cl) L.push("", ...closesBody(k));
   }
   for (const a of av) L.push(availabilityBody(a));
-  for (const q of ah) L.push("", `_${q.why} (from the engine's own records)_`, adhocTable(q));
+  if (detail !== "none" || !headline) for (const q of ah) L.push("", `_${q.why} (from the engine's own records)_`, adhocTable(q));
   const warn = [...new Set(results.flatMap(warnings))];
   if (o.note?.trim()) L.push("", o.note.trim());
   if (warn.length) L.push("", ...warn);

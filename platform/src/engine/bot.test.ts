@@ -14,7 +14,7 @@ import { answerList, classifyCall, qualify, salesCallsFor, type QualifyConfig } 
 import { loadCompany } from "./context";
 import { formatAnswer, formatCombined, formatSummary, formatAvailability, availabilityBody, table, MAX_ROWS, PHONE_WIDTH, helpText } from "./bot-format";
 import { handleMessage, planCommand, preview, runCommand, type SlackMessage } from "./bot";
-import { NO_ANSWER, analyze } from "./ghl-graph";
+import { NO_ANSWER, analyze, type Analysis } from "./ghl-graph";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const pending: Promise<unknown>[] = [];
@@ -476,6 +476,12 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(lines.slice(2, 6).sort()).toEqual(["• 1 — Currently between jobs", "• 1 — Employed full-time", "• 1 — no answer", "• 1 — retired"]); expect(lines[5]).toBe("• 1 — no answer");
       expect(text).not.toMatch(/C3|CT1|```|read just now/);
       expect(lines.at(-1)).toBe("_Oct 1–10 · From GHL, read 12:00 PM MST_");
+      // asked who: the same counted bullets, each answer's people under it, no answer last
+      const a = (held: unknown) => held as Analysis;
+      const res = await asOperator((c) => analyze(c, companyId, { unit: "lead", period: month(), split_by: "contact.What best describes your current work situation?", list: true }, ghlReads, NOW.toJSDate()));
+      const who = formatAnswer([], { analyses: [a(res)], detail: "list", headline: "How this month's leads describe their jobs", now: NOW }).split("\n");
+      expect(who.slice(2, 4)).toEqual([expect.stringMatching(/^• 1 — /), expect.stringMatching(/^ {6}_C\d_$/)]);
+      expect(who.slice(-4, -2)).toEqual(["• 1 — no answer", "      _C3_"]);
     });
     it("D75: a Sales Call's multi-pick counts each pick by its label; test contacts' calls are left out", async () => {
       script = [() => call("analyze", { unit: "call", period: "this month", split_by: "call.objections_raised", filter: [], list: false, rate: "" }), () => call("reply", { result_ids: ["r1"], headline: "Price came up most this month", detail: "breakdown", note: "" })];
@@ -521,7 +527,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(close.total.days_to_close).toBeCloseTo(1.04, 1);   // C1: first call Oct 6 10:00, won Oct 7 11:00; C9's only call came after the win
       expect(close.links).toEqual([{ what: "a Sales Call", linked: 2, of: 2, missing: [] }]);
       expect(close.mismatches).toEqual([{ kind: "won_no_payment", name: "C9", date: "Oct 8" }]);
-      expect(close.list).toEqual([{ name: "C1", value: "instagram", outcome: "$4,500 paid" }, { name: "C9", value: "referral", outcome: "$0 paid" }]);
+      expect(close.list).toEqual([{ name: "C1", value: "instagram", values: ["instagram"], outcome: "$4,500 paid" }, { name: "C9", value: "referral", values: ["referral"], outcome: "$0 paid" }]);
       script = [() => call("analyze", { unit: "call", period: "this month", split_by: "", filter: [], list: false, rate: "" }), () => call("reply", { result_ids: ["r1"], headline: "8 calls this month; a few records don't line up", detail: "issues", note: "" })];
       await handleMessage(deps(), companyId, msg({ text: "<@UBOT> calls this month, anything off?" }));
       const lines = posts[0].text.split("\n");
