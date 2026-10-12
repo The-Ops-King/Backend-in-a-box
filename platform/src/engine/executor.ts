@@ -16,6 +16,7 @@ import { applyOutcome, outcomeTermFor, recordDisposition } from "./disposition";
 import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } from "./health";
 import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports";
 import { classifyError } from "./failures";
+import { withButtons } from "./slack-blocks";
 import { claimEffect, markEffect, PENDING_WHY, type EffectKind } from "./effects";
 import { callTime } from "./sales-call";
 import { APPOINTMENT_FACTS, APPOINTMENT_JOINS, appointmentRow, runLookup } from "./lookup";
@@ -426,9 +427,12 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       // D76: a post that says where a thing stands (a call's filed outcome, the day's report) is edited in place when it is said again, never repeated
       const prior = node.edit && node.tag ? await one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, render(node.tag, d.ctx, env(d))]) : null;
       const update = d.adapters.notifier.update;
+      // D93: buttons whose condition holds, under the same words; the text stays the notification and the fallback
+      const buttons = (node.buttons ?? []).filter((b) => !b.only_if || evaluate(b.only_if, d.ctx)).map((b) => ({ text: render(b.text, d.ctx, env(d)), action: b.action, value: render(b.value, d.ctx, env(d)), style: b.style })).filter((b) => b.value);
+      const blocks = buttons.length ? withButtons(body, buttons) : undefined;
       const r = prior && update
-        ? await slackPostOrFail(d, send.id, async () => { await update(token, prior.channel, prior.ts, body); return { ts: prior.ts, channel: prior.channel }; })
-        : await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(token, postTo, body, persona(d, node.as), parentTs));
+        ? await slackPostOrFail(d, send.id, async () => { await update(token, prior.channel, prior.ts, body, blocks); return { ts: prior.ts, channel: prior.channel }; })
+        : await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(token, postTo, body, persona(d, node.as), parentTs, blocks));
       if ("refused" in r) return { status: "skipped", next, result: { kind: "blocked", why: `Slack refused the post: ${r.refused}`, would_post: text.slice(0, 160) } };
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
       setPath(d.ctx, `vars.__slack.${node.id}`, r.ts);
@@ -447,7 +451,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (node.react_on) { const target = await postOf(node.react_on.of); if (target) for (const emoji of node.react_on.emojis.map((e) => render(e, d.ctx, env(d))).filter(Boolean)) if (await d.adapters.notifier.react(token, target.channel, target.ts, emoji).catch(() => false)) reactedOn++; }
       let tag: string | undefined;
       if (node.tag) { tag = render(node.tag, d.ctx, env(d)); await d.c.query("insert into slack_posts (company_id, tag, channel, ts, run_id) values ($1,$2,$3,$4,$5) on conflict (company_id, tag) do update set channel=excluded.channel, ts=excluded.ts, run_id=excluded.run_id, posted_at=now()", [d.company.id, tag, at, r.ts, d.run.id]); }
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ...(route ? { redirected_to_operator: route.to } : {}), ...(prior && update ? { edited: prior.ts } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null, ...(tagged ? { tag: tagged } : {}) } : {}), ...(tag ? { remembered_as: tag } : {}), ...(node.react ? { reacted } : {}), ...(node.offer ? { offered } : {}), ...(node.unreact ? { unreacted } : {}), ...(node.react_on ? { reacted_on: reactedOn } : {}) } };
+      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ...(route ? { redirected_to_operator: route.to } : {}), ...(prior && update ? { edited: prior.ts } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null, ...(tagged ? { tag: tagged } : {}) } : {}), ...(tag ? { remembered_as: tag } : {}), ...(node.react ? { reacted } : {}), ...(node.offer ? { offered } : {}), ...(buttons.length ? { buttons: buttons.map((b) => b.text) } : {}), ...(node.unreact ? { unreacted } : {}), ...(node.react_on ? { reacted_on: reactedOn } : {}) } };
     }
 
     case "classify": {

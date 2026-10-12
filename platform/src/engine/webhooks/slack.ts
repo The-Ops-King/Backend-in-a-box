@@ -54,3 +54,9 @@ export async function reactionArrived(c: PoolClient, companyId: string, ev: Slac
   const woken = await c.query("update runs set next_run_at=now() where company_id=$1 and status='waiting' and wake_on_tag=$2", [companyId, post.tag]);
   return { event: event.id, runs_started: started.length, runs_woken: woken.rowCount ?? 0 };
 }
+
+/** A private answer or a replaced message through the response_url Slack gave a command or a press. Only Slack's own URL is followed. */
+export async function respondToSlack(url: string, body: Record<string, unknown>): Promise<void> {
+  if (!/^https:\/\/hooks\.slack\.com\//.test(url)) return;
+  await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}

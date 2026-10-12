@@ -4,7 +4,7 @@ import { asOperator, one } from "@/db/client";
 import { liveAdapters } from "@/adapters";
 import { loadCompany } from "@/engine/context";
 import { helpText, planCommand, runCommand, type SlashCommand } from "@/engine/bot";
-import { verifySlackSignature } from "@/engine/webhooks/slack";
+import { respondToSlack, verifySlackSignature } from "@/engine/webhooks/slack";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
@@ -32,12 +32,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     return { cmd, plan: p.plan };
   });
   if (res instanceof Response) return res;
-  after(() => runCommand({ adapters: liveAdapters, respond: postToResponseUrl }, companyId, res.cmd, res.plan).catch((e) => console.error("slack command:", e)));
+  after(() => runCommand({ adapters: liveAdapters, respond: respondToSlack }, companyId, res.cmd, res.plan).catch((e) => console.error("slack command:", e)));
   return new Response(null, { status: 200 });
-}
-
-async function postToResponseUrl(url: string, body: Record<string, unknown>): Promise<void> {
-  // response_url is Slack's own; anything else is not followed
-  if (!/^https:\/\/hooks\.slack\.com\//.test(url)) return;
-  await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }

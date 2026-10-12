@@ -5,7 +5,7 @@
   "stage": "engine",
   "sort": 10,
   "origin": "spec",
-  "description": "Every hour, a read-only sweep of every connection and every step's dependencies; a failed check is an alert that clears itself. Every alert is said here (D88): the engine collects and dedupes them and emits alert.raised, alert.repeated (every alerts.repeat_minutes, 60) and alert.resolved; this workflow posts the alert to the alerts channel (the sweep's own channel for its findings), its still-open line in the thread, and the resolved line with a ✅. Silent while everything works. Slack only. The hourly ledger drift questions (D73, D75, D76, D83) are worded here too, one line per question, by kind.",
+  "description": "Every hour, a read-only sweep of every connection and every step's dependencies; a failed check is an alert that clears itself. Every alert is said here (D88): the engine collects and dedupes them and emits alert.raised, alert.repeated (every alerts.repeat_minutes, 60) and alert.resolved; this workflow posts the alert to the alerts channel (the sweep's own channel for its findings), its still-open line in the thread, and the resolved line with a ✅. The post carries a Resolve button, and Retry when the alert is a step skipped after its tries (D93): a manager's press is handled by the Slack interactions door. Silent while everything works. Slack only. The hourly ledger drift questions (D73, D75, D76, D83) are worded here too, one line per question, by kind.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -165,6 +165,25 @@
           "icon": "{{vars.icon}}"
         },
         "tag": "alert:{{event.alert_id}}",
+        "buttons": [
+          {
+            "text": "Retry",
+            "action": "alert_retry",
+            "value": "{{event.alert_id}}",
+            "style": "primary",
+            "only_if": {
+              "eq": [
+                "{{event.kind}}",
+                "skipped"
+              ]
+            }
+          },
+          {
+            "text": "Resolve",
+            "action": "alert_resolve",
+            "value": "{{event.alert_id}}"
+          }
+        ],
         "template": "{{vars.mark}} *{{event.company}} · {{vars.head}}*\n{{vars.body}}{{event.link | link:Open | line}}{{event.fix_link | each:\" · <{{item}}|{{event.fix_label}}>\"}}{{event.extra_link | each:\"{{event.link | then:\\\" · \\\" | default:\\\"\\\\n\\\"}}<{{item}}|{{event.extra_label | default:Open}}>\"}}",
         "title": "Post the alert"
       },
