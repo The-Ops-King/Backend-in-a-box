@@ -41,9 +41,10 @@ b5=node(d,'b5'); b5['name']='{{contact.name}} -- Setter'; b5['only_if']=BOOKED; 
 for prev,i in [('s4','s4r'),('b5','b5r')]:
     after(d, prev, {'id':i,'type':'pipeline_card','title':'A reschedule: card → Rescheduled (its name stays)','pipeline':CLOSER,'stage':'{{crm.stage_closer_rescheduled}}','assign_to':'{{appointment.closer.ghl_user_id | default:}}','only_if':RESCHED})
 node(d,'b5r')['fields']=[{'id':'{{crm.field_opportunity_setter_owner}}','value':'{{appointment.set_by | default:}}'}]
+node(d,'n1')['fields'][0]['value']='{{appointment.starts_at | date_company:MM-dd-yyyy HH:mm}}'   # PMU's own format on Appointment Start Time (e.g. 10-15-2026 15:00)
 k4=node(d,'k4'); k4['properties']['call_type']='{{vars.call_type}}'; k4['properties']['closer']='{{appointment.closer.first_name | default: | lower}}'
 after(d,'k3',{'id':'v_type','type':'set_var','title':'Closing or Demo: the call type the calendar books','key':'call_type','value':'{{appointment.term.name}}','pick':{'Demo call':'demo'},'else_value':'closing'})
-out['call-booked']=(d,"PMU: one board. The card moves to Booked Call named -- Direct or -- Setter; a reschedule moves it to Rescheduled and keeps its name; the Sales Call says Closing or Demo; no UTM fields")
+out['call-booked']=(d,"PMU: one board. The card moves to Booked Call named -- Direct or -- Setter; a reschedule moves it to Rescheduled and keeps its name; the Sales Call says Closing or Demo; no UTM fields; Appointment Start Time in PMU's format (10-15-2026 15:00)")
 
 # Call cancelled: the one card → Canceled Call
 d=load('call-cancelled'); drop(d,'n1')
