@@ -3233,7 +3233,90 @@ that category and maps the calendar to it; without `name` the default type as be
 everywhere it is shown; the Sales Call's own Call Type field (Closing / Demo) is what PMU's numbers split on.
 Test: `install.upgrade.test.ts` (made once over two installs, default type untouched, back to the default when unmapped).
 
-## D102. Setup picks each Slack post's channel, from the company's own workspace (2026-10-13)
+## D104. The booking card's intake lines are the company's own (2026-10-13)
+
+Call booked's Slack card carried Hair's intake questions in the template itself (Hair loss with its stage, Noticing for,
+Commit to routine, Work situation), so every client installed after Hair inherited them: PMU, a beauty salon, saw "Hair
+loss" on its booking card. The owner: fix the template so each company shows its own intake questions, and Hair's card
+must come out exactly as it does today.
+
+- **A company setting.** `booking_card.intake` (kind text, JSON), set at install with
+  `bookingCard: { intake: [{ label, field | answer | tags, plus? }] }`: each line a label and where its value comes from, a CRM
+  contact field by the name the company bound it under (`field`: `crm.field_contact_<name>`) or a booking answer by the
+  name its calendar maps the question to (`answer`: `appointment.answers.<name>`, D24); `plus` is a second value from the
+  same place after one space; `tags` maps tags to words (PMU's MQL / DQ, set by a Zap, is tags, not a field). Omitted on a re-install it stays as it is; `[]` is no lines. A line with no label, or without
+  exactly one of field, answer or tags, refuses the install. The Setup page shows the lines under Booking (read-only, D42).
+- **One value for templates.** `{{contact.intake_lines}}`, built in `buildContext`: `*Label:* value` per line, `—` for an
+  empty value, the lines joined by newlines; nothing when no line is set. The shipped card has `*Phone:* …` (generic, kept)
+  followed by `{{contact.intake_lines | line}}`, so an unset company gets no intake lines and no blank line, never Hair's.
+  The lines are written to match the old fixed lines byte for byte, including the space Hair's line always had before
+  its stage (an empty stage leaves `*Hair loss:* — `).
+- **Hair keeps its card.** Every company that bound `crm.field_contact_hair_loss` (Hair) gets the four old lines as its
+  setting where the setting was never written (`backfillBookingCard`, audited as `binding.set` by "D104 backfill"). It
+  runs in the migration (`pnpm build` runs it before a deploy serves; `POST /api/admin/migrate`) and again at the start of
+  every template install, so it can never land after Hair's untouched Call booked copy upgrades on the next
+  `POST /api/admin/templates`. A company that edited its copy (diverged, D16) keeps its own card, as before.
+- **The dashboard's example** of the card shows the company's own labels with a placeholder for each value
+  (`*Monthly revenue:* [monthly revenue]`), and no lines when none are set; the sample contact no longer carries a hair
+  answer.
+- Not done: PMU's own lines. Its copy of Call booked is its own (D100) and still has Hair's lines until it is saved again
+  from the regenerated `installs/pmu/call-booked.json`, which reads the setting; PMU's questions are its to name. Other
+  Hair words left in shipped text are listed for the owner, not changed here: Deal closed's welcome email and text (an open
+  item already), the bot's examples of questions about hair loss, the example call notes ("thinning at the crown").
+- Tests: `booking-card.test.ts` (Hair as production has it, an untouched old copy and no setting, renders three people
+  through the old card; `installTemplates` backfills and upgrades; the new card renders byte-identical for all three; the
+  migration backfills only a company that bound the field and never over a written setting; a company with "Monthly
+  revenue" (an answer) and "Ad budget" (a field) gets those lines; unset, no intake lines and nothing of Hair's; install
+  writes, refuses and keeps the setting; the example). Dropping "Commit to routine" from the backfilled lines turned the
+  identity test red.
+
+## D103. A sometimes-step looks like one on the chart (2026-10-13)
+
+Tyler read PMU's Call booked chart and took "A reschedule: card → Rescheduled", sitting in the straight line after
+"Card → Booked Call", for a step every booking takes. A step with `only_if` looked exactly like one that always runs;
+its condition was only in the popover, and a non-send `only_if` step did not even get the blue mark.
+
+- **On the chart.** A node with `only_if` has a dashed blue border and its condition on a line of its own under the
+  title: "only if a reschedule", "only if not a reschedule" (`ChartNode.onlyIf`, the predicate's words with a leading
+  "this is" dropped); in a narrow column "if …", cut with … past that, the whole sentence in the popover, which now
+  ends "Otherwise it is skipped and the run goes on." The edges into and out of it are dashed, and on the spine, where
+  there is room, a thin blue line runs around its right side labelled "otherwise". A branch folded into one step
+  ("Only when …") is drawn the same way. A wait with `only_if` is no longer folded into the send after it, so its
+  condition is not put on the send. A step skipped for a smaller reason (a reminder too close to the call, a card move
+  with no card, a Slack line with no post) keeps the blue mark: it runs on the normal path. The legend says both.
+- **In the step list.** A planned step with `only_if` says "only if a reschedule; otherwise skipped" under its title.
+- **The words.** Every `only_if` in the templates and PMU's copies was read through `predicateWords`: "there is a slot
+  from" is "there is a slot the call moved from"; two-path comparisons ("{{a}}:{{b}}" against "{{c}}:{{d}}") read pair
+  by pair instead of leaking `| default:}}`; an hour through `| date:HH` reads "the call is at 9 AM or later"; the event
+  types read "a Fathom recording", "a payment", "a refund"; "the earlier answer", "their unanswered reply", "who decided
+  the result is the team", and a/an before a vowel.
+- **Why a step was skipped.** The run log said "only if this is not a reschedule; it is not" on a reschedule: "it is
+  not" after a "not" condition says the opposite. `skippedWords` gives the condition and then what held instead
+  (`notWords`: eq↔neq, exists → "there is no", in → "neither … nor", the comparisons flipped, and/or by De Morgan);
+  for an "and" the executor names only the parts that failed ("…; the result is not follow up"). Rows written before
+  this read right on the run page: the step list rewords a stored "…; it is not" from the step's own condition.
+- Display only: what runs and when is unchanged; no template changed.
+- Tests: `words.test.ts` (PMU's two card moves carry "a reschedule" and "not a reschedule", only `only_if` nodes carry
+  one, a card move with no card keeps the mark only; the reschedule, slot, hour, payment and two-path words; no shipped
+  `only_if` reads with a path, a filter or JSON; the skipped words for eq, neq, exists, in, not, an hour and an "and";
+  a planned step carries its condition and an old "it is not" row is reworded), `moves.test.ts` (Payment recorded's
+  win skipped on a deposit says "only if this is a payment and paid in full; not paid in full").
+
+## D105. A card moves only off the stages a step names; an existing card keeps its name (2026-10-13)
+
+PMU reschedules calls that were booked before the engine ran it: their cards were made by PMU's own GHL workflows and
+sit anywhere on the board. Tyler: find the existing card and move it to Rescheduled only if it is on a stage a
+reschedule belongs to; a card in Follow Up (or past the call) is left alone. A branch before the step cannot decide
+this: the replica holds a board's older cards only once a step has read them (the poll sees what changed since install),
+so the decision is made inside `pipeline_card`, on the card the CRM just answered with (D41).
+- `from_stages: [stage ids]`: an existing card on any other stage is left where it is (skipped, the run goes on, the log
+  names the stage). No card at all: the step makes one, as before.
+- `keep_name: true`: an existing card keeps its name (it says how the call was booked, "-- Setter" / "-- Direct"); `name`
+  names only a card this step makes.
+- Test: `step-failures.test.ts` "D105" (an older card the replica never saw on an allowed stage is moved with its name;
+  a card in follow up is not written; no card makes one under the step's name).
+
+## D106. Setup picks each Slack post's channel, from the company's own workspace (2026-10-13)
 
 Tyler: "ONLY the slack channel should be selectable right now", per workflow, from that company's channels only, to put
 the daily, weekly and monthly wrap-ups live in the right place. The company page's "settings" link still pointed at the

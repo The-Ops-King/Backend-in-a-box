@@ -3,7 +3,7 @@ import { usePage, type SetupPage } from "~/api";
 import { Crumb, Empty, Fold, Ic, NameLine, Sec, Skeleton, Tag } from "~/ui/pieces";
 import { SlackSteps } from "./slack-steps";
 
-/** Everything this company's workflows need, read-only (D42) except where each Slack post goes (D102): what is set, what is missing, by name where the CRM can name it. */
+/** Everything this company's workflows need, read-only (D42) except where each Slack post goes (D106): what is set, what is missing, by name where the CRM can name it. */
 export function Setup() {
   const { slug = "" } = useParams();
   const q = usePage<SetupPage>(["setup", slug], `/api/v1/companies/${slug}/setup`, { every: 60_000 });
@@ -32,6 +32,7 @@ export function Setup() {
 
     <Sec>Booking</Sec>
     {kv([["source", d.booking.source === "calendly" ? "Calendly" : "GHL calendars"], ["setter rule", d.booking.setter_rule], ["default closer", d.booking.default_closer], ["phone question", d.booking.phone_question], ["setter question", d.booking.setter_question]])}
+    <Fold title={<>Booking card · {d.booking_card.length ? `${d.booking_card.length} intake line${d.booking_card.length === 1 ? "" : "s"}` : "no intake lines"}</>}>{d.booking_card.length ? <div className="rows">{d.booking_card.map((l) => <div key={l.label} className="row noicon"><span className="mid"><span className="nm">{l.label}</span><span className="sub"><span>{l.from}</span><span className="mono">· {l.name}{l.plus ? ` + ${l.plus}` : ""}</span></span></span></div>)}</div> : <Empty>Under Phone the card shows nothing more; set the lines with the install API (bookingCard).</Empty>}</Fold>
     <Fold title={<>Call types · {d.call_types.length}</>}><div className="rows">{d.call_types.map((t) => <div key={t.name} className={`row noicon ${t.active ? "" : "off"}`}><span className="mid"><span className="nm">{t.name}</span><span className="sub"><span>{t.category.replace(/_/g, " ")}</span></span></span><span className="d">{t.in_use ? `${t.in_use} calendar${t.in_use === 1 ? "" : "s"}` : ""}</span></div>)}</div></Fold>
     <Fold title={<>Calendars · {d.calendars.length}{d.unmapped_calendars.length ? ` (+${d.unmapped_calendars.length} not mapped)` : ""}</>} open>
       {d.calendars_error ? <p className="note">Live calendars could not be read: {d.calendars_error}</p> : null}

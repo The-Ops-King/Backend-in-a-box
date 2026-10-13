@@ -11,6 +11,7 @@ import { defaultPrompts } from "@/prompts";
 import { fathomCreateWebhook } from "@/adapters/fathom/client";
 import { whopCreateWebhook } from "@/adapters/whop/client";
 import { goLive, type Cleared } from "./golive";
+import { BOOKING_CARD_KEY, backfillBookingCard, intakeProblem, type IntakeLine } from "./booking-card";
 
 /**
  * A calendar's mapping: the kind of call it books; optionally how setter-vs-self is decided on it (`booking`: self | setter |
@@ -42,6 +43,8 @@ export type InstallInput = {
   salesCall?: { object?: string; outcomes?: Record<string, "showed" | "noshow" | "cancelled" | "rescheduled" | "scheduled">; dqDispositions?: string[]; dispositions?: Record<string, "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified" | { meaning: "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified"; reason?: string }>; bookingSources?: { setter?: string; self?: string } };
   /** D79: the Discovery Call record's `call_result` option keys, {key: set | follow_up | dq | not_interested} (discovery_call.results; unbound, the keys are those four), and whether Jev's read of a setter call acts (setter_result.act, default off: it only says what it would do). */
   discoveryCall?: { results?: Record<string, "set" | "follow_up" | "dq" | "not_interested">; act?: boolean };
+  /** D104: the booking card's intake lines, the company's own (booking_card.intake): each a label and a bound contact field or a booking answer by name, optionally a second value after it. Omitted: left as it is; [] shows none. */
+  bookingCard?: { intake: IntakeLine[] };
   testDomains?: string[];                // bound as test.domains: email domains whose contacts pass in test (D52), e.g. ["jtylerray.com"]
   jevKey?: string;                       // bound as secret.jev_key; the classify node reads replies with it (env JEV_API_KEY is the fallback)
   /** Where the Health check workflow says what broke (D33, D88: Slack only): the channel, the face, how often an open alert is said again (minutes, 60), how many failed polls in a row make an alert (2). */
@@ -72,6 +75,7 @@ export type InstallInput = {
 export async function installTemplates(c: import("pg").PoolClient, companyId: string, wanted: string[], opts: { enable?: boolean; existed: boolean }): Promise<string[]> {
   const installed: string[] = [];
   const replaced = new Map<string, { name: string; by: string[] }>();
+  await backfillBookingCard(c, companyId);   // D104: before Call booked can upgrade to the card that reads it
   for (const t of templates.filter((t) => wanted.includes(t.slug))) {
     const def = parseDefinition(t.definition); const manifest = extractManifest(def);
     // the template row follows the code: a changed definition is a new template version
@@ -182,6 +186,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       escalate = { id, email: want.toLowerCase() };
     }
   }
+  const cardProblems = (input.bookingCard?.intake ?? []).map(intakeProblem).filter(Boolean);
+  if (input.bookingCard && (!Array.isArray(input.bookingCard.intake) || cardProblems.length)) throw new Error(`bookingCard.intake: ${cardProblems.join("; ") || "a list of lines"}`);
   // D56: live is never set by install itself; `mode: "live"` is a go-live after the install, with its readiness refusal and clean slate (D51)
   const modeFlag = input.mode === "live" ? null : input.mode ?? null;
   const out = await asOperator(async (c) => {
@@ -228,6 +234,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
         await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) values ($1,'call_outcome',$2,$3,false,50) on conflict (company_id, domain, name) do nothing", [companyId, v.reason.trim(), v.meaning]);
     }
     if (input.salesCall?.dqDispositions) await bind("sales_call.dq_dispositions", "text", answers(input.salesCall.dqDispositions));
+    if (input.bookingCard) await bind(BOOKING_CARD_KEY, "text", JSON.stringify(input.bookingCard.intake.map((l) => ({ label: l.label.trim(), ...(l.field !== undefined ? { field: l.field.trim() } : { answer: l.answer!.trim() }), ...(l.plus !== undefined ? { plus: l.plus.trim() } : {}) }))));
     if (input.discoveryCall?.results) await bind("discovery_call.results", "text", JSON.stringify(input.discoveryCall.results));
     if (input.discoveryCall?.act !== undefined) await bind("setter_result.act", "text", String(input.discoveryCall.act));
     if (input.whop?.webhookSecret) await bind("secret.whop_webhook", "secret", input.whop.webhookSecret);

@@ -11,6 +11,7 @@ import { salesCallValues, bookingSourceValues } from "./sales-call";
 import { discoveryResultValues, setterResultActs } from "./setter-result";
 import { callSetting } from "./call-settings";
 import { leadSourceSql, sourceFields, sourceFieldsParam, UNKNOWN_SOURCE } from "./lead-source";
+import { intakeLines, intakeText } from "./booking-card";
 
 export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string | null; user_id?: string | null; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date; resume_node?: string | null; resume_at?: Date | null; step_attempt?: number; step_error?: string | null; step_held?: boolean };
 export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; status: string; sms_enabled: boolean; mode: import("./mode").Mode; contract_value_default: string | null };
@@ -169,6 +170,8 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     ctx.agreement = agr ? agreementFacts(agr) : {};
     ctx.records = Object.fromEntries(recs.map((r) => [r.object_key.replace(/^custom_objects\./, ""), { key: r.record_key, id: r.ghl_record_id ?? "" }]));
   }
+  // D104: the booking card's intake lines as the company set them, ready to post; none set, nothing
+  if (ctx.contact) (ctx.contact as Record<string, unknown>).intake_lines = intakeText(intakeLines(bindings), fields, (ctx.appointment as { answers?: Record<string, unknown> } | undefined)?.answers, ((ctx.contact as { tags?: string[] }).tags ?? [])) || undefined;
   // a run about a person on the team (a closer's end-of-day, a report filed): who they are, their standing link, and their end-of-day facts
   if (run.user_id) {
     const u = await one<{ id: string; name: string; email: string; role: string; ghl_user_id: string | null; slack_user_id: string | null; report_token: string | null }>(c, "select id, name, email, role, ghl_user_id, slack_user_id, report_token from users where id=$1 and company_id=$2", [run.user_id, company.id]);

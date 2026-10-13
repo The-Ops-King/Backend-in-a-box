@@ -7,7 +7,7 @@ const tpl = (slug: string) => parseDefinition(templates.find((t) => t.slug === s
 const channels = [{ id: "C_REPORTS", name: "hair-reports", is_member: true, is_private: false }, { id: "C_WINS", name: "wins", is_member: false, is_private: false }];
 const withChannel = (def: Definition, node: string, channel: string): Definition => ({ ...def, nodes: def.nodes.map((n) => (n.id === node ? { ...n, channel } : n)) as Definition["nodes"] });
 
-describe("where each Slack post goes (D102)", () => {
+describe("where each Slack post goes (D106)", () => {
   it("a wrap-up posts through the company's reports setting, by the channel's name", () => {
     const [s] = slackStepsOf(tpl("daily-wrap-up"), tpl("daily-wrap-up"), { "slack.channel.reports": "C_REPORTS" }, channels);
     expect(s).toMatchObject({ node_id: "n_post", kind: "pick", on_step: false, binding: "slack.channel.reports", default_binding: "slack.channel.reports", posts_to: { id: "C_REPORTS", name: "hair-reports", is_member: true, via: "setting" } });

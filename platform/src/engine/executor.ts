@@ -5,7 +5,7 @@ import type { Adapters, Company } from "@/adapters/types";
 import { fallbacksOf, labelledEdge, onwardEdge, type Edge, type Node } from "./definition";
 import { evaluate } from "./predicate";
 import { render, resolveExpr, resolvePath, parseDuration, StaleTemplateError, UnknownPathError } from "./template";
-import { predicateWords, durationWords } from "./describe";
+import { predicateWords, durationWords, skippedWords } from "./describe";
 import { syncCards, pickCard, latestCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow, timeParam } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
@@ -22,6 +22,7 @@ import { callTime } from "./sales-call";
 import { APPOINTMENT_FACTS, APPOINTMENT_JOINS, appointmentRow, runLookup } from "./lookup";
 import { dropTranscripts, hydrateTranscripts } from "./transcripts";
 import { dropReplies, hydrateReplies, mentionsReplyText, readsReplyText, scrubReplyText } from "./replies";
+import { boardOf, stageWords } from "./card-moves";
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
@@ -259,8 +260,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
 async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
   d.ctx.now = d.now.toISO();   // {{now | date:...}} in templates; refreshed every node so a persisted context never carries a stale clock
   const next = single(d, node.id);
-  // only_if: a step that runs some of the time; the chart shows it with the blue mark and this condition
-  if (node.only_if && node.type !== "trigger" && !evaluate(node.only_if, d.ctx)) return { status: "skipped", next, result: { kind: "noop", why: `only if ${predicateWords(node.only_if)}; it is not` } };
+  // only_if: a step that runs some of the time; the chart draws it dashed with this condition (D103)
+  if (node.only_if && node.type !== "trigger" && !evaluate(node.only_if, d.ctx)) return { status: "skipped", next, result: { kind: "noop", why: skippedWords(node.only_if, (q) => evaluate(q, d.ctx)) } };
   switch (node.type) {
     case "trigger": return { status: "ok", next };
     case "exit": return { status: "exit", reason: node.reason };
@@ -875,13 +876,18 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
       and occurred_at > (select min(started_at) from run_steps where run_id=$4 and node_id=$5) order by occurred_at desc limit 1`, [d.company.id, d.run.contact_id, pipelineId, d.run.id, node.id]);
     if (hand) return { status: "skipped", next, result: { kind: "noop", why: `moved by hand since this step first tried${hand.mover ? ` (${hand.mover}` : " ("}${hand.to_name ? `to ${hand.to_name})` : ")"}; a hand wins`, crm_card: card.ghl_opportunity_id } };
   }
+  // D105: decided on the card the CRM just answered with, not the replica: a board's older cards reach the replica only when a step reads them
+  if (card && node.from_stages) {
+    const from = node.from_stages.map((s) => render(s, d.ctx, env(d)).trim()).filter(Boolean);
+    if (!from.includes(card.ghl_stage_id)) { const board = boardOf(d.bindings, pipelineId); return { status: "skipped", next, result: { kind: "noop", why: `left where it is: the card is on ${stageWords(d.bindings, board, card.ghl_stage_id)}, a stage this step does not move from`, stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } }; }
+  }
   // stage and name are optional on an update: a step that only stamps fields leaves the card where it is
   // a stage binding left unbound (`{{crm.stage_x | default:}}`) leaves the card on its stage, like no stage at all
   const stageId = (node.stage ? render(node.stage, d.ctx, env(d)) : "") || (card?.ghl_stage_id ?? "");
   // G13: a person with no name in the CRM is named on the card by an address they do have, never " -- New"
   const who = d.ctx.contact as { name?: string | null; email?: string | null; phone?: string | null; ghl_contact_id?: string | null } | undefined;
   const nameCtx = who && !who.name ? { ...d.ctx, contact: { ...who, name: who.email ?? who.phone ?? who.ghl_contact_id ?? null } } : d.ctx;
-  const name = node.name ? render(node.name, nameCtx, env(d)) : card?.name ?? render("{{contact.name}}", nameCtx, env(d));   // a card made without a name carries the person's
+  const name = node.keep_name && card ? card.name : node.name ? render(node.name, nameCtx, env(d)) : card?.name ?? render("{{contact.name}}", nameCtx, env(d));   // a card made without a name carries the person's
   const customFields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== "");
   const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
   // no open card: a step with a stage makes one there (D41: a contact always has their cards); a status-only step has no stage to make one in, so there is nothing to mark

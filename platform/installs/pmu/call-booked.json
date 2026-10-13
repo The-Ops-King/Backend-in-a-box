@@ -96,9 +96,20 @@
    {
     "id": "s4r",
     "type": "pipeline_card",
-    "title": "Card \u2192 Rescheduled (its name stays)",
+    "title": "Card \u2192 Rescheduled, if it is before the call (its name stays)",
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_rescheduled}}",
+    "name": "{{contact.name}} -- Direct",
+    "keep_name": true,
+    "from_stages": [
+     "{{crm.stage_closer_new_lead}}",
+     "{{crm.stage_closer_scheduled}}",
+     "{{crm.stage_closer_unresponsive}}",
+     "{{crm.stage_closer_confirmed}}",
+     "{{crm.stage_closer_no_show}}",
+     "{{crm.stage_closer_cancelled}}",
+     "{{crm.stage_closer_rescheduled}}"
+    ],
     "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
    },
    {
@@ -171,9 +182,20 @@
    {
     "id": "b5r",
     "type": "pipeline_card",
-    "title": "Card \u2192 Rescheduled (its name stays)",
+    "title": "Card \u2192 Rescheduled, if it is before the call (its name stays)",
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_rescheduled}}",
+    "name": "{{contact.name}} -- Setter",
+    "keep_name": true,
+    "from_stages": [
+     "{{crm.stage_closer_new_lead}}",
+     "{{crm.stage_closer_scheduled}}",
+     "{{crm.stage_closer_unresponsive}}",
+     "{{crm.stage_closer_confirmed}}",
+     "{{crm.stage_closer_no_show}}",
+     "{{crm.stage_closer_cancelled}}",
+     "{{crm.stage_closer_rescheduled}}"
+    ],
     "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
     "fields": [
      {
@@ -303,7 +325,7 @@
     "id": "n4",
     "type": "slack_post",
     "channel": "{{slack.channel.bookings}}",
-    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:\u2014}}\n*Hair loss:* {{contact.fields.hair_loss | default:\u2014}} {{contact.fields.hair_loss_stage | default:}}\n*Noticing for:* {{contact.fields.noticing_for | default:\u2014}}\n*Commit to routine:* {{contact.fields.commit_routine | default:\u2014}}\n*Work situation:* {{contact.fields.work_situation | default:\u2014}}\n*Reschedule link:* {{appointment.reschedule_url | default:\u2014}}\n*Source:* {{contact.source | default:\u2014}} \u00b7 {{vars.booking_kind}}",
+    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:\u2014}}{{contact.intake_lines | line}}\n*Reschedule link:* {{appointment.reschedule_url | default:\u2014}}\n*Source:* {{contact.source | default:\u2014}} \u00b7 {{vars.booking_kind}}",
     "as": {
      "name": "{{vars.card.name}}",
      "icon": "{{vars.card.icons}}"

@@ -53,7 +53,7 @@ Every template carries a `stage` on the customer's journey (`src/engine/stages.t
 | call-outcome | a closer filed how a call went (end-of-day or disposition form), or the CRM marked a no-show | on the contact's own booking post: no-show → 👻 in the thread + `stat-no-show`, the setter card → No-Show / Cancel / Reschedule, **lost** (the setter pipeline is won on a show, lost on a no-show; the next booking makes a fresh setter card) and the closer card → No Show / Cancelled, still open (a rebook reuses it); showed → ✅ (Sales call recorded already put one when the recording landed; a repeat is a no-op) + `stat-showed` + the setter card → Showed, won (a no-op when the recording moved it), then the confirmed call outcome's tag and closer-card move: closed/deposit → `stat-closed-won` (the closer card waits for Deal closed / Payment recorded), follow-up → `stat-follow-up` + Follow Up, lost → `stat-lost` + Lost (lost), disqualified → `stat-disqualified` + Disqualified (lost); rescheduled or cancelled on the call → the Sales Call record says so; close pending (D83) → `stat-showed` and the disposition `close_pending`, never a close. The opportunity follows the answer (D88): a loss marks it lost (`update_opportunity`, `from: [open]`), a refiled answer that takes the loss back opens it again. A refiled answer edits the thread line in place and takes back what the earlier answer did where it differs (D76). Every card step moves a card that exists and never makes one (D61). The engine's own showed (from a recording) does not start it; Jev's read only pre-fills the form (D50, D54). No workflow presumes a no-show any more: the end-of-day form opens with no-show for a call whose time has passed with no recording, no outcome and no money, and nothing is marked until the closer answers. Needs `crm.pipeline_setter`, `crm.pipeline_closer`, `crm.stage_setter_showed`, `crm.stage_setter_cancelled`, `crm.stage_closer_cancelled`, `crm.stage_closer_follow_up`, `crm.stage_closer_lost`, `crm.stage_closer_disqualified`; `slack.channel.bookings` optional |
 | payment-failed | Whop failure | one post in `slack.channel.payments` tagging the closer; the client is not messaged |
 | reactivation | tag `reactivate` added | email, 3 days, SMS, 4 days, last email; once per 90 days |
-| call-booked | closing call booked or moved | contact gets appointment date + closer as owner; the booking's UTMs (source, medium, campaign, content, term, fbclid) on the contact's UTM fields where GHL's is empty (read live; a first touch is never overwritten; an unbound `crm.field_contact_utm_*` / `crm.field_contact_fbclid` is skipped, D78); setter card → Direct Booked Call ("-- Direct") or Appointment Set ("-- Set", setter stamped); closer card created/moved to Scheduled ("-- Direct" / "-- Setter Booked"); tags `stat-booked` + `stat-self-booked`/`stat-set`, nurture tags off, and `stat-no-show` / `stat-cancelled` / `stat-possible-cancel` / `stat-needs-attention` off too (a fresh booking resets them so a filter on them never catches someone who rebooked, D62); Slack card with intake answers, reschedule link, the person's lead source (D78). Needs the setter/closer pipeline + stage ids and the custom field ids as `crm.*`; `slack.channel.bookings` optional |
+| call-booked | closing call booked or moved | contact gets appointment date + closer as owner; the booking's UTMs (source, medium, campaign, content, term, fbclid) on the contact's UTM fields where GHL's is empty (read live; a first touch is never overwritten; an unbound `crm.field_contact_utm_*` / `crm.field_contact_fbclid` is skipped, D78); setter card → Direct Booked Call ("-- Direct") or Appointment Set ("-- Set", setter stamped); closer card created/moved to Scheduled ("-- Direct" / "-- Setter Booked"); tags `stat-booked` + `stat-self-booked`/`stat-set`, nurture tags off, and `stat-no-show` / `stat-cancelled` / `stat-possible-cancel` / `stat-needs-attention` off too (a fresh booking resets them so a filter on them never catches someone who rebooked, D62); Slack card with the company's own intake lines (`booking_card.intake`, D104), reschedule link, the person's lead source (D78). Needs the setter/closer pipeline + stage ids and the custom field ids as `crm.*`; `slack.channel.bookings` optional |
 | call-cancelled | closing call cancelled (a reschedule never fires this) | setter and closer cards → their cancelled stage (move only); appointment date cleared on the contact; rebook task for the closer due in a day with who cancelled and why; `stat-cancelled` on, booked tags off; Slack note. Needs `crm.stage_setter_cancelled`, `crm.stage_closer_cancelled` |
 | payment-recorded | payment linked to a contact | cash collected on the contact = running total; revenue generated stamped once with the program price; `pay-paid-full` (and `pay-plan-active` off) when cleared, else `pay-plan-active`; Payment custom-object record written and linked to the contact and the closer card; Slack line. A refund (`payment.refunded`, D57) is a new line in the same tracker with a minus sign: cash collected = the lower running total, a Payment record with the negative amount (`type` refund, `status` refunded), `pay-refunded` added, `pay-paid-full` / `pay-plan-active` left as the last payment set them, Slack `*Refund:* −$X`, 💸 on the booking and review threads; nothing re-stamped, no agreement sent. A payment on an open opportunity wins it (`update_opportunity` `o_won`; change its condition to win on paid in full, or move it, D88). Needs `crm.field_contact_cash_collected`, `crm.field_contact_revenue_generated`, `crm.assoc_payment_contact`, `crm.assoc_payment_opportunity`, `crm.pipeline_closer`; `slack.channel.payments` optional |
 | call-recorded | a call recording matched to a contact (`recording.received`, Fathom), or a dialer call Jev read as a closing call (`call.closing`, handed over by setter-call-logged, D87) | the whole call is read (a dialer call in parts is one call: `lookup call_conversation`); Jev decides whether a meeting recording is a sales call (else stop; a dialer call Jev already read as closing skips this) and how it ended; the AI pulls the notes and scores the call against the rubric (`prompt.call_review`); when it lines up with a booking: appointment recorded as showed (`call.held` fires), `stat-showed`, setter card → Showed and won; Sales Call record written and linked; notes on the contact; Slack review (the same call again edits it in place: `edit` on the `recording:<first part>` tag). A closing call by phone that lines up with no booking is posted as unlinked and the team is asked which booking it was (attention channel, else ops, else calls; 1️⃣ 2️⃣ 3️⃣ for the first three of their closing calls two weeks either side, ❌ none, two days); a tap records `call.closing` about that booking (`record` with `appointment` and `start`) and this workflow runs again on it. Needs `secret.anthropic_key`, `crm.stage_setter_showed`, `crm.assoc_sales_call_contact`, `crm.assoc_sales_call_opportunity`; `slack.channel.calls` optional | Slack goes out first, so a CRM hiccup never hides that the call happened; the Sales Call record is created at booking by call-booked, one per call slot, and updated here (a reschedule logs the old slot's record as rescheduled and gives the new slot its own, D76); an unlinked closing call gets no record until it is linked; `disposition` and `objection_primary` pass through the `oneof:` filter so a value the CRM would silently drop is never written.
@@ -437,7 +437,7 @@ Until the in-tool agent exists, the chat is the agent. Three shapes cover almost
 
 Everything a company's installed workflows need, driven by their manifests, shown and never edited here:
 connections (GHL location and PIT, Anthropic, Whop, Fathom, Calendly — a secret reads "set · ends
-with …" or "missing"), booking source and setter rule, each calendar's call type, setter-vs-self rule and
+with …" or "missing"), booking source and setter rule, the booking card's intake lines (D104), each calendar's call type, setter-vs-self rule and
 question map, every `crm.*` id with the name the live CRM gives it, Slack channels, alert destinations,
 prompts, the schedule workflows, the end-of-day form and the inbound door URLs. Blockers sit at the top;
 warnings fold. Changing any of it is the install API's and the CLI's job (`POST /api/admin/install`,
@@ -1078,11 +1078,44 @@ long have you been noticing" } } }`. Question texts are matched case-insensitive
 answers are on the appointment as `{{appointment.answers.<name>}}`. Templates only read
 `appointment.self_booked`, `appointment.set_by` and `appointment.answers.*`.
 
+### The booking card's intake lines (D104)
+
+What Call booked's Slack card shows under *Phone* is the company's own, never another client's questions. Install key
+`bookingCard: { intake: [ … ] }`, stored as `booking_card.intake` (JSON); each line is a label and one source:
+
+```json
+"bookingCard": { "intake": [
+  { "label": "Monthly revenue", "answer": "monthly_revenue" },
+  { "label": "Ad budget", "field": "ad_budget" },
+  { "label": "Hair loss", "field": "hair_loss", "plus": "hair_loss_stage" },
+  { "label": "Qualified", "tags": { "meta booked call mql": "MQL", "meta booked call dq": "DQ" } }
+] }
+```
+`tags` says the word for each of the contact's tags it names (exact tag, any case), several joined with commas, `—` when
+none: PMU's MQL / DQ comes from tags its Zap sets, not a field.
+
+`field` is a CRM contact field by the name it is bound under (`crm: { field_contact_ad_budget: "<id>" }`), `answer` a
+booking answer by the name the calendar's `questions` give it (above), `plus` a second value from the same place after
+one space. Templates read the lines ready-made as `{{contact.intake_lines}}` (`*Label:* value` per line, `—` when
+empty); the shipped card uses `{{contact.intake_lines | line}}` after Phone, so a company with no lines set shows none.
+Omitted on a re-install, the setting stays; `[]` clears it. The Setup page lists the lines under Booking.
+
+Hair's four lines (Hair loss + stage, Noticing for, Commit to routine, Work situation) were backfilled as its setting by
+the migration for every company with `crm.field_contact_hair_loss` bound, and again in front of each template install,
+so Hair's card reads byte for byte as before when its Call booked copy upgrades:
+
+```
+curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://backend-in-a-box.vercel.app/api/admin/migrate      # runs on every deploy too (pnpm build)
+curl -X POST -H "Authorization: Bearer $CRON_SECRET" -H 'content-type: application/json' \
+  -d '{"company":"hair","templates":["call-booked"]}' https://backend-in-a-box.vercel.app/api/admin/templates
+```
+
 ### The copy
 
 Hover any line of a workflow's outline to see the message it produces, rendered as an example
 against a made-up contact (`src/engine/example.ts`: Jane Doe, Allan P, Luis, $1,500, tomorrow 2pm).
-It is an example, not a preview: the point is to read the copy the way the team will, not the template.
+It is an example, not a preview: the point is to read the copy the way the team will, not the template. The booking card's
+intake lines are the company's own labels with a placeholder for each value (`*Monthly revenue:* [monthly revenue]`).
 
 ## Dark hours
 
