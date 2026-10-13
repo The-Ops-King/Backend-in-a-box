@@ -1,5 +1,5 @@
 {
-  "_note": "PMU (The Beauty Moguls) install file. No secrets: pit, booking.token and recording.apiKey are added from the environment at install time (PMU_GHL_PIT, PMU_CALENDLY_TOKEN, PMU_FATHOM_API_KEY). Stage 1 (2026-10-13): created in shadow, every workflow off; calendars, crm bindings, roles and Slack follow once Tyler has answered the exploration report. Company id 83295103-a572-47f6-bee9-0ff986681a66; the engine registered its own Fathom webhook (id kA_s3UvMJ4i6uRsC).",
+  "_note": "PMU (The Beauty Moguls) install file. No secrets: pit, booking.token, recording.apiKey, whop.apiKey and anthropicKey are added from the environment at install time (PMU_GHL_PIT, PMU_CALENDLY_TOKEN, PMU_FATHOM_API_KEY, PMU_WHOP_API_KEY, PMU_ANTHROPIC_KEY); the Jev key is copied from Hair inside the engine (D100). Company id 83295103-a572-47f6-bee9-0ff986681a66. One board: Beauty Moguls is bound as the closer board only and there is no setter board, so PMU's own workflow copies move one card through the whole journey (Hair's are untouched). Stage 2 (2026-10-13): calendars, board, fields, links, Sales Call meanings, Whop, Carly as closer (a person has one role; who set a call comes from the booking).",
   "name": "PMU",
   "slug": "pmu",
   "timezone": "America/New_York",
@@ -10,14 +10,82 @@
   "recording": {
     "source": "fathom"
   },
+  "calendars": {
+    "0f6f8816-7972-46ba-bbea-23ea0a84b1d6": {
+      "term": "closing",
+      "booking": "self"
+    },
+    "309a4590-551f-4f0f-ad9b-4496184bad07": {
+      "term": "closing",
+      "booking": "setter"
+    },
+    "6f818f39-a3ae-47c8-a7d1-1d9f453686d5": {
+      "term": "closing",
+      "booking": "self"
+    },
+    "2d752cf4-2c47-4852-baa8-3cd1094215b6": {
+      "term": "closing",
+      "name": "Demo call",
+      "booking": "self"
+    },
+    "289a599a-4cf5-447d-a1f6-f67ac21e5ec0": {
+      "term": "closing",
+      "name": "Demo call",
+      "booking": "self"
+    }
+  },
+  "closerCall": "6f818f39-a3ae-47c8-a7d1-1d9f453686d5",
+  "bookingCalendar": "0f6f8816-7972-46ba-bbea-23ea0a84b1d6",
+  "crm": {
+    "pipeline_closer": "1B37Vzv6euKMpWaFFuVW",
+    "stage_closer_new_lead": "7dc8ac43-8b8a-4db7-bc13-ff73c7a326de",
+    "stage_closer_scheduled": "0c8b03fb-9e38-46ed-a33f-5e02d7f264a3",
+    "stage_closer_unresponsive": "17b819aa-4423-4771-b53e-731289529026",
+    "stage_closer_confirmed": "d2fdd051-1e22-4e8c-8d52-dc94ed41b91b",
+    "stage_closer_no_show": "89d423f9-38f0-4e51-87e5-ce007c9c5de7",
+    "stage_closer_cancelled": "b476556a-26f3-4bff-86eb-05fdcf0c5bd0",
+    "stage_closer_rescheduled": "bfd72f87-56e1-43c3-847f-12f0864df851",
+    "stage_closer_follow_up": "3ebcc877-4124-4abe-bbbc-5a381e881032",
+    "stage_closer_lost": "e9005f4d-8345-47da-9ef6-b2ad69c55127",
+    "stage_closer_purchase": "6320f087-a367-4f0e-a609-216a72a68a8e",
+    "stage_closer_closed_won": "f63b74f5-4528-4002-a2b4-67e4f0f0f5d6",
+    "stage_closer_disqualified": "cc2af88d-e569-41c2-982c-5eeef6c89b0f",
+    "field_contact_setter": "h6eZzKxkKp6dLfQfxVdO",
+    "field_contact_cash_collected": "5JYR4ImLAgEdf7f1Dk9s",
+    "field_contact_revenue_generated": "g7gaxSNPi5YDgUM7nf6S",
+    "field_contact_appointment_date": "uqulQPE8vPu0RZDyDXIj",
+    "field_opportunity_setter_owner": "Q2rC8L2dLPizfO2mC6Rd",
+    "object_payment": "custom_objects.cash",
+    "assoc_sales_call_contact": "6ab44fe67f8a0a87bc8a542d",
+    "assoc_sales_call_opportunity": "6ace9cd588661082b9b4aa71",
+    "assoc_payment_contact": "6ace9cd531cf32c8752d430b",
+    "assoc_payment_opportunity": "6acea4bb17ba0eea79bef808",
+    "agreement_template": "6ab1a493edcabb246caaa32d",
+    "agreement_sender": "xj08UCveN9WfVxozksRj"
+  },
+  "salesCall": {
+    "object": "custom_objects.sales_call",
+    "outcomes": {
+      "showed": "showed",
+      "no_show": "noshow",
+      "cancelled": "cancelled",
+      "rescheduled": "rescheduled"
+    },
+    "dispositions": {
+      "closed_paid_full": "closed",
+      "closed_deposit": "deposit",
+      "closed_payment_plan": "closed",
+      "follow_up": "follow_up",
+      "not_qualified": "unqualified",
+      "lost": "lost"
+    }
+  },
   "testDomains": [
     "jtylerray.com"
   ],
   "closers": [
     "carly@thebeautymoguls.com"
   ],
-  "salesCall": {
-    "object": "custom_objects.sales_call"
-  },
+  "contractValueDefault": 10000,
   "enable": false
 }
