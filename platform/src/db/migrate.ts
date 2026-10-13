@@ -26,6 +26,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table runs add column if not exists resume_at timestamptz`);
     await c.query(`alter table appointments add column if not exists pending_read jsonb`);
     await c.query(`alter table appointments add column if not exists slot_key text`);
+    // D102: the booking's meeting link as a key, so a recording with no attendee to match on finds its call
+    await c.query(`alter table appointments add column if not exists meeting_key text`);
+    await c.query(`create index if not exists appointments_company_id_meeting_key_idx on appointments (company_id, meeting_key) where meeting_key is not null`);
     // D51: which mode a run was born in; the column arriving on a database that already has runs stamps them with their company's mode today (every run so far was shadow-born where the company is still in shadow)
     const bornIn = await c.query("select 1 from information_schema.columns where table_name='runs' and column_name='born_in'");
     if (bornIn.rowCount === 0) {

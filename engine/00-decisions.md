@@ -3233,6 +3233,72 @@ that category and maps the calendar to it; without `name` the default type as be
 everywhere it is shown; the Sales Call's own Call Type field (Closing / Demo) is what PMU's numbers split on.
 Test: `install.upgrade.test.ts` (made once over two installs, default type untouched, back to the default when unmapped).
 
+## D102. A recording finds its booking by the meeting link (2026-10-13)
+
+PMU's Fathom recordings often carry no external invitee (only Carly, the closer), and Carly's calls sit close together, so
+the closer's-calendar rung saw two bookings near the start and left the recording unlinked. The meeting link was the same
+on both sides all along: Fathom reports the call's join link (`meeting_url`), and the booking carries the link it was
+booked with (Calendly `location.join_url`, a GHL appointment's `address`).
+
+- **A key, not the link.** `meetingKey(url)` (`recordings.ts`): a Zoom meeting id from `/j/<digits>` (any Zoom host, so
+  `us06web.zoom.us` and `zoom.us` agree), a Google Meet code, otherwise host and path without the query (a password or a
+  tracking parameter is not the meeting). Anything that is not an http(s) link (a street address, a phone number) is no
+  key. Used on both sides.
+- **Kept on the appointment only.** `appointments.meeting_key` (migration: `alter table appointments add column if not
+  exists meeting_key text` and a partial index on `(company_id, meeting_key)`), written by the poll's upsert; an existing
+  booking gets it, or a changed one (a Calendly reschedule is a new meeting), without an event. The recording's link is
+  read at receipt and not stored: nothing re-runs the ladder later.
+- **The rung.** Email, then **meeting link**, then name, then the closer's calendar. It is exact when exactly one live
+  (not cancelled) booking of the company has the key and it starts within a day of the recording: `linked_by: meeting`,
+  that booking's person and appointment. A key several bookings share (a closer's personal meeting room) says nothing and
+  the next rungs decide; an unlinked reason then adds "its meeting link is on N bookings". An email hit stays first, and
+  when that person has one booking with the recording's key, that is the appointment rather than merely the nearest.
+- **Impromptu calls are unchanged.** A closer whose booked link failed and who starts an "Impromptu Zoom Meeting" has
+  another meeting id: no booking has it, and the calendar rung finds the call as before.
+- `recording.matched_by` carries `meeting`; no dashboard or Slack copy words the match today (the field is passed as is).
+- Not done: `fathom/01-api-facts.md` does not list `meeting_url` among the verified payload fields; it is read when the
+  payload carries it (the Zap door takes `meeting_url` too). Bookings polled before this get their key on the next poll that sees them (the poll window is two
+  days back to sixty ahead).
+- Tests: `recordings.test.ts` (no attendee but the closer, two calls 30 minutes apart: the Zoom link names the second;
+  one link on two bookings falls through to the calendar, and the unlinked reason says so; an email hit takes that
+  contact's booking with the link, not merely the nearest; an impromptu meeting with another link still links by the
+  calendar; a cancelled booking's link or one days away says nothing; a Calendly booking keeps its `location.join_url`
+  as the key and a new link replaces it without an event; a GHL address that is a link is kept, a street address is no
+  key; the key itself; Fathom's and the Zap's `meeting_url` are read). Removing the rung, taking the first of several
+  bookings with the key, and ignoring the key on an email hit each turned one test red.
+
+## D103. A sometimes-step looks like one on the chart (2026-10-13)
+
+Tyler read PMU's Call booked chart and took "A reschedule: card → Rescheduled", sitting in the straight line after
+"Card → Booked Call", for a step every booking takes. A step with `only_if` looked exactly like one that always runs;
+its condition was only in the popover, and a non-send `only_if` step did not even get the blue mark.
+
+- **On the chart.** A node with `only_if` has a dashed blue border and its condition on a line of its own under the
+  title: "only if a reschedule", "only if not a reschedule" (`ChartNode.onlyIf`, the predicate's words with a leading
+  "this is" dropped); in a narrow column "if …", cut with … past that, the whole sentence in the popover, which now
+  ends "Otherwise it is skipped and the run goes on." The edges into and out of it are dashed, and on the spine, where
+  there is room, a thin blue line runs around its right side labelled "otherwise". A branch folded into one step
+  ("Only when …") is drawn the same way. A wait with `only_if` is no longer folded into the send after it, so its
+  condition is not put on the send. A step skipped for a smaller reason (a reminder too close to the call, a card move
+  with no card, a Slack line with no post) keeps the blue mark: it runs on the normal path. The legend says both.
+- **In the step list.** A planned step with `only_if` says "only if a reschedule; otherwise skipped" under its title.
+- **The words.** Every `only_if` in the templates and PMU's copies was read through `predicateWords`: "there is a slot
+  from" is "there is a slot the call moved from"; two-path comparisons ("{{a}}:{{b}}" against "{{c}}:{{d}}") read pair
+  by pair instead of leaking `| default:}}`; an hour through `| date:HH` reads "the call is at 9 AM or later"; the event
+  types read "a Fathom recording", "a payment", "a refund"; "the earlier answer", "their unanswered reply", "who decided
+  the result is the team", and a/an before a vowel.
+- **Why a step was skipped.** The run log said "only if this is not a reschedule; it is not" on a reschedule: "it is
+  not" after a "not" condition says the opposite. `skippedWords` gives the condition and then what held instead
+  (`notWords`: eq↔neq, exists → "there is no", in → "neither … nor", the comparisons flipped, and/or by De Morgan);
+  for an "and" the executor names only the parts that failed ("…; the result is not follow up"). Rows written before
+  this read right on the run page: the step list rewords a stored "…; it is not" from the step's own condition.
+- Display only: what runs and when is unchanged; no template changed.
+- Tests: `words.test.ts` (PMU's two card moves carry "a reschedule" and "not a reschedule", only `only_if` nodes carry
+  one, a card move with no card keeps the mark only; the reschedule, slot, hour, payment and two-path words; no shipped
+  `only_if` reads with a path, a filter or JSON; the skipped words for eq, neq, exists, in, not, an hour and an "and";
+  a planned step carries its condition and an old "it is not" row is reworded), `moves.test.ts` (Payment recorded's
+  win skipped on a deposit says "only if this is a payment and paid in full; not paid in full").
+
 ## D104. The booking card's intake lines are the company's own (2026-10-13)
 
 Call booked's Slack card carried Hair's intake questions in the template itself (Hair loss with its stage, Noticing for,
@@ -3269,38 +3335,6 @@ must come out exactly as it does today.
   revenue" (an answer) and "Ad budget" (a field) gets those lines; unset, no intake lines and nothing of Hair's; install
   writes, refuses and keeps the setting; the example). Dropping "Commit to routine" from the backfilled lines turned the
   identity test red.
-
-## D103. A sometimes-step looks like one on the chart (2026-10-13)
-
-Tyler read PMU's Call booked chart and took "A reschedule: card → Rescheduled", sitting in the straight line after
-"Card → Booked Call", for a step every booking takes. A step with `only_if` looked exactly like one that always runs;
-its condition was only in the popover, and a non-send `only_if` step did not even get the blue mark.
-
-- **On the chart.** A node with `only_if` has a dashed blue border and its condition on a line of its own under the
-  title: "only if a reschedule", "only if not a reschedule" (`ChartNode.onlyIf`, the predicate's words with a leading
-  "this is" dropped); in a narrow column "if …", cut with … past that, the whole sentence in the popover, which now
-  ends "Otherwise it is skipped and the run goes on." The edges into and out of it are dashed, and on the spine, where
-  there is room, a thin blue line runs around its right side labelled "otherwise". A branch folded into one step
-  ("Only when …") is drawn the same way. A wait with `only_if` is no longer folded into the send after it, so its
-  condition is not put on the send. A step skipped for a smaller reason (a reminder too close to the call, a card move
-  with no card, a Slack line with no post) keeps the blue mark: it runs on the normal path. The legend says both.
-- **In the step list.** A planned step with `only_if` says "only if a reschedule; otherwise skipped" under its title.
-- **The words.** Every `only_if` in the templates and PMU's copies was read through `predicateWords`: "there is a slot
-  from" is "there is a slot the call moved from"; two-path comparisons ("{{a}}:{{b}}" against "{{c}}:{{d}}") read pair
-  by pair instead of leaking `| default:}}`; an hour through `| date:HH` reads "the call is at 9 AM or later"; the event
-  types read "a Fathom recording", "a payment", "a refund"; "the earlier answer", "their unanswered reply", "who decided
-  the result is the team", and a/an before a vowel.
-- **Why a step was skipped.** The run log said "only if this is not a reschedule; it is not" on a reschedule: "it is
-  not" after a "not" condition says the opposite. `skippedWords` gives the condition and then what held instead
-  (`notWords`: eq↔neq, exists → "there is no", in → "neither … nor", the comparisons flipped, and/or by De Morgan);
-  for an "and" the executor names only the parts that failed ("…; the result is not follow up"). Rows written before
-  this read right on the run page: the step list rewords a stored "…; it is not" from the step's own condition.
-- Display only: what runs and when is unchanged; no template changed.
-- Tests: `words.test.ts` (PMU's two card moves carry "a reschedule" and "not a reschedule", only `only_if` nodes carry
-  one, a card move with no card keeps the mark only; the reschedule, slot, hour, payment and two-path words; no shipped
-  `only_if` reads with a path, a filter or JSON; the skipped words for eq, neq, exists, in, not, an hour and an "and";
-  a planned step carries its condition and an old "it is not" row is reworded), `moves.test.ts` (Payment recorded's
-  win skipped on a deposit says "only if this is a payment and paid in full; not paid in full").
 
 ## D105. A card moves only off the stages a step names; an existing card keeps its name (2026-10-13)
 

@@ -120,8 +120,10 @@ registers it for you with `recording: { source: "fathom", apiKey }` when `PUBLIC
 Zap posting to `/api/webhooks/zapier/<companyId>/recording` with the same `x-engine-secret` as the
 payment door (body: `recording_id`, `title`, `started_at`, `duration_seconds` or `duration_minutes`,
 `share_url`, `recorded_by_email`, `invitees` as "Name <email>, …" or an array, `transcript` as text or
-an array, `summary`). Either way it is a `recordings` row, matched by invitee email → invitee name →
-the recorder's calendar (one appointment within two hours), or left **unmatched** with the reason:
+an array, `summary`, `meeting_url`). Either way it is a `recordings` row, matched by invitee email →
+the meeting link (D102: the recording's join link against the one the booking was made with, kept on the
+appointment as `meeting_key`; exact when one live booking near the call has it) → invitee name → the
+recorder's calendar (one appointment within two hours), or left **unmatched** with the reason:
 `recording.unlinked` starts the Unmatched recording workflow, which tells the team (D88); a linked recording shows under the person's History on their contact page. A linked recording
 emits `recording.received` (with the contact's appointment nearest the start, within a day) and
 templates take it from there. Facts about Fathom's API are in `fathom/01-api-facts.md`.

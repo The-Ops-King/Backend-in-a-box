@@ -271,6 +271,7 @@ create table appointments (
   reschedule_url       text,               -- per-booking self-service links (Calendly)
   cancel_url           text,
   tracking             jsonb not null default '{}',   -- utm_* as the booking source reported them
+  meeting_key          text,               -- D102: the booking's meeting link as a key (Zoom meeting id, Meet code, else the link without its query)
   booked_at            timestamptz not null,
   -- replica of GHL's confirmation state
   status               text not null check (status in ('new','confirmed','cancelled','showed','noshow','invalid')),
@@ -286,6 +287,7 @@ create table appointments (
 );
 create index on appointments (company_id, starts_at);
 create index on appointments (company_id, assigned_user_id, starts_at);
+create index on appointments (company_id, meeting_key) where meeting_key is not null;
 
 create table payments (
   id               uuid primary key default gen_random_uuid(),
@@ -333,7 +335,7 @@ create table recordings (
   summary          text,
   analysis         jsonb not null default '{}',          -- what analyze nodes produced, keyed by `into`
   link_status      text not null default 'unlinked' check (link_status in ('linked','unlinked')),
-  linked_by        text,                                 -- email | name | calendar | manual
+  linked_by        text,                                 -- email | meeting | name | calendar | manual
   unlinked_reason  text,
   raw              jsonb not null default '{}',
   received_at      timestamptz not null default now(),

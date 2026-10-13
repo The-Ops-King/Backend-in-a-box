@@ -208,6 +208,7 @@ create table appointments (
   cancelled_by         text,                                       -- who cancelled (name) and why, when the source says
   pending_read         jsonb,                                      -- D58: Jev's read of a reply the team was asked about and has not answered: { intent, confidence, at }; cleared when a person taps
   slot_key             text,                                       -- D76: the call slot a Sales Call record is keyed by: the booking's id, or id@start after a move that kept the id; null = external_id
+  meeting_key          text,                                       -- D102: the booking's meeting link as a key (Zoom meeting id, Meet code, else the link without its query); a recording with the same key is this call's
   cancel_reason        text,
   booked_at            timestamptz not null,
   -- replica of the booking source's state (GHL vocabulary; Calendly active/canceled maps onto it)
@@ -224,6 +225,7 @@ create table appointments (
 );
 create index on appointments (company_id, starts_at);
 create index on appointments (company_id, assigned_user_id, starts_at);
+create index on appointments (company_id, meeting_key) where meeting_key is not null;
 
 -- The ledger. A payment is a fact even when nobody matched it: contact_id is null and link_status is 'unlinked'
 -- until the identity ladder (member id → email → phone) or a person links it. Refunds are negative rows.
@@ -267,7 +269,7 @@ create table crm_records (
 
 -- Idempotency for inbound webhooks: the provider's delivery id, so a retried delivery is a no-op before any parsing.
 -- Call recordings (D22). One row per recording the provider reports, linked to a person or not, same shape as the
--- payments ledger: identity is a ladder (invitee email → invitee name → the closer's calendar around the start time),
+-- payments ledger: identity is a ladder (invitee email → the meeting link, D102 → invitee name → the closer's calendar around the start time),
 -- a miss is an unlinked row the team fixes by hand. The transcript lives here, never in a run's context.
 create table recordings (
   id               uuid primary key default gen_random_uuid(),
@@ -289,7 +291,7 @@ create table recordings (
   summary          text,                                 -- provider's own summary, markdown
   analysis         jsonb not null default '{}',          -- what the analyze nodes produced, keyed by the node's `into`
   link_status      text not null default 'unlinked' check (link_status in ('linked','unlinked')),
-  linked_by        text,                                 -- email | name | calendar | manual
+  linked_by        text,                                 -- email | meeting | name | calendar | manual
   unlinked_reason  text,
   raw              jsonb not null default '{}',
   received_at      timestamptz not null default now(),

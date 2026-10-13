@@ -1,9 +1,14 @@
-/** The recordings ledger: match ladder (email → name → closer's calendar), ambiguity, idempotency, parsers, signature, JSON repair, the lines filter. */
+/** The recordings ledger: match ladder (email → meeting link → name → closer's calendar), ambiguity, idempotency, parsers, signature, JSON repair, the lines filter. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { createHmac } from "node:crypto";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
-import { recordRecording, resolveRecording, type RecordingInput } from "./recordings";
+import { meetingKey, recordRecording, resolveRecording, type RecordingInput } from "./recordings";
+import { applyAppointment } from "./poll";
+import type { CompanyRow } from "./context";
+import type { Adapters, Company } from "@/adapters/types";
+import { mapEvent, type RawEvent, type RawInvitee } from "@/adapters/calendly/read";
+import { mapAppt } from "@/adapters/ghl/read";
 import { verifyStandardWebhook } from "./webhooks/standard";
 import { parseFathomMeeting } from "./webhooks/fathom";
 import { parseZapierRecording } from "./webhooks/zapier";
@@ -78,6 +83,91 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     expect(u.recording.unlinked_reason).toMatch(/who@where.com/); expect(u.event.contact_id).toBeNull(); expect(u.event.event_type).toBe("recording.unlinked");
     expect(await asOperator((c) => many(c, "select 1 from recordings where company_id=$1 and link_status='unlinked'", [companyId]))).toHaveLength(1);
   });
+
+  // D102: the meeting link. Each case sits days away from the others so the closer's calendar of one never sees another's bookings
+  const book = (contact: string, ext: string, startsAt: Date, meetingKey: string | null, assigned: string | null = closer, status = "confirmed") => asOperator(async (c) => {
+    const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 and source='ghl' limit 1", [companyId]))!.id;
+    return (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, booked_at, status, meeting_key) values ($1,$2,'ghl',$3,$4,$5,$6,$7,$7,now(),$8,$9) returning id", [companyId, contact, ext, cal, term, assigned, startsAt, status, meetingKey]))!.id; });
+  const person = (first: string) => asOperator(async (c) => (await one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name) values ($1,$2,'Mtg') returning id", [companyId, first]))!.id);
+  const day = (n: number) => new Date(at.getTime() + n * 24 * 3600e3);
+
+  it("no attendee but the closer, two calls 30 minutes apart: the recording's Zoom link names the second (D102)", async () => {
+    const first = await person("Pia"), second = await person("Quinn");
+    await book(first, "MT-1", day(3), "82995720001");
+    const want = await book(second, "MT-2", new Date(day(3).getTime() + 30 * 60e3), "82995723390");
+    const input = rec("m-1", { startedAt: new Date(day(3).getTime() + 28 * 60e3), meetingUrl: "https://us06web.zoom.us/j/82995723390?pwd=Zk9xYzRrbWxLQT09", invitees: [{ name: "Cal Closer", email: "closer@co.com", isExternal: false }] });
+    expect((await asOperator((c) => resolveRecording(c, companyId, { ...input, meetingUrl: undefined }))).match).toBeNull();   // the calendar alone cannot tell them apart
+    const r = await asOperator((c) => recordRecording(c, companyId, input));
+    expect(r.outcome).toBe("linked"); if (r.outcome !== "linked") return;
+    expect(r.recording).toMatchObject({ contact_id: second, appointment_id: want, linked_by: "meeting" });
+    expect(r.event.data).toMatchObject({ matched_by: "meeting", appointment_matched: true });
+  });
+  it("one meeting link on two bookings (a personal meeting room) is no answer: the next rungs decide (D102)", async () => {
+    const a = await person("Rae"), b = await person("Sol");
+    const first = await book(a, "MT-3", day(5), "5551234567");
+    await book(b, "MT-4", new Date(day(5).getTime() + 3 * 3600e3), "5551234567");
+    const r = await asOperator((c) => resolveRecording(c, companyId, rec("m-2", { startedAt: new Date(day(5).getTime() + 2 * 60e3), meetingUrl: "https://zoom.us/j/5551234567" })));
+    expect(r.match).toEqual({ contactId: a, by: "calendar", appointmentId: first });
+    const none = await asOperator((c) => resolveRecording(c, companyId, rec("m-3", { startedAt: new Date(day(5).getTime() + 2 * 60e3), recordedBy: { email: "someone@else.com" }, meetingUrl: "https://zoom.us/j/5551234567" })));
+    expect(none.match).toBeNull(); expect(none.reason).toMatch(/its meeting link is on 2 bookings/);
+  });
+  it("an email hit takes that contact's booking with the recording's meeting link, not merely the nearest (D102)", async () => {
+    await book(ann, "MT-5", day(7), null, null);
+    const keyed = await book(ann, "MT-6", new Date(day(7).getTime() + 2 * 3600e3), "abc-defg-hij", null);
+    const input = rec("m-4", { startedAt: new Date(day(7).getTime() + 60e3), invitees: [{ email: "ann@x.com" }], meetingUrl: "https://meet.google.com/abc-defg-hij?authuser=0" });
+    expect((await asOperator((c) => resolveRecording(c, companyId, input))).match).toEqual({ contactId: ann, by: "email", appointmentId: keyed });
+    expect((await asOperator((c) => resolveRecording(c, companyId, { ...input, meetingUrl: undefined }))).match).toEqual({ contactId: ann, by: "email" });
+  });
+  it("an impromptu meeting after the booked link failed has another link: the closer's calendar still finds the call (D102)", async () => {
+    const dan = await person("Dan");
+    const booked = await book(dan, "MT-7", day(9), "82990000001");
+    const r = await asOperator((c) => resolveRecording(c, companyId, rec("m-5", { title: "Impromptu Zoom Meeting", startedAt: new Date(day(9).getTime() + 4 * 60e3), meetingUrl: "https://us06web.zoom.us/j/7712345678?pwd=abc" })));
+    expect(r.match).toEqual({ contactId: dan, by: "calendar", appointmentId: booked });
+  });
+  it("a cancelled booking's link, or a booking far from the recording, says nothing (D102)", async () => {
+    const eve = await person("Eve");
+    await book(eve, "MT-8", day(11), "82990000002", null, "cancelled");
+    await book(eve, "MT-9", day(14), "82990000003", null);
+    for (const id of ["82990000002", "82990000003"]) expect((await asOperator((c) => resolveRecording(c, companyId, rec(`m-${id}`, { startedAt: day(11), recordedBy: { email: "someone@else.com" }, meetingUrl: `https://zoom.us/j/${id}` })))).match).toBeNull();
+  });
+
+  const co = () => asOperator((c) => one<CompanyRow>(c, "select * from companies where id=$1", [companyId])).then((r) => r!);
+  const noReads = { read: { getContact: async () => null } } as unknown as Adapters;
+  const keyOf = (ext: string) => asOperator((c) => one<{ meeting_key: string | null }>(c, "select meeting_key from appointments where company_id=$1 and external_id=$2", [companyId, ext])).then((r) => r?.meeting_key);
+  it("a Calendly booking keeps its location's join link as the meeting key; a new link replaces it without an event (D102)", async () => {
+    await asOperator((c) => c.query("insert into calendars (company_id, source, external_id, name, appointment_term) values ($1,'calendly','ET-Z','Strategy',$2)", [companyId, term]));
+    const ac: Company = { id: companyId, locationId: "L", pit: "p", timezone: "America/New_York", booking: { source: "calendly", token: "t", organization: "o" } };
+    const raw = (joinUrl: string): RawEvent => ({ uri: "https://api.calendly.com/scheduled_events/EV-Z", name: "Strategy", status: "active", start_time: day(20).toISOString(), end_time: day(20).toISOString(), event_type: "https://api.calendly.com/event_types/ET-Z", created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z", event_memberships: [], invitees_counter: { total: 1, active: 1 }, location: { type: "zoom", join_url: joinUrl } });
+    const inv = { uri: "https://api.calendly.com/scheduled_events/EV-Z/invitees/I1", email: "zed@x.com", name: "Zed Mtg", status: "active", rescheduled: false, updated_at: "2026-10-01T00:00:00Z" } as RawInvitee;
+    const row = await co();
+    await asOperator((c) => applyAppointment(c, row, ac, noReads, mapEvent(raw("https://us06web.zoom.us/j/82995723390?pwd=abc"), inv), undefined, true));
+    expect(await keyOf("EV-Z")).toBe("82995723390");
+    const before = (await asOperator((c) => many(c, "select 1 from events where company_id=$1", [companyId]))).length;
+    await asOperator((c) => applyAppointment(c, row, ac, noReads, mapEvent(raw("https://us06web.zoom.us/j/84400000001?pwd=def"), inv)));
+    expect(await keyOf("EV-Z")).toBe("84400000001");
+    expect(await asOperator((c) => many(c, "select 1 from events where company_id=$1", [companyId]))).toHaveLength(before);
+  });
+  it("a GHL appointment whose address is a link keeps it as the meeting key; a street address is no key (D102)", async () => {
+    const ac: Company = { id: companyId, locationId: "L", pit: "p", timezone: "America/New_York", booking: { source: "ghl" } };
+    const ghlAppt = (id: string, address: string) => mapAppt({ id, calendarId: "CAL", contactId: "GB", startTime: day(22).toISOString(), endTime: day(22).toISOString(), appointmentStatus: "confirmed", address });
+    const row = await co();
+    await asOperator((c) => applyAppointment(c, row, ac, noReads, ghlAppt("G-Z1", "https://meet.google.com/xyz-abcd-efg"), undefined, true));
+    await asOperator((c) => applyAppointment(c, row, ac, noReads, ghlAppt("G-Z2", "12 Main St, Hartford"), undefined, true));
+    expect(await keyOf("G-Z1")).toBe("xyz-abcd-efg");
+    expect(await keyOf("G-Z2")).toBeNull();
+  });
+});
+
+describe("meeting key", () => {
+  it("one key per meeting whichever side reports the link (D102)", () => {
+    expect(meetingKey("https://us06web.zoom.us/j/82995723390?pwd=Zk9xYzRrbWxLQT09")).toBe("82995723390");
+    expect(meetingKey("https://zoom.us/j/82995723390")).toBe("82995723390");
+    expect(meetingKey("https://us02web.zoom.us/wc/join/82995723390")).toBe("82995723390");
+    expect(meetingKey("https://meet.google.com/ABC-defg-hij?authuser=1")).toBe("abc-defg-hij");
+    expect(meetingKey("https://teams.microsoft.com/l/meetup-join/19%3ameeting_X/0?context=%7b%7d")).toBe("teams.microsoft.com/l/meetup-join/19%3ameeting_X/0");
+    expect(meetingKey("https://zoom.us/my/carly.room?pwd=1")).toBe("zoom.us/my/carly.room");
+    for (const notALink of [undefined, null, "", "12 Main St, Hartford", "+1 860 555 1234", "zoom"]) expect(meetingKey(notALink)).toBeUndefined();
+  });
 });
 
 describe("Fathom payload", () => {
@@ -90,6 +180,11 @@ describe("Fathom payload", () => {
     expect(p.input.startedAt.toISOString()).toBe("2026-10-07T17:01:00.000Z");
     expect(p.input.invitees).toEqual([{ name: "Cal Closer", email: "closer@co.com", isExternal: false }, { name: "Ann Lee", email: "ann@x.com", isExternal: true }]);
     expect(p.input.transcript).toEqual([{ speaker: "Ann Lee", email: "ann@x.com", text: "I just want it to stop.", timestamp: "00:01:10" }]);
+  });
+  it("keeps the call's own join link for the meeting-link rung (D102)", () => {
+    const p = parseFathomMeeting({ ...meeting, meeting_url: "https://us06web.zoom.us/j/82995723390?pwd=abc" }); expect(p.ok).toBe(true); if (!p.ok) return;
+    expect(p.input.meetingUrl).toBe("https://us06web.zoom.us/j/82995723390?pwd=abc");
+    const z = parseZapierRecording({ recording_id: "9", started_at: "2026-10-07T17:00:00Z", meeting_url: "https://zoom.us/j/1234567890" }); expect(z.ok && z.input.meetingUrl).toBe("https://zoom.us/j/1234567890");
   });
   it("rejects a body without an id or a start", () => {
     expect(parseFathomMeeting({ title: "x" })).toMatchObject({ ok: false, why: /recording_id/ });
