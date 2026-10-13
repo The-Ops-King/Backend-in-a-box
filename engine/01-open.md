@@ -517,6 +517,11 @@ Still open:
   (before Annabelle starts setting).
 - MQL / DQ: PMU qualifies by the `meta booked call mql` / `meta booked call dq` tags (a Zap sets them), not a field; the
   numbers' MQL split needs to read the tags.
+- **Messages (blocks test/live):** PMU's copies carry the template copy. The pre-call reminders are placeholders, and
+  Deal closed's welcome email and text are Hair's ("save your hair"): the shipped template holds Hair's words. PMU needs
+  its own words on every send (pre-call, no-show, cancellation, post-call, reactivation, speed to lead, welcome), saved
+  as PMU's copy edits. Separately: a shipped template should carry no client's words (placeholders instead), but
+  changing deal-closed's would upgrade Hair's untouched copy to placeholders, so Hair's words become Hair's own edit first.
 - Annabelle: add her to the roster (`closers` or `roles`) when she starts; her Closer option already exists.
 - Switch-over: PMU's Whop also posts to three Zapier hooks, Make, Pabbly, a GHL trigger and strategicpartners.io; the ones
   that write Cash records retire with PMU's GHL automations.
