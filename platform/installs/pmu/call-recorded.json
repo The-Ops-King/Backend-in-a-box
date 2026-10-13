@@ -1,6 +1,6 @@
 {
  "workflow": "call-recorded",
- "note": "PMU: one board. No setter card to mark showed; the closer, disposition and objection in PMU's own dropdown keys",
+ "note": "PMU: one board. No setter card to mark showed; the closer, disposition and objection in PMU's own dropdown keys; the GHL note is Tyler's four sections (current situation, pains, goals, objections) and the Fathom link, the Slack post says the same with his emoji, the scorecard only in the thread",
  "definition": {
   "schema": 1,
   "reentry": "always",
@@ -235,20 +235,36 @@
    {
     "id": "n1",
     "type": "note",
-    "template": "CALL SUMMARY \u2014 {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.closer.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:\u2014}}"
+    "template": "CURRENT SITUATION: {{vars.notes.prospect_situation | default:\u2014}}\n\nPAINS: {{vars.notes.pain | join:\" \" | default:\u2014}}\n\nGOALS: {{vars.notes.desire | join:\" \" | default:\u2014}}\n\nOBJECTIONS: {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n\nFathom recording: {{recording.share_url | default:\u2014}}"
    },
    {
     "id": "s1",
     "type": "slack_post",
     "channel": "{{slack.channel.calls}}",
-    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} \u00b7 {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n\n*Outcome:* {{vars.outcome.disposition | words | default:unclear}}\n*Pain:* {{vars.notes.pain | bullets | default:\u2014}}\n*Goal:* {{vars.notes.desire | bullets | default:\u2014}}\n*Objections:* {{vars.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.notes.next_step | default:\u2014}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
+    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} \u00b7 {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n*Outcome:* {{vars.outcome.disposition | words | default:unclear}}\n\n*Current situation:* {{vars.notes.prospect_situation | default:\u2014}}\n*Pains:* {{vars.notes.pain | join:\" \" | default:\u2014}}\n*Goals:* {{vars.notes.desire | join:\" \" | default:\u2014}}\n*Objections:* {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n*Next step:* {{vars.notes.next_step | default:\u2014}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
     "as": {
      "name": "Sales call recorded",
      "icon": [
-      ":studio_microphone:",
-      ":headphones:",
-      ":movie_camera:",
-      ":speech_balloon:"
+      ":bomb:",
+      ":clapper:",
+      ":fire:",
+      ":snowman:",
+      ":airplane:",
+      ":fire_engine:",
+      ":tent:",
+      ":volcano:",
+      ":beach_with_umbrella:",
+      ":dragon_face:",
+      ":eagle:",
+      ":panda_face:",
+      ":wolf:",
+      ":lion_face:",
+      ":brain:",
+      ":dizzy:",
+      ":boom:",
+      ":mirror_ball:",
+      ":ninja:",
+      ":gorilla:"
      ]
     },
     "title": "Post the call review in Slack (the same call again edits it)",

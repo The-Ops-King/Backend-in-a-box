@@ -80,33 +80,26 @@
     "value": "{{picklist.sales_call_booking_source.self}}"
    },
    {
+    "id": "f_self",
+    "type": "branch",
+    "title": "A new booking or a reschedule?"
+   },
+   {
     "id": "s4",
     "type": "pipeline_card",
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_scheduled}}",
     "name": "{{contact.name}} -- Direct",
     "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-    "only_if": {
-     "neq": [
-      "{{event._type}}",
-      "appointment.rescheduled"
-     ]
-    },
     "title": "Card \u2192 Booked Call, named -- Direct"
    },
    {
     "id": "s4r",
     "type": "pipeline_card",
-    "title": "A reschedule: card \u2192 Rescheduled (its name stays)",
+    "title": "Card \u2192 Rescheduled (its name stays)",
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_rescheduled}}",
-    "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-    "only_if": {
-     "eq": [
-      "{{event._type}}",
-      "appointment.rescheduled"
-     ]
-    }
+    "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
    },
    {
     "id": "s5",
@@ -156,6 +149,11 @@
     ]
    },
    {
+    "id": "f_set",
+    "type": "branch",
+    "title": "A new booking or a reschedule?"
+   },
+   {
     "id": "b5",
     "type": "pipeline_card",
     "pipeline": "{{crm.pipeline_closer}}",
@@ -168,27 +166,15 @@
       "value": "{{appointment.set_by | default:}}"
      }
     ],
-    "only_if": {
-     "neq": [
-      "{{event._type}}",
-      "appointment.rescheduled"
-     ]
-    },
     "title": "Card \u2192 Booked Call, named -- Setter"
    },
    {
     "id": "b5r",
     "type": "pipeline_card",
-    "title": "A reschedule: card \u2192 Rescheduled (its name stays)",
+    "title": "Card \u2192 Rescheduled (its name stays)",
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_rescheduled}}",
     "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-    "only_if": {
-     "eq": [
-      "{{event._type}}",
-      "appointment.rescheduled"
-     ]
-    },
     "fields": [
      {
       "id": "{{crm.field_opportunity_setter_owner}}",
@@ -381,7 +367,7 @@
    },
    {
     "from": "s4",
-    "to": "s4r"
+    "to": "s5"
    },
    {
     "from": "b1",
@@ -393,11 +379,11 @@
    },
    {
     "from": "b3",
-    "to": "b5"
+    "to": "f_set"
    },
    {
     "from": "b5",
-    "to": "b5r"
+    "to": "b6"
    },
    {
     "from": "k3",
@@ -429,15 +415,49 @@
    },
    {
     "from": "s2b",
-    "to": "s4"
+    "to": "f_self"
    },
    {
     "from": "b2b",
     "to": "b3"
    },
    {
+    "from": "f_self",
+    "to": "s4r",
+    "label": "a reschedule",
+    "when": {
+     "eq": [
+      "{{event._type}}",
+      "appointment.rescheduled"
+     ]
+    }
+   },
+   {
+    "from": "f_self",
+    "to": "s4",
+    "label": "a new booking",
+    "else": true
+   },
+   {
     "from": "s4r",
     "to": "s5"
+   },
+   {
+    "from": "f_set",
+    "to": "b5r",
+    "label": "a reschedule",
+    "when": {
+     "eq": [
+      "{{event._type}}",
+      "appointment.rescheduled"
+     ]
+    }
+   },
+   {
+    "from": "f_set",
+    "to": "b5",
+    "label": "a new booking",
+    "else": true
    },
    {
     "from": "b5r",
