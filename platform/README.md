@@ -849,6 +849,25 @@ is refused (409, with `blockers`) unless its definition runs, its required setti
 waits on a tap, Slack is connected; it then clears that workflow's runs not born live. The GET lists each workflow's
 `mode` (its own, null when it follows) and `runsIn`. Every change is a `workflow.mode` row in `audit_log` (by, from, to, when).
 
+### A company's whole workflow, and a shared key (D100)
+
+`GET /api/admin/workflows/definition?company=<slug>&workflow=<id | template slug | exact name>` returns that company's
+copy: `{ ok, company, workflow: { id, name, slug, enabled, diverged, version, template_version, note }, definition }`.
+`POST /api/admin/workflows/definition` with `{ "company", "workflow", "definition": {…}, "note": "<what changed and why>", "by"?, "dryRun"? }`
+saves an edited definition as a new version of **that company's copy only** (steps added or removed, edges rewired),
+marks it diverged (template upgrades leave it alone), re-syncs its triggers and reentry, and audits
+`workflow.definition_saved`; runs already going keep the version they started on. Answer:
+`{ ok, saved, dryRun, from, version, diff: { nodes: { added, removed, changed }, edges: { added, removed }, settings }, missing, warnings }`.
+A definition that does not validate is refused (422) with every reason in `problems`; `dryRun: true` validates and returns
+the diff without saving. Bindings the definition needs and the company lacks come back in `missing`: saved while the
+workflow is off (turning it on stays refused until they are bound), refused (409) while it is on.
+
+`POST /api/admin/bindings/copy` with `{ "from": "<slug>", "to": "<slug>", "keys": ["secret.anthropic_key"], "by"? }` copies
+secret bindings from one company to another inside the engine: decrypted there, encrypted again, never returned. Only
+the AI keys `secret.anthropic_key` and `secret.jev_key` (a client's own accounts: CRM, booking, payments, webhook secrets, are set by install); a key `from` does not have refuses the whole call (404). Answer:
+`{ ok, from, to, copied: [{ key, was: "new" | "same" | "replaced" }] }`; the target company's `audit_log` gets
+`binding.copied` with the keys and the source slug. Both take `Authorization: Bearer $CRON_SECRET`.
+
 ## Test harness: a real contact, behind the scenes (D23)
 
 To see what the engine would do for a person without firing a single Zap or GHL workflow, stage

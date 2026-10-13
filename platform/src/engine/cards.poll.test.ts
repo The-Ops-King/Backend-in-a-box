@@ -21,7 +21,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the cards poll (D99)", () => {
   beforeAll(async () => {
     await migrate();
     await asOperator(async (c) => {
-      const co = await one<{ id: string }>(c, "select id from companies where slug='cardpoll'");
+      const co = await one<{ id: string }>(c, "select id from companies where slug='cardpoll'"); if (co) for (const sql of ["delete from sends where company_id=$1", "delete from run_steps where run_id in (select id from runs where company_id=$1)", "delete from runs where company_id=$1"]) await c.query(sql, [co.id]);   // the hand-move run a previous pass started holds its event
       if (co) for (const t of ["events", "pipeline_cards", "opportunities", "contact_identifiers", "contacts", "poll_cursors", "workflow_triggers", "workflow_versions", "workflows", "company_terms", "calendars", "bindings", "audit_log"])
         await c.query(`delete from ${t} where ${t === "workflow_versions" ? "workflow_id in (select id from workflows where company_id=$1)" : "company_id=$1"}`, [co.id]);
     });

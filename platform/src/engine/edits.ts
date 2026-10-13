@@ -19,7 +19,7 @@ export type StepEdit =
   | { type: "wait"; offset?: string }            // how long the wait is ("+15m", "+2h", "day_of@08:00")
   | { type: "wait_for_event"; until_offset?: string }   // D85: how long it waits for the event before the deadline path ("+15m", "+2d")
   | { type: "send_sms" | "send_email"; ghl_template?: string };   // the CRM's own snippet / email template id; empty = use the copy on the step
-const OFFSET = /^[+-]?\d+\s*(s|m|h|d|w)$|^(day_of|day_before|day_after)@\d{2}:\d{2}$/;
+export const OFFSET = /^[+-]?\d+\s*(s|m|h|d|w)$|^(day_of|day_before|day_after)@\d{2}:\d{2}$/;
 
 export async function saveStepEdit(c: PoolClient, args: { workflowId: string; nodeId: string; edit: StepEdit; by?: string }): Promise<{ ok: true; version: number; changed: string[] } | { ok: false; why: string }> {
   const w = await one<{ id: string; company_id: string; current_version: number }>(c, "select id, company_id, current_version from workflows where id=$1", [args.workflowId]);
