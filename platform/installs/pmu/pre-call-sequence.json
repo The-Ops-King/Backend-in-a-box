@@ -1,0 +1,797 @@
+{
+ "workflow": "pre-call-sequence",
+ "note": "PMU: the card follows the confirmation: Call Confirmed when they confirm, Unresponsive - Call Unconfirmed when there is no reply in 4 hours",
+ "definition": {
+  "schema": 1,
+  "reentry": "once_per_appointment",
+  "reentry_key": "{{appointment.starts_at}}",
+  "premise": {
+   "check": "appointment_in_future"
+  },
+  "nodes": [
+   {
+    "id": "t1",
+    "type": "trigger",
+    "event": "appointment.booked",
+    "match": {
+     "eq": [
+      "{{appointment.term.category}}",
+      "closing"
+     ]
+    }
+   },
+   {
+    "id": "t2",
+    "type": "trigger",
+    "event": "appointment.rescheduled",
+    "match": {
+     "eq": [
+      "{{appointment.term.category}}",
+      "closing"
+     ]
+    }
+   },
+   {
+    "id": "c0",
+    "type": "check",
+    "title": "Wait for GHL to have the person before the receipts",
+    "when": {
+     "exists": "contact.ghl_contact_id"
+    },
+    "retry": {
+     "every": "2m",
+     "for": "1h"
+    },
+    "else_exit": "no_crm_id",
+    "else_pause": "contact has no CRM id yet: GHL did not have the person an hour after the booking"
+   },
+   {
+    "id": "e1",
+    "type": "send_email",
+    "kind": "transactional",
+    "subject": "You're booked: {{appointment.starts_at | date:ccc, LLL d 'at' h:mma}} \u2014 reply to lock it in",
+    "template": "[placeholder \u2014 day-one email]",
+    "validity": {
+     "anchor": "before_event",
+     "min_lead": "5m"
+    },
+    "on_stale": "skip"
+   },
+   {
+    "id": "s1",
+    "type": "send_sms",
+    "kind": "transactional",
+    "template": "[placeholder \u2014 immediate text]",
+    "validity": {
+     "anchor": "before_event",
+     "min_lead": "15m"
+    },
+    "on_stale": "skip",
+    "title": "Booking text"
+   },
+   {
+    "id": "w1",
+    "type": "wait_for_reply",
+    "timeout": "4h",
+    "channel": "sms",
+    "until": {
+     "anchor": "appointment.starts_at",
+     "offset": "-1h",
+     "tz": "contact"
+    }
+   },
+   {
+    "id": "c1",
+    "type": "classify",
+    "input": "{{reply.inbound_since_send}}",
+    "state": "{{reply.last_outbound.body | default:}}",
+    "domain": "reply_intent",
+    "threshold": 0.8,
+    "into": "reply.intent",
+    "criteria": {
+     "confirmed": "They clearly confirm or accept the call: yes, ok, see you then, a thumbs up, a positive or celebratory emoji.",
+     "cancelled": "They clearly say, in words, that they will not attend or want to cancel.",
+     "reschedule_request": "They ask for a different day or time.",
+     "question": "They ask something and do not confirm, cancel or ask to move the call.",
+     "unclear": "The meaning is not plain: a negative or ambiguous emoji on its own, 'maybe', 'idk', 'hmm', or an unrelated message."
+    },
+    "ambiguity_max": 0.8
+   },
+   {
+    "id": "b1",
+    "type": "branch"
+   },
+   {
+    "id": "n_conf",
+    "type": "tags",
+    "add": [
+     "stat-confirmed"
+    ],
+    "remove": [
+     "stat-unconfirmed"
+    ]
+   },
+   {
+    "id": "k_conf",
+    "type": "pipeline_card",
+    "title": "Card \u2192 Call Confirmed",
+    "pipeline": "{{crm.pipeline_closer}}",
+    "stage": "{{crm.stage_closer_confirmed}}",
+    "if_missing": "skip",
+    "pick": "latest"
+   },
+   {
+    "id": "n_conf_slack",
+    "type": "slack_post",
+    "channel": "{{slack.channel.bookings}}",
+    "thread_of": "tag:appointment:{{appointment.id}}",
+    "react": "white_check_mark",
+    "as": {
+     "name": "Confirmed",
+     "icon": ":white_check_mark:"
+    },
+    "template": "\u2705 {{contact.first_name}}'s call {{appointment.starts_at | relative:auto}} is confirmed.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
+    "title": "React \u2705, note who confirmed",
+    "unreact": {
+     "of": "tag:decision:{{appointment.id}}",
+     "emojis": [
+      "white_check_mark",
+      "x",
+      "repeat"
+     ]
+    },
+    "react_on": {
+     "of": "tag:decision:{{appointment.id}}",
+     "emojis": [
+      "white_check_mark"
+     ]
+    }
+   },
+   {
+    "id": "n_unc",
+    "type": "set_tag",
+    "tag": "stat-unconfirmed"
+   },
+   {
+    "id": "k_unc",
+    "type": "pipeline_card",
+    "title": "No reply in 4 hours: card \u2192 Unresponsive - Call Unconfirmed",
+    "pipeline": "{{crm.pipeline_closer}}",
+    "stage": "{{crm.stage_closer_unresponsive}}",
+    "if_missing": "skip",
+    "pick": "latest"
+   },
+   {
+    "id": "n_unc_slack",
+    "type": "slack_post",
+    "channel": "{{slack.channel.bookings}}",
+    "as": {
+     "name": "Not confirmed yet",
+     "icon": ":hourglass_flowing_sand:"
+    },
+    "template": "\u23f3 No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going.",
+    "title": "React \u23f3 in the booking thread",
+    "thread_of": "tag:appointment:{{appointment.id}}",
+    "react": "hourglass_flowing_sand"
+   },
+   {
+    "id": "n_cx",
+    "type": "update_appointment",
+    "set": {
+     "status": "cancelled"
+    }
+   },
+   {
+    "id": "n_cx_slack",
+    "type": "slack_post",
+    "channel": "{{slack.channel.bookings}}",
+    "template": "\u274c {{contact.first_name}}'s call is cancelled.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
+    "as": {
+     "name": "Call cancelled",
+     "icon": ":x:"
+    },
+    "title": "React \u274c, note who cancelled",
+    "thread_of": "tag:appointment:{{appointment.id}}",
+    "react": "x",
+    "unreact": {
+     "of": "tag:decision:{{appointment.id}}",
+     "emojis": [
+      "white_check_mark",
+      "x",
+      "repeat"
+     ]
+    },
+    "react_on": {
+     "of": "tag:decision:{{appointment.id}}",
+     "emojis": [
+      "x"
+     ]
+    }
+   },
+   {
+    "id": "n_rs",
+    "type": "send_sms",
+    "template": "No problem \u2014 grab a new time here: {{calendar.closer_call.url}}",
+    "title": "Text the rebooking link"
+   },
+   {
+    "id": "n_rs_slack",
+    "type": "slack_post",
+    "channel": "{{slack.channel.bookings}}",
+    "thread_of": "tag:appointment:{{appointment.id}}",
+    "react": "repeat",
+    "as": {
+     "name": "Reschedule",
+     "icon": ":repeat:"
+    },
+    "template": "\ud83d\udd01 {{contact.first_name}} got the rebooking link.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
+    "title": "React \ud83d\udd01, note who decided",
+    "unreact": {
+     "of": "tag:decision:{{appointment.id}}",
+     "emojis": [
+      "white_check_mark",
+      "x",
+      "repeat"
+     ]
+    },
+    "react_on": {
+     "of": "tag:decision:{{appointment.id}}",
+     "emojis": [
+      "repeat"
+     ]
+    }
+   },
+   {
+    "id": "v_read",
+    "type": "set_var",
+    "key": "jev_read",
+    "value": "{{reply.intent}}",
+    "pick": {
+     "cancelled": "Jev is {{reply.intent_confidence}}% sure they want to cancel.",
+     "reschedule_request": "Jev is {{reply.intent_confidence}}% sure they want to reschedule.",
+     "question": "Jev read it as a question, not an answer ({{reply.intent_confidence}}% sure)."
+    },
+    "else_value": "Jev couldn't tell what they meant (its guesses: {{reply.top_guesses}})."
+   },
+   {
+    "id": "n_ask",
+    "type": "slack_post",
+    "channel": "{{slack.channel.attention}}",
+    "as": {
+     "name": "Keep, cancel or reschedule?",
+     "icon": ":grey_question:"
+    },
+    "template": "{{appointment.closer.mention | default:Heads up}} \u2014 {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap \u2705 keep the call, \u274c cancel it, \ud83d\udd01 reschedule (they get the rebooking link). The reminders keep going until you do.",
+    "title": "Ask the closer in the attention channel: keep, cancel or reschedule?",
+    "tag": "decision:{{appointment.id}}",
+    "offer": [
+     "white_check_mark",
+     "x",
+     "repeat"
+    ],
+    "fallback_channel": "{{slack.channel.bookings}}"
+   },
+   {
+    "id": "w_dec",
+    "type": "wait_for_reaction",
+    "of": "tag:decision:{{appointment.id}}",
+    "emojis": [
+     "white_check_mark",
+     "x",
+     "repeat"
+    ],
+    "blocking": false,
+    "until": {
+     "anchor": "appointment.starts_at",
+     "offset": "-0m",
+     "tz": "contact"
+    },
+    "title": "Listen for the tap while the reminders go on"
+   },
+   {
+    "id": "v_decided",
+    "type": "set_var",
+    "key": "decided",
+    "value": "{{reaction.reaction | default:}}",
+    "pick": {
+     "white_check_mark": "confirmed",
+     "x": "cancelled",
+     "repeat": "reschedule_request"
+    },
+    "else_value": ""
+   },
+   {
+    "id": "v_agreed",
+    "type": "set_var",
+    "key": "agreed",
+    "value": true,
+    "when": {
+     "eq": [
+      "{{reply.intent}}",
+      "{{vars.decided}}"
+     ]
+    },
+    "else_value": false
+   },
+   {
+    "id": "rec",
+    "type": "record",
+    "event": "intent.reviewed",
+    "data": {
+     "predicted": "{{reply.intent}}",
+     "predicted_confidence": "{{reply.intent_confidence}}",
+     "decided": "{{vars.decided}}",
+     "agreed": "{{vars.agreed}}",
+     "decided_by": "{{reaction.user_name}}",
+     "appointment_id": "{{appointment.id}}"
+    },
+    "title": "Score Jev: did the person agree with the read?"
+   },
+   {
+    "id": "b_dec",
+    "type": "branch"
+   },
+   {
+    "id": "n_pending",
+    "type": "update_appointment",
+    "set": {
+     "pending_read": {
+      "intent": "{{reply.intent}}",
+      "confidence": "{{reply.intent_confidence}}",
+      "at": "{{now}}"
+     }
+    },
+    "title": "Note Jev's pending read on the appointment"
+   },
+   {
+    "id": "n_att_on",
+    "type": "tags",
+    "add": [
+     "stat-needs-attention"
+    ]
+   },
+   {
+    "id": "n_clear",
+    "type": "update_appointment",
+    "set": {
+     "pending_read": null
+    },
+    "title": "Clear the pending read: a person decided"
+   },
+   {
+    "id": "n_att_off",
+    "type": "tags",
+    "remove": [
+     "stat-needs-attention"
+    ]
+   },
+   {
+    "id": "rec_un",
+    "type": "record",
+    "event": "intent.unanswered",
+    "data": {
+     "predicted": "{{reply.intent}}",
+     "predicted_confidence": "{{reply.intent_confidence}}",
+     "hours_before_call": "{{appointment.starts_at | hours_until}}",
+     "appointment_id": "{{appointment.id}}"
+    },
+    "title": "Record that nobody answered before the call"
+   },
+   {
+    "id": "rs",
+    "type": "resume",
+    "title": "Back to the reminder the run was on"
+   },
+   {
+    "id": "r72",
+    "type": "wait",
+    "rule": {
+     "anchor": "appointment.starts_at",
+     "offset": "-72h",
+     "tz": "contact",
+     "earliest": "08:00",
+     "latest": "21:00"
+    }
+   },
+   {
+    "id": "m72",
+    "type": "send_sms",
+    "template": "[placeholder \u2014 3 days out]",
+    "validity": {
+     "anchor": "before_event",
+     "min_lead": "60h"
+    },
+    "on_stale": "skip"
+   },
+   {
+    "id": "r48",
+    "type": "wait",
+    "rule": {
+     "anchor": "appointment.starts_at",
+     "offset": "-48h",
+     "tz": "contact",
+     "earliest": "08:00",
+     "latest": "21:00"
+    }
+   },
+   {
+    "id": "m48",
+    "type": "send_sms",
+    "template": "[placeholder \u2014 2 days out]",
+    "validity": {
+     "anchor": "before_event",
+     "min_lead": "36h"
+    },
+    "on_stale": "skip"
+   },
+   {
+    "id": "r24",
+    "type": "wait",
+    "rule": {
+     "anchor": "appointment.starts_at",
+     "offset": "-24h",
+     "tz": "contact",
+     "earliest": "08:00",
+     "latest": "21:00"
+    }
+   },
+   {
+    "id": "m24e",
+    "type": "send_email",
+    "subject": "Tomorrow: your call with {{appointment.closer.first_name}}",
+    "template": "[placeholder \u2014 24-hour email]",
+    "validity": {
+     "anchor": "before_event",
+     "min_lead": "18h"
+    },
+    "on_stale": "skip"
+   },
+   {
+    "id": "m24s",
+    "type": "send_sms",
+    "template": "[placeholder \u2014 24-hour text]",
+    "validity": {
+     "anchor": "before_event",
+     "min_lead": "18h"
+    },
+    "on_stale": "skip"
+   },
+   {
+    "id": "rm",
+    "type": "wait",
+    "rule": {
+     "anchor": "appointment.starts_at",
+     "offset": "day_of@08:00",
+     "tz": "contact"
+    },
+    "only_if": {
+     "gte": [
+      "{{appointment.starts_at | date:HH}}",
+      "09"
+     ]
+    },
+    "title": "Wait for 8am their time (calls at 9am or later; an earlier call goes straight to its 1-hour text)"
+   },
+   {
+    "id": "bm",
+    "type": "branch"
+   },
+   {
+    "id": "mm",
+    "type": "send_sms",
+    "template": "[placeholder \u2014 morning-of text]",
+    "validity": {
+     "anchor": "before_event",
+     "min_lead": "2h"
+    },
+    "on_stale": "skip"
+   },
+   {
+    "id": "r1",
+    "type": "wait",
+    "rule": {
+     "anchor": "appointment.starts_at",
+     "offset": "-1h",
+     "tz": "contact",
+     "earliest": "07:00"
+    }
+   },
+   {
+    "id": "m1",
+    "type": "send_sms",
+    "template": "[placeholder \u2014 1-hour text]",
+    "validity": {
+     "anchor": "before_event",
+     "min_lead": "15m"
+    },
+    "on_stale": "skip"
+   },
+   {
+    "id": "r10",
+    "type": "wait",
+    "rule": {
+     "anchor": "appointment.starts_at",
+     "offset": "-10m",
+     "tz": "contact"
+    }
+   },
+   {
+    "id": "m10",
+    "type": "send_sms",
+    "template": "[placeholder \u2014 10-minute text]"
+   },
+   {
+    "id": "x_done",
+    "type": "exit",
+    "reason": "done"
+   },
+   {
+    "id": "x_cancelled",
+    "type": "exit",
+    "reason": "cancelled"
+   },
+   {
+    "id": "x_reschedule",
+    "type": "exit",
+    "reason": "reschedule_sent"
+   }
+  ],
+  "edges": [
+   {
+    "from": "t1",
+    "to": "c0"
+   },
+   {
+    "from": "t2",
+    "to": "c0"
+   },
+   {
+    "from": "c0",
+    "to": "e1"
+   },
+   {
+    "from": "e1",
+    "to": "s1"
+   },
+   {
+    "from": "s1",
+    "to": "w1"
+   },
+   {
+    "from": "w1",
+    "to": "c1",
+    "label": "replied"
+   },
+   {
+    "from": "w1",
+    "to": "n_unc",
+    "label": "timeout"
+   },
+   {
+    "from": "c1",
+    "to": "b1"
+   },
+   {
+    "from": "b1",
+    "to": "n_conf",
+    "when": {
+     "eq": [
+      "{{reply.intent}}",
+      "confirmed"
+     ]
+    }
+   },
+   {
+    "from": "n_unc",
+    "to": "k_unc"
+   },
+   {
+    "from": "n_unc_slack",
+    "to": "r72"
+   },
+   {
+    "from": "n_cx",
+    "to": "n_cx_slack"
+   },
+   {
+    "from": "n_cx_slack",
+    "to": "x_cancelled"
+   },
+   {
+    "from": "n_rs",
+    "to": "n_rs_slack"
+   },
+   {
+    "from": "n_rs_slack",
+    "to": "x_reschedule"
+   },
+   {
+    "from": "r72",
+    "to": "m72"
+   },
+   {
+    "from": "m72",
+    "to": "r48"
+   },
+   {
+    "from": "r48",
+    "to": "m48"
+   },
+   {
+    "from": "m48",
+    "to": "r24"
+   },
+   {
+    "from": "r24",
+    "to": "m24e"
+   },
+   {
+    "from": "m24e",
+    "to": "m24s"
+   },
+   {
+    "from": "m24s",
+    "to": "rm"
+   },
+   {
+    "from": "rm",
+    "to": "bm"
+   },
+   {
+    "from": "bm",
+    "to": "mm",
+    "when": {
+     "gte": [
+      "{{appointment.starts_at | date:HH}}",
+      "11"
+     ]
+    },
+    "label": "the call is at 11am or later"
+   },
+   {
+    "from": "bm",
+    "to": "r1",
+    "else": true
+   },
+   {
+    "from": "mm",
+    "to": "r1"
+   },
+   {
+    "from": "r1",
+    "to": "m1"
+   },
+   {
+    "from": "m1",
+    "to": "r10"
+   },
+   {
+    "from": "r10",
+    "to": "m10"
+   },
+   {
+    "from": "m10",
+    "to": "x_done"
+   },
+   {
+    "from": "b1",
+    "to": "v_read",
+    "else": true
+   },
+   {
+    "from": "v_read",
+    "to": "n_ask"
+   },
+   {
+    "from": "v_decided",
+    "to": "v_agreed"
+   },
+   {
+    "from": "v_agreed",
+    "to": "rec"
+   },
+   {
+    "from": "b_dec",
+    "to": "n_conf",
+    "when": {
+     "eq": [
+      "{{reaction.reaction}}",
+      "white_check_mark"
+     ]
+    },
+    "label": "\u2705 keep the call"
+   },
+   {
+    "from": "b_dec",
+    "to": "n_cx",
+    "when": {
+     "eq": [
+      "{{reaction.reaction}}",
+      "x"
+     ]
+    },
+    "label": "\u274c cancel it"
+   },
+   {
+    "from": "b_dec",
+    "to": "n_rs",
+    "when": {
+     "eq": [
+      "{{reaction.reaction}}",
+      "repeat"
+     ]
+    },
+    "label": "\ud83d\udd01 reschedule"
+   },
+   {
+    "from": "n_conf",
+    "to": "k_conf"
+   },
+   {
+    "from": "n_ask",
+    "to": "n_pending"
+   },
+   {
+    "from": "n_pending",
+    "to": "n_att_on"
+   },
+   {
+    "from": "n_att_on",
+    "to": "w_dec"
+   },
+   {
+    "from": "w_dec",
+    "to": "r72",
+    "label": "the reminders go on"
+   },
+   {
+    "from": "w_dec",
+    "to": "v_decided",
+    "label": "tap"
+   },
+   {
+    "from": "w_dec",
+    "to": "rec_un",
+    "label": "until"
+   },
+   {
+    "from": "rec",
+    "to": "n_clear"
+   },
+   {
+    "from": "n_clear",
+    "to": "n_att_off"
+   },
+   {
+    "from": "rec_un",
+    "to": "n_att_off"
+   },
+   {
+    "from": "n_att_off",
+    "to": "b_dec"
+   },
+   {
+    "from": "b_dec",
+    "to": "rs",
+    "else": true,
+    "label": "nobody decided: back to where the reminders were"
+   },
+   {
+    "from": "n_conf_slack",
+    "to": "rs"
+   },
+   {
+    "from": "rs",
+    "to": "r72"
+   },
+   {
+    "from": "k_conf",
+    "to": "n_conf_slack"
+   },
+   {
+    "from": "k_unc",
+    "to": "n_unc_slack"
+   }
+  ]
+ }
+}

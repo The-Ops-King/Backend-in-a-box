@@ -495,3 +495,28 @@ The session's environment carries `BIAB_CRON_SECRET` (operator key), `PMU_GHL_LO
 4. Slack: write the "PMU Ops Engine" app manifest (request URLs with PMU's company id), Tyler creates and installs it, then
    connect it (install `slackToken`, `slackSigningSecret`, channels → #ops-test).
 5. Readiness, health, then the ladder with Tyler.
+
+**State (2026-10-13, end of day):** steps 1–3 done. Payments are Whop (the engine registered its own webhook); calls are
+recorded in Fathom (webhook registered). Tyler's decisions: one board (Beauty Moguls) with no setter board, bound as the
+closer board only; PMU's own copies of ten workflows (`platform/installs/pmu/`, saved with
+`POST /api/admin/workflows/definition`; Hair's untouched) move the one card through New Lead → Booked Call (named
+`-- Direct` / `-- Setter`) → Confirmed / Unresponsive → Rescheduled / Canceled / No Show → Follow Up / Lost / DQ → Purchase
+→ Signed Contract (won). A lead has a phone or a `vsl a` / `vsl b` tag. Demo calls are their own call type and the Sales
+Call says Closing or Demo (internal tracking: either call can sell either offer). Sales Call dispositions are Closed,
+Deposit, Follow Up, Lost, DQ (after the pitch, e.g. financial) and No Offer (DQ before the pitch); Closer is a Carly /
+Annabelle dropdown; Booking Source (Setter / Direct) and a Scheduled outcome were added. The Jev key is Hair's, copied
+inside the engine (D100); the Anthropic key is PMU's own.
+
+Still open:
+- Tyler: delete the old Sales Call options in GHL (the API can add options but not remove them): Closer `carly_vu`;
+  Disposition `closed_paid_full`, `closed_deposit`, `closed_payment_plan`, `not_qualified`, `no_offer_made`.
+- Tyler: create the PMU Ops Engine Slack app from `installs/pmu-slack-manifest.yaml`, send the bot token and signing secret.
+- The agreement goes out on every first payment (only the $10k program sells today). When the smaller offer exists under
+  its own Whop product name, PMU's Payment recorded copy sends the agreement only for the program's product.
+- Consultation S has no "who set this" booking question: a setter-booked call's setter reads "unknown" until it has one
+  (before Annabelle starts setting).
+- MQL / DQ: PMU qualifies by the `meta booked call mql` / `meta booked call dq` tags (a Zap sets them), not a field; the
+  numbers' MQL split needs to read the tags.
+- Annabelle: add her to the roster (`closers` or `roles`) when she starts; her Closer option already exists.
+- Switch-over: PMU's Whop also posts to three Zapier hooks, Make, Pabbly, a GHL trigger and strategicpartners.io; the ones
+  that write Cash records retire with PMU's GHL automations.

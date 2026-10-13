@@ -1,0 +1,82 @@
+{
+ "workflow": "new-lead",
+ "note": "PMU: one board. The card starts on Beauty Moguls at New Lead; a lead has a phone or a VSL tag (vsl a / vsl b); no stage-entered field",
+ "definition": {
+  "schema": 1,
+  "reentry": "always",
+  "premise": {
+   "check": "contact_exists"
+  },
+  "nodes": [
+   {
+    "id": "t1",
+    "type": "trigger",
+    "event": "lead.created"
+   },
+   {
+    "id": "n1",
+    "type": "check",
+    "when": {
+     "or": [
+      {
+       "exists": "contact.phone"
+      },
+      {
+       "has": [
+        "{{contact.tags}}",
+        "vsl a"
+       ]
+      },
+      {
+       "has": [
+        "{{contact.tags}}",
+        "vsl b"
+       ]
+      }
+     ]
+    },
+    "else_exit": "no_phone_or_vsl",
+    "retry": {
+     "every": "10m",
+     "for": "24h"
+    },
+    "title": "A lead has a phone number or a VSL tag (vsl a, vsl b)"
+   },
+   {
+    "id": "n2",
+    "type": "pipeline_card",
+    "pipeline": "{{crm.pipeline_closer}}",
+    "stage": "{{crm.stage_closer_new_lead}}",
+    "name": "{{contact.name}} -- New"
+   },
+   {
+    "id": "n3",
+    "type": "set_tag",
+    "tag": "stat-new"
+   },
+   {
+    "id": "x1",
+    "type": "exit",
+    "reason": "done"
+   }
+  ],
+  "edges": [
+   {
+    "from": "t1",
+    "to": "n1"
+   },
+   {
+    "from": "n1",
+    "to": "n2"
+   },
+   {
+    "from": "n2",
+    "to": "n3"
+   },
+   {
+    "from": "n3",
+    "to": "x1"
+   }
+  ]
+ }
+}
