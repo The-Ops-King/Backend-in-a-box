@@ -1,0 +1,23 @@
+{
+  "_note": "PMU (The Beauty Moguls) install file. No secrets: pit, booking.token and recording.apiKey are added from the environment at install time (PMU_GHL_PIT, PMU_CALENDLY_TOKEN, PMU_FATHOM_API_KEY). Stage 1 (2026-10-13): created in shadow, every workflow off; calendars, crm bindings, roles and Slack follow once Tyler has answered the exploration report. Company id 83295103-a572-47f6-bee9-0ff986681a66; the engine registered its own Fathom webhook (id kA_s3UvMJ4i6uRsC).",
+  "name": "PMU",
+  "slug": "pmu",
+  "timezone": "America/New_York",
+  "locationId": "gA10c58jLJRYbNwC3apW",
+  "booking": {
+    "source": "calendly"
+  },
+  "recording": {
+    "source": "fathom"
+  },
+  "testDomains": [
+    "jtylerray.com"
+  ],
+  "closers": [
+    "carly@thebeautymoguls.com"
+  ],
+  "salesCall": {
+    "object": "custom_objects.sales_call"
+  },
+  "enable": false
+}
