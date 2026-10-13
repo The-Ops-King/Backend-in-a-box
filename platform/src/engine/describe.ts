@@ -58,12 +58,18 @@ const PATHS: Record<string, string> = {
   "setting.setter_result.act": "setter-call actions are on", "vars.classify.result": "Jev's read of the result", "vars.classify.dq_reason": "Jev's DQ reason",
   "vars.result": "the result", "vars.decided_by": "who decided the result", "vars.asking": "Jev was unsure", "vars.jev_agreed": "Jev agreed", "vars.result_key": "the result's option", "vars.result_words": "the result", "vars.act_line": "what the actions do", "vars.dq_tag": "the DQ tag", "vars.task_due": "the next business day",
   "appointment.id": "an appointment", "appointment.external_id": "appointment id", "appointment.outcome": "appointment outcome", "appointment.call_outcome": "how the call went", "event.appointment_matched": "a matching appointment",
+  "event.slot.from": "slot the call moved from", "event.previous_outcome": "the earlier answer", "event.previous_call_outcome": "the earlier call outcome", "appointment.pending_read.intent": "their unanswered reply",
+  "company.operator_slack_id": "Slack id for the operator", "vars.due.overdue_count": "the number of calls blank for two days", "vars.__listen": "tap still listened for", "vars.call_key": "key for the Sales Call record",
+  "event.channel": "Slack channel for the alert", "event.thread": "detail for its thread",
 };
-const VALUES: Record<string, string> = { sales_call: "a sales call", closed_won: "closed won", close_pending: "close pending", financing_denied: "financing denied", dq: "disqualified", unqualified: "disqualified", disposition: "a closer's form", "appointment.rescheduled": "a reschedule", "appointment.booked": "a new booking", noshow: "no-show", reschedule_request: "a reschedule request", follow_up: "follow up", first_call: "first call", closing: "closing call", setting: "a setting call", confirmation: "a confirmation call", phone: "a phone call", meeting: "a meeting" };
+const VALUES: Record<string, string> = { sales_call: "a sales call", closed_won: "closed won", close_pending: "close pending", financing_denied: "financing denied", dq: "disqualified", unqualified: "disqualified", disposition: "a closer's form", "appointment.rescheduled": "a reschedule", "appointment.booked": "a new booking", "recording.received": "a Fathom recording", "payment.received": "a payment", "payment.refunded": "a refund", refund: "a refund", human: "the team", noshow: "no-show", reschedule_request: "a reschedule request", follow_up: "follow up", first_call: "first call", closing: "closing call", setting: "a setting call", confirmation: "a confirmation call", phone: "a phone call", meeting: "a meeting" };
 
 export const humanWords = (s: string) => s.replace(/^crm\./, "").replace(/[_.-]+/g, " ").replace(/\s+/g, " ").trim();
 const listOf = (v?: string | string[]): string[] => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
-const value = (v: unknown) => typeof v === "string" ? (v === "" ? "blank" : /^\{\{/.test(v) ? `the ${pathWords(v)}` : VALUES[v] ?? `“${humanWords(v)}”`) : JSON.stringify(v);   // a {{path}} on the right is a thing, not a literal
+const value = (v: unknown) => typeof v === "string" ? (v === "" ? "blank" : /^\{\{/.test(v) ? thing(pathWords(v)) : VALUES[v] ?? `“${humanWords(v)}”`) : JSON.stringify(v);   // a {{path}} on the right is a thing, not a literal
+const thing = (w: string) => /^(the|a|an|their|how|who|what|when|why|which) /i.test(w) ? w : `the ${w}`;
+/** The `{{…}}` paths inside a string that holds more than one ("{{a}}:{{b}}"), else null. */
+const partsOf = (v: unknown): string[] | null => { if (typeof v !== "string") return null; const ps = [...v.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)[^}]*\}\}/g)].map((m) => m[1]); return ps.length > 1 ? ps : null; };
 /** `{{a.b}}` or a bare path → the words a person uses for it. */
 export function pathWords(p: unknown): string {
   if (typeof p !== "string") return String(p);
@@ -105,7 +111,23 @@ export function predicateWords(p: Predicate, consts: Record<string, unknown> = {
   };
   // "they have signed" → "they have not signed"; "there is a transcript" → "there is no transcript"; "the AI called it …" → "the AI did not call it …"
   const negate = (t: string) => /^there is an? /.test(t) ? t.replace(/^there is an? /, "there is no ") : /^(they|we|you) have /.test(t) ? t.replace(/^(\w+) have /, "$1 have not ") : /^(.+?) (is|are|was|were) /.test(t) ? t.replace(/^(.+?) (is|are|was|were) /, "$1 $2 not ") : /^the AI called /.test(t) ? t.replace(/^the AI called /, "the AI did not call ") : `not ${t}`;
-  if ("exists" in p) return `there is a ${pathWords(p.exists).replace(/^(a|an|the) /, "")}`;
+  // an hour of the day, read through `| date:HH`: "the call is at 9 AM or later"
+  const hour = (path: unknown, cmp: "gt" | "gte" | "lt" | "lte", raw: unknown): string | null => {
+    const v = lit(raw); if (typeof path !== "string" || !/\|\s*date:HH\s*\}\}$/.test(path) || !/^\d{1,2}$/.test(String(v))) return null;
+    const h = +String(v) + (cmp === "gt" || cmp === "lte" ? 1 : 0); const at = `${h % 12 || 12} ${h % 24 < 12 ? "AM" : "PM"}`;
+    const subject = /^\{\{\s*appointment\.starts_at\b/.test(path) ? "the call" : thing(pathWords(path.replace(/\s*\|[^}]*/, "")));
+    return cmp === "gt" || cmp === "gte" ? `${subject} is at ${at} or later` : `${subject} is before ${at}`;
+  };
+  // two strings of several paths each ("{{a}}:{{b}}" against "{{c}}:{{d}}"), compared pair by pair
+  const pairs = (l: unknown, r: unknown, same: boolean): string | null => {
+    const a = partsOf(l), b = partsOf(r); if (!a || !b || a.length !== b.length) return null;
+    const each = a.map((x, i) => `${thing(pathWords(x))} is ${same ? "" : "not "}${thing(pathWords(b[i]))}`);
+    return same ? each.join(" and ") : `${each.length === 2 ? "either " : ""}${each.slice(0, -1).join(", ")} or ${each.at(-1)}`;
+  };
+  if ("exists" in p) { const t = pathWords(p.exists).replace(/^(a|an|the) /, ""); return `there is ${/^[aeiou]/i.test(t) ? "an" : "a"} ${t}`; }
+  if ("eq" in p && pairs(p.eq[0], p.eq[1], true)) return pairs(p.eq[0], p.eq[1], true)!;
+  if ("neq" in p && pairs(p.neq[0], p.neq[1], false)) return pairs(p.neq[0], p.neq[1], false)!;
+  for (const c of ["gt", "gte", "lt", "lte"] as const) if (c in p) { const [l, r] = (p as Record<string, [unknown, unknown]>)[c]; const h = hour(l, c, r); if (h) return h; }
   if ("eq" in p) return p.eq[1] === true ? pathWords(p.eq[0]) : p.eq[1] === false ? negate(pathWords(p.eq[0])) : `${pathWords(p.eq[0])} is ${value(lit(p.eq[1]))}`;
   if ("neq" in p) return p.neq[1] === true ? negate(pathWords(p.neq[0])) : p.neq[1] === false ? pathWords(p.neq[0]) : `${pathWords(p.neq[0])} is not ${value(lit(p.neq[1]))}`;
   if ("gt" in p) return measure(p.gt[0], "gt", p.gt[1]) ?? `${pathWords(p.gt[0])} is more than ${value(lit(p.gt[1]))}`;
@@ -118,6 +140,28 @@ export function predicateWords(p: Predicate, consts: Record<string, unknown> = {
   if ("not" in p) return "has" in p.not ? `${pathWords(p.not.has[0])} do not include ${value(lit(p.not.has[1]))}` : `not (${w(p.not)})`;
   return JSON.stringify(p);
 }
+/** The words for a predicate not holding: "this is not a reschedule" → "this is a reschedule". */
+export function notWords(p: Predicate, consts: Record<string, unknown> = {}): string {
+  const w = (q: Predicate) => predicateWords(q, consts), n = (q: Predicate) => notWords(q, consts);
+  if ("exists" in p) return `there is no ${pathWords(p.exists).replace(/^(a|an|the) /, "")}`;
+  if ("eq" in p) return w({ neq: p.eq }); if ("neq" in p) return w({ eq: p.neq });
+  if ("gt" in p) return w({ lte: p.gt }); if ("gte" in p) return w({ lt: p.gte }); if ("lt" in p) return w({ gte: p.lt }); if ("lte" in p) return w({ gt: p.lte });
+  if ("in" in p) { const vs = p.in[1].map((x) => value(consts[String(x).replace(/^\{\{\s*|\s*\}\}$/g, "")] ?? x)); return `${pathWords(p.in[0])} is ${vs.length === 1 ? `not ${vs[0]}` : vs.length === 2 ? `neither ${vs[0]} nor ${vs[1]}` : `none of ${vs.slice(0, -1).join(", ")} or ${vs.at(-1)}`}`; }
+  if ("has" in p) return w({ not: p });
+  if ("not" in p) return w(p.not);
+  if ("and" in p) return p.and.map(n).join(" or "); if ("or" in p) return p.or.map(n).join(" and ");
+  return `not (${w(p)})`;
+}
+/**
+ * Why a step with `only_if` was skipped: the condition, then what held instead. With `holds`, an "and" names only the
+ * parts that failed ("only if setter-call actions are on and the result is follow up; the result is not follow up").
+ */
+export function skippedWords(p: Predicate, holds?: (q: Predicate) => boolean): string {
+  const failed = "and" in p && holds ? p.and.filter((q) => !holds(q)) : null;
+  return `only if ${predicateWords(p)}; ${failed?.length ? failed.map((q) => notWords(q)).join(" and ") : notWords(p)}`;
+}
+/** A condition short enough for the node on the chart: "a reschedule", "not a reschedule". */
+export const onlyIfWords = (p: Predicate, consts: Record<string, unknown> = {}) => predicateWords(p, consts).replace(/^this is not /, "not ").replace(/^this is /, "");
 /** The literals a workflow's unconditional set_var steps hold, keyed vars.<key>: the numbers its gates compare against. */
 export const constsOf = (def: { nodes: Node[] }): Record<string, unknown> => Object.fromEntries(def.nodes.filter((n): n is Extract<Node, { type: "set_var" }> => n.type === "set_var" && !n.when && !n.pick).map((n) => [`vars.${n.key}`, n.value]));
 

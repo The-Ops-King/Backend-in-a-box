@@ -119,8 +119,11 @@ Title, a `--fg-2` line, then the content: a step's words in a `--panel-3` block 
 
 Drawn by us (SVG), not a library. One vertical spine, centred. One node per step, including every reminder. A node is
 a rounded box (9px) in `--panel-2` with an `--edge` stroke; the trigger is amber; an end is an outlined pill; the
-fork is `--panel-3`. A node that waits carries a small clock before its title; a node that only runs under a
-condition carries the blue mark at its right. The fork's outcomes are labelled groups side by side ("Groups"), and
+fork is `--panel-3`. A node that waits carries a small clock before its title. A sometimes-step (`only_if`) has a
+dashed `--cond` border and its condition on a blue line under the title ("only if a reschedule"; "if …" in a narrow
+column, cut with … past that); the edges into and out of it are dashed, and where there is room a thin blue line runs
+around its right side labelled "otherwise". A step that may be skipped for a smaller reason (too close to the call, no
+card on that board) keeps its normal shape with the blue mark at its right. The fork's outcomes are labelled groups side by side ("Groups"), and
 the groups that carry on curve back to the spine.
 
 With a run shown, each node gets a small state badge at its top-right corner (green check, purple clock, orange

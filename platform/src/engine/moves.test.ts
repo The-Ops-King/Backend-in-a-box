@@ -286,6 +286,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: won and lost are workflow steps
     await install("payment-recorded", (d) => onlyTheWin(d, { and: [{ eq: ["{{event._type}}", "payment.received"] }, { eq: ["{{event.cleared}}", true] }] }));
     await pay("p-dep", 1000); await run();
     expect(await oppRow()).toMatchObject({ status: "open" });   // a deposit: this company wins on paid in full
+    // D103: the skipped step names the part of its condition that did not hold
+    expect((await asOperator((c) => one<{ why: string }>(c, "select s.result->>'why' as why from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and s.node_id='o_won' order by s.started_at desc limit 1", [companyId])))?.why).toBe("only if this is a payment and paid in full; not paid in full");
     await pay("p-bal", 2000); await run();
     expect(await oppRow()).toMatchObject({ status: "won" });
     await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));

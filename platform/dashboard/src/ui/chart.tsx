@@ -12,12 +12,13 @@ import { STATE_ORDER, STATE_WORDS } from "./pieces";
  * the container is narrow, so nothing scrolls sideways. On a phone with a run shown, only the path taken is drawn.
  */
 type N = Chart["nodes"][number]; type St = PathItem["state"];
-type Item = { id: string; n: N; waits?: string; cond?: string; outcomes?: { label: string; to: string }[] };
+/** cond: the blue mark (a step that may not fire); when: a sometimes-step's short condition, drawn dashed with that line (D103). */
+type Item = { id: string; n: N; waits?: string; cond?: string; when?: string; outcomes?: { label: string; to: string }[] };
 type Group = { label: string; items: Item[]; go: boolean; first: string | null };
 type Row = { kind: "nodes"; items: Item[] } | { kind: "fork"; fork: Item; groups: Group[] };
 
 const T = (k: string) => `var(--${k})`;
-const TEXT_W = 7.6, PAD = 28, LINE = 16, VPAD = 9, H = 34, GAP = 18;
+const TEXT_W = 7.6, PAD = 28, LINE = 16, VPAD = 9, H = 34, GAP = 18, IF_W = 6.2, IF_H = 19, IF_PAD = 16, DASH = "5 4";
 /** Width of a title in px at the node font (13px, 600): per-glyph so "Appointment matched?" is not measured like "little if". */
 function tw(s: string, per = TEXT_W): number {
   let w = 0;
@@ -40,7 +41,13 @@ function wrap(text: string, max: number): string[] {
 /** The lines a node shows and the box they need, within the width allowed. */
 type Size = { lines: string[]; w: number; h: number; chips?: { text: string; stage: boolean }[] };
 function sizeOf(it: Item, maxW: number): Size {
-  const extra = (it.waits ? 22 : 0) + (it.cond ? 18 : 0) + (kindIconOf(it) ? 22 : 0);
+  const s = sizeOfTitle(it, maxW); if (!it.when) return s;
+  // the condition line under the title: as wide as it needs, up to the width allowed, cut with … past that
+  return { ...s, w: Math.min(maxW, Math.max(s.w, Math.round(tw(ifLine(it), IF_W) + 16 + IF_PAD))), h: s.h + IF_H };
+}
+const ifLine = (it: Item) => `only if ${it.when}`;
+function sizeOfTitle(it: Item, maxW: number): Size {
+  const extra = (it.waits ? 22 : 0) + (it.cond && !it.when ? 18 : 0) + (kindIconOf(it) ? 22 : 0);
   // “tags” and ‹stages› in the words become chips under the title
   const raw = labelOf(it); const found = raw.match(/“[^”]*”|‹[^›]*›/g);
   if (found) {
@@ -59,7 +66,7 @@ function sizeOf(it: Item, maxW: number): Size {
   const w = Math.min(maxW, Math.max(it.n.kind === "end" ? 64 : 96, Math.round(longest + PAD + extra)));
   return { lines, w, h: VPAD * 2 + lines.length * LINE };
 }
-const trunc = (s: string, w: number) => { const maxPx = w - PAD; if (tw(s) <= maxPx) return s; let k = s.length; while (k > 3 && tw(`${s.slice(0, k)}…`) > maxPx) k--; return `${s.slice(0, k)}…`; };
+const trunc = (s: string, w: number, per = TEXT_W) => { const maxPx = w - PAD; if (tw(s, per) <= maxPx) return s; let k = s.length; while (k > 3 && tw(`${s.slice(0, k)}…`, per) > maxPx) k--; return `${s.slice(0, k)}…`; };
 
 /** Read the chart into rows: straight runs of nodes, and forks with their groups. */
 export function arrange(chart: Chart): Row[] {
@@ -72,8 +79,10 @@ export function arrange(chart: Chart): Row[] {
   const folded = new Set<string>();
   const item = (id: string): Item => {
     const n = byId.get(id)!; const it: Item = { id, n };
-    if (n.kind === "wait") { const o = outs(id); if (o.length === 1) { const nx = byId.get(skip(o[0].to)); if (nx && nx.kind === "send" && ins(nx.id).length === 1) { folded.add(id); return { id: nx.id, n: nx, waits: n.title, cond: nx.cond }; } } }
-    if (n.cond && n.kind === "send") it.cond = n.cond;
+    // a wait that is itself a sometimes-step stays its own node, so its condition is not put on the send
+    if (n.kind === "wait" && !n.onlyIf) { const o = outs(id); if (o.length === 1) { const nx = byId.get(skip(o[0].to)); if (nx && nx.kind === "send" && ins(nx.id).length === 1) { folded.add(id); return { id: nx.id, n: nx, waits: n.title, cond: nx.cond, when: nx.onlyIf }; } } }
+    if (n.cond && (n.kind === "send" || n.onlyIf)) it.cond = n.cond;
+    if (n.onlyIf) it.when = n.onlyIf;
     return it;
   };
   const rows: Row[] = []; const seen = new Set<string>();
@@ -87,14 +96,14 @@ export function arrange(chart: Chart): Row[] {
     seen.add(cur);
     const o = outs(cur).map((e) => ({ ...e, to: skip(e.to) }));
     // a conditional send: a branch with one "when" to a single step that rejoins where "otherwise" goes; a wait right before it folds in
-    const condOf = (forkId: string): { step: N; cond: string; next: string } | null => {
+    const condOf = (forkId: string): { step: N; cond: string; when: string; next: string } | null => {
       const f = byId.get(forkId); if (!f || f.kind !== "fork") return null;
       const fo = outs(forkId).map((e) => ({ ...e, to: skip(e.to) })); if (fo.length !== 2 || !fo.some((e) => e.else) || !fo.some((e) => !e.else)) return null;
       const yes = fo.find((e) => !e.else)!, no = fo.find((e) => e.else)!; const step = byId.get(yes.to); const after = step ? outs(step.id).map((e) => skip(e.to)) : [];
-      return step && after.length === 1 && after[0] === no.to ? { step, cond: `Only when ${yes.label}`, next: no.to } : null;
+      return step && after.length === 1 && after[0] === no.to ? { step, cond: `Only when ${yes.label}`, when: yes.label.replace(/^this is not /, "not ").replace(/^this is /, ""), next: no.to } : null;
     };
-    if (n.kind === "fork") { const c = condOf(cur); if (c) { seen.add(c.step.id); line.push({ id: c.step.id, n: c.step, cond: c.cond }); cur = c.next; continue; } }
-    if (n.kind === "wait" && o.length === 1) { const c = condOf(o[0].to); if (c) { seen.add(o[0].to); seen.add(c.step.id); line.push({ id: c.step.id, n: c.step, cond: c.cond, waits: n.title }); cur = c.next; continue; } }
+    if (n.kind === "fork") { const c = condOf(cur); if (c) { seen.add(c.step.id); line.push({ id: c.step.id, n: c.step, cond: c.cond, when: c.when }); cur = c.next; continue; } }
+    if (n.kind === "wait" && o.length === 1) { const c = condOf(o[0].to); if (c) { seen.add(o[0].to); seen.add(c.step.id); line.push({ id: c.step.id, n: c.step, cond: c.cond, when: c.when, waits: n.title }); cur = c.next; continue; } }
     // a reply-wait with a timeout edge: the fork after the reply takes "No reply" as one more way out
     if (n.kind === "reply" && o.length === 2) {
       const replied = o.find((e) => e.label !== "no reply in time") ?? o[0], timeout = o.find((e) => e.label === "no reply in time");
@@ -150,23 +159,41 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
   const out: string[] = []; const x = W / 2; let y = 14;   // y is the top of the next thing to draw
   const maxNodeW = Math.min(300, W - 24);
   let prevBottom: number | null = null;
-  const link = (x1: number, y1: number, x2: number, y2: number) => { const my = (y1 + y2) / 2; out.push(`<path d="M${x1} ${y1} C${x1} ${my} ${x2} ${my} ${x2} ${y2}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`); };
+  const link = (x1: number, y1: number, x2: number, y2: number, dashed = false) => { const my = (y1 + y2) / 2; out.push(`<path d="M${x1} ${y1} C${x1} ${my} ${x2} ${my} ${x2} ${y2}" fill="none" stroke="${T("edge")}" stroke-width="1.6"${dashed ? ` stroke-dasharray="${DASH}"` : ""}/>`); };
+  // the node last put, so the edge out of a sometimes-step is dashed and the way around it ("otherwise") can be drawn
+  type Placed = { it: Item; cx: number; top: number; bottom: number; w: number; above: boolean };
+  let last: Placed | null = null;
   // one node on the spine (or at cx): draws it at the current y, returns its bottom
-  const put = (it: Item, cx: number, top: number, maxW: number) => { const sz = sizeOf(it, maxW); out.push(node(it, cx, top + sz.h / 2, sz, stateOf(it.id))); return top + sz.h; };
+  const put = (it: Item, cx: number, top: number, maxW: number, above = false) => { const sz = sizeOf(it, maxW); out.push(node(it, cx, top + sz.h / 2, sz, stateOf(it.id))); last = { it, cx, top, bottom: top + sz.h, w: sz.w, above }; return top + sz.h; };
+  /**
+   * The edge straight down from the node last put to the next thing at (x, y2), dashed into or out of a sometimes-step.
+   * Out of one that had an edge straight into it, a thin blue way around its right side, "otherwise": skipped, the
+   * run goes on. Drawn only when it fits left of `limit`.
+   */
+  const down = (x1: number, y1: number, y2: number, next: Item | null, limit: number) => {
+    const p = last as Placed | null;
+    link(x1, y1, x1, y2, !!(next?.when || (p && p.bottom === y1 && p.it.when)));
+    if (!p || p.bottom !== y1 || !p.it.when || !p.above || p.cx !== x1) return;
+    const rx = p.cx + p.w / 2 + 14; if (rx > limit) return;
+    const a = p.top - GAP / 2, b = p.bottom + GAP / 2;
+    out.push(`<path class="by" d="M${p.cx} ${a} Q${rx} ${a} ${rx} ${p.top + 8} V${p.bottom - 8} Q${rx} ${b} ${p.cx} ${b}" fill="none" stroke="${T("cond")}" stroke-width="1.4" stroke-opacity=".75"/>`);
+    if (rx + 6 + tw("otherwise", IF_W) <= limit) out.push(`<text class="lbl" x="${rx + 6}" y="${(p.top + p.bottom) / 2 + 4}" style="fill:${T("cond")}">otherwise</text>`);
+  };
   for (const row of rows) {
     if (row.kind === "nodes") {
       // triggers side by side when there are several; everything else down the spine
       const trigs = row.items.filter((it) => it.n.kind === "trig"); const rest = row.items.filter((it) => it.n.kind !== "trig");
       if (trigs.length > 1) { const w = Math.min(maxNodeW, (W - 24 - (trigs.length - 1) * 12) / trigs.length); const total = trigs.length * w + (trigs.length - 1) * 12; let tx = x - total / 2 + w / 2; let bottom = y; for (const it of trigs) { bottom = Math.max(bottom, put(it, tx, y, w)); tx += w + 12; } tx = x - total / 2 + w / 2; for (let i = 0; i < trigs.length; i++) { link(tx, bottom, x, bottom + GAP); tx += w + 12; } prevBottom = null; y = bottom + GAP; }
-      else if (trigs.length === 1) { if (prevBottom !== null) link(x, prevBottom, x, y); prevBottom = put(trigs[0], x, y, maxNodeW); y = prevBottom + GAP; }
+      else if (trigs.length === 1) { if (prevBottom !== null) down(x, prevBottom, y, trigs[0], W - 4); prevBottom = put(trigs[0], x, y, maxNodeW, prevBottom !== null); y = prevBottom + GAP; }
       for (const it of rest) {
-        if (prevBottom !== null) link(x, prevBottom, x, y);
-        prevBottom = put(it, x, y, maxNodeW); y = prevBottom + GAP;
+        const above = prevBottom !== null;
+        if (prevBottom !== null) down(x, prevBottom, y, it, W - 4);
+        prevBottom = put(it, x, y, maxNodeW, above); y = prevBottom + GAP;
       }
       continue;
     }
     // the fork node, then its groups in rows that fit the width
-    const f = row.fork; if (prevBottom !== null) link(x, prevBottom, x, y);
+    const f = row.fork; if (prevBottom !== null) down(x, prevBottom, y, f, W - 4);
     const forkBottom = put(f, x, y, maxNodeW); y = forkBottom + GAP + 10;
     let groups = row.groups;
     if (pathOnly) { const taken = groups.filter((g) => g.first && stateOf(g.first) && stateOf(g.first) !== "next"); if (taken.length) groups = taken; }
@@ -188,8 +215,8 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
         out.push(`<path d="M${x0} ${sy + 18} H${gx - colW / 2}" fill="none" stroke="${lit ? T("acc") : T("edge")}" stroke-width="1.6"/>`);
         let yy = sy + headH(g) + 8;
         if (!g.items.length) out.push(`<text class="lbl" x="${gx}" y="${yy + 14}" text-anchor="middle">carries on</text>`);
-        let last: number | null = null;
-        for (const it of g.items) { if (last !== null) link(gx, last, gx, yy); last = put(it, gx, yy, innerW); yy = last + GAP; }
+        let end: number | null = null;
+        for (const it of g.items) { if (end !== null) down(gx, end, yy, it, gx + colW / 2 - 4); end = put(it, gx, yy, innerW, end !== null); yy = end + GAP; }
         if (g.go) goesOn = true;
         sy += h + GAP;
       }
@@ -218,8 +245,8 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
         link(x, from, gx, y);
         let yy = y + headH(g) + 8;
         if (!g.items.length) out.push(`<text class="lbl" x="${gx}" y="${yy + 14}" text-anchor="middle">carries on</text>`);
-        let last: number | null = null;
-        for (const it of g.items) { if (last !== null) { link(gx, last, gx, yy); } last = put(it, gx, yy, innerW); yy = last + GAP; }
+        let end: number | null = null;
+        for (const it of g.items) { if (end !== null) down(gx, end, yy, it, gx + colW / 2 - 4); end = put(it, gx, yy, innerW, end !== null); yy = end + GAP; }
         bottoms.push({ x: gx, y: y + h, go: g.go });
         gx += colW + gap;
       }
@@ -238,10 +265,11 @@ function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
   const fill = k === "trig" ? T("acc") : k === "end" ? "none" : k === "fork" || k === "check" ? T("panel-3") : T("panel-2");
   const stroke = k === "trig" ? T("acc") : k === "end" ? T("fg-3") : T("edge"); const ink = k === "trig" ? T("acc-ink") : k === "end" ? T("fg-2") : T("fg");
   const dim = st === "skip" || st === "blocked" || st === "next"; const op = dim ? (st === "next" ? 0.45 : 0.55) : 1;
-  let g = `<g class="nd" tabindex="0" data-id="${it.id}" style="opacity:${op}"><rect class="b" x="${x - w / 2}" y="${top}" width="${w}" height="${h}" rx="${k === "end" ? Math.min(17, h / 2) : 9}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
-  // the title centred on up to three lines; a clock before the first line when it waits, the blue mark at the right when it is conditional
+  // a sometimes-step (D103): a dashed blue border, and its condition on a line of its own under the title
+  let g = `<g class="nd${it.when ? " if" : ""}" tabindex="0" data-id="${it.id}" style="opacity:${op}"><rect class="b" x="${x - w / 2}" y="${top}" width="${w}" height="${h}" rx="${k === "end" ? Math.min(17, h / 2) : 9}" fill="${fill}" stroke="${it.when ? T("cond") : stroke}" stroke-width="1.5"${it.when ? ` stroke-dasharray="${DASH}"` : ""}/>`;
+  // the title centred on up to three lines; a clock before the first line when it waits, the blue mark at the right when it may not fire
   const ki = kindIconOf(it); const leftW = (it.waits ? 22 : 0) + (ki ? 22 : 0);
-  const shift = (leftW - (it.cond ? 18 : 0)) / 2;
+  const shift = (leftW - (it.cond && !it.when ? 18 : 0)) / 2;
   const y0 = top + VPAD + 11.5;
   sz.lines.forEach((l, i) => { g += `<text x="${x + shift}" y="${y0 + i * LINE}" text-anchor="middle" fill="${ink}">${esc(l)}</text>`; });
   let lx = x + shift - Math.max(...sz.lines.map((l) => tw(l))) / 2 - leftW;
@@ -249,7 +277,13 @@ function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
   if (ki) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${iconInk}">${LOGO[ki] ?? LOGO.engine}</g>`; lx += 22; }
   if (it.waits) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${T("fg-2")}">${svgIcon("clock")}</g>`; }
   if (sz.chips) { let cy = y0 + sz.lines.length * LINE - 4; for (const c of sz.chips) { const cw = tw(c.text, 6.4) + 14; g += `<rect x="${x - cw / 2}" y="${cy - 1}" width="${cw}" height="17" rx="6" fill="${c.stage ? T("cond-bg") : T("panel-3")}"/><text x="${x}" y="${cy + 11.5}" text-anchor="middle" fill="${c.stage ? T("cond") : T("fg")}" style="${c.stage ? "font-size:11px;font-weight:600" : "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:500"}">${esc(c.text)}</text>`; cy += 20; } }
-  if (it.cond) g += `<g transform="translate(${x + w / 2 - 24},${top + h / 2 - 8}) scale(.8)" style="color:${T("cond")}">${svgIcon("cond")}</g>`;
+  if (it.cond && !it.when) g += `<g transform="translate(${x + w / 2 - 24},${top + h / 2 - 8}) scale(.8)" style="color:${T("cond")}">${svgIcon("cond")}</g>`;
+  if (it.when) {
+    const room = w - 16 - IF_PAD; const full = ifLine(it);
+    // in a narrow column "if …" before cutting the condition itself
+    const line = tw(full, IF_W) <= room ? full : tw(`if ${it.when}`, IF_W) <= room ? `if ${it.when}` : trunc(`if ${it.when}`, room + PAD, IF_W); const lw = tw(line, IF_W) + 16; const cy = top + h - 8;
+    g += `<g transform="translate(${x - lw / 2},${cy - 10.5}) scale(.65)" style="color:${T("cond")}">${svgIcon("cond")}</g><text x="${x - lw / 2 + 16}" y="${cy}" fill="${T("cond")}" style="font-size:11.5px;font-weight:600">${esc(line)}</text>`;
+  }
   if (st && st !== "next") { const [col, bg] = BADGE[st] ?? BADGE.stop;
     g += `<g transform="translate(${x + w / 2 - 10},${top - 10})"><title>${esc(STATE_WORDS[st] ?? st)}</title><circle cx="10" cy="10" r="10" fill="${T(bg)}"/><g style="color:${T(col)}" transform="translate(3,3) scale(.7)">${svgIcon(st === "ok" ? "check" : st === "ghost" ? "ghost" : st === "here" ? "clock" : st === "skip" || st === "blocked" ? "skip" : st === "warn" ? "warn" : "stop")}</g></g>`; }
   return g + "</g>";
@@ -297,7 +331,7 @@ export function NodeWords({ chart, id, state, extra }: { chart: Chart; id: strin
     <h4><Title text={n.title} />{n.meta ? <span style={{ color: "var(--fg-2)", fontWeight: 500 }}> · {n.meta}</span> : null}</h4>
     {n.detail ? <p className="m">{n.detail}</p> : null}
     {n.kind === "fork" ? <p className="m">{chart.edges.filter((e) => e.from === id).map((e) => e.label || "otherwise").join(" · ")}</p> : null}
-    {n.cond ? <div className="c"><Cond /><span>{n.cond}</span></div> : null}
+    {n.cond ? <div className="c"><Cond /><span>{n.cond}{n.onlyIf ? ". Otherwise it is skipped and the run goes on." : null}</span></div> : null}
     {n.quote ? (n.channel === "slack" ? <SlackMsg face={n.face} text={n.quote} time="9:41 AM" thread={n.thread} reaction={n.react} offers={n.offer} /> : <div className="q">{n.quote}</div>) : null}
     {state ? <div className={`st ${state}`}>{state === "ok" ? <Check /> : state === "ghost" ? <Ghost /> : state === "here" ? <Clock /> : state === "warn" ? <Warn /> : <Skip />}{w}</div> : null}
     {extra}
@@ -318,7 +352,7 @@ export function Legend({ run, states }: { run?: boolean; states?: Iterable<strin
   const on = new Set(states ?? STATE_ORDER); on.add("ok");
   const keys = STATE_ORDER.filter((k) => on.has(k) || (k === "next" && run));
   return <div className="legend">
-    {run ? null : <><span style={{ color: "var(--fg-2)" }}><Clock />waits first</span><span style={{ color: "var(--cond)" }}><Cond />runs only sometimes</span><span className="sep" aria-hidden /></>}
+    {run ? null : <><span style={{ color: "var(--fg-2)" }}><Clock />waits first</span><span style={{ color: "var(--cond)" }}><i className="dash" aria-hidden />only if …, otherwise skipped</span><span style={{ color: "var(--cond)" }}><Cond />may be skipped</span><span className="sep" aria-hidden /></>}
     {keys.map((k) => <span key={k} className="key" style={{ color: `var(--${STATE_INK[k]})` }}><i className={`swa ${k}`} />{k === "next" ? null : stateIcon(k)}{STATE_WORDS[k]}</span>)}
   </div>;
 }
