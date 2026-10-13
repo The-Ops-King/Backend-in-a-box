@@ -64,7 +64,7 @@ export function parseZapierRecording(body: Record<string, unknown>): { ok: true;
   else if (typeof tRaw === "string" && tRaw.trim()) transcript = tRaw.split(/\r?\n/).filter((l) => l.trim()).map((line) => { const m = /^\s*(?:\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s*)?([^:]{1,60}):\s*(.*)$/.exec(line); return m ? { speaker: m[2].trim(), text: m[3], timestamp: m[1] } : { speaker: "Speaker", text: line.trim() }; });
   return { ok: true, input: {
     provider: (pick("provider", "source") ?? "fathom").toLowerCase(), externalId: id, title: pick("title", "meeting_title", "meetingTitle"), startedAt, endedAt, durationMin,
-    url: pick("url", "recording_url", "recordingUrl"), shareUrl: pick("share_url", "shareUrl") ?? pick("url", "recording_url", "recordingUrl"),
+    url: pick("url", "recording_url", "recordingUrl"), shareUrl: pick("share_url", "shareUrl") ?? pick("url", "recording_url", "recordingUrl"), meetingUrl: pick("meeting_url", "meetingUrl"),
     recordedBy, invitees, transcript, summary: pick("summary", "default_summary", "defaultSummary"),
     raw: { via: "zapier", transcript_url: pick("transcript_url", "transcriptUrl") },
   } };

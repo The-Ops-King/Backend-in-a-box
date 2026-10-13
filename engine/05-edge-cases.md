@@ -265,6 +265,9 @@ not preserve the subquery's order), so two events landing in the same poll race;
 | Two different contacts on one recording | Ambiguous, not a guess: unlinked | `recordings.test.ts › two different contacts on one recording is ambiguous, not a guess; all-staff is named as such` |
 | Two contacts with the same name | Name alone never picks one | `recordings.test.ts › name matches only when exactly one contact has it` |
 | The closer's own recording with a guest email | The closer's calendar resolves the person when one appointment is near | `recordings.test.ts › the closer's calendar: one appointment within two hours…` |
+| No invitee but the closer, back-to-back calls (D102) | The recording's meeting link names the booking made with it (`linked_by: meeting`) | `recordings.test.ts › no attendee but the closer, two calls 30 minutes apart…` |
+| One meeting link on several bookings (a personal meeting room) | No answer from the link; the name and calendar rungs decide | `recordings.test.ts › one meeting link on two bookings…` |
+| An impromptu meeting after the booked link failed | Another meeting id: the closer's calendar finds the call as before | `recordings.test.ts › an impromptu meeting after the booked link failed…` |
 | The closer not on the roster | Still staff (`recordedBy`) | `recordings.test.ts › the closer is staff even when the roster did not list them…` |
 | No AI key | `analyze` fails the run unless `optional`; readiness/health warn | `slack.post.test.ts › without the AI key the optional cheer is skipped…` (optional); the required case: `not yet` |
 | Jev unsure of the kind | `unclear` → the sales-call check fails → `not_a_sales_call` | `adapters/jev/classifier.test.ts › below the threshold, outside the options, a failed call, or no key: unclear`; the exit: `not yet` |

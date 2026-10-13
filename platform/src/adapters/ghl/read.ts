@@ -28,8 +28,9 @@ export const mapContact = (c: RawContact): ContactSnapshot => {
     dateUpdated: c.dateUpdated, dateAdded: c.dateAdded, ...(attribution ? { attribution } : {}),
   };
 };
-type RawEvent = { id: string; calendarId: string; contactId: string; assignedUserId?: string; startTime: string; endTime: string; appointmentStatus: string; title?: string; dateUpdated?: string; dateAdded?: string };
-const mapAppt = (e: RawEvent): AppointmentSnapshot => ({ id: e.id, calendarId: e.calendarId, contactId: e.contactId, assignedUserId: e.assignedUserId, startTime: e.startTime, endTime: e.endTime, status: e.appointmentStatus, title: e.title, dateUpdated: e.dateUpdated, dateAdded: e.dateAdded, raw: e as unknown as Record<string, unknown> });
+export type RawEvent = { id: string; calendarId: string; contactId: string; assignedUserId?: string; startTime: string; endTime: string; appointmentStatus: string; title?: string; dateUpdated?: string; dateAdded?: string; address?: string };
+// `address` is the meeting link on a calendar with a video location (or a street address, which meetingKey ignores)
+export const mapAppt = (e: RawEvent): AppointmentSnapshot => ({ id: e.id, calendarId: e.calendarId, contactId: e.contactId, assignedUserId: e.assignedUserId, startTime: e.startTime, endTime: e.endTime, status: e.appointmentStatus, title: e.title, dateUpdated: e.dateUpdated, dateAdded: e.dateAdded, meetingUrl: e.address || undefined, raw: e as unknown as Record<string, unknown> });
 
 type RawOpp = { id: string; contact?: { id: string }; contactId?: string; pipelineId: string; pipelineStageId: string; status: string; name?: string; assignedTo?: string | null; updatedAt: string; lastStageChangeAt?: string; updatedBy?: string; lastStageChangeBy?: string };
 // the stage-change stamp outranks updatedAt when the CRM gives both: a note or a field edit also bumps updatedAt

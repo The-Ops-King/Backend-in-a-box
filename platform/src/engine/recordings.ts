@@ -5,14 +5,18 @@ import { normEmail } from "./payments";
 
 /**
  * Call recordings (D22). Same shape as the payments ledger: every recording the provider reports becomes a row, linked
- * to a person or not. The ladder, most reliable first: an invitee email on a known contact; an invitee name that matches
- * exactly one contact; the closer's own calendar (the recorder is a user we know, and they had one appointment within
- * two hours of the recording start, or one starting within 15 minutes of it with every other at least 40 minutes away). One unambiguous hit or nothing. A miss is an unlinked row the team fixes by hand.
+ * to a person or not. The ladder, most reliable first: an invitee email on a known contact (and, D102, that contact's
+ * booking with the recording's meeting link, when they have one); the meeting link (D102: exactly one live booking of the
+ * company has it, starting within a day of the recording; a link several bookings share, a personal meeting room, says
+ * nothing); an invitee name that matches exactly one contact; the closer's own calendar (the recorder is a user we know,
+ * and they had one appointment within two hours of the recording start, or one starting within 15 minutes of it with every
+ * other at least 40 minutes away). One unambiguous hit or nothing. A miss is an unlinked row the team fixes by hand.
  */
 export type RecordingInput = {
   provider?: string; externalId: string;
   title?: string; startedAt: Date; endedAt?: Date; durationMin?: number;
   url?: string; shareUrl?: string;
+  meetingUrl?: string;   // the call's own join link (Zoom, Meet…), matched to a booking's by meetingKey; never stored
   recordedBy?: { name?: string; email?: string };
   invitees: { name?: string; email?: string; isExternal?: boolean }[];
   transcript?: { speaker: string; email?: string; text: string; timestamp?: string }[];
@@ -29,6 +33,21 @@ const CALENDAR_WINDOW_MIN = 120;      // the closer's appointment must start wit
 const ON_TIME_MIN = 15;               // a recording starting this close to a call's start is that call…
 const CLEAR_GAP_MIN = 40;             // …when no other call of the closer's starts within this of the recording
 const APPOINTMENT_WINDOW_H = 24;      // once the person is known, their appointment nearest the recording, if this close
+
+/**
+ * D102: one meeting, one key, whichever side reports it: a Zoom meeting id (`/j/<digits>`), a Google Meet code, otherwise the
+ * link without its query (a password or a tracking parameter differs between the booking's copy and the recorder's).
+ */
+export function meetingKey(url?: string | null): string | undefined {
+  const s = url?.trim();
+  if (!s || !/^https?:\/\//i.test(s)) return undefined;
+  let u: URL;
+  try { u = new URL(s); } catch { return undefined; }
+  const host = u.hostname.toLowerCase().replace(/^www\./, ""), path = u.pathname.replace(/\/+$/, "");
+  if (/(^|\.)zoom(gov)?\.(us|com)$/.test(host)) { const id = /^\/(?:j|s|w|wc(?:\/join)?)\/(\d{9,12})(?:\/|$)/.exec(path)?.[1]; if (id) return id; }
+  if (host === "meet.google.com") { const code = /^\/([a-z]{3}-[a-z]{4}-[a-z]{3})$/i.exec(path)?.[1]; if (code) return code.toLowerCase(); }
+  return `${host}${path}`;
+}
 
 /** The transcript as one readable document: "Speaker: text" lines. */
 export const transcriptText = (t: RecordingRow["transcript"] | undefined) => (t ?? []).map((l) => `${l.speaker}: ${l.text}`).join("\n");
@@ -49,15 +68,26 @@ export async function prospectsOnCall(c: PoolClient, companyId: string, input: P
   return { emails, names, staffDropped };
 }
 
-export type Match = { contactId: string; by: "email" | "name" | "calendar"; appointmentId?: string };
+export type Match = { contactId: string; by: "email" | "meeting" | "name" | "calendar"; appointmentId?: string };
 export async function resolveRecording(c: PoolClient, companyId: string, input: RecordingInput): Promise<{ match: Match | null; reason?: string }> {
   const { emails, names, staffDropped } = await prospectsOnCall(c, companyId, input);
+  const key = meetingKey(input.meetingUrl);
+  // the live bookings carrying the recording's meeting link (all of the company's, or one contact's): one, near the recording, or none of them counts
+  const byMeeting = async (contactId?: string) => {
+    if (!key) return { hit: null, shared: 0 };
+    const rows = await many<{ id: string; contact_id: string; off: number }>(c, `select id, contact_id, abs(extract(epoch from (starts_at - $3::timestamptz)))::float as off from appointments where company_id=$1 and meeting_key=$2 and status<>'cancelled'${contactId ? " and contact_id=$4" : ""}`, contactId ? [companyId, key, input.startedAt, contactId] : [companyId, key, input.startedAt]);
+    return { hit: rows.length === 1 && rows[0].off <= APPOINTMENT_WINDOW_H * 3600 ? rows[0] : null, shared: rows.length };
+  };
   // 1. email: identities are unique per company, so a hit is exact
   const byEmail = new Set<string>();
   for (const e of emails) { const r = await one<{ contact_id: string }>(c, "select i.contact_id from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.kind='email' and i.value=$2 and ct.merged_into is null", [companyId, e]); if (r) byEmail.add(r.contact_id); }
-  if (byEmail.size === 1) return { match: { contactId: [...byEmail][0], by: "email" } };
+  if (byEmail.size === 1) { const contactId = [...byEmail][0], { hit } = await byMeeting(contactId); return { match: { contactId, by: "email", ...(hit ? { appointmentId: hit.id } : {}) } }; }
   if (byEmail.size > 1) return { match: null, reason: `attendees match ${byEmail.size} different contacts (${emails.join(", ")})` };
-  // 2. name: exact after normalisation, exactly one contact
+  // 2. meeting link (D102): the booking's own join link is the recording's; exact when only one booking has it
+  const meeting = await byMeeting();
+  if (meeting.hit) return { match: { contactId: meeting.hit.contact_id, by: "meeting", appointmentId: meeting.hit.id } };
+  const shared = meeting.shared > 1 ? `; its meeting link is on ${meeting.shared} bookings` : "";
+  // 3. name: exact after normalisation, exactly one contact
   const byName = new Set<string>();
   for (const n of names.map(normName).filter((x): x is string => !!x)) {
     const rows = await many<{ id: string }>(c, "select id from contacts where company_id=$1 and merged_into is null and lower(regexp_replace(trim(coalesce(first_name,'')||' '||coalesce(last_name,'')), '[^[:alnum:]]+', ' ', 'g'))=$2", [companyId, n]);
@@ -65,17 +95,17 @@ export async function resolveRecording(c: PoolClient, companyId: string, input: 
   }
   if (byName.size === 1) return { match: { contactId: [...byName][0], by: "name" } };
   if (byName.size > 1) return { match: null, reason: `attendee names match ${byName.size} different contacts` };
-  // 3. the closer's calendar: the recorder is a user we know, with one appointment near the recording start
+  // 4. the closer's calendar: the recorder is a user we know, with one appointment near the recording start
   const closer = input.recordedBy?.email ? await one<{ id: string }>(c, "select id from users where company_id=$1 and lower(email)=$2 and active", [companyId, input.recordedBy.email.toLowerCase()]) : null;
   if (closer) {
     const near = await many<{ id: string; contact_id: string; off: number }>(c, `select id, contact_id, abs(extract(epoch from (starts_at - $3::timestamptz)))::float as off from appointments where company_id=$1 and assigned_user_id=$2 and status<>'cancelled' and abs(extract(epoch from (starts_at - $3::timestamptz))) <= $4 order by 3`, [companyId, closer.id, input.startedAt, CALENDAR_WINDOW_MIN * 60]);
     if (near.length === 1) return { match: { contactId: near[0].contact_id, by: "calendar", appointmentId: near[0].id } };
     // back-to-back calls are normal: the call the recording started on is the one beginning right then, when the next nearest is clearly another slot
     if (near.length > 1 && near[0].off <= ON_TIME_MIN * 60 && near[1].off >= CLEAR_GAP_MIN * 60) return { match: { contactId: near[0].contact_id, by: "calendar", appointmentId: near[0].id } };
-    if (near.length > 1) return { match: null, reason: `the closer had ${near.length} appointments within ${CALENDAR_WINDOW_MIN / 60} hours of this recording, none clearly the one it started on` };
+    if (near.length > 1) return { match: null, reason: `the closer had ${near.length} appointments within ${CALENDAR_WINDOW_MIN / 60} hours of this recording, none clearly the one it started on${shared}` };
   }
   const seen = [...emails, ...names].join(", ");
-  return { match: null, reason: emails.length || names.length ? `nobody in the CRM matches ${seen}${closer ? "; no appointment on the closer's calendar near the start" : ""}` : staffDropped.length ? `every attendee is staff (${staffDropped.join(", ")})` : "no attendees on the recording" };
+  return { match: null, reason: (emails.length || names.length ? `nobody in the CRM matches ${seen}${closer ? "; no appointment on the closer's calendar near the start" : ""}` : staffDropped.length ? `every attendee is staff (${staffDropped.join(", ")})` : "no attendees on the recording") + shared };
 }
 
 /** The contact's appointment nearest the recording, within a day; a reschedule means several, and the nearest one is the one held. */

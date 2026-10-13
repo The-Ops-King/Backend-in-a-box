@@ -1,7 +1,7 @@
 import type { RecordingInput } from "../recordings";
 
 /**
- * Fathom's webhook body is the Meeting object (fathom/01-api-facts.md): recording_id, title/meeting_title, url/share_url,
+ * Fathom's webhook body is the Meeting object (fathom/01-api-facts.md): recording_id, title/meeting_title, url/share_url, meeting_url (the call's join link, D102),
  * scheduled/recording start and end, calendar_invitees[{name,email,is_external}], recorded_by{name,email},
  * transcript[{speaker{display_name, matched_calendar_invitee_email}, text, timestamp}], default_summary{markdown_formatted}.
  */
@@ -22,7 +22,7 @@ export function parseFathomMeeting(m: FathomMeeting): { ok: true; input: Recordi
   return { ok: true, input: {
     provider: "fathom", externalId: String(id), title: str(m.meeting_title) ?? str(m.title), startedAt, endedAt,
     durationMin: endedAt ? Math.round((endedAt.getTime() - startedAt.getTime()) / 60000) : undefined,
-    url: str(m.url), shareUrl: str(m.share_url) ?? str(m.url),
+    url: str(m.url), shareUrl: str(m.share_url) ?? str(m.url), meetingUrl: str(m.meeting_url),
     recordedBy: { name: str(rb.name), email: str(rb.email)?.toLowerCase() }, invitees, transcript, summary,
     raw: { meeting_type: m.meeting_type, calendar_invitees_domains_type: m.calendar_invitees_domains_type, action_items: Array.isArray(m.action_items) ? m.action_items.length : undefined, transcript_language: m.transcript_language },
   } };

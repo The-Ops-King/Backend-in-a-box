@@ -3232,3 +3232,37 @@ one before she dials in. Install mapped a calendar only to a core category's def
 that category and maps the calendar to it; without `name` the default type as before. The type names the booking
 everywhere it is shown; the Sales Call's own Call Type field (Closing / Demo) is what PMU's numbers split on.
 Test: `install.upgrade.test.ts` (made once over two installs, default type untouched, back to the default when unmapped).
+
+## D102. A recording finds its booking by the meeting link (2026-10-13)
+
+PMU's Fathom recordings often carry no external invitee (only Carly, the closer), and Carly's calls sit close together, so
+the closer's-calendar rung saw two bookings near the start and left the recording unlinked. The meeting link was the same
+on both sides all along: Fathom reports the call's join link (`meeting_url`), and the booking carries the link it was
+booked with (Calendly `location.join_url`, a GHL appointment's `address`).
+
+- **A key, not the link.** `meetingKey(url)` (`recordings.ts`): a Zoom meeting id from `/j/<digits>` (any Zoom host, so
+  `us06web.zoom.us` and `zoom.us` agree), a Google Meet code, otherwise host and path without the query (a password or a
+  tracking parameter is not the meeting). Anything that is not an http(s) link (a street address, a phone number) is no
+  key. Used on both sides.
+- **Kept on the appointment only.** `appointments.meeting_key` (migration: `alter table appointments add column if not
+  exists meeting_key text` and a partial index on `(company_id, meeting_key)`), written by the poll's upsert; an existing
+  booking gets it, or a changed one (a Calendly reschedule is a new meeting), without an event. The recording's link is
+  read at receipt and not stored: nothing re-runs the ladder later.
+- **The rung.** Email, then **meeting link**, then name, then the closer's calendar. It is exact when exactly one live
+  (not cancelled) booking of the company has the key and it starts within a day of the recording: `linked_by: meeting`,
+  that booking's person and appointment. A key several bookings share (a closer's personal meeting room) says nothing and
+  the next rungs decide; an unlinked reason then adds "its meeting link is on N bookings". An email hit stays first, and
+  when that person has one booking with the recording's key, that is the appointment rather than merely the nearest.
+- **Impromptu calls are unchanged.** A closer whose booked link failed and who starts an "Impromptu Zoom Meeting" has
+  another meeting id: no booking has it, and the calendar rung finds the call as before.
+- `recording.matched_by` carries `meeting`; no dashboard or Slack copy words the match today (the field is passed as is).
+- Not done: `fathom/01-api-facts.md` does not list `meeting_url` among the verified payload fields; it is read when the
+  payload carries it (the Zap door takes `meeting_url` too). Bookings polled before this get their key on the next poll that sees them (the poll window is two
+  days back to sixty ahead).
+- Tests: `recordings.test.ts` (no attendee but the closer, two calls 30 minutes apart: the Zoom link names the second;
+  one link on two bookings falls through to the calendar, and the unlinked reason says so; an email hit takes that
+  contact's booking with the link, not merely the nearest; an impromptu meeting with another link still links by the
+  calendar; a cancelled booking's link or one days away says nothing; a Calendly booking keeps its `location.join_url`
+  as the key and a new link replaces it without an event; a GHL address that is a link is kept, a street address is no
+  key; the key itself; Fathom's and the Zap's `meeting_url` are read). Removing the rung, taking the first of several
+  bookings with the key, and ignoring the key on an email hit each turned one test red.
