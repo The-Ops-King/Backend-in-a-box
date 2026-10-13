@@ -3241,11 +3241,11 @@ loss" on its booking card. The owner: fix the template so each company shows its
 must come out exactly as it does today.
 
 - **A company setting.** `booking_card.intake` (kind text, JSON), set at install with
-  `bookingCard: { intake: [{ label, field | answer, plus? }] }`: each line a label and where its value comes from, a CRM
+  `bookingCard: { intake: [{ label, field | answer | tags, plus? }] }`: each line a label and where its value comes from, a CRM
   contact field by the name the company bound it under (`field`: `crm.field_contact_<name>`) or a booking answer by the
   name its calendar maps the question to (`answer`: `appointment.answers.<name>`, D24); `plus` is a second value from the
-  same place after one space. Omitted on a re-install it stays as it is; `[]` is no lines. A line with no label, or with
-  both or neither of field and answer, refuses the install. The Setup page shows the lines under Booking (read-only, D42).
+  same place after one space; `tags` maps tags to words (PMU's MQL / DQ, set by a Zap, is tags, not a field). Omitted on a re-install it stays as it is; `[]` is no lines. A line with no label, or without
+  exactly one of field, answer or tags, refuses the install. The Setup page shows the lines under Booking (read-only, D42).
 - **One value for templates.** `{{contact.intake_lines}}`, built in `buildContext`: `*Label:* value` per line, `—` for an
   empty value, the lines joined by newlines; nothing when no line is set. The shipped card has `*Phone:* …` (generic, kept)
   followed by `{{contact.intake_lines | line}}`, so an unset company gets no intake lines and no blank line, never Hair's.

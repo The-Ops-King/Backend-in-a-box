@@ -171,7 +171,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     ctx.records = Object.fromEntries(recs.map((r) => [r.object_key.replace(/^custom_objects\./, ""), { key: r.record_key, id: r.ghl_record_id ?? "" }]));
   }
   // D104: the booking card's intake lines as the company set them, ready to post; none set, nothing
-  if (ctx.contact) (ctx.contact as Record<string, unknown>).intake_lines = intakeText(intakeLines(bindings), fields, (ctx.appointment as { answers?: Record<string, unknown> } | undefined)?.answers) || undefined;
+  if (ctx.contact) (ctx.contact as Record<string, unknown>).intake_lines = intakeText(intakeLines(bindings), fields, (ctx.appointment as { answers?: Record<string, unknown> } | undefined)?.answers, ((ctx.contact as { tags?: string[] }).tags ?? [])) || undefined;
   // a run about a person on the team (a closer's end-of-day, a report filed): who they are, their standing link, and their end-of-day facts
   if (run.user_id) {
     const u = await one<{ id: string; name: string; email: string; role: string; ghl_user_id: string | null; slack_user_id: string | null; report_token: string | null }>(c, "select id, name, email, role, ghl_user_id, slack_user_id, report_token from users where id=$1 and company_id=$2", [run.user_id, company.id]);

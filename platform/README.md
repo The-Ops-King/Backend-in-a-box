@@ -1087,9 +1087,12 @@ What Call booked's Slack card shows under *Phone* is the company's own, never an
 "bookingCard": { "intake": [
   { "label": "Monthly revenue", "answer": "monthly_revenue" },
   { "label": "Ad budget", "field": "ad_budget" },
-  { "label": "Hair loss", "field": "hair_loss", "plus": "hair_loss_stage" }
+  { "label": "Hair loss", "field": "hair_loss", "plus": "hair_loss_stage" },
+  { "label": "Qualified", "tags": { "meta booked call mql": "MQL", "meta booked call dq": "DQ" } }
 ] }
 ```
+`tags` says the word for each of the contact's tags it names (exact tag, any case), several joined with commas, `—` when
+none: PMU's MQL / DQ comes from tags its Zap sets, not a field.
 
 `field` is a CRM contact field by the name it is bound under (`crm: { field_contact_ad_budget: "<id>" }`), `answer` a
 booking answer by the name the calendar's `questions` give it (above), `plus` a second value from the same place after

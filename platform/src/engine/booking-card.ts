@@ -5,9 +5,10 @@ import { many } from "@/db/client";
  * D104: the booking card's intake lines are the company's own. One line: its label and where its value comes from, a CRM
  * contact field by the name the company bound it under (`field`: crm.field_contact_<name>) or a booking answer by the
  * name its calendar maps the question to (`answer`: appointment.answers.<name>); `plus` is a second value from the same
- * place, appended after one space (Hair's "hair_loss hair_loss_stage").
+ * place, appended after one space (Hair's "hair_loss hair_loss_stage"). `tags`: the words for the contact's tags, by exact tag
+ * (PMU's "meta booked call mql" → MQL, set by a Zap), several joined with commas.
  */
-export type IntakeLine = { label: string; field?: string; answer?: string; plus?: string };
+export type IntakeLine = { label: string; field?: string; answer?: string; plus?: string; tags?: Record<string, string> };
 export const BOOKING_CARD_KEY = "booking_card.intake";
 
 /** What a company bound, read leniently: a malformed setting is no lines, never a failed booking card. */
@@ -18,10 +19,12 @@ export function intakeLines(bindings: Record<string, string>): IntakeLine[] {
 }
 
 export function intakeProblem(l: unknown): string | null {
-  if (!l || typeof l !== "object") return "a line is an object { label, field | answer, plus? }";
-  const { label, field, answer, plus } = l as Record<string, unknown>;
+  if (!l || typeof l !== "object") return "a line is an object { label, field | answer | tags, plus? }";
+  const { label, field, answer, plus, tags } = l as Record<string, unknown>;
   if (typeof label !== "string" || !label.trim()) return "a line needs a label";
-  if ((field === undefined) === (answer === undefined)) return `"${label}": exactly one of field or answer`;
+  if ([field, answer, tags].filter((x) => x !== undefined).length !== 1) return `"${label}": exactly one of field, answer or tags`;
+  if (tags !== undefined && (!tags || typeof tags !== "object" || Array.isArray(tags) || !Object.keys(tags).length || Object.entries(tags).some(([k, v]) => !k.trim() || typeof v !== "string" || !v.trim()))) return `"${label}": tags maps each tag to its word`;
+  if (tags !== undefined && plus !== undefined) return `"${label}": plus goes with a field or an answer`;
   for (const [k, v] of [["field", field], ["answer", answer], ["plus", plus]] as const) if (v !== undefined && (typeof v !== "string" || !v.trim())) return `"${label}": ${k} is a name`;
   return null;
 }
@@ -33,8 +36,10 @@ const shown = (v: unknown): string | undefined => {
 };
 
 /** `*Label:* value` per line, `—` for an empty value, joined by newlines; written to match the card's fixed lines byte for byte. */
-export function intakeText(lines: IntakeLine[], fields: Record<string, unknown>, answers: Record<string, unknown> | undefined): string {
+export function intakeText(lines: IntakeLine[], fields: Record<string, unknown>, answers: Record<string, unknown> | undefined, tags: string[] = []): string {
+  const has = new Set(tags.map((t) => t.toLowerCase()));
   return lines.map((l) => {
+    if (l.tags) return `*${l.label}:* ${Object.entries(l.tags).filter(([t]) => has.has(t.toLowerCase())).map(([, w]) => w).join(", ") || "—"}`;
     const from = l.field !== undefined ? fields : answers ?? {};
     const name = (l.field ?? l.answer)!;
     return `*${l.label}:* ${shown(from[name]) ?? "—"}${l.plus !== undefined ? ` ${shown(from[l.plus]) ?? ""}` : ""}`;

@@ -10,7 +10,7 @@ import { render } from "./template";
 import { templates } from "@/templates";
 import { exampleContext, nodeExamples } from "./example";
 import { parseDefinition, type Definition } from "./definition";
-import { BOOKING_CARD_KEY, HAIR_INTAKE, intakeLines } from "./booking-card";
+import { BOOKING_CARD_KEY, HAIR_INTAKE, intakeLines, intakeProblem, intakeText, type IntakeLine } from "./booking-card";
 import { fakeAdapters } from "./test-install";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -119,11 +119,20 @@ describe.skipIf(!process.env.DATABASE_URL)("the booking card's intake lines (D10
     expect(own).not.toMatch(/hair/i);
   });
 
+  it("a tags line says the words for the tags the contact has (PMU's MQL / DQ from its Zap), — when none, and is refused when malformed", () => {
+    const q: IntakeLine[] = [{ label: "Qualified", tags: { "meta booked call mql": "MQL", "meta booked call dq": "DQ" } }];
+    expect(intakeText(q, {}, undefined, ["vsl a", "Meta Booked Call MQL"])).toBe("*Qualified:* MQL");
+    expect(intakeText(q, {}, undefined, ["meta booked call mql", "meta booked call dq"])).toBe("*Qualified:* MQL, DQ");
+    expect(intakeText(q, {}, undefined, [])).toBe("*Qualified:* —");
+    expect(intakeProblem({ label: "Qualified", tags: {} })).toMatch(/tags maps each tag/);
+    expect(intakeProblem({ label: "Qualified", tags: { mql: "MQL" }, field: "x" })).toMatch(/exactly one of field, answer or tags/);
+  });
+
   it("install writes the setting, refuses a malformed one, and leaves it alone when omitted", async () => {
     const stored = async () => (await asOperator((c) => loadCompany(c, other))).bindings[BOOKING_CARD_KEY];
     await installCompany(base("cardpmu", { bookingCard: { intake: [{ label: " Monthly revenue ", answer: "monthly_revenue" }] } }), fakeAdapters());
     expect(JSON.parse(await stored())).toEqual([{ label: "Monthly revenue", answer: "monthly_revenue" }]);
-    await expect(installCompany(base("cardpmu", { bookingCard: { intake: [{ label: "Both", field: "a", answer: "b" }] } }), fakeAdapters())).rejects.toThrow(/exactly one of field or answer/);
+    await expect(installCompany(base("cardpmu", { bookingCard: { intake: [{ label: "Both", field: "a", answer: "b" }] } }), fakeAdapters())).rejects.toThrow(/exactly one of field, answer or tags/);
     await expect(installCompany(base("cardpmu", { bookingCard: { intake: [{ label: "", field: "a" }] } }), fakeAdapters())).rejects.toThrow(/needs a label/);
     await installCompany(base("cardpmu"), fakeAdapters());
     expect(JSON.parse(await stored())).toEqual([{ label: "Monthly revenue", answer: "monthly_revenue" }]);

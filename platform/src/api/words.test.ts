@@ -32,7 +32,16 @@ describe("chartOf", () => {
 // D103: a sometimes-step reads as one on the chart; Tyler read "A reschedule: card → Rescheduled" as a step every booking takes
 const RESCHEDULE: Predicate = { eq: ["{{event._type}}", "appointment.rescheduled"] };
 const NEW_BOOKING: Predicate = { neq: ["{{event._type}}", "appointment.rescheduled"] };
-const pmuBooked = () => parseDefinition(JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../installs/pmu/call-booked.json"), "utf8")).definition);
+// a fixed fixture, not a client's copy (PMU's now forks instead): the shipped Call booked with its self-booked card move made a
+// sometimes-step and a second sometimes-step after it, the shape Tyler read as two steps that always run
+const pmuBooked = () => {
+  const raw = structuredClone(templates.find((t) => t.slug === "call-booked")!.definition) as { nodes: Record<string, unknown>[]; edges: { from: string; to: string }[] };
+  raw.nodes.find((n) => n.id === "s4")!.only_if = { neq: ["{{event._type}}", "appointment.rescheduled"] };
+  const out = raw.edges.find((e) => e.from === "s4")!;
+  raw.nodes.push({ id: "s4r", type: "pipeline_card", title: "A reschedule: card → Rescheduled (its name stays)", pipeline: "{{crm.pipeline_closer}}", stage: "{{crm.stage_closer_rescheduled}}", only_if: { eq: ["{{event._type}}", "appointment.rescheduled"] } });
+  raw.edges.push({ from: "s4r", to: out.to }); out.to = "s4r";
+  return parseDefinition(raw);
+};
 const shipped = () => [...templates.map((t) => ({ name: t.slug, def: parseDefinition(t.definition) })), ...fs.readdirSync(path.resolve(__dirname, "../../installs/pmu")).filter((f) => f.endsWith(".json")).map((f) => ({ name: `pmu/${f}`, def: parseDefinition(JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../installs/pmu", f), "utf8")).definition) }))];
 
 describe("D103: sometimes-steps", () => {

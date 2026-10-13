@@ -96,9 +96,20 @@
    {
     "id": "s4r",
     "type": "pipeline_card",
-    "title": "Card \u2192 Rescheduled (its name stays)",
+    "title": "Card \u2192 Rescheduled, if it is before the call (its name stays)",
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_rescheduled}}",
+    "name": "{{contact.name}} -- Direct",
+    "keep_name": true,
+    "from_stages": [
+     "{{crm.stage_closer_new_lead}}",
+     "{{crm.stage_closer_scheduled}}",
+     "{{crm.stage_closer_unresponsive}}",
+     "{{crm.stage_closer_confirmed}}",
+     "{{crm.stage_closer_no_show}}",
+     "{{crm.stage_closer_cancelled}}",
+     "{{crm.stage_closer_rescheduled}}"
+    ],
     "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
    },
    {
@@ -171,9 +182,20 @@
    {
     "id": "b5r",
     "type": "pipeline_card",
-    "title": "Card \u2192 Rescheduled (its name stays)",
+    "title": "Card \u2192 Rescheduled, if it is before the call (its name stays)",
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_rescheduled}}",
+    "name": "{{contact.name}} -- Setter",
+    "keep_name": true,
+    "from_stages": [
+     "{{crm.stage_closer_new_lead}}",
+     "{{crm.stage_closer_scheduled}}",
+     "{{crm.stage_closer_unresponsive}}",
+     "{{crm.stage_closer_confirmed}}",
+     "{{crm.stage_closer_no_show}}",
+     "{{crm.stage_closer_cancelled}}",
+     "{{crm.stage_closer_rescheduled}}"
+    ],
     "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
     "fields": [
      {

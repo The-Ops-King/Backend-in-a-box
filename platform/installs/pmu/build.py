@@ -36,6 +36,9 @@ out['new-lead']=(d,"PMU: one board. The card starts on Beauty Moguls at New Lead
 d=load('call-booked')
 drop(d,'u1'); drop(d,'s3'); drop(d,'b4')
 RESCHED={'eq':['{{event._type}}','appointment.rescheduled']}
+# D105: a reschedule moves the card only off the pre-call stages (cards from before the engine sit anywhere); one in Follow Up,
+# Lost, Purchase, Signed Contract or DQ is left alone
+PRE_CALL=['{{crm.stage_closer_new_lead}}','{{crm.stage_closer_scheduled}}','{{crm.stage_closer_unresponsive}}','{{crm.stage_closer_confirmed}}','{{crm.stage_closer_no_show}}','{{crm.stage_closer_cancelled}}','{{crm.stage_closer_rescheduled}}']
 def fork(card, fid, resched_id, extra=None):
     # the card's move is a fork the chart shows as one: a new booking names the card, a reschedule only moves it (its name stays)
     ins=[e for e in d['edges'] if e['to']==card]; outs=[e for e in d['edges'] if e['from']==card]
@@ -43,7 +46,7 @@ def fork(card, fid, resched_id, extra=None):
     nxt=outs[0]['to']; ins[0]['to']=fid
     idx=[n['id'] for n in d['nodes']].index(card)
     d['nodes'].insert(idx, {'id':fid,'type':'branch','title':'A new booking or a reschedule?'})
-    r={'id':resched_id,'type':'pipeline_card','title':'Card → Rescheduled (its name stays)','pipeline':CLOSER,'stage':'{{crm.stage_closer_rescheduled}}','assign_to':'{{appointment.closer.ghl_user_id | default:}}'}
+    r={'id':resched_id,'type':'pipeline_card','title':'Card → Rescheduled, if it is before the call (its name stays)','pipeline':CLOSER,'stage':'{{crm.stage_closer_rescheduled}}','name':node(d,card)['name'],'keep_name':True,'from_stages':PRE_CALL,'assign_to':'{{appointment.closer.ghl_user_id | default:}}'}
     if extra: r.update(extra)
     d['nodes'].insert(idx+2, r)
     d['edges']+= [{'from':fid,'to':resched_id,'label':'a reschedule','when':RESCHED},{'from':fid,'to':card,'label':'a new booking','else':True},{'from':resched_id,'to':nxt}]
