@@ -318,12 +318,21 @@ export async function pollCards(c: PoolClient, co: CompanyRow, ac: Company, adap
   if (!boards.length) return;
   const { isBaseline } = await cursor(c, co.id, "cards", DateTime.now());
   for (const pipelineId of boards) {
-    for (const card of await adapters.read.pipelineCards(ac, pipelineId)) {
-      if (!card.contactId) continue;
-      const contact = await one<{ id: string }>(c, `select contact_id as id from contact_identifiers where company_id=$1 and kind='ghl_contact' and value=$2 and retired_at is null
-        union all select id from contacts where company_id=$1 and ghl_contact_id=$2 limit 1`, [co.id, card.contactId]);
-      if (!contact) continue;
-      const move = await foldCard(c, co.id, contact.id, card);
+    const cards = (await adapters.read.pipelineCards(ac, pipelineId)).filter((k) => !!k.contactId);
+    if (!cards.length) continue;
+    // D99: what the replica knows about every card and person on the board, in two reads, so a card that has not changed since
+    // the engine last saw it costs nothing. The rule is foldCard's own (a snapshot older than our last look is the past; a closed
+    // card we never had is history); a card that may have changed still goes through foldCard, under its lock.
+    const known = new Map((await many<{ ghl: string; updated_at: Date }>(c, "select ghl_opportunity_id as ghl, updated_at from pipeline_cards where company_id=$1 and ghl_opportunity_id = any($2::text[])", [co.id, cards.map((k) => k.id)])).map((r) => [r.ghl, r.updated_at.getTime()]));
+    const people = new Map<string, string>();
+    for (const r of await many<{ ghl: string; id: string; pref: number }>(c, `select value as ghl, contact_id as id, 0 as pref from contact_identifiers where company_id=$1 and kind='ghl_contact' and value = any($2::text[]) and retired_at is null
+        union all select ghl_contact_id, id, 1 from contacts where company_id=$1 and ghl_contact_id = any($2::text[]) order by pref`, [co.id, [...new Set(cards.map((k) => k.contactId!))]])) if (!people.has(r.ghl)) people.set(r.ghl, r.id);
+    for (const card of cards) {
+      const contactId = people.get(card.contactId!);
+      if (!contactId) continue;
+      const seen = known.get(card.id), liveAt = Date.parse(card.updatedAt);
+      if (seen !== undefined ? Number.isFinite(liveAt) && liveAt < seen : card.status !== "open") continue;
+      const move = await foldCard(c, co.id, contactId, card);
       if (!move) continue;
       if (isBaseline) { rep.baselined++; continue; }
       await handMoved(c, co.id, adapters, move); rep.cardsMoved++;

@@ -3166,3 +3166,15 @@ another, and an operator key that can be changed without stopping anyone.
   statement, run against a stub `net.http_get` inside a rolled-back transaction, fires one request per active company plus
   the engine and none for an archived one), `admin-auth.test.ts` (the previous key only while it is set; a wrong key
   refused). Breaking the per-company lease (a random key per tick) turned the lease and no-parameter tests red.
+
+## D99. An unchanged card costs nothing (2026-10-13)
+
+The first per-company timings (D98) showed Hair's minute at about 43 s, 33 s of it the cards poll: every card on every bound
+board went through `foldCard` every minute, which takes the contact's card lock and reads the user, the replica row and the
+contact (four round trips) before deciding the card had not changed. Hair's boards hold enough cards to fill the minute.
+
+- `pollCards` reads, per board, what the replica knows about the board's cards (their last-seen time) and which person each
+  GHL contact is, in two queries, then skips a card whose GHL snapshot is older than the engine's last look, and an unknown
+  card that is not open. Those are `foldCard`'s own rules, applied first; the last-seen time only grows, so a skipped card is
+  one `foldCard` would also have left alone. A card that may have changed still goes through `foldCard` under its lock.
+- Test: `cards.poll.test.ts` (50 unchanged cards: under 10 queries, 104 before; one moved card is still a hand move).
