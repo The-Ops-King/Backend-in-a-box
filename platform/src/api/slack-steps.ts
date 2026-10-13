@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { many, one } from "@/db/client";
+import { one } from "@/db/client";
 import { loadCompany } from "@/engine/context";
 import { parseDefinition, fallbacksOf, type Definition, type Node } from "@/engine/definition";
 import { describeNode } from "@/engine/describe";
@@ -8,7 +8,7 @@ import { saveStepEdit } from "@/engine/edits";
 import { listSlackChannels, type SlackChannel } from "./setup-data";
 
 /**
- * Where each Slack message posts, per workflow, and the one setting the dashboard writes: a step's channel, picked from this
+ * Where each Slack step of a workflow posts, and the one thing the dashboard changes on it: the channel, picked from this
  * company's own Slack workspace (Tyler: "ONLY the slack channel should be selectable right now"). A pick is a literal channel id
  * on that step of the company's copy (saveStepEdit: a new version, diverged), so two workflows that share the reports channel
  * can post in different places. "Back to the company setting" puts the template's binding back on the step.
@@ -29,7 +29,6 @@ export type SlackStepRow = {
   posts_to: (ChannelRef & { via: "step" | "setting" | "fallback"; setting: string | null }) | null;
   fallbacks: string[];
 };
-export type SlackWorkflow = { id: string; name: string; enabled: boolean; steps: SlackStepRow[] };
 
 const REF = /^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/;
 const refOf = (v: string): string | null => REF.exec(v)?.[1] ?? null;
@@ -67,24 +66,19 @@ async function companyChannels(c: PoolClient, companyId: string): Promise<{ conn
   return { connected: true, channels: await listSlackChannels(decrypt(tok.bot_token)) };
 }
 
-/** Every workflow of the company that posts to Slack, with each Slack step and the company's own channels to pick from. */
-export async function slackPage(c: PoolClient, companyId: string) {
-  const { bindings } = await loadCompany(c, companyId);
+/** One workflow's Slack steps, where each posts today, and the company's own channels to pick from (the step popup on the workflow page). */
+export async function workflowSlack(c: PoolClient, workflowId: string) {
+  const w = await one<{ company_id: string; definition: unknown; template: unknown }>(c, `select w.company_id, v.definition, t.definition as template from workflows w
+    join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version left join workflow_templates t on t.id=w.template_id where w.id=$1`, [workflowId]);
+  if (!w) return null;
+  const { bindings } = await loadCompany(c, w.company_id);
   const safe = Object.fromEntries(Object.entries(bindings).filter(([k]) => !k.startsWith("secret.")));
-  const { connected, channels } = await companyChannels(c, companyId);
-  const rows = await many<{ id: string; name: string; enabled: boolean; definition: unknown; template: unknown }>(c, `select w.id, w.name, w.enabled, v.definition, t.definition as template
-    from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version left join workflow_templates t on t.id=w.template_id
-    where w.company_id=$1 order by w.enabled desc, w.name`, [companyId]);
-  const workflows: SlackWorkflow[] = [];
-  for (const r of rows) {
-    let def: Definition; try { def = parseDefinition(r.definition); } catch { continue; }   // unparseable: the workflow page and health say so
-    let tpl: Definition | null = null; try { tpl = r.template ? parseDefinition(r.template) : null; } catch { tpl = null; }
-    const steps = slackStepsOf(def, tpl, safe, channels);
-    if (steps.length) workflows.push({ id: r.id, name: r.name, enabled: r.enabled, steps });
-  }
-  return { connected, channels_readable: channels !== null, channels: channels ?? [], workflows };
+  const { connected, channels } = await companyChannels(c, w.company_id);
+  let def: Definition; try { def = parseDefinition(w.definition); } catch { return { connected, channels_readable: channels !== null, channels: channels ?? [], steps: [] as SlackStepRow[] }; }
+  let tpl: Definition | null = null; try { tpl = w.template ? parseDefinition(w.template) : null; } catch { tpl = null; }
+  return { connected, channels_readable: channels !== null, channels: channels ?? [], steps: slackStepsOf(def, tpl, safe, channels) };
 }
-export type SlackPage = Awaited<ReturnType<typeof slackPage>>;
+export type WorkflowSlack = NonNullable<Awaited<ReturnType<typeof workflowSlack>>>;
 
 /**
  * Point one Slack step at a channel: `channel` is a channel id from this company's workspace, or "default" for the

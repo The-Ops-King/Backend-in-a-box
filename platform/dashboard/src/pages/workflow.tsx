@@ -5,6 +5,7 @@ import { Crumb, Empty, Ic, NameLine, Sec, Sheet, Skeleton, Strip, Switch, Tag, T
 import { FlowChart, Legend, NodeWords, RunNodeWords } from "~/ui/chart";
 import { Ghost } from "~/ui/icons";
 import { Title } from "~/ui/steps";
+import { StepChannel } from "~/ui/step-channel";
 import { ago, callTime, shortDate, when } from "~/fmt";
 
 export function Workflow() {
@@ -64,7 +65,7 @@ export function Workflow() {
       <div className="rows">{runs.map((r) => <RunRow key={r.id} r={r} tz={co.timezone} on={r.id === sel} onPick={() => choose(r.id)} />)}</div>
       <p className="listend tnum">Showing {runs.length} of {Math.max(tiles.people, runs.length)}{runs.length < tiles.people ? <> · <button type="button" className="lnk" disabled={q.isFetching} onClick={() => setLimit((l) => Math.min(1000, l + 100))}>{q.isFetching && q.isPlaceholderData ? "loading…" : "load more"}</button></> : null}</p>
     </>}
-    {pop && shown ? <Sheet anchor={pop.el} onClose={() => setPop(null)}>{run ? <RunNodeWords chart={shown} id={pop.id} states={run.states} feed={run.feed} /> : <NodeWords chart={shown} id={pop.id} />}</Sheet> : null}
+    {pop && shown ? <Sheet anchor={pop.el} onClose={() => setPop(null)}>{run ? <RunNodeWords chart={shown} id={pop.id} states={run.states} feed={run.feed} /> : <NodeWords chart={shown} id={pop.id} extra={shown.nodes.find((n) => n.id === pop.id)?.channel === "slack" ? <StepChannel workflowId={id} nodeId={pop.id} /> : undefined} />}</Sheet> : null}
   </>;
 }
 
