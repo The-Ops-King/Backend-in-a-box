@@ -133,7 +133,7 @@ export async function syncTriggers(c: import("pg").PoolClient, companyId: string
 }
 
 /** Key-order-independent JSON, so a template that merely round-tripped through jsonb is not "changed". */
-const canon = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) : x));
+export const canon = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) : x));
 
 /** D16: upload info, pick templates, done. Idempotent. Workflows install OFF unless enable=true. A re-run upgrades untouched copies to the current template; edited copies are left alone. */
 export type Inbound = { secret: string; zapierPaymentUrl: string; zapierRecordingUrl: string; whopWebhookUrl: string; fathomWebhookUrl: string; fathomWebhook?: string };

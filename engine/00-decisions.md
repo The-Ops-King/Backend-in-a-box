@@ -3178,3 +3178,47 @@ contact (four round trips) before deciding the card had not changed. Hair's boar
   card that is not open. Those are `foldCard`'s own rules, applied first; the last-seen time only grows, so a skipped card is
   one `foldCard` would also have left alone. A card that may have changed still goes through `foldCard` under its lock.
 - Test: `cards.poll.test.ts` (50 unchanged cards: under 10 queries, 104 before; one moved card is still a hand move).
+
+## D100. Operator tools for onboarding: a company's whole workflow, and a shared key (2026-10-13)
+
+A company's copy of a workflow could only be changed one step field at a time (`saveStepEdit`, `saveCopy`). Onboarding a
+client whose sales process differs from the template (one pipeline instead of two, extra stages) needs steps added and
+removed in that company's copy, and nothing did that short of writing rows by hand. And the owner wants some keys shared
+between companies for now without the value passing through chat.
+
+- **A whole definition, saved for one company.** `saveDefinition` (`src/engine/definitions.ts`) and
+  `POST /api/admin/workflows/definition { company, workflow, definition, note, by?, dryRun? }`; `workflow` is the copy's
+  id, its template's slug, or its exact name. The checks are the ones a step edit and the shipped templates already pass,
+  every failure listed (422 with `problems`): the schema and the definition's own rules (a known step type, edges between
+  nodes that exist, a trigger and an exit), every `{{placeholder}}` root one the engine knows, each message's words as a
+  copy edit checks them, every wait offset as a step edit checks one, a reentry window that is a length of time, events
+  the engine knows (triggers, waits, records) and classifier options that exist. A hand-off to a workflow the company does
+  not have is a warning, not a refusal. Saved: a new `workflow_versions` row (version + 1, the note, the manifest from
+  `extractManifest`), `current_version` moved, `diverged` (template upgrades leave it alone, D16), triggers re-synced
+  (`syncTriggers`: a kept trigger keeps its row), `reentry_policy`/`reentry_window` from the definition, and a
+  `workflow.definition_saved` audit row (by, note, from and to version, the diff). Runs in flight keep the version they
+  started on. `dryRun` validates and returns the diff (nodes added, removed, changed by id; edges added and removed;
+  top-level settings changed) without saving; the same definition again is no new version. `GET` with `?company=&workflow=`
+  returns the current definition and version, so an operator fetches, edits and saves.
+- **Missing bindings are a warning while the workflow is off, a refusal while it is on.** Saved off, the response lists
+  `missing` and readiness already refuses turning it on until they are bound; that is how onboarding goes (the steps first,
+  the ids after). Saving into a workflow that is on would leave it running without what its steps read, so that is 409
+  with `missing`, the same rule as turning one on.
+- **A shared key, inside the engine.** `copySecretBindings` (`src/engine/binding-copy.ts`) and
+  `POST /api/admin/bindings/copy { from, to, keys, by? }`: each key read and decrypted on `from`, encrypted and upserted on
+  `to` with the same kind. Only `secret.*` keys (plain bindings are set by install); a key `from` does not have refuses the
+  whole call; the response says per key `new`, `same` or `replaced`, never the value. A replaced vendor token wakes the
+  target's runs paused on that vendor's auth, as install does (D66). The target company gets a `binding.copied` audit row
+  with the keys and the source slug.
+- Not done: no dashboard screen for either; the definition is JSON in, JSON out. Placeholder paths are checked by their
+  root only (what lies under `contact.` depends on the data), as for the shipped templates. A copied key is a copy: a later
+  change on one company does not follow to the other. The copy does not refuse company-specific secrets (a CRM token, a
+  webhook signing secret); copying one of those is the operator's call.
+- Tests: `definitions.test.ts` (every shipped template passes the check; a restructured copy, one node removed, two added,
+  edges rewired, is a new version, diverged, its triggers re-synced, audited, a run in flight still on its version, GET
+  returns it; a definition with an unknown step type, an edge to a missing node and an unknown path is refused with all
+  three and nothing changes, as is one with an unknown event and a bad wait; dryRun changes nothing; the other company's
+  copy is untouched; a later template upgrade leaves the diverged copy alone and upgrades the untouched one; a workflow
+  that is on is not saved into a missing binding), `binding-copy.test.ts` (the target decrypts to the same value, stored
+  encrypted; the response and the audit carry no value; a missing key and a plain key refused, nothing written).
+  Dropping `diverged` from the save turned two red; storing the copy unencrypted turned two red.

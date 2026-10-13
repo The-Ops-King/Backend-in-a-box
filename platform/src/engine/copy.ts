@@ -9,7 +9,7 @@ import { KNOWN_ROOTS, referencedPaths } from "./template";
  * is then "diverged": template upgrades leave it alone and say so. Runs already in flight keep the version they started on.
  */
 export type CopyField = "template" | "subject" | "substitute_template" | "title" | "body";
-const EDITABLE: Record<string, CopyField[]> = { send_sms: ["template", "substitute_template"], send_email: ["subject", "template", "substitute_template"], slack_post: ["template"], note: ["template"], create_task: ["title", "body"] };
+export const EDITABLE: Record<string, CopyField[]> = { send_sms: ["template", "substitute_template"], send_email: ["subject", "template", "substitute_template"], slack_post: ["template"], note: ["template"], create_task: ["title", "body"] };
 
 export function validateCopy(text: string): { ok: true } | { ok: false; why: string } {
   if (!text.trim()) return { ok: false, why: "the message is empty" };
