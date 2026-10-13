@@ -466,7 +466,7 @@ to stage a fact for anyone but a test contact while any workflow is live on its 
   to say …"), a new version each time. Not from Slack (Tyler, Oct 12): on the dashboard's AI.
 - The interactions and commands doors answer 500 to a company id that is not a uuid; a 404 is the right answer.
 
-## 42. To do on Hair once the operator key is back (2026-10-13)
+## 42. Done on Hair 2026-10-13 (kept for the record)
 
 - Apply D96: `POST /api/admin/templates { "company": "hair" }`, then confirm Daily/Weekly/Monthly wrap-up are on in
   test and the old Wrap-ups is off (`workflow.replaced` in audit_log).
@@ -474,3 +474,24 @@ to stage a fact for anyone but a test contact while any workflow is live on its 
   match to it (`closerSalesCalls` matches by person and exact minute; a moved call breaks that), (2) two held bookings
   that day, or (3) two Sales Call records. Fix that cause, add "one person once per closer per day" with a test, and
   check his outcome landed on the right record.
+
+## 43. Onboard PMU (2026-10-13)
+
+Tyler's answers: PMU is its own GHL account (not a sub-account of Hair's); booking is Calendly; Slack: a new app "PMU Ops
+Engine" in Tyler's workspace, #ops-test only until the switch-over (each client gets its own workspace later); Carly is the
+only closer, a second is being onboarded. Goal: a fully onboarded PMU, used in place of its GHL automations, climbed
+shadow → test → live one workflow at a time like Hair. Open: how PMU takes payments (Whop? Stripe? GHL?), whether calls are
+recorded in Fathom.
+
+The session's environment carries `BIAB_CRON_SECRET` (operator key), `PMU_GHL_LOCATION_ID`, `PMU_GHL_PIT`,
+`PMU_CALENDLY_TOKEN`, optionally `PMU_FATHOM_API_KEY`. Never write their values into the repo.
+
+1. Create PMU in shadow, every workflow off (`POST /api/admin/install`, slug `pmu`, the location id and PIT, timezone from GHL).
+2. Explore read-only and report to Tyler: GHL pipelines and stages, custom fields, custom objects (a Sales Call? a Payment?),
+   users, tags, every GHL workflow (what the engine will replace), forms; Calendly event types, hosts, booking questions;
+   Fathom recorders. What exists, what is missing, what has to be built in GHL by hand.
+3. Write PMU's install file from that into the repo (`platform/installs/pmu.json`, no secrets: tokens come from the
+   environment at install time) and re-install with it; `POST /api/admin/templates` for later template changes.
+4. Slack: write the "PMU Ops Engine" app manifest (request URLs with PMU's company id), Tyler creates and installs it, then
+   connect it (install `slackToken`, `slackSigningSecret`, channels → #ops-test).
+5. Readiness, health, then the ladder with Tyler.
