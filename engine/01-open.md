@@ -199,8 +199,9 @@ Status 2026-10-06: the poller side is done — `pollAll` now runs one transactio
 after the rollback. The runner still processes a run's nodes inside one transaction; a vendor
 error there is caught without aborting the transaction, but a SQL error mid-run would still roll
 back that run's ledger (the run is then marked failed from a fresh transaction, so nothing hangs).
-Ticks are serialized by a lease row (`engine_state.tick_lock`, 6 minutes, see
-`platform/src/engine/lock.ts`); a tick that finds the lease held returns `{ busy: true }`.
+Ticks are serialized per company by a lease row (`engine_state.tick_lock:<companyId>`, 6 minutes,
+see `platform/src/engine/lock.ts`; the engine's own minute holds `tick_lock:engine`, D98); a tick that
+finds its lease held returns `{ busy: true }`.
 The minute scheduler is pg_cron + pg_net inside the Supabase database (`platform/src/engine/schedule.ts`);
 GitHub's five-minute schedule fired once in four hours and is kept only as a backup.
 

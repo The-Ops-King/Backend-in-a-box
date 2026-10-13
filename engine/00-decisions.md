@@ -3111,3 +3111,58 @@ Calvin), but the closer saw it. Four such bookings sat on real people.
 - Tests: `flowmode.test.ts` (refused in test, shadow and forced live; a test contact staged; live needs force),
   `golive.test.ts` (the cleanup: dry run counts and names; the real run removes the booking, its run and events, keeps a
   test contact's, audits). Tests that drove agreements and payments through the harness now use test contacts.
+
+## D98. Each client ticks on its own; the operator key changes without a pause (2026-10-13)
+
+One minute tick worked through every company in turn under one lease. Errors were already isolated per company, but time
+was shared: one slow client (GHL rate limits, a big first import) delayed every other, and at ten to twenty clients one tick
+would reach the route's 300 s cap and the later clients would be skipped. Hair's tick alone already took about 55 s a minute,
+with some minutes skipped as busy, with two companies. The owner wants twenty and more, where one client can never stall
+another, and an operator key that can be changed without stopping anyone.
+
+- **A company's minute is its own.** `GET /api/tick?company=<id>` (`tickCompany`, `src/engine/ticks.ts`) polls only that
+  company (`pollCompany`, the per-company body of `pollAll`, which now loops over it), starts only its schedules, claims and
+  runs only its runs, collects only its alerts (`collectThisTick` with `onlyCompanyId`: its poll alerts, its failed and
+  blocked runs from its own cursor `alerts_cursor:<id>`, its step alerts) and announces only its own. It holds its own
+  lease, `tick_lock:<id>`; a second tick for the same company answers `{ busy: true }` at once, a tick for another company
+  runs beside it. Its clock is `scheduler:<id>`: `last_tick`, `ms`, where the time went (`poll_ms` per entity with `setup`
+  for bindings and calendars, `schedules_ms`, `runs_ms`, `alerts_ms`), `claimed`, `completed`, `failed`, the first five
+  `errors`, `recovery`. The timers are there to find which read is slow; they change nothing. Recovery after a gap (D5b)
+  reads the company's own clock, falling back to the engine-wide `scheduler` the first time, so the upgrade is not taken
+  for an outage; the same fallback gives a company's first alerts cursor the engine-wide one, so nothing is re-raised.
+- **The engine's minute is its own too.** `GET /api/tick?scope=engine` (`tickEngine`, lease `tick_lock:engine`): the
+  heartbeat `scheduler.last_tick` (what `/api/health` and the in-database watchdog read: the scheduler is alive), the
+  recovery notice when the engine itself was away more than ten minutes, retention (D38), and staleness: an active company
+  whose own last tick is more than five minutes old gets `engine:company_stale` on that company, resolved once it ticks
+  again. An alert about the engine (no company, or an `engine:` key) goes to the operator's webhook, never through the
+  company's Health check workflow, whose runs do not move while that company's ticks are stuck.
+- **No parameters** (the daily sweep, a hand call, `pnpm tick`, a scheduler installed before this): every active company
+  in turn through `tickCompany`, each under its own lease (a busy one is skipped and listed), then the engine's minute.
+  So a deploy before the scheduler is reinstalled has no gap: the old job's single call ticks everyone as it did.
+  A company tick also backs off while the old engine-wide `tick_lock` is held, so an older deployment finishing its last
+  tick during a rollout never polls beside a new one.
+- **The scheduler fans out in the database.** `installTickSchedule` writes one pg_cron job whose one statement fires a
+  `net.http_get` per active company (`?company=<id>`) and one for `?scope=engine`, with the bearer header and a 310 s
+  timeout. pg_net sends them side by side; the company list is read every minute, so a client added later is picked up
+  with no reinstall. Same job name, same URL check; the status endpoint still masks the key.
+- **`/api/health`** adds `companies_stale` (slug, minutes) and `ticks` (each company's last tick, `ms`, and its timings);
+  `?assert=fresh` is 503 when the engine or any active company is stale. The home page shows each company's last tick.
+- **Two keys during a change.** `operatorAuthorized` and the tick accept `CRON_SECRET` and, while it is set,
+  `CRON_SECRET_PREVIOUS`, each compared in constant time (both sides hashed, then `timingSafeEqual`). The README has the
+  steps: previous = current and a new current, redeploy, reinstall the schedule with the new key, check, remove the
+  previous, redeploy.
+- Not done: the pool stays at 3 per instance. A tick uses one connection at a time, so the fan-out opens about one per
+  active company plus one; a poll entity holds its transaction across the vendor read, so a slow GHL read holds a pooler
+  server connection that long. At twenty clients that is near the Supabase transaction pooler's default server pool
+  (15 on the smallest compute), which would queue ticks behind each other in the pooler. The fix when it bites is a bigger
+  pool size, or vendor reads outside the transaction; a lower pool `max` would not help. Runs of a company that is not
+  active or hosted no longer advance (the old single tick claimed them though it neither polled nor scheduled for it);
+  no code sets those statuses today.
+- Tests: `ticks.test.ts` (company A's contacts read slow and failing while company B's tick finishes and records its clock
+  and timings; A's second failure is A's alert only; one lease per company, a held lease busy and another company not, an
+  older deployment's lease respected; an inactive company does not tick; a company's tick neither raises nor announces
+  another's alerts and keeps its own cursor; a company's own gap is its recovery; the engine's minute raises and resolves
+  `engine:company_stale`; the no-parameter tick skips a company whose lease is held and ticks the others; the scheduler's
+  statement, run against a stub `net.http_get` inside a rolled-back transaction, fires one request per active company plus
+  the engine and none for an archived one), `admin-auth.test.ts` (the previous key only while it is set; a wrong key
+  refused). Breaking the per-company lease (a random key per tick) turned the lease and no-parameter tests red.

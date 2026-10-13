@@ -84,7 +84,9 @@ it, and each warm Vercel instance holds its own pool; the symptom was `EMAXCONNS
 reached` in production. Direct connections and non-Supabase URLs pass through. `DB_POOLER_MODE=session`
 opts out. The engine is transaction-pooler safe: every query runs inside `begin … commit` with
 transaction-local `set_config`, no session advisory locks, no named prepared statements. Pool: 3 per
-instance, 5 second idle timeout.
+instance, 5 second idle timeout. A tick uses one connection at a time; since D98 every company ticks in
+its own request at the same minute, so the scheduler opens about one connection per active company plus
+one, each held for the length of a transaction (a poll entity holds its transaction across the vendor read).
 
 ## Payments (D21)
 
@@ -1040,7 +1042,8 @@ failed in the last ten minutes, workflow copies that no longer parse, a recovery
 on the dashboard home, and POSTs new ones to `OPERATOR_WEBHOOK_URL` (a Zap catch hook or a Slack
 incoming webhook) — once, then hourly while they persist. For the one failure it cannot see (the
 scheduler itself dead), a second pg_cron job inside the database (`bb-watchdog`, every five minutes)
-POSTs to the same webhook when the last tick is older than five minutes — installed by
+POSTs to the same webhook when the engine's last tick is older than five minutes (one company whose own
+ticks stopped is the engine's `engine:company_stale` alert, D98) — installed by
 `POST /api/admin/schedule` once `OPERATOR_WEBHOOK_URL` (or `alertUrl`) is set. No outside monitor is
 needed; `GET /api/health?assert=fresh` (503 when stale) remains for anyone who wants one. Recovery after a gap drips at most 20 sends per company per
 tick, in due order; messages that lost their window are skipped by the validity rules, not sent late.
@@ -1163,7 +1166,7 @@ pnpm install:company --name "Save Your Hair" --slug syh --tz America/Phoenix \
   [--booking <id>] [--no-sms] [--enable] [--live]   # booking link; no number; turn workflows on; live instead of shadow
 # appointments in Calendly instead of GHL calendars (ids are event type uuids; :self / :setter stamps every booking):
 #   --calendly-token <read token> --calendly-user james@company.com --calendar <uuid>=closing:self --calendar <uuid>=closing:setter
-pnpm tick                       # one poll + one scheduler pass; this is what the cron does
+pnpm tick                       # every company's tick in turn, then the engine's minute (what /api/tick with no parameters does)
 # Workflows install OFF. Add --enable to the install command (or flip `workflows.enabled`) when you mean it.
 # Re-running install upgrades untouched template copies; --pit may be omitted then (the stored token is kept).
 pnpm test
@@ -1172,11 +1175,32 @@ pnpm test
 ## Deploy (Vercel)
 
 Project `backend-in-a-box` exists in team `jtylerray` (root directory `platform`). The route
-`/api/tick` checks `Authorization: Bearer $CRON_SECRET`. Only one tick runs at a time: it takes a
-6-minute lease in `engine_state` (`tick_lock`), and any tick that arrives while the lease is held
-answers `200 { busy: true }` and does nothing. A tick killed mid-flight frees the lease by expiry.
-The first tick after installing a company is the baseline and can take a few minutes for a large
-location; a client that times out waiting for it has not stopped it.
+`/api/tick` checks `Authorization: Bearer $CRON_SECRET` (or `$CRON_SECRET_PREVIOUS` while the key is
+being changed, below).
+
+**Each client ticks on its own (D98).** Every minute the database scheduler fires, all at once, one
+request per active company and one for the engine:
+
+- `GET /api/tick?company=<id>`: that company's minute. Poll it, start what its clock says is due, run its
+  due runs, collect and announce its alerts. It holds its own 6-minute lease in `engine_state`
+  (`tick_lock:<id>`): a tick that arrives while the company's previous one is still running answers
+  `200 { busy: true }` and does nothing, so two pollers never work one company, while other companies tick
+  beside it. It records `engine_state` `scheduler:<id>`: `last_tick`, `ms`, where the time went
+  (`poll_ms` per entity — `setup`, `contacts`, `appointments:<calendar>`, `conversations`, `calls`,
+  `agreements`, `cards` — then `schedules_ms`, `runs_ms`, `alerts_ms`), `claimed`, `completed`, `failed`,
+  the first `errors` and `recovery`. A gap of more than ten minutes in a company's own ticks puts its runs
+  in recovery (D5b); a slow client is slow alone.
+- `GET /api/tick?scope=engine`: the engine's own minute, under `tick_lock:engine`. The heartbeat
+  (`scheduler.last_tick`, what `/api/health` and the in-database watchdog read), the engine's own alerts
+  (the recovery notice; a company whose last own tick is more than five minutes old gets
+  `engine:company_stale`, which resolves once it ticks again; both go to `OPERATOR_WEBHOOK_URL`), and
+  retention.
+- `GET /api/tick` with no parameters (the daily `?mode=sweep`, a hand call, `pnpm tick`, a scheduler
+  installed before D98): every active company in turn through the same per-company tick (a busy one is
+  skipped and listed in `busy`), then the engine's minute.
+
+A tick killed mid-flight frees its lease by expiry. The first tick after installing a company is the
+baseline and can take a few minutes for a large location; only that company waits for it.
 
 Scheduler install (once per database, idempotent — re-running replaces the job):
 
@@ -1185,14 +1209,40 @@ curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://backend-in-a-box.ve
 curl -H "Authorization: Bearer $CRON_SECRET" https://backend-in-a-box.vercel.app/api/admin/schedule   # status + last 5 runs/responses
 ```
 
-`/api/health` reports `last_tick`; if it is more than two minutes old the scheduler is not running.
+The job (`bb-tick`) is one statement: `select net.http_get(url := '<origin>/api/tick?' || t.q, headers :=
+<bearer>, timeout_milliseconds := 310000) from (select 'scope=engine' as q union all select 'company=' ||
+id from companies where status in ('active','hosted')) t`. The company list is read every minute, so a
+client added later ticks the next minute with no reinstall. A job installed before D98 (one call with
+no parameters) keeps working: it ticks everyone in turn, as before, until it is reinstalled.
+
+`/api/health` reports `last_tick` (the engine's minute), `companies_stale` (each active company whose own
+last tick is more than five minutes old, with the minutes) and `ticks` (each company's last tick, `ms`
+and where it went). `?assert=fresh` answers 503 when either the engine or any active company is stale.
+
+### Changing the operator key without a pause
+
+`CRON_SECRET` opens the tick and every admin route, and the database scheduler sends it every minute.
+While `CRON_SECRET_PREVIOUS` is set, that value is accepted too (constant-time compare), so the key
+changes with no missed minute:
+
+1. In Vercel set `CRON_SECRET_PREVIOUS` = the current value and `CRON_SECRET` = the new one. Redeploy.
+   Both keys are accepted now; the database scheduler still sends the old one, which works.
+2. `POST /api/admin/schedule` with the **new** key. It reinstalls the scheduler with the new key (and the
+   watchdog, when an alert URL is set).
+3. Check: `GET /api/admin/schedule` with the new key (the job is there, recent runs `succeeded`) and
+   `/api/health` (`last_tick` and every company's tick under a minute or two old, `companies_stale` empty).
+4. Remove `CRON_SECRET_PREVIOUS` in Vercel. Redeploy. The old key opens nothing from here on.
+
+Dashboard sessions are signed with `SESSION_SECRET`, or with `CRON_SECRET` when it is not set; without
+`SESSION_SECRET` the change signs everyone out of the dashboard once (sign in again). Set
+`SESSION_SECRET` first to avoid that.
 
 **Scheduling depends on the Vercel plan.** The team is on Hobby today, which allows daily crons only
 — a deploy with `* * * * *` is rejected outright (`cron_jobs_limits_reached`). So:
 
 | Plan | Minute scheduler | `vercel.json` cron |
 |---|---|---|
-| Hobby (now) | **pg_cron inside Supabase** every minute → `/api/tick` (installed once with `POST /api/admin/schedule`; `GET` shows the last runs; `DELETE` removes it). `.github/workflows/tick.yml` stays as a backup and is harmless when it fires. | daily `0 9 * * *` = the reconciliation sweep |
+| Hobby (now) | **pg_cron inside Supabase** every minute → `/api/tick?company=<id>` per active company plus `?scope=engine` (D98; installed once with `POST /api/admin/schedule`; `GET` shows the last runs; `DELETE` removes it). `.github/workflows/tick.yml` stays as a backup and is harmless when it fires. | daily `0 9 * * *` = the reconciliation sweep |
 | Pro | `vercel.json` set to `* * * * *` | the Actions workflow stays on as the backup scheduler |
 
 Five-minute latency is fine for testing and wrong for production reminders; Pro is the real fix.

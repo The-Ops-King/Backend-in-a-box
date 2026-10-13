@@ -60,16 +60,21 @@ async function listenerFired(c: import("pg").PoolClient, companyId: string, lis:
   return null;
 }
 
-/** `onlyCompanyId` limits the claim to one company (tests share a database; an operator may want one company run now). */
-export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompanyId?: string, probes?: HealthProbes): Promise<TickReport> {
+/**
+ * `onlyCompanyId` limits the claim to one company (tests share a database; an operator may want one company run now).
+ * `clockKey` is the engine_state row whose last tick decides whether this tick comes after a gap (D5b): the engine-wide
+ * `scheduler` by default; D98's company tick passes `scheduler:<companyId>`, read with the engine-wide row as the fallback
+ * the first time, so the upgrade to per-company ticks is not taken for an outage.
+ */
+export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompanyId?: string, probes?: HealthProbes, clockKey = "scheduler"): Promise<TickReport> {
   const report: TickReport = { claimed: 0, completed: 0, waiting: 0, exited: 0, failed: 0, paused: 0, recovery: false, staleExits: 0, sends: 0 };
   const claimedBy = `tick-${now.toMillis()}`;
 
   const runs = await asOperator(async (c) => {
-    const st = await one<{ value: { last_tick?: string } }>(c, "select value from engine_state where key='scheduler'");
+    const st = await one<{ value: { last_tick?: string } }>(c, "select value from engine_state where key = any($1::text[]) order by (key=$2) desc limit 1", [[clockKey, "scheduler"], clockKey]);
     const last = st?.value.last_tick ? DateTime.fromISO(st.value.last_tick) : undefined;
     report.recovery = !!last && now.diff(last, "minutes").minutes > RECOVERY_AFTER_MIN;
-    await c.query("insert into engine_state (key, value, updated_at) values ('scheduler', $1, now()) on conflict (key) do update set value=$1, updated_at=now()", [{ last_tick: now.toISO(), recovery: report.recovery }]);
+    await c.query("insert into engine_state (key, value, updated_at) values ($2, $1, now()) on conflict (key) do update set value=engine_state.value || $1, updated_at=now()", [{ last_tick: now.toISO(), recovery: report.recovery }, clockKey]);
     // Due-ness is decided by the database clock, the same clock that wrote next_run_at. Comparing against a JS
     // timestamp (ms) lost a race against Postgres now() (µs) when a wake and a tick landed in the same millisecond.
     return many<RunRow>(c, `update runs set claimed_at=now(), claimed_by=$1 where id in (

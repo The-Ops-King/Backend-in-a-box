@@ -1,29 +1,33 @@
 import { NextResponse } from "next/server";
 import { liveAdapters } from "@/adapters";
-import { pollAll } from "@/engine/poll";
-import { tick } from "@/engine/runner";
-import { withTickLock } from "@/engine/lock";
-import { asOperator } from "@/db/client";
-import { tickAlerts } from "@/engine/alerts";
-import { dispatchSchedules } from "@/engine/clock";
-import { purgeOld } from "@/engine/retention";
+import { tickAuthorized } from "@/engine/admin-auth";
+import { tickCompany, tickEngine, tickEveryone } from "@/engine/ticks";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-/** Vercel cron hits this every minute with Authorization: Bearer $CRON_SECRET. One tick = poll everything, start what the clock says is due, then run what's due. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The minute tick, Authorization: Bearer $CRON_SECRET (or, while the key is being changed, $CRON_SECRET_PREVIOUS). D98:
+ * `?company=<id>` is one company's minute under its own lease (poll it, start what its clock says is due, run its due runs,
+ * its alerts); `?scope=engine` is the engine's own minute (heartbeat, its alerts, which companies have stopped ticking,
+ * retention). The database scheduler fires one of each per company plus the engine every minute, all at once. No
+ * parameters (the daily sweep `?mode=sweep`, a hand call, a scheduler installed before D98): every company in turn, then the engine.
+ */
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!tickAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const started = Date.now();
-  const mode = new URL(req.url).searchParams.get("mode") ?? "tick";   // "sweep" = Vercel daily cron; "tick" = the minute/5-minute scheduler
-  const out = await withTickLock(async () => ({ poll: await pollAll(liveAdapters),
-    // D35: the clock is a trigger; every scheduled workflow (end-of-day reminders, the health sweep, wrap-ups) starts here and runs in the same tick
-    clock: await asOperator((c) => dispatchSchedules(c)).catch((e) => ({ started: [], errors: [{ company: "*", workflow: "*", error: String((e as Error).message).slice(0, 200) }] })),
-    runs: await tick(liveAdapters) }));
-  if (out.busy) return NextResponse.json({ ok: true, mode, busy: true, ms: Date.now() - started });   // another tick holds the lease; nothing to do
-  // the engine reports its own problems to the operator (D33); a failure here must never fail the tick
-  const alerts = await asOperator((c) => tickAlerts(c, liveAdapters, out.result.poll, out.result.runs)).catch((e) => ({ error: String((e as Error).message).slice(0, 200) }));
-  // D38: what is past its retention goes; a failure here never fails the tick
-  const purged = await asOperator((c) => purgeOld(c)).catch((e) => ({ error: String((e as Error).message).slice(0, 200) }));
-  return NextResponse.json({ ok: true, mode, ms: Date.now() - started, ...out.result, alerts, purged });
+  const q = new URL(req.url).searchParams;
+  const mode = q.get("mode") ?? "tick";   // "sweep" = Vercel daily cron; "tick" = the minute scheduler
+  const company = q.get("company"), scope = q.get("scope");
+  try {
+    if (company) {
+      if (!UUID.test(company)) return NextResponse.json({ ok: false, error: "company must be a company id (uuid)" }, { status: 400 });
+      return NextResponse.json({ ok: true, mode, scope: "company", ...(await tickCompany(liveAdapters, company)) });
+    }
+    if (scope === "engine") return NextResponse.json({ ok: true, mode, scope: "engine", ...(await tickEngine(liveAdapters)) });
+    if (scope) return NextResponse.json({ ok: false, error: `unknown scope: ${scope}` }, { status: 400 });
+    const all = await tickEveryone(liveAdapters);
+    return NextResponse.json({ ok: true, mode, scope: "all", ms: Date.now() - started, ...all });
+  } catch (e) { return NextResponse.json({ ok: false, mode, error: String((e as Error).message).slice(0, 300), ms: Date.now() - started }, { status: 500 }); }
 }

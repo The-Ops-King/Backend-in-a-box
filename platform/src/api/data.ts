@@ -24,7 +24,7 @@ export const companyById = (c: PoolClient, id: string) => one<CompanyHead>(c, "s
 
 /** The companies page: every company with its counts, and the engine's own state. */
 export async function companiesPage(c: PoolClient) {
-  const companies = await many<{ id: string; name: string; slug: string; status: string; mode: string; timezone: string; contacts: number; workflows: number; on: number; in_flight: number; needs_hand: number; last_poll: Date | null; alerts: number }>(c, `
+  const companies = await many<{ id: string; name: string; slug: string; status: string; mode: string; timezone: string; contacts: number; workflows: number; on: number; in_flight: number; needs_hand: number; last_poll: Date | null; alerts: number; last_tick: string | null; tick_ms: number | null }>(c, `
     select co.id, co.name, co.slug, co.status, co.mode, co.timezone,
       (select count(*)::int from contacts where company_id=co.id and merged_into is null) as contacts,
       (select count(*)::int from workflows where company_id=co.id) as workflows,
@@ -32,7 +32,9 @@ export async function companiesPage(c: PoolClient) {
       (select count(*)::int from runs where company_id=co.id and status in ('active','waiting')) as in_flight,
       (select count(*)::int from runs where company_id=co.id and (status='paused' or (status='failed' and started_at > now()-interval '24h'))) as needs_hand,
       (select max(last_success_at) from poll_cursors where company_id=co.id) as last_poll,
-      (select count(*)::int from alerts where company_id=co.id and resolved_at is null) as alerts
+      (select count(*)::int from alerts where company_id=co.id and resolved_at is null) as alerts,
+      (select value->>'last_tick' from engine_state where key='scheduler:' || co.id::text) as last_tick,
+      (select (value->>'ms')::int from engine_state where key='scheduler:' || co.id::text) as tick_ms
     from companies co order by co.created_at`);
   const state = await one<{ value: { last_tick?: string; recovery?: boolean } }>(c, "select value from engine_state where key='scheduler'");
   const probs = await currentProblems(c);

@@ -63,15 +63,20 @@ export async function reconcile(c: PoolClient, companyId: string | null, source:
 
 const base = () => (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
 
-/** What the poll and the scheduler found this tick, plus runs that failed since the last look. */
-export async function collectThisTick(c: PoolClient, poll: PollReport, tick: TickReport, now = new Date()): Promise<{ raised: number; resolved: number }> {
+/**
+ * What the poll and the scheduler found this tick, plus runs that failed since the last look. D98: `onlyCompanyId` is a
+ * company's own tick: only its poll alerts, only its failed and blocked runs (from its own cursor, `alerts_cursor:<id>`),
+ * only its step alerts; the engine's own part (the recovery notice) is left to the engine's minute (`collectEngine`).
+ */
+export async function collectThisTick(c: PoolClient, poll: PollReport, tick: TickReport, now = new Date(), onlyCompanyId?: string): Promise<{ raised: number; resolved: number }> {
   let raised = 0, resolved = 0;
   const add = (r: { raised: number; resolved: number }) => { raised += r.raised; resolved += r.resolved; };
+  const only = onlyCompanyId ?? null;
   // 1. polling: a cursor that has failed `alerts.poll_failures` times in a row (2) is a problem; one miss is the vendor blinking
-  const companies = await many<{ id: string; slug: string }>(c, "select id, slug from companies where status in ('active','hosted')");
+  const companies = await many<{ id: string; slug: string }>(c, "select id, slug from companies where status in ('active','hosted') and ($1::uuid is null or id=$1)", [only]);
   const stuck = await many<{ company_id: string; entity: string; n: number; last_success_at: Date | null }>(c, `select p.company_id, p.entity, p.consecutive_failures as n, p.last_success_at from poll_cursors p
     left join bindings b on b.company_id=p.company_id and b.key='alerts.poll_failures'
-    where p.consecutive_failures >= greatest(1, coalesce(nullif(regexp_replace(convert_from(b.value, 'UTF8'), '\\D', '', 'g'), '')::int, $1))`, [POLL_FAILURES]);
+    where ($2::uuid is null or p.company_id=$2) and p.consecutive_failures >= greatest(1, coalesce(nullif(regexp_replace(convert_from(b.value, 'UTF8'), '\\D', '', 'g'), '')::int, $1))`, [POLL_FAILURES, only]);
   for (const co of companies) {
     const present: AlertInput[] = [];
     for (const s of stuck.filter((x) => x.company_id === co.id)) {
@@ -82,16 +87,19 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
     for (const b of broken) present.push({ companyId: co.id, key: `workflow:unparseable:${b.target_id}`, level: "error", source: "poll", text: `"${b.name ?? b.target_id}" no longer parses on this engine and is being skipped (${b.n} time${b.n > 1 ? "s" : ""} in 10 min). Re-install upgrades it.`, href: `/app/c/${co.slug}/w/${b.target_id}` });
     add(await reconcile(c, co.id, "poll", present, now));
   }
-  // 2. the engine itself
-  if (tick.recovery) { if ((await raise(c, { companyId: null, key: "engine:recovery", level: "warning", source: "engine", text: `Engine came back after a gap and is catching up (${tick.staleExits} stale runs exited this tick).` }, now)).isNew) raised++; }
-  else if (await resolve(c, null, "engine:recovery", now, true)) resolved++;
-  // 3. runs that failed since the last look: the moment it happened, with the step and the reason
-  const cursor = (await one<{ value: { since?: string } }>(c, "select value from engine_state where key='alerts_cursor'"))?.value.since;
+  // 2. the engine itself (a company's own tick leaves this to the engine's minute)
+  if (!only) {
+    if (tick.recovery) { if ((await raise(c, { companyId: null, key: "engine:recovery", level: "warning", source: "engine", text: `Engine came back after a gap and is catching up (${tick.staleExits} stale runs exited this tick).` }, now)).isNew) raised++; }
+    else if (await resolve(c, null, "engine:recovery", now, true)) resolved++;
+  }
+  // 3. runs that failed since the last look: the moment it happened, with the step and the reason. A company's first own look starts where the engine-wide cursor stood, so the upgrade re-raises nothing.
+  const cursorKey = only ? `alerts_cursor:${only}` : "alerts_cursor";
+  const cursor = (await one<{ value: { since?: string } }>(c, "select value from engine_state where key = any($1::text[]) order by (key=$2) desc limit 1", [[cursorKey, "alerts_cursor"], cursorKey]))?.value.since;
   const since = cursor ? new Date(cursor) : new Date(now.getTime() - 60 * 60e3);
   const failed = await many<{ id: string; company_id: string; slug: string; workflow_id: string; workflow: string; current_node: string | null; exit_reason: string | null; contact: string; finished_at: Date }>(c,
     `select r.id, r.company_id, co.slug, r.workflow_id, w.name as workflow, r.current_node, r.exit_reason, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, r.finished_at
      from runs r join workflows w on w.id=r.workflow_id join companies co on co.id=r.company_id left join contacts ct on ct.id=r.contact_id
-     where r.status='failed' and r.finished_at > $1 and r.finished_at <= $2 order by r.finished_at`, [since, now]);
+     where r.status='failed' and r.finished_at > $1 and r.finished_at <= $2 and ($3::uuid is null or r.company_id=$3) order by r.finished_at`, [since, now, only]);
   for (const f of failed) {
     const step = f.current_node ? await stepWords(c, f.workflow_id, f.current_node) : "start";
     const r = await raise(c, { companyId: f.company_id, key: `step:${f.workflow_id}:${f.current_node ?? "start"}`, level: "error", source: "step", text: `${f.workflow} failed when it tried to ${step}${f.contact ? ` for ${f.contact}` : ""}: ${plainError(classifyError(f.exit_reason ?? "unknown error"))}.`, detail: { run_id: f.id, node: f.current_node, error: f.exit_reason }, href: `/app/c/${f.slug}/r/${f.id}` }, now);
@@ -101,7 +109,7 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
   const blocked = await many<{ run_id: string; company_id: string; slug: string; workflow_id: string; workflow: string; node_id: string; why: string | null; contact: string }>(c,
     `select r.id as run_id, r.company_id, co.slug, r.workflow_id, w.name as workflow, s.node_id, s.result->>'why' as why, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact
      from run_steps s join runs r on r.id=s.run_id join workflows w on w.id=r.workflow_id join companies co on co.id=r.company_id left join contacts ct on ct.id=r.contact_id
-     where s.status='skipped' and s.result->>'kind'='blocked' and s.finished_at > $1 and s.finished_at <= $2 order by s.finished_at`, [since, now]);
+     where s.status='skipped' and s.result->>'kind'='blocked' and s.finished_at > $1 and s.finished_at <= $2 and ($3::uuid is null or r.company_id=$3) order by s.finished_at`, [since, now, only]);
   for (const b of blocked) {
     const step = await stepWords(c, b.workflow_id, b.node_id);
     // D66: a vendor rejecting its token is one alert per vendor, however many steps it blocks (a Slack post is never the point of a run, so the run went on)
@@ -111,9 +119,9 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
       : await raise(c, { companyId: b.company_id, key: `blocked:${b.workflow_id}:${b.node_id}`, level: "warning", source: "step", text: `${b.workflow} couldn't ${step}${b.contact ? ` for ${b.contact}` : ""}: ${plainError(classifyError(b.why ?? "blocked"))}. The run went on without it.`, detail: { run_id: b.run_id, node: b.node_id, why: b.why }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now);
     if (r.isNew) raised++;
   }
-  await c.query("insert into engine_state (key, value, updated_at) values ('alerts_cursor', $1, now()) on conflict (key) do update set value=$1, updated_at=now()", [{ since: now.toISOString() }]);
+  await c.query("insert into engine_state (key, value, updated_at) values ($2, $1, now()) on conflict (key) do update set value=$1, updated_at=now()", [{ since: now.toISOString() }, cursorKey]);
   // a step alert (failed or blocked) is over once a later run of that workflow gets past that step
-  const openSteps = await many<AlertRow>(c, "select * from alerts where source='step' and resolved_at is null");
+  const openSteps = await many<AlertRow>(c, "select * from alerts where source='step' and resolved_at is null and ($1::uuid is null or company_id=$1)", [only]);
   for (const a of openSteps) {
     if (!a.key.startsWith("step:") && !a.key.startsWith("blocked:")) continue;   // D66: `run:<id>:paused` closes on Retry/Skip (D77: or when its held step passes), `auth:<vendor>` when the token is replaced, D77's `skipped:` when that step is retried
     const [, wf, node] = a.key.split(":");
@@ -146,25 +154,32 @@ export const openFor = (from: Date, to: Date) => { const min = Math.max(1, Math.
 export const alertKind = (a: Pick<AlertRow, "source" | "key" | "detail">): string => a.source !== "step" ? a.source
   : a.key.startsWith("blocked:") ? "blocked" : a.key.startsWith("skipped:") ? "skipped" : a.key.startsWith("run:") ? ((a.detail as { held?: boolean }).held ? "held" : "paused") : a.key.startsWith("auth:") ? "auth" : "failed";
 
+/** `announceDue`'s scope for the engine's own minute (D98): the alerts about the engine, which go to the operator's webhook. */
+export const ENGINE_SCOPE = "engine";
+/** An alert about the engine itself: no company, or a company's `engine:` key (its ticks stopped). It goes to the operator's webhook, never through the company's workflows, which do not run while its ticks are stuck. */
+const aboutEngine = (a: Pick<AlertRow, "company_id" | "key">) => !a.company_id || a.key.startsWith("engine:");
+
 /**
  * D88 (A7): what is due is an event for the company's workflows, not a post: `alert.raised` the first time, `alert.repeated`
  * once it has been open `alerts.repeat_minutes` since it was last said, `alert.resolved` once it cleared. The Health check
- * workflow says it (Slack, threaded under the first post by its tag, ✅ on resolve). An alert with no company (the engine itself)
- * goes to the operator's webhook. Returns how many of each were handed on (a workflow started for them).
+ * workflow says it (Slack, threaded under the first post by its tag, ✅ on resolve). An alert about the engine itself (no company,
+ * or an `engine:` key) goes to the operator's webhook. Returns how many of each were handed on (a workflow started for them).
+ * `onlyCompanyId`: a company's own tick hears only its own alerts; `ENGINE_SCOPE`, the engine's minute, only the engine's.
  */
 export async function announceDue(c: PoolClient, _adapters: Adapters, now = new Date(), onlyCompanyId?: string): Promise<{ posted: number; repeated: number; resolved: number }> {
   const out = { posted: 0, repeated: 0, resolved: 0 };
   const due = await many<AlertRow & { slug: string | null; company: string | null }>(c, `select a.*, co.slug, co.name as company from alerts a left join companies co on co.id=a.company_id
     left join bindings b on b.company_id=a.company_id and b.key='alerts.repeat_minutes'
-    where ($2::uuid is null or a.company_id=$2) and ((a.resolved_at is null and (a.announced_at is null
+    where (case when $2::text is null then true when $2::text=$4 then (a.company_id is null or a.key like 'engine:%') else (a.company_id::text=$2::text and a.key not like 'engine:%') end)
+      and ((a.resolved_at is null and (a.announced_at is null
       or a.announced_at < $1::timestamptz - make_interval(mins => greatest(1, coalesce(nullif(regexp_replace(convert_from(b.value, 'UTF8'), '\\D', '', 'g'), '')::int, $3)))))
-      or (a.resolved_at is not null and not a.resolved_announced)) order by a.first_seen`, [now, onlyCompanyId ?? null, REPEAT_AFTER_MIN]);
+      or (a.resolved_at is not null and not a.resolved_announced)) order by a.first_seen`, [now, onlyCompanyId ?? null, REPEAT_AFTER_MIN, ENGINE_SCOPE]);
   const { dispatchEvent, emitEvent } = await import("./dispatch");
   for (const a of due) {
     const type = a.resolved_at ? "alert.resolved" : a.announce_count > 0 ? "alert.repeated" : "alert.raised";
     let handed = false;
-    if (!a.company_id) handed = await sendWebhook(type, a, now);   // the engine itself: no company workflow to say it
-    else {
+    if (aboutEngine(a)) handed = await sendWebhook(type, a.company ? { ...a, text: `${a.company}: ${a.text}` } : a, now);   // the engine itself: no company workflow to say it
+    else if (a.company_id) {
       const dest = await destinationsFor(c, a.company_id, a.source);
       const d = a.detail as { fix?: { label: string }; link?: string; link_label?: string; thread?: string };
       const link = a.href ? `${base()}${a.href}` : null;
@@ -189,7 +204,7 @@ async function sendWebhook(event: string, a: AlertRow, now: Date): Promise<boole
   catch { return false; }   /* the alert channel being down is reported by the outside health check, not by us */
 }
 
-/** The whole tick's worth: collect, then announce. The tick route wraps this so a failure here never fails the tick. */
+/** The whole tick's worth: collect, then announce. The tick route wraps this so a failure here never fails the tick. A company's own tick (D98) scopes both halves itself (`tickCompany`). */
 export async function tickAlerts(c: PoolClient, adapters: Adapters, poll: PollReport, tick: TickReport, now = new Date(), onlyCompanyId?: string): Promise<{ raised: number; resolved: number; posted: number; repeated: number; closed: number }> {
   const col = await collectThisTick(c, poll, tick, now);
   const ann = await announceDue(c, adapters, now, onlyCompanyId);   // a test, or a tick for one company, hears only its own alerts

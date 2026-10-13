@@ -4,18 +4,31 @@ import { asOperator, many, one } from "@/db/client";
 export const TICK_JOB = "bb-tick";
 export const WATCHDOG_JOB = "bb-watchdog";
 
+/** pg_net's wait for an answer: past the tick route's own 300 s, so a long tick is never cut off from the caller's side. */
+export const TICK_TIMEOUT_MS = 310_000;
+
+/**
+ * The job's command (D98): ONE statement that fires one request per ticking company (`/api/tick?company=<id>`) and one for the
+ * engine (`?scope=engine`). pg_net sends them side by side, so no company waits for another, and the company list is read
+ * when the job runs, so a client added later ticks the next minute with no reinstall. Dollar-quoted so the JSON needs no
+ * escaping; the tag is unusual enough never to appear in a URL or secret.
+ */
+export function tickCommand(tickUrl: string, secret: string, timeoutMs = TICK_TIMEOUT_MS): string {
+  const headers = JSON.stringify({ Authorization: `Bearer ${secret}` });
+  return `select net.http_get(url := $bbq$${tickUrl}/api/tick?$bbq$ || t.q, headers := $bbq$${headers}$bbq$::jsonb, timeout_milliseconds := ${Math.max(300_000, Math.floor(timeoutMs))}) `
+    + `from (select 'scope=engine' as q union all select 'company=' || id::text from companies where status in ('active','hosted')) t`;
+}
+
 /**
  * The minute scheduler lives in the database: Supabase ships pg_cron + pg_net, so a cron job inside Postgres calls
  * /api/tick every minute. No third account, no Vercel Pro, and it fires on time where GitHub's five-minute schedule did not.
  * The bearer secret sits in cron.job's command text; anyone who can read that table already owns the database.
  */
-export async function installTickSchedule(tickUrl: string, secret: string, everyMinutes = 1, timeoutMs = 120_000): Promise<{ jobid: number }> {
+export async function installTickSchedule(tickUrl: string, secret: string, everyMinutes = 1, timeoutMs = TICK_TIMEOUT_MS): Promise<{ jobid: number }> {
   if (!/^https:\/\/[^/\s'"]+$/.test(tickUrl)) throw new Error(`tickUrl must be an https origin without a path: ${tickUrl}`);
   if (!Number.isInteger(everyMinutes) || everyMinutes < 1 || everyMinutes > 59) throw new Error("everyMinutes must be 1–59");
   const schedule = everyMinutes === 1 ? "* * * * *" : `*/${everyMinutes} * * * *`;
-  const headers = JSON.stringify({ Authorization: `Bearer ${secret}` });
-  // dollar-quoted so the JSON needs no escaping; the tag is unusual enough never to appear in a URL or secret
-  const command = `select net.http_get(url := $bbq$${tickUrl}/api/tick$bbq$, headers := $bbq$${headers}$bbq$::jsonb, timeout_milliseconds := ${timeoutMs})`;
+  const command = tickCommand(tickUrl, secret, timeoutMs);
   return asOperator(async (c) => {
     await c.query("create extension if not exists pg_cron");
     await c.query("create extension if not exists pg_net");

@@ -339,34 +339,46 @@ type EntityPoll = (c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapter
  * more statements only yields "current transaction is aborted" and loses the entities that had succeeded. Each entity
  * commits or rolls back on its own; the failure counter is written afterwards in a fresh transaction.
  */
+export const emptyPollReport = (): PollReport => ({ companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, calls: 0, agreements: 0, cardsMoved: 0, eventsDispatched: 0, baselined: 0, errors: [] });
+
 export async function pollAll(adapters: Adapters): Promise<PollReport> {
-  const rep: PollReport = { companies: 0, contacts: 0, appointmentsNew: 0, appointmentsChanged: 0, inbound: 0, calls: 0, agreements: 0, cardsMoved: 0, eventsDispatched: 0, baselined: 0, errors: [] };
+  const rep = emptyPollReport();
   const companies = await asOperator((c) => many<{ id: string }>(c, "select id from companies where status in ('active','hosted')"));
-  for (const { id } of companies) {
-    rep.companies++;
-    let loaded: Awaited<ReturnType<typeof loadCompany>>;
-    try { loaded = await asOperator((c) => loadCompany(c, id)); }
-    catch (e) { rep.errors.push({ company: id, entity: "bindings", error: `cannot load bindings: ${(e as Error).message}` }); continue; }   // one bad key must not stop every other company
-    const { row: co, adapterCompany: ac, bindings } = loaded;
-    if (!ac.pit || !ac.locationId) { rep.errors.push({ company: co.slug, entity: "bindings", error: "crm.location_id / secret.ghl_pit not bound" }); continue; }
-    const cals = await asOperator((c) => many<{ external_id: string }>(c, "select external_id from calendars where company_id=$1 and source=$2 and active", [co.id, ac.booking.source]));
-    const entities: [string, EntityPoll][] = [
-      ["contacts", pollContacts],
-      ...cals.map((cal): [string, EntityPoll] => [`appointments:${cal.external_id}`, (c, co, ac, adapters, rep) => pollCalendar(c, co, ac, adapters, rep, cal.external_id)]),
-      ["conversations", pollInbound],
-      ["calls", pollPendingCalls],
-      ["agreements", pollAgreements],
-      ["cards", pollCards],
-    ];
-    for (const [entity, fn] of entities) {
-      const before = { ...rep };
-      try { await asOperator((c) => fn(c, co, ac, adapters, rep, bindings)); }
-      catch (e) {
-        Object.assign(rep, before, { errors: rep.errors });   // the transaction rolled back; the report must not count what it undid
-        rep.errors.push({ company: co.slug, entity, error: String((e as Error).message) });
-        await asOperator((c) => saveCursor(c, co.id, entity, "", false)).catch(() => {});
-      }
+  for (const { id } of companies) await pollCompany(adapters, id, rep);
+  return rep;
+}
+
+/**
+ * One company's poll, every entity in its own transaction; what it read and what failed is added to `rep`. D98: a company's
+ * own tick calls this alone, with `timings` to learn how long each read took (ms per entity, `setup` for the bindings and calendars).
+ */
+export async function pollCompany(adapters: Adapters, companyId: string, rep: PollReport = emptyPollReport(), timings?: Record<string, number>): Promise<PollReport> {
+  rep.companies++;
+  const t0 = Date.now();
+  let loaded: Awaited<ReturnType<typeof loadCompany>>;
+  try { loaded = await asOperator((c) => loadCompany(c, companyId)); }
+  catch (e) { rep.errors.push({ company: companyId, entity: "bindings", error: `cannot load bindings: ${(e as Error).message}` }); return rep; }   // one bad key must not stop every other company
+  const { row: co, adapterCompany: ac, bindings } = loaded;
+  if (!ac.pit || !ac.locationId) { rep.errors.push({ company: co.slug, entity: "bindings", error: "crm.location_id / secret.ghl_pit not bound" }); return rep; }
+  const cals = await asOperator((c) => many<{ external_id: string }>(c, "select external_id from calendars where company_id=$1 and source=$2 and active", [co.id, ac.booking.source]));
+  const entities: [string, EntityPoll][] = [
+    ["contacts", pollContacts],
+    ...cals.map((cal): [string, EntityPoll] => [`appointments:${cal.external_id}`, (c, co, ac, adapters, rep) => pollCalendar(c, co, ac, adapters, rep, cal.external_id)]),
+    ["conversations", pollInbound],
+    ["calls", pollPendingCalls],
+    ["agreements", pollAgreements],
+    ["cards", pollCards],
+  ];
+  if (timings) timings.setup = Date.now() - t0;
+  for (const [entity, fn] of entities) {
+    const before = { ...rep }, te = Date.now();
+    try { await asOperator((c) => fn(c, co, ac, adapters, rep, bindings)); }
+    catch (e) {
+      Object.assign(rep, before, { errors: rep.errors });   // the transaction rolled back; the report must not count what it undid
+      rep.errors.push({ company: co.slug, entity, error: String((e as Error).message) });
+      await asOperator((c) => saveCursor(c, co.id, entity, "", false)).catch(() => {});
     }
+    if (timings) timings[entity] = Date.now() - te;
   }
   return rep;
 }
