@@ -63,6 +63,66 @@ export type InstallInput = {
   quietHours?: { start?: string; end?: string; allowTransactional?: boolean };
 };
 
+/**
+ * D16/D96: put the shipped templates on a company: a new one installs (off unless `enable`, or on when it carries what the engine
+ * did before, or as the copy it takes over stood), an untouched copy upgrades, an edited copy is left alone, and a copy taken
+ * over goes off in the same transaction. Touches nothing else of the company: a template upgrade never needs the install file.
+ */
+export async function installTemplates(c: import("pg").PoolClient, companyId: string, wanted: string[], opts: { enable?: boolean; existed: boolean }): Promise<string[]> {
+  const installed: string[] = [];
+  const replaced = new Map<string, { name: string; by: string[] }>();
+  for (const t of templates.filter((t) => wanted.includes(t.slug))) {
+    const def = parseDefinition(t.definition); const manifest = extractManifest(def);
+    // the template row follows the code: a changed definition is a new template version
+    let tpl = await one<{ id: string; version: number; definition: unknown }>(c, "select id, version, definition from workflow_templates where slug=$1", [t.slug]);
+    if (!tpl) tpl = await one<{ id: string; version: number; definition: unknown }>(c, "insert into workflow_templates (slug, name, description, category, stage, sort, origin, definition, manifest, published_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,now()) returning id, version, definition", [t.slug, t.name, t.description, t.category, t.stage, t.sort, t.origin, t.definition, manifest]);
+    else if (canon(tpl.definition) !== canon(t.definition)) tpl = await one<{ id: string; version: number; definition: unknown }>(c, "update workflow_templates set definition=$2, manifest=$3, name=$4, description=$5, stage=$6, sort=$7, origin=$8, version=version+1, published_at=now() where id=$1 returning id, version, definition", [tpl.id, t.definition, manifest, t.name, t.description, t.stage, t.sort, t.origin]);
+    const bound = new Set((await many<{ key: string }>(c, "select key from bindings where company_id=$1", [companyId])).map((b) => b.key));
+    const missing = manifest.bindings.filter((b) => b.required && !bound.has(b.key)).map((b) => b.key);
+    const missingNote = missing.length ? `; missing: ${missing.join(", ")}` : "";
+    const existing = await one<{ id: string; current_version: number; template_version: number | null; diverged: boolean }>(c, "select id, current_version, template_version, diverged from workflows where company_id=$1 and template_id=$2", [companyId, tpl!.id]);
+    if (existing) {
+      // the words follow the template on every install, even when the steps did not change: a rename is not a new version
+      await c.query("update workflows set stage=$2, sort=$3, origin=$4, name=case when diverged then name else $5 end where id=$1", [existing.id, t.stage, t.sort, t.origin, t.name]);
+      await c.query("update workflow_templates set name=$2, description=$3 where id=$1 and (name<>$2 or description is distinct from $3)", [tpl!.id, t.name, t.description]);
+      // a company's untouched copy follows the template; an edited copy is theirs and is left alone
+      if (existing.diverged) { installed.push(`${t.slug} (edited since install, left alone; template v${tpl!.version} available)`); continue; }
+      if (existing.template_version === tpl!.version) { installed.push(`${t.slug} (already installed, current)`); continue; }
+      const next = existing.current_version + 1;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [existing.id, next, t.definition, manifest, `upgraded to template v${tpl!.version}`]);
+      await c.query("update workflows set current_version=$2, template_version=$3, name=$4, reentry_policy=$5, reentry_window=$6 where id=$1", [existing.id, next, tpl!.version, t.name, def.reentry, def.reentry_window ?? null]);
+      await syncTriggers(c, companyId, existing.id, def);
+      await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.upgraded','workflow',$2,$3,$4)", [companyId, existing.id, { version: existing.current_version, template_version: existing.template_version }, { version: next, template_version: tpl!.version }]);
+      installed.push(`${t.slug} → upgraded v${existing.current_version}→v${next} (template v${tpl!.version})${missingNote}`);
+      continue;
+    }
+    const wf = await one<{ id: string }>(c, `insert into workflows (company_id, template_id, template_version, name, reentry_policy, reentry_window, stage, sort, origin) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, [companyId, tpl!.id, tpl!.version, t.name, def.reentry, def.reentry_window ?? null, t.stage, t.sort, t.origin]);
+    await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'installed from template')", [wf!.id, t.definition, manifest]);
+    await syncTriggers(c, companyId, wf!.id, def);
+    const carried = opts.existed && "engine_default" in t && t.engine_default === true;
+    // D96: a template that takes over an older one (the three wrap-ups out of the one) starts the way the old copy stood: on or off, its mode.
+    // An old copy the company edited is theirs: it stays as it is and the new one installs off, so nothing is posted twice.
+    const old = "replaces" in t ? await one<{ id: string; enabled: boolean; mode: string | null; diverged: boolean; name: string }>(c, `select w.id, w.enabled, w.mode, w.diverged, w.name from workflows w join workflow_templates wt on wt.id=w.template_id
+      where w.company_id=$1 and wt.slug = any($2::text[]) order by w.enabled desc limit 1`, [companyId, t.replaces]) : null;
+    if (old && !old.diverged) {
+      await c.query("update workflows set enabled=$2, mode=$3 where id=$1", [wf!.id, old.enabled && !missing.length, old.mode]);
+      replaced.set(old.id, { name: old.name, by: [...(replaced.get(old.id)?.by ?? []), t.name] });
+      installed.push(`${t.slug} → ${missing.length ? `OFF, missing: ${missing.join(", ")}` : old.enabled ? "enabled" : "installed OFF"} (takes over "${old.name}"${old.mode ? `, ${old.mode}` : ""})`);
+      continue;
+    }
+    if (old?.diverged) { installed.push(`${t.slug} → installed OFF ("${old.name}" was edited and stays as it is; turn it off before turning this on)`); continue; }
+    if ((opts.enable || carried) && !missing.length) await c.query("update workflows set enabled=true where id=$1", [wf!.id]);
+    installed.push(`${t.slug} → ${missing.length ? `OFF, missing: ${missing.join(", ")}` : opts.enable ? "enabled" : carried ? "enabled (it carries what the engine did before, D88)" : "installed OFF"}`);
+  }
+  // D96: the copies taken over go off in the same install that turns their successors on: no gap, no double post
+  for (const [id, r] of replaced) {
+    const was = await one<{ enabled: boolean }>(c, "update workflows set enabled=false where id=$1 and enabled returning true as enabled", [id]);
+    if (was) await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.replaced','workflow',$2,$3,$4)", [companyId, id, { enabled: true }, { enabled: false, replaced_by: r.by }]);
+    installed.push(`"${r.name}" → ${was ? "turned off" : "already off"}, replaced by ${r.by.join(", ")}`);
+  }
+  return installed;
+}
+
 /** Trigger rows follow the definition in place: a node that is still there keeps its row (runs point at it), a new node gets one, a gone node loses its (runs keep their history via on delete set null). */
 export async function syncTriggers(c: import("pg").PoolClient, companyId: string, workflowId: string, def: ReturnType<typeof parseDefinition>): Promise<void> {
   const triggers = indexDefinition(def).triggers;
@@ -232,39 +292,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     if (closerCal) await bind("calendar.closer_call", "id", closerCal);
     const bookingCal = input.bookingCalendar ?? Object.entries(calMap).find(([, m]) => m.term === "first_call")?.[0] ?? closerCal;
     if (bookingCal) await bind("calendar.booking", "id", bookingCal);
-    const installed: string[] = [];
-    for (const t of templates.filter((t) => wanted.includes(t.slug))) {
-      const def = parseDefinition(t.definition); const manifest = extractManifest(def);
-      // the template row follows the code: a changed definition is a new template version
-      let tpl = await one<{ id: string; version: number; definition: unknown }>(c, "select id, version, definition from workflow_templates where slug=$1", [t.slug]);
-      if (!tpl) tpl = await one<{ id: string; version: number; definition: unknown }>(c, "insert into workflow_templates (slug, name, description, category, stage, sort, origin, definition, manifest, published_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,now()) returning id, version, definition", [t.slug, t.name, t.description, t.category, t.stage, t.sort, t.origin, t.definition, manifest]);
-      else if (canon(tpl.definition) !== canon(t.definition)) tpl = await one<{ id: string; version: number; definition: unknown }>(c, "update workflow_templates set definition=$2, manifest=$3, name=$4, description=$5, stage=$6, sort=$7, origin=$8, version=version+1, published_at=now() where id=$1 returning id, version, definition", [tpl.id, t.definition, manifest, t.name, t.description, t.stage, t.sort, t.origin]);
-      const bound = new Set((await many<{ key: string }>(c, "select key from bindings where company_id=$1", [companyId])).map((b) => b.key));
-      const missing = manifest.bindings.filter((b) => b.required && !bound.has(b.key)).map((b) => b.key);
-      const missingNote = missing.length ? `; missing: ${missing.join(", ")}` : "";
-      const existing = await one<{ id: string; current_version: number; template_version: number | null; diverged: boolean }>(c, "select id, current_version, template_version, diverged from workflows where company_id=$1 and template_id=$2", [companyId, tpl!.id]);
-      if (existing) {
-        // the words follow the template on every install, even when the steps did not change: a rename is not a new version
-        await c.query("update workflows set stage=$2, sort=$3, origin=$4, name=case when diverged then name else $5 end where id=$1", [existing.id, t.stage, t.sort, t.origin, t.name]);
-        await c.query("update workflow_templates set name=$2, description=$3 where id=$1 and (name<>$2 or description is distinct from $3)", [tpl!.id, t.name, t.description]);
-        // a company's untouched copy follows the template; an edited copy is theirs and is left alone
-        if (existing.diverged) { installed.push(`${t.slug} (edited since install, left alone; template v${tpl!.version} available)`); continue; }
-        if (existing.template_version === tpl!.version) { installed.push(`${t.slug} (already installed, current)`); continue; }
-        const next = existing.current_version + 1;
-        await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [existing.id, next, t.definition, manifest, `upgraded to template v${tpl!.version}`]);
-        await c.query("update workflows set current_version=$2, template_version=$3, name=$4, reentry_policy=$5, reentry_window=$6 where id=$1", [existing.id, next, tpl!.version, t.name, def.reentry, def.reentry_window ?? null]);
-        await syncTriggers(c, companyId, existing.id, def);
-        await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.upgraded','workflow',$2,$3,$4)", [companyId, existing.id, { version: existing.current_version, template_version: existing.template_version }, { version: next, template_version: tpl!.version }]);
-        installed.push(`${t.slug} → upgraded v${existing.current_version}→v${next} (template v${tpl!.version})${missingNote}`);
-        continue;
-      }
-      const wf = await one<{ id: string }>(c, `insert into workflows (company_id, template_id, template_version, name, reentry_policy, reentry_window, stage, sort, origin) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, [companyId, tpl!.id, tpl!.version, t.name, def.reentry, def.reentry_window ?? null, t.stage, t.sort, t.origin]);
-      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'installed from template')", [wf!.id, t.definition, manifest]);
-      await syncTriggers(c, companyId, wf!.id, def);
-      const carried = existed && "engine_default" in t && t.engine_default === true;
-      if ((input.enable || carried) && !missing.length) await c.query("update workflows set enabled=true where id=$1", [wf!.id]);
-      installed.push(`${t.slug} → ${missing.length ? `OFF, missing: ${missing.join(", ")}` : input.enable ? "enabled" : carried ? "enabled (it carries what the engine did before, D88)" : "installed OFF"}`);
-    }
+    const installed = await installTemplates(c, companyId, wanted, { enable: input.enable, existed });
     // Fathom's webhook is registered once per company and remembered; a re-install never makes a second one
     let fathomWebhook = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='fathom.webhook_id'", [companyId]))?.value.toString("utf8");
     const publicUrl = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");

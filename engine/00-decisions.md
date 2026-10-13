@@ -3071,3 +3071,24 @@ had decimals (33.3%) and data-quality lines nobody asked for came with every ans
 - Event posts (a close, a payment, a setter call, an alert) were already one fact per line and are unchanged.
 - Tests: `bot.test.ts` (the formatter, every shortcut, the headline kept or dropped by its numbers, the breakdown, the
   table width, issues only on request), `reports.test.ts`, `moves.test.ts`, `availability.test.ts`, `alerts.test.ts`.
+
+## D96. The daily, weekly and monthly wrap-ups are three workflows (2026-10-13)
+
+One Wrap-ups workflow carried all three on three schedule triggers, so its one switch and one mode covered all three:
+the owner could not turn the daily off, put the weekly live alone, or word the monthly differently. His rule is one
+automation per workflow.
+
+- `daily-wrap-up`, `weekly-wrap-up`, `monthly-wrap-up`: each a schedule trigger (19:00; Monday 08:00; the 1st 08:00),
+  its `report` step (kind fixed, the D95 layout with only its own headings) and its post to `slack.channel.reports`.
+  `shippedLayout(kind)` words a copy with no layout by its own kind's template. The wrap-ups page lists all three;
+  `POST /api/admin/reports { kind }` fires the one whose trigger is `t_<kind>`.
+- **A template can take over another** (`replaces`). On install a successor starts as the old copy stood (on or off,
+  its own mode) and the old copy goes off in the same transaction, with a `workflow.replaced` audit row: no gap and no
+  double post. An old copy the company edited is theirs: it stays as it is and the successors install off, saying so.
+- **Templates without the install file:** `installTemplates` is the template half of install, and
+  `POST /api/admin/templates { company, templates? }` runs it alone (no bindings, calendars, Slack or secrets).
+  Re-running the whole install to pick up a template meant keeping the whole file, secrets and all, which was lost
+  with a recycled container on Oct 13.
+- Tests: `install.upgrade.test.ts` (the handover, idempotent on a second run, an edited old copy left on and the
+  successors off; it fails when the old copy is not turned off), `reports.test.ts`, `moves.test.ts`,
+  `templates.test.ts`, `blocking.test.ts`.

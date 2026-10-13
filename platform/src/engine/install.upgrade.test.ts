@@ -4,7 +4,7 @@ import { qualifyConfig, salesCallConfig } from "@/engine/ghl-metrics";
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
-import { installCompany } from "@/engine/install";
+import { installCompany, installTemplates } from "@/engine/install";
 import { companyReadiness } from "@/engine/readiness";
 import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { templates } from "@/templates";
@@ -136,5 +136,35 @@ describe.skipIf(!process.env.DATABASE_URL)("editing copy", () => {
     const r = await installCompany({ ...base, templates: ["speed-to-lead"] }, fake);
     expect(r.installed[0]).toMatch(/edited since install, left alone/);
     expect(wf.id).toBeTruthy();
+  });
+
+  it("D96: the daily, weekly and monthly wrap-ups take over the one Wrap-ups as it stood (on, its mode), which goes off in the same install; an edited one is left alone and they install off", async () => {
+    const wraps = ["daily-wrap-up", "weekly-wrap-up", "monthly-wrap-up"];
+    const dropCopies = async (c: import("pg").PoolClient, slugs: string[]) => {
+      const sel = "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug = any($2::text[])";
+      for (const t of ["workflow_triggers", "workflow_versions"]) await c.query(`delete from ${t} where workflow_id in (${sel})`, [companyId, slugs]);
+      await c.query(`delete from workflows where id in (${sel})`, [companyId, slugs]);
+    };
+    // the old combined copy, as Hair had it: on, following the company, then pinned to test
+    const old = await asOperator(async (c) => {
+      await dropCopies(c, [...wraps, "wrap-ups"]);
+      const tpl = (await one<{ id: string }>(c, "insert into workflow_templates (slug, name, description, category, stage, sort, origin, definition, manifest, published_at) values ('wrap-ups','Wrap-ups','old','reports','team',30,'spec','{}','{}',now()) on conflict (slug) do update set name=excluded.name returning id"))!.id;
+      return (await one<{ id: string }>(c, "insert into workflows (company_id, template_id, template_version, name, reentry_policy, enabled, mode) values ($1,$2,1,'Wrap-ups','always',true,'test') returning id", [companyId, tpl]))!.id;
+    });
+    const out = await asOperator((c) => installTemplates(c, companyId, wraps, { existed: true }));
+    expect(out).toEqual(expect.arrayContaining([expect.stringMatching(/^daily-wrap-up → enabled \(takes over "Wrap-ups", test\)$/), "\"Wrap-ups\" → turned off, replaced by Daily wrap-up, Weekly wrap-up, Monthly wrap-up"]));
+    const rows = await asOperator((c) => many<{ slug: string; enabled: boolean; mode: string | null }>(c, "select t.slug, w.enabled, w.mode from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug = any($2::text[]) order by t.slug", [companyId, [...wraps, "wrap-ups"]]));
+    expect(rows).toEqual([{ slug: "daily-wrap-up", enabled: true, mode: "test" }, { slug: "monthly-wrap-up", enabled: true, mode: "test" }, { slug: "weekly-wrap-up", enabled: true, mode: "test" }, { slug: "wrap-ups", enabled: false, mode: "test" }]);
+    expect(await asOperator((c) => one(c, "select 1 from audit_log where company_id=$1 and action='workflow.replaced' and target_id=$2", [companyId, old]))).toBeTruthy();
+    // a second run changes nothing: the old one stays off, the new ones are current
+    expect(await asOperator((c) => installTemplates(c, companyId, wraps, { existed: true }))).toEqual(wraps.map((s) => `${s} (already installed, current)`));
+    // an edited old copy is the company's: it stays on and the new ones install off, so nothing posts twice
+    await asOperator(async (c) => {
+      await dropCopies(c, wraps);
+      await c.query("update workflows set enabled=true, diverged=true where id=$1", [old]);
+    });
+    const kept = await asOperator((c) => installTemplates(c, companyId, wraps, { existed: true }));
+    expect(kept[0]).toBe('daily-wrap-up → installed OFF ("Wrap-ups" was edited and stays as it is; turn it off before turning this on)');
+    expect(await asOperator((c) => many<{ enabled: boolean }>(c, "select w.enabled from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug = any($2::text[]) order by t.slug", [companyId, [...wraps, "wrap-ups"]]))).toEqual([{ enabled: false }, { enabled: false }, { enabled: false }, { enabled: true }]);
   });
 });

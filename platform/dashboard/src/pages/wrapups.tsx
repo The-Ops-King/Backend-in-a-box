@@ -9,11 +9,12 @@ export function WrapUps() {
   const { slug = "" } = useParams();
   const q = usePage<WrapUpsPage>(["wrap-ups", slug], `/api/v1/companies/${slug}/wrap-ups`, { every: 60_000 });
   if (!q.data) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton lines={8} />;
-  const { company: co, reports, workflow: wf } = q.data;
+  const { company: co, reports, workflows } = q.data;
   return <>
     <Crumb items={[{ to: `/app/c/${slug}`, label: co.name }]} />
     <NameLine name="Wrap-ups" />
-    <div className="tagline">{wf ? <><Link to={`/app/c/${slug}/w/${wf.id}`}>{wf.name}</Link><span>·</span><span>{wf.enabled && wf.when ? wf.when : "off"}</span></> : <span>no wrap-up workflow installed</span>}</div>
+    {/* D96: the daily, weekly and monthly wrap-ups are their own workflows */}
+    <div className="tagline">{workflows.length ? workflows.map((wf, i) => <span key={wf.id}>{i ? <span> · </span> : null}<Link to={`/app/c/${slug}/w/${wf.id}`}>{wf.name}</Link> <span className="sub" style={{ display: "inline" }}>{wf.enabled && wf.when ? wf.when : "off"}</span></span>) : <span>no wrap-up workflow installed</span>}</div>
     <Setters slug={slug} tz={co.timezone} />
     <Sec>Posted</Sec>
     {reports.length === 0 ? <Empty>No wrap-ups yet.</Empty> : <div className="rows">{reports.map((r) => <div key={r.id} className="row noicon" style={{ display: "block" }}>

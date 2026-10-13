@@ -16,7 +16,7 @@ import type { Adapters, BookingRead } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
 /** D88 (A8): the body is the shipped template's layout over the numbers. D95: one narrow table a phone can read, a warning only when there is something to fix, one footer. */
-const renderReport = (a: Parameters<typeof reportFacts>[0]) => renderLayout(shippedLayout(), reportFacts({ readAt: new Date("2026-10-10T19:00:00Z"), ...a }), {}, { tz: a.tz, companyTz: a.tz });
+const renderReport = (a: Parameters<typeof reportFacts>[0]) => renderLayout(shippedLayout(a.kind), reportFacts({ readAt: new Date("2026-10-10T19:00:00Z"), ...a }), {}, { tz: a.tz, companyTz: a.tz });
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 
 describe("report periods and due-ness (pure)", () => {
@@ -126,12 +126,12 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
       notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null, react: async () => true, unreact: async () => true, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
       analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
     };
-    await asOperator((c) => installTemplateForTest(c, companyId, "wrap-ups"));
+    await asOperator((c) => installTemplateForTest(c, companyId, "daily-wrap-up"));
     const at1905 = DateTime.fromISO(`${day}T19:05:00`, { zone: "UTC" }) as DateTime<true>;
     // before 7pm nothing fires
     expect((await asOperator((c) => dispatchSchedules(c, at1905.set({ hour: 18 }) as DateTime<true>, companyId))).started).toEqual([]);
     const first = await asOperator((c) => dispatchSchedules(c, at1905, companyId));
-    expect(first.started).toEqual([{ company: "rp", workflow: "Wrap-ups", node: "t_daily", period: day }]);
+    expect(first.started).toEqual([{ company: "rp", workflow: "Daily wrap-up", node: "t_daily", period: day }]);
     const again = await asOperator((c) => dispatchSchedules(c, at1905.plus({ minutes: 1 }) as DateTime<true>, companyId));
     expect(again.started).toEqual([]);
     const t = await tick(fake, at1905, companyId, { ...fakeProbes, ghl });

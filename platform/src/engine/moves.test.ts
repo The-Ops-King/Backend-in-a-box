@@ -356,7 +356,7 @@ describe("D88: the wrap-up's words are the template's (A8)", () => {
   const day = { start: "2026-10-10", end: "2026-10-10" };
   const facts = (over: Partial<Parameters<typeof reportFacts>[0]> = {}) => reportFacts({ kind: "daily", period: day, tz: "UTC", toDate: false, numbers: { leads: 3, booked: 0 }, calls: null, said: [], readAt: new Date("2026-10-10T19:00:00Z"), ...over });
   const FOOT = "\n\n_From GHL and the engine, read 7:00 PM UTC_";
-  const body = (f: ReturnType<typeof reportFacts>, layout = shippedLayout()) => renderLayout(layout, f, {}, { tz: "UTC", companyTz: "UTC" });
+  const body = (f: ReturnType<typeof reportFacts>, layout = shippedLayout(f.kind)) => renderLayout(layout, f, {}, { tz: "UTC", companyTz: "UTC" });
 
   it("as shipped: what they said, the top four answers each, the rest counted, long answers cut", () => {
     const long = "Business owner or entrepreneur who runs several companies at once and travels";
@@ -385,7 +385,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the wrap-ups workflow words its
   it("an edited layout and metric list change what is posted and what the wrap-ups ledger keeps", async () => {
     const { fakeProbes } = await import("@/engine/test-install");
     const ghl = { contactsAdded: async () => [], wonCards: async () => [], objectRecords: async () => [], cards: async () => [], pipelines: async () => [], users: async () => [], getContact: async () => null, recordContact: async () => null, fieldCatalog: async () => [] };
-    const wf = await install("wrap-ups", (d) => { const n = d.nodes.find((x) => x.id === "n_build")!; if (n.type === "report") { n.metrics = ["booked", "dials"]; n.layout = { heading: { daily: "Today" }, empty: { daily: "Nothing to report, boss." }, sections: [{ title: "Calls", lines: ["{{report.raw.dials}} dials"] }] }; } });
+    const wf = await install("daily-wrap-up", (d) => { const n = d.nodes.find((x) => x.id === "n_build")!; if (n.type === "report") { n.metrics = ["booked", "dials"]; n.layout = { heading: { daily: "Today" }, empty: { daily: "Nothing to report, boss." }, sections: [{ title: "Calls", lines: ["{{report.raw.dials}} dials"] }] }; } });
     const { fireNow } = await import("@/engine/clock");
     await asOperator((c) => fireNow(c, companyId, wf, "t_daily"));
     await tick(fake, undefined, companyId, { ...fakeProbes, ghl });

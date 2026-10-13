@@ -8,7 +8,7 @@ import { companyReadiness, type Readiness } from "@/engine/readiness";
 import { openAlerts, recentAlerts, currentProblems } from "@/engine/alerts";
 import { CHECKS, ensureHealth, type Finding } from "@/engine/health";
 import { scheduleWords } from "@/engine/when";
-import { workflowWithStep } from "@/engine/clock";
+import { workflowWithStep, workflowsWithStep } from "@/engine/clock";
 import { STAGES, stageIndex } from "@/engine/stages";
 import { chartOf, pathOf, runState, type PathItem } from "./words";
 import { companyReports } from "@/engine/reports";
@@ -211,9 +211,9 @@ export async function metricsPage(c: PoolClient, co: CompanyHead, from?: string 
 
 export async function wrapUpsPage(c: PoolClient, co: CompanyHead) {
   const rows = await companyReports(c, co.id);
-  const wf = await workflowWithStep(c, co.id, "report");
+  const wfs = await workflowsWithStep(c, co.id, "report");
   return { company: co, reports: rows.map((r) => ({ id: r.id, kind: r.kind, period_start: r.period_start, period_end: r.period_end, generated_at: r.generated_at, on_demand: r.on_demand, body: r.body, status: r.send_status })),
-    workflow: wf ? { id: wf.id, name: wf.name, enabled: wf.enabled, when: wf.enabled && wf.schedule ? scheduleWords(wf.schedule) : null } : null };
+    workflows: wfs.map((wf) => ({ id: wf.id, name: wf.name, enabled: wf.enabled, when: wf.enabled && wf.schedule ? scheduleWords(wf.schedule) : null })) };
 }
 
 /** The health page: what is open, the last sweep check by check, what cleared. */

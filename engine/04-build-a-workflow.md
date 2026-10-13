@@ -47,7 +47,7 @@ report in `event`, the run is about that closer: `user.*`) `intent.reviewed` `in
 1..7 Mon..Sun or `day_of_month` 1..28; `for: company` = one run about the company, `for: closer` = one run per user with
 role closer, about that person, with `user.*` in the context). Fires once per period per subject, whatever the reentry
 policy says; a tick that is late still runs the period once; a day the engine was down is not made up. Several schedule
-triggers on one workflow are fine (eod-reminder has an evening and a morning one; wrap-ups has three), each leading
+triggers on one workflow are fine (eod-reminder has an evening and a morning one), each leading
 through its own `set_var` into the shared steps.
 
 Which calendars count is a `match` on the appointment's facts, never a calendar id: `appointment.term.category`

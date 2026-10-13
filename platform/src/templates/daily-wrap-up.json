@@ -1,11 +1,11 @@
 {
-  "slug": "wrap-ups",
-  "name": "Wrap-ups",
+  "slug": "daily-wrap-up",
+  "name": "Daily wrap-up",
   "category": "reports",
   "stage": "team",
   "sort": 30,
   "origin": "spec",
-  "description": "What happened today, last week, last month: the numbers from the same registry the bot answers from (people, calls, deals and cash from GHL, bookings and dials from the ledger), worded by the report step's layout (a line only for a number that is not zero, a section only with a line, one line when nothing happened; D76), posted to the reports channel on the company's schedule. Every word, the numbers read (metrics), per-closer and per-setter lines (breakdowns) and whether a week or month is the one just ended or the one so far (period) are on the report step (D88).",
+  "description": "What happened today, posted at 7:00 PM in the company's time zone: the numbers from the same registry the bot answers from (people, calls, deals and cash from GHL, bookings and dials from the ledger), worded by the report step's layout (one narrow table, a line only for a number that is not zero, one line when nothing happened; D76, D95) and posted to the reports channel. Every word, the numbers read (metrics), per-closer and per-setter lines (breakdowns) are on the report step (D88). Its own workflow since D96.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -23,49 +23,9 @@
         }
       },
       {
-        "id": "t_weekly",
-        "type": "trigger",
-        "event": "schedule",
-        "schedule": {
-          "at": "08:00",
-          "days": [
-            1
-          ],
-          "for": "company"
-        }
-      },
-      {
-        "id": "t_monthly",
-        "type": "trigger",
-        "event": "schedule",
-        "schedule": {
-          "at": "08:00",
-          "day_of_month": 1,
-          "for": "company"
-        }
-      },
-      {
-        "id": "v_daily",
-        "type": "set_var",
-        "key": "kind",
-        "value": "daily"
-      },
-      {
-        "id": "v_weekly",
-        "type": "set_var",
-        "key": "kind",
-        "value": "weekly"
-      },
-      {
-        "id": "v_monthly",
-        "type": "set_var",
-        "key": "kind",
-        "value": "monthly"
-      },
-      {
         "id": "n_build",
         "type": "report",
-        "kind": "{{vars.kind}}",
+        "kind": "daily",
         "breakdowns": [],
         "sections": {},
         "into": "report",
@@ -87,11 +47,7 @@
         ],
         "layout": {
           "heading": {
-            "daily": "📊 *Today, {{report.start | date:\"ccc LLL d\"}}*",
-            "weekly": "📊 *Last week, {{report.start | date:\"LLL d\"}} to {{report.end | date:\"LLL d\"}}*",
-            "weekly_to_date": "📊 *This week so far, {{report.start | date:\"LLL d\"}} to {{report.end | date:\"LLL d\"}}*",
-            "monthly": "📊 *{{report.start | date:\"LLLL yyyy\"}}*",
-            "monthly_to_date": "📊 *{{report.start | date:\"LLLL\"}} so far*"
+            "daily": "📊 *Today, {{report.start | date:\"ccc LLL d\"}}*"
           },
           "sections": [
             {
@@ -186,11 +142,7 @@
             }
           ],
           "empty": {
-            "daily": "Nothing today: no leads, bookings, calls or payments.",
-            "weekly": "Nothing last week: no leads, bookings, calls or payments.",
-            "weekly_to_date": "Nothing this week: no leads, bookings, calls or payments.",
-            "monthly": "Nothing last month: no leads, bookings, calls or payments.",
-            "monthly_to_date": "Nothing this month: no leads, bookings, calls or payments."
+            "daily": "Nothing today: no leads, bookings, calls or payments."
           },
           "failed": "_couldn't read GHL: {{report.ghl_error}}_",
           "footer": "_From GHL and the engine, read {{report.read_at | date:\"h:mm a ZZZZ\"}}_"
@@ -221,26 +173,6 @@
     "edges": [
       {
         "from": "t_daily",
-        "to": "v_daily"
-      },
-      {
-        "from": "t_weekly",
-        "to": "v_weekly"
-      },
-      {
-        "from": "t_monthly",
-        "to": "v_monthly"
-      },
-      {
-        "from": "v_daily",
-        "to": "n_build"
-      },
-      {
-        "from": "v_weekly",
-        "to": "n_build"
-      },
-      {
-        "from": "v_monthly",
         "to": "n_build"
       },
       {
@@ -252,5 +184,8 @@
         "to": "x_done"
       }
     ]
-  }
+  },
+  "replaces": [
+    "wrap-ups"
+  ]
 }

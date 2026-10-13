@@ -288,15 +288,22 @@ curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" -H 'content-type: applic
 JSON
 ```
 
-**Wrap-ups** are a workflow (`wrap-ups` template, D35): three schedule triggers (daily 19:00, weekly Monday
-08:00 covering last Mon–Sun, monthly the 1st at 08:00 covering last month), a `report` step that renders the
-period from the rollups into `vars.report` and keeps it as a `wrapups` row, and a `slack_post` to
-`{{slack.channel.reports}}`. Time, day, channel, breakdowns (per setter / per closer) and sections (what they
+**Wrap-ups** are three workflows (D35, D96): `daily-wrap-up` (19:00, today), `weekly-wrap-up` (Monday 08:00,
+last Mon–Sun) and `monthly-wrap-up` (the 1st at 08:00, last month), each a schedule trigger, a `report` step that
+renders the period from the rollups into `vars.report` and keeps it as a `wrapups` row, and a `slack_post` to
+`{{slack.channel.reports}}`. Each has its own switch, mode, channel and words. They took over the one `wrap-ups`
+workflow: an install that adds them starts each as the old copy stood (on or off, its mode) and turns the old copy
+off in the same transaction; an old copy the company edited stays as it is and they install off. Time, day, channel, breakdowns (per setter / per closer) and sections (what they
 said = booking-form answers tallied per question) are the steps' settings, edited like any other workflow.
 Each trigger fires once per period (the clock's reentry key); a missed day sends late, never twice. Every
 wrap-up is shown on `/app/c/<slug>/wrap-ups` exactly as sent (shadow: posted with the shadow label).
-`POST /api/admin/reports { company, kind }` starts the workflow now for that kind (the trigger node `t_<kind>`)
+`POST /api/admin/reports { company, kind }` starts that kind's wrap-up now (the workflow whose trigger is `t_<kind>`)
 with the period in progress (today so far / this week so far / this month so far).
+
+`POST /api/admin/templates { company, templates? }` (D96) puts the shipped templates on an existing company and
+touches nothing else (no bindings, calendars, Slack or secrets): new ones install off, untouched copies upgrade,
+edited copies are left alone, a template that takes one over follows the handover above. Without `templates`: the
+ones the company has and any that take one of them over. A template change never needs the install file again.
 
 **The weekly leaderboard** (D94) is its own workflow (`weekly-leaderboard`): a schedule trigger (Monday 09:00 company
 time), a `leaderboard` step (`period` in plain words, `last week` by default; `into` → `vars.<into>` with `closers`,

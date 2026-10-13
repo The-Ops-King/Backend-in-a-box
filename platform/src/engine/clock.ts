@@ -44,15 +44,23 @@ export async function dispatchSchedules(c: PoolClient, now = DateTime.now(), onl
 }
 
 /** The company's workflow that carries a step of this type (the health sweep is "the workflow with a health_check step"), by name, never by slug. */
-export async function workflowWithStep(c: PoolClient, companyId: string, nodeType: string): Promise<{ id: string; name: string; enabled: boolean; schedule: Schedule | null; node: Record<string, unknown> | null } | null> {
+export type StepWorkflow = { id: string; name: string; enabled: boolean; schedule: Schedule | null; node: Record<string, unknown> | null; triggers: string[] };
+/** Every workflow with a step of this type (D96: the daily, weekly and monthly wrap-ups each have a report step), by name; `triggers` the ids of its schedule triggers. */
+export async function workflowsWithStep(c: PoolClient, companyId: string, nodeType: string): Promise<StepWorkflow[]> {
   const rows = await many<{ id: string; name: string; enabled: boolean; definition: unknown }>(c, "select w.id, w.name, w.enabled, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 order by w.name", [companyId]);
+  const out: StepWorkflow[] = [];
   for (const r of rows) {
     let def; try { def = parseDefinition(r.definition); } catch { continue; }
     const node = def.nodes.find((n) => n.type === nodeType); if (!node) continue;
-    const trig = def.nodes.find((n) => n.type === "trigger" && n.schedule);
-    return { id: r.id, name: r.name, enabled: r.enabled, schedule: trig && trig.type === "trigger" ? trig.schedule ?? null : null, node: node as unknown as Record<string, unknown> };
+    const trigs = def.nodes.filter((n) => n.type === "trigger" && n.schedule);
+    const trig = trigs[0];
+    out.push({ id: r.id, name: r.name, enabled: r.enabled, schedule: trig && trig.type === "trigger" ? trig.schedule ?? null : null, node: node as unknown as Record<string, unknown>, triggers: trigs.map((t) => t.id) });
   }
-  return null;
+  return out;
+}
+/** The first workflow with a step of this type (the health sweep has one). */
+export async function workflowWithStep(c: PoolClient, companyId: string, nodeType: string): Promise<StepWorkflow | null> {
+  return (await workflowsWithStep(c, companyId, nodeType))[0] ?? null;
 }
 
 /** Start a schedule trigger's run now, outside its period (the "sweep now" button, "send this week's wrap-up now"). The key carries the moment, so it never collides with the period's own run. */

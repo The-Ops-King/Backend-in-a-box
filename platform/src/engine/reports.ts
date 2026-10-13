@@ -7,12 +7,15 @@ import { testContactSql, testDomains } from "./mode";
 import type { GhlReads } from "@/adapters/ghl/metrics";
 import { render, type RenderEnv } from "./template";
 import { table } from "./bot-format";
-import wrapUps from "@/templates/wrap-ups.json";
+import dailyWrapUp from "@/templates/daily-wrap-up.json";
+import weeklyWrapUp from "@/templates/weekly-wrap-up.json";
+import monthlyWrapUp from "@/templates/monthly-wrap-up.json";
 
 /**
  * Wrap-ups (D29): "what happened today / this week / this month", computed from the daily rollups and posted to Slack
  * on the company's own schedule. Nothing here is a constant: the time, the day, the channel, the numbers read, the breakdowns
- * and every word of the body (the report step's layout, D88) are the wrap-ups workflow's, edited like any other workflow (D35).
+ * and every word of the body (the report step's layout, D88) are the workflow's, edited like any other workflow (D35). D96: the daily, weekly
+ * and monthly wrap-ups are three workflows, each with its own switch, mode, channel and words.
  */
 export type ReportKind = "daily" | "weekly" | "monthly";
 export const REPORT_KINDS: ReportKind[] = ["daily", "weekly", "monthly"];
@@ -77,7 +80,7 @@ export function reportFacts(args: { kind: ReportKind; period: Period; tz: string
 }
 
 /**
- * The body from a layout (the wrap-ups template's report step). The words are the layout's; the engine only puts them together:
+ * The body from a layout (a wrap-up template's report step). The words are the layout's; the engine only puts them together:
  * a line that renders blank is left out, a section with no line is left out, nothing at all is the layout's `empty` line, and a
  * GHL read that failed is the `failed` line, never a 0. The heading and the empty line are picked by `<kind>_to_date`, else `<kind>`.
  */
@@ -92,10 +95,11 @@ export function renderLayout(layout: Layout, facts: ReportFacts, ctx: Record<str
   if (!sections.length) return failed ? `${heading}\n${failed}` : r(pick(layout.empty));
   return [heading, ...sections.map((sec) => `\n${sec.title.trim() ? `${sec.title}\n` : ""}${sec.lines.join("\n")}`), ...(failed ? [`\n${failed}`] : []), ...(foot ? [`\n${foot}`] : [])].join("\n");
 }
-/** A report step with no layout of its own (a copy from before D88) is worded by the shipped template's. */
-export function shippedLayout(): Layout {
-  const node = (wrapUps.definition.nodes as { type: string; layout?: Layout }[]).find((n) => n.type === "report");
-  if (!node?.layout) throw new Error("the shipped wrap-ups template has no report layout");
+const SHIPPED: Record<ReportKind, { definition: { nodes: unknown[] } }> = { daily: dailyWrapUp, weekly: weeklyWrapUp, monthly: monthlyWrapUp };
+/** A report step with no layout of its own (a copy from before D88) is worded by the shipped template of its kind (D96). */
+export function shippedLayout(kind: ReportKind = "daily"): Layout {
+  const node = (SHIPPED[kind].definition.nodes as { type: string; layout?: Layout }[]).find((n) => n.type === "report");
+  if (!node?.layout) throw new Error(`the shipped ${kind} wrap-up template has no report layout`);
   return node.layout;
 }
 
@@ -124,7 +128,7 @@ export async function buildReport(c: PoolClient, company: CompanyRow, kind: Repo
   // breakdowns: per closer and per setter from the ledger's rollups, for a layout that words them (D29: totals by default, per person switchable)
   const want = new Set(opts.breakdowns ?? []);
   const facts = reportFacts({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, said, ghlError, by: { closer: want.has("closer") ? closers : [], setter: want.has("setter") ? setters : [] }, readAt: opts.now });
-  const body = renderLayout(opts.layout ?? shippedLayout(), facts, opts.ctx ?? {}, { tz: company.timezone, companyTz: company.timezone });
+  const body = renderLayout(opts.layout ?? shippedLayout(kind), facts, opts.ctx ?? {}, { tz: company.timezone, companyTz: company.timezone });
   const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers) values ($1,$2,$3,$4,$5,$6,$7) returning id",
     [company.id, kind, period.start, period.end, !!opts.onDemand, body, { totals, setters, closers, registry: numbers }]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'report.generated','report',$2,$3)", [company.id, rep!.id, { kind, period, on_demand: !!opts.onDemand }]);

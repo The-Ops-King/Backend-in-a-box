@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { asOperator, one } from "@/db/client";
 import { liveAdapters } from "@/adapters";
 import { tick } from "@/engine/runner";
-import { fireNow, workflowWithStep } from "@/engine/clock";
+import { fireNow, workflowsWithStep } from "@/engine/clock";
 import { operatorAuthorized } from "@/engine/admin-auth";
 import { companyReports, REPORT_KINDS, type ReportKind } from "@/engine/reports";
 export const dynamic = "force-dynamic"; export const maxDuration = 120;
 
-/** GET ?company=<slug> lists the wrap-ups; POST { company, kind } starts the wrap-ups workflow now for that kind (the trigger node named t_<kind>): the period in progress, posted where the workflow posts. Authorization: Bearer $CRON_SECRET. */
+/** GET ?company=<slug> lists the wrap-ups; POST { company, kind } starts that kind's wrap-up workflow now (D96: the one whose schedule trigger is t_<kind>): the period in progress, posted where the workflow posts. Authorization: Bearer $CRON_SECRET. */
 export async function GET(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const slug = new URL(req.url).searchParams.get("company") ?? "";
@@ -21,7 +21,8 @@ export async function POST(req: Request) {
   try {
     const fired = await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [body.company]); if (!co) throw new Error("company not found");
-      const wf = await workflowWithStep(c, co.id, "report"); if (!wf) throw new Error("this company has no workflow with a report step");
+      const all = await workflowsWithStep(c, co.id, "report");
+      const wf = all.find((w) => w.triggers.includes(`t_${body.kind}`)); if (!wf) throw new Error(`this company has no ${body.kind} wrap-up workflow`);
       if (!wf.enabled) throw new Error(`"${wf.name}" is turned off`);
       const r = await fireNow(c, co.id, wf.id, `t_${body.kind}`); if (r.why) throw new Error(r.why);
       return { companyId: co.id, workflow: wf.name, ...r };

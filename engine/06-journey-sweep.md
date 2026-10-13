@@ -49,7 +49,7 @@ their own definition (D2) and are not covered by a template fix until re-install
 | Payment recorded (`payment-recorded`) | ✓ | `payment.received` / `.refunded` (always) | cash collected, revenue stamp (first payment), paid-full / plan / refunded tags, Payment record, first unsigned payment → document + Agreement Sent, note, Sales Call cash, `payments` post, 💵/💸 on the booking post and review |
 | Calendar availability (`calendar-availability`) | ✓ | hourly + every booking change | < 3 open times in 7 days per calendar → alert with the per-closer table |
 | Health check (`health-check`) | ✓ | hourly | the sweep's checks (tokens, duplicates, ledger drift with repairs, …) → alerts |
-| Wrap-ups (`wrap-ups`) | ✓ | 19:00 daily, Mon 08:00, the 1st 08:00 | the period's report from the ledger rollups → `reports` |
+| Daily / weekly / monthly wrap-up (`daily-wrap-up`, `weekly-wrap-up`, `monthly-wrap-up`, D96) | ✓ | 19:00 daily; Mon 08:00; the 1st 08:00 | the period's report from the registry → `reports` |
 | No-show recovery, Payment failed, Post-call follow-up, Reactivation | off | — | not running on Hair; their rows below describe the template |
 
 ## 1. The journey, stage by stage
