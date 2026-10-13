@@ -3269,3 +3269,35 @@ must come out exactly as it does today.
   revenue" (an answer) and "Ad budget" (a field) gets those lines; unset, no intake lines and nothing of Hair's; install
   writes, refuses and keeps the setting; the example). Dropping "Commit to routine" from the backfilled lines turned the
   identity test red.
+
+## D103. A sometimes-step looks like one on the chart (2026-10-13)
+
+Tyler read PMU's Call booked chart and took "A reschedule: card → Rescheduled", sitting in the straight line after
+"Card → Booked Call", for a step every booking takes. A step with `only_if` looked exactly like one that always runs;
+its condition was only in the popover, and a non-send `only_if` step did not even get the blue mark.
+
+- **On the chart.** A node with `only_if` has a dashed blue border and its condition on a line of its own under the
+  title: "only if a reschedule", "only if not a reschedule" (`ChartNode.onlyIf`, the predicate's words with a leading
+  "this is" dropped); in a narrow column "if …", cut with … past that, the whole sentence in the popover, which now
+  ends "Otherwise it is skipped and the run goes on." The edges into and out of it are dashed, and on the spine, where
+  there is room, a thin blue line runs around its right side labelled "otherwise". A branch folded into one step
+  ("Only when …") is drawn the same way. A wait with `only_if` is no longer folded into the send after it, so its
+  condition is not put on the send. A step skipped for a smaller reason (a reminder too close to the call, a card move
+  with no card, a Slack line with no post) keeps the blue mark: it runs on the normal path. The legend says both.
+- **In the step list.** A planned step with `only_if` says "only if a reschedule; otherwise skipped" under its title.
+- **The words.** Every `only_if` in the templates and PMU's copies was read through `predicateWords`: "there is a slot
+  from" is "there is a slot the call moved from"; two-path comparisons ("{{a}}:{{b}}" against "{{c}}:{{d}}") read pair
+  by pair instead of leaking `| default:}}`; an hour through `| date:HH` reads "the call is at 9 AM or later"; the event
+  types read "a Fathom recording", "a payment", "a refund"; "the earlier answer", "their unanswered reply", "who decided
+  the result is the team", and a/an before a vowel.
+- **Why a step was skipped.** The run log said "only if this is not a reschedule; it is not" on a reschedule: "it is
+  not" after a "not" condition says the opposite. `skippedWords` gives the condition and then what held instead
+  (`notWords`: eq↔neq, exists → "there is no", in → "neither … nor", the comparisons flipped, and/or by De Morgan);
+  for an "and" the executor names only the parts that failed ("…; the result is not follow up"). Rows written before
+  this read right on the run page: the step list rewords a stored "…; it is not" from the step's own condition.
+- Display only: what runs and when is unchanged; no template changed.
+- Tests: `words.test.ts` (PMU's two card moves carry "a reschedule" and "not a reschedule", only `only_if` nodes carry
+  one, a card move with no card keeps the mark only; the reschedule, slot, hour, payment and two-path words; no shipped
+  `only_if` reads with a path, a filter or JSON; the skipped words for eq, neq, exists, in, not, an hour and an "and";
+  a planned step carries its condition and an old "it is not" row is reworded), `moves.test.ts` (Payment recorded's
+  win skipped on a deposit says "only if this is a payment and paid in full; not paid in full").

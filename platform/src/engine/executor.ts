@@ -5,7 +5,7 @@ import type { Adapters, Company } from "@/adapters/types";
 import { fallbacksOf, labelledEdge, onwardEdge, type Edge, type Node } from "./definition";
 import { evaluate } from "./predicate";
 import { render, resolveExpr, resolvePath, parseDuration, StaleTemplateError, UnknownPathError } from "./template";
-import { predicateWords, durationWords } from "./describe";
+import { predicateWords, durationWords, skippedWords } from "./describe";
 import { syncCards, pickCard, latestCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow, timeParam } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
@@ -259,8 +259,8 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
 async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
   d.ctx.now = d.now.toISO();   // {{now | date:...}} in templates; refreshed every node so a persisted context never carries a stale clock
   const next = single(d, node.id);
-  // only_if: a step that runs some of the time; the chart shows it with the blue mark and this condition
-  if (node.only_if && node.type !== "trigger" && !evaluate(node.only_if, d.ctx)) return { status: "skipped", next, result: { kind: "noop", why: `only if ${predicateWords(node.only_if)}; it is not` } };
+  // only_if: a step that runs some of the time; the chart draws it dashed with this condition (D103)
+  if (node.only_if && node.type !== "trigger" && !evaluate(node.only_if, d.ctx)) return { status: "skipped", next, result: { kind: "noop", why: skippedWords(node.only_if, (q) => evaluate(q, d.ctx)) } };
   switch (node.type) {
     case "trigger": return { status: "ok", next };
     case "exit": return { status: "exit", reason: node.reason };

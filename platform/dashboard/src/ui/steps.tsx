@@ -26,6 +26,7 @@ export function Steps({ items, tz, who }: { items: PathItem[]; tz: string; who?:
       <Ic state={s.state} />
       <span className="t"><Title text={title} />{at ? <span className="d">{at}</span> : null}{has ? <span className="pk"><Chev />{s.state === "skip" || s.state === "blocked" ? "why" : words ? "the words" : "shadow"}</span> : null}
         {sub ? <small>{sub}</small> : null}
+        {s.onlyIf && s.state === "next" ? <small className="if">only if {s.onlyIf}; otherwise skipped</small> : null}
         {why ? <small className="why" hidden={!o}>{s.note}</small> : null}
         {words ? <span className={`b ${s.channel ?? ""}`} hidden={!o}>{s.send_state === "failed" || s.send_state === "suppressed" ? <span style={{ display: "block", color: "var(--warn)", fontWeight: 600, marginBottom: 4 }}>{s.send_state === "failed" ? "Did not go out" : "Held back"}{s.note && !why ? `: ${s.note}` : ""}</span> : null}
           {s.channel === "slack" ? <SlackMsg face={s.face} text={s.words!} time={s.at ? timeOf(s.at, tz) : undefined} thread={s.thread} reaction={s.react} offers={s.offer} shadow={s.state === "ghost"} /> : s.words}</span> : null}
