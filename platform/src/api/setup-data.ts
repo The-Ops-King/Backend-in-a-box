@@ -11,18 +11,26 @@ import { loadEodForm, type EodField } from "@/engine/eod";
 import { parseDefinition } from "@/engine/definition";
 import { scheduleWords } from "@/engine/clock";
 
-/** Channels the bot can see, for picking by name; null when the token lacks the scope. */
-export async function listSlackChannels(token: string): Promise<{ id: string; name: string }[] | null> {
-  try {
-    const out: { id: string; name: string }[] = []; let cursor = "";
+/** A channel the company's bot can see; is_member false = it cannot post there until someone invites it. */
+export type SlackChannel = { id: string; name: string; is_member: boolean; is_private: boolean };
+/** Channels the bot can see, for picking by name; null when the token lacks the scope. Without groups:read, public ones only. */
+export async function listSlackChannels(token: string): Promise<SlackChannel[] | null> {
+  const list = async (types: string): Promise<SlackChannel[] | "missing_scope" | null> => {
+    const out: SlackChannel[] = []; let cursor = "";
     for (let i = 0; i < 10; i++) {
-      const r = await fetch(`https://slack.com/api/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { headers: { Authorization: `Bearer ${token}` } });
-      const d = (await r.json()) as { ok: boolean; channels?: { id: string; name: string }[]; response_metadata?: { next_cursor?: string } };
-      if (!d.ok) return null;
-      out.push(...(d.channels ?? []).map((ch) => ({ id: ch.id, name: ch.name })));
+      const r = await fetch(`https://slack.com/api/conversations.list?types=${types}&exclude_archived=true&limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = (await r.json()) as { ok: boolean; error?: string; channels?: { id: string; name: string; is_member?: boolean; is_private?: boolean }[]; response_metadata?: { next_cursor?: string } };
+      if (!d.ok) return d.error === "missing_scope" ? "missing_scope" : null;
+      out.push(...(d.channels ?? []).map((ch) => ({ id: ch.id, name: ch.name, is_member: !!ch.is_member, is_private: !!ch.is_private })));
       cursor = d.response_metadata?.next_cursor ?? ""; if (!cursor) break;
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
+  };
+  try {
+    const both = await list("public_channel,private_channel");
+    if (both !== "missing_scope") return both;
+    const pub = await list("public_channel");
+    return pub === "missing_scope" ? null : pub;
   } catch { return null; }
 }
 
@@ -38,7 +46,7 @@ export type SettingsData = {
   bookingSource: "ghl" | "calendly";
   calendars: CalendarRow[]; liveCalendars: CalendarSnapshot[]; liveCalendarsError: string | null;
   terms: { id: string; name: string; category: string; active: boolean; is_default: boolean; in_use: number }[];
-  slackChannels: { id: string; name: string }[] | null;
+  slackChannels: SlackChannel[] | null;
   users: { id: string; name: string; email: string; ghl_user_id: string | null; role: string; calls: number }[];
   eodForm: EodField[];
   catalog: Catalog | null;
@@ -78,7 +86,7 @@ export async function loadSettings(slug: string): Promise<SettingsData | null> {
     }
     const tagCounts = new Map((await many<{ tag: string; n: number }>(c, "select t as tag, count(*)::int as n from contacts, unnest(tags) t where company_id=$1 group by t", [co.id])).map((r) => [r.tag, r.n]));
     const slack = (await one<{ team_id: string; connected_at: Date }>(c, "select team_id, connected_at from slack_connections where company_id=$1", [co.id])) ?? null;
-    let slackChannels: { id: string; name: string }[] | null = null;
+    let slackChannels: SlackChannel[] | null = null;
     if (slack) { const tok = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [co.id]); slackChannels = await listSlackChannels(decrypt(tok!.bot_token)); }
     const readiness = await companyReadiness(c, co.id, `/app/c/${slug}`);
     const proposal = (await loadProposal(c, co.id))?.value ?? null;
@@ -95,7 +103,7 @@ export async function loadSettings(slug: string): Promise<SettingsData | null> {
 
 /** What the step pickers on a workflow page need: names for ids, lists to pick from. Cheap when GHL is not connected. */
 export type PickerCalendar = { external_id: string; name: string; category: string; term_name: string; self_booked: boolean | null; booking_url: string | null; active: boolean };
-export type Pickers = { catalog: Catalog | null; users: { ghl_user_id: string; name: string }[]; slackChannels: { id: string; name: string }[] | null; bindings: Record<string, string>; calendars: PickerCalendar[]; pipelineName: (id: string) => string; stageName: (id: string) => string; userName: (id: string) => string; channelName: (id: string) => string; resolve: (v: string | undefined) => string };
+export type Pickers = { catalog: Catalog | null; users: { ghl_user_id: string; name: string }[]; slackChannels: SlackChannel[] | null; bindings: Record<string, string>; calendars: PickerCalendar[]; pipelineName: (id: string) => string; stageName: (id: string) => string; userName: (id: string) => string; channelName: (id: string) => string; resolve: (v: string | undefined) => string };
 export async function loadPickers(companyId: string): Promise<Pickers> {
   return asOperator(async (c) => {
     const { adapterCompany, bindings } = await loadCompany(c, companyId);
