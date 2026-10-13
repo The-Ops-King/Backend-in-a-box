@@ -329,3 +329,10 @@ the rest have only `medium` (zapier 4, manual 1). The top-level `source` is the 
   So a checkbox on a custom object can only be set when the record is made. The engine does not write checkboxes on
   later updates; use a single-option field for anything that changes (e.g. `call_result`).
 - **Deleting a custom object record:** `DELETE /objects/{key}/records/{id}` with no `locationId` query (it 422s with one).
+
+## Schema writes that work with a Private Integration token (verified on PMU, 2026-10-13)
+
+- `POST /custom-fields/` `{ locationId, name, dataType: "SINGLE_OPTIONS", fieldKey: "custom_objects.<object>.<key>", objectKey: "custom_objects.<object>", parentId: <the object's field folder id>, showInForms, options: [{ key, label }] }` adds a field to a custom object. The folder id is any existing field's `parentId` from `GET /custom-fields/object-key/custom_objects.<object>?locationId=`.
+- `PUT /custom-fields/{id}` `{ locationId, name, options }` replaces a picklist's options: send every existing option back with the new one (keys unchanged keep their values on records).
+- `POST /associations/` `{ locationId, key, firstObjectLabel, firstObjectKey, secondObjectLabel, secondObjectKey }` links a custom object to `contact` or to `opportunity`; the answer's `id` is what `crm.assoc_*` binds.
+- Python's default user agent is refused by GHL's Cloudflare (error 1010); send any ordinary `User-Agent`.

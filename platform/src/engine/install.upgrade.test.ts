@@ -167,4 +167,15 @@ describe.skipIf(!process.env.DATABASE_URL)("editing copy", () => {
     expect(kept[0]).toBe('daily-wrap-up → installed OFF ("Wrap-ups" was edited and stays as it is; turn it off before turning this on)');
     expect(await asOperator((c) => many<{ enabled: boolean }>(c, "select w.enabled from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug = any($2::text[]) order by t.slug", [companyId, [...wraps, "wrap-ups"]]))).toEqual([{ enabled: false }, { enabled: false }, { enabled: false }, { enabled: true }]);
   });
+
+  it("D101: a calendar can be the company's own call type (\"Demo call\") under a core category; made once, the default type untouched", async () => {
+    for (let i = 0; i < 2; i++) await installCompany({ ...base, calendars: { CAL: { term: "closing", name: "Demo call" } } }, fake);
+    const terms = await asOperator((c) => many<{ name: string; category: string; is_default: boolean }>(c, "select name, category, is_default from company_terms where company_id=$1 and domain='appointment_type' and category='closing' order by is_default desc, name", [companyId]));
+    expect(terms.filter((t) => t.name === "Demo call")).toEqual([{ name: "Demo call", category: "closing", is_default: false }]);   // once, however often install runs
+    expect(terms.filter((t) => t.is_default)).toHaveLength(1);
+    const cal = await asOperator((c) => one<{ name: string }>(c, "select t.name from calendars k join company_terms t on t.id=k.appointment_term where k.company_id=$1 and k.external_id='CAL'", [companyId]));
+    expect(cal?.name).toBe("Demo call");
+    await installCompany(base, fake);   // back to the plain mapping: the default type again
+    expect((await asOperator((c) => one<{ is_default: boolean }>(c, "select t.is_default from calendars k join company_terms t on t.id=k.appointment_term where k.company_id=$1 and k.external_id='CAL'", [companyId])))?.is_default).toBe(true);
+  });
 });

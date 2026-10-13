@@ -3178,3 +3178,12 @@ contact (four round trips) before deciding the card had not changed. Hair's boar
   card that is not open. Those are `foldCard`'s own rules, applied first; the last-seen time only grows, so a skipped card is
   one `foldCard` would also have left alone. A card that may have changed still goes through `foldCard` under its lock.
 - Test: `cards.poll.test.ts` (50 unchanged cards: under 10 queries, 104 before; one moved card is still a hand move).
+
+## D101. A calendar can be the company's own call type (2026-10-13)
+
+PMU books a "Demo call" for applicants under $4k a month: a sales call for the smaller product that Carly must know is
+one before she dials in. Install mapped a calendar only to a core category's default type (Closing call, First call…).
+`calendars: { <id>: { term: "closing", name: "Demo call" } }` now makes (once, by name) the company's own call type under
+that category and maps the calendar to it; without `name` the default type as before. The type names the booking
+everywhere it is shown; the Sales Call's own Call Type field (Closing / Demo) is what PMU's numbers split on.
+Test: `install.upgrade.test.ts` (made once over two installs, default type untouched, back to the default when unmapped).
