@@ -849,8 +849,12 @@ waits on a tap, Slack is connected; it then clears that workflow's runs not born
 
 ## Test harness: a real contact, behind the scenes (D23)
 
-To see what the engine would do for a real person without firing a single Zap or GHL workflow, stage
-the step instead of performing it. Three ways, same code:
+To see what the engine would do for a person without firing a single Zap or GHL workflow, stage
+the step instead of performing it. **Only for a test contact** (tagged `sys-test` or on a test-domain email), in every
+mode, forced or not (D97): a staged booking on a real person lands on their closer's end of day, the reminders and the
+numbers even when every run about it is shadow. `force` only lets a test contact be staged while the company is live.
+`POST /api/admin/harness-cleanup { company, dryRun? }` removes harness bookings already sitting on real people, with the
+rehearsal runs they started. Three ways to stage, same code:
 
 - In GHL, add a tag `sys-test-<action>` to the contact. The next poll runs the action and drops the
   tag from the engine's view (it never becomes a `tag.added` event). Remove the tag in GHL afterwards

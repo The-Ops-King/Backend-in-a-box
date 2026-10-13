@@ -574,6 +574,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
   it("test harness: sys-test create → book → cancel → reset drive the real workflows on a synthetic appointment that survives the premise check; refused when live", async () => {
     const id = await newContact("CSIM", "sim@x.com"); await withPhone(id, "+16025550922");
     await asOperator((c) => c.query("update contacts set first_name='Sim', last_name='Person' where id=$1", [id]));
+    await asOperator((c) => c.query("update contacts set tags = array_append(tags, 'sys-test') where id=$1 and not ('sys-test' = any(tags))", [id]));   // D97: the harness stages only for a test contact
     const sim = (action: Parameters<typeof simulate>[1]) => asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return simulate({ c, company: row, contactId: id }, action); });
     const live = await sim("create"); expect(live).toMatchObject({ ok: false, why: expect.stringMatching(/live/) });   // this company runs live; the harness refuses
     await asOperator((c) => c.query("update companies set mode='shadow' where id=$1", [companyId]));
@@ -734,6 +735,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(gated.map((r) => r.exit_reason)).toEqual(["not_yet", "not_yet"]);
     // 2. the signature: agreement-signed runs; deal-closed runs for real this time
     const nTags = tags.length, nOpp = oppWrites.length, nRec = recordWrites.length, nSent = sent.length;
+    await asOperator((c) => c.query("update contacts set tags = array_append(tags, 'sys-test') where id=$1 and not ('sys-test' = any(tags))", [id]));   // D97: the harness stages only for a test contact
     const signed = await asOperator((c) => simulate({ c, company: { id: companyId, mode: "live", timezone: TZ } as never, contactId: id, force: true }, "sign"));
     expect(signed.ok).toBe(true); if (!signed.ok) return;
     expect(signed.detail.events).toEqual(["agreement.signed"]);   // the engine sent Leo's agreement on his first payment (send_document recorded it), so the harness completes that same document
@@ -768,7 +770,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
 
   it("deal-closed race: two triggers in the same minute, before any tick — the loser is remembered on the in-flight run and replayed after its gate; a signature arriving with a payment closes once", async () => {
     const who = (await asOperator((c) => one<{ id: string; ghl_contact_id: string }>(c, "select id, ghl_contact_id from contacts where company_id=$1 and ghl_contact_id='CCB1'", [companyId])))!;
-    const sim = (a: "pay" | "sign") => asOperator((c) => simulate({ c, company: { id: companyId, mode: "live", timezone: TZ } as never, contactId: who.id, force: true }, a));
+    // D97: the harness stages only for a test contact
+    const sim = async (a: "pay" | "sign") => { await asOperator((c) => c.query("update contacts set tags = array_append(tags, 'sys-test') where id=$1 and not ('sys-test' = any(tags))", [who.id])); return asOperator((c) => simulate({ c, company: { id: companyId, mode: "live", timezone: TZ } as never, contactId: who.id, force: true }, a)); };
     // two payments back to back (deposit, then balance), nothing signed: the second deal-closed trigger loses the once-per race to the first, still-unprocessed run
     expect((await sim("pay")).ok).toBe(true); expect((await sim("pay")).ok).toBe(true);
     const before = (await runsFor("deal-closed")).filter((x) => x.contact_id === who.id);

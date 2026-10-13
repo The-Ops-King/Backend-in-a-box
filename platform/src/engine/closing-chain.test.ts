@@ -84,6 +84,7 @@ async function toTheDeposit(ghlId: string, first: string): Promise<string> {
   await tickNow();
   expect(closerCards(ghlId)).toEqual([expect.objectContaining({ stageId: CRM.stage_closer_scheduled, status: "open" })]);
   await pollTheCards();   // the first pass is the silent baseline (and later ones see these cards as the engine left them)
+  await asOperator((c) => c.query("update contacts set tags = array_append(tags, 'sys-test') where id=$1 and not ('sys-test' = any(tags))", [contactId]));   // D97: the harness stages only for a test contact
   await asOperator((c) => simulate({ c, company: { id: companyId, mode: "live", timezone: TZ } as never, contactId, force: true }, "sign"));
   await tickNow();
   expect((await runsOf("deal-closed", contactId)).at(-1)).toMatchObject({ status: "completed", exit_reason: "not_yet" });

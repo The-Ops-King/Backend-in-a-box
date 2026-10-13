@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { companyReadiness, workflowLiveBlockers, type Issue } from "./readiness";
-import { runMode, type Mode } from "./mode";
+import { runMode, testContactSql, testDomains, TEST_DOMAINS_KEY, type Mode } from "./mode";
 
 /**
  * Go live (D51). Every rung below live was rehearsal: no run born there survives the switch — the runs,
@@ -34,6 +34,34 @@ export async function clearRehearsalRuns(c: PoolClient, companyId: string, workf
     await n("delete from form_submissions where appointment_id = any($1::uuid[])", synthetic);
     out.appointments = await n("delete from appointments where id = any($1::uuid[])", synthetic);
   }
+  return out;
+}
+
+/**
+ * D97: bookings the test harness staged on a real person (before the harness refused them), with the rehearsal runs they
+ * started: off the closer's end of day, the reminders and the numbers. A live-born run about one keeps its history and loses
+ * the pointer, as at go-live. A test contact's staged bookings stay: those are the team's own rehearsal.
+ */
+export async function clearStrayHarnessBookings(c: PoolClient, companyId: string, dryRun = false): Promise<Cleared & { people: string[] }> {
+  const domains = testDomains({ [TEST_DOMAINS_KEY]: (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [companyId, TEST_DOMAINS_KEY]))?.value.toString("utf8") ?? "" });
+  const stray = await many<{ id: string; who: string }>(c, `select a.id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as who from appointments a join contacts ct on ct.id=a.contact_id
+    where a.company_id=$1 and a.source='test' and not ${testContactSql("ct", "$2")}`, [companyId, domains]);
+  const ids = stray.map((a) => a.id), out: Cleared & { people: string[] } = { runs: 0, steps: 0, sends: 0, events: 0, appointments: 0, people: [...new Set(stray.map((a) => a.who))] };
+  if (!ids.length || dryRun) return { ...out, appointments: ids.length };
+  const n = async (sql: string, arg: unknown) => (await c.query(sql, [arg])).rowCount ?? 0;
+  const runs = (await many<{ id: string }>(c, "select id from runs where appointment_id = any($1::uuid[]) and born_in<>'live'", [ids])).map((r) => r.id);
+  if (runs.length) {
+    out.events += await n("delete from events where run_id = any($1::uuid[])", runs);
+    out.sends = await n("delete from sends where run_id = any($1::uuid[])", runs);
+    out.steps = await n("delete from run_steps where run_id = any($1::uuid[])", runs);
+    out.runs = await n("delete from runs where id = any($1::uuid[])", runs);
+  }
+  await n("update runs set appointment_id=null where appointment_id = any($1::uuid[])", ids);
+  out.events += await n("delete from events where appointment_id = any($1::uuid[])", ids);
+  await n("delete from recordings where appointment_id = any($1::uuid[])", ids);
+  await n("delete from form_submissions where appointment_id = any($1::uuid[])", ids);
+  out.appointments = await n("delete from appointments where id = any($1::uuid[])", ids);
+  await c.query("insert into audit_log (company_id, action, target_type, after) values ($1,'harness.stray_cleared','company',$2)", [companyId, out]);
   return out;
 }
 

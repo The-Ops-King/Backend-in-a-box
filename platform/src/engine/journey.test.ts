@@ -285,6 +285,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
 
     it("the signature: stat-agreement-signed and the deals post; Deal closed runs for real: stat-customer, closer card → Closed - Won (won), welcome email + text, NEW CLOSE post; the chase sees it and ends; nothing lands on the booking post", async () => {
       const nTags = tags.length, nSent = sent.length, nReact = reactions.length;
+      await asOperator((c) => c.query("update contacts set tags = array_append(tags, 'sys-test') where id=$1 and not ('sys-test' = any(tags))", [jordan]));   // D97: the harness stages only for a test contact
       const signed = await asOperator((c) => simulate({ c, company: { id: companyId, mode: "live", timezone: TZ } as never, contactId: jordan, force: true }, "sign"));
       expect(signed).toMatchObject({ ok: true, detail: { events: ["agreement.signed"] } });
       await tickAt(A.plus({ hours: 7 })); await tickAt(A.plus({ hours: 7 }));
@@ -309,7 +310,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await pay(jordan, "pay-jv-2", 1499)).toHaveLength(1);   // payment-recorded only: deal-closed and the chase already spent their once
       await tickAt(A.plus({ days: 30 }));
       expect(tags.slice(nTags)).toEqual(["pay-paid-full"]); expect(removedTags.slice(nRm)).toEqual(["pay-plan-active"]);
-      expect(await tagsOf(jordan)).toEqual(["meta booked call", "pay-paid-full", "stat-agreement-sent", "stat-agreement-signed", "stat-booked", "stat-closed-won", "stat-confirmed", "stat-customer", "stat-new", "stat-set", "stat-showed"]);
+      expect(await tagsOf(jordan)).toEqual(["meta booked call", "pay-paid-full", "stat-agreement-sent", "stat-agreement-signed", "stat-booked", "stat-closed-won", "stat-confirmed", "stat-customer", "stat-new", "stat-set", "stat-showed", "sys-test"]);   // sys-test: the harness signed for them (D97)
       const pif = await asOperator((c) => many<{ id: number }>(c, "select id from events where company_id=$1 and contact_id=$2 and event_type='payment.paid_in_full'", [companyId, jordan]));
       expect(pif).toHaveLength(1);
       expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and triggered_by_event=$2", [companyId, pif[0].id]))).toHaveLength(0);

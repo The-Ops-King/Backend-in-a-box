@@ -152,13 +152,16 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
     await setCompany("test"); await setFlow(wf, null);
   });
 
-  it("the test harness will not stage a fact for a real person while a workflow is live on its own; a test contact is fine", async () => {
+  it("D97: the test harness never stages a fact for a real person, in any mode; a test contact is fine, and a live company needs force", async () => {
     const real = await contact("F5", "client3@gmail.com"), mine = await contact("F6", "me6@jtylerray.com");
     const co = { id: companyId, mode: "test" as const };
-    expect(await asOperator((c) => harnessRefusal(c, co, real))).toBeNull();
+    expect(await asOperator((c) => harnessRefusal(c, co, real))).toMatch(/^not a test contact/);   // test mode, nothing live: still no (Calvin, Oct 9)
+    expect(await asOperator((c) => harnessRefusal(c, { ...co, mode: "shadow" }, real))).toMatch(/^not a test contact/);
+    expect(await asOperator((c) => harnessRefusal(c, { ...co, mode: "live" }, real, true))).toMatch(/^not a test contact/);   // force never covers a real person
     await setFlow(newLead, "live");
-    expect(await asOperator((c) => harnessRefusal(c, co, real))).toMatch(/New lead is live: a simulated run would reach this person for real/);
     expect(await asOperator((c) => harnessRefusal(c, co, mine))).toBeNull();
+    expect(await asOperator((c) => harnessRefusal(c, { ...co, mode: "live" }, mine))).toMatch(/^company is live/);
+    expect(await asOperator((c) => harnessRefusal(c, { ...co, mode: "live" }, mine, true))).toBeNull();
   });
 
   it("the engine's hand-off to a workflow goes by that workflow's mode: the least real of those it starts, else the company's", async () => {

@@ -3092,3 +3092,22 @@ automation per workflow.
 - Tests: `install.upgrade.test.ts` (the handover, idempotent on a second run, an edited old copy left on and the
   successors off; it fails when the old copy is not turned off), `reports.test.ts`, `moves.test.ts`,
   `templates.test.ts`, `blocking.test.ts`.
+
+## D97. The test harness never touches a real person (2026-10-13)
+
+James's end of day listed Calvin Coates twice. One row was his real Calendly booking (Oct 12, 12:00 ET); the other a
+booking the test harness staged on him on Oct 9 (source `test`, 2:00 PM the same day) during the end-to-end test. The
+harness refused a real contact only while some workflow was live; Hair was in test, so it staged one, and the end of day,
+the reminders and the ledger read harness bookings like any other. Every run about it was shadow (nothing reached GHL or
+Calvin), but the closer saw it. Four such bookings sat on real people.
+
+- `harnessRefusal`: a person who is not a test contact (tagged sys-test, or an email on a test domain) is refused in every
+  mode, forced or not. `force` only lets a test contact be staged while the company is live.
+- `clearStrayHarnessBookings` and `POST /api/admin/harness-cleanup { company, dryRun? }`: harness bookings on real people
+  go, with the rehearsal runs they started (live-born runs keep their history and lose the pointer, as at go-live), audited
+  as `harness.stray_cleared`. A test contact's staged bookings stay: those are the team's own rehearsal.
+- Not done: filtering harness bookings out of the end of day. With the refusal there are none on real people to filter,
+  and a test contact's staged booking on its closer's end of day is the point of the rehearsal.
+- Tests: `flowmode.test.ts` (refused in test, shadow and forced live; a test contact staged; live needs force),
+  `golive.test.ts` (the cleanup: dry run counts and names; the real run removes the booking, its run and events, keeps a
+  test contact's, audits). Tests that drove agreements and payments through the harness now use test contacts.
