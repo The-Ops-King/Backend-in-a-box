@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import type { Node } from "./definition";
 import { render, resolvePath } from "./template";
 import { templateWords } from "./describe";
+import { intakeExample, intakeLines } from "./booking-card";
 
 /**
  * A made-up but complete context, so the dashboard can show what a message LOOKS like ("Payment received: $1,500 /
@@ -25,14 +26,16 @@ export function exampleContext(company: { name: string; timezone: string }, bind
     company: { name: company.name, timezone: tz },
     contact: {
       id: "contact-id", ghl_contact_id: "abc123", first_name: "Jane", last_name: "Doe", name: "Jane Doe", phone: "+1 602 555 0101", email: "jane@example.com", timezone: tz, tags: ["stat-booked"], attributes: {},
-      fields: { setter: "Luis", setter_owner: "Luis", lead_source: "instagram", utm_source: "instagram", hair_loss: "thinning at the crown", appointment_date: call.toISODate() },
+      fields: { setter: "Luis", setter_owner: "Luis", lead_source: "instagram", utm_source: "instagram", appointment_date: call.toISODate() },
+      // D104: the company's own booking card lines, a placeholder for each value; none set, none shown (never another client's questions)
+      intake_lines: intakeExample(intakeLines(bindings)),
       paid: true, payments_count: 1, cash_collected: 1500, first_paid_at: n.toISO(), agreement_signed: true, agreement_sent: true,
       owner: { ...allan, inherited: false }, closer: { ...allan, from: "closer card" }, setter: luis,
       first_booked_at: firstBooked.toISO(), days_to_close: 3, revenue: 4000, source: "instagram", fetched_at: n.toISO(), stale: undefined,
     },
     appointment: {
       id: "appointment-id", external_id: "appt123", source: "ghl", starts_at: call.toISO(), ends_at: call.plus({ minutes: 45 }).toISO(), status: "confirmed", self_booked: false, set_by: "Luis",
-      term: { name: "Closing call", category: "closing" }, closer: { id: "u1", ...allan }, answers: { "Phone Number": "+1 602 555 0101", "What is your biggest hair concern?": "thinning at the crown" },
+      term: { name: "Closing call", category: "closing" }, closer: { id: "u1", ...allan }, answers: { "Phone Number": "+1 602 555 0101" },
       reschedule_url: link("https://example.com/reschedule"), cancel_url: link("https://example.com/cancel"), tracking: { utm_source: "instagram" }, cancelled_by: "contact", cancel_reason: "schedule conflict", outcome: "showed",
     },
     opportunity: { id: "opp-id", status: "open", contract_value: 4000, opened_at: firstBooked.toISO() },

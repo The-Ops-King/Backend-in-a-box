@@ -1,6 +1,7 @@
 import { loadSettings } from "./setup-data";
 import { groupOf, type SettingRow } from "@/engine/settings";
 import type { CompanyHead } from "./data";
+import { BOOKING_CARD_KEY, intakeLines } from "@/engine/booking-card";
 
 /**
  * The Setup page: everything the company's workflows need, read-only (D42). Secrets never leave the server: a secret
@@ -13,7 +14,7 @@ const LABELS: Record<string, string> = {
   "alerts.slack_channel": "Alerts to Slack", "alerts.as_name": "Alerts post as", "alerts.as_icon": "Alert icon", "alerts.repeat_minutes": "Say an open alert again after (minutes)", "alerts.poll_failures": "Alert when polling fails this many times in a row",
   "booking.setter_rule": "Setter rule", "crm.default_closer": "Default closer", "calendly.phone_question": "Calendly phone question", "calendly.setter_question": "Calendly setter question", "calendly.user": "Calendly host", "calendly.organization": "Calendly organization",
   "calendar.closer_call": "The closer call", "calendar.booking": "The booking link we send", "test.domains": "Test email domains (test and rehearsal)",
-  "slack.channel.attention": "Attention channel (open questions)",
+  "slack.channel.attention": "Attention channel (open questions)", "booking_card.intake": "Booking card intake lines",
 };
 const humanKey = (k: string) => LABELS[k] ?? k.replace(/^(crm\.|slack\.channel\.|prompt\.|calendar\.|alerts\.|calendly\.|booking\.)/, "").replace(/_/g, " ");
 
@@ -60,6 +61,8 @@ export async function setupPage(co: CompanyHead) {
     connections: ["crm.location_id", "secret.ghl_pit", "secret.anthropic_key", "secret.jev_key", "secret.whop_api_key", "secret.whop_webhook", "secret.fathom_api_key", "secret.fathom_webhook", "secret.calendly_token", "secret.slack_signing"].map((k) => one(k) ?? { key: k, label: humanKey(k), set: false, value: null, name: null, required: false, used_by: [] }),
     catalog_errors: cat?.errors ?? [],
     booking: { source: d.bookingSource, setter_rule: one("booking.setter_rule")?.value ?? null, default_closer: one("crm.default_closer")?.name ?? one("crm.default_closer")?.value ?? null, phone_question: one("calendly.phone_question")?.value ?? null, setter_question: one("calendly.setter_question")?.value ?? null },
+    // D104: what the booking card shows under Phone, the company's own; set with the install API (bookingCard)
+    booking_card: intakeLines({ [BOOKING_CARD_KEY]: one(BOOKING_CARD_KEY)?.value ?? "" }).map((l) => ({ label: l.label, from: l.field !== undefined ? "contact field" : "booking answer", name: l.field ?? l.answer!, plus: l.plus ?? null })),
     call_types: d.terms.map((t) => ({ name: t.name, category: t.category, active: t.active, in_use: t.in_use })),
     calendars, unmapped_calendars: unmapped, calendars_error: d.liveCalendarsError,
     crm: crmGroups,
