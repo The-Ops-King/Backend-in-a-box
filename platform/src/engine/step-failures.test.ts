@@ -106,7 +106,7 @@ const fake: Adapters = {
 const CRM = { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_closer_scheduled: "STAGE-SCHED", default_closer: "U1" };
 const TABLES = ["alerts", "slack_posts", "sends", "runs", "events", "slack_connections", "workflow_triggers", "workflows", "messages", "crm_records", "payments", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"];
 let companyId: string, closingTerm: string;
-let wfNewLead: string, wfS2L: string, wfTag: string, wfTagHeld: string, wfCard: string, wfCardSkip: string, wfCardStatus: string, wfNote: string, wfTask: string, wfRecord: string, wfContact: string, wfSlack: string, wfNotify: string, wfClassify: string, wfAnalyze: string, wfAnalyzeOpt: string, wfAppt: string, wfBranch: string, wfRecordEv: string, wfCheck: string, wfRecordUpdate: string, wfCardMove: string;
+let wfNewLead: string, wfS2L: string, wfTag: string, wfTagHeld: string, wfCard: string, wfCardSkip: string, wfCardStatus: string, wfNote: string, wfTask: string, wfRecord: string, wfContact: string, wfSlack: string, wfNotify: string, wfClassify: string, wfAnalyze: string, wfAnalyzeOpt: string, wfAppt: string, wfBranch: string, wfRecordEv: string, wfCheck: string, wfRecordUpdate: string, wfCardMove: string, wfCardGuard: string;
 
 const wipe = (slug: string) => asOperator(async (c) => {
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [slug]); if (!co) return;
@@ -184,6 +184,8 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
     wfTagHeld = await probe("Probe: tag, blocking", [{ id: "n1", type: "set_tag", tag: "stat-probe", blocking: true }]);
     wfCard = await probe("Probe: card", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", name: "{{contact.name}} -- New" }]);
     wfCardMove = await probe("Probe: card to another stage", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "STAGE-ELSEWHERE", name: "{{contact.name}} -- Moved" }]);
+    // D105: a reschedule moves the card only off the pre-call stages, and keeps its name; a new card is named
+    wfCardGuard = await probe("Probe: card, only from some stages", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "STAGE-RESCHED", name: "{{contact.name}} -- Setter", keep_name: true, from_stages: ["{{crm.stage_setter_new_lead}}", "STAGE-BOOKED"] }]);
     wfCardSkip = await probe("Probe: card, skip when missing", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage: "{{crm.stage_setter_new_lead}}", if_missing: "skip" }]);
     wfCardStatus = await probe("Probe: card status only", [{ id: "n1", type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", status: "lost" }]);
     wfNote = await probe("Probe: note", [{ id: "n1", type: "note", template: "Probe note for {{contact.name}}" }]);
@@ -473,6 +475,37 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(callsTo("createOpportunity")).toBe(0); expect(callsTo("updateOpportunity")).toBe(1);
       expect(cardsIn("TWO1").filter((k) => k.stageId === CRM.stage_setter_new_lead)).toHaveLength(1);
       expect(cardsIn("TWO1")).toHaveLength(2);
+    });
+
+    it("D105: an older card the replica never saw, on a stage the step moves from: read from the CRM, moved, its name kept", async () => {
+      const ct = await person("GUARD1");
+      const hand = handCard("GUARD1", { stageId: "STAGE-BOOKED", name: `${nameOf("GUARD1")} -- Direct` });
+      expect(await replicaCards(ct)).toEqual([]);
+      const id = await start(wfCardGuard, ct);
+      await tickOnce();
+      expect((await runRow(id)).status).toBe("completed");
+      expect(callsTo("createOpportunity")).toBe(0); expect(callsTo("updateOpportunity")).toBe(1);
+      expect(cardsIn("GUARD1")).toEqual([expect.objectContaining({ id: hand.id, stageId: "STAGE-RESCHED", name: `${nameOf("GUARD1")} -- Direct` })]);
+    });
+
+    it("D105: a card on any other stage (follow up) is left where it is: no CRM write, the run goes on", async () => {
+      const ct = await person("GUARD2");
+      const hand = handCard("GUARD2", { stageId: "STAGE-FOLLOW-UP", name: `${nameOf("GUARD2")} -- Setter` });
+      const id = await start(wfCardGuard, ct);
+      await tickOnce();
+      expect((await runRow(id)).status).toBe("completed");
+      expect(callsTo("createOpportunity")).toBe(0); expect(callsTo("updateOpportunity")).toBe(0);
+      expect((await steps(id)).find((s) => s.node_id === "n1")).toMatchObject({ status: "skipped", result: expect.objectContaining({ why: expect.stringMatching(/^left where it is: the card is on STAGE-FOLLOW-UP/) }) });
+      expect(cardsIn("GUARD2")).toEqual([expect.objectContaining({ id: hand.id, stageId: "STAGE-FOLLOW-UP" })]);
+    });
+
+    it("D105: no card at all: one is made on the step's stage under the step's name", async () => {
+      const ct = await person("GUARD3");
+      const id = await start(wfCardGuard, ct);
+      await tickOnce();
+      expect((await runRow(id)).status).toBe("completed");
+      expect(callsTo("createOpportunity")).toBe(1);
+      expect(cardsIn("GUARD3")).toEqual([expect.objectContaining({ stageId: "STAGE-RESCHED", name: `${nameOf("GUARD3")} -- Setter` })]);
     });
 
     it("no card and the step says if_missing: skip — nothing is made, the run goes on", async () => {

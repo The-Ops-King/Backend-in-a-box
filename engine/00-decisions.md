@@ -3232,3 +3232,17 @@ one before she dials in. Install mapped a calendar only to a core category's def
 that category and maps the calendar to it; without `name` the default type as before. The type names the booking
 everywhere it is shown; the Sales Call's own Call Type field (Closing / Demo) is what PMU's numbers split on.
 Test: `install.upgrade.test.ts` (made once over two installs, default type untouched, back to the default when unmapped).
+
+## D105. A card moves only off the stages a step names; an existing card keeps its name (2026-10-13)
+
+PMU reschedules calls that were booked before the engine ran it: their cards were made by PMU's own GHL workflows and
+sit anywhere on the board. Tyler: find the existing card and move it to Rescheduled only if it is on a stage a
+reschedule belongs to; a card in Follow Up (or past the call) is left alone. A branch before the step cannot decide
+this: the replica holds a board's older cards only once a step has read them (the poll sees what changed since install),
+so the decision is made inside `pipeline_card`, on the card the CRM just answered with (D41).
+- `from_stages: [stage ids]`: an existing card on any other stage is left where it is (skipped, the run goes on, the log
+  names the stage). No card at all: the step makes one, as before.
+- `keep_name: true`: an existing card keeps its name (it says how the call was booked, "-- Setter" / "-- Direct"); `name`
+  names only a card this step makes.
+- Test: `step-failures.test.ts` "D105" (an older card the replica never saw on an allowed stage is moved with its name;
+  a card in follow up is not written; no card makes one under the step's name).
