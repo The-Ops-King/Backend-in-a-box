@@ -1,6 +1,6 @@
 {
  "workflow": "call-booked",
- "note": "PMU: one board. The card moves to Booked Call named -- Direct or -- Setter; a reschedule moves it to Rescheduled and keeps its name; the Sales Call says Closing or Demo; no UTM fields; Appointment Start Time in PMU's format (10-15-2026 15:00)",
+ "note": "PMU: one board, one card fork after the setter / self paths: a new booking puts the card on Booked Call named -- Direct or -- Setter; a reschedule moves it to Rescheduled only off a pre-call stage and keeps its name; the Sales Call says Closing or Demo; no UTM fields; Appointment Start Time in PMU's format (10-15-2026 15:00)",
  "definition": {
   "schema": 1,
   "reentry": "always",
@@ -80,37 +80,10 @@
     "value": "{{picklist.sales_call_booking_source.self}}"
    },
    {
-    "id": "f_self",
-    "type": "branch",
-    "title": "A new booking or a reschedule?"
-   },
-   {
-    "id": "s4",
-    "type": "pipeline_card",
-    "pipeline": "{{crm.pipeline_closer}}",
-    "stage": "{{crm.stage_closer_scheduled}}",
-    "name": "{{contact.name}} -- Direct",
-    "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-    "title": "Card \u2192 Booked Call, named -- Direct"
-   },
-   {
-    "id": "s4r",
-    "type": "pipeline_card",
-    "title": "Card \u2192 Rescheduled, if it is before the call (its name stays)",
-    "pipeline": "{{crm.pipeline_closer}}",
-    "stage": "{{crm.stage_closer_rescheduled}}",
-    "name": "{{contact.name}} -- Direct",
-    "keep_name": true,
-    "from_stages": [
-     "{{crm.stage_closer_new_lead}}",
-     "{{crm.stage_closer_scheduled}}",
-     "{{crm.stage_closer_unresponsive}}",
-     "{{crm.stage_closer_confirmed}}",
-     "{{crm.stage_closer_no_show}}",
-     "{{crm.stage_closer_cancelled}}",
-     "{{crm.stage_closer_rescheduled}}"
-    ],
-    "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
+    "id": "s_suffix",
+    "type": "set_var",
+    "key": "card_suffix",
+    "value": "Direct"
    },
    {
     "id": "s5",
@@ -160,49 +133,10 @@
     ]
    },
    {
-    "id": "f_set",
-    "type": "branch",
-    "title": "A new booking or a reschedule?"
-   },
-   {
-    "id": "b5",
-    "type": "pipeline_card",
-    "pipeline": "{{crm.pipeline_closer}}",
-    "stage": "{{crm.stage_closer_scheduled}}",
-    "name": "{{contact.name}} -- Setter",
-    "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-    "fields": [
-     {
-      "id": "{{crm.field_opportunity_setter_owner}}",
-      "value": "{{appointment.set_by | default:}}"
-     }
-    ],
-    "title": "Card \u2192 Booked Call, named -- Setter"
-   },
-   {
-    "id": "b5r",
-    "type": "pipeline_card",
-    "title": "Card \u2192 Rescheduled, if it is before the call (its name stays)",
-    "pipeline": "{{crm.pipeline_closer}}",
-    "stage": "{{crm.stage_closer_rescheduled}}",
-    "name": "{{contact.name}} -- Setter",
-    "keep_name": true,
-    "from_stages": [
-     "{{crm.stage_closer_new_lead}}",
-     "{{crm.stage_closer_scheduled}}",
-     "{{crm.stage_closer_unresponsive}}",
-     "{{crm.stage_closer_confirmed}}",
-     "{{crm.stage_closer_no_show}}",
-     "{{crm.stage_closer_cancelled}}",
-     "{{crm.stage_closer_rescheduled}}"
-    ],
-    "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-    "fields": [
-     {
-      "id": "{{crm.field_opportunity_setter_owner}}",
-      "value": "{{appointment.set_by | default:}}"
-     }
-    ]
+    "id": "b_suffix",
+    "type": "set_var",
+    "key": "card_suffix",
+    "value": "Setter"
    },
    {
     "id": "b6",
@@ -221,6 +155,51 @@
      "stat-cancelled",
      "stat-possible-cancel",
      "stat-needs-attention"
+    ]
+   },
+   {
+    "id": "f_card",
+    "type": "branch",
+    "title": "A new booking or a reschedule?"
+   },
+   {
+    "type": "pipeline_card",
+    "pipeline": "{{crm.pipeline_closer}}",
+    "name": "{{contact.name}} -- {{vars.card_suffix}}",
+    "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+    "fields": [
+     {
+      "id": "{{crm.field_opportunity_setter_owner}}",
+      "value": "{{appointment.set_by | default:}}"
+     }
+    ],
+    "id": "c_new",
+    "title": "Card \u2192 Booked Call, named -- Setter / -- Direct",
+    "stage": "{{crm.stage_closer_scheduled}}"
+   },
+   {
+    "type": "pipeline_card",
+    "pipeline": "{{crm.pipeline_closer}}",
+    "name": "{{contact.name}} -- {{vars.card_suffix}}",
+    "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+    "fields": [
+     {
+      "id": "{{crm.field_opportunity_setter_owner}}",
+      "value": "{{appointment.set_by | default:}}"
+     }
+    ],
+    "id": "c_rs",
+    "title": "Card \u2192 Rescheduled, if it is before the call (its name stays)",
+    "stage": "{{crm.stage_closer_rescheduled}}",
+    "keep_name": true,
+    "from_stages": [
+     "{{crm.stage_closer_new_lead}}",
+     "{{crm.stage_closer_scheduled}}",
+     "{{crm.stage_closer_unresponsive}}",
+     "{{crm.stage_closer_confirmed}}",
+     "{{crm.stage_closer_no_show}}",
+     "{{crm.stage_closer_cancelled}}",
+     "{{crm.stage_closer_rescheduled}}"
     ]
    },
    {
@@ -388,10 +367,6 @@
     "to": "s2b"
    },
    {
-    "from": "s4",
-    "to": "s5"
-   },
-   {
     "from": "b1",
     "to": "b2"
    },
@@ -401,11 +376,7 @@
    },
    {
     "from": "b3",
-    "to": "f_set"
-   },
-   {
-    "from": "b5",
-    "to": "b6"
+    "to": "b_suffix"
    },
    {
     "from": "k3",
@@ -413,11 +384,11 @@
    },
    {
     "from": "s5",
-    "to": "k3"
+    "to": "f_card"
    },
    {
     "from": "b6",
-    "to": "k3"
+    "to": "f_card"
    },
    {
     "from": "k4",
@@ -437,36 +408,23 @@
    },
    {
     "from": "s2b",
-    "to": "f_self"
+    "to": "s_suffix"
    },
    {
     "from": "b2b",
     "to": "b3"
    },
    {
-    "from": "f_self",
-    "to": "s4r",
-    "label": "a reschedule",
-    "when": {
-     "eq": [
-      "{{event._type}}",
-      "appointment.rescheduled"
-     ]
-    }
-   },
-   {
-    "from": "f_self",
-    "to": "s4",
-    "label": "a new booking",
-    "else": true
-   },
-   {
-    "from": "s4r",
+    "from": "s_suffix",
     "to": "s5"
    },
    {
-    "from": "f_set",
-    "to": "b5r",
+    "from": "b_suffix",
+    "to": "b6"
+   },
+   {
+    "from": "f_card",
+    "to": "c_rs",
     "label": "a reschedule",
     "when": {
      "eq": [
@@ -476,14 +434,18 @@
     }
    },
    {
-    "from": "f_set",
-    "to": "b5",
+    "from": "f_card",
+    "to": "c_new",
     "label": "a new booking",
     "else": true
    },
    {
-    "from": "b5r",
-    "to": "b6"
+    "from": "c_new",
+    "to": "k3"
+   },
+   {
+    "from": "c_rs",
+    "to": "k3"
    },
    {
     "from": "v_type",

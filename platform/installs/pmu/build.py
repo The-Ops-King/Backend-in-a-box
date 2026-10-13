@@ -39,25 +39,26 @@ RESCHED={'eq':['{{event._type}}','appointment.rescheduled']}
 # D105: a reschedule moves the card only off the pre-call stages (cards from before the engine sit anywhere); one in Follow Up,
 # Lost, Purchase, Signed Contract or DQ is left alone
 PRE_CALL=['{{crm.stage_closer_new_lead}}','{{crm.stage_closer_scheduled}}','{{crm.stage_closer_unresponsive}}','{{crm.stage_closer_confirmed}}','{{crm.stage_closer_no_show}}','{{crm.stage_closer_cancelled}}','{{crm.stage_closer_rescheduled}}']
-def fork(card, fid, resched_id, extra=None):
-    # the card's move is a fork the chart shows as one: a new booking names the card, a reschedule only moves it (its name stays)
-    ins=[e for e in d['edges'] if e['to']==card]; outs=[e for e in d['edges'] if e['from']==card]
-    assert len(ins)==1 and len(outs)==1, (card, ins, outs)
-    nxt=outs[0]['to']; ins[0]['to']=fid
-    idx=[n['id'] for n in d['nodes']].index(card)
-    d['nodes'].insert(idx, {'id':fid,'type':'branch','title':'A new booking or a reschedule?'})
-    r={'id':resched_id,'type':'pipeline_card','title':'Card → Rescheduled, if it is before the call (its name stays)','pipeline':CLOSER,'stage':'{{crm.stage_closer_rescheduled}}','name':node(d,card)['name'],'keep_name':True,'from_stages':PRE_CALL,'assign_to':'{{appointment.closer.ghl_user_id | default:}}'}
-    if extra: r.update(extra)
-    d['nodes'].insert(idx+2, r)
-    d['edges']+= [{'from':fid,'to':resched_id,'label':'a reschedule','when':RESCHED},{'from':fid,'to':card,'label':'a new booking','else':True},{'from':resched_id,'to':nxt}]
-s4=node(d,'s4'); s4['title']='Card → Booked Call, named -- Direct'
-b5=node(d,'b5'); b5['name']='{{contact.name}} -- Setter'; b5['title']='Card → Booked Call, named -- Setter'
-fork('s4','f_self','s4r')
-fork('b5','f_set','b5r',{'fields':[{'id':'{{crm.field_opportunity_setter_owner}}','value':'{{appointment.set_by | default:}}'}]})
+# One card, one fork, after the setter / self paths rejoin (a fork inside a fork reads worse and the chart drew none of it):
+# each path only says how the call was booked; then a new booking names the card and puts it on Booked Call, a
+# reschedule moves it to Rescheduled only off a pre-call stage and keeps its name (D105)
+drop(d,'s4'); drop(d,'b5')
+after(d,'s2b',{'id':'s_suffix','type':'set_var','key':'card_suffix','value':'Direct'})
+after(d,'b3',{'id':'b_suffix','type':'set_var','key':'card_suffix','value':'Setter'})
+k3_in=[e for e in d['edges'] if e['to']=='k3']
+assert sorted(e['from'] for e in k3_in)==['b6','s5'], k3_in
+for e in k3_in: e['to']='f_card'
+SETTER_OWNER=[{'id':'{{crm.field_opportunity_setter_owner}}','value':'{{appointment.set_by | default:}}'}]
+CARD={'type':'pipeline_card','pipeline':CLOSER,'name':'{{contact.name}} -- {{vars.card_suffix}}','assign_to':'{{appointment.closer.ghl_user_id | default:}}','fields':SETTER_OWNER}
+idx=[n['id'] for n in d['nodes']].index('k3')
+d['nodes'][idx:idx]=[{'id':'f_card','type':'branch','title':'A new booking or a reschedule?'},
+  {**CARD,'id':'c_new','title':'Card → Booked Call, named -- Setter / -- Direct','stage':'{{crm.stage_closer_scheduled}}'},
+  {**CARD,'id':'c_rs','title':'Card → Rescheduled, if it is before the call (its name stays)','stage':'{{crm.stage_closer_rescheduled}}','keep_name':True,'from_stages':PRE_CALL}]
+d['edges']+=[{'from':'f_card','to':'c_rs','label':'a reschedule','when':RESCHED},{'from':'f_card','to':'c_new','label':'a new booking','else':True},{'from':'c_new','to':'k3'},{'from':'c_rs','to':'k3'}]
 node(d,'n1')['fields'][0]['value']='{{appointment.starts_at | date_company:MM-dd-yyyy HH:mm}}'   # PMU's own format on Appointment Start Time (e.g. 10-15-2026 15:00)
 k4=node(d,'k4'); k4['properties']['call_type']='{{vars.call_type}}'; k4['properties']['closer']='{{appointment.closer.first_name | default: | lower}}'
 after(d,'k3',{'id':'v_type','type':'set_var','title':'Closing or Demo: the call type the calendar books','key':'call_type','value':'{{appointment.term.name}}','pick':{'Demo call':'demo'},'else_value':'closing'})
-out['call-booked']=(d,"PMU: one board. The card moves to Booked Call named -- Direct or -- Setter; a reschedule moves it to Rescheduled and keeps its name; the Sales Call says Closing or Demo; no UTM fields; Appointment Start Time in PMU's format (10-15-2026 15:00)")
+out['call-booked']=(d,"PMU: one board, one card fork after the setter / self paths: a new booking puts the card on Booked Call named -- Direct or -- Setter; a reschedule moves it to Rescheduled only off a pre-call stage and keeps its name; the Sales Call says Closing or Demo; no UTM fields; Appointment Start Time in PMU's format (10-15-2026 15:00)")
 
 # Call cancelled: the one card → Canceled Call
 d=load('call-cancelled'); drop(d,'n1')

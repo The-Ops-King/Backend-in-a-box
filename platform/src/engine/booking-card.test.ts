@@ -131,6 +131,9 @@ describe.skipIf(!process.env.DATABASE_URL)("the booking card's intake lines (D10
   it("install writes the setting, refuses a malformed one, and leaves it alone when omitted", async () => {
     const stored = async () => (await asOperator((c) => loadCompany(c, other))).bindings[BOOKING_CARD_KEY];
     await installCompany(base("cardpmu", { bookingCard: { intake: [{ label: " Monthly revenue ", answer: "monthly_revenue" }] } }), fakeAdapters());
+    await installCompany(base("cardpmu", { bookingCard: { intake: [{ label: "Qualified", tags: { " meta booked call mql ": "MQL" } }] } }), fakeAdapters());
+    expect(JSON.parse(await stored())).toEqual([{ label: "Qualified", tags: { "meta booked call mql": "MQL" } }]);
+    await installCompany(base("cardpmu", { bookingCard: { intake: [{ label: " Monthly revenue ", answer: "monthly_revenue" }] } }), fakeAdapters());
     expect(JSON.parse(await stored())).toEqual([{ label: "Monthly revenue", answer: "monthly_revenue" }]);
     await expect(installCompany(base("cardpmu", { bookingCard: { intake: [{ label: "Both", field: "a", answer: "b" }] } }), fakeAdapters())).rejects.toThrow(/exactly one of field, answer or tags/);
     await expect(installCompany(base("cardpmu", { bookingCard: { intake: [{ label: "", field: "a" }] } }), fakeAdapters())).rejects.toThrow(/needs a label/);

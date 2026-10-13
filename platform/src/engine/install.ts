@@ -234,7 +234,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
         await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) values ($1,'call_outcome',$2,$3,false,50) on conflict (company_id, domain, name) do nothing", [companyId, v.reason.trim(), v.meaning]);
     }
     if (input.salesCall?.dqDispositions) await bind("sales_call.dq_dispositions", "text", answers(input.salesCall.dqDispositions));
-    if (input.bookingCard) await bind(BOOKING_CARD_KEY, "text", JSON.stringify(input.bookingCard.intake.map((l) => ({ label: l.label.trim(), ...(l.field !== undefined ? { field: l.field.trim() } : { answer: l.answer!.trim() }), ...(l.plus !== undefined ? { plus: l.plus.trim() } : {}) }))));
+    if (input.bookingCard) await bind(BOOKING_CARD_KEY, "text", JSON.stringify(input.bookingCard.intake.map((l) => ({ label: l.label.trim(), ...(l.field !== undefined ? { field: l.field.trim() } : l.answer !== undefined ? { answer: l.answer.trim() } : { tags: Object.fromEntries(Object.entries(l.tags!).map(([t, w]) => [t.trim(), w.trim()])) }), ...(l.plus !== undefined ? { plus: l.plus.trim() } : {}) }))));
     if (input.discoveryCall?.results) await bind("discovery_call.results", "text", JSON.stringify(input.discoveryCall.results));
     if (input.discoveryCall?.act !== undefined) await bind("setter_result.act", "text", String(input.discoveryCall.act));
     if (input.whop?.webhookSecret) await bind("secret.whop_webhook", "secret", input.whop.webhookSecret);
