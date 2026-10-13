@@ -1,7 +1,12 @@
 import { asOperator } from "@/db/client";
-import { setStepChannel } from "@/api/slack-steps";
+import { setStepChannel, workflowSlack } from "@/api/slack-steps";
 import { fail, ok, readJson } from "@/api/http";
 export const dynamic = "force-dynamic";
+/** GET → this workflow's Slack steps, where each posts today, and the company's own channels to pick from. */
+export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return asOperator(async (c) => { const r = await workflowSlack(c, id); return r ? ok(r) : fail(404, "no such workflow"); });
+}
 /** POST { node, channel } → this Slack step posts to `channel` (a channel id from the company's workspace, or "default" for the company setting). */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
