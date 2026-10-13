@@ -464,3 +464,12 @@ to stage a fact for anyone but a test contact while any workflow is live on its 
 - Ask the AI what a workflow sends ("what text goes out 2 hours before the call?") and change it by asking ("change it
   to say …"), a new version each time. Not from Slack (Tyler, Oct 12): on the dashboard's AI.
 - The interactions and commands doors answer 500 to a company id that is not a uuid; a 404 is the right answer.
+
+## 42. To do on Hair once the operator key is back (2026-10-13)
+
+- Apply D96: `POST /api/admin/templates { "company": "hair" }`, then confirm Daily/Weekly/Monthly wrap-up are on in
+  test and the old Wrap-ups is off (`workflow.replaced` in audit_log).
+- James's EOD listed Calvin Coates twice. Find which: (1) his engine booking plus a blank GHL Sales Call the form did not
+  match to it (`closerSalesCalls` matches by person and exact minute; a moved call breaks that), (2) two held bookings
+  that day, or (3) two Sales Call records. Fix that cause, add "one person once per closer per day" with a test, and
+  check his outcome landed on the right record.
