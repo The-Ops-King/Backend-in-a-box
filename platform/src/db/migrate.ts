@@ -1,12 +1,13 @@
-import { db } from "./client";
+import { asOperator, db } from "./client";
 import { SCHEMA } from "./schema.sql";
+import { backfillBookingCard } from "@/engine/booking-card";
 
 /** Every event source the engine writes; one list so an added source cannot be missed by a later constraint rebuild. */
 const APPOINTMENT_SOURCES = ["ghl", "calendly", "test"].map((s) => `'${s}'`).join(",");
 const EVENT_SOURCES = ["form", "ghl_poll", "whop", "fathom", "zapier", "slack", "engine", "disposition", "command_center", "user", "test"].map((s) => `'${s}'`).join(",");
 
 /** Applies engine/schema.sql (idempotently: skips if `companies` exists) then forces RLS on every tenant table. */
-export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[] }> {
+export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[]; bookingCard: string[] }> {
   const c = await db().connect();
   try {
     const exists = await c.query("select 1 from information_schema.tables where table_name='companies' and table_schema='public'");
@@ -245,7 +246,10 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
       await c.query(`alter table ${tablename} no force row level security`);
       repaired.push(tablename);
     }
-    return { applied, rlsTables: tenantTables, repaired };
+    // D104: Call booked's card no longer carries Hair's intake questions; a company that bound them keeps them as its own setting.
+    // As the operator: bindings are under FORCE RLS, where this unscoped connection would see no rows.
+    const bookingCard = await asOperator((o) => backfillBookingCard(o));
+    return { applied, rlsTables: tenantTables, repaired, bookingCard };
   } finally {
     c.release();
   }

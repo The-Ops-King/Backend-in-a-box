@@ -3232,3 +3232,40 @@ one before she dials in. Install mapped a calendar only to a core category's def
 that category and maps the calendar to it; without `name` the default type as before. The type names the booking
 everywhere it is shown; the Sales Call's own Call Type field (Closing / Demo) is what PMU's numbers split on.
 Test: `install.upgrade.test.ts` (made once over two installs, default type untouched, back to the default when unmapped).
+
+## D104. The booking card's intake lines are the company's own (2026-10-13)
+
+Call booked's Slack card carried Hair's intake questions in the template itself (Hair loss with its stage, Noticing for,
+Commit to routine, Work situation), so every client installed after Hair inherited them: PMU, a beauty salon, saw "Hair
+loss" on its booking card. The owner: fix the template so each company shows its own intake questions, and Hair's card
+must come out exactly as it does today.
+
+- **A company setting.** `booking_card.intake` (kind text, JSON), set at install with
+  `bookingCard: { intake: [{ label, field | answer, plus? }] }`: each line a label and where its value comes from, a CRM
+  contact field by the name the company bound it under (`field`: `crm.field_contact_<name>`) or a booking answer by the
+  name its calendar maps the question to (`answer`: `appointment.answers.<name>`, D24); `plus` is a second value from the
+  same place after one space. Omitted on a re-install it stays as it is; `[]` is no lines. A line with no label, or with
+  both or neither of field and answer, refuses the install. The Setup page shows the lines under Booking (read-only, D42).
+- **One value for templates.** `{{contact.intake_lines}}`, built in `buildContext`: `*Label:* value` per line, `—` for an
+  empty value, the lines joined by newlines; nothing when no line is set. The shipped card has `*Phone:* …` (generic, kept)
+  followed by `{{contact.intake_lines | line}}`, so an unset company gets no intake lines and no blank line, never Hair's.
+  The lines are written to match the old fixed lines byte for byte, including the space Hair's line always had before
+  its stage (an empty stage leaves `*Hair loss:* — `).
+- **Hair keeps its card.** Every company that bound `crm.field_contact_hair_loss` (Hair) gets the four old lines as its
+  setting where the setting was never written (`backfillBookingCard`, audited as `binding.set` by "D104 backfill"). It
+  runs in the migration (`pnpm build` runs it before a deploy serves; `POST /api/admin/migrate`) and again at the start of
+  every template install, so it can never land after Hair's untouched Call booked copy upgrades on the next
+  `POST /api/admin/templates`. A company that edited its copy (diverged, D16) keeps its own card, as before.
+- **The dashboard's example** of the card shows the company's own labels with a placeholder for each value
+  (`*Monthly revenue:* [monthly revenue]`), and no lines when none are set; the sample contact no longer carries a hair
+  answer.
+- Not done: PMU's own lines. Its copy of Call booked is its own (D100) and still has Hair's lines until it is saved again
+  from the regenerated `installs/pmu/call-booked.json`, which reads the setting; PMU's questions are its to name. Other
+  Hair words left in shipped text are listed for the owner, not changed here: Deal closed's welcome email and text (an open
+  item already), the bot's examples of questions about hair loss, the example call notes ("thinning at the crown").
+- Tests: `booking-card.test.ts` (Hair as production has it, an untouched old copy and no setting, renders three people
+  through the old card; `installTemplates` backfills and upgrades; the new card renders byte-identical for all three; the
+  migration backfills only a company that bound the field and never over a written setting; a company with "Monthly
+  revenue" (an answer) and "Ad budget" (a field) gets those lines; unset, no intake lines and nothing of Hair's; install
+  writes, refuses and keeps the setting; the example). Dropping "Commit to routine" from the backfilled lines turned the
+  identity test red.
