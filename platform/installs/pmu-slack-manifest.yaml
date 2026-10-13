@@ -1,0 +1,42 @@
+# PMU Ops Engine: paste at api.slack.com/apps → Create New App → From an app manifest → (Tyler's workspace) → YAML.
+# No slash commands while PMU shares a workspace with Hair: Slack gives a command to the app installed last, so a PMU /mtd
+# would take Hair's. Add the commands (the same list as platform/README.md, this company's URL) once PMU has its own workspace.
+display_information:
+  name: PMU Ops Engine
+  description: The Beauty Moguls sales ops engine (PMU)
+features:
+  app_home:
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: PMU Ops
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - chat:write.customize
+      - channels:read
+      - reactions:read
+      - reactions:write
+      - users:read.email
+      - users:read
+      - app_mentions:read
+      - im:history
+      - channels:history
+      - groups:history
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/interactions"
+  event_subscriptions:
+    request_url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66"
+    bot_events:
+      - reaction_added
+      - app_mention
+      - message.im
+      - message.channels
+      - message.groups
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
