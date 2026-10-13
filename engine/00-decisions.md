@@ -3232,3 +3232,18 @@ one before she dials in. Install mapped a calendar only to a core category's def
 that category and maps the calendar to it; without `name` the default type as before. The type names the booking
 everywhere it is shown; the Sales Call's own Call Type field (Closing / Demo) is what PMU's numbers split on.
 Test: `install.upgrade.test.ts` (made once over two installs, default type untouched, back to the default when unmapped).
+
+## D102. Setup picks each Slack post's channel, from the company's own workspace (2026-10-13)
+
+Tyler: "ONLY the slack channel should be selectable right now", per workflow, from that company's channels only, to put
+the daily, weekly and monthly wrap-ups live in the right place. The company page's "settings" link still pointed at the
+Next page D42 removed (`/c/<slug>/settings`, a 404); it now opens `/app/c/<slug>/setup`. Setup stays read-only (D42)
+except one section, "Where each Slack message posts": every `slack_post` of every workflow, where it posts today
+(`#name`, through a company setting, set on the step, or a setting's fallback; "nowhere" when nothing resolves) and
+whether the bot is in that channel (without `chat:write.public` a post to a channel it is not in fails). A pick is a
+literal channel id on that step of the company's copy (`saveStepEdit`: a new version, diverged, so template upgrades
+leave that workflow alone and say so); "back to the setting" puts the template's binding back. The server refuses a
+channel the company's own bot cannot list, so a pick can never name another company's channel. Thread replies, DMs and
+answers in the asking channel are listed, not pickable. Channels are listed public and private; a bot without
+`groups:read` gets the public ones. `GET /api/v1/companies/<slug>/slack`, `POST /api/v1/workflows/<id>/slack-channel
+{ node, channel | "default" }`. Test: `src/api/slack-steps.test.ts`.

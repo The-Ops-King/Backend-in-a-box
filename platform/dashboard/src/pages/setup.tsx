@@ -1,8 +1,9 @@
 import { Link, useParams } from "react-router-dom";
 import { usePage, type SetupPage } from "~/api";
 import { Crumb, Empty, Fold, Ic, NameLine, Sec, Skeleton, Tag } from "~/ui/pieces";
+import { SlackSteps } from "./slack-steps";
 
-/** Everything this company's workflows need, read-only (D42): what is set, what is missing, by name where the CRM can name it. */
+/** Everything this company's workflows need, read-only (D42) except where each Slack post goes (D102): what is set, what is missing, by name where the CRM can name it. */
 export function Setup() {
   const { slug = "" } = useParams();
   const q = usePage<SetupPage>(["setup", slug], `/api/v1/companies/${slug}/setup`, { every: 60_000 });
@@ -15,7 +16,7 @@ export function Setup() {
   return <>
     <Crumb items={[{ to: `/app/c/${slug}`, label: co.name }]} />
     <NameLine name="Setup" />
-    <div className="tagline">{d.readiness.ready ? <Tag kind="ok">ready</Tag> : <Tag kind="warn">{blockers.length} blocker{blockers.length === 1 ? "" : "s"}</Tag>}<span>read-only · change it with the install API or the CLI</span></div>
+    <div className="tagline">{d.readiness.ready ? <Tag kind="ok">ready</Tag> : <Tag kind="warn">{blockers.length} blocker{blockers.length === 1 ? "" : "s"}</Tag>}<span>read-only except Slack channels · change the rest with the install API or the CLI</span></div>
     {blockers.length ? <div className="rows">{blockers.map((i, n) => <div key={n} className="row"><Ic state="warn" /><span className="mid"><span className="nm" style={{ whiteSpace: "normal" }}>{i.text}</span></span>{i.href ? <Link className="btn" to={i.href}>Open</Link> : null}</div>)}</div> : null}
     {warnings.length ? <Fold title={<>{warnings.length} warning{warnings.length === 1 ? "" : "s"} · nothing is blocked</>}><div className="rows">{warnings.map((i, n) => <div key={n} className="row"><Ic state="skip" /><span className="mid"><span className="nm" style={{ whiteSpace: "normal" }}>{i.text}</span></span>{i.href ? <Link className="btn" to={i.href}>Open</Link> : null}</div>)}</div></Fold> : null}
 
@@ -48,6 +49,9 @@ export function Setup() {
     <Sec>Slack</Sec>
     <p className="note">{d.slack.connected ? `Connected to workspace ${d.slack.team_id}.` : "Not connected: every Slack post is recorded but never posted."}</p>
     <KV rows={d.slack.channels} />
+
+    <Sec small="pick a channel from this company's Slack; the only thing Setup changes">Where each Slack message posts</Sec>
+    <SlackSteps slug={slug} />
 
     <Sec>Alerts</Sec>
     <KV rows={d.alerts} />

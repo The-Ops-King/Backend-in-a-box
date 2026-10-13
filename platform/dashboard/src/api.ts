@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery, useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import type { Chart, PathItem } from "@/api/words";
 import type { SetupPage } from "@/api/setup";
+import type { SlackPage } from "@/api/slack-steps";
 
 export class ApiError extends Error { constructor(public status: number, message: string, public body?: Record<string, unknown>) { super(message); } }
 
@@ -42,6 +43,6 @@ export type HealthPage = { company: CompanyHead; open: { id: string; level: stri
 export type WrapUpsPage = { company: CompanyHead; reports: { id: string; kind: string; period_start: string; period_end: string; generated_at: string; on_demand: boolean; body: string; status: string | null }[]; workflows: { id: string; name: string; enabled: boolean; when: string | null }[] };
 export type SetterStats = { id: string; name: string; leads_assigned: number; never_dialled: number; dials: number; answered: number; connected: number; talk_sec: number; contacts_reached: number; leads_dialled_first: number; stl_median_min: number | null; stl_avg_min: number | null; bookings: number };
 export type MetricsPage = { company: CompanyHead; from: string; to: string; timezone: string; reached_seconds: number; totals: SetterStats; setters: SetterStats[] };
-export type { SetupPage };
+export type { SetupPage, SlackPage };
 export type EodListPage = { company: CompanyHead; reports: { id: string; day: string; closer: string; submitted_at: string | null; reminded_at: string | null; totals: string | null; changes: { field: string; from: unknown; to: unknown; contact?: string }[] }[]; closers: { id: string; name: string; email: string; url: string }[] };
 export type { Chart, PathItem };
