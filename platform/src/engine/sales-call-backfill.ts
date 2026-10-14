@@ -51,7 +51,9 @@ export type SalesCallReport = {
 /** A person's call on what the evidence leaves open, or a person to leave out: each says why, and the plan keeps it. */
 export type SalesCallDecision = { slot: string; fields: Record<string, string | number>; why: string };
 export type SalesCallExclusion = { email: string; why: string };
-export type SalesCallOptions = { from: Date; to: Date; closer?: string; dryRun?: boolean; eodObject?: string; budgetMs?: number; now?: Date; concurrency?: number; decide?: SalesCallDecision[]; exclude?: SalesCallExclusion[] };
+export type SalesCallOptions = { from: Date; to: Date; closer?: string; dryRun?: boolean; eodObject?: string; budgetMs?: number; now?: Date; concurrency?: number; decide?: SalesCallDecision[]; exclude?: SalesCallExclusion[];
+  /** where a pass that ran out of time stopped: the window (and what a decision may name) stays from `from` */
+  resumeFrom?: Date };
 export type LoadedCompany = { row: CompanyRow; adapterCompany: Company; bindings: Record<string, string> };
 
 const RECORD_ID = "(this record)";   // stands in for the CRM id the write gets back
@@ -213,8 +215,8 @@ export async function backfillSalesCalls(c: PoolClient, co: LoadedCompany, adapt
 
   // which slots this pass reads: in order, a few at a time, until the time budget is spent (the rest are the next call's, from resume_from)
   const budget = opts.budgetMs ?? 240_000, width = Math.max(1, opts.concurrency ?? 4);
-  const rows: SalesCallRow[] = [];
-  for (let i = 0; i < slots.length; i += width) {
+  const rows: SalesCallRow[] = [], first = opts.resumeFrom ? slots.findIndex((x) => x.startsAt >= opts.resumeFrom!) : 0;
+  for (let i = first < 0 ? slots.length : first; i < slots.length; i += width) {
     if (Date.now() - started > budget) { report.complete = false; report.resume_from = slots[i].startsAt.toISOString(); break; }
     const batch = slots.slice(i, i + width);
     rows.push(...await Promise.all(batch.map((s) => readSlot(shared, s).catch((e): SalesCallRow => ({ ...blankRow(shared, s), error: String((e as Error).message).slice(0, 300) })))));
@@ -223,7 +225,7 @@ export async function backfillSalesCalls(c: PoolClient, co: LoadedCompany, adapt
   if (dryRun) {
     const plan = await one<{ id: string }>(c, "insert into audit_log (company_id, action, target_type, target_id, after) values ($1::uuid,'sales_calls.planned','company',$1::text,$2) returning id::text", [co.row.id, { from: report.from, to: report.to, closer: report.closer, rows }]);
     report.plan_id = plan!.id;
-  } else await applyRows(c, co, adapters, rows, setup.objectKey, shared.existing, { from: opts.from, to: report.complete ? opts.to : new Date(report.resume_from!) });
+  } else await applyRows(c, co, adapters, rows, setup.objectKey, shared.existing, { from: opts.resumeFrom ?? opts.from, to: report.complete ? opts.to : new Date(report.resume_from!) });
   report.summary = summarize(rows);
   return report;
 }

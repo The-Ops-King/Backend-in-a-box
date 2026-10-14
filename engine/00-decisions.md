@@ -3769,5 +3769,7 @@ a dry run takes `decide: [{ slot, fields, why }]` for what the evidence leaves o
 to leave out without tagging them in the CRM. Each decided field gets "operator decision: <why>" as its first evidence and loses
 its "most likely" line. An exclusion skips the row with its why. Both stay in the plan the write applies. A decision for a call
 outside the window, a field the object lacks, an option the field doesn't have, or a call decided twice stops the run with a 400
-before anything is read. Test: a card alone files showed/follow up; the same card against a slot cleared after its start stays
-blank; a decision and an exclusion reach the plan; mistakes are refused.
+before anything is read. A pass that runs out of time is resumed with `resume_from` and the same `from`, so the window, and
+what a decision may name, stays whole. Test: a card alone files showed/follow up; the same card against a slot cleared after its start stays
+blank; a decision and an exclusion reach the plan; mistakes are refused; a resumed pass accepts a decision on an earlier call and reads
+only the rest.

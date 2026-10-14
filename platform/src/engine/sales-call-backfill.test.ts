@@ -260,7 +260,7 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
   });
 
   it("a person's decisions and exclusions land in the plan with their why; a mistake stops the run", async () => {
-    const pass = (decide: SalesCallDecision[], exclude: SalesCallExclusion[] = []) => asOperator(async (c) => backfillSalesCalls(c, await loadCompany(c, companyId), adapters(), { ...window(), closer: "carly@x.com", dryRun: true, eodObject: "custom_objects.closer_eod", decide, exclude }));
+    const pass = (decide: SalesCallDecision[], exclude: SalesCallExclusion[] = [], resumeFrom?: Date) => asOperator(async (c) => backfillSalesCalls(c, await loadCompany(c, companyId), adapters(), { ...window(), closer: "carly@x.com", dryRun: true, eodObject: "custom_objects.closer_eod", decide, exclude, resumeFrom }));
     const r = await pass([{ slot: "evt-E", fields: { outcome: "showed", disposition: "follow_up" }, why: "her next call calls this one her first" }], [{ email: "B@x.com", why: "a teammate's test bookings" }]);
     const e = rowOf(r, "evt-E");
     expect(e.fields).toMatchObject({ outcome: "showed", disposition: "follow_up" });
@@ -275,5 +275,9 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     expect(plan!.after.rows.find((x) => x.slot_key === "evt-E")!.evidence.outcome[0].source).toBe("operator decision");
     await expect(pass([{ slot: "evt-nope", fields: { outcome: "showed" }, why: "x" }, { slot: "evt-D", fields: { disposition: "maybe" }, why: "x" }]))
       .rejects.toThrow(/evt-nope is no call of this window.*maybe is no option of disposition/);
+    // a resumed pass keeps the whole window: a decision on a call before where it resumes is no mistake, and only the rest is read
+    const later = await pass([{ slot: "evt-E", fields: { outcome: "showed" }, why: "x" }], [], H.toJSDate());
+    expect(later.from).toBe(r.from);
+    expect(later.rows.map((x) => x.slot_key).sort()).toEqual(["evt-H", "evt-I", "evt-J", "evt-M1"]);
   });
 });
