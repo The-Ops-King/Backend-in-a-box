@@ -3366,6 +3366,49 @@ company's channel. Thread replies, DMs and answers in the asking channel say whe
 are listed public and private; a bot without `groups:read` gets the public ones.
 `GET|POST /api/v1/workflows/<id>/slack-channel` (`{ node, channel | "default" }`). Test: `src/api/slack-steps.test.ts`.
 
+## D107. The chart draws every step: a fork inside a fork gets its own groups (2026-10-14)
+
+Tyler, reading PMU's Call booked on its workflow page, saw the chart end at two "A new booking or a reschedule?" forks:
+no card moves, no tags, no Slack card, no Done. The chart is the only way he sees a workflow, to update it, so it has to
+be exactly how the workflow runs. The layout walked each way out of a fork only while a step had exactly one way out, so a
+fork inside a fork's group ended the group there, and everything after it (the inner fork's ways, where they rejoined,
+and every step after the outer fork's join) was never drawn. It was not only PMU's copy: run against every shipped
+template and PMU copy (PMU's Call booked as it was that day), the old layout left steps out of 11 charts, among them Setter call logged (12 of 44 drawn), Call
+outcome (2 of 30: its two triggers start in different places, so nothing after the triggers was drawn, on Hair's live
+chart too), Pre-call sequence (the team's keep / cancel / reschedule fork), Call recorded (the "which booking" fork),
+Speed to lead, the Daily EOD reminder and the health check.
+- **Groups are drawn like the spine.** A group's content is rows again (steps and forks), so a fork inside a branch draws
+  its own labelled groups inside that branch; the inner ways rejoin inside the group and the group goes on to the outer
+  join on the spine. The join is the step the most ways reach first, so a cross-link (the team's ✅ going to the
+  confirmed steps) is not taken for the join. A way that leaves its group for a step drawn elsewhere (the reminders that
+  go on, a loop back to where the run was) ends in a short arrow, "on to “3 days before the call”". The width a group
+  needs comes from what is inside it; groups that do not fit side by side stack in one column as before, and a stacked
+  card is as wide as its content wants. The lines of a fork that ends a group meet inside the card and leave by its
+  bottom; a short group's line drops straight before it curves in, so it never crosses a taller neighbour. A node in a
+  narrow column gives its logo's room to the words and may run to six lines; a title or label that is still cut ends in …
+- **Starts.** Triggers that share a first step sit side by side over it, as before. A trigger whose first step another
+  start reaches anyway is drawn where it comes in (Call outcome's "Appointment no-show" at the top of the no-show group,
+  the way in passing beside it). Starts that only meet further down (the EOD reminder's evening and morning runs) or
+  never (the health check's hourly run and its alerts) stand side by side, each over its own steps.
+- **Nothing is dropped silently.** Past four forks deep a fork's steps are listed in order in a dashed card; a visible step
+  the walk never reaches is listed at the bottom under "More steps (not placed on the chart)". Neither happens for any
+  shipped template or PMU copy. An exit no edge leads to is not drawn (the EOD reminder's check stops the run with its
+  own `else_exit`, and its words say so).
+- Kept as they were: a branch folded into its one conditional step, a wait folded into the send after it, the reply-wait
+  fork's "No reply", groups that end at an exit, D103's dashed sometimes-steps and "otherwise", run badges, the phone's
+  path-only view (now at every level).
+- The layout moved out of the drawing into `dashboard/src/ui/arrange.ts` (pure), so it is tested without a browser.
+  `pnpm exec tsx scripts/render-charts.ts --out <dir> [name …]` shoots charts with the real component in Chromium at
+  desktop and phone width (a template slug, `pmu/<file>`, or `nested`: PMU's Call booked with its card fork inside each
+  booking path, the shape Tyler saw).
+- Tests: `src/api/chart-layout.test.ts`. For every shipped template and PMU copy: every visible step placed exactly once,
+  no "More steps", every place the drawing stops is an exit, a step with no way on or an arrow on; and the connections
+  the layout draws equal the workflow's own edges (consecutive steps, a fork to each group, each group that goes on to
+  the join, the arrows, folds), so the order and every join are the workflow's. A fork inside each branch of a fork with
+  steps after the outer join, in order; setter-call-logged fully placed with its tap fork two forks deep; Call outcome's
+  entry trigger; the side-by-side starts; the unreached step and the depth limit. The "every step placed" test failed on
+  the old layout for the 11 charts above.
+
 ## D108. The end-of-day workflows say what they do; a copy's name follows its template (2026-10-14)
 
 Tyler could not tell the three end-of-day workflows apart, and "Sales Call filed from the end-of-day form", with a paragraph
