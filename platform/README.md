@@ -328,7 +328,23 @@ transcript, bookings from the booking source, outcomes the old Zaps left on GHL'
 has), won opportunities (contract value from `crm.field_opportunity_contract_value`, else the
 opportunity's value), and payments from Whop's own API when `secret.whop_api_key` is bound (through the
 same ledger path as a webhook: linked by email / phone / member id, else unlinked for the dashboard to
-fix), then rolls every day up. Keyed on source ids, so re-running is safe.
+fix), and the meeting recorder's recordings (`recordings`, Fathom's history through the same ladder, emitting nothing, D115), then rolls every day up. Keyed on source ids, so re-running is safe.
+
+### A closer's Sales Calls from history (D115)
+
+`POST /api/admin/backfill/sales-calls { company, from?, to? | days?, closer?, dryRun = true, eodObject? }` (Bearer `$CRON_SECRET`)
+reads each closing-category call in the window (one closer's with `closer`: email or CRM user id), including each slot the booking
+source says was moved, and answers one row per call: the fields that evidence fills (in the company's option keys), the evidence
+for each, and for what it cannot establish `unknown: [{ field, likely, why }]`. Evidence: the booking source (cancel before the
+start, a move, a no-show mark), a recording the ladder linked and Jev reads as a sales call, payments after the call and before the
+next one, a won deal, the closer card's stage when it moved there after this call, the closer's end-of-day report
+(`crm.object_closer_eod` or `eodObject`) and the contact's notes read by Jev, and Call recorded's call review for objection and next
+step. The record is Call booked's own Sales Call step rendered for the call (same key, properties and option keys); an unknown
+field stays blank. A dry run writes nothing and answers `plan_id`; `{ company, plan: "<id>" | [ids], dryRun: false }` writes exactly
+that plan (records keyed by the slot, related to the contact and card, in crm_records; the ledger's outcome where it has none; no
+event, no run). A pass that runs out of time says `complete: false` and `resume_from`. Run the history backfill first (`steps:
+["contacts", "appointments", "recordings", "payments", "won"]`) so the ledger has the bookings, recordings and payments.
+`pnpm exec tsx scripts/sales-call-report.ts out.html answer.json [more.json …]` renders the answers as a page to review.
 
 ## Cards moved by hand (D61)
 

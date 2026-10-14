@@ -3669,3 +3669,78 @@ is hidden; the seven are one thing, making the alert's words. PMU's Call booked 
   run pill; the popover's steps, words, conditions, counts and states), and D111's matrix in `chart-views.test.ts`
   (every shipped template and PMU copy exact with no run, every run, both widths, the path alone) now runs with boxes.
   `scripts/render-charts.ts` takes `@id:skip` for a run's other states.
+
+## D115. A closer's Sales Calls read back from the evidence, never guessed (2026-10-14)
+
+PMU was installed on 2026-10-13 in shadow and its GHL Sales Call object had no records. Tyler: every one of Carly's calls of
+the last month, on all her Calendly event types, in the engine's ledger and as Sales Call records in PMU's GHL (a one-off write
+he approved although PMU is in shadow). "Never guess": a field is filled only from evidence; for anything that cannot be
+established, "an idea of what happened" (the most likely reading, its evidence and reasoning) in the review, not in GHL.
+
+What PMU's data looks like (read 2026-10-14):
+- **Calendly** carries Carly's bookings from 2026-09-21. Most of her moves are "Rescheduled from connected calendar event": she
+  drags the event in her calendar, Calendly cancels it (canceler host, `rescheduled: true`, a `new_invitee`) and makes a new
+  event with an `old_invitee`; the Zoom link stays. The cancellation carries its own time (`cancellation.created_at`), now kept
+  on the snapshot (`cancellation.at`). Several of Tyler's own test bookings sit on her calendars (cancelled, reason "test").
+- **Fathom** has ten recordings of Carly's from 2026-09-24; three are "Impromptu Zoom Meeting"s with no invitee but her (Kellee's
+  close on 9-29 is one). The ladder links them by the meeting link or her calendar.
+- **Closer EOD** (`custom_objects.closer_eod`, 9 records, Carly, from 9-28): one record per day, not per call: report date,
+  calls scheduled / taken, offers, closes, cash, revenue, dials, pick ups and a free-text note ("1 no show", "2 calls today- 1
+  close, 1 reschedule"). Its `closer` dropdown lists two former closers; `report_label` holds "Carly".
+- **Notes**: mostly the booking form's answers; PMU's Fathom Zap writes CURRENT SITUATION / PAINS / GOALS / OBJECTIONS after a
+  recorded call; a few "Setter call scored" notes. Carly writes no call notes.
+- **Cards** (Beauty Moguls): a stage and when it last changed; no history and no mover. Many were moved in bulk on 10-12.
+- **Whop**: one paid close (Kellee, $10,000). The Sales Call object's `next_step` is an option list (follow up booked, sending
+  info, nurture, dead), not text.
+
+Built:
+- **History reads the recorder too.** The backfill has a `recordings` step (after `appointments`): Fathom's meetings in the window
+  (`fathomListMeetings`), into the recordings ledger through `recordRecording(..., { silent: true })`: the same row and the same
+  ladder, and nothing emitted, so no workflow starts and no `wait_for_event` wakes. The transcript stays at Fathom
+  (`transcript_status: at_source`, read when needed, D87). The appointments count no longer counts a moved slot that made no row.
+- **`backfillSalesCalls`** (`sales-call-backfill.ts`), for the company's closing-category calls in a window (Demo included, D101),
+  optionally one closer's: every ledger booking, plus each slot the booking source says was moved (the ledger keeps only the
+  latest slot of a moved call; D76 makes the old slot its own record, logged rescheduled). Test contacts and a team member's own
+  bookings are left out and say so.
+- **The record is Call booked's.** Its own Sales Call step (the company's copy that writes the record keyed by
+  `{{appointment.slot_key}}`, else the shipped template) is rendered for the call: the same key and external id, the same
+  property names, the company's option keys, the closer as the dropdown's key, the call type by the step's own rule, the booking
+  source by the calendar. Its `outcome: scheduled` is replaced by the evidenced outcome (scheduled only for a call still ahead).
+  Properties the object lacks are left out, as the executor does.
+- **What counts as evidence**, per call:
+  - outcome: a moved slot → rescheduled; a cancel the booking source made before the start → cancelled (a cancel after the start
+    is not one, D73); a recording the ladder linked to the booking that Jev reads as a sales call (Call recorded's own
+    question) → showed; the host's no-show mark → no-show; the card on No Show, Lost or Disqualified, moved there after this call
+    and before any later one → what Card moved by hand files (no-show; showed); the closer's end-of-day report for that day and
+    the contact's notes around the call, read by Jev ("what happened on the call in question", the other calls that day given
+    as context) → that outcome; a payment within 48 hours of the call → showed;
+  - disposition (only for a call that showed): the person's payments after the call and before their next one → closed (deposit
+    only when the ledger calls it one against a known deal value); the card on Lost / Disqualified, or won, tied as above; Jev on
+    the end-of-day report and notes; Jev on the transcript, with the company's disposition keys as the options;
+  - cash collected: those payments, net; contract value: the deal won in that span; objection and next step: Call recorded's call
+    review (`prompt.call_review`; a review already on the recording is reused), the next step mapped by Jev onto the field's own
+    options; recording URL: the recording's share link.
+  - Sources that agree fill the field; sources that disagree leave it blank, with the strongest one as the likely reading and all
+    of them as the reason. Nothing at all is blank with the clues there are: Jev's leaning on a text it was not sure of, the card's
+    current stage, a slot cleared after its start, a recording not read as a sales call, a late payment, and how many of her
+    uncancelled calls the closer recorded once she started recording (a clue only: a missing recording alone is no no-show).
+- **Dry run first, then exactly that.** A dry run writes nothing to GHL or the ledger; it keeps its rows as a plan
+  (`audit_log` `sales_calls.planned`) and answers `plan_id`. The write applies a plan as reviewed (no second AI read can change
+  it); without one it reads again and writes. Each call is written on its own: the record ours (crm_records) or the CRM's with
+  that external id is updated, else created (a re-run or an interrupted run never makes a second); a field the CRM already has
+  with another value is left as it is (named in the row); related to the contact and the one closer card; kept in crm_records
+  under the slot key, so later workflows update the same record; the person's CRM id linked the poll's way when the booking
+  never brought it. The ledger gets the outcome and the call outcome only where it has none, rows only (as the outcomes step),
+  and the days are rolled up. Nothing is emitted.
+- **Route** `POST /api/admin/backfill/sales-calls` (operator key), a time budget inside Vercel's 300 s with `resume_from`;
+  **page** `scripts/sales-call-report.ts` renders the answers for review.
+
+Consequences to know: records written blank are "owed" to the end-of-day reminder for the last seven days (D76, D110), and the
+bot's calls and shows read these records (D73).
+
+Tests: `sales-call-backfill.test.ts` (the recordings step links by the meeting link and emits nothing; a recording ⇒ showed with
+the transcript's disposition, objection and next step; a cancel before the call ⇒ cancelled; a move ⇒ rescheduled on the old slot
+and its own record for the new one; a payment ⇒ showed, closed and the cash; the end of day ⇒ no-show; a card in No Show ⇒ no-show;
+nothing ⇒ blank with a likely reading; a test contact is not written; a person with no CRM id found by email and linked; the dry
+run writes nothing; the plan writes once, related, in crm_records and the ledger, with workflows on that would answer and no run
+started and no event; a second pass creates nothing and keeps a value filed in GHL; only the closer's calls), `sales-call-report.test.ts`.
