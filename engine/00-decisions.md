@@ -3499,6 +3499,21 @@ chart still left steps out on purpose (Jev's read of a reply, every `set_var`) a
   alert is not resolved by an hour that did not look. A workflow no layout draws exactly is an error alert
   (`health:charts:<workflow>`, posted like every health finding, its Open link the workflow page) that resolves when a
   later check draws it.
+- **Checked on the drawing itself, in every view.** Tyler opened Hair's Health check on the live dashboard with its hourly
+  run selected and saw the four triggers and nothing under them, while the placement test said every step was placed:
+  the drawing he saw came from the layout before D107 (its SVG for that view, kept as
+  `src/chart/fixtures/health-check-hourly.before-d107.svg`, has exactly those four nodes; main's own code draws all of
+  them, so the live site was serving an older build). A check of the layout's rows cannot see what happens between the
+  rows and the picture, so the check reads the SVG: the drawing (`src/chart/draw.ts`, pure, shared by the page, the
+  server and the tests) marks every node (`data-id`, and `data-also` for a branch drawn as its step) and every line that
+  stands for a way (`data-ways`: from, to, words, otherwise; the line's end is filled in only when the drawing reaches
+  the step it goes to, so a line to nowhere is a problem), and `svgDrawing` reads them back. The page, the save and the
+  sweep all use it; the save and the sweep check a laptop's width and a phone's. Every view the page draws is tested:
+  no run, a run down every way each step can go, 1000px and 358px, and a run's path alone.
+- **A run's path alone says so.** On a phone with a run, the groups the run did not take are left out, as before, but
+  the SVG carries `data-filtered` and the page says "Showing only the path this run took. Show every step" above it; the
+  check holds such a view to drawing only real steps and ways (and the run's whole path), and the same view with nothing
+  left out to being exact. On a laptop nothing is ever left out: steps the run did not reach are dimmed.
 - **Ways that are not edges are drawn too** (`src/chart/implicit.ts`, read off executor.ts and runner.ts; `chartOf` adds
   them, so both layouts and the check use them). A check whose condition stays false: "otherwise" (with a retry,
   "otherwise, after looking for up to 1 hour") to an end "Stop: …" in the exit's words, or "Paused for a person: …" with
@@ -3523,7 +3538,10 @@ chart still left steps out on purpose (Jev's read of a reply, every `set_var`) a
   a dropped step, a doubled one, a line that is no edge and wrong words; a definition with a cross-link into the middle of
   another branch, a loop back, five deep and an unreached step: tidy not exact, ELK exact with every node and edge, the
   loop running up, no boxes overlapping; the cross-link and loop alone drawn tidily as arrows; a misrouted line caught),
-  `src/chart/implicit.test.ts` (each way that is not an edge: on the chart, exact in the tidy layout, and a drawing
+  `src/chart/chart-views.test.ts` (Tyler's view of Health check on a laptop and a phone, every step drawn; the run's
+  path alone, said; the drawing before D107 fails the check; a node or a line taken out of the SVG is caught; every shipped
+  template and PMU copy exact with no run and every run it can show, at both widths, and its path alone; the graph with
+  a run),   `src/chart/implicit.test.ts` (each way that is not an edge: on the chart, exact in the tidy layout, and a drawing
   without it caught; in the graph too; the two the definition refuses),
   `src/engine/chart-exact.test.ts` (saves report the layout; the 422, the step and copy edit refusals and the install
   refusal with a stand-in verdict; the sweep's daily stamp, alert and resolution).

@@ -5,9 +5,13 @@ import { chartOf, type Chart } from "@/api/words";
 import { parseDefinition, type Definition } from "@/engine/definition";
 import { templates } from "@/templates";
 import { arrange, drawable, placedIds, type Row } from "./arrange";
-import { exactness, graphDrawing, tidyDrawing, tidyOf } from "./exact";
+import { exactness, graphGeometry, svgDrawing } from "./exact";
+import { pickLayout, tidyOf } from "./pick";
+import { draw, drawGraph } from "./draw";
+
+const svgOf = (chart: Chart, rows = arrange(chart)) => svgDrawing(draw(rows, 1000, () => null, false));
+const graphSvg = (chart: Chart, g: Awaited<ReturnType<typeof layoutGraph>>) => svgDrawing(drawGraph(g, chart, 1000, 240, () => null).svg);
 import { layoutGraph } from "./graph";
-import { pickLayout } from "./pick";
 import { messy } from "./messy";
 
 // D107: the chart dropped every step after a fork inside a fork; Tyler saw PMU's Call booked end at its two
@@ -86,12 +90,12 @@ describe("D107/D111: the chart draws every step, exactly", () => {
     const find = (rs: Row[]): Row[] => rs.flatMap((r) => r.kind === "fork" ? [r, ...r.groups.flatMap((g) => find(g.rows))] : [r]);
     const item = find(it).flatMap((r) => r.kind === "nodes" ? r.items : []).find((i) => i.fold)!;
     item.when = "something else";
-    expect(exactness(one, tidyDrawing(one, it)).problems).toEqual(["the condition on “Step s” is not the branch's"]);
+    expect(exactness(one, svgOf(one, it)).problems).toEqual(["the way “F” (f) → “Step s” (s) “this is a referral” is not drawn", "a line “F” (f) → “Step s” (s) “something else” is drawn but the workflow has no such way"].map((x) => x.replace("“F”", `“${one.nodes.find((n) => n.id === "f")!.title}”`)));
   });
 
   it("the check catches a drawing that drops a step, draws one twice, or draws a line the workflow does not have", () => {
     const chart = chartOf(template("cancellation-rebook"), company);
-    const d = tidyDrawing(chart, arrange(chart));
+    const d = svgOf(chart);
     const [first, second] = d.nodes.slice(1);
     expect(exactness(chart, { ...d, nodes: d.nodes.filter((id) => id !== second) }).problems.join(" ")).toContain("is not drawn");
     expect(exactness(chart, { ...d, nodes: [...d.nodes, first] }).problems.join(" ")).toContain("drawn 2 times");
@@ -163,7 +167,7 @@ describe("D107/D111: the chart draws every step, exactly", () => {
     const chart: Chart = { nodes: [{ id: "t", kind: "trig", title: "Start" }, { id: "a", kind: "tag", title: "A" }, { id: "lost", kind: "tag", title: "Nobody leads here" }], edges: [{ from: "t", to: "a", label: "" }] };
     const rows = arrange(chart); const more = rows[rows.length - 1];
     expect(more.kind === "more" && more.items.map((i) => i.id)).toEqual(["lost"]);
-    expect(tidyOf(chart).tidy.problems).toEqual(["1 step is listed apart: the layout does not reach it"]);
+    expect(tidyOf(chart).tidy.problems).toContain("1 step is listed apart, not drawn on the chart");
     const nodes: Chart["nodes"] = [{ id: "t", kind: "trig", title: "Start" }]; const edges: Chart["edges"] = [{ from: "t", to: "f0", label: "" }];
     for (let i = 0; i < 6; i++) { nodes.push({ id: `f${i}`, kind: "fork", title: `Fork ${i}` }, { id: `x${i}`, kind: "end", title: "Done" }); edges.push({ from: `f${i}`, to: i < 5 ? `f${i + 1}` : "y", label: "deeper" }, { from: `f${i}`, to: `x${i}`, label: "out" }); }
     nodes.push({ id: "y", kind: "end", title: "Done" });
@@ -179,7 +183,7 @@ describe("D111: what the tidy layout cannot draw is drawn as a plain graph, exac
     const chart = chartOf(messy(), company);
     expect(tidyOf(chart).tidy.exact).toBe(false);
     const g = await layoutGraph(chart, () => ({ w: 180, h: 40 }), (s) => ({ w: s.length * 7, h: 15 }));
-    expect(exactness(chart, graphDrawing(g)).problems).toEqual([]);
+    expect(exactness(chart, graphSvg(chart, g)).problems).toEqual([]);
     expect(new Set(g.nodes.map((n) => n.id))).toEqual(new Set(drawable(chart)));
     expect(g.nodes.length).toBe(drawable(chart).length);
     expect(g.edges.map((e) => `${e.from}>${e.to}:${e.label}`).sort()).toEqual(chart.edges.map((e) => `${e.from}>${e.to}:${e.label}`).sort());
@@ -202,6 +206,6 @@ describe("D111: what the tidy layout cannot draw is drawn as a plain graph, exac
     const chart = chartOf(messy(), company);
     const g = await layoutGraph(chart, () => ({ w: 180, h: 40 }), (s) => ({ w: s.length * 7, h: 15 }));
     g.edges[0].points = [{ x: -500, y: -500 }, { x: -400, y: -400 }];
-    expect(exactness(chart, graphDrawing(g)).problems[0]).toMatch(/does not run from its step's box to its step's box/);
+    expect(graphGeometry(g)[0]).toMatch(/does not run from its step's box to its step's box/);
   });
 });

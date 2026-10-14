@@ -26,9 +26,7 @@ export function Tiles({ items }: { items: { n: number; word: string; kind?: "h" 
   return <div className="tiles tnum">{items.map((t) => <div key={t.word} className={t.n ? t.kind ?? "" : "z"}><b>{t.n}</b><small>{t.word}</small></div>)}</div>;
 }
 
-/** What each step state means, in the words the legend and the tooltips use; one colour each, the same on the bars and the chart. */
-export const STATE_WORDS: Record<string, string> = { ok: "ran", ghost: "ran in shadow", skip: "skipped: condition not met", blocked: "blocked: did not go out", here: "waiting here", warn: "failed or needs a hand", stop: "stopped", next: "not reached yet" };
-export const STATE_ORDER = ["ok", "ghost", "skip", "blocked", "here", "warn", "stop", "next"];
+export { STATE_WORDS, STATE_ORDER } from "@/chart/states";
 type StripStep = { state: string; title?: string; meta?: string; note?: string };
 /** One segment's tooltip: "Add “stat-new” tag — done in shadow: would have tagged “stat-new”". */
 export function stepLine(p: StripStep): string {

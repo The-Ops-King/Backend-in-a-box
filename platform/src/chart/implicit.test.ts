@@ -5,7 +5,12 @@ import { chartOf, type Chart } from "@/api/words";
 import { parseDefinition, type Definition } from "@/engine/definition";
 import { templates } from "@/templates";
 import { arrange, placedIds } from "./arrange";
-import { exactness, graphDrawing, tidyDrawing, tidyOf } from "./exact";
+import { exactness, graphGeometry, svgDrawing } from "./exact";
+import { tidyOf } from "./pick";
+import { draw, drawGraph } from "./draw";
+
+const svgOf = (chart: Chart, rows = arrange(chart)) => svgDrawing(draw(rows, 1000, () => null, false));
+const graphSvg = (chart: Chart, g: Awaited<ReturnType<typeof layoutGraph>>) => svgDrawing(drawGraph(g, chart, 1000, 240, () => null).svg);
 import { layoutGraph } from "./graph";
 
 // D111: the ways a run leaves a step that are not edges of the definition (executor.ts / runner.ts) are drawn, and the
@@ -20,7 +25,7 @@ const soon = { anchor: "now", offset: "+1h", tz: "contact" };
 function holds(chart: Chart, line: { from: string; to: string; label: string; else?: boolean }) {
   expect(chart.edges).toContainEqual(expect.objectContaining({ from: line.from, to: line.to, label: line.label, ...(line.else ? { else: true } : {}) }));
   const t = tidyOf(chart); expect(t.tidy.problems).toEqual([]);
-  const d = tidyDrawing(chart, t.rows);
+  const d = svgOf(chart, t.rows);
   const without = { ...d, lines: d.lines.filter((l) => !(l.from === line.from && l.to === line.to && l.label.toLowerCase() === line.label.toLowerCase())) };
   expect(exactness(chart, without).problems).toContainEqual(expect.stringMatching(/is not drawn$/));
 }
@@ -88,8 +93,8 @@ describe("D111: every way out of a step is on the chart, edge or not", () => {
   it("the plain graph draws them too", async () => {
     const chart = chartOf(def([{ id: "c", type: "check", when: { exists: "contact.phone" }, else_exit: "no_phone" }, { id: "b", type: "branch" }, tag("a"), done], [{ from: "c", to: "b" }, { from: "b", to: "a", label: "a referral", when: { eq: ["{{contact.source}}", "ref"] } }, { from: "a", to: "x" }]), company);
     const g = await layoutGraph(chart, () => ({ w: 160, h: 40 }), (s) => ({ w: s.length * 7, h: 15 }));
-    expect(exactness(chart, graphDrawing(g)).problems).toEqual([]);
+    expect(exactness(chart, graphSvg(chart, g)).problems).toEqual([]);
     expect(g.edges.map((e) => `${e.from}>${e.to}`)).toEqual(expect.arrayContaining(["c>c~stop", "b>b~pause"]));
-    expect(exactness(chart, { ...graphDrawing(g), lines: graphDrawing(g).lines.filter((l) => l.to !== "c~stop") }).problems).toContainEqual(expect.stringMatching(/is not drawn$/));
+    expect(exactness(chart, { ...graphSvg(chart, g), lines: graphSvg(chart, g).lines.filter((l) => l.to !== "c~stop") }).problems).toContainEqual(expect.stringMatching(/is not drawn$/));
   });
 });

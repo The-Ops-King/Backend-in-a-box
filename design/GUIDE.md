@@ -146,8 +146,8 @@ If even that is not exact, no chart: every step in order with where it goes, und
 With a run shown, each node gets a small state badge at its top-right corner (green check, purple clock, orange
 warning, blue skip) and nodes not reached are dimmed; the taken branch's group is outlined in amber.
 
-On a phone the full chart does not fit without side-scroll, so a run page draws only the path that run took (spine,
-the taken branch under its label, the reminders) and says "four other ways out of the fork are not drawn". Groups
+On a phone a run's chart draws only the path that run took (spine, the taken branch under its label, the reminders)
+and says so above it: "Showing only the path this run took. Show every step" (D111). Nowhere else is a step left out. Groups
 that do not fit side by side stack in one column, each a card off a spine in the left gutter; a node in a narrow column
 drops its logo for its words.
 
