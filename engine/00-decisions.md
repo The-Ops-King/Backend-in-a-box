@@ -3377,3 +3377,13 @@ filed a call booked before the switch-over". The detail the old descriptions car
   stranded old names (PMU's edited "Sales Call filed…" would never have changed): the name now follows the template on every
   install, edited or not; the steps of an edited copy stay its own as before.
 - Test: `install.upgrade.test.ts` (an edited copy with an old name takes the template's name on install; its steps stay).
+
+## D109. One plain setting set from outside, as the Settings page would (2026-10-14)
+
+Tyler asked for Hair's health check, ledger drift and calendar availability to post into #sales-ops. They post through the
+company's alerts channel (`alerts.slack_channel`), a setting; the only ways to change one were the Settings page or a whole
+re-install, and Hair's install data is not a file. `POST /api/admin/bindings/set { company, key, value, by? }` sets one
+setting the company's workflows or the engine read, as the Settings page does (same audit row), and answers with the value
+it replaced so the change can be undone. Secrets are refused (install sets them; D100 copies the shared AI keys); so is a
+key nothing reads and an empty value.
+- Test: `binding-set.test.ts`.
