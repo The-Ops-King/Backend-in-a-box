@@ -153,7 +153,12 @@ function kept(v: unknown): string {
   return `‘${w.length > 60 ? `${w.slice(0, 58).replace(/\s+\S*$/, "")}…` : w}’`;
 }
 /** What a pick looks at: "the reply", "the earlier answer and the earlier call outcome". */
-const pickedBy = (t: string) => { const ps = [...t.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)[^}]*\}\}/g)].map((m) => withThe(pathWords(m[1]))); return ps.length ? ps.join(" and ") : slackPlain(t); };
+const ALERT_PATHS: Record<string, string> = { "event.kind": "the kind of alert", "event.level": "how bad it is", "event.detail.shape": "the shape of the drift found", "event.detail.fixed": "how many records were fixed" };
+const pickedBy = (t: string, def?: Definition) => {
+  // an alert's event fields are not a payment's: Health check's own words for them
+  const alerts = !!def?.nodes.some((n) => n.type === "trigger" && n.event.startsWith("alert."));
+  const ps = [...t.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)[^}]*\}\}/g)].map((m) => (alerts && ALERT_PATHS[m[1]]) || withThe(pathWords(m[1]))); return ps.length ? ps.join(" and ") : slackPlain(t);
+};
 /** A pick's case as words: "showed:closed_won" → "showed, closed won"; empty → "nothing". */
 const caseWords = (k: string) => k === "" ? "nothing" : k.split(/[:>]/).map((x) => (x === "" ? "nothing" : valueWords(x))).join(", ");
 /** A trigger with a match reads as the event it really waits for: "Appointment cancelled", "Tag “reactivate” added". */
@@ -239,7 +244,7 @@ function generic(def: Definition, n: Node, nm: Namer): { title: string; meta?: s
       const what = `Remember ${withThe(pathWords(`vars.${n.key}`))}`;
       // picked by a tap in Slack: the cases are the emoji tapped
       const tap = /\{\{\s*reaction\.reaction\b/.test(String(n.value));
-      if (n.pick) return { title: what, meta: [`by ${pickedBy(String(n.value))}`, ...Object.entries(n.pick).map(([k, v]) => `${tap ? `:${k}:` : caseWords(k)} → ${kept(v)}`), n.else_value !== undefined && `otherwise ${kept(n.else_value)}`].filter(Boolean).join("; ") };
+      if (n.pick) return { title: what, meta: [`by ${pickedBy(String(n.value), def)}`, ...Object.entries(n.pick).map(([k, v]) => `${tap ? `:${k}:` : caseWords(k)} → ${kept(v)}`), n.else_value !== undefined && `otherwise ${kept(n.else_value)}`].filter(Boolean).join("; ") };
       if (n.when) return { title: what, meta: `${kept(n.value)} if ${predicateWords(n.when, constsOf(def))}${n.else_value !== undefined ? `, otherwise ${kept(n.else_value)}` : ""}` };
       return { title: `${what}: ${kept(n.value)}` };
     }
@@ -331,7 +336,7 @@ function apart(nodes: ChartNode[], edges: ChartEdge[]): void {
     (n) => { if (!n.meta) return undefined; const [first, ...rest] = n.meta.split(" · "); return { add: ` · ${first}`, meta: rest.join(" · ") || undefined }; },
     (n) => { const i = into(n.id); const w = i.length === 1 ? was.get(i[0].from) : undefined; const t = w?.kind === "wait" ? titleOf.get(w.id)! : undefined; return t ? { add: `, ${t.startsWith("Wait until ") ? t.slice(11) : t.replace(/^Wait /, "after waiting ")}` } : undefined; },
     (n) => { const i = into(n.id); return i.length === 1 && i[0].label ? { add: `, ${i[0].else ? "otherwise" : `when ${low(i[0].label)}`}` } : undefined; },
-    (n) => { const i = into(n.id); return i.length === 1 ? { add: `, after “${titleOf.get(i[0].from)?.replace(/[“”‹›]/g, "")}”` } : undefined; },
+    (n) => { const i = into(n.id); return i.length === 1 ? { add: `, after ‘${titleOf.get(i[0].from)?.replace(/[“”‹›]/g, "")}’` } : undefined; },
   ];
   const groups = new Map<string, ChartNode[]>(); for (const n of nodes) groups.set(n.title, [...(groups.get(n.title) ?? []), n]);
   for (const [title, group] of groups) {
