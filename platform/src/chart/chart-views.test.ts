@@ -48,7 +48,8 @@ describe("D111: every view the page draws is checked from its SVG", () => {
     for (const width of [1000, 358]) {
       const t = tidyOf(chart, viewOf(hourly, width, false));
       expect(t.shown.check.problems, `${width}`).toEqual([]);
-      expect(new Set(ids(t.shown.svg))).toEqual(new Set(want));
+      // a box of value-keeping steps (D114) stands for its steps: the drawing's nodes are every step
+      expect(new Set(svgDrawing(t.shown.svg).nodes)).toEqual(new Set(want));
     }
   });
 

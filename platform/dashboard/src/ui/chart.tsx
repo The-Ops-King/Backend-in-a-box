@@ -7,6 +7,7 @@ import { STATE_ORDER, STATE_WORDS } from "./pieces";
 import { arrange } from "@/chart/arrange";
 import { pickLayout, tidyView, type Picked } from "@/chart/pick";
 import { countWords, type St } from "@/chart/draw";
+import { groupPopover, grouped } from "@/chart/group";
 
 /**
  * The flow chart (design guide §5): one vertical spine, every step its own node, the fork's outcomes as labelled groups
@@ -77,7 +78,8 @@ function StepList({ chart, stateOf }: { chart: Chart; stateOf: (id: string) => S
 }
 
 /** The popover for a node: what it does, its condition in blue, the words it sends, its state on this run. */
-export function NodeWords({ chart, id, state, extra }: { chart: Chart; id: string; state?: St | null; extra?: ReactNode }) {
+export function NodeWords({ chart, id, state, extra, states }: { chart: Chart; id: string; state?: St | null; extra?: ReactNode; states?: Record<string, St> }) {
+  if (grouped(chart).nodes.some((x) => x.id === id && x.group)) return <GroupWords chart={chart} id={id} states={states} extra={extra} />;
   const n = chart.nodes.find((x) => x.id === id); if (!n) return null;
   const w = { ok: "Done", ghost: "Done in shadow: nothing written or sent", here: "Waiting here", warn: "Failed", skip: "Skipped: its condition was not met", blocked: "Blocked: it did not go out", next: "Not reached", stop: "Stopped" }[state ?? "next"];
   return <>
@@ -92,10 +94,30 @@ export function NodeWords({ chart, id, state, extra }: { chart: Chart; id: strin
     {extra}
   </>;
 }
+/** A box of value-keeping steps (D114): what it is for, then every step inside in order (groupPopover). */
+function GroupWords({ chart, id, states, extra }: { chart: Chart; id: string; states?: Record<string, St>; extra?: ReactNode }) {
+  const p = groupPopover(chart, id, states); if (!p) return null;
+  return <>
+    <h4>{p.title}</h4>
+    {p.meta ? <p className="m" style={{ color: "var(--fg-2)" }}>{p.meta}</p> : null}
+    {p.detail ? <p className="m">{p.detail}</p> : null}
+    <ol className="grpl">{p.steps.map((m) => <li key={m.id}>
+      {m.label ? <span className="lab">{m.label}</span> : null}
+      <span className="t"><Title text={m.title} />{m.meta ? <span className="mt"> · {m.meta}</span> : null}</span>
+      {m.cond ? <span className="c"><Cond /><span>{m.cond}</span></span> : null}
+      {m.went ? <span className="n tnum">{m.went}</span> : null}
+      {m.state ? <span className={`n s-${m.state}`}>{m.stateWords}</span> : null}
+    </li>)}</ol>
+    {p.days ? <p className="m tnum" style={{ marginTop: 8 }}>Counts are for the last {p.days} days; the box shows its first step's.</p> : null}
+    {p.summary ? <div className={`st ${p.summary.st}`}>{p.summary.st === "ok" ? <Check /> : p.summary.st === "ghost" ? <Ghost /> : p.summary.st === "here" ? <Clock /> : p.summary.st === "warn" ? <Warn /> : <Skip />}{p.summary.words}</div> : null}
+    {extra}
+  </>;
+}
+
 /** A node's popover on a chart drawn with one run: its words, its state on that run, and what the run noted there (the note, the words it sent). */
 export function RunNodeWords({ chart, id, states, feed }: { chart: Chart; id: string; states: Record<string, St>; feed: PathItem[] }) {
   const f = [...feed].reverse().find((x) => x.node_id === id);
-  return <NodeWords chart={chart} id={id} state={states[id] ?? "next"} extra={<>{f?.note ? <p className="m" style={{ marginTop: 8 }}>{f.note}</p> : null}{f?.words ? <div className="q">{f.words}</div> : null}</>} />;
+  return <NodeWords chart={chart} id={id} states={states} state={states[id] ?? "next"} extra={<>{f?.note ? <p className="m" style={{ marginTop: 8 }}>{f.note}</p> : null}{f?.words ? <div className="q">{f.words}</div> : null}</>} />;
 }
 
 const STATE_INK: Record<string, string> = { ok: "ok", ghost: "ok", skip: "cond", blocked: "warn", here: "wait", warn: "warn", stop: "fg-3", next: "fg-3" };
@@ -107,7 +129,7 @@ export function Legend({ run, states, days }: { run?: boolean; states?: Iterable
   const on = new Set(states ?? STATE_ORDER); on.add("ok");
   const keys = STATE_ORDER.filter((k) => on.has(k) || (k === "next" && run));
   return <div className="legend">
-    {run ? null : <><span style={{ color: "var(--fg-2)" }}><i className="hp" aria-hidden />behind the scenes: a wait, a read, a value kept</span><span style={{ color: "var(--cond)" }}><i className="dash" aria-hidden />only if …, otherwise skipped</span><span style={{ color: "var(--cond)" }}><Cond />may be skipped</span>{days ? <span style={{ color: "var(--fg-2)" }}><i className="cntk" aria-hidden>12</i>went through it in the last {days} days</span> : null}<span className="sep" aria-hidden /></>}
+    {run ? null : <><span style={{ color: "var(--fg-2)" }}><i className="hp" aria-hidden />behind the scenes: a wait, a read, a value kept</span><span style={{ color: "var(--fg-2)" }}><i className="hp stk" aria-hidden />several values kept in a row: tap for each</span><span style={{ color: "var(--cond)" }}><i className="dash" aria-hidden />only if …, otherwise skipped</span><span style={{ color: "var(--cond)" }}><Cond />may be skipped</span>{days ? <span style={{ color: "var(--fg-2)" }}><i className="cntk" aria-hidden>12</i>went through it in the last {days} days</span> : null}<span className="sep" aria-hidden /></>}
     {keys.map((k) => <span key={k} className="key" style={{ color: `var(--${STATE_INK[k]})` }}><i className={`swa ${k}`} />{k === "next" ? null : stateIcon(k)}{STATE_WORDS[k]}</span>)}
   </div>;
 }

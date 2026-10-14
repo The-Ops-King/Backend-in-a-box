@@ -4,11 +4,14 @@ import type { GraphLayout } from "./graph";
 import type { Sizes } from "./pick";
 import { emoji } from "./emoji";
 import { STATE_WORDS } from "./states";
+import { groupState, grouped, leaves } from "./group";
 
 /**
  * The chart's drawing as an SVG string (D107, D111): pure, so the page, the server's save check, the health sweep and the
  * tests all draw the same thing. Every node is a <g class="nd" data-id>, and every line that stands for a way between
  * steps carries data-ways (from, to, words, otherwise): exact.ts reads the drawing itself back, not the layout it came from.
+ * A box standing for a run of value-keeping steps (D114) carries data-group, its steps in order; the lines into it go to
+ * its first step and the line out of it leaves from its last.
  */
 export type St = StepState;
 
@@ -90,7 +93,7 @@ export const graphMax = (narrow: boolean) => narrow ? 176 : 240;
 export const graphItem = (n: Chart["nodes"][number]): Item => ({ id: n.id, n, ...(n.cond && (n.kind === "send" || n.onlyIf) ? { cond: n.cond } : {}), ...(n.onlyIf ? { when: n.onlyIf } : {}) });
 const LBL_H = 15;
 export function graphSizes(chart: Chart, narrow: boolean): Sizes {
-  const byId = new Map(chart.nodes.map((n) => [n.id, n]));
+  const byId = new Map(grouped(chart).nodes.map((n) => [n.id, n]));
   return { gap: narrow ? 20 : 28, labelSize: (t) => ({ w: Math.ceil(tw(t, IF_W)) + 10, h: LBL_H }), size: (id) => { const sz = sizeOf(graphItem(byId.get(id)!), graphMax(narrow)); return { w: sz.w, h: sz.h }; } };
 }
 /** Below this the words are too small to read: the graph keeps this size and pans inside its own box instead. */
@@ -102,17 +105,17 @@ const MIN_SCALE = 0.6;
  */
 export type Count = { went: number; skipped: number };
 export function drawGraph(g: GraphLayout, chart: Chart, W: number, maxW: number, stateOf: (id: string) => St | null, countOf: (id: string) => Count | null = () => null): { svg: string; pan: boolean; start: number } {
-  const byId = new Map(chart.nodes.map((n) => [n.id, n])); const out: string[] = [];
+  const byId = new Map(grouped(chart).nodes.map((n) => [n.id, n])); const out: string[] = [];
   const M = 12; const gw = g.w + M * 2, gh = g.h + M * 2;
   for (const e of g.edges) {
     const dashed = !!(byId.get(e.from)?.onlyIf || byId.get(e.to)?.onlyIf);
-    out.push(`<path data-ways="${esc(enc({ ways: [{ from: e.from, label: e.at ? e.label : "", else: e.else }], to: e.to }))}" d="${rounded(e.points)}" fill="none" stroke="${T("edge")}" stroke-width="1.6" marker-end="url(#ah)"${dashed ? ` stroke-dasharray="${DASH}"` : ""}/>`);
+    out.push(`<path data-ways="${esc(enc({ ways: [{ from: leaves(byId.get(e.from), e.from), label: e.at ? e.label : "", else: e.else }], to: e.to }))}" d="${rounded(e.points)}" fill="none" stroke="${T("edge")}" stroke-width="1.6" marker-end="url(#ah)"${dashed ? ` stroke-dasharray="${DASH}"` : ""}/>`);
   }
   for (const e of g.edges) if (e.at && e.label) {
     const a = e.at; const cx = a.x + a.w / 2;
     out.push(`<rect x="${a.x}" y="${a.y}" width="${a.w}" height="${a.h}" rx="4" fill="${T("panel")}"/><text class="lbl" x="${cx}" y="${a.y + a.h / 2 + 4}" text-anchor="middle"${e.else ? ` style="fill:${T("cond")}"` : ""}>${esc(e.label.replace(/:([a-z0-9_+-]+):/g, (m, code) => emoji(code) ?? m))}</text>`);
   }
-  for (const b of g.nodes) { const n = byId.get(b.id); if (!n) continue; const it = graphItem(n); out.push(node(it, b.x + b.w / 2, b.y + b.h / 2, sizeOf(it, maxW), stateOf(b.id), countOf(b.id))); }
+  for (const b of g.nodes) { const n = byId.get(b.id); if (!n) continue; const it = graphItem(n); const s = stateIn(it, stateOf); out.push(node(it, b.x + b.w / 2, b.y + b.h / 2, sizeOf(it, maxW), s.st, countOf(b.id), s.words)); }
   const fit = Math.min(1, W / gw); const pan = fit < MIN_SCALE; const sw = Math.round(gw * (pan ? MIN_SCALE : fit)), sh = Math.round(gh * (pan ? MIN_SCALE : fit));
   const defs = `<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="${T("fg-3")}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>`;
   const trig = g.nodes.find((b) => byId.get(b.id)?.kind === "trig");
@@ -140,6 +143,8 @@ const G_GAP = 14, G_MIN = 130, G_COL = 190;
 type Way = { from: string; label: string; else: boolean; when?: boolean; on?: boolean };
 type Mark = { ways: Way[]; to: string | null };
 export const MARK_SEP = ";";
+/** A node's state on a run; a box's from its steps' (D114). */
+const stateIn = (it: Item, stateOf: (id: string) => St | null): { st: St | null; words?: string } => it.n.group ? groupState(it.n.group.map(stateOf)) : { st: stateOf(it.id) };
 const enc = (m: Mark) => m.ways.map((w) => [w.from, m.to ?? "", w.label, w.else ? 1 : 0, w.when ? 1 : 0, w.on ? 1 : 0].map((v) => encodeURIComponent(String(v))).join("|")).join(MARK_SEP);
 
 /**
@@ -155,10 +160,10 @@ export function draw(rows: Row[], W: number, stateOf: (id: string) => St | null,
   type Placed = { it: Item; cx: number; top: number; bottom: number; w: number; above: boolean };
   let last: Placed | null = null;
   /** The ways out of an item that the next line drawn from it stands for: a folded branch's otherwise goes the same way. */
-  const tailOf = (it: Item): Way[] => it.fold ? [{ from: it.id, label: "", else: false }, { from: it.fold.fork, label: it.fold.no, else: true }] : [{ from: it.id, label: it.next?.label ?? "", else: !!it.next?.else }];
+  const tailOf = (it: Item): Way[] => { const from = leaves(it.n, it.id); return it.fold ? [{ from, label: "", else: false }, { from: it.fold.fork, label: it.fold.no, else: true }] : [{ from, label: it.next?.label ?? "", else: !!it.next?.else }]; };
   // one node at cx: draws it with its top at `top`, returns its bottom
   const put = (it: Item, cx: number, top: number, maxW: number, above = false, room = cx + maxW / 2) => {
-    const sz = sizeOf(it, maxW); let g = node(it, cx, top + sz.h / 2, sz, stateOf(it.id), countOf(it.id));
+    const sz = sizeOf(it, maxW); const s = stateIn(it, stateOf); let g = node(it, cx, top + sz.h / 2, sz, s.st, countOf(it.id), s.words);
     // a folded branch is drawn as this step: the branch's box is the step, its condition the step's blue line
     if (it.fold) g = g.replace(`<g class="nd`, `<g${mark([{ from: it.fold.fork, label: it.when ?? "", else: false, when: true }], it.id).attr} data-also="${esc(it.fold.fork)}" class="nd`);
     out.push(g);
@@ -170,7 +175,7 @@ export function draw(rows: Row[], W: number, stateOf: (id: string) => St | null,
         const lab = x.label ? wrap(x.label, Math.max(8, Math.floor(avail / IF_W)), 2) : [];
         const pillTop = bottom + 6 + lab.length * 13; const ei: Item = { id: x.id, n: x.n }; const es = sizeOf(ei, avail);
         lab.forEach((l, i) => out.push(`<text class="lbl" x="${left}" y="${bottom + 14 + i * 13}"${x.else ? ` style="fill:${T("cond")}"` : ""}>${esc(l)}</text>`));
-        out.push(`<path${mark([{ from: it.id, label: x.label, else: x.else }], x.id).attr} d="M${cx + 12} ${bottom} V${pillTop + es.h / 2 - 6} Q${cx + 12} ${pillTop + es.h / 2} ${cx + 18} ${pillTop + es.h / 2} H${left}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`);
+        out.push(`<path${mark([{ from: leaves(it.n, it.id), label: x.label, else: x.else }], x.id).attr} d="M${cx + 12} ${bottom} V${pillTop + es.h / 2 - 6} Q${cx + 12} ${pillTop + es.h / 2} ${cx + 18} ${pillTop + es.h / 2} H${left}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`);
         out.push(node(ei, left + es.w / 2, pillTop + es.h / 2, es, stateOf(x.id), countOf(x.id)));
         bottom = pillTop + es.h + 4;
       }
@@ -294,7 +299,7 @@ export function draw(rows: Row[], W: number, stateOf: (id: string) => St | null,
       } else {
         let from = y;
         if (row.fork) { arrive(row.fork, y); from = put(row.fork, x, y, nodeW, pb !== null && px === x); y = from + GAP + 10; }
-        const forkId = row.fork?.id;
+        const forkId = row.fork ? leaves(row.fork.n, row.fork.id) : undefined;
         const wayOf = (g: Group): Way[] => forkId ? [{ from: forkId, label: g.label, else: !!g.else }] : [];
         const groups = shown(row.groups); const ns = groups.map((g) => need(g.rows));
         const mins = ns.map((n) => Math.max(G_MIN, n.min)), wants = ns.map((n) => Math.max(G_COL, n.want));
@@ -351,13 +356,17 @@ export function draw(rows: Row[], W: number, stateOf: (id: string) => St | null,
   return `<svg viewBox="0 0 ${W} ${Hh}" width="${W}" height="${Hh}" role="img" aria-label="Flow chart"${filtered ? ` data-filtered="1"` : ""}>${svg}</svg>`;
 }
 
-function node(it: Item, x: number, y: number, sz: Size, st: St | null, cnt: Count | null = null): string {
+function node(it: Item, x: number, y: number, sz: Size, st: St | null, cnt: Count | null = null, stWords?: string): string {
   const k = it.n.kind; const w = sz.w, h = sz.h; const top = y - h / 2; const hp = !!it.n.helper;
   const fill = hp ? T("panel") : k === "trig" ? T("acc") : k === "end" ? "none" : k === "fork" || k === "check" ? T("panel-3") : T("panel-2");
   const stroke = hp ? T("edge") : k === "trig" ? T("acc") : k === "end" ? T("fg-3") : T("edge"); const ink = hp ? T("fg-2") : k === "trig" ? T("acc-ink") : k === "end" ? T("fg-2") : T("fg");
   const dim = st === "skip" || st === "blocked" || st === "next"; const op = dim ? (st === "next" ? 0.45 : 0.55) : 1;
   // a sometimes-step (D103): a dashed blue border, and its condition on a line of its own under the title
-  let g = `<g class="nd${it.when ? " if" : ""}" tabindex="0" data-id="${it.id}" style="opacity:${op}"><rect class="b" x="${x - w / 2}" y="${top}" width="${w}" height="${h}" rx="${k === "end" ? Math.min(17, h / 2) : 9}" fill="${fill}" stroke="${it.when ? T("cond") : stroke}" stroke-width="1.5"${it.when ? ` stroke-dasharray="${DASH}"` : ""}/>`;
+  const grp = it.n.group;
+  let g = `<g class="nd${it.when ? " if" : ""}${grp ? " grp" : ""}" tabindex="0" data-id="${it.id}"${grp ? ` data-group="${esc(grp.map(encodeURIComponent).join(","))}"` : ""} style="opacity:${op}">`;
+  // a box of several steps reads as a small stack
+  if (grp) g += `<rect x="${x - w / 2 + 6}" y="${top + 5}" width="${w - 12}" height="${h}" rx="9" fill="${fill}" stroke="${stroke}" stroke-width="1.2" stroke-opacity=".7"/>`;
+  g += `<rect class="b" x="${x - w / 2}" y="${top}" width="${w}" height="${h}" rx="${k === "end" ? Math.min(17, h / 2) : 9}" fill="${fill}" stroke="${it.when ? T("cond") : stroke}" stroke-width="1.5"${it.when ? ` stroke-dasharray="${DASH}"` : ""}/>`;
   // the title centred on up to three lines, its logo before it, the blue mark at the right when it may not fire; a helper smaller
   const ki = sz.noIcon ? "" : kindIconOf(it); const leftW = ki ? (hp ? HP_ICON : 22) : 0;
   const shift = (leftW - (it.cond && !it.when ? (hp ? 16 : 18) : 0)) / 2;
@@ -380,8 +389,11 @@ function node(it: Item, x: number, y: number, sz: Size, st: St | null, cnt: Coun
   // D112: how many went through it lately, on a chart with no run picked
   if (cnt && !st) { const t = `${cnt.went}${cnt.skipped ? ` · ${cnt.skipped} skipped` : ""}`; const cw = Math.round(tw(t, 6.4)) + 14;
     g += `<g class="cnt"><title>${esc(countWords(cnt))}</title><rect x="${x + w / 2 - cw + 8}" y="${top - 9}" width="${cw}" height="18" rx="9" fill="${T(cnt.went ? "panel-3" : "panel")}" stroke="${T("edge")}"/><text x="${x + w / 2 - cw / 2 + 8}" y="${top + 4}" text-anchor="middle" fill="${T(cnt.went ? "fg" : "fg-3")}" style="font-size:11px;font-weight:600">${esc(t)}</text></g>`; }
+  // a box's steps did not all simply run: the pill beside its badge says how far they got (D114)
+  if (st && st !== "next" && stWords) { const cw = Math.round(tw(stWords, 6.4)) + 14;
+    g += `<g class="cnt"><rect x="${x + w / 2 - cw - 14}" y="${top - 17}" width="${cw}" height="18" rx="9" fill="${T("panel-3")}" stroke="${T("edge")}"/><text x="${x + w / 2 - cw / 2 - 14}" y="${top - 4}" text-anchor="middle" fill="${T("fg")}" style="font-size:11px;font-weight:600">${esc(stWords)}</text></g>`; }
   if (st && st !== "next") { const [col, bg] = BADGE[st] ?? BADGE.stop;
-    g += `<g transform="translate(${x + w / 2 - 10},${top - 10})"><title>${esc(STATE_WORDS[st] ?? st)}</title><circle cx="10" cy="10" r="10" fill="${T(bg)}"/><g style="color:${T(col)}" transform="translate(3,3) scale(.7)">${svgIcon(st === "ok" ? "check" : st === "ghost" ? "ghost" : st === "here" ? "clock" : st === "skip" || st === "blocked" ? "skip" : st === "warn" ? "warn" : "stop")}</g></g>`; }
+    g += `<g transform="translate(${x + w / 2 - 10},${top - 10})"><title>${esc(`${STATE_WORDS[st] ?? st}${stWords ? `: ${stWords}` : ""}`)}</title><circle cx="10" cy="10" r="10" fill="${T(bg)}"/><g style="color:${T(col)}" transform="translate(3,3) scale(.7)">${svgIcon(st === "ok" ? "check" : st === "ghost" ? "ghost" : st === "here" ? "clock" : st === "skip" || st === "blocked" ? "skip" : st === "warn" ? "warn" : "stop")}</g></g>`; }
   return g + "</g>";
 }
 export const countWords = (c: Count, days = 7) => c.went ? `${c.went} went through this step in the last ${days} days${c.skipped ? `; it was skipped for ${c.skipped === c.went ? "all of them" : c.skipped}` : ""}` : `Nobody reached this step in the last ${days} days`;

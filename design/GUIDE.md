@@ -129,7 +129,10 @@ inside it, which rejoin inside the group before the group goes on (D107). A way 
 ends in a short arrow, "on to “…”". Triggers that share a first step sit side by side over it; a trigger that starts part
 way down is drawn where it comes in; starts that meet only further down stand side by side, each over its own steps.
 Every step that runs is drawn, the helpers too (D111): a wait, Jev reading, a value remembered is a small grey step
-(smaller `--fg-2` words on `--panel`), "behind the scenes" in the legend. A branch around one step is drawn as that step
+(smaller `--fg-2` words on `--panel`), "behind the scenes" in the legend. Two or more values kept (or looked up) in a
+straight row are one such box with a stacked edge under it, saying what they are for ("Prepare the alert's words (7
+steps)", its parts on the line under it); tap it for every step inside with its words, condition and count (D114). Never
+a wait, Jev's read or a step that acts, and never across a fork or a way in or out. A branch around one step is drawn as that step
 with its condition only when that says everything; otherwise it is drawn as a branch.
 
 Every way a run can leave a step is a line, edges or not (D111): a check that otherwise stops or pauses, a branch with no

@@ -17,7 +17,13 @@ export type ChartKind = "trig" | "send" | "wait" | "reply" | "fork" | "check" | 
 export type SlackFace = { name: string; icon: string | null };
 /** cond: the full condition, for the popover; onlyIf: a step with `only_if`, its condition short enough for the node ("a reschedule"); helper: a step that works behind the scenes (a wait, Jev reading, a value remembered), drawn small and grey (D111). */
 /** label: the hand-written title an author gave the step, shown small beside the generated words (D112), never instead of them. */
-export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; label?: string; detail?: string; quote?: string; cond?: string; onlyIf?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string | string[]; offer?: string[]; helper?: boolean; logo?: string };
+/**
+ * plumb (D114): a step that only keeps a value for the steps after it (set_var) or reads the engine's own ledger (lookup):
+ * what it keeps, for a run of them drawn as one box; text: every value it can keep is words. group: such a box, drawn in
+ * place of its steps (src/chart/group.ts), never sent by the API.
+ */
+export type Plumb = { verb: "remember" | "look up"; what: string; text?: boolean };
+export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; label?: string; detail?: string; quote?: string; cond?: string; onlyIf?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string | string[]; offer?: string[]; helper?: boolean; logo?: string; plumb?: Plumb; group?: string[] };
 export type ChartEdge = { from: string; to: string; label: string; else?: boolean };
 /** counts (D112): per step, the runs that reached it in the last `days` days (shadow runs too) and how many of those skipped it; on the workflow page's chart only. */
 export type Chart = { nodes: ChartNode[]; edges: ChartEdge[]; counts?: { days: number; by: Record<string, { went: number; skipped: number }> } };
@@ -315,12 +321,22 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
     let quote: string | undefined;
     try { const ex = nodeExamples(n, ctx, company.timezone)[0]?.example.text; quote = n.type === "slack_post" || n.type === "notify_owner" ? ex?.trim() : n.type === "send_sms" || n.type === "send_email" || n.type === "note" ? strip(ex) : undefined; } catch { quote = d.quote; }
     const cond = n.only_if ? `Only if ${predicateWords(n.only_if)}${n.type === "slack_post" && n.thread_only ? "; and only when the post it reacts to is in Slack" : ""}` : n.type === "slack_post" && n.thread_only ? "Only when the post it reacts to is in Slack; nothing is posted otherwise" : n.type === "pipeline_card" && n.if_missing === "skip" ? "Only if a card is already on that board; this step never creates one" : n.type === "pipeline_card" && !n.stage ? "Only when a card is already on that board: there is no stage to make one in" : n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : undefined;
-    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, label: s.label, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, onlyIf: n.only_if ? onlyIfWords(n.only_if, constsOf(full)) : undefined, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), helper: (n.type === "set_var" || n.type === "classify" || n.type === "lookup" || n.type === "wait") || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource) };
+    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, label: s.label, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, onlyIf: n.only_if ? onlyIfWords(n.only_if, constsOf(full)) : undefined, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), helper: (n.type === "set_var" || n.type === "classify" || n.type === "lookup" || n.type === "wait") || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource), plumb: plumbOf(n, s.title) };
   });
   const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e, def.nodes.find((n) => n.id === e.from)), else: e.else || undefined }));
   // before the implicit ways (their words name steps by title) and again after (the ends they add are steps too)
   apart(nodes, edges); const chart = withImplicit(def, { nodes, edges }); apart(chart.nodes, chart.edges);
   return chart;
+}
+
+/** What a value-keeping or ledger-reading step keeps (D114); nothing for any other step. */
+function plumbOf(n: Node, title: string): Plumb | undefined {
+  if (n.type === "set_var") {
+    const vals = [n.value, ...(n.pick ? Object.values(n.pick) : []), ...(n.else_value !== undefined ? [n.else_value] : [])];
+    return { verb: "remember", what: withThe(pathWords(`vars.${n.key}`)), ...(vals.every((v) => typeof v === "string") ? { text: true } : {}) };
+  }
+  if (n.type === "lookup") return { verb: "look up", what: title.replace(/^Look up /, "") };
+  return undefined;
 }
 
 /**

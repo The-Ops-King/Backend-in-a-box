@@ -1,11 +1,12 @@
 import type { Chart } from "@/api/words";
+import { grouped } from "./group";
 
 /**
  * The chart's tidy layout as data (D107), apart from the drawing so it is tested without a browser and checked on the
  * server (D111): one spine of rows, each a straight run of nodes or a fork with its labelled groups, and a group's content
  * is itself rows, so a fork inside a branch draws its own groups inside that branch. Every step is its own node (D111:
  * nothing hidden, nothing folded but a two-way branch around one step). Whether the result is exact is exact.ts's call;
- * a workflow it cannot draw exactly is drawn as a plain graph instead.
+ * a workflow it cannot draw exactly is drawn as a plain graph instead. A run of value-keeping steps is one node (D114).
  */
 type N = Chart["nodes"][number];
 /**
@@ -33,7 +34,8 @@ export const labelOf = (l: string) => l.replace(/^the reply is (a )?/i, "").repl
 /** A folded branch's condition as the step's blue line shows it: "this is a reschedule" → "a reschedule". */
 export const whenOf = (l: string) => l.replace(/^this is not /, "not ").replace(/^this is /, "");
 
-export function arrange(chart: Chart): Row[] {
+export function arrange(real: Chart): Row[] {
+  const chart = grouped(real);
   const byId = new Map(chart.nodes.map((n) => [n.id, n]));
   const outs = (id: string) => chart.edges.filter((e) => e.from === id);
   const ins = (id: string) => chart.edges.filter((e) => e.to === id);
@@ -168,9 +170,9 @@ export function arrange(chart: Chart): Row[] {
   return rows;
 }
 
-/** The ids a layout placed, a folded branch with the step it is drawn as. */
+/** The ids a layout placed, a folded branch with the step it is drawn as, a box with its steps. */
 export function placedIds(rows: Row[]): string[] {
-  const out: string[] = []; const put = (it: Item) => out.push(...(it.fold ? [it.fold.fork] : []), it.id, ...(it.exits ?? []).map((x) => x.id));
+  const out: string[] = []; const put = (it: Item) => out.push(...(it.fold ? [it.fold.fork] : []), ...(it.n.group ?? [it.id]), ...(it.exits ?? []).map((x) => x.id));
   for (const r of rows) {
     if (r.kind === "nodes" || r.kind === "more") r.items.forEach(put);
     else if (r.kind === "fork") { if (r.fork) put(r.fork); for (const g of r.groups) out.push(...placedIds(g.rows)); }
