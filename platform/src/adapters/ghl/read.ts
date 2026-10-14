@@ -32,9 +32,9 @@ export type RawEvent = { id: string; calendarId: string; contactId: string; assi
 // `address` is the meeting link on a calendar with a video location (or a street address, which meetingKey ignores)
 export const mapAppt = (e: RawEvent): AppointmentSnapshot => ({ id: e.id, calendarId: e.calendarId, contactId: e.contactId, assignedUserId: e.assignedUserId, startTime: e.startTime, endTime: e.endTime, status: e.appointmentStatus, title: e.title, dateUpdated: e.dateUpdated, dateAdded: e.dateAdded, meetingUrl: e.address || undefined, raw: e as unknown as Record<string, unknown> });
 
-type RawOpp = { id: string; contact?: { id: string }; contactId?: string; pipelineId: string; pipelineStageId: string; status: string; name?: string; assignedTo?: string | null; updatedAt: string; lastStageChangeAt?: string; updatedBy?: string; lastStageChangeBy?: string };
+type RawOpp = { id: string; contact?: { id: string }; contactId?: string; pipelineId: string; pipelineStageId: string; status: string; name?: string; assignedTo?: string | null; updatedAt: string; lastStageChangeAt?: string; updatedBy?: string; lastStageChangeBy?: string; monetaryValue?: number };
 // the stage-change stamp outranks updatedAt when the CRM gives both: a note or a field edit also bumps updatedAt
-const mapCard = (o: RawOpp): LiveCard => ({ id: o.id, pipelineId: o.pipelineId, stageId: o.pipelineStageId, status: o.status, name: o.name ?? "", assignedUserId: o.assignedTo ?? undefined, updatedAt: o.updatedAt, contactId: o.contact?.id ?? o.contactId, updatedBy: o.lastStageChangeBy ?? o.updatedBy });
+const mapCard = (o: RawOpp): LiveCard => ({ id: o.id, pipelineId: o.pipelineId, stageId: o.pipelineStageId, status: o.status, name: o.name ?? "", assignedUserId: o.assignedTo ?? undefined, updatedAt: o.updatedAt, contactId: o.contact?.id ?? o.contactId, updatedBy: o.lastStageChangeBy ?? o.updatedBy, stageChangedAt: o.lastStageChangeAt, monetaryValue: o.monetaryValue });
 
 export const ghlRead: CrmRead = {
   async contactsChangedSince(c, sinceIso) {
@@ -167,8 +167,16 @@ export const ghlRead: CrmRead = {
     return out;
   },
   async objectFields(c, objectKey) {
-    const r = await ghl<{ fields?: { fieldKey: string; dataType?: string }[] }>(c.pit, "GET", `/objects/${objectKey}?locationId=${c.locationId}&fetchProperties=true`);
-    return (r.fields ?? []).map((f) => ({ key: f.fieldKey.split(".").pop()!, type: f.dataType })).filter((f) => f.key);
+    const r = await ghl<{ fields?: { fieldKey: string; dataType?: string; options?: { key: string; label?: string }[] }[] }>(c.pit, "GET", `/objects/${objectKey}?locationId=${c.locationId}&fetchProperties=true`);
+    return (r.fields ?? []).map((f) => ({ key: f.fieldKey.split(".").pop()!, type: f.dataType, ...(f.options?.length ? { options: f.options.map((o) => ({ key: o.key, label: o.label })) } : {}) })).filter((f) => f.key);
+  },
+  async contactNotes(c, contactId) {
+    const r = await ghl<{ notes?: { id: string; body?: string; dateAdded: string; userId?: string | null }[] }>(c.pit, "GET", `/contacts/${encodeURIComponent(contactId)}/notes`);
+    return (r.notes ?? []).map((n) => ({ id: n.id, body: n.body ?? "", dateAdded: n.dateAdded, userId: n.userId ?? undefined }));
+  },
+  async contactsByEmail(c, email) {
+    const r = await ghl<{ contacts?: RawContact[] }>(c.pit, "POST", "/contacts/search", { body: { locationId: c.locationId, pageLimit: 10, filters: [{ field: "email", operator: "eq", value: email.trim().toLowerCase() }] } });
+    return (r.contacts ?? []).map(mapContact);
   },
   /** Documents & Contracts (verified 2026-10-07): `GET /proposals/document?locationId&limit<=21&skip`; status sent | viewed | completed; recipients[] carries the signer contact id, hasCompleted, signedDate. */
   async documents(c) {

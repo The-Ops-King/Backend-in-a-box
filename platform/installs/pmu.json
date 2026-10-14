@@ -56,6 +56,7 @@
     "field_contact_appointment_date": "uqulQPE8vPu0RZDyDXIj",
     "field_opportunity_setter_owner": "Q2rC8L2dLPizfO2mC6Rd",
     "object_payment": "custom_objects.cash",
+    "object_closer_eod": "custom_objects.closer_eod",
     "assoc_sales_call_contact": "6ab44fe67f8a0a87bc8a542d",
     "assoc_sales_call_opportunity": "6ace9cd588661082b9b4aa71",
     "assoc_payment_contact": "6ace9cd531cf32c8752d430b",

@@ -56,4 +56,27 @@ export async function fathomTranscript(apiKey: string, recordingId: string): Pro
     .filter((l) => l.text.trim());
   return out.length ? out : null;
 }
-export const fathomRecorder = { transcript: fathomTranscript };
+/**
+ * History (D115): every meeting the key can see recorded between two times, without transcripts (a transcript is read
+ * again when a step needs it, D87). `GET /meetings?created_after=&cursor=` answers `{ items, next_cursor }`, newest first
+ * (verified 2026-10-14); `created_after` is when Fathom made the recording, so the start is filtered here too.
+ */
+export async function fathomListMeetings(apiKey: string, from: Date, to: Date): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 40; page++) {
+    const q = new URLSearchParams({ created_after: new Date(from.getTime() - 864e5).toISOString(), include_transcript: "false" });
+    if (cursor) q.set("cursor", cursor);
+    const res = await fetch(`${BASE}/meetings?${q}`, { headers: headers(apiKey) });
+    if (!res.ok) throw new VendorError("fathom", res.status, "/meetings", (await res.text().catch(() => "")).slice(0, 300));
+    const body = (await res.json()) as { items?: Record<string, unknown>[]; next_cursor?: string | null };
+    for (const m of body.items ?? []) {
+      const at = Date.parse(String(m.recording_start_time ?? m.scheduled_start_time ?? m.created_at ?? ""));
+      if (at >= from.getTime() && at <= to.getTime()) out.push(m);
+    }
+    if (!body.next_cursor) break;
+    cursor = body.next_cursor;
+  }
+  return out;
+}
+export const fathomRecorder = { transcript: fathomTranscript, meetings: fathomListMeetings };

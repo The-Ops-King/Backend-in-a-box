@@ -3,7 +3,7 @@ import { calendly, calendlyAll, eventUuidOfInvitee, uuidOf } from "./client";
 
 export type RawEventType = { uri: string; name: string; active: boolean; scheduling_url: string; internal_note?: string | null; pooling_type?: string | null; duration: number; custom_questions?: { name: string; type?: string; position?: number; enabled?: boolean; required?: boolean; answer_choices?: string[] }[]; profile?: { type?: string; name?: string; owner?: string } | null };
 export type RawEvent = { uri: string; name: string; status: "active" | "canceled"; start_time: string; end_time: string; event_type: string; created_at: string; updated_at: string; event_memberships: { user: string; user_email?: string; user_name?: string }[]; invitees_counter: { total: number; active: number }; location?: { type?: string; join_url?: string | null; location?: string | null } | null };
-export type RawInvitee = { uri: string; email: string; name: string; first_name?: string | null; last_name?: string | null; status: "active" | "canceled"; timezone?: string | null; rescheduled: boolean; old_invitee?: string | null; new_invitee?: string | null; text_reminder_number?: string | null; no_show?: { uri: string; created_at: string } | null; cancellation?: { canceled_by?: string; reason?: string | null; canceler_type?: string } | null; questions_and_answers?: { question: string; answer: string }[]; reschedule_url?: string | null; cancel_url?: string | null; tracking?: Record<string, string | null> | null; updated_at: string };
+export type RawInvitee = { uri: string; email: string; name: string; first_name?: string | null; last_name?: string | null; status: "active" | "canceled"; timezone?: string | null; rescheduled: boolean; old_invitee?: string | null; new_invitee?: string | null; text_reminder_number?: string | null; no_show?: { uri: string; created_at: string } | null; cancellation?: { canceled_by?: string; reason?: string | null; canceler_type?: string; created_at?: string } | null; questions_and_answers?: { question: string; answer: string }[]; reschedule_url?: string | null; cancel_url?: string | null; tracking?: Record<string, string | null> | null; updated_at: string };
 
 const DEFAULT_PHONE_QUESTION = "phone number";
 const DEFAULT_SETTER_QUESTION = "setter";
@@ -34,7 +34,7 @@ export function mapEvent(e: RawEvent, inv: RawInvitee | undefined, phoneQuestion
     rescheduleUrl: inv?.reschedule_url ?? undefined, cancelUrl: inv?.cancel_url ?? undefined,
     // a conferencing integration's link is join_url; a custom location typed by the host may be a link too (meetingKey ignores one that is not)
     meetingUrl: e.location?.join_url || e.location?.location || undefined,
-    cancellation: inv?.cancellation ? { by: inv.cancellation.canceled_by, reason: inv.cancellation.reason ?? undefined, byType: inv.cancellation.canceler_type } : undefined,
+    cancellation: inv?.cancellation ? { by: inv.cancellation.canceled_by, reason: inv.cancellation.reason ?? undefined, byType: inv.cancellation.canceler_type, at: inv.cancellation.created_at ?? undefined } : undefined,
     // utm_source, utm_medium, utm_campaign, utm_content, utm_term (and any other key Calendly passes, fbclid included), blanks dropped; captured onto the contact by Call booked (D78)
     tracking: inv?.tracking ? Object.fromEntries(Object.entries(inv.tracking).map(([k, v]) => [k, typeof v === "string" ? v.trim() : ""]).filter(([, v]) => v)) : undefined,
     startTime: e.start_time, endTime: e.end_time, status, title: e.name,

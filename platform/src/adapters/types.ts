@@ -25,7 +25,7 @@ export type AppointmentSnapshot = {
   answers?: Record<string, string>;   // booking-form answers keyed by the name the calendar config gave them
   rescheduleUrl?: string; cancelUrl?: string;   // per-booking self-service links when the source has them (Calendly)
   meetingUrl?: string;        // the call's join link when the source carries one (Calendly location.join_url, GHL address); kept only as its meeting key (D102)
-  cancellation?: { by?: string; reason?: string; byType?: string };   // who cancelled and why, when the source says
+  cancellation?: { by?: string; reason?: string; byType?: string; at?: string };   // who cancelled, why and when, when the source says
   tracking?: Record<string, string>;            // utm_* and the like, as the source reports them
   rescheduledFrom?: string;   // this booking replaces that external id (same appointment, new time)
   rescheduledTo?: string;     // this cancelled booking was replaced by that external id; the replacement carries the change
@@ -40,9 +40,11 @@ export type CallMedia = { recordingUrl?: string; transcript: { speaker: string; 
 export type WonOpportunity = { id: string; contactId: string; pipelineId: string; stageId: string; wonAt: string; createdAt: string; monetaryValue?: number; customFields: Record<string, unknown> };
 export type ObjectRecord = { id: string; createdAt: string; properties: Record<string, unknown> };
 /** A custom object's property: its short key and the CRM's data type (GHL: TEXT, NUMERICAL, MONETORY, SINGLE_OPTIONS, MULTIPLE_OPTIONS, CHECKBOX, DATE, …) when it says. */
-export type ObjectField = { key: string; type?: string };
+export type ObjectField = { key: string; type?: string; options?: { key: string; label?: string }[] };
+/** A note on a contact as the CRM keeps it: read when something needs its words, never stored (D89). */
+export type ContactNote = { id: string; body: string; dateAdded: string; userId?: string };
 /** A contact's card as the CRM shows it right now (D41: the CRM is the truth about cards). */
-export type LiveCard = { id: string; pipelineId: string; stageId: string; status: string; name: string; assignedUserId?: string; updatedAt: string; contactId?: string; /** who last touched it, when the CRM says (it usually does not) */ updatedBy?: string };
+export type LiveCard = { id: string; pipelineId: string; stageId: string; status: string; name: string; assignedUserId?: string; updatedAt: string; contactId?: string; /** who last touched it, when the CRM says (it usually does not) */ updatedBy?: string; /** when it last changed stage, and its value, when the CRM says */ stageChangedAt?: string; monetaryValue?: number };
 export type OppSnapshot = { id: string; contactId: string; pipelineId: string; stageId: string; status: string; monetaryValue?: number; updatedAt: string };
 /** `questions`: the booking form as the source defines it (name, type, position, choices), so settings can offer "this question means …" instead of asking for the text. `hosts`: who the calendar belongs to. */
 export type CalendarSnapshot = { id: string; name: string; teamMemberIds: string[]; bookingUrl?: string; note?: string; active?: boolean; questions?: { name: string; type?: string; position?: number; required?: boolean; choices?: string[] }[]; hosts?: { name: string; email: string }[]; pooling?: string };
@@ -64,6 +66,10 @@ export interface CrmRead {
   objectFields?(c: Company, objectKey: string): Promise<ObjectField[]>;
   documents(c: Company): Promise<DocumentSnapshot[]>;
   opportunitiesSince(c: Company, since: Date): Promise<OppSnapshot[]>;
+  /** History (D115): the notes on one contact, newest first. */
+  contactNotes?(c: Company, contactId: string): Promise<ContactNote[]>;
+  /** History (D115): the CRM's contacts carrying this email (a booking whose person the poll never brought in). */
+  contactsByEmail?(c: Company, email: string): Promise<ContactSnapshot[]>;
   /** Every card the CRM holds for one contact, any status. */
   openCards(c: Company, ghlContactId: string): Promise<LiveCard[]>;
   /** Every card on one board, any status, each with its contact (D61: the poll diffs them against the replica to see a hand on a card). */
@@ -152,6 +158,8 @@ export interface BotModel {
 /** D87: a meeting recorder a transcript is read back from when a step needs it (Fathom); the engine never keeps one. Null when it has none. */
 export interface Recorder {
   transcript(apiKey: string, recordingId: string): Promise<{ speaker: string; email?: string; text: string; timestamp?: string }[] | null>;
+  /** History (D115): the meetings recorded between two times, as the provider's own objects (Fathom's Meeting), without transcripts. */
+  meetings?(apiKey: string, from: Date, to: Date): Promise<Record<string, unknown>[]>;
 }
 export type Adapters = { read: CrmRead; booking: Record<BookingSource, BookingRead>; write: CrmWrite; sender: Sender; classifier: Classifier; notifier: Notifier; analyst: Analyst; bot?: BotModel; recorder?: Recorder };
 export const bookingFor = (a: Adapters, c: Company): BookingRead => a.booking[c.booking.source];

@@ -5,7 +5,8 @@ import { bookingFor, type Adapters, type Company } from "@/adapters/types";
 import type { CompanyRow } from "./context";
 import { ensureUser } from "./lifecycle";
 import { applyAppointment, boundFieldIds, upsertContact } from "./poll";
-import { recordPhoneCall, settlePhoneCall } from "./recordings";
+import { recordPhoneCall, recordRecording, settlePhoneCall } from "./recordings";
+import { parseFathomMeeting } from "./webhooks/fathom";
 import { outcomeTermFor } from "./disposition";
 import { rollupRange } from "./metrics";
 import { recordPayment, type PaymentInput } from "./payments";
@@ -16,19 +17,20 @@ import { paymentInputs, whopListPayments } from "@/adapters/whop/client";
  * the way a baseline poll writes them — rows only, no workflow starts (the payments ledger keeps its own payment.* facts). Contacts (arrival time), dialer calls (with
  * transcripts), bookings from the booking source, sales-call outcomes the old Zaps wrote onto GHL's Sales Call object, and
  * won opportunities, and payments from the processor's own API when a Whop key is bound (GHL holds no Payment records for
- * Hair; the Whop Zap never wrote them). Re-running is safe: every write is keyed on the source's id.
+ * Hair; the Whop Zap never wrote them), and the meeting recorder's recordings (D115), linked by the same ladder and emitting
+ * nothing. Re-running is safe: every write is keyed on the source's id.
  */
-export type BackfillReport = { from: string; to: string; contacts: number; calls: number; callsWithTranscript: number; appointments: number; outcomes: number; outcomesUnmatched: number; won: number; payments: number; paymentsUnlinked: number; days: number; errors: string[] };
+export type BackfillReport = { from: string; to: string; contacts: number; calls: number; callsWithTranscript: number; appointments: number; recordings: number; recordingsUnlinked: number; outcomes: number; outcomesUnmatched: number; won: number; payments: number; paymentsUnlinked: number; days: number; errors: string[] };
 export type PaymentsSource = (from: Date, to: Date) => Promise<PaymentInput[]>;
 
 const OUTCOME_CATEGORY: Record<string, string> = { showed: "showed", show: "showed", no_show: "noshow", noshow: "noshow", "no-show": "noshow", cancelled: "cancelled", canceled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" };
 
-export type BackfillStep = "contacts" | "calls" | "appointments" | "outcomes" | "won" | "payments";
-export const BACKFILL_STEPS: BackfillStep[] = ["contacts", "calls", "appointments", "outcomes", "won", "payments"];
+export type BackfillStep = "contacts" | "calls" | "appointments" | "recordings" | "outcomes" | "won" | "payments";
+export const BACKFILL_STEPS: BackfillStep[] = ["contacts", "calls", "appointments", "recordings", "outcomes", "won", "payments"];
 
 /** `only` narrows the pass (a payments-only pull after a key is bound, say); the rollup always runs. */
 export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, bindings: Record<string, string>, window: { from: Date; to: Date }, payments?: PaymentsSource, only?: BackfillStep[]): Promise<BackfillReport> {
-  const rep: BackfillReport = { from: window.from.toISOString(), to: window.to.toISOString(), contacts: 0, calls: 0, callsWithTranscript: 0, appointments: 0, outcomes: 0, outcomesUnmatched: 0, won: 0, payments: 0, paymentsUnlinked: 0, days: 0, errors: [] };
+  const rep: BackfillReport = { from: window.from.toISOString(), to: window.to.toISOString(), contacts: 0, calls: 0, callsWithTranscript: 0, appointments: 0, recordings: 0, recordingsUnlinked: 0, outcomes: 0, outcomesUnmatched: 0, won: 0, payments: 0, paymentsUnlinked: 0, days: 0, errors: [] };
   const step = async (name: BackfillStep | "rollups", fn: () => Promise<void>) => { if (name !== "rollups" && only && !only.includes(name)) return; try { await fn(); } catch (e) { rep.errors.push(`${name}: ${String((e as Error).message).slice(0, 300)}`); } };
 
   await step("contacts", async () => {
@@ -58,8 +60,21 @@ export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company
       for (const s of await bookingFor(adapters, ac).appointmentsInWindow(ac, cal.external_id, window.from, window.to)) {
         const before = await one(c, "select 1 from appointments where company_id=$1 and source=$2 and external_id=$3", [co.id, ac.booking.source, s.id]);
         await applyAppointment(c, co, ac, adapters, s, undefined, true);
-        if (!before) rep.appointments++;
+        // a slot the source moved is carried by its replacement and makes no row of its own
+        if (!before && (await one(c, "select 1 from appointments where company_id=$1 and source=$2 and external_id=$3", [co.id, ac.booking.source, s.id]))) rep.appointments++;
       }
+    }
+  });
+
+  await step("recordings", async () => {
+    // after the bookings, so the ladder sees their meeting links and the closer's calendar; the transcript stays at the recorder (D87)
+    const key = bindings["secret.fathom_api_key"];
+    if (!key || !adapters.recorder?.meetings) return;
+    for (const m of await adapters.recorder.meetings(key, window.from, window.to)) {
+      const p = parseFathomMeeting(m); if (!p.ok) continue;
+      const r = await recordRecording(c, co.id, { ...p.input, transcript: undefined, summary: undefined, raw: { ...p.input.raw, backfill: true, transcript_status: "at_source" } }, { silent: true });
+      if (r.outcome === "duplicate") continue;
+      rep.recordings++; if (r.outcome === "unlinked") rep.recordingsUnlinked++;
     }
   });
 

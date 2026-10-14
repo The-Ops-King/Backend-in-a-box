@@ -28,6 +28,8 @@ export type RecordResult =
   | { outcome: "duplicate"; recording: RecordingRow }
   | { outcome: "linked"; recording: RecordingRow; event: EventRow; contactId: string; appointmentId: string | null }
   | { outcome: "unlinked"; recording: RecordingRow; event: EventRow; reason: string };
+/** `silent` (history, D115): the row is written and linked by the same ladder, and nothing is emitted, so no workflow starts and no waiting run wakes. */
+export type SilentRecordResult = { outcome: "duplicate" | "linked" | "unlinked"; recording: RecordingRow; reason?: string };
 
 const CALENDAR_WINDOW_MIN = 120;      // the closer's appointment must start within this of the recording
 const ON_TIME_MIN = 15;               // a recording starting this close to a call's start is that call…
@@ -116,9 +118,10 @@ export async function appointmentNear(c: PoolClient, companyId: string, contactI
 
 export const eventData = (r: RecordingRow, extra: Record<string, unknown> = {}) => ({ recording_id: r.id, provider: r.provider, external_id: r.external_id, title: r.title, started_at: r.started_at.toISOString(), duration_min: r.duration_min, share_url: r.share_url, recorded_by: r.recorded_by_email, ...extra });
 
-async function settle(c: PoolClient, companyId: string, r: RecordingRow, contactId: string, by: string, appointmentId: string | null): Promise<{ event: EventRow; appointmentId: string | null }> {
+async function settle(c: PoolClient, companyId: string, r: RecordingRow, contactId: string, by: string, appointmentId: string | null, silent = false): Promise<{ event: EventRow | null; appointmentId: string | null }> {
   const apptId = appointmentId ?? (await appointmentNear(c, companyId, contactId, r.started_at));
   await c.query("update recordings set contact_id=$2, appointment_id=$3, link_status='linked', linked_by=$4, unlinked_reason=null where id=$1", [r.id, contactId, apptId, by]);
+  if (silent) return { event: null, appointmentId: apptId };
   const appt = apptId ? await one<{ opportunity_id: string | null }>(c, "select opportunity_id from appointments where id=$1", [apptId]) : null;
   const event = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: appt?.opportunity_id ?? null, appointment_id: apptId, event_type: "recording.received", source: r.provider === "fathom" ? "fathom" : "zapier", occurred_at: r.started_at,
     data: eventData(r, { matched_by: by, appointment_matched: !!apptId }) });
@@ -126,7 +129,9 @@ async function settle(c: PoolClient, companyId: string, r: RecordingRow, contact
 }
 
 /** Records a provider recording. Idempotent on (provider, recording id). */
-export async function recordRecording(c: PoolClient, companyId: string, input: RecordingInput): Promise<RecordResult> {
+export async function recordRecording(c: PoolClient, companyId: string, input: RecordingInput): Promise<RecordResult>;
+export async function recordRecording(c: PoolClient, companyId: string, input: RecordingInput, opts: { silent: true }): Promise<SilentRecordResult>;
+export async function recordRecording(c: PoolClient, companyId: string, input: RecordingInput, opts: { silent?: boolean } = {}): Promise<RecordResult | SilentRecordResult> {
   const provider = input.provider ?? "fathom";
   // D87: a webhook body delivers the transcript once, so it is HELD on the row only until the runs that read it are done (transcripts.ts
   // releases it); the provider's summary is never kept (nothing reads it). Whether there was one stays on the row for good.
@@ -134,14 +139,16 @@ export async function recordRecording(c: PoolClient, companyId: string, input: R
   const inserted = await one<RecordingRow>(c, `insert into recordings (company_id, provider, external_id, title, started_at, ended_at, duration_min, url, share_url, recorded_by_email, recorded_by_name, invitees, transcript, summary, raw)
     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,null,$14) on conflict (company_id, provider, external_id) do nothing returning *`,
     [companyId, provider, input.externalId, input.title ?? null, input.startedAt, input.endedAt ?? null, input.durationMin ?? null, input.url ?? null, input.shareUrl ?? null, normEmail(input.recordedBy?.email) ?? null, input.recordedBy?.name ?? null,
-      JSON.stringify(input.invitees), has ? JSON.stringify(input.transcript) : null, { ...(input.raw ?? {}), transcript_status: has ? "ready" : "none" }]);
+      JSON.stringify(input.invitees), has ? JSON.stringify(input.transcript) : null, { ...(input.raw ?? {}), transcript_status: has ? "ready" : input.raw?.transcript_status ?? "none" }]);
   if (!inserted) return { outcome: "duplicate", recording: (await one<RecordingRow>(c, "select * from recordings where company_id=$1 and provider=$2 and external_id=$3", [companyId, provider, input.externalId]))! };
   const { match, reason } = await resolveRecording(c, companyId, input);
   if (match) {
-    const { event, appointmentId } = await settle(c, companyId, inserted, match.contactId, match.by, match.appointmentId ?? null);
-    return { outcome: "linked", recording: (await one<RecordingRow>(c, "select * from recordings where id=$1", [inserted.id]))!, event, contactId: match.contactId, appointmentId };
+    const { event, appointmentId } = await settle(c, companyId, inserted, match.contactId, match.by, match.appointmentId ?? null, opts.silent);
+    const recording = (await one<RecordingRow>(c, "select * from recordings where id=$1", [inserted.id]))!;
+    return event ? { outcome: "linked", recording, event, contactId: match.contactId, appointmentId } : { outcome: "linked", recording };
   }
   const row = (await one<RecordingRow>(c, "update recordings set unlinked_reason=$2 where id=$1 returning *", [inserted.id, reason ?? null]))!;
+  if (opts.silent) return { outcome: "unlinked", recording: row, reason: reason ?? "no match" };
   const event = await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "recording.unlinked", source: provider === "fathom" ? "fathom" : "zapier", occurred_at: input.startedAt, data: eventData(row, { reason, invitees: input.invitees, attendees: input.invitees.map((i) => i.email ?? i.name).filter(Boolean).join(", ") }) });
   return { outcome: "unlinked", recording: row, event, reason: reason ?? "no match" };
 }
@@ -154,9 +161,9 @@ export async function linkRecording(c: PoolClient, companyId: string, recordingI
   if (!(await one(c, "select 1 from contacts where company_id=$1 and id=$2", [companyId, contactId]))) throw new Error("contact not found");
   const { emails } = await prospectsOnCall(c, companyId, { invitees: r.invitees, recordedBy: { email: r.recorded_by_email ?? undefined } });
   if (emails.length === 1) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3) on conflict (company_id, kind, value) do nothing", [companyId, contactId, emails[0]]);
-  const out = await settle(c, companyId, r, contactId, "manual", null);
-  await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: out.event.opportunity_id, appointment_id: out.appointmentId, event_type: "recording.linked", source: "user", data: { recording_id: r.id, by: "manual" } });
-  return out;
+  const { event, appointmentId } = await settle(c, companyId, r, contactId, "manual", null);
+  await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: event!.opportunity_id, appointment_id: appointmentId, event_type: "recording.linked", source: "user", data: { recording_id: r.id, by: "manual" } });
+  return { event: event!, appointmentId };
 }
 
 // ---- phone calls (D28) -----------------------------------------------------------------------------------------------
@@ -205,7 +212,8 @@ export const phoneFacts = (r: RecordingRow) => { const raw = r.raw as Record<str
 /** A call that connected for more than 0 seconds (rows from before D87 may say connected for a 0-second connect). */
 export const isConnected = (r: Pick<RecordingRow, "raw">) => r.raw.call_status === "connected" && !(Number(r.raw.duration_sec ?? 1) <= 0);
 /** Whether the recording has a transcript to read: settled with one (D87: the row keeps only that fact), or one is held. */
-export const hasTranscript = (r: Pick<RecordingRow, "raw" | "transcript">) => r.raw.transcript_status === "ready" || !!r.transcript?.length;
+// "at_source": a recording read back from the recorder's history (D115), whose transcript is read from it when needed
+export const hasTranscript = (r: Pick<RecordingRow, "raw" | "transcript">) => r.raw.transcript_status === "ready" || r.raw.transcript_status === "at_source" || !!r.transcript?.length;
 export const pendingPhoneCalls = (c: PoolClient, companyId: string, limit = 100) => many<RecordingRow>(c, "select * from recordings where company_id=$1 and provider='ghl' and raw->>'transcript_status'='pending' order by started_at limit $2", [companyId, limit]);
 
 export const unlinkedRecordings = (c: PoolClient, companyId: string) => many<RecordingRow>(c, "select * from recordings where company_id=$1 and link_status='unlinked' order by started_at desc", [companyId]);
