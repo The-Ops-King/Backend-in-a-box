@@ -51,8 +51,9 @@ async function resolveMentions(d: ExecDeps, botToken: string): Promise<void> {
   }
 }
 const jsonArrayOr = (r: string): unknown => { try { const v = JSON.parse(r); return Array.isArray(v) ? v : r; } catch { return r; } };
-// GHL's custom field types (it spells monetary MONETORY); the CRM refuses a number sent as text, and an option list sent as anything but an array
-const NUMBER_TYPES = new Set(["NUMERICAL", "MONETORY", "MONETARY", "FLOAT", "NUMBER"]), LIST_TYPES = new Set(["MULTIPLE_OPTIONS", "CHECKBOX"]);
+// GHL's custom field types (it spells monetary MONETORY); the CRM refuses a number sent as text, an option list sent as anything but an
+// array, and on a custom object a money field without its currency ("Cash Collected is missing a currency code", PMU 2026-10-14)
+const NUMBER_TYPES = new Set(["NUMERICAL", "FLOAT", "NUMBER"]), MONEY_TYPES = new Set(["MONETORY", "MONETARY"]), LIST_TYPES = new Set(["MULTIPLE_OPTIONS", "CHECKBOX"]);
 /**
  * A rendered record property as its CRM field wants it, by the field's type: a number for a numeric or money field ("1,500" → 1500),
  * an array for a multi-option or checkbox field, text for the rest. With no type (the object's fields could not be read) the key's
@@ -61,7 +62,11 @@ const NUMBER_TYPES = new Set(["NUMERICAL", "MONETORY", "MONETARY", "FLOAT", "NUM
 export function propertyValue(key: string, rendered: string, type: string | undefined): unknown {
   if (!type) return /^\[.*\]$/s.test(rendered) ? jsonArrayOr(rendered) : /^-?\d+(\.\d+)?$/.test(rendered) && /amount|total|count|score|duration|min$/i.test(key) ? Number(rendered) : rendered;
   const t = type.toUpperCase();
-  if (NUMBER_TYPES.has(t)) { const n = rendered.replace(/[\s$,]/g, ""); return /^-?\d+(\.\d+)?$/.test(n) ? Number(n) : rendered; }
+  if (NUMBER_TYPES.has(t) || MONEY_TYPES.has(t)) {
+    const n = rendered.replace(/[\s$,]/g, "");
+    if (!/^-?\d+(\.\d+)?$/.test(n)) return rendered;
+    return MONEY_TYPES.has(t) ? { currency: "default", value: Number(n) } : Number(n);
+  }
   if (LIST_TYPES.has(t)) { const v = /^\s*\[.*\]\s*$/s.test(rendered) ? jsonArrayOr(rendered.trim()) : rendered; return Array.isArray(v) ? v : rendered.split(",").map((x) => x.trim()).filter(Boolean); }
   return rendered;
 }

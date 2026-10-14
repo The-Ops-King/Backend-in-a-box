@@ -124,11 +124,11 @@ describe("crm_record by id (pure)", () => {
   });
 });
 
-describe("a record property goes as its CRM field's type (pure; found live 2026-10-12: \"1500\" isn't a valid number for Cash Collected)", () => {
-  it("numbers for numeric and money fields whatever the key is called, arrays for multi-option and checkbox fields, text for the rest", () => {
-    expect(propertyValue("cash_collected", "1500", "MONETORY")).toBe(1500);
-    expect(propertyValue("cash_collected", "1,500.50", "MONETORY")).toBe(1500.5);
-    expect(propertyValue("refund", "-$750", "MONETARY")).toBe(-750);
+describe("a record property goes as its CRM field's type (pure; found live 2026-10-12: \"1500\" isn't a valid number for Cash Collected; 2026-10-14: a create wants the currency)", () => {
+  it("numbers for numeric fields, an amount with its currency for money fields, whatever the key is called; arrays for multi-option and checkbox fields, text for the rest", () => {
+    expect(propertyValue("cash_collected", "1500", "MONETORY")).toEqual({ currency: "default", value: 1500 });
+    expect(propertyValue("cash_collected", "1,500.50", "MONETORY")).toEqual({ currency: "default", value: 1500.5 });
+    expect(propertyValue("refund", "-$750", "MONETARY")).toEqual({ currency: "default", value: -750 });
     expect(propertyValue("calls", "3", "NUMERICAL")).toBe(3);
     expect(propertyValue("ratio", "0.25", "FLOAT")).toBe(0.25);
     expect(propertyValue("cash_collected", "unknown", "MONETORY")).toBe("unknown");   // not a number: the CRM says so in its own words, the engine does not invent one
@@ -416,10 +416,10 @@ describe.skipIf(!HAS_DB)("building blocks (D85)", () => {
       expect(await run(b)).toMatchObject({ status: "completed" });
       expect(recordCalls.filter((r) => r.op === "update" || r.op === "create")).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-11", props: { outcome: "showed", disposition: null, next_step: null } }]);
     });
-    it("each property goes as the object's field type says: money and numbers as numbers, options as a list, text as text; an empty value is left out, never 0 (found live 2026-10-12)", async () => {
+    it("each property goes as the object's field type says: money as an amount with its currency, numbers as numbers, options as a list, text as text; an empty value is left out, never 0 (found live 2026-10-12)", async () => {
       const ct = await newContact("Ivo"); recordCalls.length = 0;
       await fire(ct, "typed", { record: "REC-20", cash: 1500, minutes: "41", objections: "price, timing", score: 8, next: "42" }); await tickAt(DateTime.now());
-      expect(recordCalls).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-20", props: { cash_collected: 1500, duration_min: 41, objections_raised: ["price", "timing"], score_total: "8", next_step: "42" } }]);
+      expect(recordCalls).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-20", props: { cash_collected: { currency: "default", value: 1500 }, duration_min: 41, objections_raised: ["price", "timing"], score_total: "8", next_step: "42" } }]);
       recordCalls.length = 0;
       await fire(ct, "typed", { record: "REC-20", minutes: "12", objections: '["price"]', score: "", next: "call back" }); await tickAt(DateTime.now());
       expect(recordCalls).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-20", props: { duration_min: 12, objections_raised: ["price"], next_step: "call back" } }]);

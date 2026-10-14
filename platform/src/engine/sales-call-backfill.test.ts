@@ -199,7 +199,7 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     expect(rowOf(dry, "evt-C1").write!.properties.external_id).toBe("evt-C1");
     const d = rowOf(dry, "evt-D");   // money: closed, the cash, and a show (paid two hours after)
     expect(d.fields).toMatchObject({ outcome: "showed", disposition: "closed_won", cash_collected: 10000 });
-    expect(d.write!.properties).toMatchObject({ cash_collected: 10000, disposition: "closed_won" });
+    expect(d.write!.properties).toMatchObject({ cash_collected: { currency: "default", value: 10000 }, disposition: "closed_won" });   // a money field wants its currency on a create
     const e = rowOf(dry, "evt-E");   // nothing at all: blank, with an idea of what happened
     expect(e.fields.outcome).toBeUndefined();
     expect(e.write!.properties.outcome).toBeUndefined();

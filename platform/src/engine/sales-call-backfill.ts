@@ -622,7 +622,8 @@ async function applyRows(c: PoolClient, co: LoadedCompany, adapters: Adapters, r
       const kept: string[] = [], props = { ...w.properties };
       if (inCrm) for (const [k, v] of Object.entries(props)) {
         const cur = inCrm.properties[k], blank = cur === undefined || cur === null || cur === "" || (Array.isArray(cur) && !cur.length);
-        if (!blank && JSON.stringify(cur) !== JSON.stringify(v) && String((cur as { value?: unknown })?.value ?? cur) !== String(v)) { kept.push(`${k} (GHL has ${JSON.stringify(cur)})`); delete props[k]; }
+        const amount = (x: unknown) => String((x as { value?: unknown } | null)?.value ?? x);   // a money field reads back as { currency, value }
+        if (!blank && JSON.stringify(cur) !== JSON.stringify(v) && amount(cur) !== amount(v)) { kept.push(`${k} (GHL has ${JSON.stringify(cur)})`); delete props[k]; }
       }
       let record: "created" | "updated";
       if (crmId) { if (Object.keys(props).length) await adapters.write.updateRecord(co.adapterCompany, w.object, crmId, props); record = "updated"; }
