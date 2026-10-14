@@ -45,14 +45,17 @@ describe("D107/D111: the chart draws every step, exactly", () => {
       // nothing hidden: every node of the definition but an exit nothing touches is on the chart
       expect(new Set(placedIds(t.rows))).toEqual(new Set(drawable(chart)));
       expect(def.nodes.filter((n) => !drawable(chart).includes(n.id)).every((n) => n.type === "exit")).toBe(true);
-      expect(chart.nodes.length).toBe(def.nodes.length);
+      // the chart's own nodes are the definition's, plus the ends of the ways that are not edges (D111: implicit.ts)
+      expect(chart.nodes.filter((n) => !n.id.includes("~")).length).toBe(def.nodes.length);
       expect(cutOff(chart, t.rows, false)).toEqual([]);
     });
   }
 
-  it("an exit nothing leads to is the only node not drawn (Daily EOD reminder's check stops the run itself)", () => {
+  it("an exit nothing leads to is the only node not drawn (Daily EOD reminder's check stops the run itself, drawn as its own end)", () => {
     const chart = chartOf(template("eod-reminder"), company);
     expect(chart.nodes.filter((n) => !drawable(chart).includes(n.id)).map((n) => n.id)).toEqual(["x_nothing"]);
+    const lone: Chart = { nodes: [{ id: "t", kind: "trig", title: "Start" }, { id: "x", kind: "end", title: "Done" }, { id: "never", kind: "end", title: "Stop: never" }], edges: [{ from: "t", to: "x", label: "" }] };
+    expect(drawable(lone)).toEqual(["t", "x"]);
   });
 
   it("nothing hidden: Jev's read, the values a run remembers and every wait are drawn, as helper steps", () => {

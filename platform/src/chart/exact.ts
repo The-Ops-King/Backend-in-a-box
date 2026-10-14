@@ -65,7 +65,8 @@ export function tidyDrawing(chart: Chart, rows: Row[]): Drawing {
             if (kinds.get(it.fold.fork) !== "fork" || it.when !== whenOf(it.fold.yes)) problems.push(`the condition on “${it.n.title}” is not the branch's`);
             to(tails, it.fold.fork); lines.push({ from: it.fold.fork, to: it.id, label: it.fold.yes, else: false });
             tails = [plain(it.id), { id: it.fold.fork, label: it.fold.no, else: true }];
-          } else { to(tails, it.id); tails = [plain(it.id)]; }
+          } else { to(tails, it.id); tails = [{ id: it.id, label: it.next?.label ?? "", else: !!it.next?.else }]; }
+          for (const x of it.exits ?? []) lines.push({ from: it.id, to: x.id, label: x.label, else: x.else });
         }
       } else if (r.kind === "on") {
         // the arrow names its step by its title: a title two steps share does not say which one the run goes on to

@@ -132,6 +132,10 @@ Every step that runs is drawn, the helpers too (D111): a wait, Jev reading, a va
 (smaller `--fg-2` words on `--panel`), "behind the scenes" in the legend. A branch around one step is drawn as that step
 with its condition only when that says everything; otherwise it is drawn as a branch.
 
+Every way a run can leave a step is a line, edges or not (D111): a check that otherwise stops or pauses, a branch with no
+otherwise, a hand-off, a resume "back to the step the run was on". An end that a step's other way leads to hangs off its
+side: the way's words (blue for "otherwise") over a short line into an end pill ("Stop: …", "Paused for a person: …").
+
 The chart must be exactly the workflow (D111): every step once, every line a real way with its words, every way drawn. When
 the tidy chart cannot do that (a cross-link into the middle of another branch, nesting past four, a step nothing reaches),
 the workflow is drawn as a plain graph under "Drawn as a plain graph: this workflow's shape is beyond the tidy chart.": the

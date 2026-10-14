@@ -4,6 +4,7 @@ import { EVENT_LABELS, branchTitle, eventWords, untilWords, collapsePlumbing, co
 import { exampleContext, nodeExamples } from "@/engine/example";
 import { scheduleWords } from "@/engine/when";
 import type { Projected } from "@/engine/project";
+import { withImplicit } from "@/chart/implicit";
 
 /**
  * The words the dashboard shows for a workflow and for one run of it. The engine's own describe.ts says what a node does;
@@ -150,7 +151,7 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
     return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, onlyIf: n.only_if ? onlyIfWords(n.only_if, constsOf(full)) : undefined, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), helper: (n.type === "set_var" || n.type === "classify" || n.type === "lookup" || n.type === "wait") || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource) };
   });
   const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e, def.nodes.find((n) => n.id === e.from)), else: e.else || undefined }));
-  return { nodes, edges };
+  return withImplicit(def, { nodes, edges });
 }
 
 const strip = (t: string | undefined) => t === undefined ? undefined : t.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();

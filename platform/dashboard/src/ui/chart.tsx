@@ -185,7 +185,24 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
   type Placed = { it: Item; cx: number; top: number; bottom: number; w: number; above: boolean };
   let last: Placed | null = null;
   // one node at cx: draws it with its top at `top`, returns its bottom
-  const put = (it: Item, cx: number, top: number, maxW: number, above = false) => { const sz = sizeOf(it, maxW); out.push(node(it, cx, top + sz.h / 2, sz, stateOf(it.id))); last = { it, cx, top, bottom: top + sz.h, w: sz.w, above }; return top + sz.h; };
+  const put = (it: Item, cx: number, top: number, maxW: number, above = false, room = cx + maxW / 2) => {
+    const sz = sizeOf(it, maxW); out.push(node(it, cx, top + sz.h / 2, sz, stateOf(it.id)));
+    let bottom = top + sz.h;
+    // D111: ways that end the run hang off the step's side, each its words over a short line into its end; the main way goes on down
+    if (it.exits?.length) {
+      const under = bottom, left = cx + 26, avail = Math.max(72, room - left - 2);
+      for (const x of it.exits) {
+        const lab = x.label ? wrap(x.label, Math.max(8, Math.floor(avail / IF_W)), 2) : [];
+        const pillTop = bottom + 6 + lab.length * 13; const ei: Item = { id: x.id, n: x.n }; const es = sizeOf(ei, avail);
+        lab.forEach((l, i) => out.push(`<text class="lbl" x="${left}" y="${bottom + 14 + i * 13}"${x.else ? ` style="fill:${T("cond")}"` : ""}>${esc(l)}</text>`));
+        out.push(`<path d="M${cx + 12} ${bottom} V${pillTop + es.h / 2 - 6} Q${cx + 12} ${pillTop + es.h / 2} ${cx + 18} ${pillTop + es.h / 2} H${left}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`);
+        out.push(node(ei, left + es.w / 2, pillTop + es.h / 2, es, stateOf(x.id)));
+        bottom = pillTop + es.h + 4;
+      }
+      out.push(`<path d="M${cx} ${under} V${bottom}" fill="none" stroke="${T("edge")}" stroke-width="1.6"${it.when ? ` stroke-dasharray="${DASH}"` : ""}/>`);
+    }
+    last = { it, cx, top, bottom, w: sz.w, above }; return bottom;
+  };
   /**
    * The edge straight down from the node last put to the next thing at (x, y2), dashed into or out of a sometimes-step.
    * Out of one that had an edge straight into it, a thin blue way around its right side, "otherwise": skipped, the
@@ -194,6 +211,8 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
   const down = (x1: number, y1: number, y2: number, next: Item | null, limit: number) => {
     const p = last as Placed | null;
     link(x1, y1, x1, y2, !!(next?.when || (p && p.bottom === y1 && p.it.when)));
+    // the one way out of a step, when it has words of its own, says them beside its line
+    if (p && p.bottom === y1 && p.it.next?.label) out.push(`<text class="lbl" x="${x1 + 8}" y="${(y1 + y2) / 2 + 4}"${p.it.next.else ? ` style="fill:${T("cond")}"` : ""}>${esc(trunc(p.it.next.label, limit - x1 + PAD - 8, IF_W))}</text>`);
     if (!p || p.bottom !== y1 || !p.it.when || !p.above || p.cx !== x1) return;
     const rx = p.cx + p.w / 2 + 14; if (rx > limit) return;
     const a = p.top - GAP / 2, b = p.bottom + GAP / 2;
@@ -207,6 +226,8 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
   const need = (rs: Row[]): { min: number; want: number } => {
     const had = needs.get(rs); if (had) return had;
     let min = 0, want = 0;
+    // a step with ends off its side needs room beside its spine
+    if (rs.some((r) => r.kind === "nodes" && r.items.some((i) => i.exits?.length))) { min = 280; want = 320; }
     for (const r of rs) if (r.kind === "fork") { const gs = shown(r.groups).map((g) => need(g.rows)); const pad = (gs.length - 1) * G_GAP + 16; min = Math.max(min, gs.reduce((a, g) => a + Math.max(G_MIN, g.min), 0) + pad); want = Math.max(want, gs.reduce((a, g) => a + Math.max(G_COL, g.want), 0) + pad); }
     const r = { min, want }; needs.set(rs, r); return r;
   };
@@ -220,6 +241,9 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
     const head = g.bare ? 0 : 22 + (capLines(g, colW).length - 1) * 13 + 8;
     if (!g.rows.length) { out.push(`<text class="lbl" x="${cx}" y="${top + head + 14}" text-anchor="middle">carries on</text>`); return { bottom: top + head + 34, exit: top + head + 34 }; }
     const r = region(g.rows, cx, colW, Math.min(g.bare ? 300 : 344, colW - (g.bare ? 8 : 16)), cx + colW / 2 - 4, top + head, !g.bare);
+    // the group's last step goes on to the join by a way with words of its own (a resume's "back to the step the run was on"): say them under it
+    const lp = last as Placed | null; const said = !r.joined && lp && lp.bottom === r.bottom && g.go ? lp.it.next?.label : undefined;
+    if (said) { const ls = wrap(said, Math.max(8, Math.floor((colW - 24) / IF_W)), 3); ls.forEach((l, i) => out.push(`<text class="lbl" x="${cx}" y="${r.bottom + 15 + i * 13}" text-anchor="middle">${esc(l)}</text>`)); out.push(`<path d="M${cx} ${r.bottom} V${r.bottom + 4}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`); r.bottom += 6 + ls.length * 13; r.exit = r.bottom; }
     // the lines of a fork that ends the group meet at the card's bottom edge, and the group's own line goes on from there
     if (r.joined && !g.bare) out.push(`<path d="M${cx} ${r.exit} V${r.exit! + 10}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`);
     const bottom = r.joined ? r.exit! + (g.bare ? 0 : 10) : g.bare ? r.bottom : r.bottom + 14;
@@ -248,7 +272,7 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
         aroundTop = pb === null && !joined && from !== null; around = from; pb = put(it, x + 14, y, nodeW - 36); px = x + 14; entryLeft = x + 14 - (last as Placed | null)!.w / 2; joined = false; y = pb + GAP; return;
       }
       arrive(it, y); const above = pb !== null && px === x;
-      pb = put(it, x, y, nodeW, above); px = x; joined = false; y = pb + GAP;
+      pb = put(it, x, y, nodeW, above, limit); px = x; joined = false; y = pb + GAP;
     };
     for (const row of rs) {
       if (row.kind === "nodes") {
@@ -265,7 +289,9 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
         // the flow goes on at a step drawn elsewhere: a short arrow and its name
         const from = pb !== null ? pb : joined ? y : first ? y - 2 : y - GAP + 2; const ax = pb !== null ? px : x;
         out.push(`<path d="M${ax} ${from} V${from + 14}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/><path d="M${ax - 4} ${from + 10} L${ax} ${from + 15} L${ax + 4} ${from + 10}" fill="none" stroke="${T("edge")}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`);
-        const lines = wrap(`on to “${row.title.replace(/[“”‹›]/g, "")}”`, Math.max(8, Math.floor((W - 16) / IF_W))).slice(0, 3);
+        // a way with words of its own (a resume's "back to the step the run was on") says them; they name the step
+        const said = pb !== null ? (last as Placed | null)?.it.next?.label : undefined; const to = row.title.replace(/[“”‹›]/g, "");
+        const lines = wrap(said ? (said.includes(to) ? said : `${said}: on to “${to}”`) : `on to “${to}”`, Math.max(8, Math.floor((W - 16) / IF_W))).slice(0, 4);
         lines.forEach((l, i) => out.push(`<text class="lbl" x="${ax}" y="${from + 30 + i * 14}" text-anchor="middle">${esc(l)}</text>`));
         bottom = from + 34 + (lines.length - 1) * 14; pb = null; joined = false; y = bottom + GAP;
       } else if (row.kind === "more") {

@@ -3499,12 +3499,32 @@ chart still left steps out on purpose (Jev's read of a reply, every `set_var`) a
   alert is not resolved by an hour that did not look. A workflow no layout draws exactly is an error alert
   (`health:charts:<workflow>`, posted like every health finding, its Open link the workflow page) that resolves when a
   later check draws it.
-- Not changed: what runs. A check's `else_exit` and `resume` are not edges, so they stay in the step's words, not lines.
+- **Ways that are not edges are drawn too** (`src/chart/implicit.ts`, read off executor.ts and runner.ts; `chartOf` adds
+  them, so both layouts and the check use them). A check whose condition stays false: "otherwise" (with a retry,
+  "otherwise, after looking for up to 1 hour") to an end "Stop: …" in the exit's words, or "Paused for a person: …" with
+  `else_pause` (Daily EOD reminder's check ends at its own "Stop: nothing to file"; its exit step of that reason, which
+  nothing leads to, still never runs and is not drawn). A branch with no otherwise way: "none of these" → "Paused for a person: no
+  way matched". A reply wait with no timeout way: "no reply in time" → "Done: no reply". A send with `on_stale: escalate`:
+  "out of date" → "Paused for a person: the message is out of date". A hand-off (`start_workflow`): one line to
+  "Hands off to “…”"; its own edges, like an exit's, are never taken and not drawn. `resume`: one line to the first step
+  of the non-blocking listener's onward way, "back to the step the run was on: “3 days before the call” or one after it"
+  (the run goes back to whichever step it was parked on there: a wait, a send held for the window, a held step, the exit
+  it reached with the listener armed); the resume's own plain edge to that same step is that line. In the tidy layout
+  a step whose other ways only end the run keeps its place in the line and its ends hang off its side, the words over a
+  short line; a way on with words of its own (the resume's) says them beside its line, its arrow, or under its group.
+  The run page lights the end a run stopped or paused at.
+- Not lines, and why: a check's `retry` stays on the step; a send skipped as stale, out of its validity or with SMS off,
+  an `only_if` skip, a Slack post with nothing to post to go on by the normal edge; a vendor's refusal retries, then
+  holds or pauses the run wherever it is (D66/D77); the premise check and a contact gone from the CRM end a run moot before
+  any step. A step with no way on and an event wait with no way for an outcome are refused by the definition, so never
+  drawn.
 - Tests: `src/chart/chart-layout.test.ts` (every shipped template and PMU copy exact in the tidy layout with every node
   drawn; helpers drawn; the fold kept only when exact, and caught when its condition is not the branch's; the check catches
   a dropped step, a doubled one, a line that is no edge and wrong words; a definition with a cross-link into the middle of
   another branch, a loop back, five deep and an unreached step: tidy not exact, ELK exact with every node and edge, the
   loop running up, no boxes overlapping; the cross-link and loop alone drawn tidily as arrows; a misrouted line caught),
+  `src/chart/implicit.test.ts` (each way that is not an edge: on the chart, exact in the tidy layout, and a drawing
+  without it caught; in the graph too; the two the definition refuses),
   `src/engine/chart-exact.test.ts` (saves report the layout; the 422, the step and copy edit refusals and the install
   refusal with a stand-in verdict; the sweep's daily stamp, alert and resolution).
   `scripts/render-charts.ts` shoots `messy`, that definition, in the graph.

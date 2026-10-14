@@ -11,9 +11,11 @@ type N = Chart["nodes"][number];
 /**
  * cond: the blue mark (a step that may not fire); when: a sometimes-step's short condition, drawn dashed with that line
  * (D103); fold: a two-way branch drawn as this step's condition, its other way the "otherwise" around the step (raw
- * edge labels, so the check can hold the drawing to them); entry: a trigger that starts the run here, part way down.
+ * edge labels, so the check can hold the drawing to them); entry: a trigger that starts the run here, part way down;
+ * exits: ways out of this step that end the run at once (a check's "otherwise" stop), drawn as short lines off to the side;
+ * next: the words on this step's one way on, when it has some (a resume's "back to the step the run was on").
  */
-export type Item = { id: string; n: N; cond?: string; when?: string; fold?: { fork: string; yes: string; no: string }; entry?: boolean };
+export type Item = { id: string; n: N; cond?: string; when?: string; fold?: { fork: string; yes: string; no: string }; entry?: boolean; exits?: { id: string; n: N; label: string; else: boolean }[]; next?: { label: string; else: boolean } };
 /** go: carries on to the fork's join; bare: one of a workflow's separate starts (no card, no label); else: the branch's otherwise way. */
 export type Group = { label: string; rows: Row[]; go: boolean; first: string | null; bare?: boolean; else?: boolean };
 export type Row =
@@ -119,11 +121,20 @@ export function arrange(chart: Chart): Row[] {
       seen.add(cur);
       const o = outs(cur);
       if (n.kind === "fork") { const c = condOf(cur); if (c && !stop.has(c.step.id)) { seen.add(c.step.id); line.push({ ...item(c.step.id), cond: `Only when ${c.fold.yes}`, when: whenOf(c.fold.yes), fold: c.fold }); cur = c.next; continue; } }
+      // a step whose other ways only end the run (a check that otherwise stops) keeps its place in the line; those ends hang off its side
+      if (o.length > 1) {
+        const dead = o.filter((e) => { const t = byId.get(e.to); return !!t && t.kind === "end" && !outs(t.id).length && ins(t.id).length === 1 && !seen.has(t.id) && !stop.has(t.id); });
+        const live = o.filter((e) => !dead.includes(e));
+        if (dead.length && live.length === 1 && !live[0].label) {
+          for (const e of dead) seen.add(e.to);
+          line.push({ ...item(cur), exits: dead.map((e) => ({ id: e.to, n: byId.get(e.to)!, label: e.label, else: !!e.else })) }); cur = live[0].to; continue;
+        }
+      }
       if (o.length > 1) {
         flush();
-        const r = forkRow(item(cur), o.map((e) => ({ label: e.label || "otherwise", to: e.to, ...(e.else ? { else: true } : {}) })), stop, depth); rows.push(r.row); cur = r.join; continue;
+        const r = forkRow(item(cur), o.map((e) => ({ label: e.label, to: e.to, ...(e.else ? { else: true } : {}) })), stop, depth); rows.push(r.row); cur = r.join; continue;
       }
-      line.push(item(cur));
+      line.push(o.length === 1 && (o[0].label || o[0].else) ? { ...item(cur), next: { label: o[0].label, else: !!o[0].else } } : item(cur));
       cur = o[0]?.to ?? null;
     }
     flush(); return { rows, end: null };
@@ -159,7 +170,7 @@ export function arrange(chart: Chart): Row[] {
 
 /** The ids a layout placed, a folded branch with the step it is drawn as. */
 export function placedIds(rows: Row[]): string[] {
-  const out: string[] = []; const put = (it: Item) => out.push(...(it.fold ? [it.fold.fork] : []), it.id);
+  const out: string[] = []; const put = (it: Item) => out.push(...(it.fold ? [it.fold.fork] : []), it.id, ...(it.exits ?? []).map((x) => x.id));
   for (const r of rows) {
     if (r.kind === "nodes" || r.kind === "more") r.items.forEach(put);
     else if (r.kind === "fork") { if (r.fork) put(r.fork); for (const g of r.groups) out.push(...placedIds(g.rows)); }
