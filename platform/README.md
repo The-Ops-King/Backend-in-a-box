@@ -802,7 +802,7 @@ Submitting again replaces the day.
 Calls booked before the engine was installed (D77): the form also lists the closer's Sales Calls in GHL (the record's
 `closer` matches their roster name) whose call time has passed and that have neither an outcome nor a disposition,
 when the engine has no booking for them. Filing such a row is an `eod.call_filed` event (the record id, the answer and
-what it means); the **Sales Call filed from the end-of-day form** workflow (`eod-call-filed`, D88) writes it to the
+what it means); the **EOD: results for calls booked before the switch-over** workflow (`eod-call-filed`, D88) writes it to the
 record by its id (`crm_record` `record_id`: the attendance in the company's own keys, the disposition the answer means
 from a pick the company edits, `clear` for what a held call carries on a no-show or a call rescheduled on the call); the
 mode rules are the step's (shadow writes nothing). A record with an outcome never appears, and a row filed here stays on

@@ -1,11 +1,11 @@
 {
   "slug": "eod-reminder",
-  "name": "End-of-day reminder",
+  "name": "EOD: remind closers to file",
   "category": "team",
   "stage": "team",
   "sort": 10,
   "origin": "spec",
-  "description": "DMs each closer their end-of-day link every evening, and again the next morning, until every call is filed: days with calls and no report in the engine, and days whose Sales Calls in GHL still have no outcome (GHL is the truth). A call still blank in GHL two days on is also told to the operator (D76). How far back it looks (lookback_days, 7), whether today counts (include_today: the evening yes, the morning no) and when the operator hears (overdue_after_days, 2) are settings on each eod_due step; every word of the DM is the template's (D88).",
+  "description": "DMs each closer their end-of-day link at 6 PM, and again at 9 AM, until every call is filed; tells you when a call is still blank after 2 days.",
   "definition": {
     "schema": 1,
     "reentry": "always",

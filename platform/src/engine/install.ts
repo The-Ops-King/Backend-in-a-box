@@ -87,8 +87,9 @@ export async function installTemplates(c: import("pg").PoolClient, companyId: st
     const missingNote = missing.length ? `; missing: ${missing.join(", ")}` : "";
     const existing = await one<{ id: string; current_version: number; template_version: number | null; diverged: boolean }>(c, "select id, current_version, template_version, diverged from workflows where company_id=$1 and template_id=$2", [companyId, tpl!.id]);
     if (existing) {
-      // the words follow the template on every install, even when the steps did not change: a rename is not a new version
-      await c.query("update workflows set stage=$2, sort=$3, origin=$4, name=case when diverged then name else $5 end where id=$1", [existing.id, t.stage, t.sort, t.origin, t.name]);
+      // the words follow the template on every install, even when the steps did not change: a rename is not a new version; an
+      // edited copy too (D108: nothing renames a company's copy, so a frozen name only strands an old one)
+      await c.query("update workflows set stage=$2, sort=$3, origin=$4, name=$5 where id=$1", [existing.id, t.stage, t.sort, t.origin, t.name]);
       await c.query("update workflow_templates set name=$2, description=$3 where id=$1 and (name<>$2 or description is distinct from $3)", [tpl!.id, t.name, t.description]);
       // a company's untouched copy follows the template; an edited copy is theirs and is left alone
       if (existing.diverged) { installed.push(`${t.slug} (edited since install, left alone; template v${tpl!.version} available)`); continue; }

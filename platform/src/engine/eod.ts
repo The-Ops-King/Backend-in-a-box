@@ -246,7 +246,7 @@ export async function submitEod(c: PoolClient, adapters: Adapters, args: { token
       // a row this form offered (the closer's own blank record, or one they filed here before); one GHL already holds this answer for is not written again
       const offered = pre.calls.find((x) => x.appointment_id === call.appointment_id)!;
       if (!offered.record_id && before.find((x) => x.appointment_id === call.appointment_id)?.outcome === call.outcome) { recorded++; continue; }
-      // A3 (D88): the answer is an event; the "Sales Call filed from the end-of-day form" workflow writes it to that record by its id
+      // A3 (D88): the answer is an event; the "EOD: results for calls booked before the switch-over" workflow (eod-call-filed) writes it to that record by its id
       const choice = choiceOf(call.outcome, fields);
       const ev = await emitEvent(c, { company_id: company.id, contact_id: call.contact_id || null, opportunity_id: null, appointment_id: null, event_type: "eod.call_filed", source: "user",
         data: { user_id: closer.id, record_id: call.appointment_id.slice(GHL_ROW.length), day: args.day, contact: call.contact, outcome: call.outcome, outcome_label: outcomeLabel(call.outcome, fields), attendance: choice?.attendance ?? null, meaning: choice?.attendance === "showed" ? choice.call_outcome ?? null : null } });

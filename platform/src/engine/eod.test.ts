@@ -99,12 +99,12 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     await asOperator((c) => installTemplateForTest(c, companyId, "eod-reminder", { patch: (d) => { for (const n of d.nodes) if (n.type === "trigger" && n.schedule?.at === "18:00") n.schedule.at = "17:00"; } }));
     // 4:59pm: the morning trigger (9am) is due for today and runs once; nothing earlier is unfiled, so it ends with nothing to file and no DM
     const before = DateTime.now().setZone(TZ).set({ hour: 16, minute: 59 }) as DateTime<true>;
-    expect((await asOperator((c) => dispatchSchedules(c, before, companyId))).started).toEqual([{ company: "eod", workflow: "End-of-day reminder", node: "t_morning", period: before.toISODate(), user: "Allan P" }]);
+    expect((await asOperator((c) => dispatchSchedules(c, before, companyId))).started).toEqual([{ company: "eod", workflow: "EOD: remind closers to file", node: "t_morning", period: before.toISODate(), user: "Allan P" }]);
     const n0 = posts.length; expect(await tick(fake, before, companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 }); expect(posts.length).toBe(n0);   // a check that does not pass completes at its gate
     expect((await asOperator((c) => dispatchSchedules(c, before, companyId))).started).toEqual([]);
     const at = DateTime.now().setZone(TZ).set({ hour: 17, minute: 1 }) as DateTime<true>;
     const r = await asOperator((c) => dispatchSchedules(c, at, companyId));
-    expect(r.started).toEqual([{ company: "eod", workflow: "End-of-day reminder", node: "t_evening", period: at.toISODate(), user: "Allan P" }]);   // Bea has a call today too, but she is staff
+    expect(r.started).toEqual([{ company: "eod", workflow: "EOD: remind closers to file", node: "t_evening", period: at.toISODate(), user: "Allan P" }]);   // Bea has a call today too, but she is staff
     const t = await tick(fake, at, companyId); expect(t).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
     const token = await asOperator((c) => tokenFor(c, allan));
     expect(posts.at(-1)).toMatchObject({ channel: "UALLAN", as: { name: "End of day" } });
@@ -147,7 +147,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const note = (await asOperator((c) => one<{ notes: string }>(c, "select answers->>'notes' as notes from form_submissions where appointment_id=$1 order by submitted_at desc limit 1", [apptSarah])))!.notes;
     expect(note).toBe("About: Good call, price is the hang-up.\nPains: thinning at the crown\nGoals: keep what she has\nObjections: price\nwarm, wants her partner on the next one\nNext: decide with her partner by " + answers.calls.find((x) => x.contact === "Sarah Kim")!.next_date + "\nEnergy on the call: High");
     // the event started the filed workflow: the summary with the corrections and the day's answers to the eod channel, a ✅ and a reply threaded under the reminder DM
-    const filedRun = await asOperator((c) => one<{ id: string; user_id: string }>(c, "select r.id, r.user_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day report filed'", [companyId]));
+    const filedRun = await asOperator((c) => one<{ id: string; user_id: string }>(c, "select r.id, r.user_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: post the closer''s day'", [companyId]));
     expect(filedRun?.user_id).toBe(allan);
     expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
     const reminderTs = `ts${n}`.replace(/ts\d+/, (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts where company_id=$1 and tag like 'eod-reminder:%'", [companyId])))!.ts);
@@ -248,9 +248,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     await asOperator(async (c) => {
       for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })], ["bot.escalate_to", "UOPS"]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]);
       // today's reminders already went (above); the clock starts them again as a new day would
-      await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]);
-      await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]);
-      await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='End-of-day reminder')", [companyId]);
+      await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]);
+      await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]);
+      await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='EOD: remind closers to file')", [companyId]);
     });
     try {
       const at = DateTime.now().setZone(TZ).set({ hour: 17, minute: 1 }) as DateTime<true>;
@@ -286,9 +286,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [filed] : []);
     await asOperator(async (c) => {
       for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'id',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]);
-      await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]);
-      await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]);
-      await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='End-of-day reminder')", [companyId]);
+      await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]);
+      await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]);
+      await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='EOD: remind closers to file')", [companyId]);
     });
     try {
       // the ledger alone: Jo's no-show is an answer; Lyn's "showed" is not, and Kim has none
@@ -303,7 +303,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       expect(dm).toContain(`|${d4.toFormat("ccc LLL d")}>: 1 call\n`);
       // and once Kim's is filed there too, the day is gone
       fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [filed, { id: "KIM", createdAt: at(13).toISO()!, properties: { display_label: "Kim Old", closer: "Allan P", contact_id: "GKIM", outcome: "no_show", scheduled_at: at(13).toUTC().toISO(), call_date: d4.toISODate() } }] : []);
-      await asOperator(async (c) => { await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]); await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='End-of-day reminder')", [companyId]); await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='End-of-day reminder')", [companyId]); });
+      await asOperator(async (c) => { await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]); await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]); await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='EOD: remind closers to file')", [companyId]); });
       await asOperator((c) => dispatchSchedules(c, when, companyId));
       const m = posts.length; await tick(fake, when, companyId);
       expect(posts.slice(m).filter((p) => p.channel === "UALLAN").map((p) => p.text).join("\n")).not.toContain(d4.toFormat("ccc LLL d"));

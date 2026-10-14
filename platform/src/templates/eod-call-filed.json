@@ -1,12 +1,12 @@
 {
   "slug": "eod-call-filed",
-  "name": "Sales Call filed from the end-of-day form",
+  "name": "EOD: results for calls booked before the switch-over",
   "category": "team",
   "stage": "team",
   "sort": 12,
   "origin": "spec",
   "engine_default": true,
-  "description": "A closer answered, on their end-of-day form, a Sales Call booked before the engine was installed (a record GHL holds that the engine has no booking for, D77). The answer is written to that record by its own id: the attendance in the company's own option keys and, for a call that happened, the disposition the answer means (closed or deposit → closed_won, follow up, lost, DQ → dq, close pending). A no-show, a call rescheduled on the call or a show with no call outcome empties what a held call carries (disposition, cash, objection, next step and date, payment terms). Shadow and a test-mode contact that does not pass write nothing. Was the engine's own write (D88).",
+  "description": "A closer filed a call GHL had before the engine took over: their answer (showed, no-show, closed, follow up…) is written onto that call's Sales Call in GHL. Calls the engine booked go through Call outcome.",
   "definition": {
     "schema": 1,
     "reentry": "always",

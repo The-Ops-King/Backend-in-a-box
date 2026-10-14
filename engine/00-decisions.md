@@ -3365,3 +3365,15 @@ binding back. The server refuses a channel the company's own bot cannot list, so
 company's channel. Thread replies, DMs and answers in the asking channel say where they go and have no picker. Channels
 are listed public and private; a bot without `groups:read` gets the public ones.
 `GET|POST /api/v1/workflows/<id>/slack-channel` (`{ node, channel | "default" }`). Test: `src/api/slack-steps.test.ts`.
+
+## D108. The end-of-day workflows say what they do; a copy's name follows its template (2026-10-14)
+
+Tyler could not tell the three end-of-day workflows apart, and "Sales Call filed from the end-of-day form", with a paragraph
+under it and a trigger reading "An end-of-day answer for a Sales Call booked before the engine", told him nothing at a
+glance. They are now "EOD: remind closers to file", "EOD: post the closer's day" and "EOD: results for calls booked before
+the switch-over", each with one sentence under it; the triggers read "A closer filed their end-of-day form" and "A closer
+filed a call booked before the switch-over". The detail the old descriptions carried is in D76, D77 and D88.
+- A company's copy that was edited kept its old name on every install. Nothing renames a company's copy, so that only
+  stranded old names (PMU's edited "Sales Call filed…" would never have changed): the name now follows the template on every
+  install, edited or not; the steps of an edited copy stay its own as before.
+- Test: `install.upgrade.test.ts` (an edited copy with an old name takes the template's name on install; its steps stay).

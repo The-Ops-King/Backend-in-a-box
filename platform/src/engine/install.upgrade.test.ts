@@ -135,6 +135,10 @@ describe.skipIf(!process.env.DATABASE_URL)("editing copy", () => {
     expect(def!.definition.nodes.find((n) => n.id === "n1")!.template).toContain("grab a time");
     const r = await installCompany({ ...base, templates: ["speed-to-lead"] }, fake);
     expect(r.installed[0]).toMatch(/edited since install, left alone/);
+    // D108: an edited copy's steps stay its own, its name follows the template (nothing renames a company's copy)
+    await asOperator((c) => c.query("update workflows set name='An old name' where id=$1", [stl.id]));
+    await installCompany({ ...base, templates: ["speed-to-lead"] }, fake);
+    expect((await asOperator((c) => one<{ name: string }>(c, "select name from workflows where id=$1", [stl.id])))!.name).toBe(templates.find((t) => t.slug === "speed-to-lead")!.name);
     expect(wf.id).toBeTruthy();
   });
 
