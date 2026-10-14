@@ -1,6 +1,7 @@
 import type { Chart } from "@/api/words";
 import type { ElkExtendedEdge, ElkNode } from "elkjs/lib/elk-api";
 import { drawable } from "./arrange";
+import { grouped } from "./group";
 
 /**
  * D111: the plain graph, for a workflow the tidy layout cannot draw exactly (a cross-link into the middle of another
@@ -16,7 +17,9 @@ type Size = { w: number; h: number };
 let elk: Promise<{ layout(g: ElkNode): Promise<ElkNode> }> | null = null;
 const engine = () => (elk ??= import("elkjs/lib/elk.bundled.js").then((m) => { const ELK = (m as unknown as { default: new () => { layout(g: ElkNode): Promise<ElkNode> } }).default; return new ELK(); }));
 
-export async function layoutGraph(chart: Chart, size: (id: string) => Size, labelSize: (text: string) => Size, opts: { gap?: number } = {}): Promise<GraphLayout> {
+export async function layoutGraph(real: Chart, size: (id: string) => Size, labelSize: (text: string) => Size, opts: { gap?: number } = {}): Promise<GraphLayout> {
+  // a run of value-keeping steps is one box here too (D114)
+  const chart = grouped(real);
   const ids = drawable(chart); const known = new Set(ids);
   const gap = opts.gap ?? 28;
   const edges = chart.edges.map((e, i) => ({ ...e, id: `e${i}` })).filter((e) => known.has(e.from) && known.has(e.to));

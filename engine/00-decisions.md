@@ -3623,3 +3623,49 @@ which deploy made it (`x-build`, the commit); the dashboard bundle knows its own
 line at the top says the page is the old one with a Reload button, and the next page change loads the new code (the
 page in front of him is not reloaded under his hands). A local build ("dev") is never called stale.
 - Test: `src/api/newer-deploy.test.ts`.
+
+## D114. A run of values kept is one box that says what it is for (2026-10-14)
+
+Tyler, on Hair's Health check: between the alert triggers and "New, still open, or cleared?" stood seven grey steps,
+"Remember the alert's mark / face / company's own alert face / headline / drift line's verb / how the drift questions
+start / the alert's text", each with its cases: "this is super unclear what this does." D111 drew every helper so nothing
+is hidden; the seven are one thing, making the alert's words. PMU's Call booked had the same in each booking path.
+- **The rule** (`src/chart/group.ts`, `helperRuns`). Grouped are only steps that keep a value for the steps after them
+  (`set_var`) or read the engine's own ledger (`lookup`): they change nothing outside the run and take no time. Not
+  grouped: a wait (it decides when things happen), Jev's read and an AI read (they decide forks and cost a call), a
+  `record` (it writes a fact that can start workflows), a resume, and every step that touches the CRM, Slack or a person.
+  A run is a maximal straight chain of such steps: each one's only way out is a plain way (no words, not an otherwise) to
+  the next, and each one after the first has that as its only way in. The ways counted are the chart's, the implicit ones
+  (implicit.ts) included, so a step with a second way out, a fork, or a way in from elsewhere ends the run there. A
+  sometimes-step (`only_if`) can be inside: skipped, the run still goes on to the next. Two or more steps; one stays as it is.
+- **The box.** One grey helper node in the run's place, with a stacked edge under it, in the tidy layout and in the plain
+  graph alike (`grouped` turns the chart into the drawn one; the first step's id is the box's). Its words come from what
+  its steps keep: when most of them belong to one thing, "Prepare the alert's words (7 steps)" ("details" when not every
+  value is words) with its parts on the line under it ("its mark, face, headline and text; the drift line's verb (it's
+  or they've); how the drift questions start; 2 only sometimes"); otherwise what it keeps, "Remember the setter line,
+  booking kind, booking source and card's name ending (4 steps)" (past four, "and 3 more" with every one listed under
+  it), a lookup first ("Look up their bookings, then remember …"). Two boxes that would read the same are told apart by
+  the way into them ("…, when setter booked (3 steps)"), else counted. Tap it: the popover (`groupPopover`) lists every
+  step inside in order with its full words, its condition in blue, and how many went through each lately, or each
+  one's state on the run.
+- **Counts and runs.** Without a run the box wears its first step's count (D112). With one, its badge is its steps'
+  state: all ran (a check), a failure, a wait or a stop among them, all skipped; when not all simply ran, a pill beside
+  the badge says so ("5 ran · 2 skipped", "failed at step 3 of 7").
+- **Still exact** (D111). The box's SVG node carries `data-group`, its steps in order; the lines into it end at its first
+  step and the line out of it leaves from its last, so the check reads real ways. `exactness` accepts a box only when it
+  is two or more steps that each keep a value or look up, every step but the last has exactly one way out, a plain way to
+  the next in the box, and every step but the first exactly one way in, from the one before; then those inner ways count
+  as drawn and every step in the box as drawn once. A box that hides a fork, a way out, a way in, a step that acts, or
+  leaves a step out, doubles one or reorders them is a problem, and so is a line out that does not leave from the last.
+- Display only: what runs is unchanged; no template changed. The run feed already left values kept out (D111 drew them
+  on the chart only).
+- Tests: `src/chart/group.test.ts` (Health check's seven are one box with those words, between the alert starts and the
+  three-way fork, exact at both widths, only its real ways in and out drawn; PMU's Call booked's two boxes and the lone
+  `b_suffix`; the template's twin boxes told apart; a wait, a tag step and Jev's read split runs, a lookup joins one; a
+  fork and a second way in split a chain; a helper with an implicit way out is not grouped across it, and its end leaves
+  from the box's last step; forged drawings (a box claiming the fork, missing a step, reordered, of one, not starting at
+  its node; a way into or out of the middle added to the workflow; the line out moved to the first step) all caught; the
+  plain graph exact with its box for every shipped template and PMU copy that has one, at both widths; the count and the
+  run pill; the popover's steps, words, conditions, counts and states), and D111's matrix in `chart-views.test.ts`
+  (every shipped template and PMU copy exact with no run, every run, both widths, the path alone) now runs with boxes.
+  `scripts/render-charts.ts` takes `@id:skip` for a run's other states.

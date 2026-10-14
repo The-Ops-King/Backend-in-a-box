@@ -3,7 +3,7 @@
  * dashboard component (D107): each chart is built with chartOf from a template, a PMU copy or a built-in nested fixture,
  * the chart-only page in dashboard/render is built with Vite, and Chromium (Playwright) shoots it at desktop width and on
  * a phone. Names: a template slug, pmu/<file>, nested, or messy (D111: a shape only the plain graph draws); add @id,id,… for
- * the chart with a run selected that went through those steps. --counts puts made-up run counts on the steps (D112), fewer
+ * the chart with a run selected that went through those steps (id:skip, id:warn, … for another state than "ran"). --counts puts made-up run counts on the steps (D112), fewer
  * further down, none past a point, a sometimes-step skipped for half. --names draws boards, stages and fields by the CRM
  * names in a JSON file `{ bindings, names }` (D112; `names` as `CrmNames`, `null` for a CRM that could not be read).
  * Nothing touches a database or the CRM.
@@ -86,7 +86,8 @@ async function main() {
     // name@id,id,…: with a run selected that went through those steps, as the workflow page shows it (a phone: its path only)
     const [base, ran] = name.split("@"); const src = source(base); const chart = crm ? chartOf(src, company, crm.bindings, "ghl", namer(crm.bindings, crm.names)) : chartOf(src, company);
     if (withCounts) chart.counts = { days: 7, by: Object.fromEntries(chart.nodes.map((n, i) => { const went = Math.max(0, 23 - 2 * i); return [n.id, { went, skipped: n.onlyIf || n.cond ? Math.floor(went / 2) : 0 }]; }).filter(([, c]) => (c as { went: number }).went > 0)) };
-    const states = ran ? Object.fromEntries(chart.nodes.map((n) => [n.id, ran.split(",").includes(n.id) ? "ok" : "next"])) : undefined;
+    const went = new Map((ran ?? "").split(",").filter(Boolean).map((x) => x.split(":") as [string, string?]).map(([id, st]) => [id, st ?? "ok"]));
+    const states = ran ? Object.fromEntries(chart.nodes.map((n) => [n.id, went.get(n.id) ?? "next"])) : undefined;
     for (const [tag, width] of [["desktop", 1000], ["phone", 390]] as const) {
       const page = await browser.newPage({ viewport: { width, height: 800 }, deviceScaleFactor: 2 });
       page.on("pageerror", (e) => console.error(name, e.message));
@@ -95,7 +96,9 @@ async function main() {
       await page.waitForSelector(".chart svg");
       await page.waitForFunction(() => !document.body.innerText.includes("Drawing the chart"));
       await page.evaluate(() => document.fonts.ready.then(() => new Promise((r) => setTimeout(r, 150))));
-      const file = path.join(OUT, `${name.replace(/\//g, "-").replace(/@.*/, "-run")}.${tag}.png`);
+      // several runs of one chart: numbered
+      const same = list.filter((x) => x.startsWith(`${base}@`)); const nth = same.length > 1 ? same.indexOf(name) + 1 : "";
+      const file = path.join(OUT, `${name.replace(/\//g, "-").replace(/@.*/, `-run${nth}`)}.${tag}.png`);
       await page.screenshot({ path: file, fullPage: true });
       console.log(file);
       await page.close();

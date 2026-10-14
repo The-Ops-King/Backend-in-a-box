@@ -12,7 +12,8 @@ import type { GraphLayout } from "./graph";
  */
 /** when: the words are a folded branch's condition as the step shows it; on: an arrow that names its step by title. */
 export type Line = { from: string; to: string; label: string; else: boolean; when?: boolean; on?: boolean };
-export type Drawing = { nodes: string[]; lines: Line[]; problems?: string[]; filtered?: boolean };
+/** groups (D114): boxes that each stand for a run of steps, in order; their steps are in `nodes` too. */
+export type Drawing = { nodes: string[]; lines: Line[]; problems?: string[]; filtered?: boolean; groups?: string[][] };
 /** filtered: a deliberately partial view (a run's path on a phone, said on the page): only what it draws must be real. */
 export type Exactness = { exact: boolean; problems: string[]; filtered?: boolean };
 
@@ -28,10 +29,15 @@ export function realOf(chart: Chart): Drawing {
 const unesc = (s: string) => s.replace(/&quot;/g, "\"").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 /** The drawing an SVG from draw.ts is: its nodes (data-id, and the branch a step is drawn as: data-also) and its marked lines. */
 export function svgDrawing(svg: string): Drawing {
-  const nodes: string[] = []; const lines: Line[] = []; const problems: string[] = [];
+  const nodes: string[] = []; const lines: Line[] = []; const problems: string[] = []; const groups: string[][] = [];
   for (const m of svg.matchAll(/<g\b([^>]*)>/g)) {
     const a = m[1]; if (!/\bclass="nd\b/.test(a)) continue;
-    const id = /\bdata-id="([^"]*)"/.exec(a)?.[1]; if (id !== undefined) nodes.push(unesc(id));
+    const id = /\bdata-id="([^"]*)"/.exec(a)?.[1]; const grp = /\bdata-group="([^"]*)"/.exec(a)?.[1];
+    if (grp !== undefined) {
+      const ids = unesc(grp).split(",").map(decodeURIComponent);
+      if (id === undefined || ids[0] !== unesc(id)) problems.push(`a box “${id ?? "?"}” stands for steps it does not start with`);
+      groups.push(ids); nodes.push(...ids);
+    } else if (id !== undefined) nodes.push(unesc(id));
     const also = /\bdata-also="([^"]*)"/.exec(a)?.[1]; if (also !== undefined) nodes.push(unesc(also));
   }
   for (const m of svg.matchAll(/\bdata-ways="([^"]*)"/g)) for (const part of unesc(m[1]).split(";").filter(Boolean)) {
@@ -39,7 +45,7 @@ export function svgDrawing(svg: string): Drawing {
     lines.push({ from, to, label, else: els === "1", ...(when === "1" ? { when: true } : {}), ...(on === "1" ? { on: true } : {}) });
   }
   for (const m of svg.matchAll(/\bdata-more="(\d+)"/g)) problems.push(+m[1] === 1 ? "1 step is listed apart, not drawn on the chart" : `${m[1]} steps are listed apart, not drawn on the chart`);
-  return { nodes, lines, problems, filtered: /\bdata-filtered="1"/.test(svg) };
+  return { nodes, lines, problems, filtered: /\bdata-filtered="1"/.test(svg), ...(groups.length ? { groups } : {}) };
 }
 
 export function exactness(chart: Chart, drawing: Drawing): Exactness {
@@ -47,12 +53,29 @@ export function exactness(chart: Chart, drawing: Drawing): Exactness {
   const real = realOf(chart); const title = new Map(chart.nodes.map((n) => [n.id, `“${n.title}” (${n.id})`]));
   const name = (id: string) => title.get(id) ?? id;
   const want = new Set(real.nodes); const drawn = count(drawing.nodes); const filtered = !!drawing.filtered;
+  // D114: a box stands for its steps only when they are a straight run the workflow really has, each step only keeping a
+  // value or reading the ledger: the one way out of each is a plain way to the next, the one way into each after the
+  // first is from the one before. Then the ways inside it are drawn by it; nothing can join, leave or fork in between.
+  const inner: Line[] = [];
+  for (const g of drawing.groups ?? []) {
+    const say = `the box “${g.map(name).join(", ")}”`;
+    if (g.length < 2) problems.push(`${say} stands for one step`);
+    for (const id of g) if (title.has(id) && !chart.nodes.find((n) => n.id === id)!.plumb) problems.push(`${say} hides ${name(id)}, which does more than keep a value`);
+    g.forEach((id, i) => {
+      const outs = real.lines.filter((l) => l.from === id), ins = real.lines.filter((l) => l.to === id);
+      if (i < g.length - 1) {
+        const o = outs[0]; if (outs.length !== 1 || o.to !== g[i + 1] || o.label || o.else) problems.push(`${say} hides a way out of ${name(id)}: ${outs.length} way${outs.length === 1 ? "" : "s"} out, to ${outs.map((l) => name(l.to)).join(", ") || "nothing"}`);
+        else inner.push(o);
+      }
+      if (i > 0 && (ins.length !== 1 || ins[0].from !== g[i - 1])) problems.push(`${say} hides a way into ${name(id)} from ${ins.filter((l) => l.from !== g[i - 1]).map((l) => name(l.from)).join(", ") || "nowhere"}`);
+    });
+  }
   for (const id of real.nodes) if (!drawn.has(id) && !filtered) problems.push(`step ${name(id)} is not drawn`);
   for (const [id, k] of drawn) {
     if (!want.has(id)) problems.push(`${title.has(id) ? `step ${name(id)}` : `a box “${id}”`} is drawn but is not a step that runs`);
     else if (k > 1) problems.push(`step ${name(id)} is drawn ${k} times`);
   }
-  const lines = drawing.lines.map((l) => {
+  const lines = [...drawing.lines, ...inner].map((l) => {
     if (!l.when) return l;
     // a folded branch shows its condition the way the step's blue line says it ("a reschedule" for "this is a reschedule")
     const e = real.lines.find((r) => r.from === l.from && r.to === l.to && !r.else && whenOf(r.label) === l.label);
