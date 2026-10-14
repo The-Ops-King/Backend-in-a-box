@@ -1,0 +1,182 @@
+import type { Chart } from "@/api/words";
+
+/**
+ * The chart's layout as data (D107), apart from the drawing so it is tested without a browser: one spine of rows, each a
+ * straight run of nodes or a fork with its labelled groups, and a group's content is itself rows, so a fork inside a
+ * branch draws its own groups inside that branch. Every visible step ends up somewhere: what the walk does not reach is
+ * listed at the bottom under "More steps", never left out.
+ */
+type N = Chart["nodes"][number];
+/**
+ * cond: the blue mark (a step that may not fire); when: a sometimes-step's short condition, drawn dashed with that line
+ * (D103); also: the ids folded into this item (a wait drawn as the send's clock, a fork drawn as the step's condition);
+ * entry: a trigger that starts the run here, part way down (Call outcome's CRM no-show starts at the no-show steps).
+ */
+export type Item = { id: string; n: N; waits?: string; cond?: string; when?: string; also?: string[]; entry?: boolean };
+/** go: carries on to the fork's join; bare: one of a workflow's separate starts (no card, no label); from: the node the way leaves when not the fork (a reply-wait's "No reply"). */
+export type Group = { label: string; rows: Row[]; go: boolean; first: string | null; bare?: boolean; from?: string };
+export type Row =
+  | { kind: "nodes"; items: Item[] }
+  /** fork null: triggers that start in different places, each start a bare group, joining where their paths meet */
+  | { kind: "fork"; fork: Item | null; groups: Group[] }
+  /** the flow goes on at a step drawn elsewhere (another branch's step, a step past the join, a loop back) */
+  | { kind: "on"; to: string; title: string }
+  /** steps listed in order rather than drawn as branches: nested too deep, or not reached by the walk */
+  | { kind: "more"; label: string; items: Item[]; linked: boolean };
+
+const MAX_DEPTH = 4;
+
+export function arrange(chart: Chart): Row[] {
+  const byId = new Map(chart.nodes.map((n) => [n.id, n]));
+  const hidden = new Set(chart.nodes.filter((n) => n.hidden).map((n) => n.id));
+  const skip = (id: string): string => { let cur = id; for (let i = 0; i < 10 && hidden.has(cur); i++) { const o = chart.edges.find((e) => e.from === cur); if (!o) break; cur = o.to; } return cur; };
+  const outs = (id: string) => chart.edges.filter((e) => e.from === id).map((e) => ({ ...e, to: skip(e.to) }));
+  const ins = (id: string) => chart.edges.filter((e) => e.to === id);
+  const nexts = (id: string) => [...new Set(outs(id).map((e) => e.to))];
+  const seen = new Set<string>();
+
+  // one item per visible node; a wait followed by one send folds into that send (a clock on the node)
+  const item = (id: string): Item => {
+    const n = byId.get(id)!; const it: Item = { id, n };
+    // a wait that is itself a sometimes-step stays its own node, so its condition is not put on the send
+    if (n.kind === "wait" && !n.onlyIf) { const o = outs(id); if (o.length === 1) { const nx = byId.get(o[0].to); if (nx && nx.kind === "send" && ins(nx.id).length === 1 && !seen.has(nx.id)) return { id: nx.id, n: nx, waits: n.title, cond: nx.cond, when: nx.onlyIf, also: [id] }; } }
+    if (n.cond && (n.kind === "send" || n.onlyIf)) it.cond = n.cond;
+    if (n.onlyIf) it.when = n.onlyIf;
+    return it;
+  };
+  // a conditional send: a branch with one "when" to a single step that rejoins where "otherwise" goes; a wait right before it folds in
+  const condOf = (forkId: string): { step: N; cond: string; when: string; next: string } | null => {
+    const f = byId.get(forkId); if (!f || f.kind !== "fork") return null;
+    const fo = outs(forkId); if (fo.length !== 2 || !fo.some((e) => e.else) || !fo.some((e) => !e.else)) return null;
+    const yes = fo.find((e) => !e.else)!, no = fo.find((e) => e.else)!; const step = byId.get(yes.to); const after = step ? nexts(step.id) : [];
+    return step && !seen.has(step.id) && after.length === 1 && after[0] === no.to ? { step, cond: `Only when ${yes.label}`, when: yes.label.replace(/^this is not /, "not ").replace(/^this is /, ""), next: no.to } : null;
+  };
+  /** Every node reachable from `from` (itself included) with its distance, not going past a stop node or a placed one. */
+  const reach = (from: string, stop: Set<string>): Map<string, number> => {
+    const d = new Map<string, number>([[from, 0]]); const q = [from];
+    while (q.length) { const id = q.shift()!; if (stop.has(id) || seen.has(id)) continue; for (const nx of nexts(id)) if (!d.has(nx)) { d.set(nx, d.get(id)! + 1); q.push(nx); } }
+    return d;
+  };
+  const below = (id: string) => { const r = reach(id, new Set()); r.delete(id); return r; };
+  /**
+   * Where a fork's ways meet again: of the nodes the most ways reach, the first (no other such node leads to it).
+   * Counting ways first keeps a cross-link (the team's ✅ going to the confirmed steps) from passing for the join. When
+   * no two ways meet inside, the enclosing fork's join, if a way gets there.
+   */
+  const joinOf = (starts: string[], stop: Set<string>): string | null => {
+    const R = starts.map((s) => reach(s, stop));
+    const pick = (ids: string[]) => {
+      const sc = ids.map((id) => ({ id, count: R.filter((r) => r.has(id)).length, dist: R.reduce((a, r) => a + (r.get(id) ?? 0), 0) }));
+      const top = Math.max(...sc.map((s) => s.count)); const best = sc.filter((s) => s.count === top);
+      const first = best.filter((s) => !best.some((o) => o.id !== s.id && below(o.id).has(s.id)));
+      return (first.length ? first : best).sort((a, b) => a.dist - b.dist)[0]?.id ?? null;
+    };
+    const all = [...new Set(R.flatMap((r) => [...r.keys()]))];
+    const inner = all.filter((id) => !stop.has(id) && !seen.has(id) && R.filter((r) => r.has(id)).length > 1);
+    if (inner.length) return pick(inner);
+    const outer = all.filter((id) => stop.has(id));
+    return outer.length ? pick(outer) : null;
+  };
+  const labelOf = (l: string) => l.replace(/^the reply is (a )?/i, "").replace(/[“”"]/g, "").replace(/^./, (ch) => ch.toUpperCase());
+
+  /** A fork's groups, each walked to the join; past the depth limit, its steps listed in order instead. */
+  function forkRow(fork: Item | null, ways: { label: string; to: string; lead?: Item[]; from?: string }[], stop: Set<string>, depth: number): { row: Row; join: string | null } {
+    const join = joinOf(ways.map((w) => w.to), stop);
+    if (depth >= MAX_DEPTH) {
+      const list: Item[] = fork ? [fork] : []; const halt = new Set([...stop, ...(join ? [join] : [])]);
+      for (const w of ways) { list.push(...(w.lead ?? [])); for (const id of reach(w.to, halt).keys()) if (!seen.has(id) && !halt.has(id) && !hidden.has(id)) { seen.add(id); list.push({ id, n: byId.get(id)! }); } }
+      return { row: { kind: "more", label: "Too deep to draw as branches: its steps in order", items: list, linked: true }, join };
+    }
+    const inner = new Set(stop); if (join) { inner.add(join); for (const id of below(join).keys()) inner.add(id); }
+    const groups: Group[] = ways.map((w) => {
+      const { rows, end } = walk(w.to, inner, depth + 1);
+      if (w.lead) rows.unshift({ kind: "nodes", items: w.lead });
+      // left the group somewhere other than the join: say where it goes on
+      if (end && end !== join) rows.push({ kind: "on", to: end, title: byId.get(end)?.title ?? end });
+      const head = rows.find((r) => r.kind === "nodes" || r.kind === "fork");
+      const first = !head ? null : head.kind === "nodes" ? head.items[0].id : head.kind === "fork" ? head.fork?.id ?? null : null;
+      return { label: fork ? labelOf(w.label) : "", rows, go: !!join && end === join, first, ...(fork ? {} : { bare: true }), ...(w.from ? { from: w.from } : {}) };
+    });
+    return { row: { kind: "fork", fork, groups }, join };
+  }
+
+  /** The rows from `start` until a stop node (returned as `end`), an end, or a step already drawn. */
+  function walk(start: string | null, stop: Set<string>, depth: number): { rows: Row[]; end: string | null } {
+    const rows: Row[] = []; let line: Item[] = [];
+    const flush = () => { if (line.length) { rows.push({ kind: "nodes", items: line }); line = []; } };
+    let cur = start;
+    for (let guard = 0; cur && guard < 400; guard++) {
+      if (stop.has(cur)) { flush(); return { rows, end: cur }; }
+      if (seen.has(cur)) { flush(); rows.push({ kind: "on", to: cur, title: byId.get(cur)?.title ?? cur }); return { rows, end: null }; }
+      const n = byId.get(cur); if (!n) break;
+      const ent = entries.get(cur); if (ent) { entries.delete(cur); line.push(...ent); }
+      seen.add(cur);
+      const o = outs(cur);
+      if (n.kind === "fork") { const c = condOf(cur); if (c && !stop.has(c.step.id)) { seen.add(c.step.id); line.push({ id: c.step.id, n: c.step, cond: c.cond, when: c.when, also: [cur] }); cur = c.next; continue; } }
+      if (n.kind === "wait" && o.length === 1 && !seen.has(o[0].to) && !stop.has(o[0].to)) { const c = condOf(o[0].to); if (c && !stop.has(c.step.id)) { seen.add(o[0].to); seen.add(c.step.id); line.push({ id: c.step.id, n: c.step, cond: c.cond, when: c.when, waits: n.title, also: [cur, o[0].to] }); cur = c.next; continue; } }
+      // a reply-wait with a timeout edge: the fork after the reply takes "No reply" as one more way out
+      if (n.kind === "reply" && o.length === 2) {
+        const replied = o.find((e) => e.label !== "no reply in time") ?? o[0], timeout = o.find((e) => e.label === "no reply in time");
+        const fork = byId.get(replied.to);
+        if (fork && fork.kind === "fork" && timeout && !seen.has(fork.id) && !stop.has(fork.id)) {
+          line.push(item(cur)); flush(); seen.add(fork.id);
+          const ways = [...outs(fork.id).map((e) => ({ label: e.label || "otherwise", to: e.to })), { label: "No reply", to: timeout.to, from: cur }];
+          const r = forkRow({ id: fork.id, n: fork }, ways, stop, depth); rows.push(r.row); cur = r.join; continue;
+        }
+      }
+      if (o.length > 1) {
+        flush();
+        const r = forkRow(item(cur), o.map((e) => ({ label: e.label || "otherwise", to: e.to })), stop, depth); rows.push(r.row); cur = r.join; continue;
+      }
+      const it = item(cur); line.push(it);
+      // a folded wait+send: carry on from after the send
+      if (it.id !== cur) { seen.add(it.id); cur = nexts(it.id)[0] ?? null; continue; }
+      cur = o[0]?.to ?? null;
+    }
+    flush(); return { rows, end: null };
+  }
+
+  // the starts: triggers that share a first step sit side by side over it; a trigger whose first step another start
+  // reaches anyway is drawn where it comes in; starts that only meet further down (or never) are bare groups side by side
+  const entries = new Map<string, Item[]>();
+  const byFirst = new Map<string, Item[]>();
+  for (const t of chart.nodes.filter((n) => n.kind === "trig")) { seen.add(t.id); const f = outs(t.id)[0]?.to ?? ""; byFirst.set(f, [...(byFirst.get(f) ?? []), { id: t.id, n: t }]); }
+  const firsts = [...byFirst.keys()].filter((f) => byId.has(f));
+  const roots = firsts.filter((f) => !firsts.some((g) => g !== f && below(g).has(f)));
+  for (const f of firsts) if (!roots.includes(f)) entries.set(f, byFirst.get(f)!.map((t) => ({ ...t, entry: true })));
+  const lead = [...byFirst.entries()].filter(([f]) => !byId.has(f)).flatMap(([, ts]) => ts);
+  const rows: Row[] = [];
+  if (roots.length <= 1) {
+    const top = [...lead, ...(roots.length ? byFirst.get(roots[0])! : [])];
+    if (top.length) rows.push({ kind: "nodes", items: top });
+    if (roots.length) rows.push(...walk(roots[0], new Set(), 0).rows);
+  } else {
+    if (lead.length) rows.push({ kind: "nodes", items: lead });
+    const r = forkRow(null, roots.map((f) => ({ label: "", to: f, lead: byFirst.get(f)! })), new Set(), 0);
+    rows.push(r.row);
+    if (r.join) rows.push(...walk(r.join, new Set(), 0).rows);
+  }
+
+  // nothing is dropped silently: a visible step the walk did not reach is listed at the bottom
+  const placed = new Set(placedIds(rows));
+  const left = drawable(chart).filter((id) => !placed.has(id));
+  if (left.length) rows.push({ kind: "more", label: "More steps (not placed on the chart)", items: left.map((id) => ({ id, n: byId.get(id)! })), linked: false });
+  return rows;
+}
+
+/** The ids a layout placed, each folded node with the item it is drawn as. */
+export function placedIds(rows: Row[]): string[] {
+  const out: string[] = []; const put = (it: Item) => out.push(it.id, ...(it.also ?? []));
+  for (const r of rows) {
+    if (r.kind === "nodes" || r.kind === "more") r.items.forEach(put);
+    else if (r.kind === "fork") { if (r.fork) put(r.fork); for (const g of r.groups) out.push(...placedIds(g.rows)); }
+  }
+  return out;
+}
+/**
+ * The nodes a chart draws: every one not hidden, except an exit no edge leads to (a check's else_exit stops the run
+ * itself, and the check's words say so; Daily EOD reminder's "nothing to file" is one).
+ */
+export function drawable(chart: Chart): string[] {
+  return chart.nodes.filter((n) => !n.hidden && !(n.kind === "end" && !chart.edges.some((e) => e.to === n.id))).map((n) => n.id);
+}

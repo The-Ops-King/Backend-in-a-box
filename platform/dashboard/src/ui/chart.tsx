@@ -4,18 +4,16 @@ import type { Chart, PathItem } from "~/api";
 import { Title } from "./steps";
 import { Check, Clock, Cond, Ghost, Skip, Warn, stateIcon } from "./icons";
 import { STATE_ORDER, STATE_WORDS } from "./pieces";
+import { arrange, type Group, type Item, type Row } from "./arrange";
 
 /**
  * The flow chart (design guide §5): one vertical spine, every step its own node, the fork's outcomes as labelled groups
  * side by side, the groups that carry on curving back to the spine. Drawn by us, as SVG, from the chart words the API
- * sends. With a run's states, each node wears a small badge and the nodes not reached dim. Groups wrap into rows when
- * the container is narrow, so nothing scrolls sideways. On a phone with a run shown, only the path taken is drawn.
+ * sends. A group is drawn like the spine (D107): a fork inside it gets its own groups inside it. With a run's states,
+ * each node wears a small badge and the nodes not reached dim. Groups that do not fit side by side stack in one column,
+ * so nothing scrolls sideways. On a phone with a run shown, only the path taken is drawn. The layout is arrange.ts.
  */
-type N = Chart["nodes"][number]; type St = PathItem["state"];
-/** cond: the blue mark (a step that may not fire); when: a sometimes-step's short condition, drawn dashed with that line (D103). */
-type Item = { id: string; n: N; waits?: string; cond?: string; when?: string; outcomes?: { label: string; to: string }[] };
-type Group = { label: string; items: Item[]; go: boolean; first: string | null };
-type Row = { kind: "nodes"; items: Item[] } | { kind: "fork"; fork: Item; groups: Group[] };
+type St = PathItem["state"];
 
 const T = (k: string) => `var(--${k})`;
 const TEXT_W = 7.6, PAD = 28, LINE = 16, VPAD = 9, H = 34, GAP = 18, IF_W = 6.2, IF_H = 19, IF_PAD = 16, DASH = "5 4";
@@ -28,18 +26,18 @@ function tw(s: string, per = TEXT_W): number {
 // :shortcodes: in the words (the emoji a step waits for) are drawn as the emoji, the way Slack shows them
 const labelOf = (it: Item) => (it.n.title + (it.n.meta && it.n.kind !== "send" ? ` · ${it.n.meta}` : "") + (it.waits ? ` · ${it.waits}` : "")).replace(/:([a-z0-9_+-]+):/g, (m, code) => emoji(code) ?? m);
 /** Words onto lines no wider than `max` characters; two lines wanted, three at most, nothing cut. */
-function wrap(text: string, max: number): string[] {
+function wrap(text: string, max: number, most = 4): string[] {
   const words = text.split(/\s+/); const lines: string[] = []; let cur = "";
   const maxPx = max * TEXT_W;
   for (const w of words) { const next = cur ? `${cur} ${w}` : w; if (tw(next) <= maxPx || !cur) cur = next; else { lines.push(cur); cur = w; } }
   if (cur) lines.push(cur);
-  const cut = (l: string) => { if (tw(l) <= maxPx) return l; let k = l.length; while (k > 3 && tw(`${l.slice(0, k)}…`) > maxPx) k--; return `${l.slice(0, k)}…`; };
-  // four lines at most; past that the last line is cut with an ellipsis rather than spilling out of the box
-  if (lines.length > 4) { const keep = lines.slice(0, 4); keep[3] = cut(keep[3]); return keep; }
-  return lines.map(cut);
+  const cut = (l: string, more = false) => { if (!more && tw(l) <= maxPx) return l; let k = l.length; while (k > 3 && tw(`${l.slice(0, k)}…`) > maxPx) k--; return `${l.slice(0, k).trimEnd()}…`; };
+  // four lines at most (six in a narrow column); past that the last line is cut with an ellipsis rather than spilling out of the box
+  if (lines.length > most) { const keep = lines.slice(0, most); keep[most - 1] = cut(keep[most - 1], true); return keep; }
+  return lines.map((l) => cut(l));
 }
 /** The lines a node shows and the box they need, within the width allowed. */
-type Size = { lines: string[]; w: number; h: number; chips?: { text: string; stage: boolean }[] };
+type Size = { lines: string[]; w: number; h: number; chips?: { text: string; stage: boolean }[]; noIcon?: boolean };
 function sizeOf(it: Item, maxW: number): Size {
   const s = sizeOfTitle(it, maxW); if (!it.when) return s;
   // the condition line under the title: as wide as it needs, up to the width allowed, cut with … past that
@@ -47,102 +45,28 @@ function sizeOf(it: Item, maxW: number): Size {
 }
 const ifLine = (it: Item) => `only if ${it.when}`;
 function sizeOfTitle(it: Item, maxW: number): Size {
-  const extra = (it.waits ? 22 : 0) + (it.cond && !it.when ? 18 : 0) + (kindIconOf(it) ? 22 : 0);
+  // a node in a narrow column (a group inside a group) gives its logo's room to the words, and may run to six lines
+  const narrow = maxW < 150; const most = narrow ? 6 : 4;
+  const extra = (it.waits ? 22 : 0) + (it.cond && !it.when ? 18 : 0) + (kindIconOf(it) && !narrow ? 22 : 0);
   // “tags” and ‹stages› in the words become chips under the title
   const raw = labelOf(it); const found = raw.match(/“[^”]*”|‹[^›]*›/g);
   if (found) {
     const chips = found.flatMap((c) => { const text = c.slice(1, -1), stage = c.startsWith("‹"); if (stage && tw(text, 6.4) + 22 + PAD > maxW && text.includes(" → ")) { const [a, b] = text.split(" → "); return [{ text: `${a} →`, stage }, { text: b, stage }]; } return [{ text, stage }]; });
     const verb = raw.replace(/“[^”]*”|‹[^›]*›/g, "").replace(/\s*·\s*$/, "").replace(/,\s*/g, " ").replace(/\s+/g, " ").trim().replace(/ tag$/, chips.length > 1 ? " tags" : " tag");
     const maxChars = Math.max(8, Math.floor((maxW - PAD - extra) / TEXT_W));
-    const lines = tw(verb) <= maxChars * TEXT_W ? [verb] : wrap(verb, maxChars);
+    const lines = tw(verb) <= maxChars * TEXT_W ? [verb] : wrap(verb, maxChars, most);
     const w = Math.min(maxW, Math.max(96, Math.round(Math.max(...lines.map((l) => tw(l) + extra), ...chips.map((c) => tw(c.text, 6.4) + 22)) + PAD)));
-    return { lines, chips, w, h: VPAD * 2 + lines.length * LINE + chips.length * 20 };
+    return { lines, chips, w, h: VPAD * 2 + lines.length * LINE + chips.length * 20, noIcon: narrow };
   }
   const label = raw; const maxChars = Math.max(8, Math.floor((maxW - PAD - extra) / TEXT_W));
   // two balanced lines when it does not fit on one; more only when it must
-  let lines = tw(label) <= maxChars * TEXT_W ? [label] : wrap(label, Math.max(maxChars, Math.ceil(label.length / 2) + 2) <= maxChars ? Math.max(8, Math.ceil(label.length / 2) + 2) : maxChars);
-  if (lines.some((l) => tw(l) > maxChars * TEXT_W)) lines = wrap(label, maxChars);
+  let lines = tw(label) <= maxChars * TEXT_W ? [label] : wrap(label, Math.max(maxChars, Math.ceil(label.length / 2) + 2) <= maxChars ? Math.max(8, Math.ceil(label.length / 2) + 2) : maxChars, most);
+  if (lines.some((l) => tw(l) > maxChars * TEXT_W)) lines = wrap(label, maxChars, most);
   const longest = Math.max(...lines.map((l) => tw(l)));
   const w = Math.min(maxW, Math.max(it.n.kind === "end" ? 64 : 96, Math.round(longest + PAD + extra)));
-  return { lines, w, h: VPAD * 2 + lines.length * LINE };
+  return { lines, w, h: VPAD * 2 + lines.length * LINE, noIcon: narrow };
 }
 const trunc = (s: string, w: number, per = TEXT_W) => { const maxPx = w - PAD; if (tw(s, per) <= maxPx) return s; let k = s.length; while (k > 3 && tw(`${s.slice(0, k)}…`, per) > maxPx) k--; return `${s.slice(0, k)}…`; };
-
-/** Read the chart into rows: straight runs of nodes, and forks with their groups. */
-export function arrange(chart: Chart): Row[] {
-  const byId = new Map(chart.nodes.map((n) => [n.id, n]));
-  const outs = (id: string) => chart.edges.filter((e) => e.from === id);
-  const ins = (id: string) => chart.edges.filter((e) => e.to === id);
-  const hidden = new Set(chart.nodes.filter((n) => n.hidden).map((n) => n.id));
-  const skip = (id: string): string => { let cur = id; for (let i = 0; i < 10 && hidden.has(cur); i++) { const o = outs(cur)[0]; if (!o) break; cur = o.to; } return cur; };
-  // one item per visible node; a wait followed by one send folds into that send (a clock on the node)
-  const folded = new Set<string>();
-  const item = (id: string): Item => {
-    const n = byId.get(id)!; const it: Item = { id, n };
-    // a wait that is itself a sometimes-step stays its own node, so its condition is not put on the send
-    if (n.kind === "wait" && !n.onlyIf) { const o = outs(id); if (o.length === 1) { const nx = byId.get(skip(o[0].to)); if (nx && nx.kind === "send" && ins(nx.id).length === 1) { folded.add(id); return { id: nx.id, n: nx, waits: n.title, cond: nx.cond, when: nx.onlyIf }; } } }
-    if (n.cond && (n.kind === "send" || n.onlyIf)) it.cond = n.cond;
-    if (n.onlyIf) it.when = n.onlyIf;
-    return it;
-  };
-  const rows: Row[] = []; const seen = new Set<string>();
-  const trigs = chart.nodes.filter((n) => n.kind === "trig");
-  let cur: string | null = null; let line: Item[] = [];
-  if (trigs.length) { line.push(...trigs.map((t) => ({ id: t.id, n: t }))); trigs.forEach((t) => seen.add(t.id)); const firsts = new Set(trigs.map((t) => skip(outs(t.id)[0]?.to ?? ""))); cur = firsts.size === 1 ? [...firsts][0] : null; }
-  const flush = () => { if (line.length) { rows.push({ kind: "nodes", items: line }); line = []; } };
-  let guard = 0;
-  while (cur && !seen.has(cur) && guard++ < 200) {
-    const n = byId.get(cur); if (!n) break;
-    seen.add(cur);
-    const o = outs(cur).map((e) => ({ ...e, to: skip(e.to) }));
-    // a conditional send: a branch with one "when" to a single step that rejoins where "otherwise" goes; a wait right before it folds in
-    const condOf = (forkId: string): { step: N; cond: string; when: string; next: string } | null => {
-      const f = byId.get(forkId); if (!f || f.kind !== "fork") return null;
-      const fo = outs(forkId).map((e) => ({ ...e, to: skip(e.to) })); if (fo.length !== 2 || !fo.some((e) => e.else) || !fo.some((e) => !e.else)) return null;
-      const yes = fo.find((e) => !e.else)!, no = fo.find((e) => e.else)!; const step = byId.get(yes.to); const after = step ? outs(step.id).map((e) => skip(e.to)) : [];
-      return step && after.length === 1 && after[0] === no.to ? { step, cond: `Only when ${yes.label}`, when: yes.label.replace(/^this is not /, "not ").replace(/^this is /, ""), next: no.to } : null;
-    };
-    if (n.kind === "fork") { const c = condOf(cur); if (c) { seen.add(c.step.id); line.push({ id: c.step.id, n: c.step, cond: c.cond, when: c.when }); cur = c.next; continue; } }
-    if (n.kind === "wait" && o.length === 1) { const c = condOf(o[0].to); if (c) { seen.add(o[0].to); seen.add(c.step.id); line.push({ id: c.step.id, n: c.step, cond: c.cond, when: c.when, waits: n.title }); cur = c.next; continue; } }
-    // a reply-wait with a timeout edge: the fork after the reply takes "No reply" as one more way out
-    if (n.kind === "reply" && o.length === 2) {
-      const replied = o.find((e) => e.label !== "no reply in time") ?? o[0], timeout = o.find((e) => e.label === "no reply in time");
-      const forkId = skip(replied.to); const fork = byId.get(forkId);
-      if (fork && fork.kind === "fork" && timeout) {
-        line.push(item(cur)); flush(); seen.add(forkId);
-        const ways = [...outs(forkId).map((e) => ({ label: e.label || "otherwise", to: skip(e.to) })), { label: "No reply", to: timeout.to }];
-        const { groups, join } = groupsOf(ways);
-        rows.push({ kind: "fork", fork: { id: forkId, n: fork, outcomes: ways }, groups }); cur = join; continue;
-      }
-    }
-    if (o.length > 1) {
-      flush();
-      const ways = o.map((e) => ({ label: e.label || "otherwise", to: e.to }));
-      const { groups, join } = groupsOf(ways);
-      const last = line; void last;
-      rows.push({ kind: "fork", fork: { id: cur, n, outcomes: ways }, groups }); cur = join; continue;
-    }
-    const it = item(cur);
-    line.push(it);
-    // a folded wait+send: carry on from after the send
-    if (it.id !== cur) { seen.add(it.id); const after = outs(it.id).map((e) => skip(e.to)); cur = after[0] ?? null; continue; }
-    cur = o[0] ? o[0].to : null;
-  }
-  flush();
-  return rows;
-
-  function groupsOf(ways: { label: string; to: string }[]): { groups: Group[]; join: string | null } {
-    // each way's chain until the first node another way also reaches: that node is the join and the spine goes on from it
-    const chains = ways.map((w) => { const c: string[] = []; let id: string | null = w.to; const s = new Set<string>(); for (let i = 0; id && i < 40 && !s.has(id); i++) { s.add(id); c.push(id); const nn = byId.get(id); if (!nn || nn.kind === "end") break; const oo: string[] = outs(id).map((e) => skip(e.to)); if (oo.length !== 1) break; id = oo[0]; } return c; });
-    const count = new Map<string, number>(); for (const c of chains) for (const id of new Set(c)) count.set(id, (count.get(id) ?? 0) + 1);
-    let join: string | null = null;
-    for (const c of chains) { const j = c.find((id) => (count.get(id) ?? 0) > 1); if (j && (!join || c.indexOf(j) < c.indexOf(join))) join = j; }
-    // a group may end in a fork of its own (the team's tap after an unclear reply): it carries on when one of that fork's ways is the join
-    const forksOn = (id: string | undefined) => !!id && byId.get(id)?.kind === "fork" && !!join && outs(id).some((e) => skip(e.to) === join);
-    const groups: Group[] = ways.map((w, i) => { const c = chains[i]; const upto = join ? c.indexOf(join) : -1; const ids = upto >= 0 ? c.slice(0, upto) : c; ids.forEach((id) => seen.add(id)); const items = ids.map(item); return { label: w.label.replace(/^the reply is (a )?/i, "").replace(/[“”"]/g, "").replace(/^./, (ch) => ch.toUpperCase()), items, go: upto >= 0 || forksOn(ids[ids.length - 1]), first: ids[0] ?? null }; });
-    return { groups, join };
-  }
-}
 
 export function FlowChart({ chart, states, pathOnly, onOpen }: { chart: Chart; states?: Record<string, St>; pathOnly?: boolean; onOpen?: (id: string, el: SVGGElement) => void }) {
   const box = useRef<HTMLDivElement>(null);
@@ -155,15 +79,14 @@ export function FlowChart({ chart, states, pathOnly, onOpen }: { chart: Chart; s
     dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
+const G_GAP = 14, G_MIN = 130, G_COL = 190;
 function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOnly: boolean): string {
-  const out: string[] = []; const x = W / 2; let y = 14;   // y is the top of the next thing to draw
-  const maxNodeW = Math.min(300, W - 24);
-  let prevBottom: number | null = null;
+  const out: string[] = [];
   const link = (x1: number, y1: number, x2: number, y2: number, dashed = false) => { const my = (y1 + y2) / 2; out.push(`<path d="M${x1} ${y1} C${x1} ${my} ${x2} ${my} ${x2} ${y2}" fill="none" stroke="${T("edge")}" stroke-width="1.6"${dashed ? ` stroke-dasharray="${DASH}"` : ""}/>`); };
   // the node last put, so the edge out of a sometimes-step is dashed and the way around it ("otherwise") can be drawn
   type Placed = { it: Item; cx: number; top: number; bottom: number; w: number; above: boolean };
   let last: Placed | null = null;
-  // one node on the spine (or at cx): draws it at the current y, returns its bottom
+  // one node at cx: draws it with its top at `top`, returns its bottom
   const put = (it: Item, cx: number, top: number, maxW: number, above = false) => { const sz = sizeOf(it, maxW); out.push(node(it, cx, top + sz.h / 2, sz, stateOf(it.id))); last = { it, cx, top, bottom: top + sz.h, w: sz.w, above }; return top + sz.h; };
   /**
    * The edge straight down from the node last put to the next thing at (x, y2), dashed into or out of a sometimes-step.
@@ -179,84 +102,134 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
     out.push(`<path class="by" d="M${p.cx} ${a} Q${rx} ${a} ${rx} ${p.top + 8} V${p.bottom - 8} Q${rx} ${b} ${p.cx} ${b}" fill="none" stroke="${T("cond")}" stroke-width="1.4" stroke-opacity=".75"/>`);
     if (rx + 6 + tw("otherwise", IF_W) <= limit) out.push(`<text class="lbl" x="${rx + 6}" y="${(p.top + p.bottom) / 2 + 4}" style="fill:${T("cond")}">otherwise</text>`);
   };
-  for (const row of rows) {
-    if (row.kind === "nodes") {
-      // triggers side by side when there are several; everything else down the spine
-      const trigs = row.items.filter((it) => it.n.kind === "trig"); const rest = row.items.filter((it) => it.n.kind !== "trig");
-      if (trigs.length > 1) { const w = Math.min(maxNodeW, (W - 24 - (trigs.length - 1) * 12) / trigs.length); const total = trigs.length * w + (trigs.length - 1) * 12; let tx = x - total / 2 + w / 2; let bottom = y; for (const it of trigs) { bottom = Math.max(bottom, put(it, tx, y, w)); tx += w + 12; } tx = x - total / 2 + w / 2; for (let i = 0; i < trigs.length; i++) { link(tx, bottom, x, bottom + GAP); tx += w + 12; } prevBottom = null; y = bottom + GAP; }
-      else if (trigs.length === 1) { if (prevBottom !== null) down(x, prevBottom, y, trigs[0], W - 4); prevBottom = put(trigs[0], x, y, maxNodeW, prevBottom !== null); y = prevBottom + GAP; }
-      for (const it of rest) {
-        const above = prevBottom !== null;
-        if (prevBottom !== null) down(x, prevBottom, y, it, W - 4);
-        prevBottom = put(it, x, y, maxNodeW, above); y = prevBottom + GAP;
+  // on a phone with a run, only the groups the run took
+  const shown = (gs: Group[]) => { if (!pathOnly) return gs; const taken = gs.filter((g) => g.first && stateOf(g.first) && stateOf(g.first) !== "next"); return taken.length ? taken : gs; };
+  /** The width rows need to draw every fork in them with its groups side by side: at the narrowest, and at ease. */
+  const needs = new Map<Row[], { min: number; want: number }>();
+  const need = (rs: Row[]): { min: number; want: number } => {
+    const had = needs.get(rs); if (had) return had;
+    let min = 0, want = 0;
+    for (const r of rs) if (r.kind === "fork") { const gs = shown(r.groups).map((g) => need(g.rows)); const pad = (gs.length - 1) * G_GAP + 16; min = Math.max(min, gs.reduce((a, g) => a + Math.max(G_MIN, g.min), 0) + pad); want = Math.max(want, gs.reduce((a, g) => a + Math.max(G_COL, g.want), 0) + pad); }
+    const r = { min, want }; needs.set(rs, r); return r;
+  };
+  const capLines = (g: Group, colW: number) => g.bare ? [] : wrap(g.label.toUpperCase(), Math.max(8, Math.floor((colW - 12) / 6.4)), 2);
+  const card = (g: Group, cx: number, top: number, colW: number, h: number, lit: boolean) => `<rect x="${cx - colW / 2}" y="${top}" width="${colW}" height="${h}" rx="12" fill="${T("panel")}" stroke="${lit ? T("acc") : T("line")}" stroke-width="1.5"/>` + capLines(g, colW).map((l, i) => `<text class="cap" x="${cx}" y="${top + 16 + i * 13}" text-anchor="middle" fill="${lit ? T("acc") : T("fg-3")}">${esc(l)}</text>`).join("");
+  /**
+   * One group's content inside its card (or bare), its top at `top`: returns the card's bottom and where the line back
+   * to the join starts.
+   */
+  const inGroup = (g: Group, cx: number, top: number, colW: number): { bottom: number; exit: number } => {
+    const head = g.bare ? 0 : 22 + (capLines(g, colW).length - 1) * 13 + 8;
+    if (!g.rows.length) { out.push(`<text class="lbl" x="${cx}" y="${top + head + 14}" text-anchor="middle">carries on</text>`); return { bottom: top + head + 34, exit: top + head + 34 }; }
+    const r = region(g.rows, cx, colW, Math.min(g.bare ? 300 : 344, colW - (g.bare ? 8 : 16)), cx + colW / 2 - 4, top + head, !g.bare);
+    // the lines of a fork that ends the group meet at the card's bottom edge, and the group's own line goes on from there
+    if (r.joined && !g.bare) out.push(`<path d="M${cx} ${r.exit} V${r.exit! + 10}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`);
+    const bottom = r.joined ? r.exit! + (g.bare ? 0 : 10) : g.bare ? r.bottom : r.bottom + 14;
+    return { bottom, exit: g.bare ? r.exit ?? r.bottom : bottom };
+  };
+
+  /**
+   * Rows down a spine at x in a region W wide. Returns the lowest point drawn, the top of whatever would come next, and
+   * where the flow leaves at x: the bottom of the last node, or (joined) the point a fork's lines meet; null where it ends.
+   */
+  function region(rs: Row[], x: number, W: number, nodeW: number, limit: number, y: number, wayIn: boolean): { bottom: number; next: number; exit: number | null; joined: boolean } {
+    let pb: number | null = null, px = x;      // the bottom (and x) of the node to link down from
+    let joined = false;                        // the last thing was a fork whose lines meet at (x, y)
+    let around: number | null = null;          // an entry trigger sits in the way in: the way in starts here and passes it
+    let aroundTop = false;                     // …from the top of its group, under the label
+    let bottom = y; let first = true; let entryLeft = x;
+    const arrive = (it: Item | null, top: number) => {
+      if (pb !== null) { if (px !== x) link(px, pb, x, top); else down(x, pb, top, it, limit); }
+      if (around !== null) { const lx = entryLeft - 10; out.push(`<path d="${aroundTop ? `M${lx} ${around}` : `M${x} ${around} Q${lx} ${around} ${lx} ${around + 14}`} V${top - 14} Q${lx} ${top} ${x} ${top}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`); around = null; }
+    };
+    const step = (it: Item) => {
+      if (it.entry) {
+        // a trigger that starts the run here: beside the way in, which curves around it; both meet at the next step
+        const from = pb !== null && px === x ? pb : joined ? y : first && wayIn ? y - 6 : null;
+        if (joined) y += GAP;
+        aroundTop = pb === null && !joined && from !== null; around = from; pb = put(it, x + 14, y, nodeW - 36); px = x + 14; entryLeft = x + 14 - (last as Placed | null)!.w / 2; joined = false; y = pb + GAP; return;
       }
-      continue;
-    }
-    // the fork node, then its groups in rows that fit the width
-    const f = row.fork; if (prevBottom !== null) down(x, prevBottom, y, f, W - 4);
-    const forkBottom = put(f, x, y, maxNodeW); y = forkBottom + GAP + 10;
-    let groups = row.groups;
-    if (pathOnly) { const taken = groups.filter((g) => g.first && stateOf(g.first) && stateOf(g.first) !== "next"); if (taken.length) groups = taken; }
-    const gap = 14; const minG = 130;
-    const fit = Math.max(1, Math.min(groups.length, Math.floor((W - 16 + gap) / (minG + gap))));
-    const bottoms: { x: number; y: number; go: boolean }[] = [];
-    if (fit < groups.length) {
-      // more branches than fit side by side: one column, each branch a full-width card hung off a spine in the left gutter.
-      // Rows of columns would send the join lines through the cards below them.
-      const colW = Math.min(360, W - 16 - 28); const gx = x + 14; const x0 = gx - colW / 2 - 14; const innerW = colW - 16;
-      const capLines = (g: Group) => wrap(g.label.toUpperCase(), Math.max(8, Math.floor((colW - 12) / 6.4))).slice(0, 2);
-      const headH = (g: Group) => 22 + (capLines(g).length - 1) * 13;
-      const heightOf = (g: Group) => headH(g) + 12 + (g.items.length ? g.items.reduce((a, it) => a + sizeOf(it, innerW).h, 0) + (g.items.length - 1) * GAP : 20) + 10;
-      link(x, forkBottom, x0, y); let sy = y; let goesOn = false;
-      for (const g of groups) {
-        const on = g.first ? stateOf(g.first) : null; const lit = on && on !== "next"; const h = heightOf(g);
-        out.push(`<rect x="${gx - colW / 2}" y="${sy}" width="${colW}" height="${h}" rx="12" fill="${T("panel")}" stroke="${lit ? T("acc") : T("line")}" stroke-width="1.5"/>`);
-        capLines(g).forEach((l, i) => out.push(`<text class="cap" x="${gx}" y="${sy + 16 + i * 13}" text-anchor="middle" fill="${lit ? T("acc") : T("fg-3")}">${esc(l)}</text>`));
-        out.push(`<path d="M${x0} ${sy + 18} H${gx - colW / 2}" fill="none" stroke="${lit ? T("acc") : T("edge")}" stroke-width="1.6"/>`);
-        let yy = sy + headH(g) + 8;
-        if (!g.items.length) out.push(`<text class="lbl" x="${gx}" y="${yy + 14}" text-anchor="middle">carries on</text>`);
-        let end: number | null = null;
-        for (const it of g.items) { if (end !== null) down(gx, end, yy, it, gx + colW / 2 - 4); end = put(it, gx, yy, innerW, end !== null); yy = end + GAP; }
-        if (g.go) goesOn = true;
-        sy += h + GAP;
+      arrive(it, y); const above = pb !== null && px === x;
+      pb = put(it, x, y, nodeW, above); px = x; joined = false; y = pb + GAP;
+    };
+    for (const row of rs) {
+      if (row.kind === "nodes") {
+        // triggers side by side when there are several; everything else down the spine
+        const trigs = row.items.filter((it) => it.n.kind === "trig" && !it.entry);
+        if (trigs.length > 1) {
+          const w = Math.min(nodeW, (W - 24 - (trigs.length - 1) * 12) / trigs.length); const total = trigs.length * w + (trigs.length - 1) * 12;
+          let tx = x - total / 2 + w / 2; let b = y; for (const it of trigs) { b = Math.max(b, put(it, tx, y, w)); tx += w + 12; }
+          tx = x - total / 2 + w / 2; for (let i = 0; i < trigs.length; i++) { link(tx, b, x, b + GAP); tx += w + 12; }
+          pb = null; joined = true; y = b + GAP; bottom = b;
+        }
+        for (const it of row.items) if (trigs.length < 2 || !trigs.includes(it)) { step(it); bottom = pb!; }
+      } else if (row.kind === "on") {
+        // the flow goes on at a step drawn elsewhere: a short arrow and its name
+        const from = pb !== null ? pb : joined ? y : first ? y - 2 : y - GAP + 2; const ax = pb !== null ? px : x;
+        out.push(`<path d="M${ax} ${from} V${from + 14}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/><path d="M${ax - 4} ${from + 10} L${ax} ${from + 15} L${ax + 4} ${from + 10}" fill="none" stroke="${T("edge")}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`);
+        const lines = wrap(`on to “${row.title.replace(/[“”‹›]/g, "")}”`, Math.max(8, Math.floor((W - 16) / IF_W))).slice(0, 3);
+        lines.forEach((l, i) => out.push(`<text class="lbl" x="${ax}" y="${from + 30 + i * 14}" text-anchor="middle">${esc(l)}</text>`));
+        bottom = from + 34 + (lines.length - 1) * 14; pb = null; joined = false; y = bottom + GAP;
+      } else if (row.kind === "more") {
+        // steps listed in order in a dashed card: nested too deep to draw as branches, or not reached by the walk
+        if (!row.linked) { pb = null; joined = false; y += GAP; }
+        const colW = Math.min(nodeW + 16, W - 8); const caps = wrap(row.label.toUpperCase(), Math.max(8, Math.floor((colW - 12) / 6.4)), 2);
+        if (row.linked) arrive(null, y);
+        const at = out.length; const top = y; let yy = top + 22 + (caps.length - 1) * 13 + 8; let end: number | null = null;
+        for (const it of row.items) { if (end !== null) down(x, end, yy, it, x + colW / 2 - 4); end = put(it, x, yy, colW - 16, end !== null); yy = end + GAP; }
+        const h = (end ?? yy) + 14 - top;
+        out.splice(at, 0, `<rect x="${x - colW / 2}" y="${top}" width="${colW}" height="${h}" rx="12" fill="${T("panel")}" stroke="${T("fg-3")}" stroke-width="1.5" stroke-dasharray="${DASH}"/>` + caps.map((l, i) => `<text class="cap" x="${x}" y="${top + 16 + i * 13}" text-anchor="middle">${esc(l)}</text>`).join(""));
+        bottom = top + h; pb = row.linked ? bottom : null; px = x; joined = false; y = bottom + GAP;
+      } else {
+        let from = y;
+        if (row.fork) { arrive(row.fork, y); from = put(row.fork, x, y, nodeW, pb !== null && px === x); y = from + GAP + 10; }
+        const groups = shown(row.groups); const ns = groups.map((g) => need(g.rows));
+        const mins = ns.map((n) => Math.max(G_MIN, n.min)), wants = ns.map((n) => Math.max(G_COL, n.want));
+        const sum = (a: number[]) => a.reduce((s, v) => s + v, 0); const gaps = (groups.length - 1) * G_GAP; const avail = W - 16;
+        if (sum(mins) + gaps > avail) {
+          // more than fit side by side: one column, each group a card hung off a spine in the left gutter. Rows of
+          // columns would send the join lines through the cards below them.
+          const colW = Math.min(W - 16 - 28, Math.max(360, ...wants)); const gx = x + 14; const x0 = gx - colW / 2 - 14;
+          if (row.fork) link(x, from, x0, y);
+          let sy = y; let goesOn = false; let tick = y;
+          for (const g of groups) {
+            const on = g.first ? stateOf(g.first) : null; const lit = !!on && on !== "next";
+            const at = out.length; const r = inGroup(g, gx, sy, colW);
+            out.splice(at, 0, card(g, gx, sy, colW, r.bottom - sy, lit) + `<path d="M${x0} ${sy + 18} H${gx - colW / 2}" fill="none" stroke="${lit ? T("acc") : T("edge")}" stroke-width="1.6"/>`);
+            tick = sy + 18; if (g.go) goesOn = true; sy = r.bottom + GAP;
+          }
+          const spineEnd = goesOn ? sy - GAP + 8 : tick;
+          out.push(`<path d="M${x0} ${row.fork ? y : y + 18} V${spineEnd}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`);
+          bottom = sy - GAP; y = sy + 4;
+          if (goesOn) link(x0, spineEnd, x, y);
+          joined = goesOn;
+        } else {
+          let widths = wants;
+          if (sum(wants) + gaps > avail) { const t = (avail - gaps - sum(mins)) / Math.max(1, sum(wants) - sum(mins)); widths = mins.map((m, i) => m + (wants[i] - m) * t); }
+          const total = sum(widths) + gaps; let gx = x - total / 2;
+          const ends: { x: number; y: number; go: boolean }[] = []; let low = y;
+          groups.forEach((g, i) => {
+            const colW = widths[i]; const cx = gx + colW / 2;
+            const on = g.first ? stateOf(g.first) : null; const lit = !!on && on !== "next";
+            const at = out.length; if (!g.bare) link(x, from, cx, y);
+            const r = inGroup(g, cx, y, colW);
+            if (!g.bare) out.splice(at, 0, card(g, cx, y, colW, r.bottom - y, lit));
+            ends.push({ x: cx, y: r.exit, go: g.go }); low = Math.max(low, r.bottom);
+            gx += colW + G_GAP;
+          });
+          bottom = low; y = low + 24;
+          const goes = ends.filter((b) => b.go);
+          if (goes.length) { y += 6; for (const b of goes) { if (b.y < low) out.push(`<path d="M${b.x} ${b.y} V${low}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`); link(b.x, Math.max(b.y, low), x, y); } }
+          joined = goes.length > 0;
+        }
+        pb = null; px = x;
       }
-      const spineEnd = goesOn ? sy - GAP + 8 : sy - GAP - 24;
-      out.push(`<path d="M${x0} ${y} V${spineEnd}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`);
-      y = sy + 4;
-      if (goesOn) link(x0, spineEnd, x, y);
-      prevBottom = null;
-      continue;
+      first = false;
     }
-    const rowsN = Math.ceil(groups.length / fit); const perRow = Math.ceil(groups.length / rowsN);
-    const colW = Math.min(190, (W - 16 - (perRow - 1) * gap) / perRow);
-    let from = forkBottom;
-    for (let r = 0; r < groups.length; r += perRow) {
-      const slice = groups.slice(r, r + perRow); const total = slice.length * colW + (slice.length - 1) * gap; let gx = x - total / 2 + colW / 2;
-      const innerW = colW - 16;
-      const capLines = (g: Group) => wrap(g.label.toUpperCase(), Math.max(8, Math.floor((colW - 12) / 6.4))).slice(0, 2);
-      const headH = (g: Group) => 22 + (capLines(g).length - 1) * 13;
-      const heightOf = (g: Group) => headH(g) + 12 + (g.items.length ? g.items.reduce((a, it) => a + sizeOf(it, innerW).h, 0) + (g.items.length - 1) * GAP : 20) + 10;
-      const gh = Math.max(...slice.map(heightOf));
-      if (r) { out.push(`<path d="M${x} ${from} V${y - 12}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`); from = y - 12; }
-      for (const g of slice) {
-        const on = g.first ? stateOf(g.first) : null; const lit = on && on !== "next"; const h = heightOf(g);
-        out.push(`<rect x="${gx - colW / 2}" y="${y}" width="${colW}" height="${h}" rx="12" fill="${T("panel")}" stroke="${lit ? T("acc") : T("line")}" stroke-width="1.5"/>`);
-        capLines(g).forEach((l, i) => out.push(`<text class="cap" x="${gx}" y="${y + 16 + i * 13}" text-anchor="middle" fill="${lit ? T("acc") : T("fg-3")}">${esc(l)}</text>`));
-        link(x, from, gx, y);
-        let yy = y + headH(g) + 8;
-        if (!g.items.length) out.push(`<text class="lbl" x="${gx}" y="${yy + 14}" text-anchor="middle">carries on</text>`);
-        let end: number | null = null;
-        for (const it of g.items) { if (end !== null) down(gx, end, yy, it, gx + colW / 2 - 4); end = put(it, gx, yy, innerW, end !== null); yy = end + GAP; }
-        bottoms.push({ x: gx, y: y + h, go: g.go });
-        gx += colW + gap;
-      }
-      y += gh + 24; from = y - 24;
-    }
-    const goes = bottoms.filter((b) => b.go);
-    if (goes.length) { y += 6; for (const b of goes) link(b.x, b.y, x, y); }
-    prevBottom = null;
+    return { bottom, next: y, exit: pb !== null && px === x ? pb : joined ? y : null, joined: pb === null && joined };
   }
-  const Hh = Math.max(y + 10, 80);
+  const r = region(rows, W / 2, W, Math.min(300, W - 24), W - 4, 14, false);
+  const Hh = Math.max(r.next + 10, 80);
   return `<svg viewBox="0 0 ${W} ${Hh}" width="${W}" height="${Hh}" role="img" aria-label="Flow chart">${out.join("")}</svg>`;
 }
 
@@ -268,7 +241,7 @@ function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
   // a sometimes-step (D103): a dashed blue border, and its condition on a line of its own under the title
   let g = `<g class="nd${it.when ? " if" : ""}" tabindex="0" data-id="${it.id}" style="opacity:${op}"><rect class="b" x="${x - w / 2}" y="${top}" width="${w}" height="${h}" rx="${k === "end" ? Math.min(17, h / 2) : 9}" fill="${fill}" stroke="${it.when ? T("cond") : stroke}" stroke-width="1.5"${it.when ? ` stroke-dasharray="${DASH}"` : ""}/>`;
   // the title centred on up to three lines; a clock before the first line when it waits, the blue mark at the right when it may not fire
-  const ki = kindIconOf(it); const leftW = (it.waits ? 22 : 0) + (ki ? 22 : 0);
+  const ki = sz.noIcon ? "" : kindIconOf(it); const leftW = (it.waits ? 22 : 0) + (ki ? 22 : 0);
   const shift = (leftW - (it.cond && !it.when ? 18 : 0)) / 2;
   const y0 = top + VPAD + 11.5;
   sz.lines.forEach((l, i) => { g += `<text x="${x + shift}" y="${y0 + i * LINE}" text-anchor="middle" fill="${ink}">${esc(l)}</text>`; });

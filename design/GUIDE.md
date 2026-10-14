@@ -124,14 +124,20 @@ dashed `--cond` border and its condition on a blue line under the title ("only i
 column, cut with … past that); the edges into and out of it are dashed, and where there is room a thin blue line runs
 around its right side labelled "otherwise". A step that may be skipped for a smaller reason (too close to the call, no
 card on that board) keeps its normal shape with the blue mark at its right. The fork's outcomes are labelled groups side by side ("Groups"), and
-the groups that carry on curve back to the spine.
+the groups that carry on curve back to the spine. A group is drawn like the spine: a fork inside it gets its own groups
+inside it, which rejoin inside the group before the group goes on (D107). A way that goes on at a step drawn elsewhere
+ends in a short arrow, "on to “…”". Triggers that share a first step sit side by side over it; a trigger that starts part
+way down is drawn where it comes in; starts that meet only further down stand side by side, each over its own steps.
+Every step is drawn: what cannot be drawn as branches (more than four forks deep, or not reached) is listed in order in a
+dashed card, never left out.
 
 With a run shown, each node gets a small state badge at its top-right corner (green check, purple clock, orange
 warning, blue skip) and nodes not reached are dimmed; the taken branch's group is outlined in amber.
 
 On a phone the full chart does not fit without side-scroll, so a run page draws only the path that run took (spine,
-the taken branch under its label, the reminders) and says "four other ways out of the fork are not drawn". The
-workflow page's chart wraps its groups into two columns.
+the taken branch under its label, the reminders) and says "four other ways out of the fork are not drawn". Groups
+that do not fit side by side stack in one column, each a card off a spine in the left gutter; a node in a narrow column
+drops its logo for its words.
 
 Tap a node for its popover: what it does, its condition in blue, the copy it sends, and its state on this run.
 
