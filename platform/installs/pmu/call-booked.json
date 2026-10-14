@@ -130,7 +130,8 @@
       "id": "{{crm.field_contact_setter}}",
       "value": "{{appointment.set_by | default:}}"
      }
-    ]
+    ],
+    "title": "The setter goes on the contact"
    },
    {
     "id": "b_suffix",
@@ -208,13 +209,18 @@
     "title": "Send {{contact.first_name}} a personalized video",
     "body": "Booked for {{appointment.starts_at | date_company}}. A quick personal video before the call.",
     "due": "+1d",
-    "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-    "only_if": {
-     "neq": [
-      "{{event._type}}",
-      "appointment.rescheduled"
-     ]
-    }
+    "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
+   },
+   {
+    "id": "k5",
+    "type": "crm_record",
+    "object": "custom_objects.sales_call",
+    "key": "{{event.slot.from | default:}}",
+    "if_missing": "skip",
+    "properties": {
+     "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
+    },
+    "title": "The Sales Call for the old time: logged as rescheduled"
    },
    {
     "id": "v_type",
@@ -226,20 +232,6 @@
      "Demo call": "demo"
     },
     "else_value": "closing"
-   },
-   {
-    "id": "k5",
-    "type": "crm_record",
-    "object": "custom_objects.sales_call",
-    "key": "{{event.slot.from | default:}}",
-    "if_missing": "skip",
-    "only_if": {
-     "exists": "event.slot.from"
-    },
-    "properties": {
-     "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
-    },
-    "title": "A reschedule: the slot the call left keeps its Sales Call, logged as rescheduled"
    },
    {
     "id": "k4",
@@ -379,10 +371,6 @@
     "to": "b_suffix"
    },
    {
-    "from": "k3",
-    "to": "v_type"
-   },
-   {
     "from": "s5",
     "to": "f_card"
    },
@@ -401,10 +389,6 @@
    {
     "from": "n4",
     "to": "x1"
-   },
-   {
-    "from": "k5",
-    "to": "k4"
    },
    {
     "from": "s2b",
@@ -444,12 +428,20 @@
     "to": "k3"
    },
    {
+    "from": "k3",
+    "to": "v_type"
+   },
+   {
     "from": "c_rs",
-    "to": "k3"
+    "to": "k5"
+   },
+   {
+    "from": "k5",
+    "to": "v_type"
    },
    {
     "from": "v_type",
-    "to": "k5"
+    "to": "k4"
    }
   ]
  }

@@ -58,6 +58,15 @@ d['edges']+=[{'from':'f_card','to':'c_rs','label':'a reschedule','when':RESCHED}
 node(d,'n1')['fields'][0]['value']='{{appointment.starts_at | date_company:MM-dd-yyyy HH:mm}}'   # PMU's own format on Appointment Start Time (e.g. 10-15-2026 15:00)
 k4=node(d,'k4'); k4['properties']['call_type']='{{vars.call_type}}'; k4['properties']['closer']='{{appointment.closer.first_name | default: | lower}}'
 after(d,'k3',{'id':'v_type','type':'set_var','title':'Closing or Demo: the call type the calendar books','key':'call_type','value':'{{appointment.term.name}}','pick':{'Demo call':'demo'},'else_value':'closing'})
+# what belongs to one side sits on that side: the video task under a new booking, the old slot's Sales Call under a
+# reschedule (every reschedule carries the slot it left, poll.ts), so neither is a sometimes-step any more
+d['edges']=[e for e in d['edges'] if e['from'] not in ('f_card','k3','k5','v_type') and e['to']!='k3']
+d['edges']+=[{'from':'f_card','to':'c_rs','label':'a reschedule','when':RESCHED},{'from':'f_card','to':'c_new','label':'a new booking','else':True},
+  {'from':'c_new','to':'k3'},{'from':'k3','to':'v_type'},{'from':'c_rs','to':'k5'},{'from':'k5','to':'v_type'},{'from':'v_type','to':'k4'}]
+node(d,'k3').pop('only_if'); node(d,'k5').pop('only_if')
+node(d,'k5')['title']='The Sales Call for the old time: logged as rescheduled'
+node(d,'b3')['title']='The setter goes on the contact'
+ids=[n['id'] for n in d['nodes']]; k5=d['nodes'].pop(ids.index('k5')); d['nodes'].insert([n['id'] for n in d['nodes']].index('k3')+1, k5)
 out['call-booked']=(d,"PMU: one board, one card fork after the setter / self paths: a new booking puts the card on Booked Call named -- Direct or -- Setter; a reschedule moves it to Rescheduled only off a pre-call stage and keeps its name; the Sales Call says Closing or Demo; no UTM fields; Appointment Start Time in PMU's format (10-15-2026 15:00)")
 
 # Call cancelled: the one card → Canceled Call
