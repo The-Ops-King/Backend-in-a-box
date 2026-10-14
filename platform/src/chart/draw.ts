@@ -21,36 +21,46 @@ function tw(s: string, per = TEXT_W): number {
   return w * per / 0.72;   // the 600-weight face runs a touch wider than the per-glyph table
 }
 // :shortcodes: in the words (the emoji a step waits for) are drawn as the emoji, the way Slack shows them
-const labelOf = (it: Item) => (it.n.title + (it.n.meta && it.n.kind !== "send" ? ` · ${it.n.meta}` : "")).replace(/:([a-z0-9_+-]+):/g, (m, code) => emoji(code) ?? m);
+const emo = (t: string) => t.replace(/:([a-z0-9_+-]+):/g, (m, code) => emoji(code) ?? m);
+const labelOf = (it: Item) => emo(it.n.title);
+/** The step's facts after its main words (D112): their own smaller lines under it, so they wrap instead of being cut. */
+const metaOf = (it: Item) => it.n.meta && it.n.kind !== "send" ? emo(it.n.meta) : "";
+const SUB_W = 6.3, SUB_LINE = 14;
 /** Words onto lines no wider than `max` characters; two lines wanted, three at most, nothing cut. */
-function wrap(text: string, max: number, most = 4): string[] {
+function wrap(text: string, max: number, most = 4, per = TEXT_W): string[] {
   const words = text.split(/\s+/); const lines: string[] = []; let cur = "";
-  const maxPx = max * TEXT_W;
-  for (const w of words) { const next = cur ? `${cur} ${w}` : w; if (tw(next) <= maxPx || !cur) cur = next; else { lines.push(cur); cur = w; } }
+  const maxPx = max * per;
+  for (const w of words) { const next = cur ? `${cur} ${w}` : w; if (tw(next, per) <= maxPx || !cur) cur = next; else { lines.push(cur); cur = w; } }
   if (cur) lines.push(cur);
-  const cut = (l: string, more = false) => { if (!more && tw(l) <= maxPx) return l; let k = l.length; while (k > 3 && tw(`${l.slice(0, k)}…`) > maxPx) k--; return `${l.slice(0, k).trimEnd()}…`; };
+  const cut = (l: string, more = false) => { if (!more && tw(l, per) <= maxPx) return l; let k = l.length; while (k > 3 && tw(`${l.slice(0, k)}…`, per) > maxPx) k--; return `${l.slice(0, k).trimEnd()}…`; };
   // four lines at most (six in a narrow column); past that the last line is cut with an ellipsis rather than spilling out of the box
   if (lines.length > most) { const keep = lines.slice(0, most); keep[most - 1] = cut(keep[most - 1], true); return keep; }
   return lines.map((l) => cut(l));
 }
 /** The lines a node shows and the box they need, within the width allowed. */
-type Size = { lines: string[]; w: number; h: number; chips?: { text: string; stage: boolean }[]; noIcon?: boolean };
+type Size = { lines: string[]; w: number; h: number; chips?: { text: string; stage: boolean }[]; noIcon?: boolean; lab?: number; sub?: string[] };
+// the author's own title, quiet on a line above the generated words (D112); never wider than the words want, nor than 220
+const LAB_H = 15, LAB_W = 5.9;
 function sizeOf(it: Item, maxW: number): Size {
-  const s = sizeOfTitle(it, maxW); if (!it.when) return s;
+  let t = sizeOfTitle(it, maxW); const meta = metaOf(it); const hp = !!it.n.helper;
+  // every fact, never cut: the node grows
+  if (meta) { const per = hp ? SUB_W * 0.92 : SUB_W; const sub = wrap(meta, Math.max(8, Math.floor((maxW - PAD) / per)), Infinity, per); t = { ...t, sub, w: Math.min(maxW, Math.max(t.w, Math.round(Math.max(...sub.map((l) => tw(l, per))) + PAD))), h: t.h + sub.length * (hp ? SUB_LINE - 1 : SUB_LINE) + 2 }; }
+  const s = it.n.label ? { ...t, w: Math.max(t.w, Math.min(maxW, 220, Math.round(tw(it.n.label, LAB_W) + PAD))), h: t.h + LAB_H, lab: LAB_H } : t;
+  if (!it.when) return s;
   // the condition line under the title: as wide as it needs, up to the width allowed, cut with … past that
   return { ...s, w: Math.min(maxW, Math.max(s.w, Math.round(tw(ifLine(it), IF_W) + 16 + IF_PAD))), h: s.h + IF_H };
 }
 const ifLine = (it: Item) => `only if ${it.when}`;
 function sizeOfTitle(it: Item, maxW: number): Size {
   // a node in a narrow column (a group inside a group) gives its logo's room to the words, and may run to six lines
-  const narrow = maxW < 150; const most = narrow ? 6 : 4;
+  const narrow = maxW < 150; const most = narrow ? 6 : 5;
   if (it.n.helper) return sizeOfHelper(it, maxW, narrow, most);
   const extra = (it.cond && !it.when ? 18 : 0) + (kindIconOf(it) && !narrow ? 22 : 0);
   // “tags” and ‹stages› in the words become chips under the title
   const raw = labelOf(it); const found = raw.match(/“[^”]*”|‹[^›]*›/g);
   if (found) {
     const chips = found.flatMap((c) => { const text = c.slice(1, -1), stage = c.startsWith("‹"); if (stage && tw(text, 6.4) + 22 + PAD > maxW && text.includes(" → ")) { const [a, b] = text.split(" → "); return [{ text: `${a} →`, stage }, { text: b, stage }]; } return [{ text, stage }]; });
-    const verb = raw.replace(/“[^”]*”|‹[^›]*›/g, "").replace(/\s*·\s*$/, "").replace(/,\s*/g, " ").replace(/\s+/g, " ").trim().replace(/ tag$/, chips.length > 1 ? " tags" : " tag");
+    const verb = raw.replace(/,?\s*(“[^”]*”|‹[^›]*›)/g, " ").replace(/\s+/g, " ").trim().replace(/^·\s*|\s*·$/g, "").replace(/ tag$/, chips.length > 1 ? " tags" : " tag");
     const maxChars = Math.max(8, Math.floor((maxW - PAD - extra) / TEXT_W));
     const lines = tw(verb) <= maxChars * TEXT_W ? [verb] : wrap(verb, maxChars, most);
     const w = Math.min(maxW, Math.max(96, Math.round(Math.max(...lines.map((l) => tw(l) + extra), ...chips.map((c) => tw(c.text, 6.4) + 22)) + PAD)));
@@ -90,7 +100,8 @@ const MIN_SCALE = 0.6;
  * the run's badges): every step a box, every way a line with an arrow and its words. Lines into or out of a sometimes-step
  * are dashed; an otherwise way's words are blue. A loop back is a line that runs back up, its arrow showing the way.
  */
-export function drawGraph(g: GraphLayout, chart: Chart, W: number, maxW: number, stateOf: (id: string) => St | null): { svg: string; pan: boolean; start: number } {
+export type Count = { went: number; skipped: number };
+export function drawGraph(g: GraphLayout, chart: Chart, W: number, maxW: number, stateOf: (id: string) => St | null, countOf: (id: string) => Count | null = () => null): { svg: string; pan: boolean; start: number } {
   const byId = new Map(chart.nodes.map((n) => [n.id, n])); const out: string[] = [];
   const M = 12; const gw = g.w + M * 2, gh = g.h + M * 2;
   for (const e of g.edges) {
@@ -101,7 +112,7 @@ export function drawGraph(g: GraphLayout, chart: Chart, W: number, maxW: number,
     const a = e.at; const cx = a.x + a.w / 2;
     out.push(`<rect x="${a.x}" y="${a.y}" width="${a.w}" height="${a.h}" rx="4" fill="${T("panel")}"/><text class="lbl" x="${cx}" y="${a.y + a.h / 2 + 4}" text-anchor="middle"${e.else ? ` style="fill:${T("cond")}"` : ""}>${esc(e.label.replace(/:([a-z0-9_+-]+):/g, (m, code) => emoji(code) ?? m))}</text>`);
   }
-  for (const b of g.nodes) { const n = byId.get(b.id); if (!n) continue; const it = graphItem(n); out.push(node(it, b.x + b.w / 2, b.y + b.h / 2, sizeOf(it, maxW), stateOf(b.id))); }
+  for (const b of g.nodes) { const n = byId.get(b.id); if (!n) continue; const it = graphItem(n); out.push(node(it, b.x + b.w / 2, b.y + b.h / 2, sizeOf(it, maxW), stateOf(b.id), countOf(b.id))); }
   const fit = Math.min(1, W / gw); const pan = fit < MIN_SCALE; const sw = Math.round(gw * (pan ? MIN_SCALE : fit)), sh = Math.round(gh * (pan ? MIN_SCALE : fit));
   const defs = `<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="${T("fg-3")}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>`;
   const trig = g.nodes.find((b) => byId.get(b.id)?.kind === "trig");
@@ -135,7 +146,7 @@ const enc = (m: Mark) => m.ways.map((w) => [w.from, m.to ?? "", w.label, w.else 
  * The tidy chart. With `pathOnly` (a run on a phone) the groups the run did not take are left out; then the SVG says so
  * (data-filtered) and the page says so above it, with a way to show every step.
  */
-export function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOnly: boolean): string {
+export function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOnly: boolean, countOf: (id: string) => Count | null = () => null): string {
   const out: string[] = []; const marks: Mark[] = []; let filtered = false;
   // a line's ways, written into the SVG as a placeholder until the end, when every line knows where it ends
   const mark = (ways: Way[], to: string | null = null): { m: Mark; attr: string } => { const m: Mark = { ways, to }; marks.push(m); return { m, attr: ` data-ways="@@${marks.length - 1}@@"` }; };
@@ -147,7 +158,7 @@ export function draw(rows: Row[], W: number, stateOf: (id: string) => St | null,
   const tailOf = (it: Item): Way[] => it.fold ? [{ from: it.id, label: "", else: false }, { from: it.fold.fork, label: it.fold.no, else: true }] : [{ from: it.id, label: it.next?.label ?? "", else: !!it.next?.else }];
   // one node at cx: draws it with its top at `top`, returns its bottom
   const put = (it: Item, cx: number, top: number, maxW: number, above = false, room = cx + maxW / 2) => {
-    const sz = sizeOf(it, maxW); let g = node(it, cx, top + sz.h / 2, sz, stateOf(it.id));
+    const sz = sizeOf(it, maxW); let g = node(it, cx, top + sz.h / 2, sz, stateOf(it.id), countOf(it.id));
     // a folded branch is drawn as this step: the branch's box is the step, its condition the step's blue line
     if (it.fold) g = g.replace(`<g class="nd`, `<g${mark([{ from: it.fold.fork, label: it.when ?? "", else: false, when: true }], it.id).attr} data-also="${esc(it.fold.fork)}" class="nd`);
     out.push(g);
@@ -160,7 +171,7 @@ export function draw(rows: Row[], W: number, stateOf: (id: string) => St | null,
         const pillTop = bottom + 6 + lab.length * 13; const ei: Item = { id: x.id, n: x.n }; const es = sizeOf(ei, avail);
         lab.forEach((l, i) => out.push(`<text class="lbl" x="${left}" y="${bottom + 14 + i * 13}"${x.else ? ` style="fill:${T("cond")}"` : ""}>${esc(l)}</text>`));
         out.push(`<path${mark([{ from: it.id, label: x.label, else: x.else }], x.id).attr} d="M${cx + 12} ${bottom} V${pillTop + es.h / 2 - 6} Q${cx + 12} ${pillTop + es.h / 2} ${cx + 18} ${pillTop + es.h / 2} H${left}" fill="none" stroke="${T("edge")}" stroke-width="1.6"/>`);
-        out.push(node(ei, left + es.w / 2, pillTop + es.h / 2, es, stateOf(x.id)));
+        out.push(node(ei, left + es.w / 2, pillTop + es.h / 2, es, stateOf(x.id), countOf(x.id)));
         bottom = pillTop + es.h + 4;
       }
       out.push(`<path d="M${cx} ${under} V${bottom}" fill="none" stroke="${T("edge")}" stroke-width="1.6"${it.when ? ` stroke-dasharray="${DASH}"` : ""}/>`);
@@ -340,7 +351,7 @@ export function draw(rows: Row[], W: number, stateOf: (id: string) => St | null,
   return `<svg viewBox="0 0 ${W} ${Hh}" width="${W}" height="${Hh}" role="img" aria-label="Flow chart"${filtered ? ` data-filtered="1"` : ""}>${svg}</svg>`;
 }
 
-function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
+function node(it: Item, x: number, y: number, sz: Size, st: St | null, cnt: Count | null = null): string {
   const k = it.n.kind; const w = sz.w, h = sz.h; const top = y - h / 2; const hp = !!it.n.helper;
   const fill = hp ? T("panel") : k === "trig" ? T("acc") : k === "end" ? "none" : k === "fork" || k === "check" ? T("panel-3") : T("panel-2");
   const stroke = hp ? T("edge") : k === "trig" ? T("acc") : k === "end" ? T("fg-3") : T("edge"); const ink = hp ? T("fg-2") : k === "trig" ? T("acc-ink") : k === "end" ? T("fg-2") : T("fg");
@@ -350,12 +361,15 @@ function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
   // the title centred on up to three lines, its logo before it, the blue mark at the right when it may not fire; a helper smaller
   const ki = sz.noIcon ? "" : kindIconOf(it); const leftW = ki ? (hp ? HP_ICON : 22) : 0;
   const shift = (leftW - (it.cond && !it.when ? (hp ? 16 : 18) : 0)) / 2;
-  const y0 = hp ? top + HP_VPAD + 10 : top + VPAD + 11.5;
+  const y0 = (hp ? top + HP_VPAD + 10 : top + VPAD + 11.5) + (sz.lab ?? 0);
+  if (it.n.label) g += `<text class="lab" x="${x}" y="${top + (hp ? HP_VPAD : VPAD) + 9}" text-anchor="middle" fill="${k === "trig" ? T("acc-ink") : T("fg-3")}" style="font-size:10.5px;font-weight:500${k === "trig" ? ";opacity:.7" : ""}">${esc(trunc(it.n.label, w + PAD - 16, LAB_W))}</text>`;
   sz.lines.forEach((l, i) => { g += `<text x="${x + shift}" y="${y0 + i * (hp ? HP_LINE : LINE)}" text-anchor="middle" fill="${ink}"${hp ? ` style="font-size:11.5px;font-weight:500"` : ""}>${esc(l)}</text>`; });
   const lx = x + shift - Math.max(...sz.lines.map((l) => tw(l))) * (hp ? HP : 1) / 2 - leftW;
   const iconInk = k === "trig" ? T("acc-ink") : T("fg-2");
   if (ki) g += hp ? `<g transform="translate(${lx},${y0 - 9.5}) scale(.62)" style="color:${iconInk}">${LOGO[ki] ?? LOGO.engine}</g>` : `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${iconInk}">${LOGO[ki] ?? LOGO.engine}</g>`;
-  if (sz.chips) { let cy = y0 + sz.lines.length * LINE - 4; for (const c of sz.chips) { const cw = tw(c.text, 6.4) + 14; g += `<rect x="${x - cw / 2}" y="${cy - 1}" width="${cw}" height="17" rx="6" fill="${c.stage ? T("cond-bg") : T("panel-3")}"/><text x="${x}" y="${cy + 11.5}" text-anchor="middle" fill="${c.stage ? T("cond") : T("fg")}" style="${c.stage ? "font-size:11px;font-weight:600" : "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:500"}">${esc(c.text)}</text>`; cy += 20; } }
+  let cy = y0 + sz.lines.length * (hp ? HP_LINE : LINE) - 4;
+  if (sz.chips) { for (const c of sz.chips) { const cw = tw(c.text, 6.4) + 14; g += `<rect x="${x - cw / 2}" y="${cy - 1}" width="${cw}" height="17" rx="6" fill="${c.stage ? T("cond-bg") : T("panel-3")}"/><text x="${x}" y="${cy + 11.5}" text-anchor="middle" fill="${c.stage ? T("cond") : T("fg")}" style="${c.stage ? "font-size:11px;font-weight:600" : "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:500"}">${esc(c.text)}</text>`; cy += 20; } }
+  if (sz.sub) sz.sub.forEach((l, i) => { g += `<text x="${x}" y="${cy + 11 + i * (hp ? SUB_LINE - 1 : SUB_LINE)}" text-anchor="middle" fill="${k === "trig" ? T("acc-ink") : T(hp ? "fg-3" : "fg-2")}" style="font-size:${hp ? 10.5 : 11.5}px;font-weight:500">${esc(l)}</text>`; });
   if (it.cond && !it.when) g += `<g transform="translate(${x + w / 2 - 24},${top + h / 2 - 8}) scale(.8)" style="color:${T("cond")}">${svgIcon("cond")}</g>`;
   if (it.when) {
     const room = w - 16 - IF_PAD; const full = ifLine(it);
@@ -363,10 +377,14 @@ function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
     const line = tw(full, IF_W) <= room ? full : tw(`if ${it.when}`, IF_W) <= room ? `if ${it.when}` : trunc(`if ${it.when}`, room + PAD, IF_W); const lw = tw(line, IF_W) + 16; const cy = top + h - 8;
     g += `<g transform="translate(${x - lw / 2},${cy - 10.5}) scale(.65)" style="color:${T("cond")}">${svgIcon("cond")}</g><text x="${x - lw / 2 + 16}" y="${cy}" fill="${T("cond")}" style="font-size:11.5px;font-weight:600">${esc(line)}</text>`;
   }
+  // D112: how many went through it lately, on a chart with no run picked
+  if (cnt && !st) { const t = `${cnt.went}${cnt.skipped ? ` · ${cnt.skipped} skipped` : ""}`; const cw = Math.round(tw(t, 6.4)) + 14;
+    g += `<g class="cnt"><title>${esc(countWords(cnt))}</title><rect x="${x + w / 2 - cw + 8}" y="${top - 9}" width="${cw}" height="18" rx="9" fill="${T(cnt.went ? "panel-3" : "panel")}" stroke="${T("edge")}"/><text x="${x + w / 2 - cw / 2 + 8}" y="${top + 4}" text-anchor="middle" fill="${T(cnt.went ? "fg" : "fg-3")}" style="font-size:11px;font-weight:600">${esc(t)}</text></g>`; }
   if (st && st !== "next") { const [col, bg] = BADGE[st] ?? BADGE.stop;
     g += `<g transform="translate(${x + w / 2 - 10},${top - 10})"><title>${esc(STATE_WORDS[st] ?? st)}</title><circle cx="10" cy="10" r="10" fill="${T(bg)}"/><g style="color:${T(col)}" transform="translate(3,3) scale(.7)">${svgIcon(st === "ok" ? "check" : st === "ghost" ? "ghost" : st === "here" ? "clock" : st === "skip" || st === "blocked" ? "skip" : st === "warn" ? "warn" : "stop")}</g></g>`; }
   return g + "</g>";
 }
+export const countWords = (c: Count, days = 7) => c.went ? `${c.went} went through this step in the last ${days} days${c.skipped ? `; it was skipped for ${c.skipped === c.went ? "all of them" : c.skipped}` : ""}` : `Nobody reached this step in the last ${days} days`;
 /** A run state's badge on the chart, as [ink, fill] tokens: the same colours as the strip's segments. */
 const BADGE: Record<string, [string, string]> = { ok: ["ok", "ok-bg"], ghost: ["ok", "ok-bg"], here: ["wait", "wait-bg"], skip: ["cond", "cond-bg"], blocked: ["warn", "warn-bg"], warn: ["warn", "warn-bg"], stop: ["fg-3", "panel-3"], next: ["fg-3", "panel-3"] };
 /** The logo of the thing a step touches, at the left of its node, the way Zapier shows an app on every step. Drawn here, 20×20, in the brand's colour. */

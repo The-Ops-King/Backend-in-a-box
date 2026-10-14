@@ -1,9 +1,12 @@
 /**
- * pnpm exec tsx scripts/render-charts.ts [--out <dir>] [name …] — screenshots of workflow charts drawn by the real
+ * pnpm exec tsx scripts/render-charts.ts [--out <dir>] [--counts] [--names <file.json>] [name …] — screenshots of workflow charts drawn by the real
  * dashboard component (D107): each chart is built with chartOf from a template, a PMU copy or a built-in nested fixture,
  * the chart-only page in dashboard/render is built with Vite, and Chromium (Playwright) shoots it at desktop width and on
  * a phone. Names: a template slug, pmu/<file>, nested, or messy (D111: a shape only the plain graph draws); add @id,id,… for
- * the chart with a run selected that went through those steps. Nothing touches a database.
+ * the chart with a run selected that went through those steps. --counts puts made-up run counts on the steps (D112), fewer
+ * further down, none past a point, a sometimes-step skipped for half. --names draws boards, stages and fields by the CRM
+ * names in a JSON file `{ bindings, names }` (D112; `names` as `CrmNames`, `null` for a CRM that could not be read).
+ * Nothing touches a database or the CRM.
  * Playwright is resolved from this repo or from NODE_PATH; the browser from CHROMIUM (default /opt/pw-browsers/chromium).
  */
 import fs from "node:fs";
@@ -15,6 +18,7 @@ import { createRequire } from "node:module";
 import { build } from "vite";
 import react from "@vitejs/plugin-react";
 import { chartOf } from "@/api/words";
+import { namer, type CrmNames } from "@/api/crm-names";
 import { parseDefinition, type Definition } from "@/engine/definition";
 import { templates } from "@/templates";
 import { messy } from "@/chart/messy";
@@ -23,7 +27,10 @@ const ROOT = path.resolve(__dirname, "..");
 const args = process.argv.slice(2);
 const outAt = args.indexOf("--out");
 const OUT = path.resolve(outAt >= 0 ? args[outAt + 1] : path.join(os.tmpdir(), "charts"));
-const names = args.filter((a, i) => a !== "--out" && i !== outAt + 1);
+const withCounts = args.includes("--counts");
+const namesAt = args.indexOf("--names");
+const crm = namesAt >= 0 ? JSON.parse(fs.readFileSync(args[namesAt + 1], "utf8")) as { bindings: Record<string, string>; names: CrmNames | null } : null;
+const names = args.filter((a, i) => a !== "--out" && a !== "--counts" && a !== "--names" && (outAt < 0 || i !== outAt + 1) && (namesAt < 0 || i !== namesAt + 1));
 const company = { name: "Acme", timezone: "America/Chicago" };
 const pmu = (f: string) => JSON.parse(fs.readFileSync(path.join(ROOT, "installs/pmu", `${f}.json`), "utf8")).definition;
 
@@ -77,7 +84,8 @@ async function main() {
   const browser = await pw.chromium.launch({ executablePath: process.env.CHROMIUM ?? "/opt/pw-browsers/chromium" });
   for (const name of list) {
     // name@id,id,…: with a run selected that went through those steps, as the workflow page shows it (a phone: its path only)
-    const [base, ran] = name.split("@"); const chart = chartOf(source(base), company);
+    const [base, ran] = name.split("@"); const src = source(base); const chart = crm ? chartOf(src, company, crm.bindings, "ghl", namer(crm.bindings, crm.names)) : chartOf(src, company);
+    if (withCounts) chart.counts = { days: 7, by: Object.fromEntries(chart.nodes.map((n, i) => { const went = Math.max(0, 23 - 2 * i); return [n.id, { went, skipped: n.onlyIf || n.cond ? Math.floor(went / 2) : 0 }]; }).filter(([, c]) => (c as { went: number }).went > 0)) };
     const states = ran ? Object.fromEntries(chart.nodes.map((n) => [n.id, ran.split(",").includes(n.id) ? "ok" : "next"])) : undefined;
     for (const [tag, width] of [["desktop", 1000], ["phone", 390]] as const) {
       const page = await browser.newPage({ viewport: { width, height: 800 }, deviceScaleFactor: 2 });

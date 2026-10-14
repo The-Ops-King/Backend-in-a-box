@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { many } from "@/db/client";
 import { parseDefinition, type Definition, type Node } from "./definition";
-import { describeNode, humanWords, pathWords, templateWords } from "./describe";
+import { boardWords, describeNode, humanWords, pathWords, templateWords } from "./describe";
 
 /**
  * D77. Which steps hold the run when they keep failing, and which are skipped so the rest still runs.
@@ -103,8 +103,8 @@ export function doingWords(n: Node): string {
     case "send_sms": return "send the text";
     case "send_email": return `send the email “${templateWords(n.subject)}”`;
     case "send_document": return "send the agreement for signature";
-    case "slack_post": return n.title ? lower(n.title) : n.thread_of ? "reply in the Slack thread" : `post to Slack (${pathWords(n.channel)})`;
-    case "pipeline_card": return `move the ${pathWords(n.pipeline).replace(/^pipeline /, "")} card${n.title ? ` (${n.title})` : ""}`;
+    case "slack_post": return n.title ? lower(n.title) : n.thread_of ? "reply in the Slack thread" : `post to ${pathWords(n.channel)} in Slack`;
+    case "pipeline_card": return `move the ${boardWords(n.pipeline)} card${n.title ? ` (${n.title})` : ""}`;
     case "crm_record": return `${n.if_missing === "create" && !n.record_id ? "create" : "update"} the ${humanWords((/^\{\{\s*crm\.object_([a-z0-9_]+)/.exec(n.object)?.[1] ?? n.object).replace(/^custom_objects\./, "")).replace(/\b[a-z]/g, (c) => c.toUpperCase())} record`;
     case "update_appointment": return "update the booking in the CRM";
     case "webhook": return `call ${n.url.replace(/^https?:\/\//, "").split(/[/?]/)[0] || "the webhook"}`;

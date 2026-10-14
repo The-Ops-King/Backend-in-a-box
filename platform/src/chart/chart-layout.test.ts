@@ -90,7 +90,7 @@ describe("D107/D111: the chart draws every step, exactly", () => {
     const find = (rs: Row[]): Row[] => rs.flatMap((r) => r.kind === "fork" ? [r, ...r.groups.flatMap((g) => find(g.rows))] : [r]);
     const item = find(it).flatMap((r) => r.kind === "nodes" ? r.items : []).find((i) => i.fold)!;
     item.when = "something else";
-    expect(exactness(one, svgOf(one, it)).problems).toEqual(["the way “F” (f) → “Step s” (s) “this is a referral” is not drawn", "a line “F” (f) → “Step s” (s) “something else” is drawn but the workflow has no such way"].map((x) => x.replace("“F”", `“${one.nodes.find((n) => n.id === "f")!.title}”`)));
+    expect(exactness(one, svgOf(one, it)).problems).toEqual(["the way “F” (f) → “Tags “+s”” (s) “this is a referral” is not drawn", "a line “F” (f) → “Tags “+s”” (s) “something else” is drawn but the workflow has no such way"].map((x) => x.replace("“F”", `“${one.nodes.find((n) => n.id === "f")!.title}”`)));
   });
 
   it("the check catches a drawing that drops a step, draws one twice, or draws a line the workflow does not have", () => {

@@ -83,11 +83,11 @@ describe("D111: every way out of a step is on the chart, edge or not", () => {
   it("resume: back to the step the run was on, from the listener's onward way (PMU's pre-call reminders)", () => {
     const pre = parseDefinition(JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../installs/pmu/pre-call-sequence.json"), "utf8")).definition);
     const chart = chartOf(pre, company);
-    holds(chart, { from: "rs", to: "r72", label: "back to the step the run was on: “3 days before the call” or one after it" });
+    holds(chart, { from: "rs", to: "r72", label: "back to the step the run was on: “Wait until 3 days before the call” or one after it" });
     expect(chart.edges.filter((e) => e.from === "rs")).toHaveLength(1);
     // setter-call-logged: both of its resumes go back to the question's hold, or a step after it
     const scl = chartOf(parseDefinition(templates.find((t) => t.slug === "setter-call-logged")!.definition), company);
-    for (const r of ["rs", "rs2"]) expect(scl.edges.filter((e) => e.from === r).map((e) => [e.to, e.label])).toEqual([["w_hold", "back to the step the run was on: “Keep the question open two days” or one after it"]]);
+    for (const r of ["rs", "rs2"]) expect(scl.edges.filter((e) => e.from === r).map((e) => [e.to, e.label])).toEqual([["w_hold", "back to the step the run was on: “Wait 2 days” or one after it"]]);
   });
 
   it("the plain graph draws them too", async () => {

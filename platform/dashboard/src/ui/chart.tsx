@@ -6,7 +6,7 @@ import { Check, Clock, Cond, Ghost, Skip, Warn, stateIcon } from "./icons";
 import { STATE_ORDER, STATE_WORDS } from "./pieces";
 import { arrange } from "@/chart/arrange";
 import { pickLayout, tidyView, type Picked } from "@/chart/pick";
-import type { St } from "@/chart/draw";
+import { countWords, type St } from "@/chart/draw";
 
 /**
  * The flow chart (design guide §5): one vertical spine, every step its own node, the fork's outcomes as labelled groups
@@ -28,7 +28,9 @@ export function FlowChart({ chart, states, pathOnly, onOpen }: { chart: Chart; s
   // a run's path alone (a phone with a run) is a view the page says it is, with a way to show every step
   const [all, setAll] = useState(false);
   const stateOf = (id: string): St | null => states ? states[id] ?? (Object.keys(states).length ? "next" : null) : null;
-  const view = { width, stateOf, pathOnly: !!pathOnly && !!states && !all };
+  // D112: how many went through each step lately, shown on the plain chart (a run's chart shows that run's states instead)
+  const countOf = (id: string) => chart.counts && !states ? chart.counts.by[id] ?? { went: 0, skipped: 0 } : null;
+  const view = { width, stateOf, pathOnly: !!pathOnly && !!states && !all, countOf };
   const rows = useMemo(() => arrange(chart), [sig]);   // eslint-disable-line react-hooks/exhaustive-deps
   const tidy = useMemo(() => tidyView(chart, rows, view), [rows, width, stKey, view.pathOnly]);   // eslint-disable-line react-hooks/exhaustive-deps
   const tidyOk = tidy.tidy.exact && tidy.shown.check.exact;
@@ -79,11 +81,13 @@ export function NodeWords({ chart, id, state, extra }: { chart: Chart; id: strin
   const n = chart.nodes.find((x) => x.id === id); if (!n) return null;
   const w = { ok: "Done", ghost: "Done in shadow: nothing written or sent", here: "Waiting here", warn: "Failed", skip: "Skipped: its condition was not met", blocked: "Blocked: it did not go out", next: "Not reached", stop: "Stopped" }[state ?? "next"];
   return <>
+    {n.label ? <p className="m" style={{ color: "var(--fg-3)", fontSize: 12, margin: "0 0 2px" }}>{n.label}</p> : null}
     <h4><Title text={n.title} />{n.meta ? <span style={{ color: "var(--fg-2)", fontWeight: 500 }}> · {n.meta}</span> : null}</h4>
     {n.detail ? <p className="m">{n.detail}</p> : null}
     {n.kind === "fork" ? <p className="m">{chart.edges.filter((e) => e.from === id).map((e) => e.label || "otherwise").join(" · ")}</p> : null}
     {n.cond ? <div className="c"><Cond /><span>{n.cond}{n.onlyIf ? ". Otherwise it is skipped and the run goes on." : null}</span></div> : null}
     {n.quote ? (n.channel === "slack" ? <SlackMsg face={n.face} text={n.quote} time="9:41 AM" thread={n.thread} reaction={n.react} offers={n.offer} /> : <div className="q">{n.quote}</div>) : null}
+    {chart.counts && !state ? <p className="m tnum">{countWords(chart.counts.by[id] ?? { went: 0, skipped: 0 }, chart.counts.days)}.</p> : null}
     {state ? <div className={`st ${state}`}>{state === "ok" ? <Check /> : state === "ghost" ? <Ghost /> : state === "here" ? <Clock /> : state === "warn" ? <Warn /> : <Skip />}{w}</div> : null}
     {extra}
   </>;
@@ -99,11 +103,11 @@ const STATE_INK: Record<string, string> = { ok: "ok", ghost: "ok", skip: "cond",
  * The legend under a chart: the chart's own marks (without a run), then every state the bars and the run badges use that
  * is on the page, each with the bar's swatch and the badge's mark in the same colour.
  */
-export function Legend({ run, states }: { run?: boolean; states?: Iterable<string> }) {
+export function Legend({ run, states, days }: { run?: boolean; states?: Iterable<string>; days?: number }) {
   const on = new Set(states ?? STATE_ORDER); on.add("ok");
   const keys = STATE_ORDER.filter((k) => on.has(k) || (k === "next" && run));
   return <div className="legend">
-    {run ? null : <><span style={{ color: "var(--fg-2)" }}><i className="hp" aria-hidden />behind the scenes: a wait, a read, a value kept</span><span style={{ color: "var(--cond)" }}><i className="dash" aria-hidden />only if …, otherwise skipped</span><span style={{ color: "var(--cond)" }}><Cond />may be skipped</span><span className="sep" aria-hidden /></>}
+    {run ? null : <><span style={{ color: "var(--fg-2)" }}><i className="hp" aria-hidden />behind the scenes: a wait, a read, a value kept</span><span style={{ color: "var(--cond)" }}><i className="dash" aria-hidden />only if …, otherwise skipped</span><span style={{ color: "var(--cond)" }}><Cond />may be skipped</span>{days ? <span style={{ color: "var(--fg-2)" }}><i className="cntk" aria-hidden>12</i>went through it in the last {days} days</span> : null}<span className="sep" aria-hidden /></>}
     {keys.map((k) => <span key={k} className="key" style={{ color: `var(--${STATE_INK[k]})` }}><i className={`swa ${k}`} />{k === "next" ? null : stateIcon(k)}{STATE_WORDS[k]}</span>)}
   </div>;
 }

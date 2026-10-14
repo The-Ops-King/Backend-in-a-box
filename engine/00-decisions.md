@@ -3547,6 +3547,73 @@ chart still left steps out on purpose (Jev's read of a reply, every `set_var`) a
   refusal with a stand-in verdict; the sweep's daily stamp, alert and resolution).
   `scripts/render-charts.ts` shoots `messy`, that definition, in the graph.
 
+## D112. The chart's words come from the step; titles are labels; each step shows who went through it (2026-10-14)
+
+Tyler: the chart is his only view of what a workflow does, and he has to be able to trust it. A step with a `title`
+showed that typed text instead of what it does: PMU's "Card → Rescheduled, if it is before the call (its name stays)"
+would go on saying so after someone changed the step's `from_stages`. And nothing on the chart said whether a step had
+ever run.
+- **Generated words.** A node's main line is always made from its type and settings (`shortTitle` / `generic` in
+  `src/api/words.ts`, over `describe.ts`); a `title` rides along as `label`, drawn small above the words and at the
+  top of the popover. A task's `title` is the task itself and stays in the words. Each kind says the facts that matter at
+  a glance: a card move its board and stage in a chip (by the CRM's names, below), then
+  "marked lost", "only from New Lead, Booked Call, Unresponsive - Call Unconfirmed, …" (every one), "only if there is a card", "named [full name] --
+  Direct/Setter" (a var that only ever holds a few literals is written as them) or "keeps its name", "owner: the
+  closer"; a CRM record "Update/Write the Sales Call record", "for the slot the call moved from", the values that matter
+  ("outcome = rescheduled", "sets outcome and disposition"), "+8 more fields", "empties 6 fields"; a Slack post what
+  it posts (the name it posts as, else its bold opening, else its first clause) and where ("in the thread of the
+  booking post", "to the bookings channel", "DM to the closer"), what it reacts and offers; email "Email: <subject>";
+  "Update the contact · owner: the closer, appointment date"; "Task for the closer: … · due in 1 day"; Jev by the
+  answers it picks from ("Jev: set, follow up, DQ or not interested?"); lookups, logs, opportunities, outcomes, set_var
+  ("Remember …") and every end by its reason ("Done: they replied"). Facts are drawn on their own smaller lines under
+  the main line so they wrap instead of being cut. `pathWords` learned the binding families (`crm.stage_*` → "No Show",
+  `crm.pipeline_*` → "closer board", `crm.field_*`, `slack.channel.*` → "the bookings channel", `picklist.*` → the
+  option), and "there are no later parts already in" for a count against 0. Every node of every shipped template and
+  PMU copy was read; none shows a binding, an id or JSON (a test holds it). The run feed's step rows use the same words.
+- **The CRM's own names, every one listed.** Boards, stages, contact and card fields and custom objects are worded by the
+  names GHL gives them ("Beauty Moguls → Booked Call", not our key's "Closer → Scheduled"): one read of the company's
+  pipelines, custom fields and objects (`ghlCatalog`), kept ten minutes in memory per company (a failed read one minute),
+  on the workflow page, the run page and the run lists (`crmNamer` in `src/api/crm-names-read.ts`, a pure `namer` in
+  `crm-names.ts`). When GHL cannot be read, or the id is not on it, our key words stand in, marked "(name not read from
+  GHL)", never passed off as GHL's. A list that decides what a step does is never cut: every stage in `from_stages`
+  is on the node (its fact lines wrap and the node grows), and the popover lists every field a record or a card step
+  writes. D105's run-log reason ("the card is on …", worded from the key when the step ran) is shown with GHL's name for
+  the stage it stores. Not named from the CRM: a Sales Call's own properties (outcome, disposition: the object's keys),
+  calendars (no step words them), and stages inside a hand-written edge label or an only_if predicate; the
+  `card.moved` event's stage words in Slack still come from the binding keys.
+- **Helper steps read plainly too, and no two steps share a main line.** A remembered value (`set_var`, drawn since
+  D111) says what is kept and each case in words: "Remember the setter line: ‘Setter: [setter]’", "Remember the
+  Slack card's look · ‘Call rescheduled’ 🔁 if this is a reschedule, otherwise ‘New call booked’ …", "Remember what the
+  team decided · by the tap; ✅ → ‘confirmed’; …"; never JSON, Slack's `*bold*` or a path. The chart's arrow "on to
+  “…”" names a step by its main line, so steps of one workflow that would read the same are told apart by the first
+  thing that differs: their first fact, the wait before them ("Text, 3 days before the call"), the way into them
+  ("Text, when the call is at 11am or later"), the step before them when that settles all of them; else "(2nd time)".
+  A wait, drawn as its own step since D111, says it waits ("Wait until 3 days before the call", "Wait 2 days"). The
+  label line, fact lines and count pill are drawn by `src/chart/draw.ts` with every node, so D111's check reads them too.
+- **What starts a workflow, in plain words.** Tyler could not tell Health check's starts apart. The event words say what
+  happens: "An alert is raised: something broke", "An alert is still open (said again every hour until it is fixed)"
+  (the company's `alerts.repeat_minutes`, 60 unless set), "An alert is fixed (cleared)"; the hourly run's step names
+  what it checks ("the GHL token, GHL calendars bookable, …, links in messages (each where the company uses it)").
+  Other vague or jargon labels were reworded the same way ("A new lead is added in GHL", "The call's outcome is filed",
+  "They replied (text or email)", "Someone moved a card by hand in GHL", "A deal was won").
+- **Who went through it.** The workflow page's chart carries `counts: { days: 7, by: { node_id: { went, skipped } } }`:
+  per node id, the distinct runs with a step row in the last 7 days, and how many of those skipped it (skipped or
+  stale). Runs, not contacts: a company-level run (a schedule) has no contact and counts once. Shadow runs count:
+  companies run in shadow first. By node id, so a step kept across versions is one step. One grouped query
+  (`stepCounts`), served by `runs (workflow_id, reentry_key)` and `run_steps (run_id, started_at)`; a run finished
+  before the window is not read. Each node wears a pill ("12", "3 · 1 skipped", a dimmer 0); a chart with a run picked
+  shows that run's states instead. "Last ran" was already on the page.
+- Display only: what runs and when is unchanged; no template changed.
+- Tests: `words.test.ts` (a titled step's words are generated and its title is the label, and editing `from_stages`
+  changes the words not the title; card, record, Slack, email, check, contact, Jev and end words; no main line of any
+  shipped template or PMU copy, helpers included, has `{{`, `}}`, braces, an id, a dotted path, an underscore or Slack
+  markup; remembered values and their cases; no two steps of one workflow share a main line; the step list uses the same
+  words; with a stubbed pipelines read PMU's new card goes to "Booked Call" on "Beauty Moguls" and the reschedule lists
+  all seven stages by GHL's names; unread, the key words carry the marker; the D105 reason by GHL's name),
+  `step-counts.test.ts` (runs over eight days: only the last seven count, per node, distinct runs, a skip
+  counted, a company-level run counted, the page's chart carries them, a step reached only eight days ago has none; the
+  page names a board and stage as GHL does, reading GHL once for two page loads, and marks them when GHL fails).
+
 ## D113. An open dashboard tab knows when it is running old code (2026-10-14)
 
 Tyler opened Hair's Health check and saw only its four triggers: the chart from before D107, still running in a tab

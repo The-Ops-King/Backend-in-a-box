@@ -2,7 +2,7 @@ import type { Chart } from "@/api/words";
 import { arrange, type Row } from "./arrange";
 import { exactness, graphGeometry, svgDrawing, type Exactness } from "./exact";
 import { layoutGraph, type GraphLayout } from "./graph";
-import { draw, drawGraph, graphMax, graphSizes, type St } from "./draw";
+import { draw, drawGraph, graphMax, graphSizes, type Count, type St } from "./draw";
 
 /**
  * D111's order of resort, the same on every page and on the server: the tidy chart when its SVG is exactly the workflow,
@@ -10,7 +10,8 @@ import { draw, drawGraph, graphMax, graphSizes, type St } from "./draw";
  * A view is the page's: its width, a run's states, and on a phone with a run, only the path the run took.
  */
 export type Layout = "tidy" | "graph" | "list";
-export type View = { width: number; stateOf?: (id: string) => St | null; pathOnly?: boolean };
+/** countOf (D112): how many went through each step lately, drawn on each node when no run is picked. */
+export type View = { width: number; stateOf?: (id: string) => St | null; pathOnly?: boolean; countOf?: (id: string) => Count | null };
 export type Shown = { svg: string; check: Exactness; pan?: boolean; start?: number };
 /** tidy / plain: the layout's whole drawing in this view, which decides the layout; shown: what the page puts up. */
 export type Picked =
@@ -24,10 +25,10 @@ export const narrowAt = (width: number) => width < 600;
 
 /** The tidy chart in a view, checked from its own SVG; when the view leaves a run's untaken groups out, the whole drawing too. */
 export function tidyView(chart: Chart, rows: Row[], v: View): { tidy: Exactness; shown: Shown } {
-  const svg = draw(rows, v.width, v.stateOf ?? none, !!v.pathOnly);
+  const svg = draw(rows, v.width, v.stateOf ?? none, !!v.pathOnly, v.countOf ?? none);
   const check = exactness(chart, svgDrawing(svg));
   if (!check.filtered) return { tidy: check, shown: { svg, check } };
-  return { tidy: exactness(chart, svgDrawing(draw(rows, v.width, v.stateOf ?? none, false))), shown: { svg, check } };
+  return { tidy: exactness(chart, svgDrawing(draw(rows, v.width, v.stateOf ?? none, false, v.countOf ?? none))), shown: { svg, check } };
 }
 export function tidyOf(chart: Chart, v: View = { width: 1000 }) {
   const rows = arrange(chart);
@@ -41,7 +42,7 @@ export async function pickLayout(chart: Chart, v: View = { width: 1000 }): Promi
   try {
     const narrow = narrowAt(v.width); const s = graphSizes(chart, narrow);
     graph = await layoutGraph(chart, s.size, s.labelSize, { gap: s.gap });
-    const g = drawGraph(graph, chart, v.width, graphMax(narrow), v.stateOf ?? none); const d = svgDrawing(g.svg);
+    const g = drawGraph(graph, chart, v.width, graphMax(narrow), v.stateOf ?? none, v.countOf ?? none); const d = svgDrawing(g.svg);
     plain = exactness(chart, { ...d, problems: [...(d.problems ?? []), ...graphGeometry(graph)] });
     shown = { svg: g.svg, check: plain, pan: g.pan, start: g.start };
   } catch (e) { plain = { exact: false, problems: [`the graph layout failed: ${String((e as Error).message).slice(0, 160)}`] }; }
