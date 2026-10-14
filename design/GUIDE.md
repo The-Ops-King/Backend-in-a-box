@@ -139,7 +139,15 @@ the taken branch under its label, the reminders) and says "four other ways out o
 that do not fit side by side stack in one column, each a card off a spine in the left gutter; a node in a narrow column
 drops its logo for its words.
 
-Tap a node for its popover: what it does, its condition in blue, the copy it sends, and its state on this run.
+A node's words are made from what the step is set to do, never from a hand-written title (D112): the main line in
+`--fg` 13px 600 ("Move the card", "Slack: Confirmed"), stage and tag chips under it, then its facts on their own
+smaller `--fg-2` lines ("only from New Lead, Scheduled and 5 more · keeps its name · owner: the closer"). An
+author's title, when the step has one, sits quietly above the main line (10.5px, `--fg-3`, one line, cut with …).
+Without a run, each node carries a small pill on its top-right corner: how many went through it in the last 7 days,
+shadow runs included ("12", "3 · 1 skipped"); a step nobody reached says 0, dimmer. The legend says what the pill is.
+
+Tap a node for its popover: its author's title, what it does, its condition in blue, the copy it sends, how many went
+through it lately (or its state on this run).
 
 ## 6. Page recipes
 

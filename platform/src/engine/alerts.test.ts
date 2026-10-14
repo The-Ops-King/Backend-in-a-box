@@ -200,7 +200,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect((await asOperator((c) => one<{ result: { kind: string } }>(c, "select result from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_id='s1'", [wfId])))!.result.kind).toBe("blocked");
     const a = await alertsThenSay();
     expect(a.posted).toBe(1);
-    expect(posts.find((p) => /Step could not run/.test(p.text))!.text).toMatch(/🟡 \*Alert Co · Step could not run\*\nSay hi couldn't post to Slack \(channel nope\) for Leo Ortiz: slack channel not bound\. The run went on without it\./);
+    expect(posts.find((p) => /Step could not run/.test(p.text))!.text).toMatch(/🟡 \*Alert Co · Step could not run\*\nSay hi couldn't post to the nope channel in Slack for Leo Ortiz: slack channel not bound\. The run went on without it\./);
     await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.nope','channel',$2)", [companyId, Buffer.from("CNOPE")]));
     await fireRemove(); await tick(fake, undefined, companyId);
     const a2 = await alertsThenSay();

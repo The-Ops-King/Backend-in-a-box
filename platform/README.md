@@ -451,6 +451,15 @@ produce; changes to copy, steps, channels, pipelines or icons go through the cha
 template or the company's copy and re-installs. (`src/engine/edits.ts` and `copy.ts` are the engine
 side of those edits and stay; the dashboard no longer exposes them.)
 
+The chart's words are made from what each step is set to do (D112, `shortTitle` in `src/api/words.ts` over
+`src/engine/describe.ts`): a card move names its board and stage (from the binding key: "Closer → Rescheduled"),
+the stages it moves from, whether it needs a card, its name and owner; a CRM record its object and the values that
+matter ("outcome = rescheduled"); a Slack post what it posts and where. A step's hand-written `title` is never the
+words, only a small label above them, so a changed setting can never hide behind an old title. Each step also
+carries how many runs reached it in the last 7 days, shadow runs included (`stepCounts` in `src/api/data.ts`: one
+grouped query on `runs` ⋈ `run_steps` by node id, so a step kept across versions is one step; in the workflow
+page's chart payload as `chart.counts`); a 0 is drawn too.
+
 ## Slack as an input (D45)
 
 Reactions are decisions. A post may offer ✅ ❌ (or any emoji) for a person to tap; the tap reaches the engine

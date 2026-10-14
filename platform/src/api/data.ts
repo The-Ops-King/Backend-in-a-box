@@ -110,6 +110,20 @@ async function runRows(c: PoolClient, co: CompanyHead, runs: RunFull[]): Promise
   return out;
 }
 
+/**
+ * D112: per step, the runs that reached it in the last `days` days, and how many of those skipped it. By node id, so a
+ * step kept across versions counts as one; shadow runs count (a company runs in shadow first); a company-level run (a
+ * schedule) counts like any other. A run that finished before the window cannot have a step in it, so it is not read.
+ */
+export async function stepCounts(c: PoolClient, workflowId: string, days = 7): Promise<Record<string, { went: number; skipped: number }>> {
+  const rows = await many<{ node_id: string; went: number; skipped: number }>(c, `
+    select s.node_id, count(distinct s.run_id)::int as went, count(distinct s.run_id) filter (where s.status in ('skipped','stale'))::int as skipped
+    from runs r join run_steps s on s.run_id=r.id
+    where r.workflow_id=$1 and (r.finished_at is null or r.finished_at > now() - make_interval(days => $2)) and s.started_at > now() - make_interval(days => $2)
+    group by s.node_id`, [workflowId, days]);
+  return Object.fromEntries(rows.map((r) => [r.node_id, { went: r.went, skipped: r.skipped }]));
+}
+
 /** The workflow page: header, tiles, the chart, who went through it. */
 export async function workflowPage(c: PoolClient, co: CompanyHead, id: string, limit = 100) {
   const w = await one<{ id: string; company_id: string; name: string; enabled: boolean; stage: string | null; origin: string | null; current_version: number; template_version: number | null; diverged: boolean; description: string | null; definition: unknown }>(c, "select w.*, t.description, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version left join workflow_templates t on t.id=w.template_id where w.id=$1", [id]);
@@ -119,7 +133,7 @@ export async function workflowPage(c: PoolClient, co: CompanyHead, id: string, l
   try { def = parseDefinition(w.definition); } catch (e) { parse_error = String((e as Error).message).slice(0, 300); }
   const { bindings, adapterCompany } = await loadCompany(c, co.id);
   const safe = Object.fromEntries(Object.entries(bindings).filter(([k]) => !k.startsWith("secret.")));
-  const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source) : null;
+  const chart = def ? { ...chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source), counts: { days: 7, by: await stepCounts(c, id, 7) } } : null;
   const ready = await companyReadiness(c, co.id, `/app/c/${co.slug}`); const mine = ready.workflows.find((x) => x.id === id);
   const runs = await many<RunFull>(c, `${runSelect} where r.workflow_id=$1 order by (r.status in ('active','waiting')) desc, r.started_at desc limit $2`, [id, Math.min(Math.max(1, Math.floor(limit) || 100), 1000)]);
   const rows = await runRows(c, co, runs);

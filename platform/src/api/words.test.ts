@@ -92,3 +92,69 @@ describe("D103: sometimes-steps", () => {
     expect(path.find((x) => x.node_id === "s4r")).toMatchObject({ state: "next", onlyIf: "a reschedule" });
   });
 });
+
+// D112: Tyler trusts the chart only if its words come from what each step is set to do; a hand-written title is a label
+describe("D112: a step's words are made from its settings", () => {
+  const pmu = (f: string) => parseDefinition(JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../installs/pmu", `${f}.json`), "utf8")).definition);
+  const nodeOf = (def: ReturnType<typeof pmu>, id: string) => chartOf(def, company).nodes.find((n) => n.id === id)!;
+  const line = (n: { title: string; meta?: string }) => `${n.title}${n.meta ? ` · ${n.meta}` : ""}`;
+
+  it("a node with a title shows the generated main line, the title only as its label; a changed setting changes the words, not the title", () => {
+    const def = pmu("call-booked");
+    const rs = nodeOf(def, "c_rs");
+    expect(rs.label).toBe("Card → Rescheduled, if it is before the call (its name stays)");
+    expect(line(rs)).toBe("Move the card ‹Closer → Rescheduled› · only from New Lead, Scheduled and 5 more · keeps its name · owner: the closer");
+    // someone narrows the stages it moves from and lets it rename the card: the title still says the old thing, the words do not
+    const edited = parseDefinition({ ...def, nodes: def.nodes.map((n) => (n.id === "c_rs" ? { ...n, from_stages: ["{{crm.stage_closer_scheduled}}", "{{crm.stage_closer_confirmed}}"], keep_name: false } : n)) });
+    const after = nodeOf(edited, "c_rs");
+    expect(after.label).toBe(rs.label);
+    expect(line(after)).toBe("Move the card ‹Closer → Rescheduled› · only from Scheduled, Confirmed · named [full name] -- Direct/Setter · owner: the closer");
+    // a task's title is the task itself, not a label
+    expect(nodeOf(def, "k3")).toMatchObject({ title: "Task for the closer: send them a personalized video", meta: "due in 1 day", label: undefined });
+  });
+
+  it("a card move says its board and stage, its name, its status, the stages it moves from, and that it needs a card", () => {
+    expect(line(nodeOf(pmu("call-booked"), "c_new"))).toBe("Move the card ‹Closer → Scheduled› · named [full name] -- Direct/Setter · owner: the closer");
+    expect(line(nodeOf(pmu("pre-call-sequence"), "k_conf"))).toBe("Move the card ‹Closer → Confirmed› · only if there is a card");
+    const outcome = parseDefinition(templates.find((t) => t.slug === "call-outcome")!.definition);
+    expect(line(nodeOf(outcome, "k3"))).toBe("Move the card ‹Closer → Lost› · marked lost · only if there is a card");
+    expect(line(nodeOf(parseDefinition(templates.find((t) => t.slug === "deal-closed")!.definition), "p2"))).toBe("Mark the card won ‹Setter›");
+  });
+
+  it("a CRM record says which object, update or write, and the values that matter", () => {
+    expect(line(nodeOf(pmu("call-booked"), "k5"))).toBe("Update the Sales Call record for the slot the call moved from · outcome = rescheduled");
+    expect(line(nodeOf(pmu("call-booked"), "k4"))).toMatch(/^Write the Sales Call record · outcome = scheduled · \+\d+ more fields$/);
+    expect(line(nodeOf(pmu("call-outcome"), "r2"))).toBe("Update the Sales Call record · outcome = no-show · empties 6 fields");
+    expect(line(nodeOf(pmu("eod-call-filed"), "r_held"))).toBe("Update the Sales Call record · sets outcome and disposition");
+  });
+
+  it("the other kinds read as what they do", () => {
+    const pre = pmu("pre-call-sequence");
+    expect(line(nodeOf(pre, "n_conf_slack"))).toBe("Slack: Confirmed · in the thread of the booking post · reacts :white_check_mark:");
+    expect(line(nodeOf(pre, "e1"))).toBe("Email: You're booked: [call time] — reply to lock it in");
+    expect(line(nodeOf(pre, "c0"))).toBe("Check there is a CRM contact · waits up to 1 hour");
+    expect(line(nodeOf(pmu("call-booked"), "n1"))).toBe("Update the contact · owner: the closer, appointment date");
+    expect(line(nodeOf(pmu("call-booked"), "n4"))).toBe("Slack: Call rescheduled or New call booked · to the bookings channel");
+    const setter = parseDefinition(templates.find((t) => t.slug === "setter-call-logged")!.definition);
+    expect(nodeOf(setter, "a3").title).toBe("Jev: set, follow up, DQ or not interested?");
+    expect(nodeOf(setter, "c_latest").title).toBe("Check there are no later parts already in");
+    expect(nodeOf(pmu("call-recorded"), "x_linked").title).toBe("Done: linked by the team");
+  });
+
+  it("no main line of any shipped template or PMU copy shows a binding, an id or JSON", () => {
+    let n = 0;
+    for (const { name, def } of shipped()) for (const node of chartOf(def, company).nodes) {
+      n++;
+      const words = line(node).replace(/“[^”]*”/g, "").replace(/:[a-z0-9_+-]+:/g, "");
+      expect(words, `${name}/${node.id}`).not.toMatch(/\{\{|\}\}|[{}]|\b[0-9a-f]{8}-[0-9a-f]{4}|\b[A-Za-z0-9]{20,}\b|\b(crm|vars|event|contact|appointment|slack|picklist|recording|setting|user)\.[a-z]|_/);
+    }
+    expect(n).toBeGreaterThan(400);
+  });
+
+  it("the step list uses the same words", () => {
+    const def = pmu("call-booked");
+    const run = { id: "r1", status: "completed", current_node: null, next_run_at: null, exit_reason: "booked", started_at: new Date("2026-10-13T15:00:00Z") };
+    const path = pathOf(def, run, [{ node_id: "c_rs", node_type: "pipeline_card", status: "ok", started_at: new Date("2026-10-13T15:00:01Z"), finished_at: null, result: {}, error: null }], [], [], "UTC");
+    expect(path.find((x) => x.node_id === "c_rs")).toMatchObject({ title: "Move the card ‹Closer → Rescheduled›", meta: "only from New Lead, Scheduled and 5 more · keeps its name · owner: the closer" });
+  });
+});

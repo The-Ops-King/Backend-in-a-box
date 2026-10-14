@@ -3430,3 +3430,41 @@ setting the company's workflows or the engine read, as the Settings page does (s
 it replaced so the change can be undone. Secrets are refused (install sets them; D100 copies the shared AI keys); so is a
 key nothing reads and an empty value.
 - Test: `binding-set.test.ts`.
+
+## D112. The chart's words come from the step; titles are labels; each step shows who went through it (2026-10-14)
+
+Tyler: the chart is his only view of what a workflow does, and he has to be able to trust it. A step with a `title`
+showed that typed text instead of what it does: PMU's "Card → Rescheduled, if it is before the call (its name stays)"
+would go on saying so after someone changed the step's `from_stages`. And nothing on the chart said whether a step had
+ever run.
+- **Generated words.** A node's main line is always made from its type and settings (`shortTitle` / `generic` in
+  `src/api/words.ts`, over `describe.ts`); a `title` rides along as `label`, drawn small above the words and at the
+  top of the popover. A task's `title` is the task itself and stays in the words. Each kind says the facts that matter at
+  a glance: a card move its board and stage in a chip (stage words from the binding key, "Closer → Rescheduled"), then
+  "marked lost", "only from New Lead, Scheduled and 5 more", "only if there is a card", "named [full name] --
+  Direct/Setter" (a var that only ever holds a few literals is written as them) or "keeps its name", "owner: the
+  closer"; a CRM record "Update/Write the Sales Call record", "for the slot the call moved from", the values that matter
+  ("outcome = rescheduled", "sets outcome and disposition"), "+8 more fields", "empties 6 fields"; a Slack post what
+  it posts (the name it posts as, else its bold opening, else its first clause) and where ("in the thread of the
+  booking post", "to the bookings channel", "DM to the closer"), what it reacts and offers; email "Email: <subject>";
+  "Update the contact · owner: the closer, appointment date"; "Task for the closer: … · due in 1 day"; Jev by the
+  answers it picks from ("Jev: set, follow up, DQ or not interested?"); lookups, logs, opportunities, outcomes, set_var
+  ("Remember …") and every end by its reason ("Done: they replied"). Facts are drawn on their own smaller lines under
+  the main line so they wrap instead of being cut. `pathWords` learned the binding families (`crm.stage_*` → "No Show",
+  `crm.pipeline_*` → "closer board", `crm.field_*`, `slack.channel.*` → "the bookings channel", `picklist.*` → the
+  option), and "there are no later parts already in" for a count against 0. Every node of every shipped template and
+  PMU copy was read; none shows a binding, an id or JSON (a test holds it). The run feed's step rows use the same words.
+- **Who went through it.** The workflow page's chart carries `counts: { days: 7, by: { node_id: { went, skipped } } }`:
+  per node id, the distinct runs with a step row in the last 7 days, and how many of those skipped it (skipped or
+  stale). Runs, not contacts: a company-level run (a schedule) has no contact and counts once. Shadow runs count:
+  companies run in shadow first. By node id, so a step kept across versions is one step. One grouped query
+  (`stepCounts`), served by `runs (workflow_id, reentry_key)` and `run_steps (run_id, started_at)`; a run finished
+  before the window is not read. Each node wears a pill ("12", "3 · 1 skipped", a dimmer 0); a chart with a run picked
+  shows that run's states instead. "Last ran" was already on the page.
+- Display only: what runs and when is unchanged; no template changed.
+- Tests: `words.test.ts` (a titled step's words are generated and its title is the label, and editing `from_stages`
+  changes the words not the title; card, record, Slack, email, check, contact, Jev and end words; no main line of any
+  shipped template or PMU copy has `{{`, `}}`, braces, an id, a dotted path or an underscore; the step list uses the same
+  words), `step-counts.test.ts` (runs over eight days: only the last seven count, per node, distinct runs, a skip
+  counted, a company-level run counted, the page's chart carries them, a step reached only eight days ago has none).
+

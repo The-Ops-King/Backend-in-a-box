@@ -59,7 +59,7 @@ export function Workflow() {
       <Sec small={sel ? "tap a step for what happened there" : "tap a step for what it does and the words it sends"}>The flow</Sec>
       {sel ? <Picked sel={sel} row={runs.find((r) => r.id === sel) ?? null} page={run} error={picked.error?.message ?? null} tz={co.timezone} slug={slug} onClear={() => choose(null)} /> : null}
     </div>
-    {shown ? <><FlowChart chart={shown} states={run?.states} pathOnly={!!run && narrow} onOpen={(nid, el) => setPop({ id: nid, el })} /><Legend run={!!run} states={run ? Object.values(run.states) : listStates} /></> : <div className="issue"><Tag kind="warn">needs reinstall</Tag><span>This workflow's stored definition no longer runs on the current engine. {w.parse_error}</span></div>}
+    {shown ? <><FlowChart chart={shown} states={run?.states} pathOnly={!!run && narrow} onOpen={(nid, el) => setPop({ id: nid, el })} /><Legend run={!!run} states={run ? Object.values(run.states) : listStates} days={run ? undefined : shown.counts?.days} /></> : <div className="issue"><Tag kind="warn">needs reinstall</Tag><span>This workflow's stored definition no longer runs on the current engine. {w.parse_error}</span></div>}
     <Sec small={runs.length ? "latest first · tap someone to see their path on the chart" : undefined}>Who went through it</Sec>
     {runs.length === 0 ? <Empty>Nobody yet.</Empty> : <>
       <div className="rows">{runs.map((r) => <RunRow key={r.id} r={r} tz={co.timezone} on={r.id === sel} onPick={() => choose(r.id)} />)}</div>

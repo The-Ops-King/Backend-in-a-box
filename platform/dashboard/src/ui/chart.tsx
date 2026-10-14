@@ -24,35 +24,44 @@ function tw(s: string, per = TEXT_W): number {
   return w * per / 0.72;   // the 600-weight face runs a touch wider than the per-glyph table
 }
 // :shortcodes: in the words (the emoji a step waits for) are drawn as the emoji, the way Slack shows them
-const labelOf = (it: Item) => (it.n.title + (it.n.meta && it.n.kind !== "send" ? ` · ${it.n.meta}` : "") + (it.waits ? ` · ${it.waits}` : "")).replace(/:([a-z0-9_+-]+):/g, (m, code) => emoji(code) ?? m);
+const emo = (t: string) => t.replace(/:([a-z0-9_+-]+):/g, (m, code) => emoji(code) ?? m);
+const labelOf = (it: Item) => emo(it.n.title + (it.waits ? ` · ${it.waits}` : ""));
+/** The step's facts after its main words (D112): their own smaller lines under it, so they wrap instead of being cut. */
+const metaOf = (it: Item) => it.n.meta && it.n.kind !== "send" ? emo(it.n.meta) : "";
+const SUB_W = 6.3, SUB_LINE = 14;
 /** Words onto lines no wider than `max` characters; two lines wanted, three at most, nothing cut. */
-function wrap(text: string, max: number, most = 4): string[] {
+function wrap(text: string, max: number, most = 4, per = TEXT_W): string[] {
   const words = text.split(/\s+/); const lines: string[] = []; let cur = "";
-  const maxPx = max * TEXT_W;
-  for (const w of words) { const next = cur ? `${cur} ${w}` : w; if (tw(next) <= maxPx || !cur) cur = next; else { lines.push(cur); cur = w; } }
+  const maxPx = max * per;
+  for (const w of words) { const next = cur ? `${cur} ${w}` : w; if (tw(next, per) <= maxPx || !cur) cur = next; else { lines.push(cur); cur = w; } }
   if (cur) lines.push(cur);
-  const cut = (l: string, more = false) => { if (!more && tw(l) <= maxPx) return l; let k = l.length; while (k > 3 && tw(`${l.slice(0, k)}…`) > maxPx) k--; return `${l.slice(0, k).trimEnd()}…`; };
+  const cut = (l: string, more = false) => { if (!more && tw(l, per) <= maxPx) return l; let k = l.length; while (k > 3 && tw(`${l.slice(0, k)}…`, per) > maxPx) k--; return `${l.slice(0, k).trimEnd()}…`; };
   // four lines at most (six in a narrow column); past that the last line is cut with an ellipsis rather than spilling out of the box
   if (lines.length > most) { const keep = lines.slice(0, most); keep[most - 1] = cut(keep[most - 1], true); return keep; }
   return lines.map((l) => cut(l));
 }
 /** The lines a node shows and the box they need, within the width allowed. */
-type Size = { lines: string[]; w: number; h: number; chips?: { text: string; stage: boolean }[]; noIcon?: boolean };
+type Size = { lines: string[]; w: number; h: number; chips?: { text: string; stage: boolean }[]; noIcon?: boolean; lab?: number; sub?: string[] };
+// the author's own title, quiet on a line above the generated words (D112); never wider than the words want, nor than 220
+const LAB_H = 15, LAB_W = 5.9;
 function sizeOf(it: Item, maxW: number): Size {
-  const s = sizeOfTitle(it, maxW); if (!it.when) return s;
+  let t = sizeOfTitle(it, maxW); const meta = metaOf(it);
+  if (meta) { const sub = wrap(meta, Math.max(8, Math.floor((maxW - PAD) / SUB_W)), 6, SUB_W); t = { ...t, sub, w: Math.min(maxW, Math.max(t.w, Math.round(Math.max(...sub.map((l) => tw(l, SUB_W))) + PAD))), h: t.h + sub.length * SUB_LINE + 2 }; }
+  const s = it.n.label ? { ...t, w: Math.max(t.w, Math.min(maxW, 220, Math.round(tw(it.n.label, LAB_W) + PAD))), h: t.h + LAB_H, lab: LAB_H } : t;
+  if (!it.when) return s;
   // the condition line under the title: as wide as it needs, up to the width allowed, cut with … past that
   return { ...s, w: Math.min(maxW, Math.max(s.w, Math.round(tw(ifLine(it), IF_W) + 16 + IF_PAD))), h: s.h + IF_H };
 }
 const ifLine = (it: Item) => `only if ${it.when}`;
 function sizeOfTitle(it: Item, maxW: number): Size {
   // a node in a narrow column (a group inside a group) gives its logo's room to the words, and may run to six lines
-  const narrow = maxW < 150; const most = narrow ? 6 : 4;
+  const narrow = maxW < 150; const most = narrow ? 6 : 5;
   const extra = (it.waits ? 22 : 0) + (it.cond && !it.when ? 18 : 0) + (kindIconOf(it) && !narrow ? 22 : 0);
   // “tags” and ‹stages› in the words become chips under the title
   const raw = labelOf(it); const found = raw.match(/“[^”]*”|‹[^›]*›/g);
   if (found) {
     const chips = found.flatMap((c) => { const text = c.slice(1, -1), stage = c.startsWith("‹"); if (stage && tw(text, 6.4) + 22 + PAD > maxW && text.includes(" → ")) { const [a, b] = text.split(" → "); return [{ text: `${a} →`, stage }, { text: b, stage }]; } return [{ text, stage }]; });
-    const verb = raw.replace(/“[^”]*”|‹[^›]*›/g, "").replace(/\s*·\s*$/, "").replace(/,\s*/g, " ").replace(/\s+/g, " ").trim().replace(/ tag$/, chips.length > 1 ? " tags" : " tag");
+    const verb = raw.replace(/,?\s*(“[^”]*”|‹[^›]*›)/g, " ").replace(/\s+/g, " ").trim().replace(/^·\s*|\s*·$/g, "").replace(/ tag$/, chips.length > 1 ? " tags" : " tag");
     const maxChars = Math.max(8, Math.floor((maxW - PAD - extra) / TEXT_W));
     const lines = tw(verb) <= maxChars * TEXT_W ? [verb] : wrap(verb, maxChars, most);
     const w = Math.min(maxW, Math.max(96, Math.round(Math.max(...lines.map((l) => tw(l) + extra), ...chips.map((c) => tw(c.text, 6.4) + 22)) + PAD)));
@@ -74,20 +83,23 @@ export function FlowChart({ chart, states, pathOnly, onOpen }: { chart: Chart; s
   useEffect(() => { const el = box.current; if (!el) return; const ro = new ResizeObserver(() => setWidth(el.clientWidth || 600)); ro.observe(el); setWidth(el.clientWidth || 600); return () => ro.disconnect(); }, []);
   const rows = useMemo(() => arrange(chart), [chart]);
   const stateOf = (id: string): St | null => states ? states[id] ?? (Object.keys(states).length ? "next" : null) : null;
-  const svg = useMemo(() => draw(rows, width, stateOf, !!pathOnly && !!states), [rows, width, states, pathOnly]);
+  // D112: how many went through each step lately, shown on the plain chart (a run's chart shows that run's states instead)
+  const countOf = (id: string) => chart.counts && !states ? chart.counts.by[id] ?? { went: 0, skipped: 0 } : null;
+  const svg = useMemo(() => draw(rows, width, stateOf, !!pathOnly && !!states, countOf), [rows, width, states, pathOnly, chart]);
   return <div className="chart" ref={box} onClick={(e) => { const g = (e.target as Element).closest("g.nd") as SVGGElement | null; if (g && onOpen) onOpen(g.dataset.id!, g); }}
     dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 const G_GAP = 14, G_MIN = 130, G_COL = 190;
-function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOnly: boolean): string {
+type Count = { went: number; skipped: number };
+function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOnly: boolean, countOf: (id: string) => Count | null): string {
   const out: string[] = [];
   const link = (x1: number, y1: number, x2: number, y2: number, dashed = false) => { const my = (y1 + y2) / 2; out.push(`<path d="M${x1} ${y1} C${x1} ${my} ${x2} ${my} ${x2} ${y2}" fill="none" stroke="${T("edge")}" stroke-width="1.6"${dashed ? ` stroke-dasharray="${DASH}"` : ""}/>`); };
   // the node last put, so the edge out of a sometimes-step is dashed and the way around it ("otherwise") can be drawn
   type Placed = { it: Item; cx: number; top: number; bottom: number; w: number; above: boolean };
   let last: Placed | null = null;
   // one node at cx: draws it with its top at `top`, returns its bottom
-  const put = (it: Item, cx: number, top: number, maxW: number, above = false) => { const sz = sizeOf(it, maxW); out.push(node(it, cx, top + sz.h / 2, sz, stateOf(it.id))); last = { it, cx, top, bottom: top + sz.h, w: sz.w, above }; return top + sz.h; };
+  const put = (it: Item, cx: number, top: number, maxW: number, above = false) => { const sz = sizeOf(it, maxW); out.push(node(it, cx, top + sz.h / 2, sz, stateOf(it.id), countOf(it.id))); last = { it, cx, top, bottom: top + sz.h, w: sz.w, above }; return top + sz.h; };
   /**
    * The edge straight down from the node last put to the next thing at (x, y2), dashed into or out of a sometimes-step.
    * Out of one that had an edge straight into it, a thin blue way around its right side, "otherwise": skipped, the
@@ -233,7 +245,7 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
   return `<svg viewBox="0 0 ${W} ${Hh}" width="${W}" height="${Hh}" role="img" aria-label="Flow chart">${out.join("")}</svg>`;
 }
 
-function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
+function node(it: Item, x: number, y: number, sz: Size, st: St | null, cnt: Count | null = null): string {
   const k = it.n.kind; const w = sz.w, h = sz.h; const top = y - h / 2;
   const fill = k === "trig" ? T("acc") : k === "end" ? "none" : k === "fork" || k === "check" ? T("panel-3") : T("panel-2");
   const stroke = k === "trig" ? T("acc") : k === "end" ? T("fg-3") : T("edge"); const ink = k === "trig" ? T("acc-ink") : k === "end" ? T("fg-2") : T("fg");
@@ -243,13 +255,16 @@ function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
   // the title centred on up to three lines; a clock before the first line when it waits, the blue mark at the right when it may not fire
   const ki = sz.noIcon ? "" : kindIconOf(it); const leftW = (it.waits ? 22 : 0) + (ki ? 22 : 0);
   const shift = (leftW - (it.cond && !it.when ? 18 : 0)) / 2;
-  const y0 = top + VPAD + 11.5;
+  const y0 = top + VPAD + 11.5 + (sz.lab ?? 0);
+  if (it.n.label) g += `<text class="lab" x="${x}" y="${top + VPAD + 9}" text-anchor="middle" fill="${k === "trig" ? T("acc-ink") : T("fg-3")}" style="font-size:10.5px;font-weight:500${k === "trig" ? ";opacity:.7" : ""}">${esc(trunc(it.n.label, w + PAD - 16, LAB_W))}</text>`;
   sz.lines.forEach((l, i) => { g += `<text x="${x + shift}" y="${y0 + i * LINE}" text-anchor="middle" fill="${ink}">${esc(l)}</text>`; });
   let lx = x + shift - Math.max(...sz.lines.map((l) => tw(l))) / 2 - leftW;
   const iconInk = k === "trig" ? T("acc-ink") : T("fg-2");
   if (ki) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${iconInk}">${LOGO[ki] ?? LOGO.engine}</g>`; lx += 22; }
   if (it.waits) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${T("fg-2")}">${svgIcon("clock")}</g>`; }
-  if (sz.chips) { let cy = y0 + sz.lines.length * LINE - 4; for (const c of sz.chips) { const cw = tw(c.text, 6.4) + 14; g += `<rect x="${x - cw / 2}" y="${cy - 1}" width="${cw}" height="17" rx="6" fill="${c.stage ? T("cond-bg") : T("panel-3")}"/><text x="${x}" y="${cy + 11.5}" text-anchor="middle" fill="${c.stage ? T("cond") : T("fg")}" style="${c.stage ? "font-size:11px;font-weight:600" : "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:500"}">${esc(c.text)}</text>`; cy += 20; } }
+  let cy = y0 + sz.lines.length * LINE - 4;
+  if (sz.chips) { for (const c of sz.chips) { const cw = tw(c.text, 6.4) + 14; g += `<rect x="${x - cw / 2}" y="${cy - 1}" width="${cw}" height="17" rx="6" fill="${c.stage ? T("cond-bg") : T("panel-3")}"/><text x="${x}" y="${cy + 11.5}" text-anchor="middle" fill="${c.stage ? T("cond") : T("fg")}" style="${c.stage ? "font-size:11px;font-weight:600" : "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:500"}">${esc(c.text)}</text>`; cy += 20; } }
+  if (sz.sub) sz.sub.forEach((l, i) => { g += `<text x="${x}" y="${cy + 11 + i * SUB_LINE}" text-anchor="middle" fill="${k === "trig" ? T("acc-ink") : T("fg-2")}" style="font-size:11.5px;font-weight:500">${esc(l)}</text>`; });
   if (it.cond && !it.when) g += `<g transform="translate(${x + w / 2 - 24},${top + h / 2 - 8}) scale(.8)" style="color:${T("cond")}">${svgIcon("cond")}</g>`;
   if (it.when) {
     const room = w - 16 - IF_PAD; const full = ifLine(it);
@@ -257,10 +272,13 @@ function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
     const line = tw(full, IF_W) <= room ? full : tw(`if ${it.when}`, IF_W) <= room ? `if ${it.when}` : trunc(`if ${it.when}`, room + PAD, IF_W); const lw = tw(line, IF_W) + 16; const cy = top + h - 8;
     g += `<g transform="translate(${x - lw / 2},${cy - 10.5}) scale(.65)" style="color:${T("cond")}">${svgIcon("cond")}</g><text x="${x - lw / 2 + 16}" y="${cy}" fill="${T("cond")}" style="font-size:11.5px;font-weight:600">${esc(line)}</text>`;
   }
+  if (cnt && !st) { const t = `${cnt.went}${cnt.skipped ? ` · ${cnt.skipped} skipped` : ""}`; const cw = Math.round(tw(t, 6.4)) + 14;
+    g += `<g class="cnt"><title>${esc(countWords(cnt))}</title><rect x="${x + w / 2 - cw + 8}" y="${top - 9}" width="${cw}" height="18" rx="9" fill="${T(cnt.went ? "panel-3" : "panel")}" stroke="${T("edge")}"/><text x="${x + w / 2 - cw / 2 + 8}" y="${top + 4}" text-anchor="middle" fill="${T(cnt.went ? "fg" : "fg-3")}" style="font-size:11px;font-weight:600">${esc(t)}</text></g>`; }
   if (st && st !== "next") { const [col, bg] = BADGE[st] ?? BADGE.stop;
     g += `<g transform="translate(${x + w / 2 - 10},${top - 10})"><title>${esc(STATE_WORDS[st] ?? st)}</title><circle cx="10" cy="10" r="10" fill="${T(bg)}"/><g style="color:${T(col)}" transform="translate(3,3) scale(.7)">${svgIcon(st === "ok" ? "check" : st === "ghost" ? "ghost" : st === "here" ? "clock" : st === "skip" || st === "blocked" ? "skip" : st === "warn" ? "warn" : "stop")}</g></g>`; }
   return g + "</g>";
 }
+const countWords = (c: Count, days = 7) => c.went ? `${c.went} went through this step in the last ${days} days${c.skipped ? `; it was skipped for ${c.skipped === c.went ? "all of them" : c.skipped}` : ""}` : `Nobody reached this step in the last ${days} days`;
 /** A run state's badge on the chart, as [ink, fill] tokens: the same colours as the strip's segments. */
 const BADGE: Record<string, [string, string]> = { ok: ["ok", "ok-bg"], ghost: ["ok", "ok-bg"], here: ["wait", "wait-bg"], skip: ["cond", "cond-bg"], blocked: ["warn", "warn-bg"], warn: ["warn", "warn-bg"], stop: ["fg-3", "panel-3"], next: ["fg-3", "panel-3"] };
 /** The logo of the thing a step touches, at the left of its node, the way Zapier shows an app on every step. Drawn here, 20×20, in the brand's colour. */
@@ -301,11 +319,13 @@ export function NodeWords({ chart, id, state, extra }: { chart: Chart; id: strin
   const n = chart.nodes.find((x) => x.id === id); if (!n) return null;
   const w = { ok: "Done", ghost: "Done in shadow: nothing written or sent", here: "Waiting here", warn: "Failed", skip: "Skipped: its condition was not met", blocked: "Blocked: it did not go out", next: "Not reached", stop: "Stopped" }[state ?? "next"];
   return <>
+    {n.label ? <p className="m" style={{ color: "var(--fg-3)", fontSize: 12, margin: "0 0 2px" }}>{n.label}</p> : null}
     <h4><Title text={n.title} />{n.meta ? <span style={{ color: "var(--fg-2)", fontWeight: 500 }}> · {n.meta}</span> : null}</h4>
     {n.detail ? <p className="m">{n.detail}</p> : null}
     {n.kind === "fork" ? <p className="m">{chart.edges.filter((e) => e.from === id).map((e) => e.label || "otherwise").join(" · ")}</p> : null}
     {n.cond ? <div className="c"><Cond /><span>{n.cond}{n.onlyIf ? ". Otherwise it is skipped and the run goes on." : null}</span></div> : null}
     {n.quote ? (n.channel === "slack" ? <SlackMsg face={n.face} text={n.quote} time="9:41 AM" thread={n.thread} reaction={n.react} offers={n.offer} /> : <div className="q">{n.quote}</div>) : null}
+    {chart.counts && !state ? <p className="m tnum">{countWords(chart.counts.by[id] ?? { went: 0, skipped: 0 }, chart.counts.days)}.</p> : null}
     {state ? <div className={`st ${state}`}>{state === "ok" ? <Check /> : state === "ghost" ? <Ghost /> : state === "here" ? <Clock /> : state === "warn" ? <Warn /> : <Skip />}{w}</div> : null}
     {extra}
   </>;
@@ -321,11 +341,11 @@ const STATE_INK: Record<string, string> = { ok: "ok", ghost: "ok", skip: "cond",
  * The legend under a chart: the chart's own marks (without a run), then every state the bars and the run badges use that
  * is on the page, each with the bar's swatch and the badge's mark in the same colour.
  */
-export function Legend({ run, states }: { run?: boolean; states?: Iterable<string> }) {
+export function Legend({ run, states, days }: { run?: boolean; states?: Iterable<string>; days?: number }) {
   const on = new Set(states ?? STATE_ORDER); on.add("ok");
   const keys = STATE_ORDER.filter((k) => on.has(k) || (k === "next" && run));
   return <div className="legend">
-    {run ? null : <><span style={{ color: "var(--fg-2)" }}><Clock />waits first</span><span style={{ color: "var(--cond)" }}><i className="dash" aria-hidden />only if …, otherwise skipped</span><span style={{ color: "var(--cond)" }}><Cond />may be skipped</span><span className="sep" aria-hidden /></>}
+    {run ? null : <><span style={{ color: "var(--fg-2)" }}><Clock />waits first</span><span style={{ color: "var(--cond)" }}><i className="dash" aria-hidden />only if …, otherwise skipped</span><span style={{ color: "var(--cond)" }}><Cond />may be skipped</span>{days ? <span style={{ color: "var(--fg-2)" }}><i className="cntk" aria-hidden>12</i>went through it in the last {days} days</span> : null}<span className="sep" aria-hidden /></>}
     {keys.map((k) => <span key={k} className="key" style={{ color: `var(--${STATE_INK[k]})` }}><i className={`swa ${k}`} />{k === "next" ? null : stateIcon(k)}{STATE_WORDS[k]}</span>)}
   </div>;
 }
