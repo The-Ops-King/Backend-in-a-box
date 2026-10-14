@@ -3588,6 +3588,8 @@ ever run.
   “…”" names a step by its main line, so steps of one workflow that would read the same are told apart by the first
   thing that differs: their first fact, the wait before them ("Text, 3 days before the call"), the way into them
   ("Text, when the call is at 11am or later"), the step before them when that settles all of them; else "(2nd time)".
+  A wait, drawn as its own step since D111, says it waits ("Wait until 3 days before the call", "Wait 2 days"). The
+  label line, fact lines and count pill are drawn by `src/chart/draw.ts` with every node, so D111's check reads them too.
 - **What starts a workflow, in plain words.** Tyler could not tell Health check's starts apart. The event words say what
   happens: "An alert is raised: something broke", "An alert is still open (said again every hour until it is fixed)"
   (the company's `alerts.repeat_minutes`, 60 unless set), "An alert is fixed (cleared)"; the hourly run's step names
@@ -3612,3 +3614,12 @@ ever run.
   counted, a company-level run counted, the page's chart carries them, a step reached only eight days ago has none; the
   page names a board and stage as GHL does, reading GHL once for two page loads, and marks them when GHL fails).
 
+## D113. An open dashboard tab knows when it is running old code (2026-10-14)
+
+Tyler opened Hair's Health check and saw only its four triggers: the chart from before D107, still running in a tab
+opened before that deploy (the live bundle had D107; a single-page app keeps the code it loaded until it reloads). A
+chart he cannot trust because the tab is old is as bad as a wrong chart. Every answer through the middleware now says
+which deploy made it (`x-build`, the commit); the dashboard bundle knows its own (built in). Once the API is newer, a
+line at the top says the page is the old one with a Reload button, and the next page change loads the new code (the
+page in front of him is not reloaded under his hands). A local build ("dev") is never called stale.
+- Test: `src/api/newer-deploy.test.ts`.

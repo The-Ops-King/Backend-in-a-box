@@ -2,11 +2,13 @@ import { keepPreviousData, useQuery, useMutation, useQueryClient, type QueryKey 
 import type { Chart, PathItem } from "@/api/words";
 import type { SetupPage } from "@/api/setup";
 import type { WorkflowSlack } from "@/api/slack-steps";
+import { noteServerBuild } from "./build";
 
 export class ApiError extends Error { constructor(public status: number, message: string, public body?: Record<string, unknown>) { super(message); } }
 
 export async function api<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
   const r = await fetch(path, { ...init, headers: { ...(init?.json !== undefined ? { "content-type": "application/json" } : {}), ...(init?.headers ?? {}) }, body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body, credentials: "same-origin" });
+  noteServerBuild(r.headers.get("x-build"));
   const body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
   if (r.status === 401) { if (!location.pathname.startsWith("/app/login")) location.assign(`/app/login?next=${encodeURIComponent(location.pathname + location.search)}`); throw new ApiError(401, "sign in first", body); }
   if (!r.ok) throw new ApiError(r.status, String(body.error ?? r.statusText), body);

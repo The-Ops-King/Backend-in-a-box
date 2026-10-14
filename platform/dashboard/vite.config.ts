@@ -7,6 +7,8 @@ export default defineConfig({
   root: __dirname,
   base: "/app/",
   plugins: [react()],
+  // D113: the build this bundle is, so an open tab can tell a newer deploy is live (the API says its own)
+  define: { __BUILD__: JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA || "dev") },
   resolve: { alias: { "@": path.resolve(__dirname, "../src"), "~": path.resolve(__dirname, "src") } },
   build: { outDir: path.resolve(__dirname, "../public/app"), emptyOutDir: true, sourcemap: false },
   server: { port: 5177, proxy: { "/api": "http://localhost:3077" } },

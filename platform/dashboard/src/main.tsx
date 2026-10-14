@@ -1,7 +1,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { useNewerDeploy } from "./build";
 import "./app.css";
 import { Frame } from "./ui/frame";
 import { Toasts } from "./ui/pieces";
@@ -17,12 +19,27 @@ import { Setup } from "./pages/setup";
 import { WrapUps } from "./pages/wrapups";
 import { Eod } from "./pages/eod";
 
+/**
+ * D113: a tab opened before a deploy keeps the old code (the old chart) until it reloads. Once the API is newer, the next
+ * page change loads the new code, and until then a line at the top says so with a reload button.
+ */
+function NewerDeploy() {
+  const newer = useNewerDeploy();
+  const loc = useLocation();
+  // the page they are on when it is noticed stays put; the next page they open loads the new code
+  const at = useRef<string | null>(null);
+  useEffect(() => { if (!newer) return; if (at.current === null) at.current = loc.key; else if (loc.key !== at.current) location.reload(); }, [newer, loc.key]);
+  if (!newer) return null;
+  return <div className="newer-deploy">A newer version of the dashboard is live. This page is still the old one. <button className="btn" onClick={() => location.reload()}>Reload</button></div>;
+}
+
 const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000 } } });
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={qc}>
       <BrowserRouter>
+        <NewerDeploy />
         <Routes>
           <Route path="/eod/:token" element={<Eod />} />
           <Route path="/app/login" element={<Login />} />
