@@ -296,3 +296,6 @@ pre.pre,pre.raw{font-size:12px;color:var(--fg-2);background:var(--panel-2);borde
 .chlist .t{font-weight:600}.chlist li.hp .t{font-weight:500;color:var(--fg-2)}
 .chlist small{color:var(--fg-2)}.chlist .if{display:block;color:var(--cond)}
 .chlist ul{margin:2px 0 0;padding-left:16px;color:var(--fg-3);font-size:12.5px}
+
+/* D113: an open tab running code older than the live deploy */
+.newer-deploy{position:sticky;top:0;z-index:50;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;padding:8px 16px;background:var(--warn-bg);color:var(--fg);border-bottom:1px solid var(--warn);font-size:13.5px}

@@ -3546,3 +3546,13 @@ chart still left steps out on purpose (Jev's read of a reply, every `set_var`) a
   `src/engine/chart-exact.test.ts` (saves report the layout; the 422, the step and copy edit refusals and the install
   refusal with a stand-in verdict; the sweep's daily stamp, alert and resolution).
   `scripts/render-charts.ts` shoots `messy`, that definition, in the graph.
+
+## D113. An open dashboard tab knows when it is running old code (2026-10-14)
+
+Tyler opened Hair's Health check and saw only its four triggers: the chart from before D107, still running in a tab
+opened before that deploy (the live bundle had D107; a single-page app keeps the code it loaded until it reloads). A
+chart he cannot trust because the tab is old is as bad as a wrong chart. Every answer through the middleware now says
+which deploy made it (`x-build`, the commit); the dashboard bundle knows its own (built in). Once the API is newer, a
+line at the top says the page is the old one with a Reload button, and the next page change loads the new code (the
+page in front of him is not reloaded under his hands). A local build ("dev") is never called stale.
+- Test: `src/api/newer-deploy.test.ts`.
