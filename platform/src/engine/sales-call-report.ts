@@ -16,9 +16,9 @@ function value(field: string, v: unknown): string {
 }
 
 function card(r: SalesCallRow): string {
-  const head = `<div class="head"><div><h2>${esc(r.contact.name ?? r.contact.email ?? "Unknown")}</h2><div class="sub">${esc(r.call_date)} · ${esc(r.time)} · ${esc(r.calendar)}${r.closer ? ` · ${esc(r.closer)}` : ""}</div></div>
+  const head = `<div class="head"><div><h2>${esc(r.contact.name ?? r.contact.email ?? "Unknown")}${r.contact.name && r.contact.email ? ` <span class="email">${esc(r.contact.email)}</span>` : ""}</h2><div class="sub">${esc(r.call_date)} · ${esc(r.time)} · ${esc(r.calendar)}${r.closer ? ` · ${esc(r.closer)}` : ""}</div></div>
     <div class="tags">${r.kind === "left_slot" ? '<span class="tag moved">slot left by a move</span>' : ""}${r.skipped ? '<span class="tag skip">not written</span>' : r.error ? '<span class="tag err">error</span>' : r.unknown.length ? `<span class="tag unk">${r.unknown.length} unknown</span>` : '<span class="tag ok">all evidenced</span>'}</div></div>`;
-  const ids = `<div class="ids">slot ${esc(r.slot_key)}${r.contact.ghl_contact_id ? ` · GHL contact ${esc(r.contact.ghl_contact_id)}` : ""}${r.contact.email ? ` · ${esc(r.contact.email)}` : ""}${r.written ? ` · ${esc(r.written.record)} ${esc(r.written.crm_id)}` : ""}</div>`;
+  const ids = `<div class="ids">slot ${esc(r.slot_key)}${r.contact.ghl_contact_id ? ` · GHL contact ${esc(r.contact.ghl_contact_id)}` : ""}${r.written ? ` · ${esc(r.written.record)} ${esc(r.written.crm_id)}` : ""}</div>`;
   if (r.skipped) return `<section class="call skipped">${head}${ids}<p class="why">Not written: ${esc(r.skipped)}</p></section>`;
   const unknown = new Map(r.unknown.map((u) => [u.field, u]));
   const lines = FIELDS.filter(([f]) => r.fields[f] !== undefined || unknown.has(f)).map(([f, label]) => {
@@ -50,7 +50,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system
 main{max-width:1080px;margin:0 auto;padding:24px 16px 64px}h1{font-size:22px;margin:0 0 4px}.meta{color:var(--mute);margin-bottom:16px}
 .summary{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-bottom:20px}.summary p{margin:4px 0}
 .call{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:0 0 14px}.call.skipped{opacity:.75}
-.head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}h2{font-size:17px;margin:0}.sub,.ids{color:var(--mute);font-size:13px}.ids{margin:4px 0 8px;word-break:break-all}
+.head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}h2{font-size:17px;margin:0}.email{font-size:14px;font-weight:400;color:var(--mute)}.sub,.ids{color:var(--mute);font-size:13px}.ids{margin:4px 0 8px;word-break:break-all}
 .tag{display:inline-block;font-size:12px;border-radius:999px;padding:2px 8px;border:1px solid currentColor;margin-left:6px}.ok{color:var(--ok)}.unk{color:var(--unk)}.err{color:var(--err)}.skip{color:var(--mute)}.moved{color:var(--moved)}
 table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:7px 8px;border-top:1px solid var(--line)}th{width:140px;color:var(--mute);font-weight:500}td:nth-child(2){width:200px;word-break:break-word}
 tr.u td{background:var(--soft)}.blank{color:var(--mute);font-style:italic}.likely{color:var(--unk)}.ev{font-size:13px;color:var(--mute);margin:1px 0}.src{font-weight:600;color:var(--ink)}.note{font-size:13px}

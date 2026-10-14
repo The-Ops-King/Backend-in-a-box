@@ -17,6 +17,7 @@ describe("the Sales Call review page (D115)", () => {
     const html = salesCallReportHtml([report], { generatedAt: new Date("2026-10-14T20:00:00Z") });
     expect(html.indexOf("Amy")).toBeLessThan(html.indexOf("Zed"));
     expect(html).toContain("Zed &lt;script&gt;");
+    expect(html).toContain('Zed &lt;script&gt; <span class="email">z@x.com</span></h2>');
     expect(html).not.toContain("<script>");
     expect(html).toContain("$10,000");
     expect(html).toContain("$10,000 &amp; more");

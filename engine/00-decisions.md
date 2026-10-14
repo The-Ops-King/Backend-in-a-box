@@ -3744,3 +3744,16 @@ and its own record for the new one; a payment ⇒ showed, closed and the cash; t
 nothing ⇒ blank with a likely reading; a test contact is not written; a person with no CRM id found by email and linked; the dry
 run writes nothing; the plan writes once, related, in crm_records and the ledger, with workflows on that would answer and no run
 started and no event; a second pass creates nothing and keeps a value filed in GHL; only the closer's calls), `sales-call-report.test.ts`.
+
+### D115 addendum. A same-time re-make is no move; a slot keeps its own time (2026-10-14)
+
+Reviewing PMU's first dry run, five "rescheduled" slots stood at the very time of the booking that replaced them (Ghenwa Oct 2
+1:30 PM twice, Olena Sep 24, Christian Oct 12, Elena Oct 13, one of Sarah's two at Sep 23 5:00 PM). The rows carried their own
+times: Calendly's cancelled event really has the same `start_time` as its replacement. When the host edits an event in her
+connected calendar, Calendly cancels it ("Rescheduled from connected calendar event") and makes a new one, often without changing
+the time. That call did not move, and the live poll agrees (under a minute is no reschedule), so such an event is no slot of its
+own: no record, and the booking's row says Calendly re-made it. A real move keeps the left slot at its own start, its own date,
+label and `scheduled_at`, and says where it went. A move the engine saw itself (`appointment.rescheduled` with `slot.from`, a GHL
+calendar that keeps the booking's id) is a left slot too, at `starts_at.from`. The review page heads each call with the person's
+name and email. Test: a chain moved twice keeps three dates; a same-time re-make makes one record; a GHL move's old slot has its
+own date.

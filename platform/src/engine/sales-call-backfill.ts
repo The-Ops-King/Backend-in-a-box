@@ -84,11 +84,13 @@ type Setup = {
 };
 type Closer = { id: string; name: string; email: string; ghl_user_id: string | null };
 type LedgerAppt = { id: string; contact_id: string; external_id: string; slot_key: string; starts_at: Date; status: string; self_booked: boolean | null; set_by: string | null; assigned_user_id: string | null; term_name: string; cal_name: string | null; closer_email: string | null; closer_name: string | null; outcome: string | null; call_outcome: string | null };
-type Slot = { kind: "booking" | "left_slot"; key: string; startsAt: Date; appt?: LedgerAppt; snap?: AppointmentSnapshot; calendar: string; termName: string; selfBooked: boolean | null; closer: Closer | null; contactId: string | null; email: string | null };
+/** A slot a move left, as its own source tells it: when it was moved, to when, by whom. Its time is always its own start, never the replacement's. */
+type Move = { source: string; at: Date | null; to: Date | null; by: string; reason: string };
+type Slot = { kind: "booking" | "left_slot"; key: string; startsAt: Date; appt?: LedgerAppt; snap?: AppointmentSnapshot; move?: Move; calendar: string; termName: string; selfBooked: boolean | null; closer: Closer | null; contactId: string | null; email: string | null };
 type Fact<T> = { value: T; source: string; detail: string; rank: number };
 type Shared = {
   c: PoolClient; co: LoadedCompany; adapters: Adapters; setup: Setup; now: Date; eods: ObjectRecord[]; existing: Map<string, ObjectRecord>;
-  daySlots: Map<string, Slot[]>; starts: Map<string, Date>; notes: Map<string, Promise<ContactNote[]>>; cards: Map<string, Promise<LiveCard[]>>; coverage: Map<string, { since: Date; recorded: number; calls: number }>;
+  daySlots: Map<string, Slot[]>; starts: Map<string, Date>; recreated: Map<string, { from: string; at: Date | null }>; notes: Map<string, Promise<ContactNote[]>>; cards: Map<string, Promise<LiveCard[]>>; coverage: Map<string, { since: Date; recorded: number; calls: number }>;
   staff: Set<string>; domains: string[];
 };
 
@@ -159,22 +161,43 @@ export async function backfillSalesCalls(c: PoolClient, co: LoadedCompany, adapt
       closer: users.find((u) => u.id === a.assigned_user_id) ?? null, contactId: a.contact_id, email: null });
   }
   const inLedger = new Set(ledger.map((a) => a.slot_key));
+  const recreated = new Map<string, { from: string; at: Date | null }>();
   for (const s of snaps.values()) {
     const moved = s.status === "cancelled" && (!!s.rescheduledTo || (s.raw.invitee as { rescheduled?: boolean } | undefined)?.rescheduled === true);
     const at = new Date(s.startTime);
     if (!moved || inLedger.has(s.id) || at < opts.from || at > opts.to) continue;
+    // Calendly re-makes an event when the host edits it in a connected calendar, often at the very same time: that call did not move,
+    // so the event it replaced is no slot of its own (the poll sees no move either: under a minute is no reschedule)
+    const next = s.rescheduledTo ? snaps.get(s.rescheduledTo) : undefined;
+    if (next && Math.abs(new Date(next.startTime).getTime() - at.getTime()) < 60e3) { recreated.set(next.id, { from: s.id, at: s.cancellation?.at ? new Date(s.cancellation.at) : null }); continue; }
     const host = userOf(s); if (closer && host?.id !== closer.id) continue;
     const email = s.invitee?.email ?? null;
     // the person as the booking names them: the CRM's id (a GHL calendar), else the invitee's email (Calendly)
     const ct = s.contactId ? await one<{ contact_id: string }>(c, "select id as contact_id from contacts where company_id=$1 and ghl_contact_id=$2 union all select contact_id from contact_identifiers where company_id=$1 and kind='ghl_contact' and value=$2 and retired_at is null limit 1", [co.row.id, s.contactId])
       : email ? await one<{ contact_id: string }>(c, "select contact_id from contact_identifiers where company_id=$1 and kind='email' and value=$2 and retired_at is null", [co.row.id, email]) : null;
-    const cal = calOf.get(s.calendarId);
-    slots.push({ kind: "left_slot", key: s.id, startsAt: at, snap: s, calendar: cal?.name ?? s.title ?? "", termName: cal?.term_name ?? "", selfBooked: cal?.self_booked ?? null, closer: host, contactId: ct?.contact_id ?? null, email });
+    const cal = calOf.get(s.calendarId), by = s.cancellation ? `${s.cancellation.byType === "host" ? "the host" : s.cancellation.byType === "invitee" ? "the invitee" : "someone"}${s.cancellation.by ? ` (${s.cancellation.by})` : ""}` : "someone";
+    slots.push({ kind: "left_slot", key: s.id, startsAt: at, snap: s, move: { source: "Calendly", at: s.cancellation?.at ? new Date(s.cancellation.at) : null, to: next ? new Date(next.startTime) : null, by, reason: s.cancellation?.reason ?? "" }, calendar: cal?.name ?? s.title ?? "", termName: cal?.term_name ?? "", selfBooked: cal?.self_booked ?? null, closer: host, contactId: ct?.contact_id ?? null, email });
+  }
+  // a move the engine itself saw (a GHL calendar keeps the booking's id; the poll logs the slot it left and its time before the move)
+  const seen = new Set(slots.map((x) => x.key));
+  const moves = await many<{ data: { slot?: { from?: string }; starts_at?: { from?: string; to?: string } }; occurred_at: Date; appointment_id: string }>(c, `select e.data, e.occurred_at, e.appointment_id from events e
+    join appointments a on a.id=e.appointment_id join company_terms t on t.id=a.appointment_term
+    where e.company_id=$1 and e.event_type='appointment.rescheduled' and t.category='closing' and e.data->'slot'->>'from' is not null and e.data->'starts_at'->>'from' is not null ${closer ? "and a.assigned_user_id=$2" : ""} order by e.occurred_at`,
+    closer ? [co.row.id, closer.id] : [co.row.id]);
+  for (const m of moves) {
+    const key = m.data.slot!.from!, at = new Date(m.data.starts_at!.from!);
+    if (seen.has(key) || inLedger.has(key) || Number.isNaN(at.getTime()) || at < opts.from || at > opts.to) continue;
+    const a = await one<LedgerAppt & { calendar_self: boolean | null }>(c, `select a.id, a.contact_id, a.assigned_user_id, a.self_booked, a.set_by, t.name as term_name, cal.name as cal_name, cal.self_booked as calendar_self
+      from appointments a join company_terms t on t.id=a.appointment_term left join calendars cal on cal.id=a.calendar_id where a.id=$1`, [m.appointment_id]);
+    if (!a) continue;
+    seen.add(key);
+    slots.push({ kind: "left_slot", key, startsAt: at, move: { source: "the engine's poll", at: m.occurred_at, to: m.data.starts_at?.to ? new Date(m.data.starts_at.to) : null, by: "the booking source", reason: "" },
+      calendar: a.cal_name ?? a.term_name, termName: a.term_name, selfBooked: a.self_booked ?? a.calendar_self, closer: users.find((u) => u.id === a.assigned_user_id) ?? null, contactId: a.contact_id, email: null });
   }
   slots.sort((x, y) => x.startsAt.getTime() - y.startsAt.getTime() || x.key.localeCompare(y.key));
 
   const shared: Shared = {
-    c, co, adapters, setup, now, eods: [], existing: new Map(), daySlots: new Map(), starts: new Map([...[...snaps.values()].map((x): [string, Date] => [x.id, new Date(x.startTime)]), ...ledger.map((a): [string, Date] => [a.external_id, a.starts_at])]), notes: new Map(), cards: new Map(), coverage: new Map(),
+    c, co, adapters, setup, now, eods: [], existing: new Map(), daySlots: new Map(), starts: new Map([...[...snaps.values()].map((x): [string, Date] => [x.id, new Date(x.startTime)]), ...ledger.map((a): [string, Date] => [a.external_id, a.starts_at])]), recreated, notes: new Map(), cards: new Map(), coverage: new Map(),
     staff: new Set(users.map((u) => u.email.toLowerCase())), domains: testDomains(co.bindings),
   };
   for (const s of slots) { const k = `${s.closer?.id ?? ""}:${local(s.startsAt, tz).toISODate()}`; shared.daySlots.set(k, [...(shared.daySlots.get(k) ?? []), s]); }
@@ -271,16 +294,18 @@ async function readSlot(sh: Shared, s: Slot): Promise<SalesCallRow> {
   const why = snap?.cancellation?.reason ? `, reason "${snap.cancellation.reason}"` : "";
   let settled: Attendance | null = null;
   if (s.kind === "left_slot") {
-    const to = snap?.rescheduledTo ? sh.starts.get(snap.rescheduledTo) ?? null : null;
+    const m = s.move!;
     settled = "rescheduled";
-    add("outcome", "Calendly", `moved by ${who}${cancelAt ? ` on ${local(cancelAt, tz).toFormat("LLL d, h:mm a")}` : ""}${to ? ` to ${local(to, tz).toFormat("LLL d, h:mm a")}` : ""}${why}`);
-    if (cancelAt && cancelAt > start) row.remarks.push(`moved ${minutes(cancelAt.getTime() - start.getTime())} min after its start time: most likely they did not turn up and the call was moved`);
+    add("outcome", m.source, `this slot (${local(start, tz).toFormat("LLL d, h:mm a")}) was moved by ${m.by}${m.at ? ` on ${local(m.at, tz).toFormat("LLL d, h:mm a")}` : ""}${m.to ? ` to ${local(m.to, tz).toFormat("LLL d, h:mm a")}` : ""}${m.reason ? `, reason "${m.reason}"` : ""}`);
+    if (m.at && m.at > start) row.remarks.push(`moved ${minutes(m.at.getTime() - start.getTime())} min after its start time: most likely they did not turn up and the call was moved`);
   } else if (snap?.status === "cancelled" || s.appt?.status === "cancelled") {
     if (cancelAt && cancelAt < start) { settled = "cancelled"; add("outcome", "Calendly", `cancelled by ${who} on ${local(cancelAt, tz).toFormat("LLL d, h:mm a")}, before the call${why}`); }
     else if (cancelAt) { row.remarks.push(`Calendly shows it cancelled by ${who} ${minutes(cancelAt.getTime() - start.getTime())} min after its start: a slot cleared after the call is not a cancel (D73)`); leanAtt.push({ value: "noshow", source: "Calendly", detail: `${who} cleared the slot ${minutes(cancelAt.getTime() - start.getTime())} min after the start, which is what a host does after a no-show`, rank: 3 }); }
     else row.remarks.push("cancelled at the booking source at a time it does not say: not counted as a cancel");
   } else if (start > sh.now) { settled = "scheduled"; add("outcome", "Calendly", "booked; the call is still ahead"); }
-  if (s.kind === "booking" && snap?.rescheduledFrom) { const was = sh.starts.get(snap.rescheduledFrom); row.remarks.push(`the booking moved here from ${was ? local(was, tz).toFormat("LLL d, h:mm a") : "an earlier slot"} (that slot has its own record, logged rescheduled)`); }
+  const remade = s.snap ? sh.recreated.get(s.snap.id) : undefined;
+  if (remade) row.remarks.push(`Calendly re-made this booking at the same time${remade.at ? ` on ${local(remade.at, tz).toFormat("LLL d, h:mm a")}` : ""} (an edit in the host's connected calendar): the call did not move, so the event it replaced (${remade.from}) has no record of its own`);
+  else if (s.kind === "booking" && snap?.rescheduledFrom) { const was = sh.starts.get(snap.rescheduledFrom); row.remarks.push(`the booking moved here from ${was ? local(was, tz).toFormat("LLL d, h:mm a") : "an earlier slot"} (that slot has its own record, logged rescheduled)`); }
   const held = s.kind === "booking" && !settled;   // only a call that could have been held has a show, money or a card to read
   if (held && snap?.status === "noshow") att.push({ value: "noshow", source: "Calendly", detail: "the host marked the invitee a no-show", rank: 2 });
 

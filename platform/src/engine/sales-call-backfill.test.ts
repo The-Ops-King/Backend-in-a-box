@@ -23,11 +23,13 @@ const iso = (d: DateTime) => d.toUTC().toISO()!;
 
 const people: Record<string, ContactSnapshot> = Object.fromEntries([
   ["GA", "Ann", "a@x.com", []], ["GB", "Bea", "b@x.com", []], ["GC", "Cat", "c@x.com", []], ["GD", "Dee", "d@x.com", []], ["GE", "Eve", "e@x.com", []],
-  ["GF", "Fay", "f@x.com", []], ["GG", "Gus", "g@x.com", ["sys-test"]], ["GH", "Hal", "h@x.com", []], ["GI", "Ivy", "i@x.com", []], ["GJ", "Joy", "j@x.com", []],
+  ["GF", "Fay", "f@x.com", []], ["GG", "Gus", "g@x.com", ["sys-test"]], ["GH", "Hal", "h@x.com", []], ["GI", "Ivy", "i@x.com", []], ["GJ", "Joy", "j@x.com", []], ["GK", "Kim", "k@x.com", []], ["GM", "Mo", "m@x.com", []],
 ].map(([id, first, email, tags]) => [id as string, { id: id as string, firstName: first as string, lastName: "Test", email: email as string, tags: tags as string[], customFields: {}, dateUpdated: iso(at(25, 9)), dateAdded: iso(at(25, 9)) }]));
 
 const snap = (id: string, cal: string, contact: string | null, start: DateTime, extra: Partial<AppointmentSnapshot> = {}): AppointmentSnapshot => ({
   id, calendarId: cal, ...(contact ? { contactId: contact } : {}), assignedUserEmail: "carly@x.com", startTime: iso(start), endTime: iso(start.plus({ minutes: 45 })), status: "confirmed", dateAdded: iso(start.minus({ days: 3 })), raw: {}, ...extra });
+// a chain the host moved twice, each slot at its own time (K0 → K1 → K2), and a booking Calendly re-made at the same time (M0 → M1)
+const K0 = at(14, 10), K1 = at(13, 13), K2 = at(12, 11), M = at(1, 10);
 const A = at(10, 15), B = at(9, 15), C0 = at(8, 11), C1 = at(8, 16), D = at(7, 15), E = at(6, 15), F = at(6, 17), G = at(5, 15), H = at(4, 15), I = at(3, 15), J = at(2, 15);
 const bookings: Record<string, AppointmentSnapshot[]> = {
   CAL: [
@@ -41,6 +43,11 @@ const bookings: Record<string, AppointmentSnapshot[]> = {
     snap("evt-G", "CAL", "GG", G),
     snap("evt-H", "CAL", "GH", H),
     snap("evt-I", "CAL", "GI", I),
+    snap("evt-K0", "CAL", "GK", K0, { status: "cancelled", rescheduledTo: "evt-K1", cancellation: { by: "Carly Vu", byType: "host", reason: "Rescheduled", at: iso(K0.minus({ days: 1 })) } }),
+    snap("evt-K1", "CAL", "GK", K1, { status: "cancelled", rescheduledFrom: "evt-K0", rescheduledTo: "evt-K2", cancellation: { by: "Carly Vu", byType: "host", reason: "Rescheduled", at: iso(K1.minus({ hours: 5 })) } }),
+    snap("evt-K2", "CAL", "GK", K2, { rescheduledFrom: "evt-K1" }),
+    snap("evt-M0", "CAL", "GM", M, { status: "cancelled", rescheduledTo: "evt-M1", cancellation: { by: "Carly Vu", byType: "host", reason: "Rescheduled from connected calendar event", at: iso(M.minus({ days: 1 })) } }),
+    snap("evt-M1", "CAL", "GM", M, { rescheduledFrom: "evt-M0" }),
   ],
   DEMO: [snap("evt-J", "DEMO", null, J, { invitee: { email: "j@x.com", firstName: "Joy", lastName: "Test" } })],
 };
@@ -129,12 +136,32 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     }, adapters())).companyId;
     await asOperator(async (c) => {
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'secret.fathom_api_key','secret',$2),($1,'secret.anthropic_key','secret',$3)", [companyId, encrypt("fk"), encrypt("ak")]);
-      // the workflows that would answer what the backfill writes, switched on: nothing may start them
+      // a GHL-style move the poll saw after install: the booking kept its id, the slot it left is evt-E0 a day earlier
+    // (inserted after the history pass below)
+    // the workflows that would answer what the backfill writes, switched on: nothing may start them
       for (const f of ["call-booked.json", "call-recorded.json", "call-outcome.json", "card-moved.json"]) await pmuCopy(c, f);
     });
     const pays = async () => [{ providerPaymentId: "pay_D", amount: 10000, status: "succeeded" as const, paidAt: D.plus({ hours: 2 }).toJSDate(), email: "d@x.com", raw: { backfill: true } }];
     const hist = await asOperator(async (c) => { const { row, adapterCompany, bindings } = await loadCompany(c, companyId); return backfillCompany(c, row, adapterCompany, adapters(), bindings, window(), pays, ["appointments", "recordings", "payments"]); });
-    expect(hist).toMatchObject({ appointments: 10, recordings: 1, recordingsUnlinked: 0, payments: 1, errors: [] });
+    expect(hist).toMatchObject({ appointments: 12, recordings: 1, recordingsUnlinked: 0, payments: 1, errors: [] });
+  });
+
+  it("a moved booking's every slot is its own row at its own time; a same-time re-make is no move", async () => {
+    await asOperator(async (c) => {
+      const e = (await one<{ id: string; contact_id: string }>(c, "select id, contact_id from appointments where company_id=$1 and external_id='evt-E'", [companyId]))!;
+      await c.query("insert into events (company_id, contact_id, appointment_id, event_type, source, occurred_at, data) values ($1,$2,$3,'appointment.rescheduled','ghl_poll',$4,$5)",
+        [companyId, e.contact_id, e.id, E.minus({ days: 2 }).toJSDate(), { source: "ghl", starts_at: { from: iso(E.minus({ days: 1 })), to: iso(E) }, slot: { from: "evt-E0", to: "evt-E" } }]);
+    });
+    const r = await run({ dryRun: true });
+    const own = (key: string) => { const x = rowOf(r, key); return [x.kind, x.starts_at, x.call_date, x.fields.outcome, x.write?.properties.scheduled_at, x.write?.properties.call_date, x.write?.properties.display_label]; };
+    expect(own("evt-K0")).toEqual(["left_slot", iso(K0).replace(/\.\d+/, ".000"), K0.toISODate(), "rescheduled", iso(K0).replace(/\.\d+/, ".000"), K0.toISODate(), `Kim Test — ${K0.toISODate()}`]);
+    expect(own("evt-K1")).toEqual(["left_slot", iso(K1).replace(/\.\d+/, ".000"), K1.toISODate(), "rescheduled", iso(K1).replace(/\.\d+/, ".000"), K1.toISODate(), `Kim Test — ${K1.toISODate()}`]);
+    expect(rowOf(r, "evt-K2")).toMatchObject({ kind: "booking", call_date: K2.toISODate() });
+    expect(rowOf(r, "evt-K2").write!.properties.call_date).toBe(K2.toISODate());
+    expect(rowOf(r, "evt-K1").evidence.outcome[0].detail).toContain(`to ${K2.toFormat("LLL d, h:mm a")}`);
+    expect(rowOf(r, "evt-M0")).toBeUndefined();
+    expect(rowOf(r, "evt-M1").remarks.join(" ")).toMatch(/re-made this booking at the same time/);
+    expect(own("evt-E0")).toEqual(["left_slot", E.minus({ days: 1 }).toUTC().toISO()!.replace(/\.\d+/, ".000"), E.minus({ days: 1 }).toISODate(), "rescheduled", expect.any(String), E.minus({ days: 1 }).toISODate(), `Eve Test — ${E.minus({ days: 1 }).toISODate()}`]);
   });
 
   it("the recordings history links by the ladder and emits nothing", async () => {
@@ -151,7 +178,7 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     expect(dry.complete).toBe(true);
     expect(dry.plan_id).toBeTruthy();
     // only the closer's calls: Annabelle's is not here; the moved slot is its own row
-    expect(dry.rows.map((r) => r.slot_key).sort()).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-G", "evt-H", "evt-I", "evt-J"]);
+    expect(dry.rows.map((r) => r.slot_key).sort()).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-E0", "evt-G", "evt-H", "evt-I", "evt-J", "evt-K0", "evt-K1", "evt-K2", "evt-M1"]);
     expect(rowOf(dry, "evt-G").skipped).toMatch(/test contact/);
 
     const a = rowOf(dry, "evt-A");   // a recording: showed; the transcript says how it ended and what was said
@@ -184,13 +211,13 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
   it("the write applies the reviewed plan once: records keyed by the slot, related, in crm_records, the ledger's outcome, no runs", async () => {
     const before = await counts();
     const w = await asOperator(async (c) => applySalesCallPlan(c, await loadCompany(c, companyId), adapters(), [dry.plan_id!]));
-    expect(w.summary).toMatchObject({ written: 9, created: 9, errors: 0, skipped: 1 });
-    expect(world.records.map((r) => r.properties.external_id).sort()).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-H", "evt-I", "evt-J"]);
+    expect(w.summary).toMatchObject({ written: 14, created: 14, errors: 0, skipped: 1 });
+    expect(world.records.map((r) => r.properties.external_id).sort()).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-E0", "evt-H", "evt-I", "evt-J", "evt-K0", "evt-K1", "evt-K2", "evt-M1"]);
     const recA = world.records.find((r) => r.properties.external_id === "evt-A")!;
     expect(world.relations).toEqual(expect.arrayContaining([`AS-C:GA→${recA.id}`, `AS-O:${recA.id}→OPP-A`]));
     expect(world.records.find((r) => r.properties.external_id === "evt-E")!.properties.outcome).toBeUndefined();
     const ours = await asOperator((c) => many<{ record_key: string; ghl_record_id: string }>(c, "select record_key, ghl_record_id from crm_records where company_id=$1 order by record_key", [companyId]));
-    expect(ours.map((r) => r.record_key)).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-H", "evt-I", "evt-J"]);
+    expect(ours.map((r) => r.record_key)).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-E0", "evt-H", "evt-I", "evt-J", "evt-K0", "evt-K1", "evt-K2", "evt-M1"]);
     const ledger = await asOperator((c) => many<{ external_id: string; status: string; outcome: string | null; call_outcome: string | null }>(c, `select a.external_id, a.status, ot.category as outcome, cot.category as call_outcome from appointments a
       left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term where a.company_id=$1 order by a.external_id`, [companyId]));
     expect(Object.fromEntries(ledger.map((l) => [l.external_id, [l.status, l.outcome, l.call_outcome]]))).toMatchObject({
@@ -207,10 +234,10 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     const created = world.creates;
     const again = await run({ dryRun: false });
     expect(world.creates).toBe(created);
-    expect(again.summary).toMatchObject({ written: 9, updated: 9, created: 0 });
+    expect(again.summary).toMatchObject({ written: 14, updated: 14, created: 0 });
     expect(world.records.find((r) => r.properties.external_id === "evt-B")!.properties.outcome).toBe("showed");
     expect(rowOf(again, "evt-B").written!.kept).toEqual([expect.stringMatching(/^outcome/)]);
-    expect(await asOperator((c) => many(c, "select 1 from crm_records where company_id=$1", [companyId]))).toHaveLength(9);
+    expect(await asOperator((c) => many(c, "select 1 from crm_records where company_id=$1", [companyId]))).toHaveLength(14);
     expect((await counts()).runs).toBe(0);
   });
 
