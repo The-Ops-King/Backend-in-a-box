@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { chartOf, pathOf } from "./words";
+import { chartOf, pathOf, shortTitle } from "./words";
 import { namer, UNREAD, UNREAD_MANY, type CrmNames } from "./crm-names";
 import { parseDefinition, type Predicate } from "@/engine/definition";
 import { notWords, onlyIfWords, predicateWords, skippedWords } from "@/engine/describe";
@@ -142,14 +142,36 @@ describe("D112: a step's words are made from its settings", () => {
     expect(nodeOf(pmu("call-recorded"), "x_linked").title).toBe("Done: linked by the team");
   });
 
-  it("no main line of any shipped template or PMU copy shows a binding, an id or JSON", () => {
-    let n = 0;
-    for (const { name, def } of shipped()) for (const node of chartOf(def, company).nodes) {
-      n++;
+  it("no main line of any step of any shipped template or PMU copy, helpers included, shows a binding, an id, JSON or Slack markup", () => {
+    let n = 0; const helpers = new Set<string>();
+    for (const { name, def } of shipped()) for (const node of [...chartOf(def, company).nodes, ...def.nodes.map((x) => ({ id: x.id, type: x.type, ...shortTitle(def, x) }))]) {
+      n++; if ("type" in node) helpers.add(node.type);
       const words = line(node).replace(/“[^”]*”/g, "").replace(/:[a-z0-9_+-]+:/g, "");
-      expect(words, `${name}/${node.id}`).not.toMatch(/\{\{|\}\}|[{}]|\b[0-9a-f]{8}-[0-9a-f]{4}|\b[A-Za-z0-9]{20,}\b|\b(crm|vars|event|contact|appointment|slack|picklist|recording|setting|user)\.[a-z]|_/);
+      expect(words, `${name}/${node.id}`).not.toMatch(/\{\{|\}\}|[{}]|\b[0-9a-f]{8}-[0-9a-f]{4}|\b[A-Za-z0-9]{20,}\b|\b(crm|vars|event|contact|appointment|slack|picklist|recording|setting|user|reply|reaction)\.[a-z]|_|(^|\s)\*\S|\S\*(\s|$)/);
     }
-    expect(n).toBeGreaterThan(400);
+    for (const t of ["set_var", "classify", "lookup", "wait"]) expect(helpers).toContain(t);
+    expect(n).toBeGreaterThan(900);
+  });
+
+  it("a remembered value says what is kept and its cases in words", () => {
+    const booked = pmu("call-booked"); const at = (id: string) => line(shortTitle(booked, booked.nodes.find((x) => x.id === id)!));
+    expect(at("b1")).toBe("Remember the setter line: ‘Setter: [setter]’");
+    expect(at("s1")).toBe("Remember the setter line: nothing");
+    expect(at("v4")).toBe("Remember the Slack card's look · ‘Call rescheduled’ :repeat: if this is a reschedule, otherwise ‘New call booked’ :telephone_receiver: :calendar: :date: :spiral_calendar_pad:");
+    expect(at("v_type")).toBe("Remember the call type · by the term name; Demo call → ‘demo’; otherwise ‘closing’");
+    const pre = pmu("pre-call-sequence");
+    expect(line(shortTitle(pre, pre.nodes.find((x) => x.id === "v_decided")!))).toBe("Remember what the team decided · by the tap; :white_check_mark: → ‘confirmed’; :x: → ‘cancelled’; :repeat: → ‘reschedule request’; otherwise nothing");
+  });
+
+  it("two steps of one workflow never share a main line, so an arrow \"on to …\" names one step", () => {
+    for (const { name, def } of shipped()) {
+      const titles = chartOf(def, company).nodes.map((x) => x.title);
+      expect(titles.filter((t, i) => titles.indexOf(t) !== i), name).toEqual([]);
+    }
+    const pre = chartOf(pmu("pre-call-sequence"), company).nodes; const t = (id: string) => pre.find((x) => x.id === id)!.title;
+    expect([t("m72"), t("m1"), t("mm")]).toEqual(["Text, 3 days before the call", "Text, 1 hour before the call", "Text, when the call is at 11am or later"]);
+    const chase = chartOf(parseDefinition(templates.find((x) => x.slug === "agreement-chase")!.definition), company).nodes; const c = (id: string) => chase.find((x) => x.id === id)!.title;
+    expect([c("c1"), c("c2"), c("c3")]).toEqual(["Check they have not signed the agreement", "Check they have not signed the agreement (2nd time)", "Check they have not signed the agreement (3rd time)"]);
   });
 
   it("the step list uses the same words", () => {

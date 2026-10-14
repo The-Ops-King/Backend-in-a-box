@@ -135,8 +135,31 @@ function lookupWords(def: Definition, n: Extract<Node, { type: "lookup" }>): { t
   const what = p.kind ? `their ${humanWords(p.kind)} calls` : LOOKUPS[n.query];
   return { title: `Look up ${what}${again}`, meta: [p.status_not ? `not ${humanWords(p.status_not)}` : "", p.closer ? `with ${pathWords(p.closer)}` : "", window].filter(Boolean).join(", ") || undefined };
 }
-const thing = (w: string) => /^(the|a|an|their|this|who|what|when) /i.test(w) ? w : `the ${w}`;
+const thing = (w: string) => /^(the|a|an|their|this|who|what|when|why|how|which|whether|today) /i.test(`${w} `) || /^Jev\b/.test(w) ? w : `the ${w}`;
 const withThe = thing;
+/** Slack text as words: bindings by name, a link by its text, no *bold* or _italic_ markers, one line. */
+// templateWords drops <…> as html: Slack's links are kept apart from that and read by their text after the bindings are words
+const slackPlain = (t: string) => templateWords(t.replace(/\s*\n\s*/g, " / ").replace(/</g, "\u0001").replace(/>/g, "\u0002")).replace(/\u0001[^\u0001\u0002]*\|([^|\u0001\u0002]*)\u0002/g, "$1").replace(/\u0001([^\u0001\u0002]*)\u0002/g, "$1").replace(/[\u0001\u0002]/g, "")
+  .replace(/(^|[\s(\[])[*_~]+([^*_~\n]+?)[*_~]+(?=[\s.,:;)!?\]]|$)/gm, "$1$2").replace(/[*_~]{2,}/g, "").replace(/\s*\n\s*/g, " / ").replace(/\s+/g, " ").trim();
+/** A value a set_var keeps, short: ‘the words’ (a long one cut), a binding by name, an emoji as itself, a structure by its parts. */
+function kept(v: unknown): string {
+  if (v === undefined || v === null || v === "") return "nothing";
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  if (typeof v === "number") return String(v);
+  if (Array.isArray(v)) return v.map(kept).join(" ");
+  if (typeof v === "object") { const o = v as Record<string, unknown>; return "name" in o ? [kept(o.name), o.icons !== undefined ? kept(o.icons) : ""].filter(Boolean).join(" ") : Object.entries(o).map(([k, x]) => `${humanWords(k)} ${kept(x)}`).join(", "); }
+  const t = String(v);
+  if (/^:[a-z0-9_+-]+:$/.test(t.trim())) return t.trim();
+  if (/^\+?\d+[mhdw]$/.test(t.trim())) return durationWords(t.trim());
+  if (/^[a-z0-9]+(_[a-z0-9]+)+$/.test(t)) return `‘${valueWords(t)}’`;
+  if (one(t)) return /^\{\{\s*picklist\./.test(t) ? `‘${pathWords(t)}’` : withThe(pathWords(t));
+  const w = slackPlain(t); if (!w) return "nothing";
+  return `‘${w.length > 60 ? `${w.slice(0, 58).replace(/\s+\S*$/, "")}…` : w}’`;
+}
+/** What a pick looks at: "the reply", "the earlier answer and the earlier call outcome". */
+const pickedBy = (t: string) => { const ps = [...t.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)[^}]*\}\}/g)].map((m) => withThe(pathWords(m[1]))); return ps.length ? ps.join(" and ") : slackPlain(t); };
+/** A pick's case as words: "showed:closed_won" → "showed, closed won"; empty → "nothing". */
+const caseWords = (k: string) => k === "" ? "nothing" : k.split(/[:>]/).map((x) => (x === "" ? "nothing" : valueWords(x))).join(", ");
 /** A trigger with a match reads as the event it really waits for: "Appointment cancelled", "Tag “reactivate” added". */
 function triggerTitle(n: Node & { type: "trigger" }): string {
   const m = n.match as Record<string, unknown> | undefined;
@@ -213,9 +236,13 @@ function generic(def: Definition, n: Node, nm: Namer): { title: string; meta?: s
       return { title, meta: list(n.from?.length && `only if it is ${n.from.join(" or ")}`, n.card && `the ${nm.board(n.card.pipeline).text} card too${mark([nm.board(n.card.pipeline)])}`) };
     }
     case "set_var": {
-      const v = n.value;
-      return { title: `Remember ${humanWords(n.key)}${!n.pick && !n.when && typeof v !== "object" ? ` = ${typeof v === "string" ? templateWords(v) || "blank" : String(v)}` : ""}`,
-        meta: n.pick ? `picked by ${templateWords(String(v)).replace(/^\[|\]$/g, "")}` : n.when ? `depends on whether ${predicateWords(n.when, constsOf(def))}` : undefined };
+      // what is kept, and each case in words: never the JSON, Slack's *bold* or a {{path}} the step holds (D112)
+      const what = `Remember ${withThe(pathWords(`vars.${n.key}`))}`;
+      // picked by a tap in Slack: the cases are the emoji tapped
+      const tap = /\{\{\s*reaction\.reaction\b/.test(String(n.value));
+      if (n.pick) return { title: what, meta: [`by ${pickedBy(String(n.value))}`, ...Object.entries(n.pick).map(([k, v]) => `${tap ? `:${k}:` : caseWords(k)} → ${kept(v)}`), n.else_value !== undefined && `otherwise ${kept(n.else_value)}`].filter(Boolean).join("; ") };
+      if (n.when) return { title: what, meta: `${kept(n.value)} if ${predicateWords(n.when, constsOf(def))}${n.else_value !== undefined ? `, otherwise ${kept(n.else_value)}` : ""}` };
+      return { title: `${what}: ${kept(n.value)}` };
     }
     case "record": return { title: `Log: ${EVENT_LABELS[n.event] ?? humanWords(n.event)}`, meta: list(n.appointment && `about ${withThe(pathWords(n.appointment))}`, n.start && "starts its workflows") };
     // the reason an author gave it, as the end of the run: "Done: they replied" (a stop is a way the run ends too)
@@ -289,7 +316,38 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
     return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, label: s.label, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, onlyIf: n.only_if ? onlyIfWords(n.only_if, constsOf(full)) : undefined, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), hidden: (n.type === "classify" && (n.domain === "reply_intent" || foldsIntoGate(full, n))) || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource) };
   });
   const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e, def.nodes.find((n) => n.id === e.from)), else: e.else || undefined }));
+  apart(nodes, edges);
   return { nodes, edges };
+}
+
+/**
+ * Two steps of one workflow never share a main line (D112): the chart's "on to “…”" names a step by it. Each is told
+ * apart by the first thing that differs: its first fact, the wait before it, the way into it, the step before it; a
+ * pair still alike is numbered.
+ */
+function apart(nodes: ChartNode[], edges: ChartEdge[]): void {
+  const was = new Map(nodes.map((n) => [n.id, n])); const titleOf = new Map(nodes.map((n) => [n.id, n.title]));
+  const into = (id: string) => edges.filter((e) => e.to === id);
+  const low = (t: string) => t.replace(/^./, (c) => c.toLowerCase());
+  const ways: ((n: ChartNode) => { add: string; meta?: string | undefined } | undefined)[] = [
+    (n) => { if (!n.meta) return undefined; const [first, ...rest] = n.meta.split(" · "); return { add: ` · ${first}`, meta: rest.join(" · ") || undefined }; },
+    (n) => { const i = into(n.id); const w = i.length === 1 ? was.get(i[0].from) : undefined; const t = w?.kind === "wait" ? low(titleOf.get(w.id)!) : undefined; return t ? { add: `, ${/^\d+ (minute|hour|day|week)s?$/.test(t) ? `after waiting ${t}` : t}` } : undefined; },
+    (n) => { const i = into(n.id); return i.length === 1 && i[0].label ? { add: `, ${i[0].else ? "otherwise" : `when ${low(i[0].label)}`}` } : undefined; },
+    (n) => { const i = into(n.id); return i.length === 1 ? { add: `, after “${titleOf.get(i[0].from)?.replace(/[“”‹›]/g, "")}”` } : undefined; },
+  ];
+  const groups = new Map<string, ChartNode[]>(); for (const n of nodes) groups.set(n.title, [...(groups.get(n.title) ?? []), n]);
+  for (const [title, group] of groups) {
+    let left = group;
+    for (const [k, way] of ways.entries()) {
+      if (left.length < 2) break;
+      const vals = left.map((n) => way(n)); const seen = new Map<string, number>(); for (const v of vals) if (v) seen.set(v.add, (seen.get(v.add) ?? 0) + 1);
+      // "after …" only when it tells every one left apart; otherwise they are numbered alike
+      if (k === ways.length - 1 && vals.some((v) => !v || seen.get(v.add) !== 1)) break;
+      left = left.filter((n, i) => { const v = vals[i]; if (!v || seen.get(v.add) !== 1) return true; n.title = `${title}${v.add}`; if ("meta" in v) n.meta = v.meta; return false; });
+    }
+    const nth = (k: number) => `${k}${k % 10 === 2 && k % 100 !== 12 ? "nd" : k % 10 === 3 && k % 100 !== 13 ? "rd" : "th"}`;
+    if (left.length > 1) left.forEach((n, i) => { if (i) n.title = `${title} (${nth(group.indexOf(n) + 1)} time)`; });
+  }
 }
 
 const strip = (t: string | undefined) => t === undefined ? undefined : t.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();

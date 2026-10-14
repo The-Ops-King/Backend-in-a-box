@@ -3465,6 +3465,13 @@ ever run.
   the stage it stores. Not named from the CRM: a Sales Call's own properties (outcome, disposition: the object's keys),
   calendars (no step words them), and stages inside a hand-written edge label or an only_if predicate; the
   `card.moved` event's stage words in Slack still come from the binding keys.
+- **Helper steps read plainly too, and no two steps share a main line.** A remembered value (`set_var`, drawn since
+  D111) says what is kept and each case in words: "Remember the setter line: ‘Setter: [setter]’", "Remember the
+  Slack card's look · ‘Call rescheduled’ 🔁 if this is a reschedule, otherwise ‘New call booked’ …", "Remember what the
+  team decided · by the tap; ✅ → ‘confirmed’; …"; never JSON, Slack's `*bold*` or a path. The chart's arrow "on to
+  “…”" names a step by its main line, so steps of one workflow that would read the same are told apart by the first
+  thing that differs: their first fact, the wait before them ("Text, 3 days before the call"), the way into them
+  ("Text, when the call is at 11am or later"), the step before them when that settles all of them; else "(2nd time)".
 - **Who went through it.** The workflow page's chart carries `counts: { days: 7, by: { node_id: { went, skipped } } }`:
   per node id, the distinct runs with a step row in the last 7 days, and how many of those skipped it (skipped or
   stale). Runs, not contacts: a company-level run (a schedule) has no contact and counts once. Shadow runs count:
@@ -3475,7 +3482,8 @@ ever run.
 - Display only: what runs and when is unchanged; no template changed.
 - Tests: `words.test.ts` (a titled step's words are generated and its title is the label, and editing `from_stages`
   changes the words not the title; card, record, Slack, email, check, contact, Jev and end words; no main line of any
-  shipped template or PMU copy has `{{`, `}}`, braces, an id, a dotted path or an underscore; the step list uses the same
+  shipped template or PMU copy, helpers included, has `{{`, `}}`, braces, an id, a dotted path, an underscore or Slack
+  markup; remembered values and their cases; no two steps of one workflow share a main line; the step list uses the same
   words; with a stubbed pipelines read PMU's new card goes to "Booked Call" on "Beauty Moguls" and the reschedule lists
   all seven stages by GHL's names; unread, the key words carry the marker; the D105 reason by GHL's name),
   `step-counts.test.ts` (runs over eight days: only the last seven count, per node, distinct runs, a skip
