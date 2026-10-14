@@ -104,10 +104,6 @@ s1['template']=('*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location
 s1['as']['icon']=[':bomb:',':clapper:',':fire:',':snowman:',':airplane:',':fire_engine:',':tent:',':volcano:',':beach_with_umbrella:',':dragon_face:',':eagle:',':panda_face:',':wolf:',':lion_face:',':brain:',':dizzy:',':boom:',':mirror_ball:',':ninja:',':gorilla:']
 out['call-recorded']=(d,"PMU: one board. No setter card to mark showed; the closer, disposition and objection in PMU's own dropdown keys; the GHL note is Tyler's four sections (current situation, pains, goals, objections) and the Fathom link, the Slack post says the same with his emoji, the scorecard only in the thread")
 
-# EOD call filed: the closer's answer in PMU's disposition keys (a deposit is its own)
-d=load('eod-call-filed'); node(d,'v_disp')['pick']=PMU_DISP
-out['eod-call-filed']=(d,"PMU: the closer's answer goes on the Sales Call in PMU's disposition keys; a deposit is its own (Deposit)")
-
 # Deal closed: the one card → Signed Contract, won; PMU's disposition key
 d=load('deal-closed'); drop(d,'p2')
 out['deal-closed']=(d,"PMU: one board. The card moves to Signed Contract, won; no setter card")

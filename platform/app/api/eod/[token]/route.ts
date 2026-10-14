@@ -1,7 +1,6 @@
 import { DateTime } from "luxon";
 import { asOperator } from "@/db/client";
 import { fail, ok, readJson } from "@/api/http";
-import { liveAdapters } from "@/adapters";
 import { loadCompany } from "@/engine/context";
 import { closerByToken, loadEodForm, prefill, reportFor, submitEod, todayFor, DAY_FMT, type EodAnswers, type EodPrefill, type CallEntry } from "@/engine/eod";
 import { outcomesOf, dayFields, totalsOf, type CallOutcome } from "@/engine/eod-form";
@@ -15,7 +14,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     const { row: company } = await loadCompany(c, closer.company_id);
     const day = q && DateTime.fromFormat(q, DAY_FMT).isValid ? q : todayFor(company.timezone);
     const filed = await reportFor(c, company.id, closer.id, day);
-    const pre = await prefill(c, company, closer, day, DateTime.now(), liveAdapters);   // D77: with the day's blank Sales Calls booked before the engine
+    const pre = await prefill(c, company, closer, day, DateTime.now());
     const fields = await loadEodForm(c, company.id);
     const shown: EodPrefill = filed?.answers ? { ...pre, ...pickAnswers(filed.answers, pre) } : pre;
     const d = DateTime.fromFormat(day, DAY_FMT, { zone: company.timezone });
@@ -42,7 +41,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const dayKeys = dayFields(fields).map((f) => f.key);
     const day_answers = Object.fromEntries(Object.entries(body.day_answers ?? {}).filter(([k, v]) => dayKeys.includes(k) && String(v) !== "").map(([k, v]) => [k, String(v)]));
     const answers: EodAnswers = { calls_count: num(body.calls_count) ?? 0, closes: num(body.closes) ?? t.closes, deposits: num(body.deposits) ?? t.deposits, cash: num(body.cash) ?? t.cash, revenue: num(body.revenue) ?? t.revenue, calls, day_answers };
-    return submitEod(c, liveAdapters, { token, day: body.day!, answers });
+    return submitEod(c, { token, day: body.day!, answers });
   });
   return r.ok ? ok({ ok: true, recorded: r.recorded, changes: r.changes.length }) : fail(422, r.why);
 }

@@ -13,7 +13,7 @@ import { STAGES, stageIndex } from "@/engine/stages";
 import { chartOf, pathOf, runState, type PathItem } from "./words";
 import { companyReports } from "@/engine/reports";
 import { setterMetrics } from "@/engine/metrics";
-import { EVENT_LABELS } from "@/engine/describe";
+import { EVENT_LABELS, RETIRED_EVENTS } from "@/engine/describe";
 import { effectiveMode, workflowMode, type Mode } from "@/engine/mode";
 import { harnessRefusal } from "@/engine/simulate";
 
@@ -250,7 +250,7 @@ async function startsCatalog(c: PoolClient, companyId: string) {
       coalesce((select json_agg(json_build_object('id', w.id, 'name', w.name, 'enabled', w.enabled) order by w.name) from workflow_triggers t join workflows w on w.id=t.workflow_id where t.company_id=$1 and t.event_type=et.name), '[]'::json) as workflows,
       (select count(*) from events e where e.company_id=$1 and e.event_type=et.name and e.occurred_at > now() - interval '30 days')::int as seen
     from event_types et order by et.category, et.name`, [companyId]);
-  return rows.map((r) => ({ event: r.name, label: EVENT_LABELS[r.name] ?? r.name, category: r.category, workflows: r.workflows, seen: r.seen }));
+  return rows.filter((r) => !RETIRED_EVENTS.has(r.name)).map((r) => ({ event: r.name, label: EVENT_LABELS[r.name] ?? r.name, category: r.category, workflows: r.workflows, seen: r.seen }));
 }
 
 export type { Readiness };
