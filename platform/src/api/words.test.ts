@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { chartOf, pathOf } from "./words";
+import { namer, UNREAD, UNREAD_MANY, type CrmNames } from "./crm-names";
 import { parseDefinition, type Predicate } from "@/engine/definition";
 import { notWords, onlyIfWords, predicateWords, skippedWords } from "@/engine/describe";
 import { evaluate } from "@/engine/predicate";
@@ -103,7 +104,7 @@ describe("D112: a step's words are made from its settings", () => {
     const def = pmu("call-booked");
     const rs = nodeOf(def, "c_rs");
     expect(rs.label).toBe("Card → Rescheduled, if it is before the call (its name stays)");
-    expect(line(rs)).toBe("Move the card ‹Closer → Rescheduled› · only from New Lead, Scheduled and 5 more · keeps its name · owner: the closer");
+    expect(line(rs)).toBe("Move the card ‹Closer → Rescheduled› · only from New Lead, Scheduled, Unresponsive, Confirmed, No Show, Cancelled, Rescheduled · keeps its name · owner: the closer");
     // someone narrows the stages it moves from and lets it rename the card: the title still says the old thing, the words do not
     const edited = parseDefinition({ ...def, nodes: def.nodes.map((n) => (n.id === "c_rs" ? { ...n, from_stages: ["{{crm.stage_closer_scheduled}}", "{{crm.stage_closer_confirmed}}"], keep_name: false } : n)) });
     const after = nodeOf(edited, "c_rs");
@@ -155,6 +156,45 @@ describe("D112: a step's words are made from its settings", () => {
     const def = pmu("call-booked");
     const run = { id: "r1", status: "completed", current_node: null, next_run_at: null, exit_reason: "booked", started_at: new Date("2026-10-13T15:00:00Z") };
     const path = pathOf(def, run, [{ node_id: "c_rs", node_type: "pipeline_card", status: "ok", started_at: new Date("2026-10-13T15:00:01Z"), finished_at: null, result: {}, error: null }], [], [], "UTC");
-    expect(path.find((x) => x.node_id === "c_rs")).toMatchObject({ title: "Move the card ‹Closer → Rescheduled›", meta: "only from New Lead, Scheduled and 5 more · keeps its name · owner: the closer" });
+    expect(path.find((x) => x.node_id === "c_rs")).toMatchObject({ title: "Move the card ‹Closer → Rescheduled›", meta: "only from New Lead, Scheduled, Unresponsive, Confirmed, No Show, Cancelled, Rescheduled · keeps its name · owner: the closer" });
   });
 });
+
+// the coordinator's bar for D112: the CRM's own names, every stage listed, and a name not read is never passed off as one
+describe("D112: boards, stages and fields by the CRM's names", () => {
+  const pmu = (f: string) => parseDefinition(JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../installs/pmu", `${f}.json`), "utf8")).definition);
+  const keys = ["new_lead", "scheduled", "unresponsive", "confirmed", "no_show", "cancelled", "rescheduled"];
+  const ghlNames = ["New Lead", "Booked Call", "Unresponsive - Call Unconfirmed", "Call Confirmed", "No Show", "No-Show / Cancel / Reschedule", "Rescheduled"];
+  const bindings = { "crm.pipeline_closer": "PIPE1", ...Object.fromEntries(keys.map((k, i) => [`crm.stage_closer_${k}`, `ST${i}`])), "crm.field_contact_appointment_date": "FLD1", "crm.field_contact_setter": "FLD2", "crm.field_opportunity_setter_owner": "FLD3" };
+  const read: CrmNames = { read: true, pipelines: { PIPE1: "Beauty Moguls" }, stages: Object.fromEntries(ghlNames.map((nm, i) => [`ST${i}`, nm])), fields: { FLD1: "Appointment Date & Time", FLD2: "Setter", FLD3: "Setter Owner" }, objects: { "custom_objects.sales_call": "Sales Call" } };
+  const chart = (def: ReturnType<typeof pmu>, names: CrmNames | null) => chartOf(def, company, bindings, "ghl", namer(bindings, names));
+  const at = (c: ReturnType<typeof chart>, id: string) => { const n = c.nodes.find((x) => x.id === id)!; return `${n.title}${n.meta ? ` · ${n.meta}` : ""}`; };
+
+  it("read from GHL: PMU's new card goes to Booked Call on Beauty Moguls, and the reschedule lists every stage it moves from by GHL's name", () => {
+    const c = chart(pmu("call-booked"), read);
+    expect(at(c, "c_new")).toBe("Move the card ‹Beauty Moguls → Booked Call› · named [full name] -- Direct/Setter · owner: the closer");
+    expect(at(c, "c_rs")).toBe("Move the card ‹Beauty Moguls → Rescheduled› · only from New Lead, Booked Call, Unresponsive - Call Unconfirmed, Call Confirmed, No Show, No-Show / Cancel / Reschedule, Rescheduled · keeps its name · owner: the closer");
+    expect(at(c, "n1")).toBe("Update the contact · owner: the closer, Appointment Date & Time");
+    // the popover lists them too
+    expect(c.nodes.find((x) => x.id === "c_rs")!.detail).toContain("only a card on New Lead, Booked Call, Unresponsive - Call Unconfirmed, Call Confirmed, No Show, No-Show / Cancel / Reschedule, Rescheduled moves");
+    expect(JSON.stringify(c.nodes)).not.toContain("not read from GHL");
+  });
+
+  it("GHL could not be read: the key words stand in, marked, never as if they were GHL's", () => {
+    const c = chart(pmu("call-booked"), { read: false, pipelines: {}, stages: {}, fields: {}, objects: {} });
+    expect(at(c, "c_new")).toBe(`Move the card ‹Closer → Scheduled› · Closer, Scheduled: ${UNREAD_MANY} · named [full name] -- Direct/Setter · owner: the closer`);
+    expect(at(c, "c_rs")).toContain(`only from New Lead, Scheduled, Unresponsive, Confirmed, No Show, Cancelled, Rescheduled (${UNREAD_MANY})`);
+    expect(at(c, "n1")).toBe(`Update the contact · owner: the closer, appointment date (${UNREAD})`);
+    expect(at(c, "k4")).toContain(`Write the Sales Call record (${UNREAD})`);
+  });
+
+  it("the run log's D105 skip names the stage the card was on by GHL's name", () => {
+    const def = pmu("call-booked");
+    const run = { id: "r1", status: "completed", current_node: null, next_run_at: null, exit_reason: "booked", started_at: new Date("2026-10-13T15:00:00Z") };
+    const step = { node_id: "c_rs", node_type: "pipeline_card", status: "skipped", started_at: new Date("2026-10-13T15:00:01Z"), finished_at: null, result: { kind: "noop", why: "left where it is: the card is on Follow Up, a stage this step does not move from", stage: "ST9" }, error: null };
+    const names = { ...read, stages: { ...read.stages, ST9: "Follow Up - Hot" } };
+    expect(pathOf(def, run, [step], [], [], "UTC", namer(bindings, names)).find((x) => x.node_id === "c_rs")!.note).toBe("Didn't go out: left where it is: the card is on Follow Up - Hot, a stage this step does not move from");
+    expect(pathOf(def, run, [step], [], [], "UTC", namer(bindings, { ...read, read: false, stages: {} })).find((x) => x.node_id === "c_rs")!.note).toBe(`Didn't go out: left where it is: the card is on ST9 (${UNREAD}), a stage this step does not move from`);
+  });
+});
+

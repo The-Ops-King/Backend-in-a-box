@@ -11,6 +11,7 @@ import { pollAll } from "@/engine/poll";
 import { tick } from "@/engine/runner";
 import { fakeAdapters } from "@/engine/test-install";
 import { runPage } from "@/api/data";
+import { setCrmNamesReader } from "@/api/crm-names-read";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -63,6 +64,7 @@ const run = () => tick(fake, undefined, companyId);
 
 describe.skipIf(!HAS_DB)("the live contact is read before a run acts (D68)", () => {
   beforeAll(async () => {
+    setCrmNamesReader(async () => { throw new Error("no CRM in tests"); });
     await migrate().catch((e: Error) => { if (!/events_source_check/.test(e.message)) throw e; });
     await wipe("truth");
     const r = await installCompany({ name: "Truth", slug: "truth", timezone: TZ, locationId: "LOC-TRUTH", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, templates: TEMPLATES, crm: CRM, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);

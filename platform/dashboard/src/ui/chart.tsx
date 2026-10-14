@@ -46,7 +46,7 @@ type Size = { lines: string[]; w: number; h: number; chips?: { text: string; sta
 const LAB_H = 15, LAB_W = 5.9;
 function sizeOf(it: Item, maxW: number): Size {
   let t = sizeOfTitle(it, maxW); const meta = metaOf(it);
-  if (meta) { const sub = wrap(meta, Math.max(8, Math.floor((maxW - PAD) / SUB_W)), 6, SUB_W); t = { ...t, sub, w: Math.min(maxW, Math.max(t.w, Math.round(Math.max(...sub.map((l) => tw(l, SUB_W))) + PAD))), h: t.h + sub.length * SUB_LINE + 2 }; }
+  if (meta) { const sub = wrap(meta, Math.max(8, Math.floor((maxW - PAD) / SUB_W)), Infinity, SUB_W); t = { ...t, sub, w: Math.min(maxW, Math.max(t.w, Math.round(Math.max(...sub.map((l) => tw(l, SUB_W))) + PAD))), h: t.h + sub.length * SUB_LINE + 2 }; }
   const s = it.n.label ? { ...t, w: Math.max(t.w, Math.min(maxW, 220, Math.round(tw(it.n.label, LAB_W) + PAD))), h: t.h + LAB_H, lab: LAB_H } : t;
   if (!it.when) return s;
   // the condition line under the title: as wide as it needs, up to the width allowed, cut with … past that

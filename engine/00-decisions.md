@@ -3440,8 +3440,8 @@ ever run.
 - **Generated words.** A node's main line is always made from its type and settings (`shortTitle` / `generic` in
   `src/api/words.ts`, over `describe.ts`); a `title` rides along as `label`, drawn small above the words and at the
   top of the popover. A task's `title` is the task itself and stays in the words. Each kind says the facts that matter at
-  a glance: a card move its board and stage in a chip (stage words from the binding key, "Closer → Rescheduled"), then
-  "marked lost", "only from New Lead, Scheduled and 5 more", "only if there is a card", "named [full name] --
+  a glance: a card move its board and stage in a chip (by the CRM's names, below), then
+  "marked lost", "only from New Lead, Booked Call, Unresponsive - Call Unconfirmed, …" (every one), "only if there is a card", "named [full name] --
   Direct/Setter" (a var that only ever holds a few literals is written as them) or "keeps its name", "owner: the
   closer"; a CRM record "Update/Write the Sales Call record", "for the slot the call moved from", the values that matter
   ("outcome = rescheduled", "sets outcome and disposition"), "+8 more fields", "empties 6 fields"; a Slack post what
@@ -3454,6 +3454,17 @@ ever run.
   `crm.pipeline_*` → "closer board", `crm.field_*`, `slack.channel.*` → "the bookings channel", `picklist.*` → the
   option), and "there are no later parts already in" for a count against 0. Every node of every shipped template and
   PMU copy was read; none shows a binding, an id or JSON (a test holds it). The run feed's step rows use the same words.
+- **The CRM's own names, every one listed.** Boards, stages, contact and card fields and custom objects are worded by the
+  names GHL gives them ("Beauty Moguls → Booked Call", not our key's "Closer → Scheduled"): one read of the company's
+  pipelines, custom fields and objects (`ghlCatalog`), kept ten minutes in memory per company (a failed read one minute),
+  on the workflow page, the run page and the run lists (`crmNamer` in `src/api/crm-names-read.ts`, a pure `namer` in
+  `crm-names.ts`). When GHL cannot be read, or the id is not on it, our key words stand in, marked "(name not read from
+  GHL)", never passed off as GHL's. A list that decides what a step does is never cut: every stage in `from_stages`
+  is on the node (its fact lines wrap and the node grows), and the popover lists every field a record or a card step
+  writes. D105's run-log reason ("the card is on …", worded from the key when the step ran) is shown with GHL's name for
+  the stage it stores. Not named from the CRM: a Sales Call's own properties (outcome, disposition: the object's keys),
+  calendars (no step words them), and stages inside a hand-written edge label or an only_if predicate; the
+  `card.moved` event's stage words in Slack still come from the binding keys.
 - **Who went through it.** The workflow page's chart carries `counts: { days: 7, by: { node_id: { went, skipped } } }`:
   per node id, the distinct runs with a step row in the last 7 days, and how many of those skipped it (skipped or
   stale). Runs, not contacts: a company-level run (a schedule) has no contact and counts once. Shadow runs count:
@@ -3465,6 +3476,9 @@ ever run.
 - Tests: `words.test.ts` (a titled step's words are generated and its title is the label, and editing `from_stages`
   changes the words not the title; card, record, Slack, email, check, contact, Jev and end words; no main line of any
   shipped template or PMU copy has `{{`, `}}`, braces, an id, a dotted path or an underscore; the step list uses the same
-  words), `step-counts.test.ts` (runs over eight days: only the last seven count, per node, distinct runs, a skip
-  counted, a company-level run counted, the page's chart carries them, a step reached only eight days ago has none).
+  words; with a stubbed pipelines read PMU's new card goes to "Booked Call" on "Beauty Moguls" and the reschedule lists
+  all seven stages by GHL's names; unread, the key words carry the marker; the D105 reason by GHL's name),
+  `step-counts.test.ts` (runs over eight days: only the last seven count, per node, distinct runs, a skip
+  counted, a company-level run counted, the page's chart carries them, a step reached only eight days ago has none; the
+  page names a board and stage as GHL does, reading GHL once for two page loads, and marks them when GHL fails).
 

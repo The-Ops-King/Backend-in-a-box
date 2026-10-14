@@ -11,6 +11,7 @@ import { scheduleWords } from "@/engine/when";
 import { workflowWithStep, workflowsWithStep } from "@/engine/clock";
 import { STAGES, stageIndex } from "@/engine/stages";
 import { chartOf, pathOf, runState, type PathItem } from "./words";
+import { crmNamer } from "./crm-names-read";
 import { companyReports } from "@/engine/reports";
 import { setterMetrics } from "@/engine/metrics";
 import { EVENT_LABELS } from "@/engine/describe";
@@ -99,11 +100,12 @@ export type RunListRow = { id: string; who: string; contact_id: string | null; w
 async function runRows(c: PoolClient, co: CompanyHead, runs: RunFull[]): Promise<RunListRow[]> {
   const defs = await defsFor(c, runs);
   const plans = await plansFor(c, co, runs, defs);
+  const names = runs.length ? await crmNamer(c, co.id) : undefined;
   const out: RunListRow[] = [];
   for (const r of runs) {
     const def = defs.get(`${r.workflow_id}:${r.workflow_version}`);
     const steps = await many<Parameters<typeof pathOf>[2][number]>(c, "select node_id, node_type, status, started_at, finished_at, result, error from run_steps where run_id=$1 order by started_at, id", [r.id]);
-    const path = def ? pathOf(def, r, steps, [], plans.get(r.id) ?? [], co.timezone) : [];
+    const path = def ? pathOf(def, r, steps, [], plans.get(r.id) ?? [], co.timezone, names) : [];
     const st = runState(r, path, co.timezone);
     out.push({ id: r.id, who: r.who, contact_id: r.contact_id, workflow: r.workflow, workflow_id: r.workflow_id, state: st.state, at: st.at, started_at: r.started_at!, finished_at: r.finished_at ?? null, next_run_at: r.next_run_at ?? null, path: path.map((p) => ({ node_id: p.node_id, state: p.state, title: p.title, meta: p.meta, note: p.note })) });
   }
@@ -133,7 +135,7 @@ export async function workflowPage(c: PoolClient, co: CompanyHead, id: string, l
   try { def = parseDefinition(w.definition); } catch (e) { parse_error = String((e as Error).message).slice(0, 300); }
   const { bindings, adapterCompany } = await loadCompany(c, co.id);
   const safe = Object.fromEntries(Object.entries(bindings).filter(([k]) => !k.startsWith("secret.")));
-  const chart = def ? { ...chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source), counts: { days: 7, by: await stepCounts(c, id, 7) } } : null;
+  const chart = def ? { ...chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source, await crmNamer(c, co.id)), counts: { days: 7, by: await stepCounts(c, id, 7) } } : null;
   const ready = await companyReadiness(c, co.id, `/app/c/${co.slug}`); const mine = ready.workflows.find((x) => x.id === id);
   const runs = await many<RunFull>(c, `${runSelect} where r.workflow_id=$1 order by (r.status in ('active','waiting')) desc, r.started_at desc limit $2`, [id, Math.min(Math.max(1, Math.floor(limit) || 100), 1000)]);
   const rows = await runRows(c, co, runs);
@@ -153,12 +155,13 @@ export async function runPage(c: PoolClient, id: string) {
   const steps = await many<Parameters<typeof pathOf>[2][number]>(c, "select node_id, node_type, status, started_at, finished_at, result, error from run_steps where run_id=$1 order by started_at, id", [id]);
   const sends = await many<Parameters<typeof pathOf>[3][number]>(c, "select idempotency_key, channel, status, rendered_body, sent_at, suppressed_reason, error from sends where run_id=$1 order by scheduled_for", [id]);
   const plan = (await plansFor(c, co, [r], new Map([[`${r.workflow_id}:${r.workflow_version}`, def]]))).get(r.id) ?? [];
-  const path = def ? pathOf(def, r, steps, sends, plan, co.timezone) : [];
+  const names = await crmNamer(c, co.id);
+  const path = def ? pathOf(def, r, steps, sends, plan, co.timezone, names) : [];
   const st = runState(r, path, co.timezone);
   const appt = r.appointment_id ? await one<{ starts_at: Date; status: string; term: string; closer: string | null }>(c, "select a.starts_at, a.status, t.name as term, u.name as closer from appointments a join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id where a.id=$1", [r.appointment_id]) : null;
   const { bindings, adapterCompany } = await loadCompany(c, co.id);
   const safe = Object.fromEntries(Object.entries(bindings).filter(([k]) => !k.startsWith("secret.")));
-  const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source) : null;
+  const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source, names) : null;
   const states: Record<string, PathItem["state"]> = {}; for (const p of path) if (!(p.node_id in states) || p.state !== "next") states[p.node_id] = p.state;
   return { company: co, workflow: { id: r.workflow_id, name: r.workflow },
     run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, (await workflowMode(c, r.workflow_id))!.mode, bindings)) === "shadow",

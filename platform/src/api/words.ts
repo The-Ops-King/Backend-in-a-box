@@ -1,7 +1,8 @@
 import { DateTime } from "luxon";
 import type { Definition, Node, Edge } from "@/engine/definition";
-import { EVENT_LABELS, boardWords, branchTitle, eventWords, untilWords, collapsePlumbing, constsOf, describeNode, durationWords, edgeWords, exitWords, humanWords, onlyIfWords, pathWords, predicateWords, skippedWords, stageWords, waitWords, templateWords, walkOrder } from "@/engine/describe";
+import { EVENT_LABELS, branchTitle, eventWords, untilWords, collapsePlumbing, constsOf, describeNode, durationWords, edgeWords, exitWords, humanWords, onlyIfWords, pathWords, predicateWords, skippedWords, waitWords, templateWords, walkOrder } from "@/engine/describe";
 import { exampleContext, nodeExamples } from "@/engine/example";
+import { UNREAD, UNREAD_MANY, namer, type Named, type Namer } from "./crm-names";
 import { scheduleWords } from "@/engine/when";
 import type { Projected } from "@/engine/project";
 
@@ -66,11 +67,12 @@ const channelOf = (n: Node): ChartNode["channel"] => n.type === "send_sms" ? "sm
 /** A task title the way the team reads it: the contact's name placeholder becomes "them", any other binding its plain words. */
 const taskWords = (t: string) => t.replace(/\{\{\s*contact\.(?:first_)?name(?:\s*\|[^}]*)?\s*\}\}/g, "them").replace(/\{\{\s*([a-zA-Z0-9_.]+)(?:\s*\|[^}]*)?\s*\}\}/g, (_, p) => pathWords(p)).replace(/\s+/g, " ").trim();
 const cap = (t: string) => t.replace(/^./, (c) => c.toUpperCase());
-const titleCase = (t: string) => t.replace(/\b\w/g, (c) => c.toUpperCase());
 const OUTCOME_WORDS: Record<string, string> = { noshow: "no-show", unqualified: "disqualified", dq: "disqualified", on_call: "rescheduled or cancelled on the call" };
 const valueWords = (v: string) => OUTCOME_WORDS[v] ?? humanWords(v);
 /** A few names, the rest counted: "New Lead, Scheduled and 5 more". */
-const fewOf = (xs: string[]) => xs.length <= 3 ? xs.join(", ") : `${xs.slice(0, 2).join(", ")} and ${xs.length - 2} more`;
+/** The marker on words that stand in for a CRM name not read (D112): never shown as if they were the CRM's. */
+const mark = (xs: (Named | null | undefined)[]) => { const un = xs.filter((x): x is Named => !!x && !x.read); return un.length ? ` (${un.length > 1 ? UNREAD_MANY : UNREAD})` : ""; };
+const KEY_WORDS = namer({});
 const one = (t: string) => /^\{\{[^}]*\}\}$/.test(t.trim());
 /** The plain values a workflow's set_var steps can give a path (`vars.card.name` → "New call booked", "Call rescheduled"); null when one is not a plain literal. */
 function varValues(def: Definition, path: string): string[] | null {
@@ -151,13 +153,13 @@ function triggerTitle(n: Node & { type: "trigger" }): string {
  * A node's words on the chart and in a step row (D112): always made from what the step is set to do, never from its
  * hand-written `title`, which goes along as `label` (shown small) so an edited setting can never hide behind old words.
  */
-export function shortTitle(def: Definition, n: Node): { title: string; meta?: string; label?: string } {
-  const g = generic(def, n);
+export function shortTitle(def: Definition, n: Node, nm: Namer = KEY_WORDS): { title: string; meta?: string; label?: string } {
+  const g = generic(def, n, nm);
   // a task's `title` is the task itself (the words GHL shows), already in the words
   const label = n.title && n.type !== "create_task" && n.title.trim().toLowerCase() !== g.title.toLowerCase() ? n.title.trim() : undefined;
   return label ? { ...g, label } : g;
 }
-function generic(def: Definition, n: Node): { title: string; meta?: string } {
+function generic(def: Definition, n: Node, nm: Namer): { title: string; meta?: string } {
   const list = (...xs: (string | false | 0 | undefined)[]) => xs.filter(Boolean).join(" · ") || undefined;
   switch (n.type) {
     case "trigger": { if (n.schedule) { const w = scheduleWords(n.schedule); const i = w.indexOf(", "); return { title: cap(i > 0 ? w.slice(0, i) : w), meta: i > 0 ? w.slice(i + 2) : undefined }; } return { title: triggerTitle(n) }; }
@@ -183,20 +185,23 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     }
     case "analyze": { const w: Record<string, string> = { classify: "is it a sales call?", notes: "call notes", rubric: "scorecard", objections: "objections", cheer: "a line of congratulations" }; const keys = Array.isArray(n.into) ? n.into : [n.into]; return { title: `AI: ${keys.map((k) => w[k] ?? humanWords(k)).join(" and ")}` }; }
     case "update_contact": {
+      const fields = n.fields.map((f) => nm.field(f.id)), cleared = n.clear.map((id) => nm.field(id));
       const bits = [n.set.assign_to && `owner: ${pathWords(n.set.assign_to)}`, n.set.phone && "phone", n.set.timezone && "time zone", (n.set.first_name || n.set.last_name) && "name",
-        ...n.fields.map((f) => pathWords(f.id)), ...n.clear.map((id) => `clears ${pathWords(id)}`)].filter(Boolean) as string[];
-      return { title: "Update the contact", meta: bits.length ? `${fewOf(bits)}${n.fields.length && n.fields.every((f) => f.if_empty) ? ", only where empty" : ""}` : undefined };
+        ...fields.map((f) => f.text), ...cleared.map((f) => `clears ${f.text}`)].filter(Boolean) as string[];
+      return { title: "Update the contact", meta: bits.length ? `${bits.join(", ")}${n.fields.length && n.fields.every((f) => f.if_empty) ? ", only where empty" : ""}${mark([...fields, ...cleared])}` : undefined };
     }
     case "pipeline_card": {
-      const board = titleCase(boardWords(n.pipeline));
-      const title = n.stage ? `Move the card ‹${board} → ${stageWords(n.stage)}›` : n.status ? `Mark the card ${n.status} ‹${board}›` : `Update the card ‹${board}›`;
-      return { title, meta: list(n.stage && n.status && (n.status === "open" ? "kept open" : `marked ${n.status}`), !!n.from_stages?.length && `only from ${fewOf(n.from_stages.map(stageWords))}`, n.if_missing === "skip" && "only if there is a card",
+      const board = nm.board(n.pipeline), stage = n.stage ? nm.stage(n.stage) : null, from = (n.from_stages ?? []).map((x) => nm.stage(x));
+      const title = stage ? `Move the card ‹${board.text} → ${stage.text}›` : n.status ? `Mark the card ${n.status} ‹${board.text}›` : `Update the card ‹${board.text}›`;
+      const unread = [board, stage].filter((x): x is Named => !!x && !x.read);
+      // every stage it moves from, never "and 5 more": which cards it leaves alone is what the step does
+      return { title, meta: list(unread.length > 0 && `${unread.map((x) => x.text).join(", ")}:${mark(unread).replace(/[()]/g, "")}`, n.stage && n.status && (n.status === "open" ? "kept open" : `marked ${n.status}`), from.length > 0 && `only from ${from.map((x) => x.text).join(", ")}${mark(from)}`, n.if_missing === "skip" && "only if there is a card",
         n.keep_name ? "keeps its name" : n.name && n.if_missing !== "skip" && `named ${filled(def, n.name)}`, n.assign_to && `owner: ${pathWords(n.assign_to)}`) };
     }
     case "crm_record": {
-      const obj = titleCase(humanWords((/^\{\{\s*crm\.object_([a-z0-9_]+)/.exec(n.object)?.[1] ?? n.object).replace(/^custom_objects\./, "")));
+      const obj = nm.object(n.object);
       const key = n.key && !n.record_id && /^\{\{\s*event\.slot\./.test(n.key) ? ` for ${withThe(pathWords(n.key))}` : "";
-      return { title: `${n.record_id || n.if_missing !== "create" ? "Update" : "Write"} the ${obj} record${key}`, meta: list(...recordFacts(def, n.properties), n.clear.length > 0 && `empties ${n.clear.length} field${n.clear.length === 1 ? "" : "s"}`) };
+      return { title: `${n.record_id || n.if_missing !== "create" ? "Update" : "Write"} the ${obj.text} record${key}${mark([obj])}`, meta: list(...recordFacts(def, n.properties), n.clear.length > 0 && `empties ${n.clear.length} field${n.clear.length === 1 ? "" : "s"}`) };
     }
     case "create_task": { const t = taskWords(n.title); const who = n.assign_to ? pathWords(n.assign_to) : null; return { title: `Task${who ? ` for ${who}` : ""}: ${t[0].toLowerCase()}${t.slice(1)}`, meta: /\{\{/.test(n.due) ? `due ${templateWords(n.due).replace(/^\[|\]$/g, "")}` : `due in ${durationWords(n.due)}` }; }
     case "note": return { title: "Leave a note" };
@@ -205,7 +210,7 @@ function generic(def: Definition, n: Node): { title: string; meta?: string } {
     case "update_opportunity": {
       const st = n.status ?? (typeof n.set.status === "string" ? n.set.status : undefined);
       const title = st === "open" ? "Reopen the opportunity" : st ? `Mark the opportunity ${/\{\{/.test(st) ? templateWords(st) : st}` : "Update the opportunity";
-      return { title, meta: list(n.from?.length && `only if it is ${n.from.join(" or ")}`, n.card && `the ${boardWords(n.card.pipeline)} card too`) };
+      return { title, meta: list(n.from?.length && `only if it is ${n.from.join(" or ")}`, n.card && `the ${nm.board(n.card.pipeline).text} card too${mark([nm.board(n.card.pipeline)])}`) };
     }
     case "set_var": {
       const v = n.value;
@@ -248,11 +253,32 @@ export function logoOf(n: Node, bookingSource: "ghl" | "calendly" = "ghl"): stri
 }
 
 /** The chart for a workflow: every node with its words, every edge with its label. Plumbing (set_var) is routed around. */
-export function chartOf(full: Definition, company: { name: string; timezone: string }, bindings: Record<string, string> = {}, bookingSource: "ghl" | "calendly" = "ghl"): Chart {
+/** The popover's words for a step that points at CRM things, with every one of them by the CRM's name and listed in full. */
+function namedDetail(def: Definition, n: Node, nm: Namer): string | undefined {
+  if (n.type === "pipeline_card") {
+    const board = nm.board(n.pipeline), stage = n.stage ? nm.stage(n.stage) : null, from = (n.from_stages ?? []).map((x) => nm.stage(x)), fields = n.fields.map((f) => ({ f: nm.field(f.id), v: templateWords(f.value) }));
+    return [stage ? `On the ${board.text} board${mark([board])}, to ${stage.text}${mark([stage])}` : `On the ${board.text} board${mark([board])}; the card stays on its stage`, n.status && `marked ${n.status}`, n.assign_to && `owner → ${pathWords(n.assign_to)}`,
+      fields.length > 0 && `sets ${fields.map((x) => `${x.f.text} = ${x.v}`).join(", ")}${mark(fields.map((x) => x.f))}`, from.length > 0 && `only a card on ${from.map((x) => x.text).join(", ")}${mark(from)} moves; a card on any other stage is left where it is`,
+      n.keep_name ? `an existing card keeps its name${n.name ? `; a new one is named ${filled(def, n.name)}` : ""}` : n.name && `named ${filled(def, n.name)}`, n.if_missing === "skip" && "only if the card already exists; this step never makes one"].filter(Boolean).join("; ");
+  }
+  if (n.type === "update_contact") {
+    const fields = n.fields.map((f) => ({ f: nm.field(f.id), v: templateWords(f.value), e: f.if_empty })), cleared = n.clear.map((id) => nm.field(id));
+    const bits = [n.set.assign_to && `owner → ${pathWords(n.set.assign_to)}`, n.set.phone && "phone", n.set.timezone && "time zone", (n.set.first_name || n.set.last_name) && "name", ...fields.map((x) => `${x.f.text} = ${x.v}${x.e ? " (only if empty)" : ""}`), ...cleared.map((f) => `clear ${f.text}`)].filter(Boolean);
+    return bits.length ? `${bits.join("; ")}${mark([...fields.map((x) => x.f), ...cleared])}` : undefined;
+  }
+  if (n.type === "crm_record") {
+    const props = Object.entries(n.properties).map(([k, v]) => `${humanWords(k)} = ${valueOf(def, v)}`);
+    return [n.record_id ? "The CRM's own record, made outside the engine; never makes one" : `Found by ${pathWords(n.key ?? "")}${n.if_missing === "create" ? "; made when there is none" : "; only a record that exists"}`, `writes ${props.join("; ")}`, n.clear.length > 0 && `empties ${n.clear.map((k) => humanWords(k)).join(", ")}`, n.relate.length > 0 && `linked to ${n.relate.length} related record${n.relate.length > 1 ? "s" : ""}`].filter(Boolean).join(". ");
+  }
+  return undefined;
+}
+
+/** names: the company's CRM names (D112); without them, a template's key words. */
+export function chartOf(full: Definition, company: { name: string; timezone: string }, bindings: Record<string, string> = {}, bookingSource: "ghl" | "calendly" = "ghl", names: Namer = KEY_WORDS): Chart {
   const def = collapsePlumbing(full);
   const ctx = exampleContext(company, bindings);
   const nodes: ChartNode[] = def.nodes.map((n) => {
-    const d = describeNode(n); const s = shortTitle(full, n);
+    const d = describeNode(n); const s = shortTitle(full, n, names); const named = namedDetail(full, n, names); if (named) d.detail = named;
     // a gate that decides on what Jev said: the Jev mark, and the words say so (what was asked, how sure it had to be)
     const jevRef = n.type === "check" ? jevBehind(full, n) : null;
     if (jevRef) d.detail = `Jev answered “${jevRef.question}” and had to be at least ${Math.round(jevRef.threshold * 100)}% sure; a reading a careful person would doubt counts as unclear. ${d.detail ?? ""}`.trim();
@@ -312,7 +338,7 @@ const stamp = (iso: string, tz: string) => DateTime.fromISO(iso).setZone(tz).toF
  * What one run did and will do, in order: the steps it ran (their state and words), where it waits now, and the plan from
  * there. The strip on a list row and the feed on the run page are both this list.
  */
-export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: SendRow[], plan: Projected[], tz: string): PathItem[] {
+export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: SendRow[], plan: Projected[], tz: string, names: Namer = KEY_WORDS): PathItem[] {
   const def = collapsePlumbing(full);
   const byId = new Map(def.nodes.map((n) => [n.id, n]));
   const out: PathItem[] = [];
@@ -320,14 +346,14 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
   const live = run.status === "active" || run.status === "waiting";
   // the trigger: a run always starts with one, whether or not a step row says so
   const trig = def.nodes.find((n) => n.type === "trigger" && (steps[0]?.node_id === n.id || !steps.some((s) => s.node_type === "trigger"))) ?? def.nodes.find((n) => n.type === "trigger");
-  if (trig && !steps.some((s) => s.node_type === "trigger")) { const t = shortTitle(def, trig); out.push({ node_id: trig.id, title: t.title, meta: t.meta, kind: "trig", state: "ok", at: run.started_at.toISOString() }); }
+  if (trig && !steps.some((s) => s.node_type === "trigger")) { const t = shortTitle(def, trig, names); out.push({ node_id: trig.id, title: t.title, meta: t.meta, kind: "trig", state: "ok", at: run.started_at.toISOString() }); }
   const order = new Map(walkOrder(def).map((id, i) => [id, i]));
   steps = [...steps].sort((a, b) => a.started_at.getTime() - b.started_at.getTime() || (order.get(a.node_id) ?? 999) - (order.get(b.node_id) ?? 999));
   const seen = new Set<string>();
   steps.forEach((s, i) => {
     if (s.node_type === "set_var") return;
     const n = byId.get(s.node_id);
-    const t = n ? shortTitle(def, n) : { title: s.node_id };
+    const t = n ? shortTitle(def, n, names) : { title: s.node_id };
     const last = i === steps.length - 1;
     let state: StepState = s.status === "ok" ? "ok" : s.status === "skipped" || s.status === "stale" ? "skip" : s.status === "failed" ? "warn" : s.status === "waiting" ? (live && run.current_node === s.node_id && !steps.slice(i + 1).some((x) => x.node_id === s.node_id) ? "here" : "ok") : s.status === "paused" ? "stop" : "ok";
     if (s.node_type === "wait" && state === "ok" && last && live && run.current_node === s.node_id) state = "here";
@@ -341,6 +367,8 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
     if (n?.only_if) item.onlyIf = onlyIfWords(n.only_if, constsOf(full));
     // rows written before D103 said "…; it is not" whatever the condition (wrong for a "not"): say what held instead
     if (n?.only_if && typeof s.result?.why === "string" && s.result.why.endsWith("; it is not")) item.note = `Didn't go out: ${skippedWords(n.only_if)}`;
+    // D105's "the card is on <stage>" was worded from the binding key when the step ran: the CRM's name for that stage now
+    if (typeof s.result?.stage === "string" && typeof s.result?.why === "string" && s.result.why.startsWith("left where it is: the card is on ")) { const st = names.stageId(s.result.stage); item.note = `Didn't go out: left where it is: the card is on ${st.text}${mark([st])}, a stage this step does not move from`; }
     if (state === "ghost") item.note = [item.note, shadowWords(s.result ?? {})].filter(Boolean).join(" · ");
     if (send && send.rendered_body) { item.words = send.channel === "slack" ? send.rendered_body : strip(send.rendered_body) ?? null; item.send_state = send.status; if (send.status === "failed" && send.error) item.note = send.error; }
     if (s.node_type === "exit" && state === "ok") { const w = exitWords(run.exit_reason ?? "done"); item.title = "Done"; item.note = w.startsWith("Stop: ") ? w.replace(/^Stop: /, "") : undefined; }
@@ -355,16 +383,16 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
     if (cur && !out.some((x) => x.state === "here")) {
       const n = byId.get(cur); const already = out.find((x) => x.node_id === cur && x.state === "ok" && x.kind === "trig");
       if (already) { already.state = "here"; already.at = run.next_run_at?.toISOString() ?? already.at; }   // about to start: the trigger row is where it stands
-      else if (n) { const t = shortTitle(def, n); out.push({ node_id: cur, title: t.title, meta: t.meta, kind: kindOf(n), state: "here", at: run.next_run_at?.toISOString() ?? null, channel: channelOf(n) }); }
+      else if (n) { const t = shortTitle(def, n, names); out.push({ node_id: cur, title: t.title, meta: t.meta, kind: kindOf(n), state: "here", at: run.next_run_at?.toISOString() ?? null, channel: channelOf(n) }); }
     }
     for (const p of plan) {
       if (out.some((x) => x.node_id === p.node_id && (x.state === "here" || x.state === "next"))) continue;
-      const n = byId.get(p.node_id); const t = n ? shortTitle(def, n) : { title: p.title };
+      const n = byId.get(p.node_id); const t = n ? shortTitle(def, n, names) : { title: p.title };
       out.push({ node_id: p.node_id, title: t.title, meta: t.meta, kind: n ? kindOf(n) : "other", state: "next", at: p.at, note: p.note, channel: n ? channelOf(n) : undefined, onlyIf: n?.only_if ? onlyIfWords(n.only_if, constsOf(full)) : undefined });
     }
   } else if ((run.status === "failed" || run.status === "paused") && !out.some((x) => x.state === "warn")) {
     const cur = run.current_node; const n = cur ? byId.get(cur) : undefined;
-    out.push({ node_id: cur ?? "?", title: n ? shortTitle(def, n).title : run.status === "paused" ? "Paused" : "Failed", kind: n ? kindOf(n) : "other", state: "warn", at: null, note: run.exit_reason ?? undefined });
+    out.push({ node_id: cur ?? "?", title: n ? shortTitle(def, n, names).title : run.status === "paused" ? "Paused" : "Failed", kind: n ? kindOf(n) : "other", state: "warn", at: null, note: run.exit_reason ?? undefined });
   } else if (run.status === "exited" && !out.some((x) => x.kind === "end")) {
     out.push({ node_id: "exit", title: "Done", note: (run.exit_reason ?? "").replace(/^moot: /, "").replace(/_/g, " ") || undefined, kind: "end", state: "ok", at: run.started_at.toISOString() });
   }

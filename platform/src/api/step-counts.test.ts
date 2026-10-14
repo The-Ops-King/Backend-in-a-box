@@ -5,12 +5,18 @@ import { migrate } from "@/db/migrate";
 import { installCompany } from "@/engine/install";
 import { fakeAdapters } from "@/engine/test-install";
 import { stepCounts, workflowPage, companyBySlug } from "./data";
+import { setCrmNamesReader } from "./crm-names-read";
+import { UNREAD_MANY } from "./crm-names";
+import type { Catalog } from "@/adapters/ghl/catalog";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 let companyId = "", workflowId = "";
 
 describe.skipIf(!process.env.DATABASE_URL)("run counts per step (D112)", () => {
+  let reads = 0;
+  const catalog: Catalog = { users: [], pipelines: [{ id: "P", name: "Setter Board", stages: [{ id: "S", name: "Fresh Lead" }] }], contactFields: [], opportunityFields: [{ id: "F", name: "Stage Entered On" }], associations: [], objects: [], tags: [], errors: [] };
   beforeAll(async () => {
+    setCrmNamesReader(async () => { reads++; return catalog; });
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='stepcounts'");
@@ -53,5 +59,17 @@ describe.skipIf(!process.env.DATABASE_URL)("run counts per step (D112)", () => {
     expect(chart.nodes.map((n) => n.id)).toContain("x1");
     expect(chart.counts?.by.x1).toBeUndefined();
     expect(page!.workflow.last_ran).not.toBeNull();
+  });
+
+  it("the chart names the board and stage as GHL does, read once for several page loads; unreadable, the key words are marked", async () => {
+    const page = () => asOperator(async (c) => workflowPage(c, (await companyBySlug(c, "stepcounts"))!, workflowId));
+    setCrmNamesReader(async () => { reads++; return catalog; }); reads = 0;
+    const a = await page(); await page();
+    expect(reads).toBe(1);
+    expect(a!.chart!.nodes.find((n) => n.id === "n2")!.title).toBe("Move the card ‹Setter Board → Fresh Lead›");
+    setCrmNamesReader(async () => { throw new Error("401"); });
+    const b = await page();
+    expect(b!.chart!.nodes.find((n) => n.id === "n2")).toMatchObject({ title: "Move the card ‹Setter → New Lead›", meta: expect.stringContaining(`Setter, New Lead: ${UNREAD_MANY}`) });
+    setCrmNamesReader(null);
   });
 });
