@@ -28,8 +28,11 @@ export function kindOf(n: Node): NodeKind {
 
 export const KIND_LABEL: Record<NodeKind, string> = { trigger: "Starts when", message: "Message out", crm: "CRM change", decision: "Decision", wait: "Wait", ai: "AI reads", control: "Flow control", exit: "Stops" };
 
+/** D110: event types nothing emits any more; their row stays only while old events point at it, and nothing offers them as a start. */
+export const RETIRED_EVENTS: ReadonlySet<string> = new Set(["eod.call_filed"]);
+
 export const EVENT_LABELS: Record<string, string> = {
-  "lead.created": "New lead created", "contact.created": "New contact created", "schedule": "On a schedule", "eod.filed": "A closer filed their end-of-day form", "eod.call_filed": "A closer filed a call booked before the switch-over", "alert.raised": "Something broke (an alert)", "alert.repeated": "An alert still open", "alert.resolved": "An alert cleared", "drift.found": "The hourly sweep found GHL and the ledger apart", "drift.sales_call_cancelled": "A Sales Call to set cancelled in GHL", "drift.sales_call_unlinked": "A Sales Call to link to its contact or closer card", "slack.reaction": "A team member reacted in Slack", "intent.reviewed": "A person reviewed Jev's read of a reply", "setter_call.result": "Jev read what a setter call achieved",
+  "lead.created": "New lead created", "contact.created": "New contact created", "schedule": "On a schedule", "eod.filed": "A closer filed their end-of-day form", "alert.raised": "Something broke (an alert)", "alert.repeated": "An alert still open", "alert.resolved": "An alert cleared", "drift.found": "The hourly sweep found GHL and the ledger apart", "drift.sales_call_cancelled": "A Sales Call to set cancelled in GHL", "drift.sales_call_unlinked": "A Sales Call to link to its contact or closer card", "slack.reaction": "A team member reacted in Slack", "intent.reviewed": "A person reviewed Jev's read of a reply", "setter_call.result": "Jev read what a setter call achieved",
   "appointment.booked": "Appointment booked", "appointment.rescheduled": "Appointment rescheduled", "appointment.status_changed": "Appointment status changed", "appointment.outcome": "Call outcome recorded",
   "call.held": "Call held", "message.received": "Reply received", "tag.added": "Tag added", "tag.removed": "Tag removed", "card.moved": "Pipeline card moved by hand in the CRM",
   "payment.received": "Payment received", "payment.failed": "Payment failed", "payment.refunded": "Payment refunded", "payment.paid_in_full": "Paid in full",

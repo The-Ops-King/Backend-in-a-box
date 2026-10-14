@@ -125,11 +125,11 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const calls = pre.calls.map((x) => (x.contact === "Leo Ortiz" ? { ...x, outcome: "closed" as const, cash: 2000, notes: "paid in full on the call" } : { ...x, extra: { energy: "High" } }));
     const half = { ...pre, ...totalsOf(calls), calls_count: 3, calls, day_answers: { did_well: "Stayed on the objection" } };
     // the company made notes required: Sarah's is blank
-    expect(await asOperator((c) => submitEod(c, fake, { token, day: todayFor(TZ), answers: half }))).toEqual({ ok: false, why: "Still needed: Sarah Kim: Call notes" });
+    expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: half }))).toEqual({ ok: false, why: "Still needed: Sarah Kim: Call notes" });
     const answers = { ...half, calls: calls.map((x) => (x.contact === "Sarah Kim" ? { ...x, notes: "warm, wants her partner on the next one" } : x)) };
     // more cash than revenue on one call can't be true: nothing is filed until it is fixed
     const over = { ...answers, calls: answers.calls.map((x) => (x.contact === "Leo Ortiz" ? { ...x, cash: 5000 } : x)) };
-    expect(await asOperator((c) => submitEod(c, fake, { token, day: todayFor(TZ), answers: over }))).toEqual({ ok: false, why: "Check Leo Ortiz: cash collected is more than revenue generated" });
+    expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: over }))).toEqual({ ok: false, why: "Check Leo Ortiz: cash collected is more than revenue generated" });
     const changes = diffAnswers(pre, answers);
     expect(changes.map(changeLine)).toEqual(["calls today 2 → 3", "closes 0 → 1", "deposits 1 → 0", "cash collected $1,500 → $2,000", "Leo Ortiz: Deposit → Closed", "Leo Ortiz: cash collected $1,500 → $2,000"]);
     // a blank the closer fills in is their answer, not a correction; a date the engine had and they moved is
@@ -138,7 +138,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const p3 = { ...pre, calls: pre.calls.map((x) => ({ ...x, next_date: "2026-10-21" })) };
     expect(diffAnswers(p3, { ...answers, calls: answers.calls.map((x) => ({ ...x, next_date: "2026-10-29" })) }).filter((ch) => ch.field === "follow-up date").map(changeLine)[0]).toMatch(/: follow-up date Wed Oct 21 → Thu Oct 29$/);
     const n = posts.length;
-    const r = await asOperator((c) => submitEod(c, fake, { token, day: todayFor(TZ), answers }));
+    const r = await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers }));
     expect(r).toMatchObject({ ok: true, recorded: 2 });
     // the appointments carry the outcomes now, and the call.held events fired; the disposition note carries what was said
     const rows = await asOperator((c) => many<{ id: string; status: string; oc: string | null; cc: string | null }>(c, "select a.id, a.status, ot.category as oc, ct.category as cc from appointments a left join company_terms ot on ot.id=a.outcome_term left join company_terms ct on ct.id=a.call_outcome_term where a.company_id=$1 and a.assigned_user_id=$2 order by a.starts_at", [companyId, allan]));
@@ -197,7 +197,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     // Theo is left out of the filing (the CRM will mark him below); Mia confirmed no-show, Noah confirmed follow-up
     const calls = pre.calls.filter((x) => x.contact !== "Theo Park").map((x) => ({ ...x, outcome: x.contact === "Mia Chen" ? "no_show" as const : x.outcome, notes: x.contact === "Mia Chen" ? "never joined" : "wants Friday", next_date: x.contact === "Mia Chen" ? null : DateTime.now().plus({ days: 2 }).toISODate() }));
     const n = posts.length, nr = reactions.length;
-    expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} } }))).toEqual({ ok: true, recorded: 2, changes: expect.any(Array) });
+    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} } }))).toEqual({ ok: true, recorded: 2, changes: expect.any(Array) });
     const runs = await asOperator((c) => many<{ id: string; appointment_id: string }>(c, "select r.id, r.appointment_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Call outcome filed'", [companyId]));
     expect(runs.map((r) => r.appointment_id).sort()).toEqual([apptMia, apptNoah].sort());   // one run per call; the eod-filed run starts too
     expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 3, completed: 3, failed: 0 });
@@ -227,24 +227,35 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const calls = pre.calls.map((x) => ({ ...x, outcome: x.outcome || "no_show" as const, notes: x.notes || "never joined either", next_date: x.next_date ?? (x.outcome === "follow_up" ? DateTime.now().plus({ days: 2 }).toISODate() : null), next_steps: x.next_steps || (x.outcome === "follow_up" ? "call back" : "") }));
     const outcomeRuns = () => asOperator(async (c) => Number((await one<{ n: string }>(c, "select count(*)::text as n from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Call outcome filed'", [companyId]))!.n));
     const before = await outcomeRuns(), n = posts.length;
-    expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });   // all three are on the ledger
+    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });   // all three are on the ledger
     expect(await outcomeRuns()).toBe(before);
     await tick(fake, DateTime.now(), companyId);
     expect(posts.slice(n).filter((p) => p.channel === "CBOOK")).toEqual([]);
     // Noah turns out to be a loss: that one call is filed, once
     const lostNoReason = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const } : x));
-    expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(lostNoReason), calls: lostNoReason, day_answers: {} } }))).toEqual({ ok: false, why: "Still needed: Noah Reyes: Why were they lost?" });   // A1 (D88): a loss says why
+    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(lostNoReason), calls: lostNoReason, day_answers: {} } }))).toEqual({ ok: false, why: "Still needed: Noah Reyes: Why were they lost?" });   // A1 (D88): a loss says why
     const changed = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const, lost_reason: "Price" } : x));
-    expect(await asOperator((c) => submitEod(c, fake, { token, day, answers: { ...pre, ...totalsOf(changed), calls: changed, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });
+    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(changed), calls: changed, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });
     expect(await outcomeRuns()).toBe(before + 1);
     await tick(fake, DateTime.now(), companyId);
     expect(posts.slice(n).filter((p) => p.channel === "CBOOK").map((p) => p.text)).toEqual(["✅ Showed, per Allan P: lost."]);
   });
-  it("D76: the reminder goes on every day until each of the closer's Sales Calls in GHL has an outcome (GHL is the truth, not only the ledger); blank two days on, the operator is told", async () => {
+  it("D76: the reminder goes on every day until each of the closer's calls has an outcome in GHL (GHL is the truth, not only the ledger); blank two days on, the operator is told; D110: a Sales Call the engine has no booking for is not counted", async () => {
     const day = (n: number) => DateTime.now().setZone(TZ).minus({ days: n });
-    const rec = (id: string, d: DateTime, outcome: string, closer = "Allan P") => ({ id, createdAt: d.toISO()!, properties: { display_label: `${id} Person — ${d.toISODate()}`, scheduled_at: d.set({ hour: 10, minute: 0 }).toUTC().toISO(), call_date: d.toISODate(), outcome, closer } });
+    const rec = (id: string, d: DateTime, outcome: string, props: Record<string, unknown> = {}) => ({ id, createdAt: d.toISO()!, properties: { display_label: `${id} Person — ${d.toISODate()}`, scheduled_at: d.set({ hour: 10, minute: 0 }).toUTC().toISO(), call_date: d.toISODate(), outcome, closer: "Allan P", ...props } });
+    // Xena's call three days ago is the engine's booking: the ledger holds her no-show, her Sales Call (the booking's id on it) is still blank
+    const xena = await asOperator(async (c) => {
+      const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 and external_id='CAL'", [companyId]))!.id;
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const noshow = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_outcome' and category='noshow'", [companyId]))!.id;
+      const contact = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,'GX','Xena','Person') returning id", [companyId]))!.id;
+      const at = day(3).set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
+      const appt = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id, outcome_term) values ($1,$2,$3,'AX',$4,$5,now(),'confirmed',$6,$7,$8) returning id", [companyId, contact, cal, at.toJSDate(), at.plus({ hours: 1 }).toJSDate(), term, allan, noshow]))!.id;
+      return { contact, appt };
+    });
     const before = fake.read.objectRecords;
-    fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [rec("Xena", day(3), ""), rec("Yuri", day(0), "scheduled"), rec("Zoe", day(2), "showed"), rec("Walt", day(3), "", "Someone Else")] : []);
+    // Yuri's Sales Call is blank too, but no booking of the engine's is it (D110): no row on any form, so not owed
+    fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [rec("Xena", day(3), "", { external_id: "AX" }), rec("Yuri", day(2), ""), rec("Zoe", day(2), "showed"), rec("Walt", day(3), "", { closer: "Someone Else" })] : []);
     await asOperator(async (c) => {
       for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })], ["bot.escalate_to", "UOPS"]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]);
       // today's reminders already went (above); the clock starts them again as a new day would
@@ -259,15 +270,19 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       const token = await asOperator((c) => tokenFor(c, allan));
       const dm = posts.slice(n).filter((p) => p.channel === "UALLAN").map((p) => p.text);
       const label = (d: DateTime) => d.toFormat("ccc LLL d");
-      expect(dm).toContain(`Hey Allan, your end-of-day is waiting:\n• <https://engine.test/eod/${token}?day=${day(3).toISODate()}|${label(day(3))}>: 1 call with no outcome in GHL\n• <https://engine.test/eod/${token}|today>: 1 call with no outcome in GHL\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`);
-      expect(dm.some((t) => t.includes("Walt") || t.includes("Zoe"))).toBe(false);
+      expect(dm.length).toBeGreaterThan(0);
+      for (const t of dm) expect(t).toBe(`Hey Allan, your end-of-day is waiting:\n• <https://engine.test/eod/${token}?day=${day(3).toISODate()}|${label(day(3))}>: 1 call with no outcome in GHL\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`);   // only Xena's day, from either reminder
       expect(posts.slice(n).filter((p) => p.channel === "UOPS").map((p) => p.text)).toEqual([`Allan P still has Sales Calls with no outcome in GHL after two days:\n• ${label(day(3))}: Xena Person`]);   // once a day, from the evening reminder
-      // D77: the count is what the form shows: that day's form has Xena's row and nothing else to file
-      const form = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, day(3).toISODate()!, DateTime.now(), fake));
-      expect(form.calls.map((x) => [x.appointment_id, x.contact])).toEqual([["ghl:Xena", "Xena Person"]]);
+      // the count is what the forms show: Xena's booking on that day's form; Yuri on no form
+      const form = (d: DateTime) => asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, d.toISODate()!));
+      expect((await form(day(3))).calls.map((x) => [x.appointment_id, x.contact, x.outcome])).toEqual([[xena.appt, "Xena Person", "no_show"]]);
+      expect((await form(day(2))).calls).toEqual([]);
     } finally {
       fake.read.objectRecords = before;
-      await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes','bot.escalate_to')", [companyId]));
+      await asOperator(async (c) => {
+        await c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes','bot.escalate_to')", [companyId]);
+        await c.query("delete from appointments where id=$1", [xena.appt]); await c.query("delete from contacts where id=$1", [xena.contact]);
+      });
     }
   });
   it("a call already answered is not owed: a no-show on the ledger, or a Sales Call filed in GHL before the engine (another booking id, the old label style), matched by person and minute; only the call with no answer anywhere is", async () => {
@@ -312,56 +327,54 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       await asOperator(async (c) => { await c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes')", [companyId]); await c.query("delete from appointments where id = any($1::uuid[])", [Object.values(ids)]); });
     }
   });
-  it("D77: the form lists the closer's Sales Calls booked before the engine only while they are blank in GHL (no outcome, no disposition) and due; filing one writes to that record by its id, a changed answer empties what the old one set, the same answer is not written again", async () => {
+  it("D110: the form lists only the engine's bookings: a closer's Sales Call blank in GHL with no booking is not a row; a \"ghl:\" row sent by a form opened before is dropped, nothing goes to GHL", async () => {
     const d1 = DateTime.now().setZone(TZ).minus({ days: 1 }), dayStr = d1.toISODate()!;
     const at = (h: number) => d1.set({ hour: h, minute: 0, second: 0, millisecond: 0 }).toUTC().toISO()!;
     const rec = (id: string, iso: string, props: Record<string, unknown> = {}) => ({ id, createdAt: iso, properties: { display_label: `${id} Before — ${dayStr}`, scheduled_at: iso, call_date: dayStr, outcome: "", closer: "Allan P", ...props } });
-    let store = [
-      rec("Sol", at(12)),                                         // booked before the engine, blank: a row
-      rec("Pia", at(12), { disposition: "follow_up" }),           // a disposition is an answer: not a row
-      rec("Quinn", at(13), { outcome: "no_show" }),               // filed: not a row
-      rec("Rae", at(10), { contact_id: "GM" }),                   // Mia's own booking (same person, same minute): the engine's row covers it
-      rec("Uri", at(12), { closer: "Someone Else" }),             // another closer's
-      rec("Tom", DateTime.now().plus({ hours: 2 }).toUTC().toISO()!),   // not due yet
-    ];
-    const writes: { object: string; id: string; props: Record<string, unknown> }[] = [];
-    const before = { read: fake.read.objectRecords, write: fake.write.updateRecord };
+    const store = [rec("Sol", at(12)), rec("Rae", at(10), { contact_id: "GM" })];   // Sol: no booking; Rae: Mia's booking (same person, same minute)
+    const writes: string[] = [];
+    const before = { read: fake.read.objectRecords, write: fake.write.updateRecord, create: fake.write.createRecord };
     fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? store : []);
-    fake.write.updateRecord = async (_c, object, id, props) => { writes.push({ object, id, props }); store = store.map((r) => (r.id === id ? { ...r, properties: { ...r.properties, ...props } } : r)); };
+    fake.write.updateRecord = async (_c, _o, id) => { writes.push(id); };
+    fake.write.createRecord = async () => { writes.push("new"); return { id: "r" }; };
     await asOperator(async (c) => { for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]); });
     try {
       const who = { id: allan, name: "Allan P", email: "allan@eod.test" };
-      const open = () => asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, dayStr, DateTime.now(), fake));
-      await asOperator((c) => installTemplateForTest(c, companyId, "eod-call-filed"));   // A3 (D88): the write is that workflow's
-      const pre = await open();
-      expect(pre.calls.map((x) => x.contact)).toEqual(["Mia Chen", "Sol Before", "Noah Reyes", "Theo Park"]);
-      expect(pre.calls.find((x) => x.contact === "Sol Before")).toMatchObject({ appointment_id: "ghl:Sol", record_id: "Sol", outcome: "" });
-      expect((await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, dayStr))).calls).toHaveLength(3);   // without the vendors, the ledger's rows alone
+      const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, dayStr));
+      expect(pre.calls.map((x) => [x.appointment_id, x.contact])).toEqual([[apptMia, "Mia Chen"], [apptNoah, "Noah Reyes"], [apptTheo, "Theo Park"]]);
       const token = await asOperator((c) => tokenFor(c, allan));
-      const answer = (o: "no_show" | "follow_up") => { const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "n", next_date: x.outcome === "follow_up" || (x.contact === "Sol Before" && o === "follow_up") ? DateTime.now().plus({ days: 2 }).toISODate() : x.next_date, next_steps: x.next_steps || "call back", lost_reason: x.lost_reason || "Price", outcome: x.contact === "Sol Before" ? o : x.outcome || "no_show" as const })); return { ...pre, ...totalsOf(calls), calls, day_answers: {} }; };
-      // a row the form never offered is refused: nothing written
-      const forged = answer("no_show"); forged.calls = [...forged.calls, { ...forged.calls[1], appointment_id: "ghl:Uri", contact: "Uri" }];
-      expect(await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: forged }))).toMatchObject({ ok: true });
-      expect(writes).toEqual([]);   // the answer is an event; the workflow writes it on the next tick
+      const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "n", next_date: x.outcome === "follow_up" ? DateTime.now().plus({ days: 2 }).toISODate() : x.next_date, next_steps: x.next_steps || "call back", lost_reason: x.lost_reason || "Price", outcome: x.outcome || "no_show" as const }));
+      const stale = [...calls, { ...calls[0], appointment_id: "ghl:Sol", contact_id: "", contact: "Sol Before", outcome: "no_show" as const }];
+      expect(await asOperator((c) => submitEod(c, { token, day: dayStr, answers: { ...pre, ...totalsOf(stale), calls: stale, day_answers: {} } }))).toMatchObject({ ok: true });
       await tick(fake, DateTime.now(), companyId);
-      expect(writes.map((w) => w.id)).toEqual(["Sol"]);
-      expect(writes[0]).toEqual({ object: "custom_objects.sales_call", id: "Sol", props: { outcome: "no_show", disposition: null, cash_collected: null, objection_primary: null, next_step: null, next_step_date: null, payment_terms: null } });
-      // GHL has its answer now: no longer blank, still on the form because it was filed here, and a changed answer edits the same record
-      const again = await open();
-      expect(again.calls.find((x) => x.appointment_id === "ghl:Sol")).toMatchObject({ contact: "Sol Before" });
-      expect(again.calls.find((x) => x.appointment_id === "ghl:Sol")!.record_id).toBeUndefined();
-      expect(again.calls.some((x) => x.appointment_id === "ghl:Uri")).toBe(false);   // the forged row was never stored
-      await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: answer("follow_up") }));
-      await tick(fake, DateTime.now(), companyId);
-      expect(writes.slice(1)).toEqual([{ object: "custom_objects.sales_call", id: "Sol", props: { outcome: "showed", disposition: "follow_up" } }]);
-      await asOperator((c) => submitEod(c, fake, { token, day: dayStr, answers: answer("follow_up") }));
-      await tick(fake, DateTime.now(), companyId);
-      expect(writes).toHaveLength(2);   // the same answer is not written again
-      // the reminder no longer counts it: nothing blank is left for that day
-      expect((await open()).calls.filter((x) => x.record_id)).toEqual([]);
+      expect(writes).toEqual([]);
+      const stored = await asOperator((c) => one<{ answers: { calls: { appointment_id: string }[] } }>(c, "select answers from eod_reports where company_id=$1 and user_id=$2 and day=$3", [companyId, allan, dayStr]));
+      expect(stored!.answers.calls.map((x) => x.appointment_id)).toEqual([apptMia, apptNoah, apptTheo]);
+      expect(await asOperator((c) => one(c, "select 1 from events where company_id=$1 and event_type='eod.call_filed'", [companyId]))).toBeUndefined();
     } finally {
-      fake.read.objectRecords = before.read; fake.write.updateRecord = before.write;
+      fake.read.objectRecords = before.read; fake.write.updateRecord = before.write; fake.write.createRecord = before.create;
       await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes')", [companyId]));
     }
+  });
+  it("D110: migrate drops the eod.call_filed event type once nothing points at it; while an old event does, the row stays and is offered nowhere", async () => {
+    const row = () => asOperator((c) => one(c, "select 1 from event_types where name='eod.call_filed'"));
+    await asOperator(async (c) => {
+      await c.query("insert into event_types values ('eod.call_filed','report') on conflict do nothing");
+      await c.query("insert into events (company_id, event_type, occurred_at, source, data) values ($1,'eod.call_filed',now(),'user','{}')", [companyId]);
+    });
+    try {
+      await migrate();
+      expect(await row()).toBeTruthy();   // history keeps its type
+      const { healthPage } = await import("@/api/data");
+      const page = await asOperator(async (c) => healthPage(c, { id: companyId, name: "EOD Co", slug: "eod", timezone: TZ } as never));
+      expect(page.starts.map((s) => s.event)).not.toContain("eod.call_filed");
+      const { validateDefinition } = await import("@/engine/definitions");
+      const v = await asOperator((c) => validateDefinition(c, companyId, { schema: 1, reentry: "always", nodes: [{ id: "t", type: "trigger", event: "eod.call_filed" }, { id: "x", type: "exit", reason: "done" }], edges: [{ from: "t", to: "x" }] }));
+      expect(v).toMatchObject({ ok: false, problems: [expect.stringContaining('"eod.call_filed" is not an event the engine knows')] });
+    } finally {
+      await asOperator((c) => c.query("delete from events where company_id=$1 and event_type='eod.call_filed'", [companyId]));
+    }
+    await migrate();
+    expect(await row()).toBeUndefined();
   });
 });

@@ -115,7 +115,6 @@ export type CallEntry = {
   lost_reason?: string;                                // lost (A1, D88: a card dragged to Lost asks why on the form)
   about: string; notes: string;
   extra: Record<string, string>;                       // the company's own questions, by key
-  record_id?: string;                                  // D77: a Sales Call booked before the engine, still blank in GHL (appointment_id is "ghl:<record id>")
 };
 export type DayTotals = { calls_count: number; closes: number; deposits: number; cash: number; revenue: number };
 /** The day's totals by what each answer means: a close is a closed call outcome (never pending, D83), a deposit its own count. */

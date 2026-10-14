@@ -7,6 +7,7 @@ import { OFFSET } from "./edits";
 import { KNOWN_ROOTS, referencedPaths } from "./template";
 import { workflowRefs } from "./coverage";
 import { canon, syncTriggers } from "./install";
+import { RETIRED_EVENTS } from "./describe";
 
 /**
  * D100: a company's whole copy of a workflow saved at once (steps added and removed, edges rewired), for onboarding a client
@@ -77,7 +78,7 @@ export async function validateDefinition(c: PoolClient, companyId: string, raw: 
     catch { await c.query("rollback to savepoint def_window"); problems.push(`reentry_window "${def.reentry_window}" is not a length of time (90d, 12h)`); }
   }
   // what the steps depend on inside the engine: events it knows, options the classifier has
-  const events = new Set((await many<{ name: string }>(c, "select name from event_types")).map((e) => e.name));
+  const events = new Set((await many<{ name: string }>(c, "select name from event_types")).map((e) => e.name).filter((e) => !RETIRED_EVENTS.has(e)));
   const domains = new Set((await many<{ domain: string }>(c, "select distinct domain from core_categories")).map((d) => d.domain));
   const warnings: string[] = [];
   for (const n of def.nodes) if (n.type === "trigger" && n.event === "schedule" && !n.schedule) problems.push(`node ${n.id}: a schedule trigger needs a schedule (every, or at)`);
