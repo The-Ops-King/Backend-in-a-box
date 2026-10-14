@@ -231,7 +231,7 @@ describe("D112: what starts a workflow, in plain words", () => {
     expect([t.t_raised, t.t_repeated, t.t_resolved]).toEqual(["An alert is raised: something broke", "An alert is still open (said again every hour until it is fixed)", "An alert is fixed (cleared)"]);
     expect(titles(namer({ "alerts.repeat_minutes": "30" })).t_repeated).toBe("An alert is still open (said again every 30 minutes until it is fixed)");
     expect(titles(namer({ "alerts.repeat_minutes": "120" })).t_repeated).toBe("An alert is still open (said again every 2 hours until it is fixed)");
-    expect(t.n1).toMatch(/^Run the health checks · the GHL token, GHL calendars bookable, .*, Slack, the AI key, Jev, every step can fire, links in messages \(each where the company uses it\)$/);
+    expect(t.n1).toMatch(/^Run the health checks · the GHL token, GHL calendars bookable, .*, Slack, the AI key, Jev, every step can fire, every chart draws its workflow exactly, links in messages \(each where the company uses it\)$/);
   });
   it("every health check has its short words", () => {
     expect(Object.keys(HEALTH_CHECKS).sort()).toEqual(CHECKS.map((c) => c.id).sort());

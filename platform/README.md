@@ -66,7 +66,6 @@ Every template carries a `stage` on the customer's journey (`src/engine/stages.t
 | card-moved | `card.moved` (a pipeline card dragged by hand in the CRM, any bound board, D61) | "🗂️ <who> moved the <board> card to <stage>" in the booking post's thread; into the closer's No Show / Cancelled or the setter's No-Show / Cancel / Reschedule → a no-show, into Lost → showed + lost, into Disqualified → showed + DQ, filed with `record_outcome` `source: disposition` (as the end-of-day form files it, so Call outcome filed runs) once the call has started and when the call does not already carry it; any other stage is noted. Installs ON into an existing company (D88) |
 | payment-unlinked | `payment.unlinked` | the "*Unlinked payment*" post in the alerts channel (else bookings), marked only in shadow (D88) |
 | recording-unlinked | `recording.unlinked` | the "*Unmatched recording*" post in the alerts channel (else bookings) with why, who was on it and the link to match it (D88) |
-| eod-call-filed | `eod.call_filed` (an end-of-day answer for a Sales Call booked before the engine, D77) | the record by its own id (`crm_record` `record_id`): the attendance in the company's keys, the disposition the answer means, what a held call carries emptied for a no-show (D88). Needs `crm.object_sales_call` |
 | ledger-drift | `drift.sales_call_cancelled`, `drift.sales_call_unlinked` (the hourly sweep, D73/D76) | sets a Sales Call the booking source cancelled before its start to cancelled, links a Sales Call to its contact and its one closer card (field and association), each by the record's id (D88). Needs `crm.object_sales_call` |
 | weekly-leaderboard | schedule: Mondays 09:00 company time (D94) | a `leaderboard` step for last week (Mon–Sun): closers ranked by cash collected with closes and close rate, setters ranked by sets with the show rate of their sets, the same registry numbers the bot says; posted to `slack.channel.ops`, else `slack.channel.reports`, with the period under it. The day, time, period, channel and the line under the board are the workflow's |
 | new-lead | lead created | with a phone: setter-pipeline card "Name -- New" (stage New Lead, stage-entered date today) + tag `stat-new`; without a phone: exit `no_phone`. Needs `crm.pipeline_setter`, `crm.stage_setter_new_lead`, `crm.field_opportunity_stage_entered` (install `crm: {...}`) |
@@ -793,7 +792,7 @@ not paid, or paid but not signed): a show, never counted as a close. Attendance 
 unqualified, money? }`. Everything reads the meaning, never the key: what is filed (the attendance and the call outcome
 term), the totals (closes are `closed`, deposits `deposit`, cash and revenue the `money` ones, by default closed and
 deposit), which questions follow (cash and revenue follow money, the DQ and lost reasons their meaning, about any show),
-how the ledger's outcome and Jev's read pre-fill the form, and an old Sales Call's write. The defaults are Closed,
+how the ledger's outcome and Jev's read pre-fill the form. The defaults are Closed,
 Deposit, Close pending, Follow up, Lost, DQ, Rescheduled / cancelled on the call, No-show.
 
 The form is the company's (`forms`, purpose `eod`; `src/engine/eod-form.ts` holds the defaults and the merge):
@@ -809,15 +808,11 @@ to the company's alerts channel with the corrections ("Leo Ortiz: outcome Deposi
 because a wrong prefill is a data gap to fix at the source, and puts a ✅ and a "Got it" reply on the reminder DM.
 Submitting again replaces the day.
 
-Calls booked before the engine was installed (D77): the form also lists the closer's Sales Calls in GHL (the record's
-`closer` matches their roster name) whose call time has passed and that have neither an outcome nor a disposition,
-when the engine has no booking for them. Filing such a row is an `eod.call_filed` event (the record id, the answer and
-what it means); the **EOD: results for calls booked before the switch-over** workflow (`eod-call-filed`, D88) writes it to the
-record by its id (`crm_record` `record_id`: the attendance in the company's own keys, the disposition the answer means
-from a pick the company edits, `clear` for what a held call carries on a no-show or a call rescheduled on the call); the
-mode rules are the step's (shadow writes nothing). A record with an outcome never appears, and a row filed here stays on
-the form for refiling. The reminder counts the same rows. A changed answer, on any row, empties on
-the Sales Call what the earlier answer set and the new one does not (`crm_record.clear`, sent as `null`).
+The form's rows are the closer's bookings on the engine's ledger, and nothing else (D110): the engine polls bookings from
+install on, shadow included, so every call a closer takes is one of them. A Sales Call in GHL with no booking behind it
+is never a row, and the reminder does not count it; D77's rows for calls booked before the engine, and the workflow that
+wrote them to GHL, are gone. A changed answer, on any row, empties on the Sales Call what the earlier answer set and the
+new one does not (`crm_record.clear`, sent as `null`).
 
 Who is a closer is a role on the roster (settings § Team; install input `closers`: emails or CRM user ids). The CRM
 roster comes in as `staff`; only `closer` rows get a link and the DM.
@@ -827,9 +822,11 @@ closer each: at 18:00 company time (today's link plus any earlier unfiled day, o
 09:00 (earlier unfiled days only), a `check` that there is something to file, a `slack_post` DM to the closer
 (`{{user.slack_user_id}}`, looked up by email) remembered under the tag `eod-reminder:<user>:<day>`. The `eod_due`
 steps carry the rules (D88): `lookback_days` (7), `include_today` (evening yes, morning no), `overdue_after_days` (2:
-a Sales Call still blank in GHL that long is also told to the operator; null: never); they hand the template a list
-(`vars.due.days`: url, label, `when`, calls, `ghl_blank`, `both`; `vars.due.overdue`: label, names) and every word of
-the DM and the operator's note is built from it with `each` / `join`. Change the times, the rules, the copy or the face
+a booking whose Sales Call is still blank in GHL that long is also told to the operator; null: never; a Sales Call with
+no booking is never counted, D110); they hand the template a list (`vars.due.days`: url, label, `when`, calls,
+`ghl_blank` (bookings whose Sales Call GHL still holds blank though the ledger has an answer or the day is filed),
+`both`; `vars.due.overdue`: label, names) and every word of the DM and the operator's note is built from it with
+`each` / `join`. Change the times, the rules, the copy or the face
 on the company's copy. `eod-filed`: filing emits `eod.filed` with the whole report
 (totals, every call with its answers, corrections, the day questions, why each loss or DQ went that way) and a run about
 that closer starts: the summary to `{{slack.channel.eod}}` (edited in place on a refile, D76) with the corrections, the
@@ -1054,7 +1051,8 @@ possible, all data in the definition:
 - A template marked `engine_default` installs ON into a company that already existed (it carries what the engine did
   by itself), OFF into a new one.
 - New events: `alert.raised`, `alert.repeated`, `alert.resolved`, `drift.found`, `drift.sales_call_cancelled`,
-  `drift.sales_call_unlinked`, `eod.call_filed`; `payment.unlinked` and `recording.unlinked` are dispatched now.
+  `drift.sales_call_unlinked`; `payment.unlinked` and `recording.unlinked` are dispatched now. (`eod.call_filed` was one
+  too, until D110.)
 - Settings (bindings): `alerts.repeat_minutes` (60), `alerts.poll_failures` (2).
 
 ## Seeing what will happen (and when)

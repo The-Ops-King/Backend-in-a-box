@@ -128,14 +128,26 @@ the groups that carry on curve back to the spine. A group is drawn like the spin
 inside it, which rejoin inside the group before the group goes on (D107). A way that goes on at a step drawn elsewhere
 ends in a short arrow, "on to “…”". Triggers that share a first step sit side by side over it; a trigger that starts part
 way down is drawn where it comes in; starts that meet only further down stand side by side, each over its own steps.
-Every step is drawn: what cannot be drawn as branches (more than four forks deep, or not reached) is listed in order in a
-dashed card, never left out.
+Every step that runs is drawn, the helpers too (D111): a wait, Jev reading, a value remembered is a small grey step
+(smaller `--fg-2` words on `--panel`), "behind the scenes" in the legend. A branch around one step is drawn as that step
+with its condition only when that says everything; otherwise it is drawn as a branch.
+
+Every way a run can leave a step is a line, edges or not (D111): a check that otherwise stops or pauses, a branch with no
+otherwise, a hand-off, a resume "back to the step the run was on". An end that a step's other way leads to hangs off its
+side: the way's words (blue for "otherwise") over a short line into an end pill ("Stop: …", "Paused for a person: …").
+
+The chart must be exactly the workflow (D111): every step once, every line a real way with its words, every way drawn. When
+the tidy chart cannot do that (a cross-link into the middle of another branch, nesting past four, a step nothing reaches),
+the workflow is drawn as a plain graph under "Drawn as a plain graph: this workflow's shape is beyond the tidy chart.": the
+same nodes, every way a line with an arrowhead and its words, an otherwise's words in blue, a loop back a line running up.
+It fits the width; on a phone, where that would shrink it below 60%, it pans inside its own box, opened at the trigger.
+If even that is not exact, no chart: every step in order with where it goes, under a `--warn` line saying so.
 
 With a run shown, each node gets a small state badge at its top-right corner (green check, purple clock, orange
 warning, blue skip) and nodes not reached are dimmed; the taken branch's group is outlined in amber.
 
-On a phone the full chart does not fit without side-scroll, so a run page draws only the path that run took (spine,
-the taken branch under its label, the reminders) and says "four other ways out of the fork are not drawn". Groups
+On a phone a run's chart draws only the path that run took (spine, the taken branch under its label, the reminders)
+and says so above it: "Showing only the path this run took. Show every step" (D111). Nowhere else is a step left out. Groups
 that do not fit side by side stack in one column, each a card off a spine in the left gutter; a node in a narrow column
 drops its logo for its words.
 

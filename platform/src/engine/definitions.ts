@@ -7,6 +7,8 @@ import { OFFSET } from "./edits";
 import { KNOWN_ROOTS, referencedPaths } from "./template";
 import { workflowRefs } from "./coverage";
 import { canon, syncTriggers } from "./install";
+import { chartLayoutOf, notDrawable, type Layout } from "@/api/chart-verdict";
+import { RETIRED_EVENTS } from "./describe";
 
 /**
  * D100: a company's whole copy of a workflow saved at once (steps added and removed, edges rewired), for onboarding a client
@@ -77,7 +79,7 @@ export async function validateDefinition(c: PoolClient, companyId: string, raw: 
     catch { await c.query("rollback to savepoint def_window"); problems.push(`reentry_window "${def.reentry_window}" is not a length of time (90d, 12h)`); }
   }
   // what the steps depend on inside the engine: events it knows, options the classifier has
-  const events = new Set((await many<{ name: string }>(c, "select name from event_types")).map((e) => e.name));
+  const events = new Set((await many<{ name: string }>(c, "select name from event_types")).map((e) => e.name).filter((e) => !RETIRED_EVENTS.has(e)));
   const domains = new Set((await many<{ domain: string }>(c, "select distinct domain from core_categories")).map((d) => d.domain));
   const warnings: string[] = [];
   for (const n of def.nodes) if (n.type === "trigger" && n.event === "schedule" && !n.schedule) problems.push(`node ${n.id}: a schedule trigger needs a schedule (every, or at)`);
@@ -107,10 +109,12 @@ export function diffDefinitions(before: Definition, after: Definition): Definiti
 const isEmpty = (d: DefinitionDiff) => !d.nodes.added.length && !d.nodes.removed.length && !d.nodes.changed.length && !d.edges.added.length && !d.edges.removed.length && !d.settings.length;
 
 export type SaveDefinitionResult =
-  | { ok: true; saved: boolean; dryRun: boolean; from: number; version: number; diff: DefinitionDiff; missing: string[]; warnings: string[] }
+  | { ok: true; saved: boolean; dryRun: boolean; from: number; version: number; diff: DefinitionDiff; missing: string[]; warnings: string[]; layout: Layout }
   | { ok: false; status: number; why: string; problems?: string[]; missing?: string[] };
 
 /**
+ * D111: refused when no layout draws the workflow exactly (it never happens: the plain graph draws any graph, and says so
+ * in `layout`); a workflow Tyler cannot see exactly is one he cannot update.
  * Missing required bindings are a warning while the workflow is off (it can be saved; readiness refuses turning it on), and a
  * refusal while it is on: saving would leave a workflow that is running without what its steps read.
  */
@@ -122,10 +126,12 @@ export async function saveDefinition(c: PoolClient, args: { workflowId: string; 
   if (!cur) return { ok: false, status: 409, why: "current version missing" };
   const v = await validateDefinition(c, w.company_id, args.definition);
   if (!v.ok) return { ok: false, status: 422, why: `the definition does not validate (${v.problems.length} problem${v.problems.length === 1 ? "" : "s"})`, problems: v.problems };
+  const chart = await chartLayoutOf(v.def);
+  if (chart.layout === "list") return { ok: false, status: 422, why: notDrawable(chart.problems), problems: chart.problems };
   const before = Definition.safeParse(cur.definition);
   // a stored copy on an older vocabulary does not parse: everything in the new one counts as changed
   const diff = before.success ? diffDefinitions(before.data, v.def) : diffDefinitions({ ...v.def, nodes: [], edges: [] }, v.def);
-  const base = { from: w.current_version, diff, missing: v.missing, warnings: v.warnings };
+  const base = { from: w.current_version, diff, missing: v.missing, warnings: v.warnings, layout: chart.layout };
   if (before.success && isEmpty(diff)) return { ok: true, saved: false, dryRun: !!args.dryRun, version: w.current_version, ...base };
   if (w.enabled && v.missing.length) return { ok: false, status: 409, why: `it is ON and would be missing ${v.missing.join(", ")}: bind them first, or turn it off and save`, missing: v.missing };
   if (args.dryRun) return { ok: true, saved: false, dryRun: true, version: w.current_version + 1, ...base };

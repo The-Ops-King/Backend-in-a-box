@@ -14,7 +14,7 @@ import { chartOf, pathOf, runState, type PathItem } from "./words";
 import { crmNamer } from "./crm-names-read";
 import { companyReports } from "@/engine/reports";
 import { setterMetrics } from "@/engine/metrics";
-import { EVENT_LABELS } from "@/engine/describe";
+import { EVENT_LABELS, RETIRED_EVENTS } from "@/engine/describe";
 import { effectiveMode, workflowMode, type Mode } from "@/engine/mode";
 import { harnessRefusal } from "@/engine/simulate";
 
@@ -163,6 +163,14 @@ export async function runPage(c: PoolClient, id: string) {
   const safe = Object.fromEntries(Object.entries(bindings).filter(([k]) => !k.startsWith("secret.")));
   const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source, names) : null;
   const states: Record<string, PathItem["state"]> = {}; for (const p of path) if (!(p.node_id in states) || p.state !== "next") states[p.node_id] = p.state;
+  // the feed leaves out the values a run remembers; the chart draws them (D111), so they wear what they did
+  for (const s of steps) if (s.node_type === "set_var") states[s.node_id] = s.status === "skipped" || s.status === "stale" ? "skip" : s.status === "failed" ? "warn" : "ok";
+  // D111: a run that ended or paused off a step's side (a check's stop or pause, a hand-off) lights that end
+  if (chart && r.current_node) {
+    const ends = chart.edges.filter((e) => e.from === r.current_node).map((e) => chart.nodes.find((n) => n.id === e.to)!).filter((n) => n && n.kind === "end" && (n.id.includes("~") || def?.nodes.some((m) => m.id === n.id && m.type === "exit" && m.reason === r.exit_reason)));
+    const hit = r.status === "paused" ? ends.find((n) => n.id.endsWith("~pause") && !!r.exit_reason?.includes(n.title.replace(/^Paused for a person: /, ""))) : r.status === "completed" || r.status === "exited" ? ends.find((n) => !n.id.endsWith("~pause")) : undefined;
+    if (hit) states[hit.id] = r.status === "paused" ? "stop" : "ok";
+  }
   return { company: co, workflow: { id: r.workflow_id, name: r.workflow },
     run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, (await workflowMode(c, r.workflow_id))!.mode, bindings)) === "shadow",
       // D66: where it stopped and why, and whether a person can retry or skip that step (a step with no plain way on can only be retried)
@@ -267,7 +275,7 @@ async function startsCatalog(c: PoolClient, companyId: string) {
       coalesce((select json_agg(json_build_object('id', w.id, 'name', w.name, 'enabled', w.enabled) order by w.name) from workflow_triggers t join workflows w on w.id=t.workflow_id where t.company_id=$1 and t.event_type=et.name), '[]'::json) as workflows,
       (select count(*) from events e where e.company_id=$1 and e.event_type=et.name and e.occurred_at > now() - interval '30 days')::int as seen
     from event_types et order by et.category, et.name`, [companyId]);
-  return rows.map((r) => ({ event: r.name, label: EVENT_LABELS[r.name] ?? r.name, category: r.category, workflows: r.workflows, seen: r.seen }));
+  return rows.filter((r) => !RETIRED_EVENTS.has(r.name)).map((r) => ({ event: r.name, label: EVENT_LABELS[r.name] ?? r.name, category: r.category, workflows: r.workflows, seen: r.seen }));
 }
 
 export type { Readiness };

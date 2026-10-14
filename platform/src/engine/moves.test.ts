@@ -162,7 +162,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day form's outcomes 
     const token = await asOperator((c) => tokenFor(c, sam));
     const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: sam, name: "Sam Closer", email: "sam@x.test" }, day()));
     const calls = pre.calls.map((x) => ({ ...x, outcome: "half" }));
-    expect(await asOperator((c) => submitEod(c, fake, { token, day: day(), answers: { ...pre, ...totalsOf(calls, fields), calls, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 1 });
+    expect(await asOperator((c) => submitEod(c, { token, day: day(), answers: { ...pre, ...totalsOf(calls, fields), calls, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 1 });
     expect(await asOperator((c) => one(c, "select ot.category as outcome, cot.category as call_outcome from appointments a join company_terms ot on ot.id=a.outcome_term join company_terms cot on cot.id=a.call_outcome_term where a.id=$1", [appt]))).toEqual({ outcome: "showed", call_outcome: "pending" });
     expect(totalsOf(calls, fields).closes).toBe(0);
     // the form shows the ledger's answer in the company's own word
@@ -186,49 +186,12 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day form's outcomes 
     const facts = await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, sam, "https://engine.test"));
     expect(facts.today).toMatchObject({ calls: 1, filed: false, moved: [appt] });   // owed: the closer has not said why
     const token = await asOperator((c) => tokenFor(c, sam));
-    expect(await asOperator((c) => submitEod(c, fake, { token, day: day(), answers: { ...pre, calls: pre.calls, day_answers: {} } }))).toEqual({ ok: false, why: "Still needed: Lee Park: Why were they lost?" });
+    expect(await asOperator((c) => submitEod(c, { token, day: day(), answers: { ...pre, calls: pre.calls, day_answers: {} } }))).toEqual({ ok: false, why: "Still needed: Lee Park: Why were they lost?" });
     const calls = pre.calls.map((x) => ({ ...x, lost_reason: "Timing" }));
-    expect(await asOperator((c) => submitEod(c, fake, { token, day: day(), answers: { ...pre, calls, day_answers: {} } }))).toMatchObject({ ok: true });
+    expect(await asOperator((c) => submitEod(c, { token, day: day(), answers: { ...pre, calls, day_answers: {} } }))).toMatchObject({ ok: true });
     await run();
     expect(posts.find((p) => p.channel === "CEOD")!.text).toMatch(/\n• Lee Park: Lost · Timing$/);
     expect((await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, sam, "https://engine.test"))).today).toMatchObject({ filed: true });
-  });
-});
-
-describe.skipIf(!process.env.DATABASE_URL)("D88: an end-of-day answer for a Sales Call booked before the engine is a workflow (A3)", () => {
-  let sam: string;
-  const writes: { id: string; props: Record<string, unknown> }[] = [];
-  beforeAll(async () => {
-    await migrate(); companyId = await freshCompany("mvs-a3");
-    await asOperator(async (c) => {
-      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.object_sales_call','id','custom_objects.sales_call'),($1,'sales_call.outcomes','text',$2)", [companyId, Buffer.from(JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" }))]);
-      sam = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role) values ($1,'sam@x.test','Sam Closer','closer') returning id", [companyId]))!.id;
-    });
-    fake.write.updateRecord = async (_c, _o, id, props) => { writes.push({ id, props }); };
-  });
-  const filed = (data: Record<string, unknown>) => asOperator(async (c) => { const { emitEvent } = await import("@/engine/dispatch"); return dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "eod.call_filed", source: "user", data: { user_id: sam, ...data } }), { user: { id: sam } }); });
-
-  it("the record is written by its id with the company's keys; a no-show empties what a held call carried; an edited copy writes what it says", async () => {
-    await install("eod-call-filed");
-    expect(await filed({ record_id: "REC1", outcome: "lost", attendance: "showed", meaning: "lost" })).toHaveLength(1);
-    await filed({ record_id: "REC2", outcome: "no_show", attendance: "noshow", meaning: null });
-    await run();
-    expect([...writes].sort((a, b) => a.id.localeCompare(b.id))).toEqual([{ id: "REC1", props: { outcome: "showed", disposition: "lost" } }, { id: "REC2", props: { outcome: "no_show", disposition: null, cash_collected: null, objection_primary: null, next_step: null, next_step_date: null, payment_terms: null } }]);
-    await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
-    await install("eod-call-filed", (d) => { const v = d.nodes.find((n) => n.id === "v_disp")!; if (v.type === "set_var") v.pick = { ...v.pick, lost: "lost_other" }; });
-    await filed({ record_id: "REC3", outcome: "lost", attendance: "showed", meaning: "lost" });
-    await run();
-    expect(writes.at(-1)).toEqual({ id: "REC3", props: { outcome: "showed", disposition: "lost_other" } });
-  });
-
-  it("before live the record is not written (shadow): the run says what it would have written", async () => {
-    await asOperator((c) => c.query("update companies set mode='shadow' where id=$1", [companyId]));
-    const n = writes.length;
-    await filed({ record_id: "REC4", outcome: "lost", attendance: "showed", meaning: "lost" });
-    await run();
-    expect(writes).toHaveLength(n);
-    expect(await asOperator((c) => one(c, "select 1 from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and s.node_id='r_held' and s.result->>'shadow'='true'", [companyId]))).toBeTruthy();
-    await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
   });
 });
 
@@ -501,7 +464,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the steps check reads an object name
   it("{{crm.object_sales_call}} is checked as the object it is bound to, not as the placeholder", async () => {
     await migrate(); companyId = await freshCompany("mvs-objref");
     await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.object_sales_call','id',$2)", [companyId, Buffer.from("custom_objects.sales_call")]));
-    await install("eod-call-filed");
+    await install("ledger-drift");
     const { runHealthStep } = await import("@/engine/health");
     const { fakeProbes } = await import("@/engine/test-install");
     const run = (objects: { key: string }[]) => asOperator(async (c) => runHealthStep(c, (await loadCompany(c, companyId)).row, fake, { ...fakeProbes, ghlCatalog: async () => ({ users: [], pipelines: [], contactFields: [], opportunityFields: [], associations: [], objects, tags: [], errors: [] }) } as never, { checks: { steps: true } as never, min_slots: 0, slots_days: 7 } as never));

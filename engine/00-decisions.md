@@ -2502,7 +2502,7 @@ Tyler's rulings, relayed the same day and built together.
   the call edits the thread line (`r3s`, "🔁 Rescheduled or cancelled on the call, per <closer>.") and takes the earlier
   👻 / ✅ back. Tags and the thread line already followed the new answer (D76). Not changed: the cards after a change to
   "rescheduled on the call" stay where the earlier answer put them (no template has a stage for it).
-- **Calls booked before the engine.** "Calls booked before the engine was installed: only have [those] that have an
+- **Calls booked before the engine** (removed by D110). "Calls booked before the engine was installed: only have [those] that have an
   empty disposition in the Sales Call object." The end-of-day form for a closer also lists their GHL Sales Calls
   (`closer` = their roster name) whose call time has passed and that carry neither a filed outcome (blank, or a value
   the company's map does not call filed, such as `scheduled`) nor a disposition, when the record is not one of the
@@ -2774,7 +2774,7 @@ existed (OFF into a new one, as every template). What an existing company sees s
 - **Unlinked payments and unmatched recordings** (A2, was `notify.ts` and the Whop / Zapier / recording doors).
   `payment.unlinked` and `recording.unlinked` are dispatched; the **Unlinked payment** and **Unmatched recording**
   workflows post the same words. `notifyTeam` is gone. An event with no contact and no person starts a run about the company.
-- **An end-of-day answer for a Sales Call booked before the engine** (A3, was `eod.ts` `fileGhlRow`). It is an
+- **An end-of-day answer for a Sales Call booked before the engine** (A3, was `eod.ts` `fileGhlRow`; removed by D110). It is an
   `eod.call_filed` event; the **Sales Call filed from the end-of-day form** workflow writes the record by its own id
   (`crm_record` `record_id`), the disposition from a pick the company edits.
 - **The end-of-day reminder** (A4, was `eod_due` in the executor). `lookback_days` (7), `include_today` and
@@ -3430,6 +3430,122 @@ setting the company's workflows or the engine read, as the Settings page does (s
 it replaced so the change can be undone. Secrets are refused (install sets them; D100 copies the shared AI keys); so is a
 key nothing reads and an empty value.
 - Test: `binding-set.test.ts`.
+
+## D110. The end-of-day form is the engine's bookings only (2026-10-14)
+
+D77 put a closer's GHL Sales Calls with no engine booking (calls booked before the engine was installed) on the
+end-of-day form as their own rows; filing one was an `eod.call_filed` event, and the "EOD: results for calls booked before
+the switch-over" workflow (`eod-call-filed`, D88 A3) wrote the answer onto that record by its id. Tyler: "remove that one
+entirely. We are running in ghost mode, so we should have everything in the engine." The engine polls bookings from
+install on, shadow included, so every call a closer takes is a booking it has; a workflow for a passing edge case, with a
+trigger that is not "whenever X happens, do Y", is not wanted.
+- Gone: the `eod-call-filed` template and PMU's copy (`installs/pmu/build.py` no longer builds it); the form's `ghl:<record>`
+  rows and `record_id`; the filing path that emitted `eod.call_filed`; the event type (its label, its seed in
+  `engine/schema.sql`). A form opened before this that still sends a `ghl:` row has that row dropped before anything is
+  stored. `migrate` deletes the `eod.call_filed` row from `event_types` once no event and no trigger points at it; events
+  already in the journal stay as history and keep the row with them, and while it stays nothing offers it as a start
+  (the Health page's list of starts) or accepts it in a definition (`RETIRED_EVENTS`). Company copies of the workflow are
+  deleted through the admin DELETE after deploy; until then a copy is harmless (nothing emits its event).
+- The end-of-day reminder (`eod_due`) counts only Sales Calls that are the engine's bookings (one we wrote, one carrying a
+  booking's id or slot, or the person's booking that same minute). D76 and D82 stand for those: GHL is the truth, a booking
+  filed there is answered whatever the ledger holds, and one still blank there is owed and, two days on, told to the
+  operator. A Sales Call with no booking is neither a row nor counted.
+- Stays: ledger drift and the metrics still read GHL's Sales Call records, every one of them, for the numbers and the drift
+  questions (D73, D83); the Ledger drift workflow still writes records by id.
+- D108 named three end-of-day workflows; the third is gone.
+- Tests: `eod.test.ts` (the form lists only the engine's bookings and drops a stale `ghl:` row, nothing written; the
+  reminder counts a booking blank in GHL and not a record with no booking; migrate drops the event type only once nothing
+  points at it, and while it stays it is offered nowhere).
+
+## D111. The chart is exactly the workflow, or it says so (2026-10-14)
+
+Tyler: "It's really important that the workflow is clear and accurate, exactly how the workflow works, because I need to be
+able to see it visually to update it ... I'm going to be adding a lot of workflows, and they all need to be 100% accurate to
+what they actually do. When a chart can't be drawn exactly we need a way to draw the chart exactly." D107 proved the tidy
+layout exact for the shipped templates and PMU's copies in a test; a workflow built after that was checked nowhere, and the
+chart still left steps out on purpose (Jev's read of a reply, every `set_var`) and folded others into their neighbours.
+- **One check** (`src/chart/exact.ts`, shared by the dashboard and the server). A drawing is its boxes and its lines, each
+  line with its words and whether it is an otherwise. It is exact when every step that can run is drawn exactly once, every
+  line drawn is an edge of the definition (same from, same to, same words, same otherwise-ness), every edge is drawn, and
+  nothing else is. The tidy layout's lines are read off its rows (consecutive steps, a fork to each group under its
+  heading, a group that carries on to the join, an arrow "on to …", an entry trigger, a folded branch); an arrow names its
+  step by title, so a title two drawn steps share is a problem. Steps listed in a "More steps" or "Too deep" card are never
+  exact. The one node not drawn is an exit no edge touches: it never runs (a check's `else_exit` stops the run itself).
+- **Nothing hidden.** Every step that runs is on the chart. A helper (a wait, Jev reading, a lookup, a value remembered)
+  is a small grey step: smaller words, `--panel` fill, the engine's mark on a remembered value; the legend says "behind the
+  scenes". Waits are no longer folded into the send after them, and the reply-wait is its own fork ("They replied" on to
+  Jev's read and the reply fork; "No reply in time"), not a third way out of the reply fork. A two-way branch around one
+  step stays folded into that step (D103's dashed step, "only if …", otherwise skipped) only when that says everything: the
+  step is reached from nowhere else, has no condition of its own, its one way on is where the otherwise goes, and the
+  otherwise way has no words of its own; the check holds the step's blue line to the branch's words. Otherwise the branch is
+  drawn. A run's chart badges the remembered values from the run's own rows.
+- **The order of resort**, the same on the workflow page, the run page and the server (`src/chart/pick.ts`): the tidy
+  layout if exact; else a plain graph (elkjs 0.12.0, ELK's layered algorithm, top to bottom, orthogonal lines, cycles
+  broken depth-first from the triggers so a loop back is a line running up with its arrow) if exact; else every step listed
+  in the order a run meets it, each with where it goes and on what, under an orange-red line "This workflow could not be
+  drawn exactly as a chart". The graph is drawn with the tidy chart's own nodes (logos, helpers, dashed sometimes-steps,
+  run badges and dimming), every edge a line with an arrowhead and its words (an otherwise's in blue, lines into or out of
+  a sometimes-step dashed), under "Drawn as a plain graph: this workflow's shape is beyond the tidy chart." The graph check
+  also requires each line to start on its own step's box and end on its own step's box. The graph is loaded only when
+  needed. On a phone it is laid out with narrower boxes and scaled to the width; below 60% it keeps 60% and pans inside its
+  own box (the page itself never scrolls sideways), opened at the trigger, with "Drag it sideways to see all of it." The
+  phone's path-only view stays for the tidy layout; the graph is drawn whole.
+- **Checked on save.** `saveDefinition`, a step edit, a copy edit and a template install compute the layout (ELK runs on
+  the server too, only when the tidy layout is not exact). Refused (422 with every problem; a template is reported
+  "refused" and not installed) only when neither layout is exact; a save says `layout: "tidy" | "graph"`. No real
+  definition reaches the refusal: the graph draws any directed graph; the refusal is tested with a stand-in verdict.
+- **Checked daily.** The health sweep's `charts` check holds every enabled workflow to it once a day, and again as soon as
+  a workflow is turned on or saved (the stamp carries each workflow's version); in between the last findings stand, so an
+  alert is not resolved by an hour that did not look. A workflow no layout draws exactly is an error alert
+  (`health:charts:<workflow>`, posted like every health finding, its Open link the workflow page) that resolves when a
+  later check draws it.
+- **Checked on the drawing itself, in every view.** Tyler opened Hair's Health check on the live dashboard with its hourly
+  run selected and saw the four triggers and nothing under them, while the placement test said every step was placed:
+  the drawing he saw came from the layout before D107 (its SVG for that view, kept as
+  `src/chart/fixtures/health-check-hourly.before-d107.svg`, has exactly those four nodes; main's own code draws all of
+  them, so the live site was serving an older build). A check of the layout's rows cannot see what happens between the
+  rows and the picture, so the check reads the SVG: the drawing (`src/chart/draw.ts`, pure, shared by the page, the
+  server and the tests) marks every node (`data-id`, and `data-also` for a branch drawn as its step) and every line that
+  stands for a way (`data-ways`: from, to, words, otherwise; the line's end is filled in only when the drawing reaches
+  the step it goes to, so a line to nowhere is a problem), and `svgDrawing` reads them back. The page, the save and the
+  sweep all use it; the save and the sweep check a laptop's width and a phone's. Every view the page draws is tested:
+  no run, a run down every way each step can go, 1000px and 358px, and a run's path alone.
+- **A run's path alone says so.** On a phone with a run, the groups the run did not take are left out, as before, but
+  the SVG carries `data-filtered` and the page says "Showing only the path this run took. Show every step" above it; the
+  check holds such a view to drawing only real steps and ways (and the run's whole path), and the same view with nothing
+  left out to being exact. On a laptop nothing is ever left out: steps the run did not reach are dimmed.
+- **Ways that are not edges are drawn too** (`src/chart/implicit.ts`, read off executor.ts and runner.ts; `chartOf` adds
+  them, so both layouts and the check use them). A check whose condition stays false: "otherwise" (with a retry,
+  "otherwise, after looking for up to 1 hour") to an end "Stop: …" in the exit's words, or "Paused for a person: …" with
+  `else_pause` (Daily EOD reminder's check ends at its own "Stop: nothing to file"; its exit step of that reason, which
+  nothing leads to, still never runs and is not drawn). A branch with no otherwise way: "none of these" → "Paused for a person: no
+  way matched". A reply wait with no timeout way: "no reply in time" → "Done: no reply". A send with `on_stale: escalate`:
+  "out of date" → "Paused for a person: the message is out of date". A hand-off (`start_workflow`): one line to
+  "Hands off to “…”"; its own edges, like an exit's, are never taken and not drawn. `resume`: one line to the first step
+  of the non-blocking listener's onward way, "back to the step the run was on: “3 days before the call” or one after it"
+  (the run goes back to whichever step it was parked on there: a wait, a send held for the window, a held step, the exit
+  it reached with the listener armed); the resume's own plain edge to that same step is that line. In the tidy layout
+  a step whose other ways only end the run keeps its place in the line and its ends hang off its side, the words over a
+  short line; a way on with words of its own (the resume's) says them beside its line, its arrow, or under its group.
+  The run page lights the end a run stopped or paused at.
+- Not lines, and why: a check's `retry` stays on the step; a send skipped as stale, out of its validity or with SMS off,
+  an `only_if` skip, a Slack post with nothing to post to go on by the normal edge; a vendor's refusal retries, then
+  holds or pauses the run wherever it is (D66/D77); the premise check and a contact gone from the CRM end a run moot before
+  any step. A step with no way on and an event wait with no way for an outcome are refused by the definition, so never
+  drawn.
+- Tests: `src/chart/chart-layout.test.ts` (every shipped template and PMU copy exact in the tidy layout with every node
+  drawn; helpers drawn; the fold kept only when exact, and caught when its condition is not the branch's; the check catches
+  a dropped step, a doubled one, a line that is no edge and wrong words; a definition with a cross-link into the middle of
+  another branch, a loop back, five deep and an unreached step: tidy not exact, ELK exact with every node and edge, the
+  loop running up, no boxes overlapping; the cross-link and loop alone drawn tidily as arrows; a misrouted line caught),
+  `src/chart/chart-views.test.ts` (Tyler's view of Health check on a laptop and a phone, every step drawn; the run's
+  path alone, said; the drawing before D107 fails the check; a node or a line taken out of the SVG is caught; every shipped
+  template and PMU copy exact with no run and every run it can show, at both widths, and its path alone; the graph with
+  a run),   `src/chart/implicit.test.ts` (each way that is not an edge: on the chart, exact in the tidy layout, and a drawing
+  without it caught; in the graph too; the two the definition refuses),
+  `src/engine/chart-exact.test.ts` (saves report the layout; the 422, the step and copy edit refusals and the install
+  refusal with a stand-in verdict; the sweep's daily stamp, alert and resolution).
+  `scripts/render-charts.ts` shoots `messy`, that definition, in the graph.
 
 ## D112. The chart's words come from the step; titles are labels; each step shows who went through it (2026-10-14)
 

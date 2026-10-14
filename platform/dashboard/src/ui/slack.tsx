@@ -1,21 +1,12 @@
 import type { ReactNode } from "react";
 import type { SlackFace } from "@/api/words";
+import { emoji } from "@/chart/emoji";
+export { emoji };
 
 /**
  * A Slack message as Slack shows it (D43): the bot's face and name, the APP tag, the time, and the text in Slack's own
  * markup (mrkdwn): *bold*, _italic_, ~strike~, `code`, <url|label>, > quotes, • bullets, :emoji: shortcodes.
  */
-const EMOJI: Record<string, string> = {
-  clipboard: "📋", warning: "⚠️", memo: "📝", hourglass_flowing_sand: "⏳", tada: "🎉", speech_balloon: "💬", rotating_light: "🚨", calendar: "📅", boom: "💥", x: "❌",
-  telephone_receiver: "📞", stethoscope: "🩺", one: "1️⃣", two: "2️⃣", three: "3️⃣", no_entry_sign: "🚫", headphones: "🎧", grey_question: "❔", bar_chart: "📊", a: "🅰️", b: "🅱️",
-  studio_microphone: "🎙️", spiral_calendar_pad: "🗓️", rocket: "🚀", pencil: "✏️", partying_face: "🥳", page_with_curl: "📃", movie_camera: "🎥", moneybag: "💰", money_with_wings: "💸",
-  money_mouth_face: "🤑", mirror_ball: "🪩", man_dancing: "🕺", dancer: "💃", mag: "🔍", heavy_dollar_sign: "💲", gate: "⛩️", fountain_pen: "🖋️", fire: "🔥", dollar: "💵", date: "📅",
-  credit_card: "💳", bomb: "💣", champagne: "🍾", chart_with_upwards_trend: "📈", white_check_mark: "✅", heavy_check_mark: "✔️", eyes: "👀", wave: "👋", bell: "🔔", bust_in_silhouette: "👤",
-  link: "🔗", phone: "📱", email: "📧", "e-mail": "📧", envelope: "✉️", hourglass: "⌛", alarm_clock: "⏰", clock1: "🕐", star: "⭐", sparkles: "✨", robot_face: "🤖", test_tube: "🧪", zap: "⚡",
-  thumbsup: "👍", "+1": "👍", thumbsdown: "👎", "-1": "👎", point_right: "👉", exclamation: "❗", question: "❓", information_source: "ℹ️", handshake: "🤝", trophy: "🏆", gem: "💎", sunrise: "🌅",
-  sunny: "☀️", crescent_moon: "🌙", scissors: "✂️", mailbox: "📬", package: "📦", card_index: "📇", bookmark_tabs: "📑", ballot_box_with_check: "☑️", repeat: "🔁", arrows_counterclockwise: "🔄",
-};
-export const emoji = (code: string): string | null => { const k = code.replace(/^:|:$/g, "").replace(/::skin-tone-\d$/, ""); return EMOJI[k] ?? null; };
 
 const inline = (text: string, key: string): ReactNode[] => {
   const out: ReactNode[] = []; let i = 0, n = 0;

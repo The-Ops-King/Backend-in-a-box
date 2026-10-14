@@ -7,8 +7,9 @@ export const dynamic = "force-dynamic";
 /**
  * D100: a company's whole copy of a workflow, fetched and saved (onboarding a client whose process differs from the template).
  * GET  ?company=<slug>&workflow=<id | template slug | exact name> → { ok, company, workflow: { id, name, slug, enabled, diverged, version, template_version, note }, definition }
- * POST { company, workflow, definition, note, by?, dryRun? } → { ok, saved, dryRun, from, version, diff, missing, warnings }
- *      refused 422 with every `problems`; 409 when the workflow is ON and the definition needs a binding the company lacks.
+ * POST { company, workflow, definition, note, by?, dryRun? } → { ok, saved, dryRun, from, version, diff, missing, warnings, layout }
+ *      layout: how its page draws it (D111: "tidy", or "graph" when its shape is beyond the tidy chart); refused 422 with every
+ *      `problems`, among them a chart no layout draws exactly; 409 when the workflow is ON and the definition needs a binding the company lacks.
  *      dryRun validates and returns the diff without saving. A save is a new version of this company's copy only, diverged.
  * Authorization: Bearer $CRON_SECRET.
  */

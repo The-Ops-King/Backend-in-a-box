@@ -5,7 +5,7 @@ import type { NextConfig } from "next";
  * app under public/app: every /app/* path and the closer's /eod/<token> link serve its shell, and the app routes from there.
  */
 const config: NextConfig = {
-  serverExternalPackages: ["pg"],
+  serverExternalPackages: ["pg", "elkjs"],
   async rewrites() { return { afterFiles: [{ source: "/app/:path*", destination: "/app/index.html" }, { source: "/eod/:token", destination: "/app/index.html" }] }; },
   async redirects() { return [{ source: "/", destination: "/app", permanent: false }]; },
 };

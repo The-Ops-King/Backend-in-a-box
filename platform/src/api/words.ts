@@ -5,6 +5,7 @@ import { exampleContext, nodeExamples } from "@/engine/example";
 import { UNREAD, UNREAD_MANY, namer, type Named, type Namer } from "./crm-names";
 import { scheduleWords } from "@/engine/when";
 import type { Projected } from "@/engine/project";
+import { withImplicit } from "@/chart/implicit";
 
 /**
  * The words the dashboard shows for a workflow and for one run of it. The engine's own describe.ts says what a node does;
@@ -14,9 +15,9 @@ import type { Projected } from "@/engine/project";
 export type ChartKind = "trig" | "send" | "wait" | "reply" | "fork" | "check" | "tag" | "slack" | "crm" | "ai" | "end" | "other";
 /** Who a Slack post appears as (D43: a Slack preview looks like Slack): the bot name and its emoji or image. */
 export type SlackFace = { name: string; icon: string | null };
-/** cond: the full condition, for the popover; onlyIf: a step with `only_if`, its condition short enough for the node ("a reschedule"). */
+/** cond: the full condition, for the popover; onlyIf: a step with `only_if`, its condition short enough for the node ("a reschedule"); helper: a step that works behind the scenes (a wait, Jev reading, a value remembered), drawn small and grey (D111). */
 /** label: the hand-written title an author gave the step, shown small beside the generated words (D112), never instead of them. */
-export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; label?: string; detail?: string; quote?: string; cond?: string; onlyIf?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string | string[]; offer?: string[]; hidden?: boolean; logo?: string };
+export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; label?: string; detail?: string; quote?: string; cond?: string; onlyIf?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string | string[]; offer?: string[]; helper?: boolean; logo?: string };
 export type ChartEdge = { from: string; to: string; label: string; else?: boolean };
 /** counts (D112): per step, the runs that reached it in the last `days` days (shadow runs too) and how many of those skipped it; on the workflow page's chart only. */
 export type Chart = { nodes: ChartNode[]; edges: ChartEdge[]; counts?: { days: number; by: Record<string, { went: number; skipped: number }> } };
@@ -48,13 +49,6 @@ function jevBehind(def: Definition, n: Extract<Node, { type: "check" }>): { ques
   const refs = [...JSON.stringify(n.when).matchAll(/\{\{\s*([a-zA-Z0-9_.]+)/g)].map((m) => m[1]);
   for (const c of def.nodes) if (c.type === "classify" && refs.includes(c.into)) return { question: c.question ?? "what does this mean", threshold: c.threshold };
   return null;
-}
-/** A classify whose only reader is the gate right after it is drawn as that gate (with the Jev mark); one step, not two. */
-function foldsIntoGate(def: Definition, n: Extract<Node, { type: "classify" }>): boolean {
-  const next = def.edges.filter((e) => e.from === n.id).map((e) => def.nodes.find((x) => x.id === e.to));
-  if (next.length !== 1 || next[0]?.type !== "check") return false;
-  const readers = def.nodes.filter((x) => x.id !== n.id && JSON.stringify(x).includes(`{{${n.into}`));
-  return readers.length === 1 && readers[0].id === next[0].id;
 }
 const faceOf = (n: Node, bindings: Record<string, string> = {}): SlackFace | undefined => {
   if (n.type !== "slack_post" && n.type !== "notify_owner") return undefined;
@@ -138,7 +132,7 @@ function lookupWords(def: Definition, n: Extract<Node, { type: "lookup" }>): { t
 const thing = (w: string) => /^(the|a|an|their|this|who|what|when|why|how|which|whether|today) /i.test(`${w} `) || /^Jev\b/.test(w) ? w : `the ${w}`;
 const withThe = thing;
 /** What each health check looks at, short, for the step's line (the full words are `CHECKS` in health.ts; a test keeps the two in step). */
-export const HEALTH_CHECKS: Record<string, string> = { ghl_token: "the GHL token", ghl_calendars: "GHL calendars bookable", availability: "enough free slots", ghl_pipelines: "pipelines and stages", ghl_fields: "custom fields", ghl_users: "the team in GHL", duplicates: "duplicate contacts", ledger_drift: "the engine's records match GHL", calendly_token: "the Calendly token", calendly_calendars: "Calendly event types bookable", whop_key: "the Whop key", whop_webhook: "the Whop webhook", fathom_key: "the Fathom key", fathom_webhook: "the Fathom webhook", slack: "Slack", anthropic: "the AI key", jev: "Jev", steps: "every step can fire", urls: "links in messages" };
+export const HEALTH_CHECKS: Record<string, string> = { ghl_token: "the GHL token", ghl_calendars: "GHL calendars bookable", availability: "enough free slots", ghl_pipelines: "pipelines and stages", ghl_fields: "custom fields", ghl_users: "the team in GHL", duplicates: "duplicate contacts", ledger_drift: "the engine's records match GHL", calendly_token: "the Calendly token", calendly_calendars: "Calendly event types bookable", whop_key: "the Whop key", whop_webhook: "the Whop webhook", fathom_key: "the Fathom key", fathom_webhook: "the Fathom webhook", slack: "Slack", anthropic: "the AI key", jev: "Jev", steps: "every step can fire", charts: "every chart draws its workflow exactly", urls: "links in messages" };
 /** Slack text as words: bindings by name, a link by its text, no *bold* or _italic_ markers, one line. */
 // templateWords drops <…> as html: Slack's links are kept apart from that and read by their text after the bindings are words
 const slackPlain = (t: string) => templateWords(t.replace(/\s*\n\s*/g, " / ").replace(/</g, "\u0001").replace(/>/g, "\u0002")).replace(/\u0001[^\u0001\u0002]*\|([^|\u0001\u0002]*)\u0002/g, "$1").replace(/\u0001([^\u0001\u0002]*)\u0002/g, "$1").replace(/[\u0001\u0002]/g, "")
@@ -193,7 +187,8 @@ function generic(def: Definition, n: Node, nm: Namer): { title: string; meta?: s
     case "send_sms": return { title: "Text" };
     case "send_email": return { title: `Email: ${templateWords(n.subject)}` };
     case "send_document": return { title: describeNode(n).title };
-    case "wait": { const w = waitWords(n.rule).replace(/^Wait (until )?/, "").replace(/\s*\(.*\)$/, "").replace(/^(\d+) hours?/, (_, h) => (+h >= 48 && +h % 24 === 0 ? `${+h / 24} days` : `${h} hour${+h === 1 ? "" : "s"}`)); return { title: cap(w) }; }
+    // a wait is drawn as its own step (D111): it says it waits, "Wait until 3 days before the call", "Wait 2 days"
+    case "wait": { const w = waitWords(n.rule).replace(/\s*\(.*\)$/, "").replace(/\b(\d+) hours?\b/, (_, h) => (+h >= 48 && +h % 24 === 0 ? `${+h / 24} days` : `${h} hour${+h === 1 ? "" : "s"}`)); return { title: w }; }
     case "wait_for_reply": return { title: "Wait for a reply", meta: `up to ${durationWords(n.timeout)}` };
     case "wait_for_reaction": return { title: n.blocking ? "Wait for a tap in Slack" : "Listen for a tap in Slack", meta: `${n.emojis.map((e) => `:${e}:`).join(" ")}${n.timeout ? ` · up to ${durationWords(n.timeout)}` : ""}${!n.blocking ? " · the run goes on" : ""}` };
     case "lookup": return lookupWords(def, n);
@@ -277,13 +272,12 @@ export function logoOf(n: Node, bookingSource: "ghl" | "calendly" = "ghl"): stri
     case "exit": return "end";
     case "webhook": return "webhook";
     case "send_document": return "doc";
-    case "health_check": case "availability_check": case "report": case "leaderboard": case "record": case "lookup": return "engine";
+    case "health_check": case "availability_check": case "report": case "leaderboard": case "record": case "lookup": case "set_var": return "engine";
     case "update_appointment": return bookingSource;
     default: return "ghl";
   }
 }
 
-/** The chart for a workflow: every node with its words, every edge with its label. Plumbing (set_var) is routed around. */
 /** The popover's words for a step that points at CRM things, with every one of them by the CRM's name and listed in full. */
 function namedDetail(def: Definition, n: Node, nm: Namer): string | undefined {
   if (n.type === "pipeline_card") {
@@ -304,9 +298,9 @@ function namedDetail(def: Definition, n: Node, nm: Namer): string | undefined {
   return undefined;
 }
 
-/** names: the company's CRM names (D112); without them, a template's key words. */
+/** The chart for a workflow: every node with its words, every edge with its label. Every step is on it (D111), the helpers small. names: the company's CRM names (D112); without them, a template's key words. */
 export function chartOf(full: Definition, company: { name: string; timezone: string }, bindings: Record<string, string> = {}, bookingSource: "ghl" | "calendly" = "ghl", names: Namer = KEY_WORDS): Chart {
-  const def = collapsePlumbing(full);
+  const def = full;
   const ctx = exampleContext(company, bindings);
   const nodes: ChartNode[] = def.nodes.map((n) => {
     const d = describeNode(n); const s = shortTitle(full, n, names); const named = namedDetail(full, n, names); if (named) d.detail = named;
@@ -316,12 +310,12 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
     let quote: string | undefined;
     try { const ex = nodeExamples(n, ctx, company.timezone)[0]?.example.text; quote = n.type === "slack_post" || n.type === "notify_owner" ? ex?.trim() : n.type === "send_sms" || n.type === "send_email" || n.type === "note" ? strip(ex) : undefined; } catch { quote = d.quote; }
     const cond = n.only_if ? `Only if ${predicateWords(n.only_if)}${n.type === "slack_post" && n.thread_only ? "; and only when the post it reacts to is in Slack" : ""}` : n.type === "slack_post" && n.thread_only ? "Only when the post it reacts to is in Slack; nothing is posted otherwise" : n.type === "pipeline_card" && n.if_missing === "skip" ? "Only if a card is already on that board; this step never creates one" : n.type === "pipeline_card" && !n.stage ? "Only when a card is already on that board: there is no stage to make one in" : n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : undefined;
-    // the AI reading a reply is plumbing between the wait and the fork; the chart routes around it, the popover of the fork says so
-    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, label: s.label, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, onlyIf: n.only_if ? onlyIfWords(n.only_if, constsOf(full)) : undefined, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), hidden: (n.type === "classify" && (n.domain === "reply_intent" || foldsIntoGate(full, n))) || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource) };
+    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, label: s.label, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, onlyIf: n.only_if ? onlyIfWords(n.only_if, constsOf(full)) : undefined, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), helper: (n.type === "set_var" || n.type === "classify" || n.type === "lookup" || n.type === "wait") || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource) };
   });
   const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e, def.nodes.find((n) => n.id === e.from)), else: e.else || undefined }));
-  apart(nodes, edges);
-  return { nodes, edges };
+  // before the implicit ways (their words name steps by title) and again after (the ends they add are steps too)
+  apart(nodes, edges); const chart = withImplicit(def, { nodes, edges }); apart(chart.nodes, chart.edges);
+  return chart;
 }
 
 /**
@@ -335,7 +329,7 @@ function apart(nodes: ChartNode[], edges: ChartEdge[]): void {
   const low = (t: string) => t.replace(/^./, (c) => c.toLowerCase());
   const ways: ((n: ChartNode) => { add: string; meta?: string | undefined } | undefined)[] = [
     (n) => { if (!n.meta) return undefined; const [first, ...rest] = n.meta.split(" · "); return { add: ` · ${first}`, meta: rest.join(" · ") || undefined }; },
-    (n) => { const i = into(n.id); const w = i.length === 1 ? was.get(i[0].from) : undefined; const t = w?.kind === "wait" ? low(titleOf.get(w.id)!) : undefined; return t ? { add: `, ${/^\d+ (minute|hour|day|week)s?$/.test(t) ? `after waiting ${t}` : t}` } : undefined; },
+    (n) => { const i = into(n.id); const w = i.length === 1 ? was.get(i[0].from) : undefined; const t = w?.kind === "wait" ? titleOf.get(w.id)! : undefined; return t ? { add: `, ${t.startsWith("Wait until ") ? t.slice(11) : t.replace(/^Wait /, "after waiting ")}` } : undefined; },
     (n) => { const i = into(n.id); return i.length === 1 && i[0].label ? { add: `, ${i[0].else ? "otherwise" : `when ${low(i[0].label)}`}` } : undefined; },
     (n) => { const i = into(n.id); return i.length === 1 ? { add: `, after “${titleOf.get(i[0].from)?.replace(/[“”‹›]/g, "")}”` } : undefined; },
   ];
