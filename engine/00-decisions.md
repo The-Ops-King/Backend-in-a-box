@@ -3472,6 +3472,12 @@ ever run.
   “…”" names a step by its main line, so steps of one workflow that would read the same are told apart by the first
   thing that differs: their first fact, the wait before them ("Text, 3 days before the call"), the way into them
   ("Text, when the call is at 11am or later"), the step before them when that settles all of them; else "(2nd time)".
+- **What starts a workflow, in plain words.** Tyler could not tell Health check's starts apart. The event words say what
+  happens: "An alert is raised: something broke", "An alert is still open (said again every hour until it is fixed)"
+  (the company's `alerts.repeat_minutes`, 60 unless set), "An alert is fixed (cleared)"; the hourly run's step names
+  what it checks ("the GHL token, GHL calendars bookable, …, links in messages (each where the company uses it)").
+  Other vague or jargon labels were reworded the same way ("A new lead is added in GHL", "The call's outcome is filed",
+  "They replied (text or email)", "Someone moved a card by hand in GHL", "A deal was won").
 - **Who went through it.** The workflow page's chart carries `counts: { days: 7, by: { node_id: { went, skipped } } }`:
   per node id, the distinct runs with a step row in the last 7 days, and how many of those skipped it (skipped or
   stale). Runs, not contacts: a company-level run (a schedule) has no contact and counts once. Shadow runs count:

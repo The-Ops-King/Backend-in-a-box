@@ -137,6 +137,8 @@ function lookupWords(def: Definition, n: Extract<Node, { type: "lookup" }>): { t
 }
 const thing = (w: string) => /^(the|a|an|their|this|who|what|when|why|how|which|whether|today) /i.test(`${w} `) || /^Jev\b/.test(w) ? w : `the ${w}`;
 const withThe = thing;
+/** What each health check looks at, short, for the step's line (the full words are `CHECKS` in health.ts; a test keeps the two in step). */
+export const HEALTH_CHECKS: Record<string, string> = { ghl_token: "the GHL token", ghl_calendars: "GHL calendars bookable", availability: "enough free slots", ghl_pipelines: "pipelines and stages", ghl_fields: "custom fields", ghl_users: "the team in GHL", duplicates: "duplicate contacts", ledger_drift: "the engine's records match GHL", calendly_token: "the Calendly token", calendly_calendars: "Calendly event types bookable", whop_key: "the Whop key", whop_webhook: "the Whop webhook", fathom_key: "the Fathom key", fathom_webhook: "the Fathom webhook", slack: "Slack", anthropic: "the AI key", jev: "Jev", steps: "every step can fire", urls: "links in messages" };
 /** Slack text as words: bindings by name, a link by its text, no *bold* or _italic_ markers, one line. */
 // templateWords drops <…> as html: Slack's links are kept apart from that and read by their text after the bindings are words
 const slackPlain = (t: string) => templateWords(t.replace(/\s*\n\s*/g, " / ").replace(/</g, "\u0001").replace(/>/g, "\u0002")).replace(/\u0001[^\u0001\u0002]*\|([^|\u0001\u0002]*)\u0002/g, "$1").replace(/\u0001([^\u0001\u0002]*)\u0002/g, "$1").replace(/[\u0001\u0002]/g, "")
@@ -161,7 +163,7 @@ const pickedBy = (t: string) => { const ps = [...t.matchAll(/\{\{\s*([a-zA-Z0-9_
 /** A pick's case as words: "showed:closed_won" → "showed, closed won"; empty → "nothing". */
 const caseWords = (k: string) => k === "" ? "nothing" : k.split(/[:>]/).map((x) => (x === "" ? "nothing" : valueWords(x))).join(", ");
 /** A trigger with a match reads as the event it really waits for: "Appointment cancelled", "Tag “reactivate” added". */
-function triggerTitle(n: Node & { type: "trigger" }): string {
+function triggerTitle(n: Node & { type: "trigger" }, nm: Namer = KEY_WORDS): string {
   const m = n.match as Record<string, unknown> | undefined;
   const eq = (path: string): string | undefined => { const find = (p: Record<string, unknown> | undefined): string | undefined => { if (!p) return undefined; if (Array.isArray(p.eq) && p.eq[0] === `{{${path}}}`) return String(p.eq[1]); if (Array.isArray(p.and)) for (const q of p.and as Record<string, unknown>[]) { const r = find(q); if (r) return r; } return undefined; }; return find(m); };
   const status = eq("event.status.to"), outcome = eq("event.outcome"), tag = eq("event.tag");
@@ -170,6 +172,8 @@ function triggerTitle(n: Node & { type: "trigger" }): string {
   if (n.event === "call.held" && outcome) return `Call held: ${outcome.replace(/_/g, " ")}`;
   if (n.event === "tag.added" && tag) return `Tag “${tag}” added`;
   if (n.event === "payment.received" && eq("event.prior_total") === "0") return "First payment received";
+  // the engine says an open alert again every `alerts.repeat_minutes` (60 unless the company set it, alerts.ts)
+  if (n.event === "alert.repeated") { const m = Number(nm.setting("alerts.repeat_minutes")) || 60; return `An alert is still open (said again every ${m % 60 === 0 ? (m === 60 ? "hour" : `${m / 60} hours`) : `${m} minutes`} until it is fixed)`; }
   return describeNode(n).title.replace(/ — .*$/, "");
 }
 /**
@@ -185,7 +189,7 @@ export function shortTitle(def: Definition, n: Node, nm: Namer = KEY_WORDS): { t
 function generic(def: Definition, n: Node, nm: Namer): { title: string; meta?: string } {
   const list = (...xs: (string | false | 0 | undefined)[]) => xs.filter(Boolean).join(" · ") || undefined;
   switch (n.type) {
-    case "trigger": { if (n.schedule) { const w = scheduleWords(n.schedule); const i = w.indexOf(", "); return { title: cap(i > 0 ? w.slice(0, i) : w), meta: i > 0 ? w.slice(i + 2) : undefined }; } return { title: triggerTitle(n) }; }
+    case "trigger": { if (n.schedule) { const w = scheduleWords(n.schedule); const i = w.indexOf(", "); return { title: cap(i > 0 ? w.slice(0, i) : w), meta: i > 0 ? w.slice(i + 2) : undefined }; } return { title: triggerTitle(n, nm) }; }
     case "send_sms": return { title: "Text" };
     case "send_email": return { title: `Email: ${templateWords(n.subject)}` };
     case "send_document": return { title: describeNode(n).title };
@@ -250,7 +254,7 @@ function generic(def: Definition, n: Node, nm: Namer): { title: string; meta?: s
     case "report": return { title: describeNode(n).title };
     case "leaderboard": return { title: "Build the leaderboard", meta: `for ${/^\{\{/.test(n.period) ? pathWords(n.period) : n.period}` };
     case "availability_check": return { title: "Check bookable slots", meta: `alert under ${n.min_slots} in ${n.days} day${n.days === 1 ? "" : "s"}` };
-    case "health_check": return { title: "Run the health checks" };
+    case "health_check": { const on = Object.keys(HEALTH_CHECKS).filter((k) => n.checks[k] !== false); return { title: "Run the health checks", meta: `${on.map((k) => HEALTH_CHECKS[k]).join(", ")} (each where the company uses it)` }; }
     default: return { title: describeNode(n).title };
   }
 }

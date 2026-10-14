@@ -11,7 +11,8 @@ export const UNREAD = "name not read from GHL";
 export const UNREAD_MANY = "names not read from GHL";
 /** A name and whether it came from the CRM; a word that did not is shown with the marker. */
 export type Named = { text: string; read: boolean };
-export type Namer = { board(p: string): Named; stage(p: string): Named; stageId(id: string): Named; field(p: string): Named; object(o: string): Named };
+/** setting: one of the company's plain settings by key (an alert's repeat interval), when the chart was built for a company. */
+export type Namer = { setting(key: string): string | undefined; board(p: string): Named; stage(p: string): Named; stageId(id: string): Named; field(p: string): Named; object(o: string): Named };
 
 export const NONE: CrmNames = { read: false, pipelines: {}, stages: {}, fields: {}, objects: {} };
 export function namesOf(cat: Catalog): CrmNames {
@@ -32,6 +33,7 @@ export function namer(bindings: Record<string, string>, names?: CrmNames | null)
     return n ? { text: n, read: true } : { text: words, read: false };
   };
   return {
+    setting: (key) => bindings[key],
     board: (p) => pick(p, "pipelines", boardWords(p).replace(/\b\w/g, (ch) => ch.toUpperCase())),
     stage: (p) => pick(p, "stages", stageWords(p)),
     stageId: (id) => names?.stages[id] ? { text: names.stages[id], read: true } : { text: id, read: false },

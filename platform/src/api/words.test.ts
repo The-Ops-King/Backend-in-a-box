@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { chartOf, pathOf, shortTitle } from "./words";
+import { HEALTH_CHECKS, chartOf, pathOf, shortTitle } from "./words";
+import { CHECKS } from "@/engine/health";
 import { namer, UNREAD, UNREAD_MANY, type CrmNames } from "./crm-names";
 import { parseDefinition, type Predicate } from "@/engine/definition";
 import { notWords, onlyIfWords, predicateWords, skippedWords } from "@/engine/describe";
@@ -220,3 +221,19 @@ describe("D112: boards, stages and fields by the CRM's names", () => {
   });
 });
 
+
+// Tyler could not tell what Health check's starts meant: every event reads as what happens
+describe("D112: what starts a workflow, in plain words", () => {
+  const health = parseDefinition(templates.find((t) => t.slug === "health-check")!.definition);
+  const titles = (nm?: ReturnType<typeof namer>) => Object.fromEntries(chartOf(health, company, {}, "ghl", nm).nodes.map((n) => [n.id, `${n.title}${n.meta ? ` · ${n.meta}` : ""}`]));
+  it("the alert starts say raised, still open (at the company's interval) and fixed; the hourly run names what it checks", () => {
+    const t = titles();
+    expect([t.t_raised, t.t_repeated, t.t_resolved]).toEqual(["An alert is raised: something broke", "An alert is still open (said again every hour until it is fixed)", "An alert is fixed (cleared)"]);
+    expect(titles(namer({ "alerts.repeat_minutes": "30" })).t_repeated).toBe("An alert is still open (said again every 30 minutes until it is fixed)");
+    expect(titles(namer({ "alerts.repeat_minutes": "120" })).t_repeated).toBe("An alert is still open (said again every 2 hours until it is fixed)");
+    expect(t.n1).toMatch(/^Run the health checks · the GHL token, GHL calendars bookable, .*, Slack, the AI key, Jev, every step can fire, links in messages \(each where the company uses it\)$/);
+  });
+  it("every health check has its short words", () => {
+    expect(Object.keys(HEALTH_CHECKS).sort()).toEqual(CHECKS.map((c) => c.id).sort());
+  });
+});

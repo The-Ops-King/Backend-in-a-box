@@ -5,8 +5,8 @@ import { templates } from "@/templates";
 
 describe("plain-English descriptions", () => {
   it("triggers and checks read like a person wrote them", () => {
-    expect(describeNode({ id: "t", type: "trigger", event: "lead.created" }).title).toBe("New lead created");
-    expect(describeNode({ id: "t", type: "trigger", event: "appointment.status_changed", match: { eq: ["{{event.status.to}}", "cancelled"] } }).title).toBe("Appointment status changed — new status is “cancelled”");
+    expect(describeNode({ id: "t", type: "trigger", event: "lead.created" }).title).toBe("A new lead is added in GHL");
+    expect(describeNode({ id: "t", type: "trigger", event: "appointment.status_changed", match: { eq: ["{{event.status.to}}", "cancelled"] } }).title).toBe("An appointment's status changed — new status is “cancelled”");
     expect(describeNode({ id: "c", type: "check", when: { exists: "contact.phone" }, else_exit: "no_phone" })).toEqual({ title: "Check there is a phone number", detail: "Otherwise the run stops: no phone number" });
   });
   it("waits speak in clock time and durations", () => {
@@ -36,7 +36,7 @@ describe("plain-English descriptions", () => {
   });
   it("a record step names the event in plain words; a picked set_var lists its choices", () => {
     expect(describeNode({ id: "r", type: "record", event: "intent.reviewed", data: { predicted: "{{reply.intent}}", decided: "{{vars.decided}}", agreed: "{{vars.agreed}}" } }))
-      .toEqual({ title: "Record: A person reviewed Jev's read of a reply", detail: "An event in the ledger with predicted, decided, agreed; nothing leaves the engine" });
+      .toEqual({ title: "Record: A team member said whether Jev read it right", detail: "An event in the ledger with predicted, decided, agreed; nothing leaves the engine" });
     expect(kindOf({ id: "r", type: "record", event: "x.y", data: {} })).toBe("control");
     expect(describeNode({ id: "v", type: "set_var", key: "jev_read", value: "{{reply.intent}}", pick: { cancelled: "they want to cancel.", reschedule_request: "they want to reschedule." }, else_value: "I couldn't tell what they meant." }))
       .toEqual({ title: "Remember jev read, picked by [the reply]", detail: "cancelled → they want to cancel.; reschedule request → they want to reschedule.; otherwise I couldn't tell what they meant." });
