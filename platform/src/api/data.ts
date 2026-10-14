@@ -146,6 +146,8 @@ export async function runPage(c: PoolClient, id: string) {
   const safe = Object.fromEntries(Object.entries(bindings).filter(([k]) => !k.startsWith("secret.")));
   const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source) : null;
   const states: Record<string, PathItem["state"]> = {}; for (const p of path) if (!(p.node_id in states) || p.state !== "next") states[p.node_id] = p.state;
+  // the feed leaves out the values a run remembers; the chart draws them (D111), so they wear what they did
+  for (const s of steps) if (s.node_type === "set_var") states[s.node_id] = s.status === "skipped" || s.status === "stale" ? "skip" : s.status === "failed" ? "warn" : "ok";
   return { company: co, workflow: { id: r.workflow_id, name: r.workflow },
     run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, (await workflowMode(c, r.workflow_id))!.mode, bindings)) === "shadow",
       // D66: where it stopped and why, and whether a person can retry or skip that step (a step with no plain way on can only be retried)

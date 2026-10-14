@@ -1,10 +1,13 @@
 import { SlackMsg, emoji } from "./slack";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Chart, PathItem } from "~/api";
 import { Title } from "./steps";
 import { Check, Clock, Cond, Ghost, Skip, Warn, stateIcon } from "./icons";
 import { STATE_ORDER, STATE_WORDS } from "./pieces";
-import { arrange, type Group, type Item, type Row } from "./arrange";
+import type { Group, Item, Row } from "@/chart/arrange";
+import { tidyOf } from "@/chart/exact";
+import { pickLayout, type Picked, type Sizes } from "@/chart/pick";
+import type { GraphLayout } from "@/chart/graph";
 
 /**
  * The flow chart (design guide §5): one vertical spine, every step its own node, the fork's outcomes as labelled groups
@@ -12,6 +15,8 @@ import { arrange, type Group, type Item, type Row } from "./arrange";
  * sends. A group is drawn like the spine (D107): a fork inside it gets its own groups inside it. With a run's states,
  * each node wears a small badge and the nodes not reached dim. Groups that do not fit side by side stack in one column,
  * so nothing scrolls sideways. On a phone with a run shown, only the path taken is drawn. The layout is arrange.ts.
+ * D111: the tidy layout is drawn only when it is exactly the workflow (exact.ts); otherwise the workflow is drawn as a
+ * plain graph (ELK), and if even that is not exact, its steps are listed in order under a red line.
  */
 type St = PathItem["state"];
 
@@ -24,7 +29,7 @@ function tw(s: string, per = TEXT_W): number {
   return w * per / 0.72;   // the 600-weight face runs a touch wider than the per-glyph table
 }
 // :shortcodes: in the words (the emoji a step waits for) are drawn as the emoji, the way Slack shows them
-const labelOf = (it: Item) => (it.n.title + (it.n.meta && it.n.kind !== "send" ? ` · ${it.n.meta}` : "") + (it.waits ? ` · ${it.waits}` : "")).replace(/:([a-z0-9_+-]+):/g, (m, code) => emoji(code) ?? m);
+const labelOf = (it: Item) => (it.n.title + (it.n.meta && it.n.kind !== "send" ? ` · ${it.n.meta}` : "")).replace(/:([a-z0-9_+-]+):/g, (m, code) => emoji(code) ?? m);
 /** Words onto lines no wider than `max` characters; two lines wanted, three at most, nothing cut. */
 function wrap(text: string, max: number, most = 4): string[] {
   const words = text.split(/\s+/); const lines: string[] = []; let cur = "";
@@ -47,7 +52,8 @@ const ifLine = (it: Item) => `only if ${it.when}`;
 function sizeOfTitle(it: Item, maxW: number): Size {
   // a node in a narrow column (a group inside a group) gives its logo's room to the words, and may run to six lines
   const narrow = maxW < 150; const most = narrow ? 6 : 4;
-  const extra = (it.waits ? 22 : 0) + (it.cond && !it.when ? 18 : 0) + (kindIconOf(it) && !narrow ? 22 : 0);
+  if (it.n.helper) return sizeOfHelper(it, maxW, narrow, most);
+  const extra = (it.cond && !it.when ? 18 : 0) + (kindIconOf(it) && !narrow ? 22 : 0);
   // “tags” and ‹stages› in the words become chips under the title
   const raw = labelOf(it); const found = raw.match(/“[^”]*”|‹[^›]*›/g);
   if (found) {
@@ -66,17 +72,109 @@ function sizeOfTitle(it: Item, maxW: number): Size {
   const w = Math.min(maxW, Math.max(it.n.kind === "end" ? 64 : 96, Math.round(longest + PAD + extra)));
   return { lines, w, h: VPAD * 2 + lines.length * LINE, noIcon: narrow };
 }
+/** A helper step (a wait, Jev reading, a value remembered: D111): smaller words, a smaller box, the same rules. */
+const HP = 11.5 / 13, HP_VPAD = 6, HP_LINE = 14, HP_ICON = 17;
+function sizeOfHelper(it: Item, maxW: number, narrow: boolean, most: number): Size {
+  const extra = (it.cond && !it.when ? 16 : 0) + (kindIconOf(it) && !narrow ? HP_ICON : 0);
+  const label = labelOf(it); const maxChars = Math.max(8, Math.floor((maxW - PAD - extra) / (TEXT_W * HP)));
+  const lines = tw(label) <= maxChars * TEXT_W ? [label] : wrap(label, maxChars, most);
+  const w = Math.min(maxW, Math.max(72, Math.round(Math.max(...lines.map((l) => tw(l))) * HP + PAD + extra)));
+  return { lines, w, h: HP_VPAD * 2 + lines.length * HP_LINE, noIcon: narrow };
+}
 const trunc = (s: string, w: number, per = TEXT_W) => { const maxPx = w - PAD; if (tw(s, per) <= maxPx) return s; let k = s.length; while (k > 3 && tw(`${s.slice(0, k)}…`, per) > maxPx) k--; return `${s.slice(0, k)}…`; };
 
-export function FlowChart({ chart, states, pathOnly, onOpen }: { chart: Chart; states?: Record<string, St>; pathOnly?: boolean; onOpen?: (id: string, el: SVGGElement) => void }) {
+export function FlowChart({ chart, states, pathOnly, onOpen }: { chart: Chart; states?: Record<string, St>; pathOnly?: boolean; onOpen?: (id: string, el: Element) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
-  useEffect(() => { const el = box.current; if (!el) return; const ro = new ResizeObserver(() => setWidth(el.clientWidth || 600)); ro.observe(el); setWidth(el.clientWidth || 600); return () => ro.disconnect(); }, []);
-  const rows = useMemo(() => arrange(chart), [chart]);
+  useLayoutEffect(() => { const el = box.current; if (!el) return; const ro = new ResizeObserver(() => setWidth(el.clientWidth || 600)); ro.observe(el); setWidth(el.clientWidth || 600); return () => ro.disconnect(); }, []);
+  // the page refetches the same chart as a new object: lay it out again only when it changed
+  const sig = useMemo(() => JSON.stringify(chart), [chart]);
+  const tidy = useMemo(() => tidyOf(chart), [sig]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const narrow = width < 600;
+  const [later, setLater] = useState<{ sig: string; narrow: boolean; p: Picked } | null>(null);
+  useEffect(() => {
+    if (tidy.tidy.exact) return;
+    let live = true;
+    pickLayout(chart, graphSizes(chart, narrow)).then((p) => { if (live) setLater({ sig, narrow, p }); });
+    return () => { live = false; };
+  }, [sig, narrow]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // a graph laid out for the other width stays up until the new one is ready
+  const p: Picked | null = tidy.tidy.exact ? tidy : later && later.sig === sig ? later.p : null;
   const stateOf = (id: string): St | null => states ? states[id] ?? (Object.keys(states).length ? "next" : null) : null;
-  const svg = useMemo(() => draw(rows, width, stateOf, !!pathOnly && !!states), [rows, width, states, pathOnly]);
-  return <div className="chart" ref={box} onClick={(e) => { const g = (e.target as Element).closest("g.nd") as SVGGElement | null; if (g && onOpen) onOpen(g.dataset.id!, g); }}
-    dangerouslySetInnerHTML={{ __html: svg }} />;
+  const out = useMemo(() => !p ? null : p.layout === "tidy" ? { svg: draw(p.rows, width, stateOf, !!pathOnly && !!states), pan: false, start: 0 } : p.layout === "graph" ? drawGraph(p.graph, chart, width, graphMax(later?.narrow ?? narrow), stateOf) : null, [p, width, states, pathOnly]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // a graph too wide to read at phone width pans in its own box, opened where the run starts
+  const pane = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if (out?.pan && pane.current) pane.current.scrollLeft = Math.max(0, out.start - pane.current.clientWidth / 2); }, [out]);
+  const open = (e: { target: EventTarget }) => { const g = (e.target as Element).closest("[data-id]") as HTMLElement | SVGGElement | null; if (g && onOpen) onOpen(g.dataset.id!, g); };
+  return <div ref={box} onClick={open}>
+    {p?.layout === "graph" ? <p className="chnote">Drawn as a plain graph: this workflow's shape is beyond the tidy chart.{out?.pan ? " Drag it sideways to see all of it." : ""}</p> : null}
+    {p?.layout === "list" ? <StepList chart={chart} stateOf={stateOf} /> : out ? <div ref={pane} className={`chart${out.pan ? " pan" : ""}`} dangerouslySetInnerHTML={{ __html: out.svg }} /> : <p className="chnote">Drawing the chart…</p>}
+  </div>;
+}
+
+/** The plain graph's boxes are the tidy chart's nodes, a little narrower on a phone so more of it fits across. */
+const graphMax = (narrow: boolean) => narrow ? 176 : 240;
+const graphItem = (n: Chart["nodes"][number]): Item => ({ id: n.id, n, ...(n.cond && (n.kind === "send" || n.onlyIf) ? { cond: n.cond } : {}), ...(n.onlyIf ? { when: n.onlyIf } : {}) });
+const LBL_H = 15;
+function graphSizes(chart: Chart, narrow: boolean): Sizes {
+  const byId = new Map(chart.nodes.map((n) => [n.id, n]));
+  return { gap: narrow ? 20 : 28, labelSize: (t) => ({ w: Math.ceil(tw(t, IF_W)) + 10, h: LBL_H }), size: (id) => { const sz = sizeOf(graphItem(byId.get(id)!), graphMax(narrow)); return { w: sz.w, h: sz.h }; } };
+}
+/** Below this the words are too small to read: the graph keeps this size and pans inside its own box instead. */
+const MIN_SCALE = 0.6;
+/**
+ * D111: the plain graph, drawn with the tidy chart's own nodes (logos, the helper look, D103's dashed sometimes-steps,
+ * the run's badges): every step a box, every way a line with an arrow and its words. Lines into or out of a sometimes-step
+ * are dashed; an otherwise way's words are blue. A loop back is a line that runs back up, its arrow showing the way.
+ */
+function drawGraph(g: GraphLayout, chart: Chart, W: number, maxW: number, stateOf: (id: string) => St | null): { svg: string; pan: boolean; start: number } {
+  const byId = new Map(chart.nodes.map((n) => [n.id, n])); const out: string[] = [];
+  const M = 12; const gw = g.w + M * 2, gh = g.h + M * 2;
+  for (const e of g.edges) {
+    const dashed = !!(byId.get(e.from)?.onlyIf || byId.get(e.to)?.onlyIf);
+    out.push(`<path d="${rounded(e.points)}" fill="none" stroke="${T("edge")}" stroke-width="1.6" marker-end="url(#ah)"${dashed ? ` stroke-dasharray="${DASH}"` : ""}/>`);
+  }
+  for (const e of g.edges) if (e.at && e.label) {
+    const a = e.at; const cx = a.x + a.w / 2;
+    out.push(`<rect x="${a.x}" y="${a.y}" width="${a.w}" height="${a.h}" rx="4" fill="${T("panel")}"/><text class="lbl" x="${cx}" y="${a.y + a.h / 2 + 4}" text-anchor="middle"${e.else ? ` style="fill:${T("cond")}"` : ""}>${esc(e.label.replace(/:([a-z0-9_+-]+):/g, (m, code) => emoji(code) ?? m))}</text>`);
+  }
+  for (const b of g.nodes) { const n = byId.get(b.id); if (!n) continue; const it = graphItem(n); out.push(node(it, b.x + b.w / 2, b.y + b.h / 2, sizeOf(it, maxW), stateOf(b.id))); }
+  const fit = Math.min(1, W / gw); const pan = fit < MIN_SCALE; const sw = Math.round(gw * (pan ? MIN_SCALE : fit)), sh = Math.round(gh * (pan ? MIN_SCALE : fit));
+  const defs = `<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="${T("fg-3")}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>`;
+  const trig = g.nodes.find((b) => byId.get(b.id)?.kind === "trig");
+  return { svg: `<svg viewBox="${-M} ${-M} ${gw} ${gh}" width="${sw}" height="${sh}" role="img" aria-label="Flow chart">${defs}${out.join("")}</svg>`, pan, start: trig ? (trig.x + trig.w / 2 + M) * sw / gw : 0 };
+}
+/** An orthogonal route with its corners rounded. */
+function rounded(p: { x: number; y: number }[], r = 6): string {
+  if (p.length < 3) return p.map((q, i) => `${i ? "L" : "M"}${q.x} ${q.y}`).join(" ");
+  let d = `M${p[0].x} ${p[0].y}`;
+  for (let i = 1; i < p.length - 1; i++) {
+    const a = p[i - 1], b = p[i], c = p[i + 1];
+    const k1 = Math.min(r, Math.hypot(b.x - a.x, b.y - a.y) / 2), k2 = Math.min(r, Math.hypot(c.x - b.x, c.y - b.y) / 2);
+    const u = (q: { x: number; y: number }, k: number) => { const l = Math.hypot(q.x - b.x, q.y - b.y) || 1; return { x: b.x + (q.x - b.x) / l * k, y: b.y + (q.y - b.y) / l * k }; };
+    const s1 = u(a, k1), s2 = u(c, k2); d += ` L${s1.x} ${s1.y} Q${b.x} ${b.y} ${s2.x} ${s2.y}`;
+  }
+  const z = p[p.length - 1]; return `${d} L${z.x} ${z.y}`;
+}
+
+/**
+ * The last resort (D111): no layout draws this workflow exactly, so nothing is drawn as a chart; every step is listed in the
+ * order a run meets it, each with where it goes next and on what.
+ */
+function StepList({ chart, stateOf }: { chart: Chart; stateOf: (id: string) => St | null }) {
+  const byId = new Map(chart.nodes.map((n) => [n.id, n]));
+  const order: string[] = []; const seen = new Set<string>(); const q = chart.nodes.filter((n) => n.kind === "trig").map((n) => n.id);
+  while (q.length) { const id = q.shift()!; if (seen.has(id)) continue; seen.add(id); order.push(id); for (const e of chart.edges) if (e.from === id) q.push(e.to); }
+  for (const n of chart.nodes) if (!seen.has(n.id)) order.push(n.id);
+  return <div className="chlist">
+    <p className="chbad">This workflow could not be drawn exactly as a chart, so every step is listed in order with where it goes next.</p>
+    <ol>{order.map((id) => { const n = byId.get(id)!; const st = stateOf(id); const outs = chart.edges.filter((e) => e.from === id);
+      return <li key={id} data-id={id} className={n.helper ? "hp" : undefined}>
+        <span className="t">{n.title}{n.meta ? <small> · {n.meta}</small> : null}{st && st !== "next" ? <small className={`st ${st}`}> · {STATE_WORDS[st] ?? st}</small> : null}</span>
+        {n.onlyIf ? <small className="if">only if {n.onlyIf}; otherwise skipped</small> : null}
+        {outs.length ? <ul>{outs.map((e, i) => <li key={i}>{e.label ? `${e.label}: ` : ""}then “{byId.get(e.to)?.title ?? e.to}”</li>)}</ul> : <ul><li>the run ends here</li></ul>}
+      </li>; })}</ol>
+  </div>;
 }
 
 const G_GAP = 14, G_MIN = 130, G_COL = 190;
@@ -234,21 +332,20 @@ function draw(rows: Row[], W: number, stateOf: (id: string) => St | null, pathOn
 }
 
 function node(it: Item, x: number, y: number, sz: Size, st: St | null): string {
-  const k = it.n.kind; const w = sz.w, h = sz.h; const top = y - h / 2;
-  const fill = k === "trig" ? T("acc") : k === "end" ? "none" : k === "fork" || k === "check" ? T("panel-3") : T("panel-2");
-  const stroke = k === "trig" ? T("acc") : k === "end" ? T("fg-3") : T("edge"); const ink = k === "trig" ? T("acc-ink") : k === "end" ? T("fg-2") : T("fg");
+  const k = it.n.kind; const w = sz.w, h = sz.h; const top = y - h / 2; const hp = !!it.n.helper;
+  const fill = hp ? T("panel") : k === "trig" ? T("acc") : k === "end" ? "none" : k === "fork" || k === "check" ? T("panel-3") : T("panel-2");
+  const stroke = hp ? T("edge") : k === "trig" ? T("acc") : k === "end" ? T("fg-3") : T("edge"); const ink = hp ? T("fg-2") : k === "trig" ? T("acc-ink") : k === "end" ? T("fg-2") : T("fg");
   const dim = st === "skip" || st === "blocked" || st === "next"; const op = dim ? (st === "next" ? 0.45 : 0.55) : 1;
   // a sometimes-step (D103): a dashed blue border, and its condition on a line of its own under the title
   let g = `<g class="nd${it.when ? " if" : ""}" tabindex="0" data-id="${it.id}" style="opacity:${op}"><rect class="b" x="${x - w / 2}" y="${top}" width="${w}" height="${h}" rx="${k === "end" ? Math.min(17, h / 2) : 9}" fill="${fill}" stroke="${it.when ? T("cond") : stroke}" stroke-width="1.5"${it.when ? ` stroke-dasharray="${DASH}"` : ""}/>`;
-  // the title centred on up to three lines; a clock before the first line when it waits, the blue mark at the right when it may not fire
-  const ki = sz.noIcon ? "" : kindIconOf(it); const leftW = (it.waits ? 22 : 0) + (ki ? 22 : 0);
-  const shift = (leftW - (it.cond && !it.when ? 18 : 0)) / 2;
-  const y0 = top + VPAD + 11.5;
-  sz.lines.forEach((l, i) => { g += `<text x="${x + shift}" y="${y0 + i * LINE}" text-anchor="middle" fill="${ink}">${esc(l)}</text>`; });
-  let lx = x + shift - Math.max(...sz.lines.map((l) => tw(l))) / 2 - leftW;
+  // the title centred on up to three lines, its logo before it, the blue mark at the right when it may not fire; a helper smaller
+  const ki = sz.noIcon ? "" : kindIconOf(it); const leftW = ki ? (hp ? HP_ICON : 22) : 0;
+  const shift = (leftW - (it.cond && !it.when ? (hp ? 16 : 18) : 0)) / 2;
+  const y0 = hp ? top + HP_VPAD + 10 : top + VPAD + 11.5;
+  sz.lines.forEach((l, i) => { g += `<text x="${x + shift}" y="${y0 + i * (hp ? HP_LINE : LINE)}" text-anchor="middle" fill="${ink}"${hp ? ` style="font-size:11.5px;font-weight:500"` : ""}>${esc(l)}</text>`; });
+  const lx = x + shift - Math.max(...sz.lines.map((l) => tw(l))) * (hp ? HP : 1) / 2 - leftW;
   const iconInk = k === "trig" ? T("acc-ink") : T("fg-2");
-  if (ki) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${iconInk}">${LOGO[ki] ?? LOGO.engine}</g>`; lx += 22; }
-  if (it.waits) { g += `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${T("fg-2")}">${svgIcon("clock")}</g>`; }
+  if (ki) g += hp ? `<g transform="translate(${lx},${y0 - 9.5}) scale(.62)" style="color:${iconInk}">${LOGO[ki] ?? LOGO.engine}</g>` : `<g transform="translate(${lx},${y0 - 12}) scale(.8)" style="color:${iconInk}">${LOGO[ki] ?? LOGO.engine}</g>`;
   if (sz.chips) { let cy = y0 + sz.lines.length * LINE - 4; for (const c of sz.chips) { const cw = tw(c.text, 6.4) + 14; g += `<rect x="${x - cw / 2}" y="${cy - 1}" width="${cw}" height="17" rx="6" fill="${c.stage ? T("cond-bg") : T("panel-3")}"/><text x="${x}" y="${cy + 11.5}" text-anchor="middle" fill="${c.stage ? T("cond") : T("fg")}" style="${c.stage ? "font-size:11px;font-weight:600" : "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:500"}">${esc(c.text)}</text>`; cy += 20; } }
   if (it.cond && !it.when) g += `<g transform="translate(${x + w / 2 - 24},${top + h / 2 - 8}) scale(.8)" style="color:${T("cond")}">${svgIcon("cond")}</g>`;
   if (it.when) {
@@ -284,7 +381,7 @@ const LOGO: Record<string, string> = {
   form: '<rect x="4" y="2.5" width="12" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 7h6M7 10.5h6M7 14h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   engine: '<circle cx="10" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 2v3M10 15v3M2 10h3M15 10h3M4.3 4.3l2.2 2.2M13.5 13.5l2.2 2.2M4.3 15.7l2.2-2.2M13.5 6.5l2.2-2.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
 };
-const kindIconOf = (it: Item) => it.waits ? (it.n.logo && it.n.logo !== "clock" ? it.n.logo : "") : (it.n.logo ?? "");
+const kindIconOf = (it: Item) => it.n.logo ?? "";
 const svgIcon = (k: string) => ({
   check: '<path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
   clock: '<circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 6v4.5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
@@ -325,7 +422,7 @@ export function Legend({ run, states }: { run?: boolean; states?: Iterable<strin
   const on = new Set(states ?? STATE_ORDER); on.add("ok");
   const keys = STATE_ORDER.filter((k) => on.has(k) || (k === "next" && run));
   return <div className="legend">
-    {run ? null : <><span style={{ color: "var(--fg-2)" }}><Clock />waits first</span><span style={{ color: "var(--cond)" }}><i className="dash" aria-hidden />only if …, otherwise skipped</span><span style={{ color: "var(--cond)" }}><Cond />may be skipped</span><span className="sep" aria-hidden /></>}
+    {run ? null : <><span style={{ color: "var(--fg-2)" }}><i className="hp" aria-hidden />behind the scenes: a wait, a read, a value kept</span><span style={{ color: "var(--cond)" }}><i className="dash" aria-hidden />only if …, otherwise skipped</span><span style={{ color: "var(--cond)" }}><Cond />may be skipped</span><span className="sep" aria-hidden /></>}
     {keys.map((k) => <span key={k} className="key" style={{ color: `var(--${STATE_INK[k]})` }}><i className={`swa ${k}`} />{k === "next" ? null : stateIcon(k)}{STATE_WORDS[k]}</span>)}
   </div>;
 }

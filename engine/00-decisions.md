@@ -3430,3 +3430,55 @@ setting the company's workflows or the engine read, as the Settings page does (s
 it replaced so the change can be undone. Secrets are refused (install sets them; D100 copies the shared AI keys); so is a
 key nothing reads and an empty value.
 - Test: `binding-set.test.ts`.
+
+## D111. The chart is exactly the workflow, or it says so (2026-10-14)
+
+Tyler: "It's really important that the workflow is clear and accurate, exactly how the workflow works, because I need to be
+able to see it visually to update it ... I'm going to be adding a lot of workflows, and they all need to be 100% accurate to
+what they actually do. When a chart can't be drawn exactly we need a way to draw the chart exactly." D107 proved the tidy
+layout exact for the shipped templates and PMU's copies in a test; a workflow built after that was checked nowhere, and the
+chart still left steps out on purpose (Jev's read of a reply, every `set_var`) and folded others into their neighbours.
+- **One check** (`src/chart/exact.ts`, shared by the dashboard and the server). A drawing is its boxes and its lines, each
+  line with its words and whether it is an otherwise. It is exact when every step that can run is drawn exactly once, every
+  line drawn is an edge of the definition (same from, same to, same words, same otherwise-ness), every edge is drawn, and
+  nothing else is. The tidy layout's lines are read off its rows (consecutive steps, a fork to each group under its
+  heading, a group that carries on to the join, an arrow "on to …", an entry trigger, a folded branch); an arrow names its
+  step by title, so a title two drawn steps share is a problem. Steps listed in a "More steps" or "Too deep" card are never
+  exact. The one node not drawn is an exit no edge touches: it never runs (a check's `else_exit` stops the run itself).
+- **Nothing hidden.** Every step that runs is on the chart. A helper (a wait, Jev reading, a lookup, a value remembered)
+  is a small grey step: smaller words, `--panel` fill, the engine's mark on a remembered value; the legend says "behind the
+  scenes". Waits are no longer folded into the send after them, and the reply-wait is its own fork ("They replied" on to
+  Jev's read and the reply fork; "No reply in time"), not a third way out of the reply fork. A two-way branch around one
+  step stays folded into that step (D103's dashed step, "only if …", otherwise skipped) only when that says everything: the
+  step is reached from nowhere else, has no condition of its own, its one way on is where the otherwise goes, and the
+  otherwise way has no words of its own; the check holds the step's blue line to the branch's words. Otherwise the branch is
+  drawn. A run's chart badges the remembered values from the run's own rows.
+- **The order of resort**, the same on the workflow page, the run page and the server (`src/chart/pick.ts`): the tidy
+  layout if exact; else a plain graph (elkjs 0.12.0, ELK's layered algorithm, top to bottom, orthogonal lines, cycles
+  broken depth-first from the triggers so a loop back is a line running up with its arrow) if exact; else every step listed
+  in the order a run meets it, each with where it goes and on what, under an orange-red line "This workflow could not be
+  drawn exactly as a chart". The graph is drawn with the tidy chart's own nodes (logos, helpers, dashed sometimes-steps,
+  run badges and dimming), every edge a line with an arrowhead and its words (an otherwise's in blue, lines into or out of
+  a sometimes-step dashed), under "Drawn as a plain graph: this workflow's shape is beyond the tidy chart." The graph check
+  also requires each line to start on its own step's box and end on its own step's box. The graph is loaded only when
+  needed. On a phone it is laid out with narrower boxes and scaled to the width; below 60% it keeps 60% and pans inside its
+  own box (the page itself never scrolls sideways), opened at the trigger, with "Drag it sideways to see all of it." The
+  phone's path-only view stays for the tidy layout; the graph is drawn whole.
+- **Checked on save.** `saveDefinition`, a step edit, a copy edit and a template install compute the layout (ELK runs on
+  the server too, only when the tidy layout is not exact). Refused (422 with every problem; a template is reported
+  "refused" and not installed) only when neither layout is exact; a save says `layout: "tidy" | "graph"`. No real
+  definition reaches the refusal: the graph draws any directed graph; the refusal is tested with a stand-in verdict.
+- **Checked daily.** The health sweep's `charts` check holds every enabled workflow to it once a day, and again as soon as
+  a workflow is turned on or saved (the stamp carries each workflow's version); in between the last findings stand, so an
+  alert is not resolved by an hour that did not look. A workflow no layout draws exactly is an error alert
+  (`health:charts:<workflow>`, posted like every health finding, its Open link the workflow page) that resolves when a
+  later check draws it.
+- Not changed: what runs. A check's `else_exit` and `resume` are not edges, so they stay in the step's words, not lines.
+- Tests: `src/chart/chart-layout.test.ts` (every shipped template and PMU copy exact in the tidy layout with every node
+  drawn; helpers drawn; the fold kept only when exact, and caught when its condition is not the branch's; the check catches
+  a dropped step, a doubled one, a line that is no edge and wrong words; a definition with a cross-link into the middle of
+  another branch, a loop back, five deep and an unreached step: tidy not exact, ELK exact with every node and edge, the
+  loop running up, no boxes overlapping; the cross-link and loop alone drawn tidily as arrows; a misrouted line caught),
+  `src/engine/chart-exact.test.ts` (saves report the layout; the 422, the step and copy edit refusals and the install
+  refusal with a stand-in verdict; the sweep's daily stamp, alert and resolution).
+  `scripts/render-charts.ts` shoots `messy`, that definition, in the graph.

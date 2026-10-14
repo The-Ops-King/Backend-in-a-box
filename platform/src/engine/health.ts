@@ -19,6 +19,7 @@ import { SLACK_EMOJI } from "./emoji-names";
 import { fallbacksOf, parseDefinition } from "./definition";
 import { liveGhlReads, type GhlReads } from "@/adapters/ghl/metrics";
 import { crmPresence, ledgerDrift } from "./ledger-drift";
+import { chartLayoutOf } from "@/api/chart-verdict";
 
 /**
  * D33. The hourly sweep: a read-only look at every connection a company runs on. Its own automation, with its own
@@ -52,6 +53,7 @@ export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "anthropic", label: "Anthropic key", about: "the AI key still answers (the company's, else the server's)" },
   { id: "jev", label: "Jev (reply reading)", about: "the TypeSafe AI key still answers; without it every reply goes to a person" },
   { id: "steps", label: "Every step can fire", about: "each enabled workflow's steps are walked and everything they depend on outside the engine is checked: bindings exist in the CRM, channels have the bot, prompts and keys are set, custom objects and events exist, hand-off targets are on; kinds that cannot be verified are listed as such" },
+  { id: "charts", label: "Charts drawn exactly", about: "every enabled workflow's chart is laid out and held to what it runs: every step drawn once, every way between them drawn with its words, nothing else (D111). Checked once a day, and again as soon as a workflow changes; a workflow no layout draws exactly is an alert" },
   { id: "urls", label: "Links in copy", about: "every fixed http(s) link a message sends (booking pages, forms) still answers; a link that moved is an alert" },
 ];
 
@@ -285,6 +287,8 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
     if (unverifiable.length) ok("steps", `Not verifiable from here: ${[...new Set(unverifiable)].join("; ")}.`, "unverifiable");
   }
 
+  if (on("charts")) out.push(...(await chartFindings(c, company, now)));
+
   // Links in copy: a page that moved is found the hour it moves, not when a lead clicks it
   if (on("urls")) {
     const wfs = await many<{ name: string; definition: unknown }>(c, "select w.name, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 and w.enabled", [company.id]);
@@ -301,6 +305,31 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
     if (!links.size) ok("urls", "No fixed links in copy.");
     else if (fine === [...links.keys()].filter((u) => !skip(u)).length) ok("urls", `${fine} link${fine === 1 ? "" : "s"} answer.`);
   }
+  return out;
+}
+
+/**
+ * D111. "They all need to be 100% accurate to what they actually do": every enabled workflow's chart is checked the way its
+ * page draws it. Once a day per company, or sooner when a workflow was turned on or changed (its version is part of the
+ * stamp); in between, the last findings stand, so an open alert is not resolved by an hour that did not look. A save
+ * already refuses a workflow no layout draws exactly; this catches what got in another way (an engine upgrade, a row
+ * written by hand).
+ */
+async function chartFindings(c: PoolClient, company: CompanyRow, now: DateTime): Promise<Finding[]> {
+  const wfs = await many<{ id: string; name: string; version: number; definition: unknown }>(c, "select w.id, w.name, w.current_version as version, v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 and w.enabled order by w.name", [company.id]);
+  const versions = wfs.map((w) => `${w.id}:${w.version}`).join(",");
+  const prev = ((await one<{ last_result: Finding[] }>(c, "select last_result from health_checks where company_id=$1", [company.id]))?.last_result ?? []).filter((f) => f.check === "charts");
+  const stamp = prev.find((f) => f.item === "checked")?.detail as { at?: string; versions?: string } | undefined;
+  if (stamp?.at && stamp.versions === versions && now.toMillis() - Date.parse(stamp.at) < 864e5) return prev;
+  const out: Finding[] = []; let graph = 0;
+  for (const wf of wfs) {
+    let def; try { def = parseDefinition(wf.definition); } catch { continue; }   // "steps" already says it no longer parses
+    const v = await chartLayoutOf(def);
+    if (v.layout === "graph") graph++;
+    if (v.layout === "list") out.push({ check: "charts", item: wf.id, ok: false, level: "error", text: `"${wf.name}": its chart cannot be drawn exactly, so its page lists the steps instead: ${v.problems[0]}${v.problems.length > 1 ? ` (and ${v.problems.length - 1} more)` : ""}.`, detail: { problems: v.problems }, page: `/app/c/${company.slug}/w/${wf.id}` });
+  }
+  const bad = out.length;
+  out.push({ check: "charts", item: "checked", ok: true, level: "warning", text: wfs.length ? `${wfs.length - bad} of ${wfs.length} workflow charts drawn exactly${graph ? `, ${graph} as a plain graph` : ""}.` : "No workflows on.", detail: { at: now.toISO(), versions } });
   return out;
 }
 

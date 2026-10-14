@@ -128,7 +128,7 @@ describe.skipIf(!process.env.DATABASE_URL)("editing copy", () => {
     const bad = await asOperator((c) => saveCopy(c, { workflowId: stl.id, nodeId: "n1", field: "template", text: "<p>Hi {{lead.name}}</p>" }));
     expect(bad).toMatchObject({ ok: false, why: /unknown placeholder/ });
     const ok = await asOperator((c) => saveCopy(c, { workflowId: stl.id, nodeId: "n1", field: "template", text: "<p>Hey {{contact.first_name}}, grab a time: {{calendar.booking.url}}</p>" }));
-    expect(ok).toEqual({ ok: true, version: stl.current_version + 1 });
+    expect(ok).toEqual({ ok: true, version: stl.current_version + 1, layout: "tidy" });
     const after = await asOperator((c) => one<{ current_version: number; diverged: boolean }>(c, "select current_version, diverged from workflows where id=$1", [stl.id]));
     expect(after).toEqual({ current_version: stl.current_version + 1, diverged: true });
     const def = await asOperator((c) => one<{ definition: { nodes: { id: string; template?: string }[] } }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [stl.id, stl.current_version + 1]));
