@@ -158,9 +158,10 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table runs alter column contact_id drop not null`);
     await c.query(`alter table runs add column if not exists user_id uuid references users(id)`);
     await c.query(`insert into event_types values ('schedule','clock'), ('eod.filed','report') on conflict do nothing`);
-    await c.query(`insert into event_types values ('eod.call_filed','report') on conflict do nothing`);
+    // D110: nothing emits eod.call_filed any more; the type goes once nothing points at it (its events stay as history, and keep the row with them)
+    await c.query(`delete from event_types et where et.name='eod.call_filed' and not exists (select 1 from events e where e.event_type=et.name) and not exists (select 1 from workflow_triggers t where t.event_type=et.name)`);
     await c.query(`insert into event_types values ('alert.raised','engine'), ('alert.repeated','engine'), ('alert.resolved','engine') on conflict do nothing`);   // D88 A7: the Health check workflow says what broke
-    await c.query(`insert into event_types values ('drift.found','engine'), ('drift.sales_call_cancelled','engine'), ('drift.sales_call_unlinked','engine') on conflict do nothing`);   // D88 A6: the hourly drift sweep's findings   // D88 A3: an end-of-day answer for a Sales Call booked before the engine
+    await c.query(`insert into event_types values ('drift.found','engine'), ('drift.sales_call_cancelled','engine'), ('drift.sales_call_unlinked','engine') on conflict do nothing`);   // D88 A6: the hourly drift sweep's findings
     // D45: a team member's reaction on a post the engine remembered is an event a workflow can start from
     await c.query(`alter table slack_connections add column if not exists bot_user_id text`);
     // D46 column, unused since D54 (the end-of-day form presumes a no-show from the call time alone); left in place, nothing reads it

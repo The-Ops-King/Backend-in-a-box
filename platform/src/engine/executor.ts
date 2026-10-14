@@ -706,8 +706,9 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       return { status: "ok", next, result: { calendars: r.findings.length, low: low.length, raised: r.raised, resolved: r.resolved, ...(cal ? { only: cal.external_id } : {}), ...(low.length ? { problems: low.map((f) => f.text) } : {}) } };
     }
     case "eod_due": {
-      // D76: the closer is reminded every day until each of their calls is filed. GHL's Sales Calls are the truth: a call
-      // filed there is answered whatever the ledger holds, and a blank one is owed; the ledger fills in the calls GHL has no record of.
+      // D76: the closer is reminded every day until each of their calls is filed. GHL's Sales Calls of the engine's bookings are the truth:
+      // a call filed there is answered whatever the ledger holds, and a blank one is owed; the ledger fills in the calls GHL has no record of.
+      // A Sales Call with no booking is not counted: the form has no row for it (D110).
       // D88 (A4): how far back, whether today counts and when the operator hears are the step's; the words are the template's
       const user = d.ctx.user as { id?: string; name?: string; eod?: { day: string; url: string } } | undefined;
       const legacy = node.lookback_days === undefined && node.include_today === undefined && node.overdue_after_days === undefined;
@@ -717,7 +718,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const { closerSalesCalls, eodFacts } = await import("./eod");
       const eod = await eodFacts(d.c, d.company, user.id, (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, ""), d.now as DateTime<true>, lookback);
       // ledger: the day's calls with no answer on the ledger; moved: those a card move answered, owed until the day is filed (A1);
-      // blank: every blank Sales Call that day (the operator hears their names); extra: blank ones the ledger does not already count (D77)
+      // blank: every blank Sales Call that day (the operator hears their names); extra: blank ones the ledger does not already count
       const days = new Map<string, { ledger: Set<string>; moved: Set<string>; blank: string[]; extra: number }>();
       for (const e of eod.earlier) days.set(e.day, { ledger: new Set(e.open), moved: new Set(e.moved), blank: [], extra: 0 });
       if (withToday && eod.today.calls && !eod.today.filed) days.set(eod.day, { ledger: new Set(eod.today.open), moved: new Set(eod.today.moved), blank: [], extra: 0 });
@@ -725,11 +726,11 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (d.bindings["crm.object_sales_call"] && user.name) {
         try {
           const recs = await closerSalesCalls(d.c, d.adapters, d.adapterCompany, d.company.id, d.bindings, user.name, tz, d.now);
-          for (const r of recs) if (r.filed && r.appointment_id) for (const e of days.values()) if (!e.moved.has(r.appointment_id)) e.ledger.delete(r.appointment_id);
+          for (const r of recs) if (r.filed) for (const e of days.values()) if (!e.moved.has(r.appointment_id)) e.ledger.delete(r.appointment_id);
           for (const r of recs) {
             if (r.filed || !r.due || (!withToday && r.day >= today)) continue;
             const e = days.get(r.day) ?? { ledger: new Set<string>(), moved: new Set<string>(), blank: [], extra: 0 }; e.blank.push(r.name);
-            if (!(r.appointment_id && e.ledger.has(r.appointment_id))) e.extra++;
+            if (!e.ledger.has(r.appointment_id)) e.extra++;
             days.set(r.day, e);
           }
         } catch (e) { ghl = String((e as Error).message).slice(0, 200); }   // GHL unread: the ledger's days still go out

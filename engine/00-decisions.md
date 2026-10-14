@@ -2502,7 +2502,7 @@ Tyler's rulings, relayed the same day and built together.
   the call edits the thread line (`r3s`, "🔁 Rescheduled or cancelled on the call, per <closer>.") and takes the earlier
   👻 / ✅ back. Tags and the thread line already followed the new answer (D76). Not changed: the cards after a change to
   "rescheduled on the call" stay where the earlier answer put them (no template has a stage for it).
-- **Calls booked before the engine.** "Calls booked before the engine was installed: only have [those] that have an
+- **Calls booked before the engine** (removed by D110). "Calls booked before the engine was installed: only have [those] that have an
   empty disposition in the Sales Call object." The end-of-day form for a closer also lists their GHL Sales Calls
   (`closer` = their roster name) whose call time has passed and that carry neither a filed outcome (blank, or a value
   the company's map does not call filed, such as `scheduled`) nor a disposition, when the record is not one of the
@@ -2774,7 +2774,7 @@ existed (OFF into a new one, as every template). What an existing company sees s
 - **Unlinked payments and unmatched recordings** (A2, was `notify.ts` and the Whop / Zapier / recording doors).
   `payment.unlinked` and `recording.unlinked` are dispatched; the **Unlinked payment** and **Unmatched recording**
   workflows post the same words. `notifyTeam` is gone. An event with no contact and no person starts a run about the company.
-- **An end-of-day answer for a Sales Call booked before the engine** (A3, was `eod.ts` `fileGhlRow`). It is an
+- **An end-of-day answer for a Sales Call booked before the engine** (A3, was `eod.ts` `fileGhlRow`; removed by D110). It is an
   `eod.call_filed` event; the **Sales Call filed from the end-of-day form** workflow writes the record by its own id
   (`crm_record` `record_id`), the disposition from a pick the company edits.
 - **The end-of-day reminder** (A4, was `eod_due` in the executor). `lookback_days` (7), `include_today` and
@@ -3430,6 +3430,32 @@ setting the company's workflows or the engine read, as the Settings page does (s
 it replaced so the change can be undone. Secrets are refused (install sets them; D100 copies the shared AI keys); so is a
 key nothing reads and an empty value.
 - Test: `binding-set.test.ts`.
+
+## D110. The end-of-day form is the engine's bookings only (2026-10-14)
+
+D77 put a closer's GHL Sales Calls with no engine booking (calls booked before the engine was installed) on the
+end-of-day form as their own rows; filing one was an `eod.call_filed` event, and the "EOD: results for calls booked before
+the switch-over" workflow (`eod-call-filed`, D88 A3) wrote the answer onto that record by its id. Tyler: "remove that one
+entirely. We are running in ghost mode, so we should have everything in the engine." The engine polls bookings from
+install on, shadow included, so every call a closer takes is a booking it has; a workflow for a passing edge case, with a
+trigger that is not "whenever X happens, do Y", is not wanted.
+- Gone: the `eod-call-filed` template and PMU's copy (`installs/pmu/build.py` no longer builds it); the form's `ghl:<record>`
+  rows and `record_id`; the filing path that emitted `eod.call_filed`; the event type (its label, its seed in
+  `engine/schema.sql`). A form opened before this that still sends a `ghl:` row has that row dropped before anything is
+  stored. `migrate` deletes the `eod.call_filed` row from `event_types` once no event and no trigger points at it; events
+  already in the journal stay as history and keep the row with them, and while it stays nothing offers it as a start
+  (the Health page's list of starts) or accepts it in a definition (`RETIRED_EVENTS`). Company copies of the workflow are
+  deleted through the admin DELETE after deploy; until then a copy is harmless (nothing emits its event).
+- The end-of-day reminder (`eod_due`) counts only Sales Calls that are the engine's bookings (one we wrote, one carrying a
+  booking's id or slot, or the person's booking that same minute). D76 and D82 stand for those: GHL is the truth, a booking
+  filed there is answered whatever the ledger holds, and one still blank there is owed and, two days on, told to the
+  operator. A Sales Call with no booking is neither a row nor counted.
+- Stays: ledger drift and the metrics still read GHL's Sales Call records, every one of them, for the numbers and the drift
+  questions (D73, D83); the Ledger drift workflow still writes records by id.
+- D108 named three end-of-day workflows; the third is gone.
+- Tests: `eod.test.ts` (the form lists only the engine's bookings and drops a stale `ghl:` row, nothing written; the
+  reminder counts a booking blank in GHL and not a record with no booking; migrate drops the event type only once nothing
+  points at it, and while it stays it is offered nowhere).
 
 ## D111. The chart is exactly the workflow, or it says so (2026-10-14)
 
