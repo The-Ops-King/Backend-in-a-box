@@ -12,6 +12,7 @@ import { fathomCreateWebhook } from "@/adapters/fathom/client";
 import { whopCreateWebhook } from "@/adapters/whop/client";
 import { goLive, type Cleared } from "./golive";
 import { BOOKING_CARD_KEY, backfillBookingCard, intakeProblem, type IntakeLine } from "./booking-card";
+import { chartLayoutOf, notDrawable } from "@/api/chart-verdict";
 
 /**
  * A calendar's mapping: the kind of call it books; optionally how setter-vs-self is decided on it (`booking`: self | setter |
@@ -78,6 +79,9 @@ export async function installTemplates(c: import("pg").PoolClient, companyId: st
   await backfillBookingCard(c, companyId);   // D104: before Call booked can upgrade to the card that reads it
   for (const t of templates.filter((t) => wanted.includes(t.slug))) {
     const def = parseDefinition(t.definition); const manifest = extractManifest(def);
+    // D111: a template whose chart no layout draws exactly is not put on a company (chart-layout.test holds every shipped one to it)
+    const chart = await chartLayoutOf(def);
+    if (chart.layout === "list") { installed.push(`${t.slug} → refused: ${notDrawable(chart.problems)}: ${chart.problems.join("; ")}`); continue; }
     // the template row follows the code: a changed definition is a new template version
     let tpl = await one<{ id: string; version: number; definition: unknown }>(c, "select id, version, definition from workflow_templates where slug=$1", [t.slug]);
     if (!tpl) tpl = await one<{ id: string; version: number; definition: unknown }>(c, "insert into workflow_templates (slug, name, description, category, stage, sort, origin, definition, manifest, published_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,now()) returning id, version, definition", [t.slug, t.name, t.description, t.category, t.stage, t.sort, t.origin, t.definition, manifest]);

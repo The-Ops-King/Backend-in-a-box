@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { one } from "@/db/client";
 import { parseDefinition, type Definition, type Node } from "./definition";
 import { KNOWN_ROOTS, referencedPaths } from "./template";
+import { chartLayoutOf, notDrawable, type Layout } from "@/api/chart-verdict";
 
 /**
  * Editing the words of a message in a company's copy of a workflow: a new workflow version with only that text changed,
@@ -20,7 +21,7 @@ export function validateCopy(text: string): { ok: true } | { ok: false; why: str
   return { ok: true };
 }
 
-export async function saveCopy(c: PoolClient, args: { workflowId: string; nodeId: string; field: CopyField; text: string; by?: string }): Promise<{ ok: true; version: number } | { ok: false; why: string }> {
+export async function saveCopy(c: PoolClient, args: { workflowId: string; nodeId: string; field: CopyField; text: string; by?: string }): Promise<{ ok: true; version: number; layout?: Layout } | { ok: false; why: string }> {
   const v = validateCopy(args.text); if (!v.ok) return v;
   const w = await one<{ id: string; company_id: string; current_version: number }>(c, "select id, company_id, current_version from workflows where id=$1", [args.workflowId]);
   if (!w) return { ok: false, why: "workflow not found" };
@@ -33,10 +34,11 @@ export async function saveCopy(c: PoolClient, args: { workflowId: string; nodeId
   const before = node[args.field];
   if (before === args.text) return { ok: true, version: w.current_version };
   node[args.field] = args.text;
-  try { parseDefinition(def); } catch (e) { return { ok: false, why: `the change does not validate: ${String((e as Error).message).slice(0, 200)}` }; }
+  let parsed; try { parsed = parseDefinition(def); } catch (e) { return { ok: false, why: `the change does not validate: ${String((e as Error).message).slice(0, 200)}` }; }
+  const chart = await chartLayoutOf(parsed); if (chart.layout === "list") return { ok: false, why: `${notDrawable(chart.problems)}: ${chart.problems.join("; ")}` };
   const next = w.current_version + 1;
   await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [w.id, next, def, cur.manifest, `copy edited: ${args.nodeId}.${args.field}`]);
   await c.query("update workflows set current_version=$2, diverged=true, diverged_at=coalesce(diverged_at, now()) where id=$1", [w.id, next]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.copy_edited','workflow',$2,$3,$4)", [w.company_id, w.id, { node: args.nodeId, field: args.field, text: before }, { node: args.nodeId, field: args.field, text: args.text, version: next, by: args.by ?? "dashboard" }]);
-  return { ok: true, version: next };
+  return { ok: true, version: next, layout: chart.layout };
 }

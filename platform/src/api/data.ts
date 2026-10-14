@@ -146,6 +146,14 @@ export async function runPage(c: PoolClient, id: string) {
   const safe = Object.fromEntries(Object.entries(bindings).filter(([k]) => !k.startsWith("secret.")));
   const chart = def ? chartOf(def, { name: co.name, timezone: co.timezone }, safe, adapterCompany.booking.source) : null;
   const states: Record<string, PathItem["state"]> = {}; for (const p of path) if (!(p.node_id in states) || p.state !== "next") states[p.node_id] = p.state;
+  // the feed leaves out the values a run remembers; the chart draws them (D111), so they wear what they did
+  for (const s of steps) if (s.node_type === "set_var") states[s.node_id] = s.status === "skipped" || s.status === "stale" ? "skip" : s.status === "failed" ? "warn" : "ok";
+  // D111: a run that ended or paused off a step's side (a check's stop or pause, a hand-off) lights that end
+  if (chart && r.current_node) {
+    const ends = chart.edges.filter((e) => e.from === r.current_node).map((e) => chart.nodes.find((n) => n.id === e.to)!).filter((n) => n && n.kind === "end" && (n.id.includes("~") || def?.nodes.some((m) => m.id === n.id && m.type === "exit" && m.reason === r.exit_reason)));
+    const hit = r.status === "paused" ? ends.find((n) => n.id.endsWith("~pause") && !!r.exit_reason?.includes(n.title.replace(/^Paused for a person: /, ""))) : r.status === "completed" || r.status === "exited" ? ends.find((n) => !n.id.endsWith("~pause")) : undefined;
+    if (hit) states[hit.id] = r.status === "paused" ? "stop" : "ok";
+  }
   return { company: co, workflow: { id: r.workflow_id, name: r.workflow },
     run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, (await workflowMode(c, r.workflow_id))!.mode, bindings)) === "shadow",
       // D66: where it stopped and why, and whether a person can retry or skip that step (a step with no plain way on can only be retried)
