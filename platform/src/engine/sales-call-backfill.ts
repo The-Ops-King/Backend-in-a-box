@@ -48,7 +48,10 @@ export type SalesCallReport = {
   company: string; from: string; to: string; closer: string | null; dry_run: boolean; complete: boolean; resume_from?: string; plan_id?: string;
   rows: SalesCallRow[]; summary: Record<string, number>; errors: string[];
 };
-export type SalesCallOptions = { from: Date; to: Date; closer?: string; dryRun?: boolean; eodObject?: string; budgetMs?: number; now?: Date; concurrency?: number };
+/** A person's call on what the evidence leaves open, or a person to leave out: each says why, and the plan keeps it. */
+export type SalesCallDecision = { slot: string; fields: Record<string, string | number>; why: string };
+export type SalesCallExclusion = { email: string; why: string };
+export type SalesCallOptions = { from: Date; to: Date; closer?: string; dryRun?: boolean; eodObject?: string; budgetMs?: number; now?: Date; concurrency?: number; decide?: SalesCallDecision[]; exclude?: SalesCallExclusion[] };
 export type LoadedCompany = { row: CompanyRow; adapterCompany: Company; bindings: Record<string, string> };
 
 const RECORD_ID = "(this record)";   // stands in for the CRM id the write gets back
@@ -87,11 +90,11 @@ type LedgerAppt = { id: string; contact_id: string; external_id: string; slot_ke
 /** A slot a move left, as its own source tells it: when it was moved, to when, by whom. Its time is always its own start, never the replacement's. */
 type Move = { source: string; at: Date | null; to: Date | null; by: string; reason: string };
 type Slot = { kind: "booking" | "left_slot"; key: string; startsAt: Date; appt?: LedgerAppt; snap?: AppointmentSnapshot; move?: Move; calendar: string; termName: string; selfBooked: boolean | null; closer: Closer | null; contactId: string | null; email: string | null };
-type Fact<T> = { value: T; source: string; detail: string; rank: number };
+type Fact<T> = { value: T; source: string; detail: string; rank: number; tied?: boolean };
 type Shared = {
   c: PoolClient; co: LoadedCompany; adapters: Adapters; setup: Setup; now: Date; eods: ObjectRecord[]; existing: Map<string, ObjectRecord>;
   daySlots: Map<string, Slot[]>; starts: Map<string, Date>; recreated: Map<string, { from: string; at: Date | null }>; notes: Map<string, Promise<ContactNote[]>>; cards: Map<string, Promise<LiveCard[]>>; coverage: Map<string, { since: Date; recorded: number; calls: number }>;
-  staff: Set<string>; domains: string[];
+  staff: Set<string>; domains: string[]; decide: Map<string, SalesCallDecision>; exclude: SalesCallExclusion[];
 };
 
 const iso = (d: Date | string) => (typeof d === "string" ? d : d.toISOString());
@@ -195,10 +198,12 @@ export async function backfillSalesCalls(c: PoolClient, co: LoadedCompany, adapt
       calendar: a.cal_name ?? a.term_name, termName: a.term_name, selfBooked: a.self_booked ?? a.calendar_self, closer: users.find((u) => u.id === a.assigned_user_id) ?? null, contactId: a.contact_id, email: null });
   }
   slots.sort((x, y) => x.startsAt.getTime() - y.startsAt.getTime() || x.key.localeCompare(y.key));
+  checkDecisions(setup, slots, opts.decide ?? [], opts.exclude ?? []);
 
   const shared: Shared = {
     c, co, adapters, setup, now, eods: [], existing: new Map(), daySlots: new Map(), starts: new Map([...[...snaps.values()].map((x): [string, Date] => [x.id, new Date(x.startTime)]), ...ledger.map((a): [string, Date] => [a.external_id, a.starts_at])]), recreated, notes: new Map(), cards: new Map(), coverage: new Map(),
     staff: new Set(users.map((u) => u.email.toLowerCase())), domains: testDomains(co.bindings),
+    decide: new Map((opts.decide ?? []).map((d) => [d.slot, d])), exclude: opts.exclude ?? [],
   };
   for (const s of slots) { const k = `${s.closer?.id ?? ""}:${local(s.startsAt, tz).toISODate()}`; shared.daySlots.set(k, [...(shared.daySlots.get(k) ?? []), s]); }
   for (const u of new Set(slots.map((s) => s.closer).filter((x): x is Closer => !!x))) { const cov = await recordingCoverage(c, co.row.id, u, opts.to, shared.domains); if (cov) shared.coverage.set(u.id, cov); }
@@ -271,6 +276,8 @@ async function readSlot(sh: Shared, s: Slot): Promise<SalesCallRow> {
   row.contact = { id: s.contactId, ghl_contact_id: ct?.ghl_contact_id ?? null, name: ct?.name ?? null, email: emails[0] ?? s.email };
   if (isTestContact({ tags: ct?.tags, emails }, sh.domains)) { row.skipped = "a test contact (sys-test or a test domain): counted nowhere"; return row; }
   if (emails.some((e) => sh.staff.has(e.toLowerCase()))) { row.skipped = "a team member's own booking"; return row; }
+  const out = sh.exclude.find((x) => [...emails, s.email ?? ""].some((e) => e.toLowerCase() === x.email.trim().toLowerCase()));
+  if (out) { row.skipped = `left out by the operator: ${out.why}`; return row; }
 
   // the CRM's id for the person: the replica's, else the CRM's one contact with that email (the write links it the poll's way)
   let link: SalesCallWrite["link_contact"] = null;
@@ -351,7 +358,7 @@ async function readSlot(sh: Shared, s: Slot): Promise<SalesCallRow> {
     const files = stage ? STAGE_FILES[stage] : undefined, leans = stage ? STAGE_LEANS[stage] : undefined;
     const words = `card on ${stage?.replace(/_/g, " ") ?? "a stage the engine has no name for"} since ${movedAt ? local(movedAt, tz).toFormat("LLL d, h:mm a") : "an unknown time"}`;
     if (tied && files) { att.push({ value: files.attendance, source: "GHL card", detail: `${words}, after this call and before any later one`, rank: 3 }); if (files.disposition) { const k = keyFor(setup, files.disposition); if (k) disp.push({ value: k, source: "GHL card", detail: words, rank: 2 }); } }
-    else if (files || leans) { const l = (files ?? leans)!; leanAtt.push({ value: l.attendance, source: "GHL card", detail: tied ? words : `${words} (not tied to this call alone)`, rank: 2 }); if (l.disposition) { const k = keyFor(setup, l.disposition); if (k) leanDisp.push({ value: k, source: "GHL card", detail: words, rank: 2 }); } }
+    else if (files || leans) { const l = (files ?? leans)!; leanAtt.push({ value: l.attendance, source: "GHL card", detail: tied ? words : `${words} (not tied to this call alone)`, rank: 2, tied }); if (l.disposition) { const k = keyFor(setup, l.disposition); if (k) leanDisp.push({ value: k, source: "GHL card", detail: words, rank: 2, tied }); } }
     if (card.status === "won" && tied && !disp.some((d) => d.source === "payments ledger")) { const k = keyFor(setup, "closed"); if (k) disp.push({ value: k, source: "GHL card", detail: `card won ${movedAt ? local(movedAt, tz).toFormat("LLL d") : ""}`.trim(), rank: 2 }); }
   }
 
@@ -372,7 +379,12 @@ async function readSlot(sh: Shared, s: Slot): Promise<SalesCallRow> {
     else if (vals.length > 1) {
       const best = [...att].sort((a, b) => a.rank - b.rank)[0];
       row.unknown.push({ field: "outcome", likely: best.value, why: `the evidence disagrees: ${att.map((f) => `${f.source} says ${f.value} (${f.detail})`).join("; ")}` });
-    } else row.unknown.push(likelyAttendance(sh, s, leanAtt, salesRecs.length));
+    } else {
+      // the card, moved after this call and before any later one, is the outcome when nothing says otherwise (D115 addendum)
+      const card = uncontested(leanAtt);
+      if (card) { outcome = card; for (const f of leanAtt) add("outcome", f.source, `${f.detail}; nothing says otherwise`); }
+      else row.unknown.push(likelyAttendance(sh, s, leanAtt, salesRecs.length));
+    }
   }
   if (outcome) row.fields.outcome = outcomeKey(setup, outcome);
 
@@ -392,6 +404,7 @@ async function readSlot(sh: Shared, s: Slot): Promise<SalesCallRow> {
     if (outcome === "showed" && vals.length === 1) { row.fields.disposition = vals[0]; for (const f of disp) add("disposition", f.source, f.detail); }
     else if (vals.length > 1) { const best = [...disp].sort((a, b) => a.rank - b.rank)[0]; row.unknown.push({ field: "disposition", likely: best.value, why: `the evidence disagrees: ${disp.map((f) => `${f.source} says ${f.value} (${f.detail})`).join("; ")}` }); }
     else if (vals.length === 1) row.unknown.push({ field: "disposition", likely: vals[0], why: `${disp.map((f) => `${f.source}: ${f.detail}`).join("; ")}; left blank while it is unknown whether the call was held` });
+    else if (outcome === "showed" && uncontested(leanDisp)) { row.fields.disposition = uncontested(leanDisp)!; for (const f of leanDisp) add("disposition", f.source, `${f.detail}; nothing says otherwise`); }
     else {
       const lean = [...leanDisp].sort((a, b) => a.rank - b.rank)[0];
       row.unknown.push({ field: "disposition", likely: lean?.value ?? "can't tell", why: lean ? leanDisp.map((f) => `${f.source}: ${f.detail}`).join("; ") : salesRecs.length ? "the transcript does not show how it ended and nobody wrote it down" : "no recording, no end-of-day line and no note says how it ended" });
@@ -419,8 +432,36 @@ async function readSlot(sh: Shared, s: Slot): Promise<SalesCallRow> {
     } else row.remarks.push("the call review could not be read (no AI key, or it failed): objections and next step left out");
   }
 
+  const d = sh.decide.get(s.key);
+  if (d) for (const [f, v] of Object.entries(d.fields)) {
+    row.fields[f] = v; row.unknown = row.unknown.filter((u) => u.field !== f);
+    row.evidence[f] = [{ source: "operator decision", detail: d.why }, ...(row.evidence[f] ?? [])];
+  }
   row.write = await writeFor(sh, s, row, link);
   return row;
+}
+
+/** The value of a card tied to this call when every other clue agrees with it. */
+const uncontested = <T>(leans: Fact<T>[]): T | null => {
+  const card = leans.find((f) => f.source === "GHL card" && f.tied);
+  return card && leans.every((f) => f.value === card.value) ? card.value : null;
+};
+
+/** A decision names a call in the window and a value the field takes; a mistake stops the run before anything is read. */
+function checkDecisions(setup: Setup, slots: Slot[], decide: SalesCallDecision[], exclude: SalesCallExclusion[]) {
+  const keys = new Set(slots.map((x) => x.key)), bad: string[] = [];
+  for (const d of decide) {
+    if (!keys.has(d.slot)) bad.push(`${d.slot} is no call of this window`);
+    if (!d.why?.trim()) bad.push(`the decision on ${d.slot} says no why`);
+    for (const [f, v] of Object.entries(d.fields ?? {})) {
+      const def = setup.fields?.get(f);
+      if (setup.fields && !def) bad.push(`the Sales Call object has no ${f} field (${d.slot})`);
+      else if (def?.options?.length && !def.options.some((o) => o.key === String(v))) bad.push(`${v} is no option of ${f} (${d.slot}): ${def.options.map((o) => o.key).join(", ")}`);
+    }
+  }
+  if (new Set(decide.map((d) => d.slot)).size !== decide.length) bad.push("a call is decided twice");
+  for (const x of exclude) if (!x.email?.trim() || !x.why?.trim()) bad.push("an exclusion needs an email and a why");
+  if (bad.length) throw new Error(`decisions: ${bad.join("; ")}`);
 }
 
 const keyFor = (setup: Setup, meaning: string) => setup.dispositions.find((d) => d.meaning === meaning)?.key ?? null;

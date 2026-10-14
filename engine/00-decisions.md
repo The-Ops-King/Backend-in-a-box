@@ -3757,3 +3757,17 @@ label and `scheduled_at`, and says where it went. A move the engine saw itself (
 calendar that keeps the booking's id) is a left slot too, at `starts_at.from`. The review page heads each call with the person's
 name and email. Test: a chain moved twice keeps three dates; a same-time re-make makes one record; a GHL move's old slot has its
 own date.
+
+### D115 addendum 2. The card stands when nothing says otherwise; a person decides the rest, on the record (2026-10-14)
+
+Reviewing PMU's second dry run, Tyler: "If the card says the outcome with no other supporting data for something else, that is
+likely the outcome. If you can't tell, don't do anything yet. Use the supporting data to make your best decisions." Two changes.
+First, a card stage that was only a lean (Follow Up, Closed Won, Cancelled, Rescheduled) now files the outcome, and the disposition
+it implies for a held call, when the card moved after this call and before any later held one and every other clue agrees with
+it; any clue that disagrees (a slot cleared after its start, a note read the other way) keeps the field blank, as before. Second,
+a dry run takes `decide: [{ slot, fields, why }]` for what the evidence leaves open and `exclude: [{ email, why }]` for people
+to leave out without tagging them in the CRM. Each decided field gets "operator decision: <why>" as its first evidence and loses
+its "most likely" line. An exclusion skips the row with its why. Both stay in the plan the write applies. A decision for a call
+outside the window, a field the object lacks, an option the field doesn't have, or a call decided twice stops the run with a 400
+before anything is read. Test: a card alone files showed/follow up; the same card against a slot cleared after its start stays
+blank; a decision and an exclusion reach the plan; mistakes are refused.

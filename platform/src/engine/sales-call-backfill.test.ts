@@ -8,7 +8,7 @@ import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { loadCompany } from "@/engine/context";
 import { backfillCompany } from "@/engine/backfill";
-import { applySalesCallPlan, backfillSalesCalls, type SalesCallReport, type SalesCallRow } from "@/engine/sales-call-backfill";
+import { applySalesCallPlan, backfillSalesCalls, type SalesCallDecision, type SalesCallExclusion, type SalesCallReport, type SalesCallRow } from "@/engine/sales-call-backfill";
 import { installCompany } from "@/engine/install";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { syncTriggers } from "@/engine/install";
@@ -24,12 +24,15 @@ const iso = (d: DateTime) => d.toUTC().toISO()!;
 const people: Record<string, ContactSnapshot> = Object.fromEntries([
   ["GA", "Ann", "a@x.com", []], ["GB", "Bea", "b@x.com", []], ["GC", "Cat", "c@x.com", []], ["GD", "Dee", "d@x.com", []], ["GE", "Eve", "e@x.com", []],
   ["GF", "Fay", "f@x.com", []], ["GG", "Gus", "g@x.com", ["sys-test"]], ["GH", "Hal", "h@x.com", []], ["GI", "Ivy", "i@x.com", []], ["GJ", "Joy", "j@x.com", []], ["GK", "Kim", "k@x.com", []], ["GM", "Mo", "m@x.com", []],
+  ["GN", "Nia", "n@x.com", []], ["GP", "Pia", "p@x.com", []],
 ].map(([id, first, email, tags]) => [id as string, { id: id as string, firstName: first as string, lastName: "Test", email: email as string, tags: tags as string[], customFields: {}, dateUpdated: iso(at(25, 9)), dateAdded: iso(at(25, 9)) }]));
 
 const snap = (id: string, cal: string, contact: string | null, start: DateTime, extra: Partial<AppointmentSnapshot> = {}): AppointmentSnapshot => ({
   id, calendarId: cal, ...(contact ? { contactId: contact } : {}), assignedUserEmail: "carly@x.com", startTime: iso(start), endTime: iso(start.plus({ minutes: 45 })), status: "confirmed", dateAdded: iso(start.minus({ days: 3 })), raw: {}, ...extra });
 // a chain the host moved twice, each slot at its own time (K0 → K1 → K2), and a booking Calendly re-made at the same time (M0 → M1)
 const K0 = at(14, 10), K1 = at(13, 13), K2 = at(12, 11), M = at(1, 10);
+// N: only the card says what happened; P: the card and the booking source disagree
+const N = at(11, 15), P = at(12, 15);
 const A = at(10, 15), B = at(9, 15), C0 = at(8, 11), C1 = at(8, 16), D = at(7, 15), E = at(6, 15), F = at(6, 17), G = at(5, 15), H = at(4, 15), I = at(3, 15), J = at(2, 15);
 const bookings: Record<string, AppointmentSnapshot[]> = {
   CAL: [
@@ -48,6 +51,8 @@ const bookings: Record<string, AppointmentSnapshot[]> = {
     snap("evt-K2", "CAL", "GK", K2, { rescheduledFrom: "evt-K1" }),
     snap("evt-M0", "CAL", "GM", M, { status: "cancelled", rescheduledTo: "evt-M1", cancellation: { by: "Carly Vu", byType: "host", reason: "Rescheduled from connected calendar event", at: iso(M.minus({ days: 1 })) } }),
     snap("evt-M1", "CAL", "GM", M, { rescheduledFrom: "evt-M0" }),
+    snap("evt-N", "CAL", "GN", N),
+    snap("evt-P", "CAL", "GP", P, { status: "cancelled", cancellation: { by: "Carly Vu", byType: "host", reason: "", at: iso(P.plus({ minutes: 30 })) } }),
   ],
   DEMO: [snap("evt-J", "DEMO", null, J, { invitee: { email: "j@x.com", firstName: "Joy", lastName: "Test" } })],
 };
@@ -55,7 +60,9 @@ const bookings: Record<string, AppointmentSnapshot[]> = {
 /** What the vendors hold, and every write the engine makes to them. */
 const world = {
   records: [] as ObjectRecord[], creates: 0, updates: [] as { id: string; properties: Record<string, unknown> }[], relations: [] as string[], jevAsked: [] as string[],
-  cards: { GI: [{ id: "OPP-I", pipelineId: "P", stageId: "S-NS", status: "open", name: "Ivy", updatedAt: iso(I.plus({ hours: 2 })), stageChangedAt: iso(I.plus({ hours: 2 })) }], GA: [{ id: "OPP-A", pipelineId: "P", stageId: "S-FU", status: "open", name: "Ann", updatedAt: iso(A.plus({ days: 1 })), stageChangedAt: iso(A.plus({ days: 1 })) }] } as Record<string, LiveCard[]>,
+  cards: { GI: [{ id: "OPP-I", pipelineId: "P", stageId: "S-NS", status: "open", name: "Ivy", updatedAt: iso(I.plus({ hours: 2 })), stageChangedAt: iso(I.plus({ hours: 2 })) }], GA: [{ id: "OPP-A", pipelineId: "P", stageId: "S-FU", status: "open", name: "Ann", updatedAt: iso(A.plus({ days: 1 })), stageChangedAt: iso(A.plus({ days: 1 })) }],
+    GN: [{ id: "OPP-N", pipelineId: "P", stageId: "S-FU", status: "open", name: "Nia", updatedAt: iso(N.plus({ days: 1 })), stageChangedAt: iso(N.plus({ days: 1 })) }],
+    GP: [{ id: "OPP-P", pipelineId: "P", stageId: "S-FU", status: "open", name: "Pia", updatedAt: iso(P.plus({ days: 1 })), stageChangedAt: iso(P.plus({ days: 1 })) }] } as Record<string, LiveCard[]>,
 };
 const FIELDS = [["display_label"], ["external_id"], ["contact_id"], ["opportunity_id"], ["scheduled_at"], ["call_date", "DATE"], ["setter"], ["recording_url"], ["notes", "LARGE_TEXT"],
   ["closer", "SINGLE_OPTIONS", ["carly", "annabelle"]], ["outcome", "SINGLE_OPTIONS", ["scheduled", "showed", "no_show", "cancelled", "rescheduled"]], ["disposition", "SINGLE_OPTIONS", ["closed_won", "deposit", "dq", "no_offer", "follow_up", "lost"]],
@@ -143,7 +150,7 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     });
     const pays = async () => [{ providerPaymentId: "pay_D", amount: 10000, status: "succeeded" as const, paidAt: D.plus({ hours: 2 }).toJSDate(), email: "d@x.com", raw: { backfill: true } }];
     const hist = await asOperator(async (c) => { const { row, adapterCompany, bindings } = await loadCompany(c, companyId); return backfillCompany(c, row, adapterCompany, adapters(), bindings, window(), pays, ["appointments", "recordings", "payments"]); });
-    expect(hist).toMatchObject({ appointments: 12, recordings: 1, recordingsUnlinked: 0, payments: 1, errors: [] });
+    expect(hist).toMatchObject({ appointments: 14, recordings: 1, recordingsUnlinked: 0, payments: 1, errors: [] });
   });
 
   it("a moved booking's every slot is its own row at its own time; a same-time re-make is no move", async () => {
@@ -178,7 +185,7 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     expect(dry.complete).toBe(true);
     expect(dry.plan_id).toBeTruthy();
     // only the closer's calls: Annabelle's is not here; the moved slot is its own row
-    expect(dry.rows.map((r) => r.slot_key).sort()).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-E0", "evt-G", "evt-H", "evt-I", "evt-J", "evt-K0", "evt-K1", "evt-K2", "evt-M1"]);
+    expect(dry.rows.map((r) => r.slot_key).sort()).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-E0", "evt-G", "evt-H", "evt-I", "evt-J", "evt-K0", "evt-K1", "evt-K2", "evt-M1", "evt-N", "evt-P"]);
     expect(rowOf(dry, "evt-G").skipped).toMatch(/test contact/);
 
     const a = rowOf(dry, "evt-A");   // a recording: showed; the transcript says how it ended and what was said
@@ -200,6 +207,12 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     expect(rowOf(dry, "evt-H").fields.outcome).toBe("no_show");   // the closer's end of day, read by Jev
     expect(rowOf(dry, "evt-H").evidence.outcome[0].source).toBe("end-of-day report");
     expect(rowOf(dry, "evt-I").fields.outcome).toBe("no_show");   // the card dragged to No Show after the call
+    const n = rowOf(dry, "evt-N");   // the card on Follow Up after the call, and nothing else says otherwise
+    expect(n.fields).toMatchObject({ outcome: "showed", disposition: "follow_up" });
+    expect(n.evidence.outcome).toEqual([{ source: "GHL card", detail: expect.stringMatching(/follow up.*nothing says otherwise/) }]);
+    const pia = rowOf(dry, "evt-P");   // the same card, but the host cleared the slot after its start: they disagree, so blank
+    expect(pia.fields.outcome).toBeUndefined();
+    expect(pia.unknown.find((u) => u.field === "outcome")!.why).toMatch(/GHL card.*Calendly|Calendly.*GHL card/);
     const j = rowOf(dry, "evt-J");   // a Demo call whose person the engine had no GHL id for: found by email, linked on write
     expect(j.fields).toMatchObject({ call_type: "demo" });
     expect(j.write!.link_contact).toMatchObject({ ghl_contact_id: "GJ" });
@@ -211,13 +224,13 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
   it("the write applies the reviewed plan once: records keyed by the slot, related, in crm_records, the ledger's outcome, no runs", async () => {
     const before = await counts();
     const w = await asOperator(async (c) => applySalesCallPlan(c, await loadCompany(c, companyId), adapters(), [dry.plan_id!]));
-    expect(w.summary).toMatchObject({ written: 14, created: 14, errors: 0, skipped: 1 });
-    expect(world.records.map((r) => r.properties.external_id).sort()).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-E0", "evt-H", "evt-I", "evt-J", "evt-K0", "evt-K1", "evt-K2", "evt-M1"]);
+    expect(w.summary).toMatchObject({ written: 16, created: 16, errors: 0, skipped: 1 });
+    expect(world.records.map((r) => r.properties.external_id).sort()).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-E0", "evt-H", "evt-I", "evt-J", "evt-K0", "evt-K1", "evt-K2", "evt-M1", "evt-N", "evt-P"]);
     const recA = world.records.find((r) => r.properties.external_id === "evt-A")!;
     expect(world.relations).toEqual(expect.arrayContaining([`AS-C:GA→${recA.id}`, `AS-O:${recA.id}→OPP-A`]));
     expect(world.records.find((r) => r.properties.external_id === "evt-E")!.properties.outcome).toBeUndefined();
     const ours = await asOperator((c) => many<{ record_key: string; ghl_record_id: string }>(c, "select record_key, ghl_record_id from crm_records where company_id=$1 order by record_key", [companyId]));
-    expect(ours.map((r) => r.record_key)).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-E0", "evt-H", "evt-I", "evt-J", "evt-K0", "evt-K1", "evt-K2", "evt-M1"]);
+    expect(ours.map((r) => r.record_key)).toEqual(["evt-A", "evt-B", "evt-C0", "evt-C1", "evt-D", "evt-E", "evt-E0", "evt-H", "evt-I", "evt-J", "evt-K0", "evt-K1", "evt-K2", "evt-M1", "evt-N", "evt-P"]);
     const ledger = await asOperator((c) => many<{ external_id: string; status: string; outcome: string | null; call_outcome: string | null }>(c, `select a.external_id, a.status, ot.category as outcome, cot.category as call_outcome from appointments a
       left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term where a.company_id=$1 order by a.external_id`, [companyId]));
     expect(Object.fromEntries(ledger.map((l) => [l.external_id, [l.status, l.outcome, l.call_outcome]]))).toMatchObject({
@@ -234,15 +247,33 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     const created = world.creates;
     const again = await run({ dryRun: false });
     expect(world.creates).toBe(created);
-    expect(again.summary).toMatchObject({ written: 14, updated: 14, created: 0 });
+    expect(again.summary).toMatchObject({ written: 16, updated: 16, created: 0 });
     expect(world.records.find((r) => r.properties.external_id === "evt-B")!.properties.outcome).toBe("showed");
     expect(rowOf(again, "evt-B").written!.kept).toEqual([expect.stringMatching(/^outcome/)]);
-    expect(await asOperator((c) => many(c, "select 1 from crm_records where company_id=$1", [companyId]))).toHaveLength(14);
+    expect(await asOperator((c) => many(c, "select 1 from crm_records where company_id=$1", [companyId]))).toHaveLength(16);
     expect((await counts()).runs).toBe(0);
   });
 
   it("another closer's pass sees only theirs", async () => {
     const r = await run({ dryRun: true, closer: "annabelle@x.com" });
     expect(r.rows.map((x) => x.slot_key)).toEqual(["evt-F"]);
+  });
+
+  it("a person's decisions and exclusions land in the plan with their why; a mistake stops the run", async () => {
+    const pass = (decide: SalesCallDecision[], exclude: SalesCallExclusion[] = []) => asOperator(async (c) => backfillSalesCalls(c, await loadCompany(c, companyId), adapters(), { ...window(), closer: "carly@x.com", dryRun: true, eodObject: "custom_objects.closer_eod", decide, exclude }));
+    const r = await pass([{ slot: "evt-E", fields: { outcome: "showed", disposition: "follow_up" }, why: "her next call calls this one her first" }], [{ email: "B@x.com", why: "a teammate's test bookings" }]);
+    const e = rowOf(r, "evt-E");
+    expect(e.fields).toMatchObject({ outcome: "showed", disposition: "follow_up" });
+    expect(e.unknown.map((u) => u.field)).not.toEqual(expect.arrayContaining(["outcome"]));
+    expect(e.unknown.map((u) => u.field)).not.toEqual(expect.arrayContaining(["disposition"]));
+    expect(e.evidence.outcome[0]).toEqual({ source: "operator decision", detail: "her next call calls this one her first" });
+    expect(e.write!.properties).toMatchObject({ outcome: "showed", disposition: "follow_up" });
+    expect(e.write!.ledger).toMatchObject({ outcome: "showed", call_outcome: "follow_up" });
+    expect(rowOf(r, "evt-B").skipped).toBe("left out by the operator: a teammate's test bookings");
+    expect(rowOf(r, "evt-B").write).toBeNull();
+    const plan = await asOperator((c) => one<{ after: { rows: SalesCallRow[] } }>(c, "select after from audit_log where id=$1::bigint", [r.plan_id]));
+    expect(plan!.after.rows.find((x) => x.slot_key === "evt-E")!.evidence.outcome[0].source).toBe("operator decision");
+    await expect(pass([{ slot: "evt-nope", fields: { outcome: "showed" }, why: "x" }, { slot: "evt-D", fields: { disposition: "maybe" }, why: "x" }]))
+      .rejects.toThrow(/evt-nope is no call of this window.*maybe is no option of disposition/);
   });
 });
