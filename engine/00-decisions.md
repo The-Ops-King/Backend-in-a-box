@@ -3777,9 +3777,9 @@ only the rest.
 ## D116. A money field goes with its currency (2026-10-14)
 
 Writing PMU's Sales Call history, the one closed call (Kellee, $10,000) was refused on create: GHL 400 "Cash Collected is
-missing a currency code". D90 had sent a MONETORY property as a bare number, and that held for Hair because every write there
-was an update of a record Call booked had made, which GHL takes a bare number for. A create is not so lenient. PMU's Cash
-Collected and Contract Value are MONETORY, and the first live PMU close would have failed the same way. Checked live on PMU's
+missing a currency code". D90 had sent a MONETORY property as a bare number. That held for Hair, whose writes were all
+updates and whose field takes a bare number. PMU's Cash Collected and Contract Value refuse one on create and on update alike
+(seen on both, 2026-10-14), so the first live PMU close would have failed the same way. Checked live on PMU's
 own record on 2026-10-14: `{ "currency": "default", "value": 10000 }` is taken on create and on update, and is what GHL reads
 back. So `propertyValue` sends MONETORY/MONETARY as that object, and NUMERICAL, FLOAT and NUMBER stay bare numbers. A value
 that is not a number still goes as written, so the CRM can name the problem. The backfill's "keep what someone filed in GHL"
