@@ -572,7 +572,9 @@ Still open:
   Typeform integration, no Zapier (#34).
 - With GHL calendars, a setter-booked call does not say who set it. The setter calendar needs a "who set this" booking
   field, or Calendly.
-- The payment processor (Payment recorded writes `processor: whop`); Fathom; the agreement template and sender (Deal closed
+- Fathom: done 2026-10-16. Nelly records in her own account (nellysudri@gmail.com; Tyler: "we're using the other one now",
+  blushtheapp.com is not used); the engine registered its own webhook from the key (`fathom.webhook_id` 8-RzsD2yJmHqCZL_).
+- Payments: Whop, with a separate deposit product (D119 `depositProducts`), once it is set up; the agreement template and sender (Deal closed
   needs paid and signed); the Anthropic key.
 - Tyler's words for `installs/dating-nelly/words.json`: welcome email subject and body, welcome text, the setter DQ wording
   and reasons (D118). Then build and save the copies again.
