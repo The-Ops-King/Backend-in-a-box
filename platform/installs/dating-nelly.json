@@ -1,6 +1,6 @@
 {
   "_note": "Dating Nelly, the pilot dating offer, inside the RapidCloser GHL location (D117 scope tag \"dating\"). Built by scripts/provision-ghl.ts from installs/dating/ghl-setup.json. No secrets: the PIT comes from the environment at install. Deposits run $100-$500 (Tyler, 2026-10-16).",
-  "name": "Dating Nelly",
+  "name": "Dating (Nelly)",
   "slug": "dating-nelly",
   "booking": {
     "source": "ghl"
@@ -47,7 +47,8 @@
       "think_about_it"
     ],
     "closerOptions": {
-      "mitch@revsignals.io": "mitch"
+      "mitch@revsignals.io": "mitch",
+      "nellysudri@gmail.com": "nelly"
     },
     "object": "custom_objects.dating_sales_call"
   },
