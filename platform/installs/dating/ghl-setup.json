@@ -1,0 +1,138 @@
+{
+  "_note": "What one dating company needs in its GHL location, read by scripts/provision-ghl.ts (additive only: it creates what is missing and never renames, changes or deletes). A second dating company is a copy of this file with its own prefix, object keys, calendar names, team and closer options. `prefix` goes in front of every pipeline, contact/opportunity field and calendar name; object keys and labels are written out in full. Option keys are the ones the engine writes and the install maps read (salesCall, discoveryCall below). `install` is merged into the output as the install skeleton; contract value and deposits live there, not in GHL. Mitch Sapoff is the placeholder closer and the only calendar team member for now.",
+  "prefix": "Dating – ",
+  "timezone": "America/New_York",
+  "team": ["mitch@revsignals.io"],
+  "hours": { "days": [1, 2, 3, 4, 5], "open": "09:00", "close": "17:00" },
+  "pipelines": [
+    { "binding": "setter", "name": "Setter Pipeline", "stages": [
+      { "binding": "new_lead", "name": "New Lead" },
+      { "binding": "direct_booked", "name": "Direct Booked" },
+      { "binding": "appointment_set", "name": "Appointment Set" },
+      { "binding": "showed", "name": "Showed" },
+      { "binding": "cancelled", "name": "Cancelled" },
+      { "binding": "dq", "name": "DQ" },
+      { "binding": "not_interested", "name": "Not Interested" } ] },
+    { "binding": "closer", "name": "Closer Pipeline", "stages": [
+      { "binding": "scheduled", "name": "Scheduled" },
+      { "binding": "cancelled", "name": "Cancelled / No Show" },
+      { "binding": "follow_up", "name": "Follow Up" },
+      { "binding": "agreement_sent", "name": "Agreement Sent" },
+      { "binding": "closed_won", "name": "Closed Won" },
+      { "binding": "lost", "name": "Lost" },
+      { "binding": "disqualified", "name": "Disqualified" } ] }
+  ],
+  "contactFields": [
+    { "binding": "appointment_date", "name": "Appointment Date", "type": "DATE" },
+    { "binding": "setter", "name": "Setter", "type": "TEXT" },
+    { "binding": "cash_collected", "name": "Cash Collected", "type": "NUMERICAL" },
+    { "binding": "revenue_generated", "name": "Revenue Generated", "type": "NUMERICAL" },
+    { "binding": "utm_source", "name": "UTM Source", "type": "TEXT" },
+    { "binding": "utm_medium", "name": "UTM Medium", "type": "TEXT" },
+    { "binding": "utm_campaign", "name": "UTM Campaign", "type": "TEXT" },
+    { "binding": "utm_content", "name": "UTM Content", "type": "TEXT" },
+    { "binding": "utm_term", "name": "UTM Term", "type": "TEXT" },
+    { "binding": "fbclid", "name": "fbclid", "type": "TEXT" }
+  ],
+  "opportunityFields": [
+    { "binding": "setter_owner", "name": "Setter Owner", "type": "TEXT" },
+    { "binding": "stage_entered", "name": "Stage Entered", "type": "DATE" }
+  ],
+  "objects": [
+    { "binding": "sales_call", "key": "custom_objects.dating_sales_call", "label": "Dating Sales Call", "plural": "Dating Sales Calls",
+      "primary": { "key": "display_label", "name": "Display Label" },
+      "fields": [
+        { "key": "external_id", "name": "External ID", "type": "TEXT" },
+        { "key": "contact_id", "name": "Contact ID", "type": "TEXT" },
+        { "key": "opportunity_id", "name": "Opportunity ID", "type": "TEXT" },
+        { "key": "scheduled_at", "name": "Scheduled At", "type": "TEXT" },
+        { "key": "call_date", "name": "Call Date", "type": "DATE" },
+        { "key": "closer", "name": "Closer", "type": "SINGLE_OPTIONS", "options": [
+          { "key": "nelly", "label": "Nelly" }, { "key": "mitch", "label": "Mitch" } ] },
+        { "key": "setter", "name": "Setter", "type": "TEXT" },
+        { "key": "outcome", "name": "Outcome", "type": "SINGLE_OPTIONS", "options": [
+          { "key": "scheduled", "label": "Scheduled" }, { "key": "showed", "label": "Showed" }, { "key": "no_show", "label": "No Show" },
+          { "key": "cancelled", "label": "Cancelled" }, { "key": "rescheduled", "label": "Rescheduled" } ] },
+        { "key": "booking_source", "name": "Booking Source", "type": "SINGLE_OPTIONS", "options": [
+          { "key": "setter_set", "label": "Setter Set" }, { "key": "self_booked", "label": "Self Booked" } ] },
+        { "key": "disposition", "name": "Disposition", "type": "SINGLE_OPTIONS", "options": [
+          { "key": "closed_won", "label": "Closed Won" }, { "key": "deposit", "label": "Deposit" }, { "key": "follow_up", "label": "Follow Up" },
+          { "key": "lost", "label": "Lost" }, { "key": "dq", "label": "DQ" }, { "key": "no_offer", "label": "No Offer" },
+          { "key": "financing_denied", "label": "Financing Denied" }, { "key": "close_pending", "label": "Close Pending" } ] },
+        { "key": "objection_primary", "name": "Primary Objection", "type": "SINGLE_OPTIONS", "options": [
+          { "key": "price", "label": "Price" }, { "key": "partner", "label": "Partner" }, { "key": "timing", "label": "Timing" },
+          { "key": "fear", "label": "Fear" }, { "key": "medical", "label": "Medical" }, { "key": "burned_before", "label": "Burned Before" },
+          { "key": "competitor", "label": "Competitor" }, { "key": "think_about_it", "label": "Think About It" } ] },
+        { "key": "call_type", "name": "Call Type", "type": "SINGLE_OPTIONS", "options": [ { "key": "closing", "label": "Strategy Call" } ] },
+        { "key": "recording_url", "name": "Recording URL", "type": "TEXT" },
+        { "key": "transcript_ref", "name": "Transcript", "type": "TEXT" },
+        { "key": "duration_min", "name": "Duration (min)", "type": "NUMERICAL" },
+        { "key": "next_step", "name": "Next Step", "type": "LARGE_TEXT" },
+        { "key": "next_step_date", "name": "Next Step Date", "type": "DATE" },
+        { "key": "payment_terms", "name": "Payment Terms", "type": "TEXT" },
+        { "key": "cash_collected", "name": "Cash Collected", "type": "MONETORY" },
+        { "key": "contract_value", "name": "Contract Value", "type": "MONETORY" } ] },
+    { "binding": "payment", "key": "custom_objects.dating_payment", "label": "Dating Payment", "plural": "Dating Payments",
+      "primary": { "key": "display_label", "name": "Display Label" },
+      "fields": [
+        { "key": "transaction_id", "name": "Transaction ID", "type": "TEXT" },
+        { "key": "amount", "name": "Amount", "type": "NUMERICAL" },
+        { "key": "occurred_at", "name": "Occurred At", "type": "TEXT" },
+        { "key": "type", "name": "Type", "type": "SINGLE_OPTIONS", "options": [
+          { "key": "deposit", "label": "Deposit" }, { "key": "balance", "label": "Balance" }, { "key": "installment", "label": "Installment" },
+          { "key": "paid_in_full", "label": "Paid In Full" }, { "key": "refund", "label": "Refund" }, { "key": "chargeback", "label": "Chargeback" } ] },
+        { "key": "status", "name": "Status", "type": "SINGLE_OPTIONS", "options": [
+          { "key": "succeeded", "label": "Succeeded" }, { "key": "failed", "label": "Failed" }, { "key": "refunded", "label": "Refunded" },
+          { "key": "disputed", "label": "Disputed" }, { "key": "pending", "label": "Pending" } ] },
+        { "key": "processor", "name": "Processor", "type": "TEXT" },
+        { "key": "contact_id", "name": "Contact ID", "type": "TEXT" },
+        { "key": "opportunity_id", "name": "Opportunity ID", "type": "TEXT" },
+        { "key": "closer", "name": "Closer", "type": "TEXT" },
+        { "key": "setter", "name": "Setter", "type": "TEXT" } ] },
+    { "binding": "discovery_call", "key": "custom_objects.dating_discovery", "label": "Dating Discovery", "plural": "Dating Discoveries",
+      "primary": { "key": "display_label", "name": "Display Label" },
+      "fields": [
+        { "key": "external_id", "name": "External ID", "type": "TEXT" },
+        { "key": "contact_id", "name": "Contact ID", "type": "TEXT" },
+        { "key": "occurred_at", "name": "Occurred At", "type": "TEXT" },
+        { "key": "direction", "name": "Direction", "type": "TEXT" },
+        { "key": "duration_sec", "name": "Duration (sec)", "type": "NUMERICAL" },
+        { "key": "setter", "name": "Setter", "type": "TEXT" },
+        { "key": "outcome", "name": "Outcome", "type": "TEXT" },
+        { "key": "recording_url", "name": "Recording URL", "type": "TEXT" },
+        { "key": "call_result", "name": "Call Result", "type": "SINGLE_OPTIONS", "options": [
+          { "key": "set", "label": "Set" }, { "key": "follow_up", "label": "Follow Up" }, { "key": "dq", "label": "DQ" },
+          { "key": "not_interested", "label": "Not Interested" } ] } ] }
+  ],
+  "associations": [
+    { "binding": "sales_call_contact", "key": "dating_sales_call_contact", "first": "contact", "second": "sales_call" },
+    { "binding": "sales_call_opportunity", "key": "dating_sales_call_opportunity", "first": "sales_call", "second": "opportunity" },
+    { "binding": "payment_contact", "key": "dating_payment_contact", "first": "contact", "second": "payment" },
+    { "binding": "payment_opportunity", "key": "dating_payment_opportunity", "first": "payment", "second": "opportunity" },
+    { "binding": "discovery_call_contact", "key": "dating_discovery_contact", "first": "contact", "second": "discovery_call" }
+  ],
+  "calendars": [
+    { "name": "Strategy Call (Direct)", "minutes": 45, "term": "closing", "booking": "self", "closerCall": true },
+    { "name": "Strategy Call (Setter)", "minutes": 45, "term": "closing", "booking": "setter" },
+    { "name": "Triage Call", "minutes": 15, "term": "first_call", "callName": "Triage call", "bookingCalendar": true }
+  ],
+  "install": {
+    "name": "Dating Nelly",
+    "slug": "dating-nelly",
+    "booking": { "source": "ghl" },
+    "contractValueDefault": 5000,
+    "_depositRange": [100, 500],
+    "salesCall": {
+      "outcomes": { "scheduled": "scheduled", "showed": "showed", "no_show": "noshow", "cancelled": "cancelled", "rescheduled": "rescheduled" },
+      "bookingSources": { "setter": "setter_set", "self": "self_booked" },
+      "dispositions": { "closed_won": "closed", "deposit": "deposit", "follow_up": "follow_up", "lost": "lost", "dq": "unqualified",
+        "no_offer": { "meaning": "unqualified", "reason": "No offer made (DQ before the pitch)" },
+        "financing_denied": { "meaning": "lost", "reason": "Financing denied" }, "close_pending": "pending" },
+      "dqDispositions": ["dq", "no_offer"]
+    },
+    "discoveryCall": { "results": { "set": "set", "follow_up": "follow_up", "dq": "dq", "not_interested": "not_interested" } },
+    "closers": ["mitch@revsignals.io"],
+    "testDomains": ["jtylerray.com"],
+    "enable": false
+  }
+}
