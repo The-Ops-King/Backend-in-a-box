@@ -64,7 +64,8 @@
     "agreement_template": "6ab1a493edcabb246caaa32d",
     "agreement_sender": "xj08UCveN9WfVxozksRj",
     "field_contact_monthly_revenue": "bU2saiQy7tphnaqxzMDh",
-    "field_contact_ad_budget": "Y8zQ3RzM91lQHL8LwJTG"
+    "field_contact_ad_budget": "Y8zQ3RzM91lQHL8LwJTG",
+    "stage_closer_deposit": "ea890b78-5b0e-41c2-9837-e9f328dfc2d5"
   },
   "salesCall": {
     "object": "custom_objects.sales_call",

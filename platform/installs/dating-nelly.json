@@ -121,7 +121,8 @@
     "assoc_sales_call_opportunity": "6ad17a5e30c8c10af2626b6f",
     "assoc_payment_contact": "6ad17a5f61b66da0c004ecc0",
     "assoc_payment_opportunity": "6ad17a5fdd7aac48df85df15",
-    "assoc_discovery_call_contact": "6ad17a5fceaa91122182cbe8"
+    "assoc_discovery_call_contact": "6ad17a5fceaa91122182cbe8",
+    "stage_closer_deposit": "ac1e5a5e-069d-4907-95a4-ac9d9499c73e"
   },
   "scopeTag": "dating",
   "smsEnabled": false,
