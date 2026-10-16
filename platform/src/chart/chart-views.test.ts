@@ -7,6 +7,7 @@ import { templates } from "@/templates";
 import { exactness, realOf, svgDrawing } from "./exact";
 import { pickLayout, tidyOf, type View } from "./pick";
 import { messy } from "./messy";
+import { companyCopies } from "./company-copies";
 import type { St } from "./draw";
 
 /**
@@ -18,7 +19,7 @@ const company = { name: "Acme", timezone: "America/Chicago" };
 const PMU = path.resolve(__dirname, "../../installs/pmu");
 const shipped = () => [
   ...templates.map((t) => ({ name: t.slug, def: parseDefinition(t.definition) })),
-  ...fs.readdirSync(PMU).filter((f) => f.endsWith(".json")).map((f) => ({ name: `pmu/${f.replace(/\.json$/, "")}`, def: parseDefinition(JSON.parse(fs.readFileSync(path.join(PMU, f), "utf8")).definition) })),
+  ...companyCopies(),   // PMU's and Dating Nelly's own copies (D118)
 ];
 const ids = (svg: string) => [...svg.matchAll(/<g\b[^>]*\bclass="nd\b[^>]*\bdata-id="([^"]+)"/g)].map((m) => m[1]);
 const viewOf = (states: Record<string, St> | null, width: number, pathOnly: boolean): View => ({ width, pathOnly, stateOf: states ? (id) => states[id] ?? "next" : undefined });

@@ -5,7 +5,7 @@ import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 import { decrypt } from "./crypto";
 import { loadCompany, type CompanyRow } from "./context";
-import { callTime, filedMeaning } from "./sales-call";
+import { callTime, filedMeaning, closerNameOf, closerOptions, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, choiceOf, valueFor, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
@@ -67,10 +67,12 @@ export async function closerSalesCalls(c: PoolClient, adapters: Adapters, adapte
   const object = bindings["crm.object_sales_call"];
   if (!object || !closerName.trim()) return [];
   const today = now.setZone(tz).toISODate()!, who = closerName.trim().toLowerCase();
+  // D118: the record may name the closer by the company's option key ("mitch") rather than by name
+  const options = bindings[CLOSER_OPTIONS_KEY] ? closerOptions(bindings, await many<{ name: string; email: string | null; ghl_user_id: string | null }>(c, "select name, email, ghl_user_id from users where company_id=$1", [companyId])) : null;
   const recs: (Omit<CloserSalesCall, "appointment_id"> & { ext: string })[] = [];
   for (const r of await adapters.read.objectRecords(adapterCompany, object)) {
     const p = r.properties;
-    if (String(p.closer ?? "").trim().toLowerCase() !== who) continue;
+    if (closerNameOf(String(p.closer ?? ""), options).toLowerCase() !== who) continue;
     const cd = String(p.call_date ?? ""), dayOf = /^\d{4}-\d{2}-\d{2}$/.test(cd) ? DateTime.fromISO(cd, { zone: tz }) : null;
     const timed = callTime(p.scheduled_at, dayOf, tz), at = timed ?? dayOf;
     if (!at) continue;

@@ -21,7 +21,8 @@ describe("coverage (D33)", () => {
     expect(by("event")).toEqual(["agreement.signed", "payment.received"]);
     expect(by("binding")).toEqual(expect.arrayContaining(["crm.location_id", "crm.pipeline_closer", "crm.stage_closer_closed_won", "crm.pipeline_setter", "slack.channel.deals", "prompt.close_cheer"]));
     expect(by("slack")).toEqual(["connection"]); expect(by("anthropic")).toEqual(["key"]);
-    expect(by("custom_object")).toEqual(["custom_objects.sales_call"]);
+    expect(by("custom_object")).toEqual(["{{crm.object_sales_call | default:custom_objects.sales_call}}"]);   // D118: the company's own object, today's key when it binds none
+    expect(by("binding")).toContain("crm.object_sales_call"); expect(refs.find((r) => r.value === "crm.object_sales_call")?.optional).toBe(true);
     expect(by("url").every((u) => /^https:\/\//.test(u))).toBe(true);   // the welcome email's fixed links; the contact link carries {{crm.location_id}} and is not one
     expect(refs.some((r) => r.kind === "url" && /gohighlevel/.test(r.value))).toBe(false);
     const cr = workflowRefs(parseDefinition(templates.find((t) => t.slug === "call-recorded")!.definition));

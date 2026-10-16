@@ -1,0 +1,155 @@
+{
+  "slug": "call-cancelled",
+  "name": "Call cancelled",
+  "category": "booking",
+  "stage": "booking",
+  "sort": 20,
+  "origin": "spec",
+  "description": "A closing call is cancelled before its start (not rescheduled: a reschedule moves the appointment and never fires this; a cancel after the start, a host clearing a no-show's slot, is not a cancel and the filed outcome stands, D73). Both pipeline cards move to their cancelled stage, the appointment date comes off the contact, the closer gets a rebook task due in a day, stat-cancelled replaces the booked tags, the slot's Sales Call record is marked cancelled (never deleted or reused), and the team gets a Slack note with who cancelled and why.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_appointment",
+    "premise": {
+      "check": "appointment_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "appointment.status_changed",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{event.status.to}}",
+                "cancelled"
+              ]
+            },
+            {
+              "eq": [
+                "{{appointment.term.category}}",
+                "closing"
+              ]
+            },
+            {
+              "neq": [
+                "{{event.before_start}}",
+                false
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "n1",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_cancelled}}",
+        "name": "{{contact.name}} -- Cancelled"
+      },
+      {
+        "id": "n2",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_cancelled}}",
+        "name": "{{contact.name}} -- Cancelled"
+      },
+      {
+        "id": "n3",
+        "type": "update_contact",
+        "clear": [
+          "{{crm.field_contact_appointment_date}}"
+        ]
+      },
+      {
+        "id": "n4",
+        "type": "create_task",
+        "title": "Rebook {{contact.name}} — cancelled",
+        "body": "Cancelled by {{appointment.cancelled_by | default:the invitee}}. Reason: {{appointment.cancel_reason | default:none given}}.",
+        "due": "+1d",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
+      },
+      {
+        "id": "n5",
+        "type": "tags",
+        "add": [
+          "stat-cancelled"
+        ],
+        "remove": [
+          "stat-booked",
+          "stat-self-booked",
+          "stat-set",
+          "stat-confirmed"
+        ]
+      },
+      {
+        "id": "n6",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{appointment.slot_key}}",
+        "if_missing": "match",
+        "properties": {
+          "external_id": "{{appointment.slot_key}}",
+          "outcome": "{{picklist.sales_call_outcome.cancelled}}"
+        },
+        "title": "Sales Call record: cancelled (logged, never deleted or reused)"
+      },
+      {
+        "id": "n7",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "template": "*Cancelled:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Was booked with:* {{appointment.closer.name | default:unassigned}} · {{appointment.starts_at | date_company}}\n*Cancelled by:* {{appointment.cancelled_by | default:the invitee}}\n*Reason:* {{appointment.cancel_reason | default:none given}}\n*Phone:* {{contact.phone | default:—}}\n*Rebook task:* due in 1 day for {{appointment.closer.name | default:the team}}",
+        "as": {
+          "name": "Call cancelled",
+          "icon": [
+            ":x:",
+            ":calendar:",
+            ":no_entry_sign:"
+          ]
+        },
+        "title": "React ❌, reply in the booking thread",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "react": "x"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "cancelled_recorded"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "n3"
+      },
+      {
+        "from": "n3",
+        "to": "n4"
+      },
+      {
+        "from": "n4",
+        "to": "n5"
+      },
+      {
+        "from": "n7",
+        "to": "x1"
+      },
+      {
+        "from": "n5",
+        "to": "n6"
+      },
+      {
+        "from": "n6",
+        "to": "n7"
+      }
+    ]
+  }
+}

@@ -269,7 +269,8 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
           }
           case "custom_object": {
             // the object can be named through a binding ({{crm.object_sales_call}}): check what it points at; an unbound one is the binding check's to report
-            const obj = r.value.replace(/^\{\{\s*([\w.]+)\s*\}\}$/, (_, k: string) => bindings[k] ?? "");
+            // D118: or through a binding with today's key as its default ({{crm.object_payment | default:custom_objects.payment}})
+            const obj = r.value.replace(/^\{\{\s*([\w.]+)\s*(?:\|\s*default:\s*([^|}]*?))?\s*\}\}$/, (_, k: string, d?: string) => bindings[k] || (d ?? "").trim());
             if (!obj) break;
             if (catalog && !objects.has(obj)) miss(`step ${r.node} writes ${obj}, which no longer exists in the CRM.`); else verified++; break; }
           case "workflow": { const target = allWfs.find((w) => w.slug === r.value || w.name.toLowerCase() === r.value.toLowerCase()); if (!target) miss(`step ${r.node} hands off to "${r.value}", which is not installed.`); else if (!target.enabled) miss(`step ${r.node} hands off to "${r.value}", which is off.`, "warning"); else verified++; break; }

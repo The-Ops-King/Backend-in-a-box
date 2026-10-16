@@ -125,7 +125,7 @@
       {
         "id": "n4",
         "type": "crm_record",
-        "object": "custom_objects.payment",
+        "object": "{{crm.object_payment | default:custom_objects.payment}}",
         "key": "{{event.provider_payment_id}}",
         "properties": {
           "display_label": "{{vars.pay.sign}}${{event.amount | abs}} · {{contact.name | default:Unknown}} · {{event.paid_at | date_company:yyyy-MM-dd}}",
@@ -189,7 +189,7 @@
       {
         "id": "r2",
         "type": "crm_record",
-        "object": "custom_objects.sales_call",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
         "key": "{{records.sales_call.key}}",
         "if_missing": "skip",
         "properties": {

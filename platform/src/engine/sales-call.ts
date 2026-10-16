@@ -53,3 +53,49 @@ export function filedMeaning(outcome: unknown, bindings: Record<string, string>)
   const hit = Object.entries(map).find(([k]) => k.trim().toLowerCase() === v)?.[1];
   return typeof hit === "string" && ["showed", "noshow", "cancelled", "rescheduled"].includes(hit) ? hit : null;
 }
+
+/**
+ * D118: the Sales Call's Primary Objection options. A company declares its own (`sales_call.objections`, a JSON list, set at
+ * install from `salesCall.objections`); unset, the list the shipped templates always wrote. `{{… | option:sales_call_objection}}`
+ * writes a value only when it is one of these, else nothing (the CRM drops an option it lacks without a word).
+ */
+export const DEFAULT_OBJECTIONS = ["price", "partner", "timing", "fear", "medical", "burned_before", "competitor", "think_about_it"];
+export const OBJECTIONS_KEY = "sales_call.objections";
+export const CLOSER_OPTIONS_KEY = "sales_call.closer_options";
+const jsonOf = (s: string | undefined): unknown => { try { return JSON.parse(s ?? ""); } catch { return undefined; } };
+export function objectionOptions(bindings: Record<string, string>): string[] {
+  const j = jsonOf(bindings[OBJECTIONS_KEY]);
+  const own = Array.isArray(j) ? j.filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim()) : [];
+  return own.length ? own : DEFAULT_OBJECTIONS;
+}
+
+/**
+ * D118: the option key the company's Sales Call Closer field has for each closer (`sales_call.closer_options`, set at install
+ * from `salesCall.closerOptions`: `{ <email | CRM user id | roster name>: <option key> }`), keyed here by the roster name
+ * the templates hold (lower case). Unset: null, and the closer is written by name as before.
+ */
+export function closerOptions(bindings: Record<string, string>, roster: { name: string; email: string | null; ghl_user_id: string | null }[]): Record<string, string> | null {
+  const j = jsonOf(bindings[CLOSER_OPTIONS_KEY]);
+  if (!j || typeof j !== "object" || Array.isArray(j)) return null;
+  const declared = new Map(Object.entries(j as Record<string, unknown>).filter(([, v]) => typeof v === "string" && v.trim()).map(([k, v]) => [k.trim().toLowerCase(), (v as string).trim()]));
+  if (!declared.size) return null;
+  const out: Record<string, string> = {};
+  for (const u of roster) {
+    const name = u.name?.trim().toLowerCase(); if (!name) continue;
+    const key = [u.email?.trim().toLowerCase(), u.ghl_user_id?.trim().toLowerCase(), name].map((k) => (k ? declared.get(k) : undefined)).find(Boolean);
+    if (key) out[name] = key;
+  }
+  return out;
+}
+/** The roster name a Sales Call's `closer` value stands for: the value itself, or the name a declared option key belongs to (D118). */
+export function closerNameOf(value: string, options: Record<string, string> | null): string {
+  const v = value.trim(); if (!v || !options) return v;
+  if (options[v.toLowerCase()]) return v;
+  const names = Object.entries(options).filter(([, k]) => k.toLowerCase() === v.toLowerCase()).map(([n]) => n);
+  return names.length === 1 ? names[0] : v;
+}
+
+/** D118: the custom objects the shipped templates write, by what they are; each company binds its own key (`crm.object_<role>`), these keys when it does not. */
+export const OBJECT_DEFAULTS = { sales_call: "custom_objects.sales_call", payment: "custom_objects.payment", discovery_call: "custom_objects.discovery_call" } as const;
+export const OBJECT_ROLES = Object.keys(OBJECT_DEFAULTS) as (keyof typeof OBJECT_DEFAULTS)[];
+export const objectKey = (bindings: Record<string, string>, role: keyof typeof OBJECT_DEFAULTS) => bindings[`crm.object_${role}`] || OBJECT_DEFAULTS[role];

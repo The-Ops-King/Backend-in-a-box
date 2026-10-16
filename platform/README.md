@@ -615,6 +615,16 @@ every write is one of the company's own option keys: `scheduled` at booking, `sh
 spelling (`no_show`; the engine's `noshow` is only an alias to read old writes), and "rescheduled / cancelled on the call"
 as the key meaning rescheduled, else the late cancel (`late_cancel`). A meaning the map lacks is not written at all.
 
+The objects the templates write are the company's own (D118): `crm.object_sales_call`, `crm.object_payment`,
+`crm.object_discovery_call`, each `custom_objects.sales_call` / `.payment` / `.discovery_call` when unbound, and
+`{{records.sales_call}}` is the person's latest record on whichever object is bound. Two more option lists on the Sales
+Call: `salesCall.objections` (the Primary Objection options; unset, the list the templates always wrote) and
+`salesCall.closerOptions` (`{ "<email | CRM user id | roster name>": "<option key>" }`, the closer's key on a Closer
+dropdown; unset, the closer is written by name). Templates read them with `{{… | option:sales_call_objection}}` and
+`{{… | option:sales_call_closer}}`; the end-of-day reminder and the numbers read an option key back as its closer.
+A company's own words (a welcome, DQ reasons) are company copies: `scripts/build-copies.ts <company>` builds a dating
+company's from `installs/<company>/words.json` (D118), as `installs/pmu/build.py` builds PMU's.
+
 **Until live, the team hears nothing directly (D76).** In shadow and test a DM to a team member (a `slack_post` to a user
 id, the owner's DM from `notify_owner`, the end-of-day reminder) goes to the company's ops channel instead, bound as
 `slack.channel.ops` (install input `slack: { ops: "C…" }`; Hair's is C0C7QCTHL8L), else to the operator's DM

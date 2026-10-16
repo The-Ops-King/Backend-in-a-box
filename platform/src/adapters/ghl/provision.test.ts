@@ -94,6 +94,8 @@ describe("provision-ghl", () => {
     expect(crm.stage_closer_closed_won).toBeTruthy();
     expect(crm.assoc_payment_opportunity).toBeTruthy();
     expect((r.install.salesCall as { object: string }).object).toBe("custom_objects.dating_sales_call");
+    expect((r.install.salesCall as { objections: string[] }).objections).toEqual(["price", "partner", "timing", "fear", "competitor", "think_about_it"]);   // D118: the field's own options
+    expect((r.install.salesCall as { closerOptions: Record<string, string> }).closerOptions).toEqual({ "mitch@revsignals.io": "mitch" });
     expect(Object.values(r.install.calendars as Record<string, { term: string }>).map((c) => c.term).sort()).toEqual(["closing", "closing", "first_call"]);
     expect(r.install.closerCall).toBeTruthy(); expect(r.install.bookingCalendar).not.toBe(r.install.closerCall);
     expect(f.g.calendars.filter((c) => c.id !== "theirCal").every((c) => (c.teamMembers ?? [])[0]?.userId === "mitch")).toBe(true);

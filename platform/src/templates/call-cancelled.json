@@ -85,7 +85,7 @@
       {
         "id": "n6",
         "type": "crm_record",
-        "object": "custom_objects.sales_call",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
         "key": "{{appointment.slot_key}}",
         "if_missing": "match",
         "properties": {

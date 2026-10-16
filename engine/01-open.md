@@ -551,8 +551,10 @@ Decisions:
 **State (2026-10-16):** the GHL side is built in RapidCloser by `scripts/provision-ghl.ts` from `installs/dating/ghl-setup.json`
 (two pipelines, 12 contact/opportunity fields, the three Dating objects with their fields and 5 associations, three calendars
 on Mitch). Dating Nelly is installed (`installs/dating-nelly.json`, slug `dating-nelly`): shadow, SMS off, every workflow off,
-scope tag `dating` (D117). After its first poll it held 0 contacts, 0 events, 0 runs. Next: its own workflow copies (Dating
-object keys, closer option keys `nelly`/`mitch`, Hair's copy taken out), as PMU's were.
+scope tag `dating` (D117). After its first poll it held 0 contacts, 0 events, 0 runs. D118: the templates now write her
+objects and option keys (`salesCall.objections`, `salesCall.closerOptions` in her install file), and her own Deal closed and
+Setter call logged (`installs/dating-nelly/`, built from `words.json`) replace Hair's words with marked placeholders that send
+nothing. To apply after deploy: templates for dating-nelly, her settings and prompts, then save the two copies.
 
 Still open:
 - Tyler: add Nelly (closer) and the setter (name and email to come) as RapidCloser GHL users, then reassign the calendars.
@@ -560,5 +562,11 @@ Still open:
   Typeform integration, no Zapier (#34).
 - With GHL calendars, a setter-booked call does not say who set it. The setter calendar needs a "who set this" booking
   field, or Calendly.
-- The payment processor; Fathom; the agreement template and sender; welcome copy; objection and DQ reasons for the call
-  review.
+- The payment processor (Payment recorded writes `processor: whop`); Fathom; the agreement template and sender (Deal closed
+  needs paid and signed); the Anthropic key.
+- Tyler's words for `installs/dating-nelly/words.json`: welcome email subject and body, welcome text, the setter DQ wording
+  and reasons (D118). Then build and save the copies again.
+- Nelly's email in `salesCall.closerOptions` (`"<email>": "nelly"`) once she is a GHL user; the setter's too if one closes.
+- A filed deposit is written `closed_won` (Hair's model): should Dating Nelly's be `deposit`?
+- Call booked's "send a personalized video" task and the stat-/seq-/meta tags: confirm RapidCloser's own GHL workflows do
+  not trigger on those tag names before anything goes test or live.

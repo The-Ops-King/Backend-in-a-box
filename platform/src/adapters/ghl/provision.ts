@@ -209,10 +209,12 @@ export async function provision(setup: Setup, locationId: string, http: Http, op
   const { crm, calendars, picks, calsFound } = final;
   const missing = [...wanted(setup).filter((k) => !crm[k]), ...setup.calendars.filter((c) => !calsFound.includes(c.name)).map((c) => `calendar "${setup.prefix + c.name}"`)];
   const inst = setup.install as { salesCall?: Record<string, unknown> };
+  // D118: the Sales Call's objection options are the ones its setup gives the field, so the templates write only those
+  const objections = setup.objects.find((o) => o.binding === "sales_call")?.fields.find((f) => f.key === "objection_primary")?.options?.map((o) => o.key) ?? [];
   const install: Record<string, unknown> = {
     ...setup.install, timezone: setup.timezone, locationId,
     calendars, ...(picks.closerCall ? { closerCall: picks.closerCall } : {}), ...(picks.bookingCalendar ? { bookingCalendar: picks.bookingCalendar } : {}),
-    crm, salesCall: { ...(inst.salesCall ?? {}), ...(crm.object_sales_call ? { object: crm.object_sales_call } : {}) },
+    crm, salesCall: { ...(objections.length ? { objections } : {}), ...(inst.salesCall ?? {}), ...(crm.object_sales_call ? { object: crm.object_sales_call } : {}) },
     ...(missing.length ? { _missing: missing } : {}),
   };
   return { plan: first.plan, after: opts.apply && writes.length ? final.plan : undefined, install, writes };

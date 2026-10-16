@@ -12,6 +12,7 @@ import { rollupRange } from "./metrics";
 import { recordPayment, type PaymentInput } from "./payments";
 import { paymentInputs, whopListPayments } from "@/adapters/whop/client";
 import { carriesTag, inScope, scopeTag } from "./scope";
+import { objectKey } from "./sales-call";
 
 /**
  * History (D29): the facts the poll would have seen had the engine been watching, read back once over a window and written
@@ -84,7 +85,7 @@ export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company
 
   await step("outcomes", async () => {
     // the old Zaps wrote each closing call onto GHL's Sales Call object, keyed by the booking's id, with the outcome filled in after the call
-    const recs = (await adapters.read.objectRecords(ac, "custom_objects.sales_call")).filter((r) => typeof r.properties.outcome === "string" && r.properties.outcome);
+    const recs = (await adapters.read.objectRecords(ac, objectKey(bindings, "sales_call"))).filter((r) => typeof r.properties.outcome === "string" && r.properties.outcome);
     for (const r of recs) {
       const cat = OUTCOME_CATEGORY[String(r.properties.outcome).toLowerCase()]; if (!cat) continue;
       const ext = typeof r.properties.external_id === "string" ? r.properties.external_id : null;

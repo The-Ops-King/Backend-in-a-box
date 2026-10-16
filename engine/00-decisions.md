@@ -3850,3 +3850,61 @@ untagged booker is in scope and tagged only when writes are real; a dialer call 
 nobody; a removed tag takes them out, nothing starts, nothing deleted; a document of someone out of scope says nothing; drift
 pulls in only the tagged; leads count only the tagged and the bookers; a payment naming someone out of scope stays unlinked;
 a money amount as `{currency, value}`). Each fails without the change. The existing suite, untouched, is the no-tag proof.
+
+## D118. The templates write the company's own objects and option keys; a company's own words are its copies (2026-10-16)
+
+Dating Nelly, the first of many dating offers, was installed on the shipped templates. An audit found them written for
+Hair: every Sales Call, Payment and Discovery Call write went to a fixed key (`custom_objects.sales_call`, `.payment`,
+`.discovery_call`), where Dating Nelly's objects are `custom_objects.dating_*` (in RapidCloser, a fixed key would have failed
+or landed in the other business's object of that name); the Sales Call's Closer was written as the roster name ("Mitch
+Sapoff") where her dropdown's options are `nelly` and `mitch` (GHL drops an unknown option without a word); the objection
+filter and the call prompts carried Hair's `medical` and `burned_before`; Deal closed's welcome email and text are Hair's;
+the setter DQ reasons ask about a medical reason. Tyler wants this to scale to many dating companies, so what is generic is
+fixed in the shared templates, and only on condition that nothing changes for Hair and PMU.
+
+- **Objects by binding.** Every `crm_record` in Call booked, Call cancelled, Call outcome filed, Sales call recorded, Payment
+  recorded, Deal closed and Setter call logged writes `{{crm.object_<role> | default:custom_objects.<role>}}`. The default
+  keeps the binding optional (readiness unchanged). `{{records.sales_call}}` is also the person's latest record on the bound
+  object, whatever its key (`OBJECT_ROLES` in `sales-call.ts`). The health sweep reads the defaulted form as the bound object,
+  else the default; the history backfill reads Sales Call outcomes from the bound object (it read the fixed key).
+- **Option keys the install declares.** `salesCall.objections` (bound as `sales_call.objections`; unset, the list the
+  templates always wrote) and `salesCall.closerOptions` (`sales_call.closer_options`: `{ <email | CRM user id | roster
+  name>: <option key> }`; unset, the closer is written by name). The new `option:<picklist>` filter writes them:
+  `{{recording.closer.name | default: | option:sales_call_closer}}`, `{{vars.notes.primary_objection | option:sales_call_objection | default:}}`.
+  A list keeps only its values, a map gives the declared key (a closer without one: nothing, not a name GHL drops), an
+  undeclared picklist passes the value as it is. The end-of-day reminder and the numbers read an option key back as the
+  closer it belongs to. `provision-ghl` puts the Sales Call field's own objection options into the install skeleton, and the
+  setup file carries the closer options, so the next dating company declares both in its setup file.
+- **Hair and PMU are untouched, proven.** Hair's copies track the templates (none of these diverged; Call booked is one
+  upgrade behind, D104), so they take this on the next `POST /api/admin/templates`. Read from production with a dry-run save
+  (the bindings a definition lacks are listed): Hair binds `crm.object_sales_call` (its value is not readable from outside; by every sign
+  `custom_objects.sales_call`: the engine's ten Sales Call records live there and the drift sweep, which compares them with
+  the bound object, has one question, not ten) and not `crm.object_payment` or `crm.object_discovery_call`;
+  PMU binds `crm.object_payment` to `custom_objects.cash`, and its Call booked, Call cancelled, Call outcome, Sales call
+  recorded, Deal closed and Payment recorded are its own diverged copies (D100), which template upgrades leave alone and
+  this change does not regenerate. On companies bound that way, every string of every changed template renders the same
+  before and after, for every objection and with or without a closer; PMU's copies render the same on the new context; the
+  only difference for a PMU-bound company is Payment recorded's object becoming `custom_objects.cash`, which PMU's own copy
+  already writes.
+- **A company's own words are its copies.** Wording is per company and has no setting: Dating Nelly gets her own Deal
+  closed (welcome email and text) and Setter call logged (the DQ wording and reasons), built by `scripts/build-copies.ts
+  dating-nelly` from the templates and `installs/dating-nelly/words.json` with the generator every dating company shares
+  (`installs/dating/copies.ts`), and saved with the definition route as PMU's were. The copies differ from the templates
+  only in those nodes; a template upgrade reaches them by building again. Her call prompts (`prompts` in the install file:
+  her six objections, no medical triage) are built from the shipped ones by the same script. Hair's words stay in the
+  template until Hair's are its own edit (open item 43).
+- **Placeholders send nothing.** Words Tyler has not given are marked `[placeholder …]`; a welcome send whose words are a
+  placeholder is built with `only_if: there is a welcome copy written` (nothing sets it), so it is skipped even live; the
+  DQ reasons only label Jev's read (`setter_result.act` is off). Building with real words drops the condition.
+- Not done: Hair's welcome words as Hair's own edit; a deposit is still written `closed_won` by Call outcome filed (Hair's
+  model; Dating Nelly's Sales Call has its own Deposit option); Payment recorded writes `processor: whop` whatever the
+  processor; the DQ reason options are shared by every company (`setter_dq_reason`).
+- Tests: `company-objects.test.ts` (Hair's identity across all seven templates; PMU's copies and the one expected
+  difference; Dating Nelly's objects, `mitch`, her objections only and `records.sales_call`; through the engine in shadow, a
+  booking, a recording and a payment write only her objects; the end-of-day reminder reads `mitch` as Mitch's and does not
+  without the setting; the option lists and the filter), `dating-copies.test.ts` (the files are the build's; only the
+  welcome and DQ nodes differ, none of Hair's words; her prompts; each copy validates, draws tidy and saves; live, paid and
+  signed, the placeholder welcome is skipped and nothing is sent), `moves.test.ts` (the health check on a defaulted object),
+  `provision.test.ts`, `coverage.test.ts`; the chart tests hold every company copy to D111. Reverting Call booked's object or
+  closer turns two red; dropping an objection from the default list turns Hair's identity red; a welcome without its
+  condition turns the no-send test red.

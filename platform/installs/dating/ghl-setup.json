@@ -1,5 +1,5 @@
 {
-  "_note": "What one dating company needs in its GHL location, read by scripts/provision-ghl.ts (additive only: it creates what is missing and never renames, changes or deletes). A second dating company is a copy of this file with its own prefix, object keys, calendar names, team and closer options. `prefix` goes in front of every pipeline, contact/opportunity field and calendar name; object keys and labels are written out in full. Option keys are the ones the engine writes and the install maps read (salesCall, discoveryCall below). `install` is merged into the output as the install skeleton; contract value and deposits live there, not in GHL. Mitch Sapoff is the placeholder closer and the only calendar team member for now.",
+  "_note": "What one dating company needs in its GHL location, read by scripts/provision-ghl.ts (additive only: it creates what is missing and never renames, changes or deletes). A second dating company is a copy of this file with its own prefix, object keys, calendar names, team and closer options. `prefix` goes in front of every pipeline, contact/opportunity field and calendar name; object keys and labels are written out in full. Option keys are the ones the engine writes and the install maps read (salesCall, discoveryCall below). salesCall.closerOptions names each closer's key on the Sales Call Closer field by their email (D118): a new closer gets an option here and a line there; the objections are read off the field's own options. `install` is merged into the output as the install skeleton; contract value and deposits live there, not in GHL. Mitch Sapoff is the placeholder closer and the only calendar team member for now.",
   "prefix": "Dating – ",
   "timezone": "America/New_York",
   "team": ["mitch@revsignals.io"],
@@ -128,7 +128,8 @@
       "dispositions": { "closed_won": "closed", "deposit": "deposit", "follow_up": "follow_up", "lost": "lost", "dq": "unqualified",
         "no_offer": { "meaning": "unqualified", "reason": "No offer made (DQ before the pitch)" },
         "financing_denied": { "meaning": "lost", "reason": "Financing denied" }, "close_pending": "pending" },
-      "dqDispositions": ["dq", "no_offer"]
+      "dqDispositions": ["dq", "no_offer"],
+      "closerOptions": { "mitch@revsignals.io": "mitch" }
     },
     "discoveryCall": { "results": { "set": "set", "follow_up": "follow_up", "dq": "dq", "not_interested": "not_interested" } },
     "closers": ["mitch@revsignals.io"],
