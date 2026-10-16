@@ -9,15 +9,18 @@ import { raise } from "./alerts";
 /**
  * D117: a company installed into a CRM location that belongs to another business acts only on its own people. With a scope
  * tag (`scope.tag`), a person is in scope when GHL carries the tag on them, or when they booked on one of the company's mapped
- * calendars (every ledger appointment is on one: `applyAppointment` keeps no other). Without one, everyone is, as before.
+ * calendars (every ledger appointment is on one: `applyAppointment` keeps no other), or submitted one of its own forms (D122).
+ * Without one, everyone is, as before.
  * GHL tags are lowercase; the compare ignores case so a tag typed "Dating" at install is the same tag.
  */
 export const SCOPE_KEY = "scope.tag";
 export const scopeTag = (bindings: Record<string, string>): string | null => bindings[SCOPE_KEY]?.trim().toLowerCase() || null;
 export const carriesTag = (tags: string[] | null | undefined, tag: string) => (tags ?? []).some((t) => t.trim().toLowerCase() === tag);
 /** The rule in SQL over a contacts row aliased `ct`; `tag` is a text parameter (null: no scope, everyone passes). */
+/** D122: someone who submitted one of the company's own forms is its person too, like a booker (in shadow the tag is only what would have been written). */
 export const scopeSql = (ct: string, tag: string) =>
-  `(${tag}::text is null or exists (select 1 from unnest(${ct}.tags) st(t) where lower(st.t) = ${tag}::text) or exists (select 1 from appointments sa where sa.contact_id=${ct}.id))`;
+  `(${tag}::text is null or exists (select 1 from unnest(${ct}.tags) st(t) where lower(st.t) = ${tag}::text) or exists (select 1 from appointments sa where sa.contact_id=${ct}.id)
+    or exists (select 1 from events sf where sf.company_id=${ct}.company_id and sf.contact_id=${ct}.id and sf.event_type='form.submitted'))`;
 
 /** The company's scope tag read alone, for a path that has no bindings in hand. */
 export const companyScopeTag = async (c: PoolClient, companyId: string): Promise<string | null> =>
@@ -38,7 +41,8 @@ export async function inScope(c: PoolClient, contactId: string, tag: string | nu
 export async function stillInScope(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, contactId: string, tag: string | null): Promise<boolean> {
   if (!tag) return true;
   const row = await one<{ ghl: string | null; tagged: boolean; booked: boolean }>(c, `select ct.ghl_contact_id as ghl, exists (select 1 from unnest(ct.tags) st(t) where lower(st.t)=$2) as tagged,
-    exists (select 1 from appointments sa where sa.contact_id=ct.id) as booked from contacts ct where ct.id=$1`, [contactId, tag]);
+    exists (select 1 from appointments sa where sa.contact_id=ct.id) or exists (select 1 from events sf where sf.company_id=ct.company_id and sf.contact_id=ct.id and sf.event_type='form.submitted') as booked
+    from contacts ct where ct.id=$1`, [contactId, tag]);
   if (!row) return false;
   if (row.booked) return true;
   if (!row.tagged) return false;

@@ -71,6 +71,8 @@ export interface CrmRead {
   contactNotes?(c: Company, contactId: string): Promise<ContactNote[]>;
   /** History (D115): the CRM's contacts carrying this email (a booking whose person the poll never brought in). */
   contactsByEmail?(c: Company, email: string): Promise<ContactSnapshot[]>;
+  /** D122: the one contact GHL holds for this email, or this phone (`GET /contacts/search/duplicate`, one of the two per call; verified read-only on RapidCloser 2026-10-16: an email in any case, a phone with or without +1). */
+  findDuplicate?(c: Company, by: { email: string } | { phone: string }): Promise<ContactSnapshot | null>;
   /** Every card the CRM holds for one contact, any status. */
   openCards(c: Company, ghlContactId: string): Promise<LiveCard[]>;
   /** Every card on one board, any status, each with its contact (D61: the poll diffs them against the replica to see a hand on a card). */
@@ -85,7 +87,7 @@ export interface BookingRead {
   getAppointment(c: Company, id: string): Promise<AppointmentSnapshot | null>;
 }
 export interface CrmWrite {
-  createContact(c: Company, input: { firstName?: string; lastName?: string; email?: string; phone?: string }): Promise<{ id: string }>;
+  createContact(c: Company, input: { firstName?: string; lastName?: string; email?: string; phone?: string; tags?: string[]; customFields?: { id: string; field_value: string }[]; source?: string }): Promise<{ id: string }>;
   addTag(c: Company, contactId: string, tag: string): Promise<void>;
   removeTag(c: Company, contactId: string, tag: string): Promise<void>;
   addNote(c: Company, contactId: string, body: string): Promise<void>;
@@ -100,7 +102,7 @@ export interface CrmWrite {
   /** Documents & Contracts: create a document from a template and send it to the contact, from `userId`. Needs the token's documents send scope. */
   sendDocumentTemplate(c: Company, input: { templateId: string; contactId: string; userId?: string }): Promise<{ id: string }>;
 }
-export type ContactWrite = { firstName?: string; lastName?: string; phone?: string; timezone?: string; assignedUserId?: string; customFields?: { id: string; field_value: string }[] };
+export type ContactWrite = { firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedUserId?: string; customFields?: { id: string; field_value: string }[] };
 /** A pipeline card as the CRM sees it. `customFields` are CRM field ids with already-rendered values. */
 export type OpportunityWrite = { pipelineId: string; stageId: string; name: string; status: "open" | "won" | "lost" | "abandoned"; assignedUserId?: string; customFields?: { id: string; field_value: string }[] };
 export type SendResult = { externalId: string; accepted: boolean; error?: string };

@@ -1,5 +1,5 @@
 {
-  "_note": "What one dating company needs in its GHL location, read by scripts/provision-ghl.ts (additive only: it creates what is missing and never renames, changes or deletes). A second dating company is a copy of this file with its own prefix, object keys, calendar names, team and closer options. `prefix` goes in front of every pipeline, contact/opportunity field and calendar name; object keys and labels are written out in full. Option keys are the ones the engine writes and the install maps read (salesCall, discoveryCall below). salesCall.closerOptions names each closer's key on the Sales Call Closer field by their email (D118): a new closer gets an option here and a line there; the objections are read off the field's own options. `install` is merged into the output as the install skeleton; contract value and the deposit products (depositProducts, D119) live there, not in GHL. The closer pipeline's Deposit stage is where a call filed as a deposit waits for the rest (D119). The calendars sit in the calendar group `calendarGroup` (its name takes the prefix) and their team is `team` (or a calendar's own `team`): these are the setup's own calendars, so a changed team here is set on them, the dry run saying who leaves and who joins (D121). Nelly took the calendars over from Mitch Sapoff, the placeholder, on 2026-10-16.",
+  "_note": "What one dating company needs in its GHL location, read by scripts/provision-ghl.ts (additive only: it creates what is missing and never renames, changes or deletes). A second dating company is a copy of this file with its own prefix, object keys, calendar names, team and closer options. `prefix` goes in front of every pipeline, contact/opportunity field and calendar name; object keys and labels are written out in full. Option keys are the ones the engine writes and the install maps read (salesCall, discoveryCall below). salesCall.closerOptions names each closer's key on the Sales Call Closer field by their email (D118): a new closer gets an option here and a line there; the objections are read off the field's own options. `install` is merged into the output as the install skeleton; contract value and the deposit products (depositProducts, D119) live there, not in GHL. The closer pipeline's Deposit stage is where a call filed as a deposit waits for the rest (D119). The Typeform application (D122) is mapped by question ref in install.typeform (the token is given at install, never here); its answers go to the contact fields with `folder`, which sit in the contact-field folder of that name (prefixed). The calendars sit in the calendar group `calendarGroup` (its name takes the prefix) and their team is `team` (or a calendar's own `team`): these are the setup's own calendars, so a changed team here is set on them, the dry run saying who leaves and who joins (D121). Nelly took the calendars over from Mitch Sapoff, the placeholder, on 2026-10-16.",
   "prefix": "Dating – ",
   "timezone": "America/New_York",
   "team": ["nellysudri@gmail.com"],
@@ -33,7 +33,26 @@
     { "binding": "utm_campaign", "name": "UTM Campaign", "type": "TEXT" },
     { "binding": "utm_content", "name": "UTM Content", "type": "TEXT" },
     { "binding": "utm_term", "name": "UTM Term", "type": "TEXT" },
-    { "binding": "fbclid", "name": "fbclid", "type": "TEXT" }
+    { "binding": "fbclid", "name": "fbclid", "type": "TEXT" },
+    { "binding": "app_age", "name": "Age", "type": "NUMERICAL", "folder": "Application" },
+    { "binding": "app_location", "name": "Location", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_profession", "name": "Profession", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_relationship_status", "name": "Relationship Status", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_income", "name": "Income", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_looking_for", "name": "Looking For", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_has_children", "name": "Has Children", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_wants_children", "name": "Wants Children", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_religion", "name": "Religion", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_shared_faith", "name": "Shared Faith Importance", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_relocating", "name": "Open to Relocating", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_ideal_partner", "name": "Ideal Partner", "type": "LARGE_TEXT", "folder": "Application" },
+    { "binding": "app_dating_challenge", "name": "Biggest Dating Challenge", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_support_wanted", "name": "Support Wanted", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_open_to_coaching", "name": "Open to Coaching", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_strategy_session", "name": "Wants Strategy Session", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_consent", "name": "Consent", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_submitted_at", "name": "Application Submitted At", "type": "TEXT", "folder": "Application" },
+    { "binding": "app_response_id", "name": "Typeform Response ID", "type": "TEXT", "folder": "Application" }
   ],
   "opportunityFields": [
     { "binding": "setter_owner", "name": "Setter Owner", "type": "TEXT" },
@@ -136,6 +155,46 @@
     "discoveryCall": { "results": { "set": "set", "follow_up": "follow_up", "dq": "dq", "not_interested": "not_interested" } },
     "closers": ["nellysudri@gmail.com", "mitch@revsignals.io"],
     "testDomains": ["jtylerray.com"],
-    "enable": false
+    "enable": false,
+    "typeform": {
+      "forms": {
+        "AjY7UfXZ": {
+          "name": "VIP Matchmaking Application",
+          "answers": {
+            "1e47ac33-7607-4fdd-aeec-68544c339151": "first_name",
+            "ff1142ad-8e09-4ad9-971c-c779c7e8ec47": "last_name",
+            "f2a32a24-03eb-40b8-9abf-e3630476f483": "phone",
+            "3e2907ea-f48b-49a7-ac17-34b5defaaee8": "field_contact_app_age",
+            "26820646-2695-468b-8f8b-298acb395f80": "field_contact_app_location",
+            "55064785-c89f-44f4-b474-0abf290ac873": "field_contact_app_profession",
+            "874b8bef-a59d-4bbf-a3fc-d309e055d9ec": "field_contact_app_relationship_status",
+            "7f6bcb50-22f1-4c13-9623-4ee5e780898d": "field_contact_app_income",
+            "b7d23d02-0888-40c9-9267-851c7efa2228": "field_contact_app_looking_for",
+            "9a728b8d-6698-4364-8c13-cf5de19fa1c6": "field_contact_app_has_children",
+            "32ddff25-2457-4c33-b03f-8a7b58c7456f": "field_contact_app_wants_children",
+            "d4608615-2cb7-4006-8a68-62c247206362": "field_contact_app_religion",
+            "9982a020-5442-4723-9acc-4d6755d06394": "field_contact_app_shared_faith",
+            "e0fae0e9-25c4-4d68-810a-14434b688c56": "field_contact_app_relocating",
+            "da1b3d27-00fd-49bf-8924-67afa3db8a1c": "field_contact_app_ideal_partner",
+            "1fe81d1a-18f7-4395-96b1-dbae0f08c1b9": "field_contact_app_dating_challenge",
+            "b490c521-a209-491f-96ac-98d8f2188de1": "field_contact_app_support_wanted",
+            "7cfb390d-0daf-489d-a6b8-70a4d14a2720": "field_contact_app_open_to_coaching",
+            "51927b21-936c-4de4-bee1-0a50732c36aa": "email",
+            "7e8dcb1c-066c-436c-aac9-ff4b7cb892ca": "field_contact_app_strategy_session",
+            "1cbca1a9-d44b-4d53-b638-c27a0081467b": "field_contact_app_consent"
+          },
+          "hidden": {
+            "utm_source": "field_contact_utm_source",
+            "utm_medium": "field_contact_utm_medium",
+            "utm_campaign": "field_contact_utm_campaign",
+            "utm_content": "field_contact_utm_content",
+            "utm_term": "field_contact_utm_term",
+            "fbclid": "field_contact_fbclid"
+          },
+          "submittedAt": "field_contact_app_submitted_at",
+          "responseId": "field_contact_app_response_id"
+        }
+      }
+    }
   }
 }

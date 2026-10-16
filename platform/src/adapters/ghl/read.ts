@@ -180,6 +180,11 @@ export const ghlRead: CrmRead = {
     const r = await ghl<{ contacts?: RawContact[] }>(c.pit, "POST", "/contacts/search", { body: { locationId: c.locationId, pageLimit: 10, filters: [{ field: "email", operator: "eq", value: email.trim().toLowerCase() }] } });
     return (r.contacts ?? []).map(mapContact);
   },
+  async findDuplicate(c, by) {
+    const q = "email" in by ? `email=${encodeURIComponent(by.email.trim())}` : `number=${encodeURIComponent(by.phone.trim())}`;
+    const r = await ghl<{ contact?: RawContact | null }>(c.pit, "GET", `/contacts/search/duplicate?locationId=${c.locationId}&${q}`);
+    return r.contact ? mapContact(r.contact) : null;
+  },
   /** Documents & Contracts (verified 2026-10-07): `GET /proposals/document?locationId&limit<=21&skip`; status sent | viewed | completed; recipients[] carries the signer contact id, hasCompleted, signedDate. */
   async documents(c) {
     const out: DocumentSnapshot[] = [];

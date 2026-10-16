@@ -15,6 +15,8 @@ import { BOOKING_CARD_KEY, backfillBookingCard, intakeProblem, type IntakeLine }
 import { OBJECTIONS_KEY, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { DEPOSIT_PRODUCTS_KEY } from "./payments";
 import { chartLayoutOf, notDrawable } from "@/api/chart-verdict";
+import { checkMapAgainstForms, mapProblems, registerTypeform, TF_FORMS_KEY, TF_TOKEN_KEY, type TypeformForms } from "./typeform";
+import { liveTypeform, type TypeformApi } from "@/adapters/typeform/client";
 
 /**
  * A calendar's mapping: the kind of call it books; optionally how setter-vs-self is decided on it (`booking`: self | setter |
@@ -74,6 +76,13 @@ export type InstallInput = {
   enable?: boolean;                      // default false — Tyler's rule: build off, enable deliberately
   smsEnabled?: boolean;                  // default true; false when the sub-account has no number
   mode?: import("./mode").Mode;          // default shadow; the ladder is shadow → test → live (D52)
+  /**
+   * D122: Typeform, straight into the engine. `token`: a personal access token (bound as secret.typeform_token; it reads the
+   * forms and their responses and manages their webhooks). `forms`: each form's map by question ref (typeform.forms, see
+   * `TypeformFormMap`). Given, the engine checks the map against the form and registers its own signed webhook on each form
+   * whose fields are all bound. Omitted: left as it is.
+   */
+  typeform?: { token?: string; forms?: TypeformForms };
   /** Dark hours. Sends wait for the window; `allowTransactional` lets automated receipts ("you're booked") through at any hour. */
   quietHours?: { start?: string; end?: string; allowTransactional?: boolean };
 };
@@ -158,7 +167,7 @@ export const canon = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && 
 /** D16: upload info, pick templates, done. Idempotent. Workflows install OFF unless enable=true. A re-run upgrades untouched copies to the current template; edited copies are left alone. */
 export type Inbound = { secret: string; zapierPaymentUrl: string; zapierRecordingUrl: string; whopWebhookUrl: string; fathomWebhookUrl: string; fathomWebhook?: string };
 /** `wentLive`: what the go-live cleared, when `mode: "live"` moved the company there (D56). */
-export async function installCompany(input: InstallInput, adapters: Adapters): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: Inbound; wentLive?: Cleared }> {
+export async function installCompany(input: InstallInput, adapters: Adapters, typeformApi: TypeformApi = liveTypeform): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: Inbound; wentLive?: Cleared; typeform?: string[] }> {
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   const calMap: Record<string, { term: string; name?: string; selfBooked?: boolean; booking?: "self" | "setter" | "question"; questions?: Record<string, string> }> = Object.fromEntries(Object.entries(input.calendars ?? {}).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
   // resolve the booking source outside the transaction: it talks to Calendly.
@@ -205,6 +214,16 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
   if (sc?.objections !== undefined && (!Array.isArray(sc.objections) || !sc.objections.length || sc.objections.some((x) => typeof x !== "string" || !x.trim()))) throw new Error("salesCall.objections: a list of option keys");
   if (sc?.closerOptions !== undefined && (!sc.closerOptions || typeof sc.closerOptions !== "object" || Array.isArray(sc.closerOptions) || Object.entries(sc.closerOptions).some(([k, v]) => !k.trim() || typeof v !== "string" || !v.trim()))) throw new Error("salesCall.closerOptions: { <email, CRM user id or roster name>: <option key> }");
   if (input.depositProducts !== undefined && (!Array.isArray(input.depositProducts) || input.depositProducts.some((x) => typeof x !== "string" || !x.trim()))) throw new Error("depositProducts: a list of product or plan ids, e.g. [\"prod_…\", \"plan_…\"]");
+  if (input.typeform?.forms !== undefined) { const bad = mapProblems(input.typeform.forms); if (bad.length) throw new Error(`typeform.forms: ${bad.join("; ")}`); }
+  // D122: the map is checked against the forms themselves (outside the transaction: it talks to Typeform) whenever a token is given
+  if (input.typeform?.token) {
+    const forms = input.typeform.forms ?? await asOperator(async (c) => {
+      const b = await one<{ value: Buffer }>(c, "select b.value from bindings b join companies co on co.id=b.company_id where co.slug=$1 and b.key=$2", [input.slug, TF_FORMS_KEY]);
+      return b ? JSON.parse(b.value.toString("utf8")) as TypeformForms : {};
+    });
+    const bad = await checkMapAgainstForms(input.typeform.token, forms, typeformApi);
+    if (bad.length) throw new Error(`typeform: ${bad.join("; ")}`);
+  }
   const cardProblems = (input.bookingCard?.intake ?? []).map(intakeProblem).filter(Boolean);
   if (input.bookingCard && (!Array.isArray(input.bookingCard.intake) || cardProblems.length)) throw new Error(`bookingCard.intake: ${cardProblems.join("; ") || "a list of lines"}`);
   // D56: live is never set by install itself; `mode: "live"` is a go-live after the install, with its readiness refusal and clean slate (D51)
@@ -339,13 +358,21 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       await bind("secret.fathom_webhook", "secret", hook.secret); await bind("fathom.webhook_id", "id", hook.id);
       fathomWebhook = hook.id;
     }
+    // D122: Typeform's token and map; the engine's own webhook on each mapped form (one tag and secret per company, kept)
+    if (input.typeform?.token) await bind(TF_TOKEN_KEY, "secret", input.typeform.token);
+    if (input.typeform?.forms) await bind(TF_FORMS_KEY, "text", JSON.stringify(input.typeform.forms));
+    let typeformOut: string[] | undefined;
+    if (input.typeform) {
+      const { bindings: now } = await loadCompany(c, companyId);
+      typeformOut = now[TF_TOKEN_KEY] ? await registerTypeform(companyId, input.slug, now, bind, typeformApi, publicUrl) : ["no Typeform token bound: the webhook is not registered"];
+    }
     // Whop: with an API key and no signing secret yet, the engine creates its own webhook (api v1, payment + refund events) and keeps the secret it is shown once
     if (input.whop?.apiKey && !input.whop.webhookSecret && !boundKeys.has("secret.whop_webhook")) {
       if (!publicUrl) throw new Error("whop.apiKey given but PUBLIC_URL is not set: cannot tell Whop where to deliver");
       const hook = await whopCreateWebhook(input.whop.apiKey, `${publicUrl}/api/webhooks/whop/${companyId}`);
       await bind("secret.whop_webhook", "secret", hook.webhook_secret); await bind("whop.webhook_id", "id", hook.id);
     }
-    return { companyId, calendars: calendarsOut, installed, inbound: { secret: inboundPlain, zapierPaymentUrl: `/api/webhooks/zapier/${companyId}/payment`, zapierRecordingUrl: `/api/webhooks/zapier/${companyId}/recording`, whopWebhookUrl: `/api/webhooks/whop/${companyId}`, fathomWebhookUrl: `/api/webhooks/fathom/${companyId}`, fathomWebhook } };
+    return { companyId, calendars: calendarsOut, installed, ...(typeformOut ? { typeform: typeformOut } : {}), inbound: { secret: inboundPlain, zapierPaymentUrl: `/api/webhooks/zapier/${companyId}/payment`, zapierRecordingUrl: `/api/webhooks/zapier/${companyId}/recording`, whopWebhookUrl: `/api/webhooks/whop/${companyId}`, fathomWebhookUrl: `/api/webhooks/fathom/${companyId}`, fathomWebhook } };
   });
   if (input.mode === "live") {
     const r = await asOperator(async (c) => {

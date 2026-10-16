@@ -4175,3 +4175,124 @@ reset each Dating calendar to 30 minutes with no open hours (and filled its othe
 were restored by hand to 45 / 45 / 15 minutes, Mon–Fri 9–5 (no booking had been made). The script now sends every calendar
 PUT with the calendar's own length, interval and hours as GHL already holds them, and the test's fake GHL resets what a PUT
 leaves out, as GHL does; without the fix three tests fail.
+
+## D122. Typeform straight into the engine: the engine's own signed webhook, every answer a contact field, an importer for the rest (2026-10-16)
+
+Dating Nelly's intake is the Typeform "VIP Matchmaking Application" (`AjY7UfXZ`, 285 completed responses on 2026-10-16). Tyler,
+2026-10-16: no Zapier, the engine connects to Typeform directly; every answer becomes a GHL contact field in its own section;
+the engine registers its own webhook and keeps it registered (open item 34); the old responses are imported, and the import is
+the very last step, which he approves then.
+
+**The install key.** `typeform: { token, forms: { "<form id>": { name, answers: { <ref>: <target> }, hidden: { <name>: <target> },
+submittedAt, responseId, tags? } } }`. The token is bound as `secret.typeform_token`, the map as `typeform.forms`; omitted, both
+stay as they are. Answers are mapped by the question's `ref` (stable ids; the words can change, a ref does not). A target is
+`first_name`, `last_name`, `email`, `phone` (GHL's own contact fields) or a contact field binding (`field_contact_…`, as in the
+install's `crm`); hidden fields, the submission time and the response id go to contact fields. With a token, install reads each
+form and refuses a ref that is no question of it or a hidden name it does not have. Dating Nelly's map is in
+`installs/dating-nelly.json` (and the setup's `install` block): 21 questions, the six hidden fields to the existing
+"Dating – UTM …" and "Dating – fbclid" fields.
+
+**The webhook.** Install (with `typeform` and a token) registers one webhook per mapped form: `PUT /forms/{id}/webhooks/{tag}`
+with `{ url, secret, enabled: true, event_types: { form_response: true } }`, the URL `<PUBLIC_URL>/api/webhooks/typeform/<company
+id>`, the tag `biab-<slug>` (bound as `typeform.webhook_tag`) and a secret the engine makes once (`secret.typeform_webhook`,
+`tfwh_…`); a re-install or a re-register sends the same tag and secret, so it changes nothing Typeform already has right. A form
+whose map writes a field the company has not bound is not registered (the door opens only when every answer has somewhere to
+go), and the install says so. A delivery's `Typeform-Signature` must be `sha256=` + the base64 HMAC-SHA256 of the raw body with
+the secret; a missing or wrong one is a 401 and records nothing. Every health sweep (`typeform_webhook`) reads the webhook back
+(`GET /forms/{id}/webhooks/{tag}`): gone, turned off, no longer sending form responses, or sending anywhere but this engine's URL
+is an error alert with **Re-register the Typeform webhook**, which PUTs it back (`/health/fix`, provider `typeform`) and sweeps
+again; a refused token is an error, a Typeform that does not answer a warning.
+
+**A submission.** Idempotent by the response id (`form_response.token`): the first delivery is kept in `webhook_deliveries`
+(`typeform`, `<form>:<response>`), so Typeform's retries are no-ops; anything that fails before the end rolls back, so Typeform's
+retry does it again. Then:
+- *The person in GHL*, as Tyler said: by email, then by phone (`GET /contacts/search/duplicate`, one of the two per call). If GHL
+  has neither, the ledger's GHL id for that email or phone stands in (GHL's search can lag a contact made seconds ago). In
+  RapidCloser another business's contact may match: the same human, so the same record.
+- *The write* follows the mode as D117's tag write does: `effectiveMode` over `handlerMode("form.submitted")` (no workflow answers
+  it today, so the company's rung). In shadow (and in test for someone who is not a test contact) nothing is written to GHL and
+  the would-be write is the record: `form.submitted` carries `shadow: true` and `would_write` (create or update, the standard
+  fields, the tag, every field by binding with its value), and `tag.added` is recorded `shadow: true`, as D117 records the tag it
+  would have added. Real: a new person is made with `POST /contacts/` (the tag, the standard fields, every bound field, `source:
+  "Typeform: <form name>"`); a person GHL has is updated with `PUT /contacts/{id}` (the fields only; never `tags`, which GHL's spec
+  says replace them all) and the tag added with `POST /contacts/{id}/tags`. A create GHL refuses as a duplicate is found again
+  and updated. Then the contact is read back and replicated, so the ledger holds the GHL id and the tag.
+- *A contact GHL already has keeps its own name, email and phone*: only blanks are filled; a differing one is listed in the event
+  (`kept`). Chosen because in a shared location the record may be another business's and its details theirs; the application
+  fields and UTMs are the company's own and are always written. A blank answer and a blank hidden field write nothing, so the
+  UTMs of an earlier touch are never wiped (older responses have no UTMs).
+- *Choices are TEXT* (Tyler): a choice is its label (or what was typed under Other), several are joined with ", ", yes/no is Yes
+  or No, the age is NUMERICAL, the long answer LARGE_TEXT, the submission time is Typeform's `submitted_at` as given (ISO, UTC),
+  the response id as is, the consent the acknowledgment's words.
+- *In scope (D117)*: `form.submitted` is recorded with the person, and someone who submitted one of the company's forms is in
+  scope like a booker (`scopeSql`, `stillInScope`), so in shadow, where the tag is only what would have been written, the
+  applicant is still the company's person.
+- *New lead: yes, once.* A submission from someone the ledger did not know (by GHL id, email or phone) records `lead.created`
+  (source `form`) and starts New lead, exactly as the contacts poll does for a newly tagged contact. Why: the application is how a
+  dating lead arrives, and the person is new to the company whether or not the other business has them in GHL; waiting for the
+  poll would do the same a few minutes later in live and never in shadow (nothing tagged in GHL), so shadow would not show New lead
+  at all. Made here and once: the replica is written with the GHL id and the tag before the poll can see the contact, so the poll
+  finds no one new. A second application from someone already known is `form.submitted` only.
+- *Qualification* (MQL / DQ) is not decided. The place for it is D73's `qualify` over one of these bound fields, or a workflow on
+  `form.submitted` (it carries the person, the form and the response; the values are in GHL). Nothing reads an answer as a rule.
+
+**The importer** (`src/engine/typeform-import.ts`; `scripts/import-typeform.ts`, or `POST /api/admin/typeform-import { company,
+form, apply?, limit? }` in production). It reads every completed response through the Responses API (`page_size` 1000, `before`
+the last token) and puts each through the same path as the webhook, oldest first (a person who applied twice ends with the latest
+answers). The dry run is the default and writes nothing anywhere (not GHL, not Typeform, not the engine's tables); it reports how
+many would be created, how many match a GHL contact by email or by phone, the duplicates within Typeform, the partial and
+opened-only responses (never imported), and the fill rate of every mapped question and hidden field. Apply is decided as
+recommended: an explicit `--apply` / `apply: true` that writes for real **whatever the company's mode**, a deliberate one-off as
+D115's backfill was, because Tyler approves the import as the last step himself. It writes up to `limit` (50) responses per call,
+each in its own transaction, and skips a response already written (`webhook_deliveries` `typeform_ghl`, set only by a real write),
+so it is safe to re-run and a batch carries on where the last stopped. A response the webhook only shadowed is still written by
+apply, without a second `form.submitted`. History starts nothing: no `lead.created`, no workflow; the replica is written with the
+tag, so the next poll does not take the imported people for new leads either. Each write is in `audit_log` (`typeform.imported`).
+
+Dry run on 2026-10-16 (real Typeform, real RapidCloser GHL, reads only; `typeform-import-dryrun.txt`): 285 completed responses
+(2026-10-08 → 2026-10-16), 3 partial, 202 opened only; 282 people; 3 emails submitted twice; 1 matches a RapidCloser contact by
+email (whose phone differs, kept), 0 by phone only, 281 are not in GHL, so apply would create 281 contacts and update 4 times;
+every question 99–100% filled except the consent (1 of 285: it is optional on the form) and the long answer (282); the six
+hidden fields are empty on every response so far (added today). Tyler's CSV (277 rows) agrees: 275 in both, its 2 others are the
+API's partial responses, and the 10 newer completed responses were submitted after the export.
+
+**The application fields** are in the setup (`installs/dating/ghl-setup.json`, `contactFields` with `folder: "Application"`), 19
+contact fields "Dating – …" in the contact-field folder "Dating – Application". Whether GHL's API can make a contact folder:
+- GHL's own spec (`GoHighLevel/highlevel-api-docs`, read 2026-10-16) documents folders only for custom objects and the company
+  object (`POST /custom-fields/folder`: "Only supports Custom Objects and Company (Business) today"); its contact-field create
+  (`POST /locations/{id}/customFields`) documents neither a folder nor `parentId`.
+- RapidCloser read-only: a contact folder is a custom field with `documentType: "folder"`; the field list leaves folders out and
+  gives each field a `parentId`; `GET /locations/{id}/customFields/{folderId}` answers the folder ("Additional Info", "General
+  Info", "Contact", and another business's own "Everflow Data"). The v2 route refuses contact folders ("Fields with model contact
+  is not supported on this route").
+- This repo's first build made a contact folder by API on the template location (`ghl/build-backend.sh`, 2026-09-12: `POST
+  /locations/{id}/customFields` with `documentType: "folder"`, its fields by `parentId`; `ghl/00-state.md` records the 32 fields in
+  the folder "Core System").
+So it can be done, but only by an undocumented call, proven once by our own script and not yet in RapidCloser. `provision-ghl`
+makes the folder that way and the fields in it by `parentId`; if GHL does not make it (or gives no id) the plan says `blocked` and
+the fields are made without a folder, the manual step being to make the folder in GHL and move them. Folders are found by the
+`parentId` their fields name (the list never shows a folder), so an empty folder is not seen: a run that made the folder and
+then failed before any field may make a second one (delete the empty one by hand). A field made earlier outside its folder is
+bound and said (`exists-differs … not moved`), never PUT (D121: a GHL PUT resets what it is not sent). Dry run on RapidCloser
+(2026-10-16, `dn-appfields-dryrun.txt`): create the folder and the 19 fields; the other 90 lines `exists`.
+
+Also: `CrmRead.findDuplicate`; `createContact` takes tags, custom fields and a source, `updateContact` an email; the setup page shows
+the Typeform door and its token; the event type `form.submitted` (category lead) is in the schema.
+
+Not done, and why: no `form_response_partial` (a partial is not an application); answers are not kept in the engine's tables
+beyond the shadow record (GHL holds them, as D29 and D89 keep the ledger lean); the folder call is unproven in RapidCloser until
+the apply; the setter is not told about a new application (New lead and the setter board do that, once on).
+
+Tests: `typeform.test.ts` (install binds the token and map and registers one signed webhook per form, a re-install keeps the tag
+and secret, an unknown ref is refused, an unbound field keeps the door shut; a bad or missing signature, or a body changed after signing, is a 401 and
+records nothing; shadow writes nothing to GHL, records the would-be write and a shadow tag, the applicant in scope untagged and a
+new lead once; a retry is a duplicate; live, a new person is one contact with the tag and the fields by ref (answers out of order,
+an unmapped question, a reworded title) and the poll makes no second lead; another business's contact matched by email keeps its
+own name and gets the tag added on its own, one matched by phone is updated, never recreated; a known person's second application
+is no new lead; the dry run writes nothing and counts creates, matches, duplicates, partials and fill rates; apply writes each
+response once, oldest first, whatever the mode, starts nothing, re-runs write nothing, a shadowed response is written once; the
+sweep says gone, elsewhere and off with the button, and the re-register puts it back), `provision.test.ts` (the folder and its
+fields, a second run a no-op, a field outside the folder bound and not moved, a folder GHL will not make). Each fails without its
+code: dropping the signature check, the idempotency, the mode, the phone lookup, the blank-only rule, the separate tag add, the
+scope rule, the replica after the write, the importer's written check, the health check or the door's lead turns 1–4 of the 12
+red; dropping the folder's `parentId` or the folder read turns 5 of the provision tests red.

@@ -267,6 +267,12 @@ on GHL's field, so revenue history is a count of deals until Whop fills it. Not 
 period's setter-call digests into themes (needs the Anthropic key), and the bot that answers ad-hoc
 questions from the rollups, the ledger and live GHL.
 
+2026-10-16, D122: the Typeform door is built (no Zapier): the engine registers its own signed webhook per form, and each
+submission goes to GHL as contact fields (by question ref) with the scope tag and UTMs, as the mode allows, recorded as
+`form.submitted`. The answers live in GHL, not in `intake`; a wrap-up that tallies them reads them from GHL like every other
+number (not built). An importer brings in the responses from before the webhook (dry run by default; apply is a deliberate real
+write). Hair's Typeform still reaches GHL through its Zap until it is mapped and installed the same way.
+
 ## 30. Agreement workflows (spec captured 2026-10-07; built the same day as D30 — send step waits on the documents scope)
 Tyler walked through three GHL workflows to port, pending Deal Closed:
 - **Send agreement manually**: tag `sys-send-agreement-manually` → send the "3000 Purchase Agreement"
@@ -356,6 +362,11 @@ Tyler, 2026-10-08: "if we have a Typeform connected and the URL changes somehow 
 'click yes to fix'". The Whop and Fathom webhooks have that now (verified each sweep, re-registered from the
 health page). Typeform is not integrated yet (#29): when it is, its webhook is registered by the engine from
 a Typeform token, verified each sweep (`GET /forms/{id}/webhooks`), and re-registered from the same button.
+
+Typeform: DONE 2026-10-16 (D122). Install with `typeform: { token, forms }` registers `biab-<slug>` on each mapped form
+(`PUT /forms/{id}/webhooks/{tag}`, signed with the engine's secret); every sweep reads it back (`GET /forms/{id}/webhooks/{tag}`)
+and gone, off or pointing elsewhere is an error with **Re-register the Typeform webhook**. Calendly and the Zapier doors still
+have no such check.
 
 
 ## 35. ~~Deal closed must not fire on a deposit, once deposits are a distinct kind~~ — DONE 2026-10-16 (D119)
@@ -577,8 +588,21 @@ Still open:
   calendar the team Mitch Sapoff → Nelly S. and into the group; nothing else. Apply: `provision-ghl --apply` (only the group
   is created; only the three calendars are PUT, with only their team and group). Still to come: the setter as a GHL user
   (name and email to come).
-- The Typeform: its questions and answers become intake fields and booking-card lines. UTMs arrive from it. A direct
-  Typeform integration, no Zapier (#34).
+- The Typeform (D122, built 2026-10-16, not installed): the "VIP Matchmaking Application" (`AjY7UfXZ`) straight into the
+  engine, no Zapier. Each answer to a contact field "Dating – …" in the folder "Dating – Application" (19 new fields in the
+  setup; choices as TEXT, age NUMERICAL, the long answer LARGE_TEXT, the submission time and the response id), name, email
+  and phone to GHL's own fields, the six hidden UTMs to the existing UTM fields, the tag `dating`, `form.submitted` with the
+  person in scope; a new person is a new lead once. Shadow records the would-be write. To do, in order:
+  1. Fields: `provision-ghl --apply` on RapidCloser (dry run: the folder and the 19 fields, nothing else). The contact folder is
+     made by an undocumented call (D122); if the apply says `blocked`, make "Dating – Application" in GHL by hand and move the
+     19 fields into it. Copy the 19 `field_contact_app_*` ids from `--out` into `installs/dating-nelly.json`'s `crm`.
+  2. Install: re-install Dating Nelly with that file plus `typeform.token` (DN_TYPEFORM_TOKEN). It checks the map against the
+     form and registers the webhook; the setup page and Health check show it.
+  3. Import, last, when Tyler approves: `POST /api/admin/typeform-import { company: "dating-nelly", form: "AjY7UfXZ" }` (dry run),
+     then with `apply: true` until `remaining` is 0. Dry run 2026-10-16: 285 responses, 282 people, 281 new to GHL, 1 matches a
+     RapidCloser contact by email, 3 applied twice.
+  - Booking-card lines from the answers: not done (a `bookingCard.intake` line per field once Tyler says which).
+  - Qualification (MQL / DQ) from the answers: not decided (D73's `qualify` is the place).
 - With GHL calendars, a setter-booked call does not say who set it. Since D121 that is an engine alert per booking
   ("Setter-booked call with no setter: …. Say who set it"), cleared when the contact's Setter field is filled in GHL or a
   setter's dial set the booking (D87); in shadow too, but Dating Nelly's Health check is off, so it shows on the dashboard,

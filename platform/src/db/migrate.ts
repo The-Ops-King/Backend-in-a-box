@@ -196,6 +196,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`update core_categories set sort=4 where domain='setter_call_type' and value='other' and sort<>4`);
     await c.query(`insert into event_types values ('call.closing','call') on conflict do nothing`);
     await c.query(`insert into event_types values ('scope.left','crm') on conflict do nothing`);   // D117: a person the scope tag no longer covers (recorded, never a start)
+    await c.query(`insert into event_types values ('form.submitted','lead') on conflict do nothing`);   // D122: a Typeform submission (the webhook door or the importer)
     await c.query(`alter table sends drop constraint if exists sends_channel_check`);
     await c.query(`alter table sends add constraint sends_channel_check check (channel in ('sms','email','slack','webhook'))`);
     await ownsOrAbsent(c, "slack_posts", "tag");

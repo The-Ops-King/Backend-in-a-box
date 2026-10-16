@@ -10,7 +10,7 @@ import { BOOKING_CARD_KEY, intakeLines } from "@/engine/booking-card";
  */
 const LABELS: Record<string, string> = {
   "secret.ghl_pit": "GoHighLevel private integration token", "crm.location_id": "GoHighLevel location", "secret.anthropic_key": "Anthropic API key (transcripts)", "secret.jev_key": "Jev key (reads replies)", "secret.whop_api_key": "Whop API key", "secret.whop_webhook": "Whop webhook secret",
-  "secret.fathom_api_key": "Fathom API key", "secret.fathom_webhook": "Fathom webhook secret", "secret.calendly_token": "Calendly token", "secret.slack_signing": "Slack signing secret (reactions door)", "secret.zapier_inbound": "Zapier door secret",
+  "secret.fathom_api_key": "Fathom API key", "secret.fathom_webhook": "Fathom webhook secret", "secret.calendly_token": "Calendly token", "secret.slack_signing": "Slack signing secret (reactions door)", "secret.zapier_inbound": "Zapier door secret", "secret.typeform_token": "Typeform token", "secret.typeform_webhook": "Typeform webhook secret",
   "alerts.slack_channel": "Alerts to Slack", "alerts.as_name": "Alerts post as", "alerts.as_icon": "Alert icon", "alerts.repeat_minutes": "Say an open alert again after (minutes)", "alerts.poll_failures": "Alert when polling fails this many times in a row",
   "booking.setter_rule": "Setter rule", "crm.default_closer": "Default closer", "calendly.phone_question": "Calendly phone question", "calendly.setter_question": "Calendly setter question", "calendly.user": "Calendly host", "calendly.organization": "Calendly organization",
   "calendar.closer_call": "The closer call", "calendar.booking": "The booking link we send", "test.domains": "Test email domains (test and rehearsal)",
@@ -58,7 +58,7 @@ export async function setupPage(co: CompanyHead) {
     settings: { name: d.company.name, timezone: d.company.timezone, mode: d.company.mode, test_domains: one("test.domains")?.value ?? null, sms_enabled: d.company.sms_enabled, send_window: `${d.company.send_window_start.slice(0, 5)}–${d.company.send_window_end.slice(0, 5)}`, quiet_allow_transactional: d.company.quiet_allow_transactional, contract_value_default: d.company.contract_value_default, reached_seconds: d.company.reached_seconds },
     team: d.users.map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, calls: u.calls, in_crm: !!u.ghl_user_id })),
     eod_form: d.eodForm.map((f) => ({ key: f.key, label: f.label, type: f.type, required: !!f.required, scope: f.scope ?? "call", when: f.when ?? null, builtin: !!f.builtin, options: f.options ?? null })),
-    connections: ["crm.location_id", "secret.ghl_pit", "secret.anthropic_key", "secret.jev_key", "secret.whop_api_key", "secret.whop_webhook", "secret.fathom_api_key", "secret.fathom_webhook", "secret.calendly_token", "secret.slack_signing"].map((k) => one(k) ?? { key: k, label: humanKey(k), set: false, value: null, name: null, required: false, used_by: [] }),
+    connections: ["crm.location_id", "secret.ghl_pit", "secret.anthropic_key", "secret.jev_key", "secret.whop_api_key", "secret.whop_webhook", "secret.fathom_api_key", "secret.fathom_webhook", "secret.calendly_token", "secret.typeform_token", "secret.typeform_webhook", "secret.slack_signing"].map((k) => one(k) ?? { key: k, label: humanKey(k), set: false, value: null, name: null, required: false, used_by: [] }),
     catalog_errors: cat?.errors ?? [],
     booking: { source: d.bookingSource, setter_rule: one("booking.setter_rule")?.value ?? null, default_closer: one("crm.default_closer")?.name ?? one("crm.default_closer")?.value ?? null, phone_question: one("calendly.phone_question")?.value ?? null, setter_question: one("calendly.setter_question")?.value ?? null },
     // D104: what the booking card shows under Phone, the company's own; set with the install API (bookingCard)
@@ -71,7 +71,8 @@ export async function setupPage(co: CompanyHead) {
     alerts: ["alerts.slack_channel", "alerts.as_name", "alerts.as_icon", "alerts.repeat_minutes", "alerts.poll_failures"].map((k) => one(k)).filter((r): r is SetupRow => !!r),
     prompts: by("prompts").map((r) => ({ key: r.key, label: humanKey(r.key), used_by: r.used_by, text: r.value ?? "" })),
     scheduled: d.scheduled,
-    inbound: { whop: d.inbound.whop, fathom: d.inbound.fathom, zapier_payment: d.inbound.zapierPayment, zapier_recording: d.inbound.zapierRecording, zapier_secret: d.inbound.secret ? `set · ends with ${d.inbound.secret.slice(-4)}` : null, fathom_webhook_id: d.inbound.fathomWebhookId },
+    inbound: { whop: d.inbound.whop, fathom: d.inbound.fathom, zapier_payment: d.inbound.zapierPayment, zapier_recording: d.inbound.zapierRecording, zapier_secret: d.inbound.secret ? `set · ends with ${d.inbound.secret.slice(-4)}` : null, fathom_webhook_id: d.inbound.fathomWebhookId,
+      typeform: d.inbound.typeformTag ? `${d.inbound.typeform} · webhook "${d.inbound.typeformTag}" on ${d.inbound.typeformForms.join(", ") || "no form"}` : d.inbound.typeformForms.length ? `${d.inbound.typeform} · not registered yet` : null },
   };
 }
 export type SetupPage = NonNullable<Awaited<ReturnType<typeof setupPage>>>;

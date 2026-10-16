@@ -17,7 +17,10 @@ function fakeGhl(seed: (g: ReturnType<typeof empty>) => void = () => {}) {
     if (method === "GET") {
       if (route === `/locations/${LOC}`) return { location: { name: "Fake", timezone: g.timezone } };
       if (route === "/opportunities/pipelines") return { pipelines: g.pipelines };
+      // as GHL does (RapidCloser, 2026-10-16): the list leaves folders out; a folder is read by its id
       if (route === `/locations/${LOC}/customFields`) return { customFields: g.fields.filter((f) => p.endsWith(`model=${f.model}`)) };
+      const fo = new RegExp(`^/locations/${LOC}/customFields/(.+)$`).exec(route);
+      if (fo) { const x = g.folders.find((y) => y.id === fo[1]); if (!x) throw new Error("404 no such field"); return { customField: { ...x, model: "contact", documentType: "folder" } }; }
       if (route === "/objects/") return { objects: g.objects };
       if (route === "/associations/") return { associations: g.associations };
       if (route === "/calendars/") return { calendars: g.calendars };
@@ -27,7 +30,8 @@ function fakeGhl(seed: (g: ReturnType<typeof empty>) => void = () => {}) {
       if (ok) return { fields: g.objFields.filter((f) => f.objectKey === ok[1]), folders: g.objects.some((o) => o.key === ok[1]) ? [{ id: `folder:${ok[1]}` }] : [] };
     }
     if (method === "POST" && route === "/opportunities/pipelines") { const p2 = { id: id(), name: body.name, stages: body.stages.map((s: { name: string; position: number }) => ({ id: id(), ...s })) }; g.pipelines.push(p2); return p2; }
-    if (method === "POST" && route === `/locations/${LOC}/customFields`) { const f = { id: id(), name: body.name, dataType: body.dataType, model: body.model }; g.fields.push(f); return { customField: f }; }
+    if (method === "POST" && route === `/locations/${LOC}/customFields` && body.documentType === "folder") { const x = { id: id(), name: body.name }; if (g.noFolders) throw new Error("GHL 422 documentType should not exist"); g.folders.push(x); return { customFieldFolder: x }; }
+    if (method === "POST" && route === `/locations/${LOC}/customFields`) { const f = { id: id(), name: body.name, dataType: body.dataType, model: body.model, parentId: body.parentId ?? "default" }; g.fields.push(f); return { customField: f }; }
     if (method === "POST" && route === "/objects/") {
       g.objects.push({ id: id(), key: body.key, labels: body.labels });
       g.objFields.push({ id: id(), name: body.primaryDisplayPropertyDetails.name, fieldKey: body.primaryDisplayPropertyDetails.key, dataType: "TEXT", objectKey: body.key, parentId: `folder:${body.key}` });
@@ -52,7 +56,8 @@ function empty() {
   return {
     timezone: "America/New_York",
     pipelines: [] as { id: string; name: string; stages: { id: string; name: string; position?: number }[] }[],
-    fields: [] as { id: string; name: string; dataType: string; model: string }[],
+    fields: [] as { id: string; name: string; dataType: string; model: string; parentId?: string }[],
+    folders: [{ id: "default", name: "Additional Info" }] as { id: string; name: string }[], noFolders: false,
     objects: [] as { id: string; key: string; labels: { singular: string; plural?: string } }[],
     objFields: [] as { id: string; name: string; fieldKey: string; dataType: string; objectKey: string; parentId?: string; options?: { key: string; label: string }[] }[],
     associations: [] as { id: string; key: string; firstObjectKey: string; secondObjectKey: string }[],
@@ -189,7 +194,7 @@ describe("D121: the setup's calendars go in its own group, and their team is the
       detail: "Mitch Sapoff <Mitch@RevSignals.io> → Nelly S. <nellysudri@gmail.com>; calls already booked are not reassigned by this" });
     expect(dry.plan).toContainEqual({ action: "missing-on-ours", what: '  group of calendar "Dating – Triage Call"', id: "cTriage", detail: 'goes in "Dating – Nelly" (made above)' });
     expect(dry.plan.filter((l) => l.action === "change-on-ours").map((l) => l.id)).toEqual(["cDirect", "cSetter", "cTriage"]);
-    expect(dry.plan.some((l) => l.what.includes("Strategy Session") || l.what.includes("Dating Coach"))).toBe(false);
+    expect(dry.plan.some((l) => l.what.includes('"Strategy Session"') || l.what.includes("Dating Coach"))).toBe(false);   // the other business's calendars (not the setup's "Wants Strategy Session" field)
 
     const sched = JSON.stringify(f.g.calendars.filter((c) => ["cDirect", "cSetter", "cTriage"].includes(c.id)).map((c) => [c.id, c.slotDuration, c.openHours]));
     const r = await provision(setup, LOC, f.http, { apply: true });
@@ -248,5 +253,51 @@ describe("D121: the setup's calendars go in its own group, and their team is the
     expect(sent).toEqual([]);
     await live("PUT", "/calendars/cSetter", { body: { groupId: "ourGroup", teamMembers: [{ userId: "nelly" }] } });
     expect(sent).toEqual(["PUT /calendars/cSetter"]);
+  });
+});
+
+describe("D122: the application fields go in the setup's own contact-field folder", () => {
+  const app = setup.contactFields.filter((f) => f.folder === "Application");
+
+  it("the dry run only reads (each folder by its id) and says the folder and its fields would be made", async () => {
+    const f = fakeGhl(foreign);
+    const r = await provision(setup, LOC, f.http, { apply: false });
+    expect(f.writes()).toEqual([]);
+    expect(r.plan).toContainEqual({ action: "create", what: 'contact field folder "Dating – Application"', detail: `holds ${app.length} contact fields` });
+    expect(r.plan).toContainEqual({ action: "create", what: 'contact field "Dating – Ideal Partner"', detail: 'LARGE_TEXT, in "Dating – Application"' });
+    expect(r.plan).toContainEqual({ action: "create", what: 'contact field "Dating – Age"', detail: 'NUMERICAL, in "Dating – Application"' });
+  });
+
+  it("apply makes the folder, then every application field in it (TEXT for choices, NUMERICAL age, LARGE_TEXT long text); a second run finds the folder by its fields and writes nothing", async () => {
+    const f = fakeGhl(foreign);
+    const r = await provision(setup, LOC, f.http, { apply: true });
+    const folder = f.g.folders.find((x) => x.name === "Dating – Application")!;
+    expect(f.writes().filter((c) => c.body?.documentType === "folder")).toEqual([{ method: "POST", path: `/locations/${LOC}/customFields`, body: { name: "Dating – Application", documentType: "folder", model: "contact", dataType: "TEXT" } }]);
+    const made = f.g.fields.filter((x) => x.parentId === folder.id);
+    expect(made.map((x) => x.name).sort()).toEqual(app.map((x) => `Dating – ${x.name}`).sort());
+    expect(new Set(made.map((x) => x.dataType))).toEqual(new Set(["TEXT", "NUMERICAL", "LARGE_TEXT"]));
+    expect(f.g.fields.find((x) => x.name === "Dating – UTM Source")!.parentId).toBe("default");   // the setup's other fields: no folder, as before
+    expect(r.after!.every((l) => l.action === "exists")).toBe(true);
+    expect((r.install.crm as Record<string, string>).field_contact_app_age).toBe(f.g.fields.find((x) => x.name === "Dating – Age")!.id);
+    expect((r.install.typeform as { forms: Record<string, unknown> }).forms.AjY7UfXZ).toBeTruthy();
+    const before = f.calls.length;
+    const again = await provision(setup, LOC, f.http, { apply: true });
+    expect(f.calls.slice(before).every((c) => c.method === "GET")).toBe(true);
+    expect(again.plan.every((l) => l.action === "exists")).toBe(true);
+  });
+
+  it("a field made earlier outside the folder is bound, said and not moved (a field is never PUT); a folder GHL will not make is said and the fields go in without one", async () => {
+    const f = fakeGhl((g) => { foreign(g); g.folders.push({ id: "appF", name: "Dating – Application" }); g.fields.push({ id: "inF", name: "Dating – Age", dataType: "NUMERICAL", model: "contact", parentId: "appF" }, { id: "outF", name: "Dating – Income", dataType: "TEXT", model: "contact", parentId: "default" }); });
+    const r = await provision(setup, LOC, f.http, { apply: true });
+    expect(r.plan).toContainEqual({ action: "exists", what: 'contact field folder "Dating – Application"', id: "appF" });
+    expect(r.plan).toContainEqual({ action: "exists-differs", what: 'contact field "Dating – Income"', id: "outF", detail: 'TEXT, in the folder "Additional Info", not "Dating – Application": bound, not moved (move it by hand)' });
+    expect((r.install.crm as Record<string, string>).field_contact_app_income).toBe("outF");
+    expect(f.writes().some((c) => c.method === "PUT" && c.path.includes("customFields"))).toBe(false);
+    expect(f.g.fields.filter((x) => x.parentId === "appF")).toHaveLength(app.length - 1);
+
+    const g2 = fakeGhl((g) => { foreign(g); g.noFolders = true; });
+    const r2 = await provision(setup, LOC, g2.http, { apply: true });
+    expect(r2.plan.find((l) => l.what === 'contact field folder "Dating – Application"' && l.action === "blocked")?.detail).toMatch(/^GHL did not make it \(.*documentType should not exist\): its fields go in without a folder; make "Dating – Application" in GHL and move them into it by hand$/);
+    expect(g2.g.fields.filter((x) => x.name === "Dating – Age")).toEqual([expect.objectContaining({ parentId: "default" })]);
   });
 });
