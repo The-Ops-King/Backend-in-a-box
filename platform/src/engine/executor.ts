@@ -1036,13 +1036,15 @@ async function objectFields(d: ExecDeps, objectKey: string): Promise<Map<string,
 }
 
 async function bookingRecord(d: ExecDeps, objectKey: string): Promise<{ id: string } | { why: string }> {
-  const appt = d.ctx.appointment as { external_id?: string; starts_at?: string } | undefined;
+  const appt = d.ctx.appointment as { external_id?: string; slot_key?: string; starts_at?: string } | undefined;
   if (!d.run.appointment_id || !appt?.starts_at) return { why: "the run has no booking to match it by" };
+  // a record carries the slot key it was written under (D120: a Calendly re-make keeps it while the event id moves on)
+  const keys = new Set([appt.slot_key, appt.external_id].filter((k): k is string => !!k));
   const ids = new Set((await many<{ v: string }>(d.c, "select ghl_contact_id as v from contacts where id=$1 and ghl_contact_id is not null union select value from contact_identifiers where contact_id=$1 and kind='ghl_contact' and retired_at is null", [d.run.contact_id])).map((r) => r.v));
   const taken = new Set((await many<{ v: string }>(d.c, "select ghl_record_id as v from crm_records where company_id=$1 and object_key=$2 and ghl_record_id is not null", [d.company.id, objectKey])).map((r) => r.v));
   const recs = (await d.adapters.read.objectRecords(d.adapterCompany, objectKey)).filter((r) => !taken.has(r.id));
   const tz = d.company.timezone, start = DateTime.fromISO(appt.starts_at).setZone(tz);
-  const byExt = recs.filter((r) => appt.external_id && String(r.properties.external_id ?? "") === appt.external_id);
+  const byExt = recs.filter((r) => keys.has(String(r.properties.external_id ?? "")));
   const byPerson = recs.filter((r) => {
     if (!ids.has(String(r.properties.contact_id ?? "").trim())) return false;
     const cd = String(r.properties.call_date ?? ""), day = /^\d{4}-\d{2}-\d{2}$/.test(cd) ? DateTime.fromISO(cd, { zone: tz }) : null;

@@ -167,21 +167,32 @@ export async function backfillSalesCalls(c: PoolClient, co: LoadedCompany, adapt
   }
   const inLedger = new Set(ledger.map((a) => a.slot_key));
   const recreated = new Map<string, { from: string; at: Date | null }>();
+  // D120: the live poll keeps a re-made booking's slot key (the id it had before the re-make), so a move after a re-make leaves the
+  // slot under that older id. A left slot takes the id in its chain of same-time re-makes the engine already wrote or saw leave;
+  // else its own id, as before
+  const sameTime = (a: AppointmentSnapshot, b: AppointmentSnapshot) => Math.abs(new Date(a.startTime).getTime() - new Date(b.startTime).getTime()) < 60e3;
+  const remadeFrom = new Map<string, string>();
+  for (const s of snaps.values()) { const next = s.status === "cancelled" && s.rescheduledTo ? snaps.get(s.rescheduledTo) : undefined; if (next && sameTime(s, next)) remadeFrom.set(next.id, s.id); }
+  const known = new Set((await many<{ k: string }>(c, `select record_key as k from crm_records where company_id=$1 and object_key=$2
+    union select data->'slot'->>'from' from events where company_id=$1 and event_type='appointment.rescheduled' and data->'slot'->>'from' is not null`, [co.row.id, setup.objectKey])).map((r) => r.k));
+  const leftKey = (id: string) => { const chain = [id]; for (let x = remadeFrom.get(id); x && !chain.includes(x); x = remadeFrom.get(x)) chain.push(x); return chain.find((k) => known.has(k)) ?? id; };
   for (const s of snaps.values()) {
     const moved = s.status === "cancelled" && (!!s.rescheduledTo || (s.raw.invitee as { rescheduled?: boolean } | undefined)?.rescheduled === true);
     const at = new Date(s.startTime);
-    if (!moved || inLedger.has(s.id) || at < opts.from || at > opts.to) continue;
+    if (!moved || at < opts.from || at > opts.to) continue;
     // Calendly re-makes an event when the host edits it in a connected calendar, often at the very same time: that call did not move,
     // so the event it replaced is no slot of its own (the poll sees no move either: under a minute is no reschedule)
     const next = s.rescheduledTo ? snaps.get(s.rescheduledTo) : undefined;
-    if (next && Math.abs(new Date(next.startTime).getTime() - at.getTime()) < 60e3) { recreated.set(next.id, { from: s.id, at: s.cancellation?.at ? new Date(s.cancellation.at) : null }); continue; }
+    if (next && sameTime(s, next)) { recreated.set(next.id, { from: s.id, at: s.cancellation?.at ? new Date(s.cancellation.at) : null }); continue; }
+    const key = leftKey(s.id);
+    if (inLedger.has(s.id) || inLedger.has(key)) continue;
     const host = userOf(s); if (closer && host?.id !== closer.id) continue;
     const email = s.invitee?.email ?? null;
     // the person as the booking names them: the CRM's id (a GHL calendar), else the invitee's email (Calendly)
     const ct = s.contactId ? await one<{ contact_id: string }>(c, "select id as contact_id from contacts where company_id=$1 and ghl_contact_id=$2 union all select contact_id from contact_identifiers where company_id=$1 and kind='ghl_contact' and value=$2 and retired_at is null limit 1", [co.row.id, s.contactId])
       : email ? await one<{ contact_id: string }>(c, "select contact_id from contact_identifiers where company_id=$1 and kind='email' and value=$2 and retired_at is null", [co.row.id, email]) : null;
     const cal = calOf.get(s.calendarId), by = s.cancellation ? `${s.cancellation.byType === "host" ? "the host" : s.cancellation.byType === "invitee" ? "the invitee" : "someone"}${s.cancellation.by ? ` (${s.cancellation.by})` : ""}` : "someone";
-    slots.push({ kind: "left_slot", key: s.id, startsAt: at, snap: s, move: { source: "Calendly", at: s.cancellation?.at ? new Date(s.cancellation.at) : null, to: next ? new Date(next.startTime) : null, by, reason: s.cancellation?.reason ?? "" }, calendar: cal?.name ?? s.title ?? "", termName: cal?.term_name ?? "", selfBooked: cal?.self_booked ?? null, closer: host, contactId: ct?.contact_id ?? null, email });
+    slots.push({ kind: "left_slot", key, startsAt: at, snap: s, move: { source: "Calendly", at: s.cancellation?.at ? new Date(s.cancellation.at) : null, to: next ? new Date(next.startTime) : null, by, reason: s.cancellation?.reason ?? "" }, calendar: cal?.name ?? s.title ?? "", termName: cal?.term_name ?? "", selfBooked: cal?.self_booked ?? null, closer: host, contactId: ct?.contact_id ?? null, email });
   }
   // a move the engine itself saw (a GHL calendar keeps the booking's id; the poll logs the slot it left and its time before the move)
   const seen = new Set(slots.map((x) => x.key));
@@ -313,7 +324,7 @@ async function readSlot(sh: Shared, s: Slot): Promise<SalesCallRow> {
     else row.remarks.push("cancelled at the booking source at a time it does not say: not counted as a cancel");
   } else if (start > sh.now) { settled = "scheduled"; add("outcome", "Calendly", "booked; the call is still ahead"); }
   const remade = s.snap ? sh.recreated.get(s.snap.id) : undefined;
-  if (remade) row.remarks.push(`Calendly re-made this booking at the same time${remade.at ? ` on ${local(remade.at, tz).toFormat("LLL d, h:mm a")}` : ""} (an edit in the host's connected calendar): the call did not move, so the event it replaced (${remade.from}) has no record of its own`);
+  if (remade) row.remarks.push(`Calendly re-made this booking at the same time${remade.at ? ` on ${local(remade.at, tz).toFormat("LLL d, h:mm a")}` : ""} (an edit in the host's connected calendar): the call did not move, so ${remade.from === s.key ? `it keeps the record it was booked under (${remade.from})` : `the event it replaced (${remade.from}) has no record of its own`}`);
   else if (s.kind === "booking" && snap?.rescheduledFrom) { const was = sh.starts.get(snap.rescheduledFrom); row.remarks.push(`the booking moved here from ${was ? local(was, tz).toFormat("LLL d, h:mm a") : "an earlier slot"} (that slot has its own record, logged rescheduled)`); }
   const held = s.kind === "booking" && !settled;   // only a call that could have been held has a show, money or a card to read
   if (held && snap?.status === "noshow") att.push({ value: "noshow", source: "Calendly", detail: "the host marked the invitee a no-show", rank: 2 });
