@@ -12,6 +12,7 @@ import { applyDocument, facts as agreementFacts, isSigned } from "./agreements";
 import { foldCard } from "./cards";
 import { handMoved } from "./card-moves";
 import { carriesTag, companyScopeTag, inScope, scopeTag, stillInScope, tagIntoScope } from "./scope";
+import { raiseSetterMissing, settleSetterAlerts } from "./setter-missing";
 
 export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; agreements: number; cardsMoved: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
@@ -187,6 +188,8 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
     const tag = await companyScopeTag(c, co.id);
     if (tag && !carriesTag((await one<{ tags: string[] }>(c, "select tags from contacts where id=$1", [contact.id]))?.tags, tag))
       await tagIntoScope(c, co, ac, adapters, (await loadCompany(c, co.id)).bindings, contact.id, row!.id, tag);
+    // D121: setter-booked with no setter named is an alert to say who, before Call booked reads the booking (a dial may already say)
+    if (cal.self_booked === false && !s.setBy?.trim()) await raiseSetterMissing(c, co, row!.id);
     if (contact.lead) {   // the booking brought a new person: lead.created first (New lead, Speed to lead), the same shape the contacts poll emits, then the booking
       const started = await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: contact.lead.ghlContactId } }), { contact: { id: contact.id, ghl_contact_id: contact.lead.ghlContactId, tags: contact.lead.tags } });
       if (rep) rep.eventsDispatched += started.length;
@@ -401,6 +404,7 @@ export async function pollCompany(adapters: Adapters, companyId: string, rep: Po
     ...cals.map((cal): [string, EntityPoll] => [`appointments:${cal.external_id}`, (c, co, ac, adapters, rep) => pollCalendar(c, co, ac, adapters, rep, cal.external_id)]),
     ["conversations", pollInbound],
     ["calls", pollPendingCalls],
+    ["setters", async (c, co, ac, adapters) => { await settleSetterAlerts(c, co, ac, adapters); }],   // D121, after the calls: a dial just logged can name the setter
     ["agreements", pollAgreements],
     ["cards", pollCards],
   ];

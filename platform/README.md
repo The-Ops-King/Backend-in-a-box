@@ -731,6 +731,24 @@ with that email learns its Slack id so the bot can say their first name). The bo
 Slack connection matches the event's team id. Both doors acknowledge within Slack's three seconds and do the work
 after the response (`after()` from `next/server`); deliveries are deduplicated by event id as before.
 
+## A company's GHL setup from a file (`provision-ghl`, D117–D121)
+
+A company that lives in a GHL location the engine builds into (Dating Nelly in RapidCloser) has its pipelines, fields,
+objects, associations, calendars and calendar group declared in `installs/<company>/ghl-setup.json` and built by:
+
+```bash
+pnpm exec tsx scripts/provision-ghl.ts --setup installs/dating/ghl-setup.json \
+  --pit-env DATING2_GHL_PIT --location-env DATING2_GHL_LOCATION_ID --out /tmp/skeleton.json        # dry run: reads only
+pnpm exec tsx scripts/provision-ghl.ts … --apply                                                   # makes what is missing
+```
+
+Additive and re-runnable: matched by name (with the setup's `prefix`) or key, it creates what is missing and adds a missing
+stage, field or option to its own things; it never renames, retypes or deletes, and never writes to anything the setup does
+not name. The one setting it changes on something that exists is a declared calendar's team (D121): the setup's `team`
+(or a calendar's own) is set on its calendars, the dry run printing `change-on-ours … <before> → <after>`. Its calendars go
+in its `calendarGroup` (made if missing; one already in someone else's group is not moved). A second run after an apply is
+all `exists`. `--out` gets the install skeleton (crm ids, calendars, picks).
+
 ## Alerts and the health sweep (D33)
 
 The engine says what broke the minute it breaks, and nothing while it works. A step that fails is retried in
@@ -1140,6 +1158,13 @@ setter-booked), `either`. Per calendar, which wins: `calendars: { "<id>": { term
 long have you been noticing" } } }`. Question texts are matched case-insensitively on a prefix. Mapped
 answers are on the appointment as `{{appointment.answers.<name>}}`. Templates only read
 `appointment.self_booked`, `appointment.set_by` and `appointment.answers.*`.
+
+A booking taken as setter-booked whose setter nobody named (a GHL calendar never names one; Calendly when the setter
+question has no answer) is an engine error alert, one per booking, `setter:missing:<appointment id>` (D121): "Setter-booked
+call with no setter: <name>, <time> on <calendar>. Say who set it". It is raised in shadow and test too (an alert is not a
+run). It clears by itself, and the name goes on the booking's `set_by`, once the setter is known: a team member's connected
+dial the booking came during or within the Set window after (D87), or the contact's Setter field (`crm.field_contact_setter`)
+filled in after the booking (GHL is read back every 5 minutes); with no Setter field bound, a person resolves it.
 
 ### The booking card's intake lines (D104)
 
