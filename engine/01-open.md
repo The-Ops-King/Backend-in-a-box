@@ -641,3 +641,11 @@ Still open:
 - RapidCloser's own GHL workflows: Tyler checks "Appointment Created", "SWS | Presuasion Call Booking Sequence" and anything
   on Contact Created or Tag Added (Enagic SMS WF, Enagic Email Campaign, Trigger Link Click [ANY]) before the CSV import, and
   that none triggers on the engine's stat-/seq-/meta tags before anything goes test or live.
+
+Tyler, 2026-10-16, on MQL / DQ: "I don't think we want them fully disqualified, even if they say no to coaching… we have
+so few leads, we don't really want to burn any right now… later on, those are really good metrics for DQ / MQL." So no DQ
+for Dating (Nelly) now: everyone is worked; a lead that looks weak goes to the 15-minute Triage call (the setter's) to find
+out. To settle with Tyler: lead tiers from the application answers (income, what they want, openness to coaching) that
+route the call (strategy vs triage) and give the numbers their MQL / DQ split later. State: the Typeform webhook is
+registered (`biab-dating-nelly`, D122); the 19 application fields are in the GHL folder "Dating – Application"; the
+response import (285 so far) waits for Tyler's go, last.
