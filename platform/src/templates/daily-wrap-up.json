@@ -5,7 +5,7 @@
   "stage": "team",
   "sort": 30,
   "origin": "spec",
-  "description": "What happened today, posted at 7:00 PM in the company's time zone: the numbers from the same registry the bot answers from (people, calls, deals and cash from GHL, bookings and dials from the ledger), worded by the report step's layout (one narrow table, a line only for a number that is not zero, one line when nothing happened; D76, D95) and posted to the reports channel. Every word, the numbers read (metrics), per-closer and per-setter lines (breakdowns) are on the report step (D88). Its own workflow since D96.",
+  "description": "What happened today, posted at 7:00 PM in the company's time zone: the numbers from the same registry the bot answers from (people, calls, deals and cash from GHL, bookings and dials from the ledger), deposits on their own line, never as closes (D119), worded by the report step's layout (one narrow table, a line only for a number that is not zero, one line when nothing happened; D76, D95) and posted to the reports channel. Every word, the numbers read (metrics), per-closer and per-setter lines (breakdowns) are on the report step (D88). Its own workflow since D96.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -40,6 +40,8 @@
           "connected",
           "speed_to_lead",
           "closes",
+          "deposits",
+          "deposit_cash",
           "revenue",
           "cash_collected",
           "cash_gross",
@@ -92,6 +94,14 @@
                 [
                   "Close rate",
                   "{{report.rates.close_rate | suffix:%}}"
+                ],
+                [
+                  "Deposits",
+                  "{{report.n.deposits | default:\"\"}}"
+                ],
+                [
+                  "Deposit cash",
+                  "{{report.n.deposit_cash | default:\"\" | then:\"$\"}}{{report.n.deposit_cash | default:\"\" | money:0}}"
                 ],
                 [
                   "Revenue",

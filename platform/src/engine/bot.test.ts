@@ -383,7 +383,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       const lines = posts[0].text.split("\n");
       expect(lines[0]).toBe("📊 *Month to date*");
       const tbl = lines.slice(lines.indexOf("```") + 1, lines.indexOf("```", lines.indexOf("```") + 1));
-      expect(tbl.map((l) => l.replace(/\s+/g, " "))).toEqual(["Leads 4 ▲ 4", "MQLs 1 ▲ 1", "Booked 8 ▲ 8", "Show rate 38%", "Close rate 67%", "Cash $3,900 ▲ $1,900"]);
+      expect(tbl.map((l) => l.replace(/\s+/g, " "))).toEqual(["Leads 4 ▲ 4", "MQLs 1 ▲ 1", "Booked 8 ▲ 8", "Show rate 38%", "Close rate 67%", "Deposits 1 same", "Deposit cash $3,000 ▲ $1,000", "Cash $3,900 ▲ $1,900"]);   // D119: deposits on their own lines
       expect(Math.max(...tbl.map((l) => l.length))).toBeLessThanOrEqual(PHONE_WIDTH);
       expect(lines).toContain("Top source: instagram ($2,500)");
       expect(lines.filter((l) => l.startsWith("⚠️"))).toEqual(["⚠️ 1 work-situation answer not recognised: \"retired\"", "⚠️ No EOD outcome yet: C4", "⚠️ C2: GHL says no-show, the GHL calendar says cancelled (fix the Sales Call in GHL)"]);

@@ -27,7 +27,7 @@ export type SalesCallConfig = { object: string; outcomes: Record<string, CallCla
 export const CALL_RESULTS = ["closed", "deposit", "pending", "follow_up", "lost", "unqualified"] as const;
 export type CallResult = (typeof CALL_RESULTS)[number];
 /** The disposition keys the engine itself writes (eod.ts), read back the same way when the company has not mapped its own. */
-const DEFAULT_DISPOSITIONS: Record<string, CallResult> = { closed_won: "closed", follow_up: "follow_up", lost: "lost", dq: "unqualified" };
+const DEFAULT_DISPOSITIONS: Record<string, CallResult> = { closed_won: "closed", deposit: "deposit", follow_up: "follow_up", lost: "lost", dq: "unqualified" };
 export type CallMismatch = { name: string; ghl_contact_id: string; record_id: string; ghl: CallClass; booking_source: string };
 export type ShowBreakdown = { booked: number; showed: number; noshow: number; cancelled: number; rescheduled: number; missing: number; missing_names: string[]; mismatches: CallMismatch[] };
 export type Qualification = "mql" | "dq" | "unanswered" | "unrecognized";
@@ -350,12 +350,18 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
     const linked = pool.filter((p) => p.ghl).map((p) => ({ ghl: p.ghl, utm: facts.get(p.ghl)?.utm ?? null }));
     const sources = groupBy === "source" || x.filters.source ? await sourcesOf(x, linked) : null;
     const sourceOf = (p: Payment) => (p.ghl ? sources!.get(p.ghl) ?? "unknown" : "unlinked payment");
+    // D119: a deposit is a Payment record of type deposit (Payment recorded writes the ledger's kind); counted once a person, never a close
+    const deposit = metric === "deposits" || metric === "deposit_cash";
+    const seen = new Set<string>();
     for (const p of pool) {
       if (x.filters.closer && who(p.closer) !== x.filters.closer) continue;
       if (x.filters.setter && who(p.setter) !== x.filters.setter) continue;
       if (x.filters.source && src(sourceOf(p)) !== src(x.filters.source)) continue;
-      const v = metric === "cash_gross" ? (p.flow === "in" ? p.amount : 0) : metric === "refunds" ? (p.flow === "out" ? p.amount : 0) : signed(p);
-      add(!groupBy ? "" : groupBy === "source" ? sourceOf(p) : groupBy === "closer" ? who(p.closer) : groupBy === "setter" ? who(p.setter) : timeKey(groupBy, p.at), v);
+      if (deposit && (p.type !== "deposit" || p.flow !== "in")) continue;
+      const group = !groupBy ? "" : groupBy === "source" ? sourceOf(p) : groupBy === "closer" ? who(p.closer) : groupBy === "setter" ? who(p.setter) : timeKey(groupBy, p.at);
+      if (metric === "deposits") { const k = `${group}\u0000${p.ghl || p.id}`; if (!seen.has(k)) { seen.add(k); add(group, 1); } continue; }
+      const v = metric === "cash_gross" || metric === "deposit_cash" ? (p.flow === "in" ? p.amount : 0) : metric === "refunds" ? (p.flow === "out" ? p.amount : 0) : signed(p);
+      add(group, v);
     }
     return { rows };
   }

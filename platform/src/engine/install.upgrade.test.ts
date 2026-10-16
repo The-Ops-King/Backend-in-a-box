@@ -84,7 +84,7 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
       salesCall: { object: "custom_objects.sales_call", outcomes: { showed: "showed", no_show: "noshow", late_cancel: "cancelled" }, dqDispositions: ["dq"] } }, fake);
     const { bindings } = await asOperator((c) => loadCompany(c, companyId));
     expect(qualifyConfig(bindings)).toEqual({ field: "WS", mql: ["Employed full-time", "Investor"], dq: ["Currently between jobs"], unansweredIsMql: false });
-    expect(salesCallConfig(bindings)).toEqual({ object: "custom_objects.sales_call", outcomes: { showed: "showed", no_show: "noshow", late_cancel: "cancelled" }, cancelledValue: "late_cancel", dqDispositions: ["dq"], dispositions: { closed_won: { meaning: "closed" }, follow_up: { meaning: "follow_up" }, lost: { meaning: "lost" }, dq: { meaning: "unqualified" } } });
+    expect(salesCallConfig(bindings)).toEqual({ object: "custom_objects.sales_call", outcomes: { showed: "showed", no_show: "noshow", late_cancel: "cancelled" }, cancelledValue: "late_cancel", dqDispositions: ["dq"], dispositions: { closed_won: { meaning: "closed" }, deposit: { meaning: "deposit" }, follow_up: { meaning: "follow_up" }, lost: { meaning: "lost" }, dq: { meaning: "unqualified" } } });   // D119: the engine writes deposit for a deposit
   });
 
   it("D88: a template that carries what the engine did by itself comes in ON for a company that already existed, and OFF for a new one", async () => {

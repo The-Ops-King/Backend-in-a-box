@@ -38,6 +38,27 @@ export function salesCallValues(bindings: Record<string, string>): SalesCallValu
   return { scheduled: keys("scheduled")[0] ?? "", showed: own("showed"), noshow: own("noshow"), cancelled: plain, late_cancel: late, rescheduled: moved, on_call: moved || late };
 }
 
+/**
+ * D119: what the engine writes on a Sales Call's `disposition`, by what the closer's answer means, in the company's own option
+ * keys: the inverse of `sales_call.dispositions` (value → meaning, or {meaning, reason}). Of several keys with one meaning, the
+ * one with no reason wins (Hair's `lost` over `financing_denied`), then the one spelled as the engine's own key. A meaning the
+ * map has no key for is absent: `option:sales_call_disposition` then writes nothing (a deposit on a Sales Call with no Deposit
+ * option empties the field rather than calling it closed won). No map at all: the engine's own keys.
+ */
+export const DISPOSITION_DEFAULTS: Record<string, string> = { closed: "closed_won", deposit: "deposit", pending: "close_pending", follow_up: "follow_up", lost: "lost", unqualified: "dq" };
+export function dispositionValues(bindings: Record<string, string>): Record<string, string> {
+  let map: Record<string, unknown> = {};
+  try { const j = JSON.parse(bindings["sales_call.dispositions"] ?? "{}") as unknown; if (j && typeof j === "object" && !Array.isArray(j)) map = j as Record<string, unknown>; } catch { map = {}; }
+  if (!Object.keys(map).length) return { ...DISPOSITION_DEFAULTS };
+  const out: Record<string, string> = {};
+  for (const meaning of Object.keys(DISPOSITION_DEFAULTS)) {
+    const keys = Object.entries(map).flatMap(([k, v]) => { const o = typeof v === "string" ? { meaning: v } : (v as { meaning?: unknown; reason?: unknown } | null) ?? {}; return o.meaning === meaning && k.trim() ? [{ key: k.trim(), reason: typeof o.reason === "string" && !!o.reason.trim() }] : []; });
+    const best = [...keys].sort((a, b) => Number(a.reason) - Number(b.reason) || Number(b.key === DISPOSITION_DEFAULTS[meaning]) - Number(a.key === DISPOSITION_DEFAULTS[meaning]))[0];
+    if (best) out[meaning] = best.key;
+  }
+  return out;
+}
+
 /** The company's option keys for how a call was booked (`sales_call.booking_sources`, e.g. {"setter":"setter_set","self":"self_booked"}); empty when unbound, so nothing is written. */
 export function bookingSourceValues(bindings: Record<string, string>): { setter: string; self: string } {
   try { const j = JSON.parse(bindings["sales_call.booking_sources"] ?? "{}") as Record<string, unknown>; return { setter: typeof j.setter === "string" ? j.setter : "", self: typeof j.self === "string" ? j.self : "" }; }

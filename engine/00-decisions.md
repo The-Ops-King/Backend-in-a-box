@@ -3908,3 +3908,77 @@ fixed in the shared templates, and only on condition that nothing changes for Ha
   `provision.test.ts`, `coverage.test.ts`; the chart tests hold every company copy to D111. Reverting Call booked's object or
   closer turns two red; dropping an objection from the default list turns Hair's identity red; a welcome without its
   condition turns the no-send test red.
+
+## D119. A deposit is not a close; a deposit is a product, never an amount (2026-10-16)
+
+Tyler, 2026-10-16, for every company: a deposit and a close are different outcomes everywhere; deposits are told apart by a
+separate product at the processor, not by amount ("guessing"); the agreement goes only on a payment that is not a deposit;
+Deal closed never fires on a deposit (open item 35); the reports give deposits their own line; the closer board gets a
+Deposit stage. Before this, `deriveKind` called any first payment short of the price a `deposit`, and Call outcome filed
+wrote a filed deposit as `closed_won` with `stat-closed-won`, which Hair's production shows was wrong both ways: Hair's only
+"deposit" in the ledger, `pay_aWgRac…` ($750, 2026-10-05), is a Whop `subscription_create` on a $2,999 program, the first
+installment of a payment plan.
+
+- **What a deposit is.** The install declares the processor's deposit products: `"depositProducts": ["prod_…", "plan_…"]`
+  (Whop product ids or plan ids; a Zap's `plan` / `product_id` / `plan_id` as it sends them), bound as
+  `payments.deposit_products` (omitted, left as it is; `[]` removes them). Whop's payload already carries `product_id` and
+  `plan_id` (both doors kept them in `raw`; the Zapier door now keeps `product_id` and `plan_id` too). A payment whose product
+  or plan is declared is kind `deposit`, whatever its amount; refunds and failures keep their kinds. **Nothing else is ever a
+  deposit**: the amount-based guess is gone for every company, so a first payment short of the price is the first
+  `installment`, and a company that declares no product has no deposits at all. Chosen over keeping the guess for Hair and
+  PMU until they declare a product: kept, the guess would have stopped Hair's agreement and Deal closed on a payment plan's
+  first installment (the $750 above), the silent change to avoid; retired, Hair's gates are exactly as before and only the
+  label of a first partial payment changes (`deposit` → `installment` on the Payment record, the note and the 💵 line).
+  A deposit counts toward the price (the payment that clears it after is the `balance`) and is in cash collected.
+  Migration, once (`engine_state` `d119_deposit_kinds`): the guessed `deposit` rows of companies with no declared product
+  become `installment` (Hair's two, PMU's $0 one). The GHL Payment records already written keep their `type`.
+- **Filed on a call.** Call outcome filed: `showed:deposit` tags `stat-showed` + `stat-deposit` (the changed-answer
+  bookkeeping u1/u2/u4 knows it), its own branch (closed and deposit are no longer one), and the closer card to the board's
+  **Deposit** stage, `crm.stage_closer_deposit`, still open (`pick: latest`, so a lost card reopens there). Unbound, the step
+  skips: "only if there is a Deposit stage on the closer board; there is no Deposit stage on the closer board" (a stage
+  binding in an `exists` now reads as the board's stage). A deposit refiled as closed takes `stat-deposit` off and moves the
+  card back to Scheduled (`kc`) for the money to move it on. The Sales Call `disposition` is the company's own key for the
+  answer: `picklist.sales_call_disposition`, the inverse of `sales_call.dispositions` (of two keys with one meaning, the one
+  with no reason, then the engine's own spelling; unbound, the engine's keys `closed_won`, `deposit`, `close_pending`,
+  `follow_up`, `lost`, `dq`), written by `{{appointment.call_outcome | option:sales_call_disposition}}`. A map with no deposit
+  key (Hair's) gets the field emptied on a deposit, never `closed_won`. Every other answer writes what it wrote before on
+  Hair's, PMU's and Dating Nelly's maps (PMU's copy no longer carries its own pick and guard: its bound map gives the same
+  keys). The read-back default (`DEFAULT_DISPOSITIONS`) knows `deposit`; the hourly sweep keeps a ledger deposit against
+  GHL's `closed_won` only for a company that has not declared a deposit key (that record may be the engine's old write).
+- **Payments.** Each payment event carries `prior_non_deposit_total` (the earlier money toward the price, deposits and their
+  refunds left out). Payment recorded: the agreement goes on the first payment beyond a deposit (`prior_non_deposit_total` 0,
+  not a deposit or refund, not signed), so the payment back for the rest sends it; revenue generated is stamped on that
+  payment, not a deposit (revenue contracted counts only on a close); a deposit never wins the opportunity (`o_won`); it is
+  tagged `pay-deposit`, not `pay-plan-active` (a deposit is not a plan; the tag stays, like `pay-refunded`). Cash collected,
+  the Payment record (type `deposit`) and the Sales Call's cash follow as before.
+- **Deal closed, the chase, stat-customer.** The gate reads `contact.paid_non_deposit` (a succeeded payment that is not a
+  deposit) and the signature: a deposit alone, even signed, is not a close; the first payment beyond it with the signature
+  is. The chase waits too, by evidence: it nudges about an agreement Payment recorded sent, and on a deposit none is sent, so
+  it starts on the same payment the agreement goes out on (`prior_non_deposit_total` 0, not a deposit). `stat-customer` is
+  written only by Deal closed, so it waits with the gate (no other template reads or writes it). New context facts:
+  `contact.paid_non_deposit`, `contact.deposit_paid`; `contact.paid` is unchanged.
+- **Reports.** `deposits` (people with a GHL Payment record of type deposit in the period, each once) and `deposit_cash`
+  (those records' money, before refunds) in the registry; the daily, weekly and monthly wrap-ups read and word them on their
+  own lines after the close rate (a line only when not zero, so a company with none reads as before); `/mtd`, `/weekly` and
+  `/monthly` show them; the bot answers them by definition. Closes and revenue stay the won closer cards, which a deposit
+  never wins; deposit cash is inside cash collected. The end-of-day form already counted deposits on their own; now a
+  deposit asks and counts cash but no revenue, and the pre-fill reads Deposit only when everything paid that day was a
+  deposit (the amount says nothing).
+- **The Deposit stage in GHL.** Dating: `installs/dating/ghl-setup.json`'s closer pipeline has Deposit after Follow Up;
+  `provision-ghl` now puts a stage the setup adds later where the setup puts it (after the stage it follows, past anyone
+  else's stages right behind it; the stages behind move down one; nothing removed or renamed), where it used to append at
+  the end. PMU's Beauty Moguls board and Hair's are the parent's to change (open item 44, below).
+- Not done: Payment recorded does not move the card to Deposit on a deposit payment (only a filed deposit does); a company
+  that declares products later keeps its earlier payments' kinds; PMU's copies of Call booked, Call cancelled and Call
+  recorded are still D118's (`build.py` regenerates them with the object binding, which renders the same for PMU).
+- Tests: `deposits.test.ts` (the kinds and the products, the doors, the option keys, the form, the wrap-ups; through the
+  engine on a Hair-like company: a filed deposit is `stat-deposit`, an emptied Outcome and a skipped Deposit step, a closed
+  call and a $750 payment do exactly what they did, the form pre-fills it a close; PMU-like with its own copies: a deposit
+  product payment sends nothing and wins nothing, the filed deposit is its Deposit outcome and stage, the balance sends the
+  agreement and closes once signed; Dating-like: a deposit even signed is not a close, deposit then closed refiles cleanly;
+  the install key; the numbers; the migration once), `provision.test.ts` (Deposit lands after Follow Up). Each fails without
+  its change: reverting call-outcome turns 4 red, payment-recorded 2, deal-closed 1, agreement-chase 2, the amount guess 2,
+  the install binding 6, the form 2, the pre-fill 1, the migration 1, the metrics 1, the wrap-ups 1, provision 1, the Zapier
+  ids 1, the disposition picklist 3. Existing tests that encoded the guess say installment now (`payments`, `journey`,
+  `templates.scenarios`, `edge-cases.contacts`, `eod`, `moves`); D118's identity test holds D118's claim against the
+  templates as D118 left them (`fixtures/before-d119`).

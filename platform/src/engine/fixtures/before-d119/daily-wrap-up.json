@@ -1,0 +1,191 @@
+{
+  "slug": "daily-wrap-up",
+  "name": "Daily wrap-up",
+  "category": "reports",
+  "stage": "team",
+  "sort": 30,
+  "origin": "spec",
+  "description": "What happened today, posted at 7:00 PM in the company's time zone: the numbers from the same registry the bot answers from (people, calls, deals and cash from GHL, bookings and dials from the ledger), worded by the report step's layout (one narrow table, a line only for a number that is not zero, one line when nothing happened; D76, D95) and posted to the reports channel. Every word, the numbers read (metrics), per-closer and per-setter lines (breakdowns) are on the report step (D88). Its own workflow since D96.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "none"
+    },
+    "nodes": [
+      {
+        "id": "t_daily",
+        "type": "trigger",
+        "event": "schedule",
+        "schedule": {
+          "at": "19:00",
+          "for": "company"
+        }
+      },
+      {
+        "id": "n_build",
+        "type": "report",
+        "kind": "daily",
+        "breakdowns": [],
+        "sections": {},
+        "into": "report",
+        "metrics": [
+          "leads",
+          "mqls",
+          "booked",
+          "booked_self",
+          "booked_set",
+          "reschedules",
+          "dials",
+          "connected",
+          "speed_to_lead",
+          "closes",
+          "revenue",
+          "cash_collected",
+          "cash_gross",
+          "refunds"
+        ],
+        "layout": {
+          "heading": {
+            "daily": "📊 *Today, {{report.start | date:\"ccc LLL d\"}}*"
+          },
+          "sections": [
+            {
+              "title": "",
+              "table": [
+                [
+                  "Leads",
+                  "{{report.n.leads | default:\"\"}}"
+                ],
+                [
+                  "MQLs",
+                  "{{report.n.mqls | default:\"\"}}"
+                ],
+                [
+                  "New bookings",
+                  "{{report.n.booked | default:\"\"}}"
+                ],
+                [
+                  "  by setters",
+                  "{{report.n.booked_set | default:\"\"}}"
+                ],
+                [
+                  "Calls due",
+                  "{{report.calls.booked | default:\"\"}}"
+                ],
+                [
+                  "Showed",
+                  "{{report.calls.showed | default:\"\"}}"
+                ],
+                [
+                  "No-shows",
+                  "{{report.calls.noshow | default:\"\"}}"
+                ],
+                [
+                  "Show rate",
+                  "{{report.rates.show_rate | suffix:%}}"
+                ],
+                [
+                  "Closes",
+                  "{{report.n.closes | default:\"\"}}"
+                ],
+                [
+                  "Close rate",
+                  "{{report.rates.close_rate | suffix:%}}"
+                ],
+                [
+                  "Revenue",
+                  "{{report.n.revenue | default:\"\" | then:\"$\"}}{{report.n.revenue | default:\"\" | money:0}}"
+                ],
+                [
+                  "Cash",
+                  "{{report.money_moved | then:\"$\"}}{{report.money_moved | each:\"{{report.raw.cash_collected | default:0 | money:0}}\"}}"
+                ],
+                [
+                  "Refunds",
+                  "{{report.n.refunds | default:\"\" | then:\"$\"}}{{report.n.refunds | default:\"\" | money:0}}"
+                ],
+                [
+                  "Dials",
+                  "{{report.n.dials | default:\"\"}}"
+                ],
+                [
+                  "Connected",
+                  "{{report.n.connected | default:\"\"}}"
+                ],
+                [
+                  "Speed to lead",
+                  "{{report.n.speed_to_lead | default:\"\" | duration}}"
+                ]
+              ],
+              "lines": [
+                "{{report.calls.missing | each:\"⚠️ Calls with no EOD outcome: {{item}}\"}}"
+              ]
+            },
+            {
+              "title": "*What they said*",
+              "lines": [
+                "{{report.said | each:\"*{{item.label}}*{{item.top | each:\\\"\\\\n• {{item.count}} — {{item.answer}}\\\" | join:\\\"\\\"}}{{item.rest | nonzero | each:\\\"\\\\n• {{item}} — other answers\\\"}}\" | join:\"\\n\\n\"}}"
+              ]
+            },
+            {
+              "title": "*By closer*",
+              "lines": [
+                "{{report.by.closer | each:\"• {{item.name}}: {{item.values.showed | default:0}} showed · {{item.values.deals_won | default:0}} won · ${{item.values.revenue | default:0 | money:0}}\" | join:\"\\n\"}}"
+              ]
+            },
+            {
+              "title": "*By setter*",
+              "lines": [
+                "{{report.by.setter | each:\"• {{item.name}}: {{item.values.dials | default:0}} dials · {{item.values.calls_set | default:0}} set\" | join:\"\\n\"}}"
+              ]
+            }
+          ],
+          "empty": {
+            "daily": "Nothing today: no leads, bookings, calls or payments."
+          },
+          "failed": "_couldn't read GHL: {{report.ghl_error}}_",
+          "footer": "_From GHL and the engine, read {{report.read_at | date:\"h:mm a ZZZZ\"}}_"
+        },
+        "title": "Read the numbers and word the wrap-up (the layout: sections, lines, headings)"
+      },
+      {
+        "id": "n_post",
+        "type": "slack_post",
+        "channel": "{{slack.channel.reports}}",
+        "template": "{{vars.report.body}}",
+        "as": {
+          "name": "Wrap-up",
+          "icon": [
+            ":bar_chart:",
+            ":chart_with_upwards_trend:",
+            ":clipboard:"
+          ]
+        },
+        "title": "Post the wrap-up in Slack"
+      },
+      {
+        "id": "x_done",
+        "type": "exit",
+        "reason": "done"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t_daily",
+        "to": "n_build"
+      },
+      {
+        "from": "n_build",
+        "to": "n_post"
+      },
+      {
+        "from": "n_post",
+        "to": "x_done"
+      }
+    ]
+  },
+  "replaces": [
+    "wrap-ups"
+  ]
+}

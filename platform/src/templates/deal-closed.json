@@ -5,7 +5,7 @@
   "stage": "closing",
   "sort": 40,
   "origin": "spec",
-  "description": "Fires on the first payment or on the signed agreement, in either order, and runs once: when the contact has both paid and signed and is not yet tagged stat-customer, they become a customer — stat-customer, the closer card to Closed - Won (won), the setter card won, the Sales Call record closed won / showed with cash collected, the welcome email and text, and Slack. A payment without a signature (or the reverse) stops at the check and waits for the other half.",
+  "description": "Fires on a payment or on the signed agreement, in either order, and runs once: when the contact has both paid beyond a deposit and signed and is not yet tagged stat-customer, they become a customer — stat-customer, the closer card to Closed - Won (won), the setter card won, the Sales Call record closed won / showed with cash collected, the welcome email and text, and Slack. A payment without a signature (or the reverse) stops at the check and waits for the other half. A deposit alone, even signed, is not a close (D119): the first payment beyond it, with the signature, is.",
   "definition": {
     "schema": 1,
     "reentry": "once_per_contact",
@@ -30,7 +30,7 @@
           "and": [
             {
               "eq": [
-                "{{contact.paid}}",
+                "{{contact.paid_non_deposit}}",
                 true
               ]
             },
@@ -50,7 +50,8 @@
             }
           ]
         },
-        "else_exit": "not_yet"
+        "else_exit": "not_yet",
+        "title": "Paid beyond a deposit and signed, and not a customer yet (D119: a deposit alone, even signed, is not a close)"
       },
       {
         "id": "g1",

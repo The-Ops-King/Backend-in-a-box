@@ -48,12 +48,22 @@
     "type": "update_opportunity",
     "status": "won",
     "only_if": {
-     "eq": [
-      "{{event._type}}",
-      "payment.received"
+     "and": [
+      {
+       "eq": [
+        "{{event._type}}",
+        "payment.received"
+       ]
+      },
+      {
+       "neq": [
+        "{{event.kind}}",
+        "deposit"
+       ]
+      }
      ]
     },
-    "title": "Opportunity won on a payment (change the condition to win on paid in full, or move the step to Call outcome filed to win on the closer's answer)",
+    "title": "Opportunity won on a payment beyond a deposit (D119: a deposit wins nothing; change the condition to win on paid in full, or move the step to Call outcome filed to win on the closer's answer)",
     "from": [
      "open"
     ]
@@ -102,6 +112,14 @@
     "tag": [
      "pay-plan-active"
     ]
+   },
+   {
+    "id": "d1",
+    "type": "tags",
+    "add": [
+     "pay-deposit"
+    ],
+    "title": "Tag pay-deposit (a deposit is not a payment plan; the tag stays as a record that they paid one)"
    },
    {
     "id": "g1",
@@ -187,7 +205,7 @@
    {
     "id": "r2",
     "type": "crm_record",
-    "object": "custom_objects.sales_call",
+    "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
     "key": "{{records.sales_call.key}}",
     "if_missing": "skip",
     "properties": {
@@ -281,10 +299,16 @@
         "{{event.kind}}",
         "refund"
        ]
+      },
+      {
+       "neq": [
+        "{{event.kind}}",
+        "deposit"
+       ]
       }
      ]
     },
-    "label": "first payment: stamp revenue"
+    "label": "first payment beyond a deposit: stamp revenue"
    },
    {
     "from": "n2",
@@ -306,6 +330,17 @@
      ]
     },
     "label": "refund: tags stay as the last payment left them"
+   },
+   {
+    "from": "n3",
+    "to": "d1",
+    "when": {
+     "eq": [
+      "{{event.kind}}",
+      "deposit"
+     ]
+    },
+    "label": "deposit"
    },
    {
     "from": "n3",
@@ -333,6 +368,10 @@
     "to": "n4"
    },
    {
+    "from": "d1",
+    "to": "n4"
+   },
+   {
     "from": "n5",
     "to": "p_book"
    },
@@ -347,7 +386,7 @@
      "and": [
       {
        "eq": [
-        "{{event.prior_total}}",
+        "{{event.prior_non_deposit_total}}",
         0
        ]
       },
@@ -358,14 +397,19 @@
        ]
       },
       {
-       "neq": [
-        "{{event.kind}}",
-        "refund"
-       ]
+       "not": {
+        "in": [
+         "{{event.kind}}",
+         [
+          "refund",
+          "deposit"
+         ]
+        ]
+       }
       }
      ]
     },
-    "label": "first payment, agreement not signed"
+    "label": "first payment beyond a deposit, agreement not signed"
    },
    {
     "from": "a0",

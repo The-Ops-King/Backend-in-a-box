@@ -91,6 +91,12 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     for (const col of ["provider text not null default 'whop'", "kind text", "customer_email text", "customer_phone text", "whop_member_id text", "link_status text not null default 'linked'", "linked_by text"]) await c.query(`alter table payments add column if not exists ${col}`);
     await c.query(`alter table payments drop constraint if exists payments_kind_check`);
     await c.query(`alter table payments add constraint payments_kind_check check (kind in ('deposit','installment','balance','paid_in_full','refund','chargeback','failed'))`);
+    // D119: a deposit was guessed from the amount (a first payment short of the price); now it is only a payment for one of the
+    // company's declared deposit products. Once: the guessed ones are what they were, a first installment (no company declared any yet)
+    if ((await c.query("insert into engine_state (key, value) values ('d119_deposit_kinds', '{}') on conflict (key) do nothing returning key")).rowCount) {
+      const r = await c.query(`update payments p set kind='installment' where kind='deposit' and not exists (select 1 from bindings b where b.company_id=p.company_id and b.key='payments.deposit_products')`);
+      await c.query("update engine_state set value=$1, updated_at=now() where key='d119_deposit_kinds'", [{ reclassified: r.rowCount ?? 0 }]);
+    }
     await c.query(`alter table payments drop constraint if exists payments_link_status_check`);
     await c.query(`alter table payments add constraint payments_link_status_check check (link_status in ('linked','unlinked'))`);
     await c.query(`alter table payments drop constraint if exists payments_company_id_whop_payment_id_key`);

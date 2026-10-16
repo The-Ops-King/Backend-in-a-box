@@ -29,6 +29,9 @@ export const choiceOf = (v: string, fields?: EodField[] | null): OutcomeChoice |
 export const outcomeLabel = (v: string, fields?: EodField[] | null) => choiceOf(v, fields)?.label ?? (v || "blank");
 /** Money changes hands: cash and revenue are asked and counted. */
 export const isMoney = (v: string, fields?: EodField[] | null) => { const o = choiceOf(v, fields); return !!o && (o.money ?? (o.call_outcome === "closed" || o.call_outcome === "deposit")); };
+/** D119: revenue contracted is asked and counted only on a close: a deposit's cash counts, its revenue does not. */
+const isRevenue = (o: OutcomeChoice) => o.call_outcome !== "deposit" && (o.money ?? o.call_outcome === "closed");
+export const isRevenueOutcome = (v: string, fields?: EodField[] | null) => { const o = choiceOf(v, fields); return !!o && isRevenue(o); };
 /** The value of the company's first answer with this meaning (how the ledger's outcome shows on the form); "" when it has none. */
 export function valueFor(fields: EodField[] | null | undefined, m: { attendance?: Attendance; call_outcome?: CallMeaning }): string {
   const list = outcomesOf(fields);
@@ -55,7 +58,7 @@ export const DQ_REASONS = ["Can't afford it", "Not the decision maker", "Not a f
 export const LOST_REASONS = ["Price", "Timing", "Fit", "Ghosted", "Other"];
 /** Which answers a builtin follows, by what the answer means (B6: the company's own values change, the meaning does not). */
 const FOLLOWS: Record<string, (o: OutcomeChoice) => boolean> = {
-  cash: (o) => o.money ?? (o.call_outcome === "closed" || o.call_outcome === "deposit"), revenue: (o) => o.money ?? (o.call_outcome === "closed" || o.call_outcome === "deposit"),
+  cash: (o) => o.money ?? (o.call_outcome === "closed" || o.call_outcome === "deposit"), revenue: (o) => isRevenue(o),
   next_date: (o) => o.call_outcome === "follow_up", next_steps: (o) => o.call_outcome === "follow_up",
   dq_reason: (o) => o.call_outcome === "unqualified", dq_note: (o) => o.call_outcome === "unqualified", lost_reason: (o) => o.call_outcome === "lost",
   about: (o) => o.attendance === "showed",
@@ -64,7 +67,7 @@ const FOLLOWS: Record<string, (o: OutcomeChoice) => boolean> = {
 export const BUILTIN_FIELDS: EodField[] = [
   { key: "outcome", label: "What happened on the call?", type: "select", scope: "call", required: true, builtin: true },
   { key: "cash", label: "Cash collected ($)", type: "money", scope: "call", when: ["closed", "deposit"], required: true, builtin: true },
-  { key: "revenue", label: "Revenue generated ($)", type: "money", scope: "call", when: ["closed", "deposit"], required: true, builtin: true },
+  { key: "revenue", label: "Revenue generated ($)", type: "money", scope: "call", when: ["closed"], required: true, builtin: true },
   { key: "next_date", label: "Next follow-up", type: "date", scope: "call", when: ["follow_up"], required: true, builtin: true },
   { key: "next_steps", label: "Next steps", type: "text", scope: "call", when: ["follow_up"], required: true, builtin: true },
   { key: "dq_reason", label: "Why were they a DQ?", type: "select", scope: "call", when: ["dq"], required: true, options: DQ_REASONS, builtin: true },
@@ -109,7 +112,7 @@ export type CallEntry = {
   outcome: CallOutcome;
   hint?: string;                                       // why the outcome is blank (no evidence to pre-fill from)
   moved?: string;                                      // A1 (D88): a card dragged in the CRM filed this outcome; the form says so and asks why
-  revenue: number | null; cash: number | null;        // closed, deposit
+  revenue: number | null; cash: number | null;        // cash: closed, deposit; revenue: closed only (D119)
   next_date: string | null; next_steps: string;        // follow up
   dq_reason: string; dq_note: string;                  // dq
   lost_reason?: string;                                // lost (A1, D88: a card dragged to Lost asks why on the form)
@@ -123,7 +126,7 @@ export const totalsOf = (calls: CallEntry[], fields?: EodField[] | null): DayTot
   closes: calls.filter((c) => choiceOf(c.outcome, fields)?.call_outcome === "closed").length,
   deposits: calls.filter((c) => choiceOf(c.outcome, fields)?.call_outcome === "deposit").length,
   cash: calls.reduce((s, c) => s + (isMoney(c.outcome, fields) ? Number(c.cash ?? 0) : 0), 0),
-  revenue: calls.reduce((s, c) => s + (isMoney(c.outcome, fields) ? Number(c.revenue ?? 0) : 0), 0),
+  revenue: calls.reduce((s, c) => s + (isRevenueOutcome(c.outcome, fields) ? Number(c.revenue ?? 0) : 0), 0),
 });
 
 /** The value a call carries for a field key, as text: "" when nothing. */

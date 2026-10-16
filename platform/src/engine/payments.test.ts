@@ -30,19 +30,19 @@ describe.skipIf(!process.env.DATABASE_URL)("payments ledger", () => {
   it("derives the kind from the ledger, never from the provider", () => {
     expect(deriveKind(2999, 0, 2999, "succeeded")).toBe("paid_in_full");
     expect(deriveKind(2998.995, 0, 2999, "succeeded")).toBe("paid_in_full");   // rounding cent
-    expect(deriveKind(1500, 0, 2999, "succeeded")).toBe("deposit");
+    expect(deriveKind(1500, 0, 2999, "succeeded")).toBe("installment");   // D119: short of the price is the first installment; a deposit is never guessed from the amount
     expect(deriveKind(1000, 1000, 2999, "succeeded")).toBe("installment");
     expect(deriveKind(999, 2000, 2999, "succeeded")).toBe("balance");
     expect(deriveKind(-500, 2999, 2999, "refunded")).toBe("refund");
-    expect(deriveKind(1500, 0, null, "succeeded")).toBe("deposit");   // no price known: nothing can clear
+    expect(deriveKind(1500, 0, null, "succeeded")).toBe("installment");   // no price known: nothing can clear
     expect(deriveKind(0, 0, 2999, "failed")).toBe("failed");
   });
 
-  it("email matches exactly; a deposit opens a pursuit priced at the company default (won is Payment recorded's step, D88)", async () => {
+  it("email matches exactly; a first payment opens a pursuit priced at the company default (won is Payment recorded's step, D88)", async () => {
     const r = await asOperator((c) => recordPayment(c, companyId, pay("pay_1", { amount: 1500, email: "Ann@X.com", memberId: "mber_ann" })));
     expect(r.outcome).toBe("linked"); if (r.outcome !== "linked") return;
-    expect(r.contactId).toBe(ann); expect(r.payment.kind).toBe("deposit"); expect(r.payment.linked_by).toBe("email");
-    expect(r.event.data).toMatchObject({ kind: "deposit", running_total: 1500, contract_value: 2999, outstanding: 1499, cleared: false });
+    expect(r.contactId).toBe(ann); expect(r.payment.kind).toBe("installment"); expect(r.payment.linked_by).toBe("email");
+    expect(r.event.data).toMatchObject({ kind: "installment", running_total: 1500, prior_non_deposit_total: 0, contract_value: 2999, outstanding: 1499, cleared: false });
     const opp = await asOperator((c) => one<{ status: string; contract_value: string }>(c, "select status, contract_value from opportunities where company_id=$1 and contact_id=$2", [companyId, ann]));
     expect(opp).toEqual({ status: "open", contract_value: "2999.00" });
   });

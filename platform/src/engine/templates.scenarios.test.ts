@@ -445,7 +445,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect((await runsFor("cancellation-rebook")).some((x) => x.contact_id === id)).toBe(true);
   });
 
-  it("payment-recorded: a deposit stamps cash collected + revenue generated, tags pay-plan-active, writes the Payment record linked to contact and closer card; the balance flips to pay-paid-full", async () => {
+  it("payment-recorded: a first payment short of the price (the first installment; D119: never a deposit by its amount) stamps cash collected + revenue generated, tags pay-plan-active, writes the Payment record linked to contact and closer card; the balance flips to pay-paid-full", async () => {
     // Leo Park (setter-booked scenario) has a closer card owned by U1
     const id = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CCB2'", [companyId])))!.id;
     const nTags = tags.length, nRm = removedTags.length, nCw = contactWrites.length, nRec = recordWrites.length, nRel = relations.length;
@@ -458,7 +458,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(docSends.at(-1)).toEqual({ templateId: "TPL-AGREE", contactId: "CCB2", userId: "U1" });
     const rec = recordWrites.slice(nRec); expect(rec).toHaveLength(2);   // the Payment record, then the payment stamped on the Sales Call record call-booked created
     expect(rec[1]).toMatchObject({ op: "update" });
-    expect(rec[0]).toMatchObject({ op: "create", transaction_id: "pay_leo_1", amount: 1500, type: "deposit", status: "succeeded", processor: "whop", contact_id: "CCB2", closer: "Sam Closer", setter: "Luis" });
+    expect(rec[0]).toMatchObject({ op: "create", transaction_id: "pay_leo_1", amount: 1500, type: "installment", status: "succeeded", processor: "whop", contact_id: "CCB2", closer: "Sam Closer", setter: "Luis" });
     expect(String(rec[0].opportunity_id)).toMatch(/^ghl-opp-/);   // the closer card's CRM id
     expect(relations.slice(nRel)).toEqual([`ASSOC-PC:CCB2>rec-${nRec + 1}`, `ASSOC-PO:rec-${nRec + 1}>${rec[0].opportunity_id}`]);
     // second payment clears the deal: revenue generated is already stamped (our replica learned the first write), so only cash collected moves; tags flip

@@ -3,9 +3,11 @@ import type { GhlVersion } from "./client";
 /**
  * Additive GHL setup from a setup file (installs/<company>/ghl-setup.json): read the location, say what is there and what
  * is missing, and with `apply` create only what is missing. Things are matched by name (pipelines, stages, fields,
- * calendars) or key (objects, object fields, associations). Nothing is renamed, retyped, reordered or deleted. The one
- * kind of change to something that exists is additive and only on what the setup file names as its own: a stage missing
- * from its pipeline, a field or an option missing from its object. The result is shaped to merge into an install payload.
+ * calendars) or key (objects, object fields, associations). Nothing is renamed, retyped or deleted. The one kind of change
+ * to something that exists is additive and only on what the setup file names as its own: a stage missing from its pipeline
+ * (it goes in where the setup puts it, after the stage it follows there and any stages of someone else's right after that;
+ * the stages behind it move down one, D119), a field or an option missing from its object. The result is shaped to merge
+ * into an install payload.
  */
 export type Opt = { key: string; label: string };
 export type Setup = {
@@ -89,13 +91,24 @@ async function pass(setup: Setup, s: State, loc: string, call: Http, apply: bool
     const absent = p.stages.filter((st) => !ex.stages.some((x) => norm(x.name) === norm(st.name)));
     for (const st of p.stages) { const h = ex.stages.find((x) => norm(x.name) === norm(st.name)); if (h) { say("exists", `  stage "${st.name}"`, h.id); crm[`stage_${p.binding}_${st.binding}`] = h.id; } }
     if (!absent.length) continue;
-    say("missing-on-ours", `  stages of "${name}"`, ex.id, `adds ${absent.map((st) => `"${st.name}"`).join(", ")} after its ${ex.stages.length} (none removed or moved)`);
+    // D119: a missing stage goes where the setup puts it: after the stage it follows in the setup (and any stages that are not
+    // the setup's right behind that one), else at the end. A stage added later (Deposit after Follow Up) lands in its place
+    type Slot = { id?: string; name: string; showInFunnel?: boolean; showInPieChart?: boolean };
+    const own = new Set(p.stages.map((st) => norm(st.name)));
+    const list: Slot[] = ex.stages.map((x, i) => ({ x, at: x.position ?? i })).sort((a, b) => a.at - b.at).map(({ x }) => ({ id: x.id, name: x.name, ...(x.showInFunnel !== undefined ? { showInFunnel: x.showInFunnel } : {}), ...(x.showInPieChart !== undefined ? { showInPieChart: x.showInPieChart } : {}) }));
+    const where: string[] = [];
+    for (const st of absent) {
+      const before = p.stages.slice(0, p.stages.indexOf(st)).reverse().find((b) => list.some((x) => norm(x.name) === norm(b.name)));
+      let k = list.length;
+      if (before) { k = list.findIndex((x) => norm(x.name) === norm(before.name)) + 1; while (k < list.length && !own.has(norm(list[k].name))) k++; }
+      list.splice(k, 0, { name: st.name });
+      where.push(`"${st.name}" ${before ? `after "${before.name}"` : "at the end"}`);
+    }
+    say("missing-on-ours", `  stages of "${name}"`, ex.id, `adds ${where.join(", ")} (none removed or renamed; the stages behind a new one move down one)`);
     if (!apply) continue;
     const path = `/opportunities/pipelines/${ex.id}`; ours.add(path);
-    // GHL replaces the whole stage list on update: every stage it has goes back with its id, name and position, the new ones after
-    const last = Math.max(-1, ...ex.stages.map((x, i) => x.position ?? i));
-    await call("PUT", path, { body: { name: ex.name, stages: [...ex.stages.map((x, i) => ({ id: x.id, name: x.name, position: x.position ?? i, ...(x.showInFunnel !== undefined ? { showInFunnel: x.showInFunnel } : {}), ...(x.showInPieChart !== undefined ? { showInPieChart: x.showInPieChart } : {}) })),
-      ...absent.map((st, i) => ({ name: st.name, position: last + 1 + i }))] } });
+    // GHL replaces the whole stage list on update: every stage it has goes back with its id and name, each at its place in the new order
+    await call("PUT", path, { body: { name: ex.name, stages: list.map((x, i) => ({ ...x, position: i })) } });
   }
 
   for (const [model, list, have] of [["contact", setup.contactFields, s.contactFields], ["opportunity", setup.opportunityFields, s.opportunityFields]] as const) for (const f of list) {

@@ -22,7 +22,8 @@ export function parseZapierPayment(body: Record<string, unknown>): { ok: true; i
     providerPaymentId: id, provider: (pick("provider", "processor") ?? "whop").toLowerCase(),
     amount: status === "refunded" ? -Math.abs(amountNum) : amountNum, currency: pick("currency") ?? "USD", status, paidAt,
     email: pick("email", "customer_email", "customerEmail", "user_email"), phone: pick("phone", "customer_phone", "customerPhone"), memberId: pick("member_id", "memberId", "whop_user_id", "whopUserId", "user_id"),
-    raw: { via: "zapier", plan: pick("plan", "plan_id", "product"), metadata: body.metadata ?? undefined },
+    // D119: the product and plan, so a payment for one of the company's deposit products is told apart (raw.plan is the older catch-all)
+    raw: { via: "zapier", plan: pick("plan", "plan_id", "product"), product_id: pick("product_id", "productId"), plan_id: pick("plan_id", "planId"), metadata: body.metadata ?? undefined },
   } };
 }
 

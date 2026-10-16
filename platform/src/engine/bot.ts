@@ -389,7 +389,7 @@ export function planCommand(cmd: SlashCommand, tz: string, now: DateTime = DateT
 }
 
 // people, calls, deals (D73) and cash (D75) from GHL
-const SUMMARY = ["leads", "mqls", "calls_booked_due", "show_rate", "close_rate", "cash_collected"];
+const SUMMARY = ["leads", "mqls", "calls_booked_due", "show_rate", "close_rate", "deposits", "deposit_cash", "cash_collected"];   // D119: deposits on their own lines, never a close
 /** The body of a shortcut: deterministic, from the registry alone. */
 export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan, askedBy?: string): Promise<string> {
   const now = deps.now ?? DateTime.now();

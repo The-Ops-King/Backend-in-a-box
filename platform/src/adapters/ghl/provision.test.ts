@@ -131,6 +131,19 @@ describe("provision-ghl", () => {
     expect((r.install.crm as Record<string, string>).pipeline_setter).toBe("ours");
   });
 
+  it("D119: a stage the setup adds later goes where the setup puts it: Deposit after Follow Up on the closer pipeline already built, every stage kept with its id, the ones behind it a place down", async () => {
+    const built = ["Scheduled", "Cancelled / No Show", "Follow Up", "Agreement Sent", "Closed Won", "Lost", "Disqualified"];
+    const f = fakeGhl((g) => { foreign(g); g.pipelines.push({ id: "closer", name: "Dating – Closer Pipeline", stages: built.map((name, i) => ({ id: `c${i}`, name, position: i })) }); });
+    const dry = await provision(setup, LOC, f.http, { apply: false });
+    expect(dry.plan.find((l) => l.id === "closer" && l.action === "missing-on-ours")?.detail).toBe('adds "Deposit" after "Follow Up" (none removed or renamed; the stages behind a new one move down one)');
+    await provision(setup, LOC, f.http, { apply: true });
+    const put = f.writes().find((c) => c.method === "PUT" && c.path === "/opportunities/pipelines/closer")!;
+    expect(put.body.stages).toEqual([
+      { id: "c0", name: "Scheduled", position: 0 }, { id: "c1", name: "Cancelled / No Show", position: 1 }, { id: "c2", name: "Follow Up", position: 2 },
+      { name: "Deposit", position: 3 },
+      { id: "c3", name: "Agreement Sent", position: 4 }, { id: "c4", name: "Closed Won", position: 5 }, { id: "c5", name: "Lost", position: 6 }, { id: "c6", name: "Disqualified", position: 7 }]);
+  });
+
   it("refuses a type mismatch: a field it does not own by type is left alone, not duplicated and not bound", async () => {
     const f = fakeGhl((g) => { g.fields.push({ id: "clash", name: "Dating – Setter", dataType: "LARGE_TEXT", model: "contact" }); g.objects.push({ id: "x", key: "custom_objects.other", labels: { singular: "Dating Payment" } }); });
     const r = await provision(setup, LOC, f.http, { apply: true });

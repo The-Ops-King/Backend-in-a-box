@@ -22,7 +22,6 @@ def after(d, prev, new):
     d['edges'].append({'from':new['id'],'to':outs[0]['to']}); outs[0]['to']=new['id']
 CLOSER='{{crm.pipeline_closer}}'
 out={}
-PMU_DISP={'closed':'closed_won','deposit':'deposit','follow_up':'follow_up','lost':'lost','unqualified':'dq'}
 PMU_OBJ=['price','think_about_it','spouse_partner','timing','finances','already_working_with_someone','tried_similar_before','no_time_to_implement','skeptical_it_works','needs_more_info','shopping_around','financing_declined','too_early_in_business','went_dark','not_qualified','none']
 
 # New lead: a lead is someone with a phone or a VSL tag; the card starts on Beauty Moguls
@@ -76,9 +75,9 @@ out['call-cancelled']=(d,"PMU: one board. No setter card; the card moves to Canc
 # Call outcome: no setter card; a no-show → No Show; PMU's disposition keys
 d=load('call-outcome'); drop(d,'gn1'); drop(d,'sc1')
 gn2=node(d,'gn2'); gn2['stage']='{{crm.stage_closer_no_show}}'; gn2['title']='Card → No Show (move only: they can rebook)'
-v=node(d,'v_disp'); v['pick']=PMU_DISP
-r1=node(d,'r1'); r1['properties']['disposition']='{{vars.disposition | oneof:closed_won,deposit,follow_up,lost,dq,no_offer | default:}}'
-out['call-outcome']=(d,"PMU: one board. No setter card; a no-show moves the card to No Show; a deposit is its own disposition (Deposit), as PMU tracks it")
+# D119: the disposition is the template's, in PMU's own keys (its sales_call.dispositions: a deposit is Deposit, never closed won);
+# a deposit's card moves to Deposit once the board has one bound (crm.stage_closer_deposit), skipped until then
+out['call-outcome']=(d,"PMU: one board. No setter card; a no-show moves the card to No Show; a deposit is its own disposition (Deposit, from PMU's sales_call.dispositions) and its card goes to Deposit once the board has that stage (D119)")
 
 # Call recorded: no setter card to mark showed; the closer as PMU's dropdown key; only answers PMU's dropdowns have
 d=load('call-recorded'); drop(d,'o3')

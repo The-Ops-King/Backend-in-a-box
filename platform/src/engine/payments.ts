@@ -19,7 +19,7 @@ export type PaymentInput = {
   email?: string; phone?: string; memberId?: string;
   raw?: Record<string, unknown>;
 };
-export type PaymentRow = { id: string; company_id: string; contact_id: string | null; opportunity_id: string | null; provider: string; whop_payment_id: string; amount: string; currency: string; status: string; kind: string | null; customer_email: string | null; customer_phone: string | null; whop_member_id: string | null; link_status: string; linked_by: string | null; paid_at: Date };
+export type PaymentRow = { id: string; company_id: string; contact_id: string | null; opportunity_id: string | null; provider: string; whop_payment_id: string; amount: string; currency: string; status: string; kind: string | null; customer_email: string | null; customer_phone: string | null; whop_member_id: string | null; link_status: string; linked_by: string | null; paid_at: Date; raw?: Record<string, unknown> | null };
 export type RecordResult =
   | { outcome: "duplicate"; payment: PaymentRow }
   | { outcome: "linked"; payment: PaymentRow; event: EventRow; contactId: string; healed: number }
@@ -31,14 +31,33 @@ const money = (n: number) => Math.round(n * 100) / 100;
 /** Over by a rounding cent still clears. */
 export const cleared = (total: number, contractValue: number | null) => contractValue != null && total >= contractValue - 0.01;
 
-/** deposit / installment / balance / paid_in_full / refund, from what came before. */
-export function deriveKind(amount: number, priorTotal: number, contractValue: number | null, status: PaymentInput["status"]): string {
+/**
+ * deposit / installment / balance / paid_in_full / refund, from what came before. D119: a deposit is a payment for one of the
+ * company's declared deposit products (`deposit`), never a guess from the amount: a first payment short of the price is the
+ * first installment. A deposit counts toward the price, so the payment that clears it after a deposit is the balance.
+ */
+export function deriveKind(amount: number, priorTotal: number, contractValue: number | null, status: PaymentInput["status"], deposit = false): string {
   if (status === "failed") return "failed";
   if (amount < 0 || status === "refunded") return "refund";
+  if (deposit) return "deposit";
   if (priorTotal <= 0 && cleared(amount, contractValue)) return "paid_in_full";
   if (cleared(money(priorTotal + amount), contractValue)) return "balance";
-  if (priorTotal <= 0) return "deposit";
   return "installment";
+}
+
+/** D119: the company's deposit products (`payments.deposit_products`, set at install from `depositProducts`): Whop product or plan ids. */
+export const DEPOSIT_PRODUCTS_KEY = "payments.deposit_products";
+export function depositProducts(value: string | undefined | null): string[] {
+  try { const j = JSON.parse(value ?? "[]") as unknown; return Array.isArray(j) ? j.filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim()) : []; } catch { return []; }
+}
+/** A payment is for a deposit product when its product or plan (Whop's `product_id` / `plan_id`, a Zap's `plan`) is one the company declared. */
+export function isDepositProduct(raw: Record<string, unknown> | null | undefined, products: string[]): boolean {
+  if (!products.length || !raw) return false;
+  return ["product_id", "plan_id", "plan"].some((k) => typeof raw[k] === "string" && products.includes((raw[k] as string).trim()));
+}
+async function companyDepositProducts(c: PoolClient, companyId: string): Promise<string[]> {
+  const b = await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [companyId, DEPOSIT_PRODUCTS_KEY]);
+  return depositProducts(b?.value.toString("utf8"));
 }
 
 /** One unambiguous match or nothing. */
@@ -83,10 +102,17 @@ async function priorTotal(c: PoolClient, opportunityId: string, excludePaymentId
   const r = await one<{ t: string }>(c, "select coalesce(sum(amount),0) as t from payments where opportunity_id=$1 and status in ('succeeded','refunded') and id<>$2", [opportunityId, excludePaymentId]);
   return money(Number(r!.t));
 }
+/** D119: the same total without the deposits and their refunds (before `before`, when given): 0 means this is the first money toward the price beyond a deposit. */
+async function priorNonDeposit(c: PoolClient, opportunityId: string, excludePaymentId: string, before?: Date): Promise<number> {
+  const r = await one<{ t: string }>(c, `select coalesce(sum(p.amount),0) as t from payments p where p.opportunity_id=$1 and p.status in ('succeeded','refunded') and p.id<>$2 and ($3::timestamptz is null or p.paid_at < $3)
+    and coalesce(p.kind,'')<>'deposit' and not (p.status='refunded' and exists (select 1 from payments d where d.opportunity_id=p.opportunity_id and d.kind='deposit' and d.whop_payment_id=p.raw->>'payment_id'))`, [opportunityId, excludePaymentId, before ?? null]);
+  return money(Number(r!.t));
+}
 
 /** Link + settle: attach the person and pursuit, derive the kind, heal earlier orphans of the same identity, emit the event. */
 async function settle(c: PoolClient, companyId: string, contactId: string, payment: PaymentRow, linkedBy: string): Promise<{ event: EventRow; healed: number }> {
   const opp = await opportunityFor(c, companyId, contactId, payment);
+  const products = await companyDepositProducts(c, companyId);
   // heal: earlier unlinked rows with the same member id or email now belong to this person and this pursuit
   const healed = await many<PaymentRow>(c, `update payments set contact_id=$2, opportunity_id=$3, link_status='linked', linked_by='heal'
     where company_id=$1 and link_status='unlinked' and id<>$4 and ((whop_member_id is not null and whop_member_id=$5) or (customer_email is not null and customer_email=$6)) returning *`,
@@ -98,22 +124,24 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
     if (already) continue;
     const hPrior = money(Number((await one<{ t: string }>(c, "select coalesce(sum(amount),0) as t from payments where opportunity_id=$1 and status in ('succeeded','refunded') and id<>$2 and paid_at < $3", [opp.id, h.id, h.paid_at]))!.t));
     const hAmount = Number(h.amount), hStatus = h.status as PaymentInput["status"];
-    const hKind = deriveKind(hAmount, hPrior, opp.contract_value, hStatus);
+    const hKind = deriveKind(hAmount, hPrior, opp.contract_value, hStatus, isDepositProduct(h.raw, products));
     await c.query("update payments set kind=$2 where id=$1", [h.id, hKind]);
+    const hPriorPaid = await priorNonDeposit(c, opp.id, h.id, h.paid_at);
     const hRunning = hStatus === "failed" ? hPrior : money(hPrior + hAmount);
     const hev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: hStatus === "succeeded" ? "payment.received" : hStatus === "refunded" ? "payment.refunded" : "payment.failed", source: "whop", occurred_at: h.paid_at,
-      data: { payment_id: h.id, provider_payment_id: h.whop_payment_id, amount: hAmount, currency: h.currency, kind: hKind, paid_at: h.paid_at.toISOString(), prior_total: hPrior, running_total: hRunning, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - hRunning, 0)), cleared: cleared(hRunning, opp.contract_value), linked_by: "heal", healed_via: payment.id, customer_email: h.customer_email, whop_member_id: h.whop_member_id } });
+      data: { payment_id: h.id, provider_payment_id: h.whop_payment_id, amount: hAmount, currency: h.currency, kind: hKind, paid_at: h.paid_at.toISOString(), prior_total: hPrior, prior_non_deposit_total: hPriorPaid, running_total: hRunning, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - hRunning, 0)), cleared: cleared(hRunning, opp.contract_value), linked_by: "heal", healed_via: payment.id, customer_email: h.customer_email, whop_member_id: h.whop_member_id } });
     await dispatchEvent(c, hev, { contact: { id: contactId } });
   }
   const prior = await priorTotal(c, opp.id, payment.id);
   const amount = Number(payment.amount);
-  const kind = deriveKind(amount, prior, opp.contract_value, payment.status as PaymentInput["status"]);
+  const kind = deriveKind(amount, prior, opp.contract_value, payment.status as PaymentInput["status"], isDepositProduct(payment.raw, products));
+  const priorPaid = await priorNonDeposit(c, opp.id, payment.id);
   await c.query("update payments set contact_id=$2, opportunity_id=$3, kind=$4, link_status='linked', linked_by=$5 where id=$1", [payment.id, contactId, opp.id, kind, linkedBy]);
   const running = payment.status === "failed" ? prior : money(prior + amount);
   const isCleared = cleared(running, opp.contract_value);
   const type = payment.status === "succeeded" ? "payment.received" : payment.status === "refunded" ? "payment.refunded" : "payment.failed";
   const ev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: type, source: "whop", occurred_at: payment.paid_at,
-    data: { payment_id: payment.id, provider_payment_id: payment.whop_payment_id, amount, currency: payment.currency, kind, paid_at: payment.paid_at.toISOString(), prior_total: prior, running_total: running, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - running, 0)), cleared: isCleared, linked_by: linkedBy, customer_email: payment.customer_email, whop_member_id: payment.whop_member_id } });
+    data: { payment_id: payment.id, provider_payment_id: payment.whop_payment_id, amount, currency: payment.currency, kind, paid_at: payment.paid_at.toISOString(), prior_total: prior, prior_non_deposit_total: priorPaid, running_total: running, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - running, 0)), cleared: isCleared, linked_by: linkedBy, customer_email: payment.customer_email, whop_member_id: payment.whop_member_id } });
   if (payment.status === "succeeded") {
     // D88 (A9): the opportunity is won by Payment recorded's update_opportunity step, where the company decides on which payment
     if (isCleared) {
