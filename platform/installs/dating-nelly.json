@@ -1,0 +1,117 @@
+{
+  "_note": "Dating Nelly, the pilot dating offer, inside the RapidCloser GHL location (D117 scope tag \"dating\"). Built by scripts/provision-ghl.ts from installs/dating/ghl-setup.json. No secrets: the PIT comes from the environment at install. Deposits run $100-$500 (Tyler, 2026-10-16).",
+  "name": "Dating Nelly",
+  "slug": "dating-nelly",
+  "booking": {
+    "source": "ghl"
+  },
+  "contractValueDefault": 5000,
+  "salesCall": {
+    "outcomes": {
+      "scheduled": "scheduled",
+      "showed": "showed",
+      "no_show": "noshow",
+      "cancelled": "cancelled",
+      "rescheduled": "rescheduled"
+    },
+    "bookingSources": {
+      "setter": "setter_set",
+      "self": "self_booked"
+    },
+    "dispositions": {
+      "closed_won": "closed",
+      "deposit": "deposit",
+      "follow_up": "follow_up",
+      "lost": "lost",
+      "dq": "unqualified",
+      "no_offer": {
+        "meaning": "unqualified",
+        "reason": "No offer made (DQ before the pitch)"
+      },
+      "financing_denied": {
+        "meaning": "lost",
+        "reason": "Financing denied"
+      },
+      "close_pending": "pending"
+    },
+    "dqDispositions": [
+      "dq",
+      "no_offer"
+    ],
+    "object": "custom_objects.dating_sales_call"
+  },
+  "discoveryCall": {
+    "results": {
+      "set": "set",
+      "follow_up": "follow_up",
+      "dq": "dq",
+      "not_interested": "not_interested"
+    }
+  },
+  "closers": [
+    "mitch@revsignals.io"
+  ],
+  "testDomains": [
+    "jtylerray.com"
+  ],
+  "enable": false,
+  "timezone": "America/New_York",
+  "locationId": "eLfhuKEaVMlrpLm2Fz8V",
+  "calendars": {
+    "lPTaLw46eFonnx9ZT3wP": {
+      "term": "closing",
+      "booking": "self"
+    },
+    "OcniPh7vBBZi3F9Sm4vf": {
+      "term": "closing",
+      "booking": "setter"
+    },
+    "cS5F8eyIDUCWnzqg2jX3": {
+      "term": "first_call",
+      "name": "Triage call"
+    }
+  },
+  "closerCall": "lPTaLw46eFonnx9ZT3wP",
+  "bookingCalendar": "lPTaLw46eFonnx9ZT3wP",
+  "crm": {
+    "pipeline_setter": "N59nJLRaspsNwiaPWtE8",
+    "stage_setter_new_lead": "e4044e0d-0622-45ff-83f0-13b1244b2aae",
+    "stage_setter_direct_booked": "58e9c375-2134-40b0-a203-70bf36c5f1d9",
+    "stage_setter_appointment_set": "cdecc4fc-3865-446b-b663-9f432a90323e",
+    "stage_setter_showed": "85af6330-f4b3-434e-a597-255f9d446e2d",
+    "stage_setter_cancelled": "72b4a0a0-11db-4b3c-92b7-e06c4d6112e1",
+    "stage_setter_dq": "49fa4f2a-b866-4850-9706-ee0ff63f7c15",
+    "stage_setter_not_interested": "82b55b7f-f553-4de7-9441-2a431d65616d",
+    "pipeline_closer": "hLBo4MFsrGj7EjfDmkEn",
+    "stage_closer_scheduled": "27a674cf-4c34-48ff-8a3e-1368895b91ef",
+    "stage_closer_cancelled": "b7b48139-37ee-4a33-a2bb-e598a36c6090",
+    "stage_closer_follow_up": "c39d7ab9-e678-4d08-b701-61aad446e4a8",
+    "stage_closer_agreement_sent": "8233c8c5-f349-47cb-a599-975f978ec1e9",
+    "stage_closer_closed_won": "c4daa37b-ad4b-45f5-8da2-4e8dd0736dc5",
+    "stage_closer_lost": "c42dc364-bc41-44b9-a329-29207c22dd89",
+    "stage_closer_disqualified": "0801a907-7652-4cb1-8e44-182a99214749",
+    "field_contact_appointment_date": "RkHcvZxz7orOBLxclh4i",
+    "field_contact_setter": "EaoEms8PxR4EeqAJLeWU",
+    "field_contact_cash_collected": "Xlsk8E8iE5n7AnfXy40W",
+    "field_contact_revenue_generated": "afj0RHT0sodPaate69mn",
+    "field_contact_utm_source": "uOJsdNFezYxrsHRQVLxt",
+    "field_contact_utm_medium": "9tjK0BWKkRGD0RxMYbZt",
+    "field_contact_utm_campaign": "m3BvEcP9T8l7nswMHGCc",
+    "field_contact_utm_content": "T17V3pHWXBg1T0hWCl5E",
+    "field_contact_utm_term": "cK7idn27GpS1dDRqaiuN",
+    "field_contact_fbclid": "vbcByPkab5v6axUoxtr2",
+    "field_opportunity_setter_owner": "jmS5WnMlXnlyKmhkAl4B",
+    "field_opportunity_stage_entered": "pBQY7AMGMgjY8H3uibnE",
+    "object_sales_call": "custom_objects.dating_sales_call",
+    "object_payment": "custom_objects.dating_payment",
+    "object_discovery_call": "custom_objects.dating_discovery",
+    "assoc_sales_call_contact": "6ad17a5e61b66da0c004ec77",
+    "assoc_sales_call_opportunity": "6ad17a5e30c8c10af2626b6f",
+    "assoc_payment_contact": "6ad17a5f61b66da0c004ecc0",
+    "assoc_payment_opportunity": "6ad17a5fdd7aac48df85df15",
+    "assoc_discovery_call_contact": "6ad17a5fceaa91122182cbe8"
+  },
+  "scopeTag": "dating",
+  "smsEnabled": false,
+  "mode": "shadow"
+}

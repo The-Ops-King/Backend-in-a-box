@@ -548,6 +548,12 @@ Decisions:
   - Triage Call, 15 min, the setter's qualifying call (a downsell, or a lead not yet worth a full slot).
 - Contract value $5,000 by default; deposits $100–$500; payment plans to come. Slack bot: "Ops Engine" (no workspace yet).
 
+**State (2026-10-16):** the GHL side is built in RapidCloser by `scripts/provision-ghl.ts` from `installs/dating/ghl-setup.json`
+(two pipelines, 12 contact/opportunity fields, the three Dating objects with their fields and 5 associations, three calendars
+on Mitch). Dating Nelly is installed (`installs/dating-nelly.json`, slug `dating-nelly`): shadow, SMS off, every workflow off,
+scope tag `dating` (D117). After its first poll it held 0 contacts, 0 events, 0 runs. Next: its own workflow copies (Dating
+object keys, closer option keys `nelly`/`mitch`, Hair's copy taken out), as PMU's were.
+
 Still open:
 - Tyler: add Nelly (closer) and the setter (name and email to come) as RapidCloser GHL users, then reassign the calendars.
 - The Typeform: its questions and answers become intake fields and booking-card lines. UTMs arrive from it. A direct
