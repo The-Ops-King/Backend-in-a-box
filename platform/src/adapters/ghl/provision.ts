@@ -167,8 +167,9 @@ async function pass(setup: Setup, s: State, loc: string, call: Http, apply: bool
   }
 
   const o = hm(setup.hours.open), c = hm(setup.hours.close);
-  const openHours = [{ daysOfTheWeek: setup.hours.days, hours: [{ openHour: o.h, openMinute: o.m, closeHour: c.h, closeMinute: c.m }] }];
-  const hoursKey = (h: State["calendars"][number]["openHours"]) => JSON.stringify((h ?? []).map((x) => [[...x.daysOfTheWeek].sort(), x.hours.map((y) => [y.openHour, y.openMinute, y.closeHour, y.closeMinute])]).sort());
+  // GHL takes one entry per weekday ("openHours.0.must be a valid day of week" for a list of days, 2026-10-16)
+  const openHours = setup.hours.days.map((d) => ({ daysOfTheWeek: [d], hours: [{ openHour: o.h, openMinute: o.m, closeHour: c.h, closeMinute: c.m }] }));
+  const hoursKey = (h: State["calendars"][number]["openHours"]) => JSON.stringify((h ?? []).flatMap((x) => x.daysOfTheWeek.map((d) => [d, x.hours.map((y) => [y.openHour, y.openMinute, y.closeHour, y.closeMinute])])).sort());
   for (const cal of setup.calendars) {
     const name = P + cal.name, what = `calendar "${name}"`, ex = s.calendars.find((x) => norm(x.name) === norm(name));
     const emails = cal.team ?? setup.team, users = emails.map((e) => ({ e, u: s.users.find((x) => (x.email ?? "").toLowerCase() === e.toLowerCase()) }));
