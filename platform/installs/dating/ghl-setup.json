@@ -61,7 +61,7 @@
           { "key": "financing_denied", "label": "Financing Denied" }, { "key": "close_pending", "label": "Close Pending" } ] },
         { "key": "objection_primary", "name": "Primary Objection", "type": "SINGLE_OPTIONS", "options": [
           { "key": "price", "label": "Price" }, { "key": "partner", "label": "Partner" }, { "key": "timing", "label": "Timing" },
-          { "key": "fear", "label": "Fear" }, { "key": "medical", "label": "Medical" }, { "key": "burned_before", "label": "Burned Before" },
+          { "key": "fear", "label": "Fear" },
           { "key": "competitor", "label": "Competitor" }, { "key": "think_about_it", "label": "Think About It" } ] },
         { "key": "call_type", "name": "Call Type", "type": "SINGLE_OPTIONS", "options": [ { "key": "closing", "label": "Strategy Call" } ] },
         { "key": "recording_url", "name": "Recording URL", "type": "TEXT" },
