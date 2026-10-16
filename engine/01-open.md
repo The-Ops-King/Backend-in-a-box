@@ -525,3 +525,34 @@ Still open:
 - Annabelle: add her to the roster (`closers` or `roles`) when she starts; her Closer option already exists.
 - Switch-over: PMU's Whop also posts to three Zapier hooks, Make, Pabbly, a GHL trigger and strategicpartners.io; the ones
   that write Cash records retire with PMU's GHL automations.
+
+## 44. Onboard Dating Nelly, the pilot dating offer (2026-10-16)
+
+Tyler: the first of many dating and relationship offers, so the setup is generic and re-runnable (a small setup file per
+company, no code change). Built ADDITIVELY in the RapidCloser GHL location, an existing account with another business in it:
+create only, never rename, change or delete what is there. It moves to its own GHL account later by re-running the same
+setup script there and importing the contacts. Fully ghost (shadow) until then. RapidCloser's A2P covers RapidCloser's own
+use, so no texts go to dating contacts from its number.
+
+Decisions:
+- The engine acts only on contacts tagged `dating` (D117, a company scope tag) and on anyone who books a Dating calendar.
+  Tyler adds `dating` by hand to the ~200 contacts he imports from a CSV.
+- Same model as Hair: a setter pipeline (New Lead, Direct Booked, Appointment Set, Showed, Cancelled, DQ, Not Interested)
+  and a closer pipeline (Scheduled, Cancelled / No Show, Follow Up, Agreement Sent, Closed Won, Lost, Disqualified).
+- Contact fields: appointment date, setter, cash collected, revenue generated, the UTMs and fbclid. Opportunity fields:
+  setter owner, stage entered.
+- Custom objects: Dating Sales Call, Dating Payment, Dating Discovery. Sales Call closer options: Nelly, Mitch.
+- GHL calendars for now (Calendly later), all assigned to Mitch until Nelly is a user:
+  - Strategy Call (Direct), 45 min, self-booked closer call;
+  - Strategy Call (Setter), 45 min, setter-booked closer call;
+  - Triage Call, 15 min, the setter's qualifying call (a downsell, or a lead not yet worth a full slot).
+- Contract value $5,000 by default; deposits $100–$500; payment plans to come. Slack bot: "Ops Engine" (no workspace yet).
+
+Still open:
+- Tyler: add Nelly (closer) and the setter (name and email to come) as RapidCloser GHL users, then reassign the calendars.
+- The Typeform: its questions and answers become intake fields and booking-card lines. UTMs arrive from it. A direct
+  Typeform integration, no Zapier (#34).
+- With GHL calendars, a setter-booked call does not say who set it. The setter calendar needs a "who set this" booking
+  field, or Calendly.
+- The payment processor; Fathom; the agreement template and sender; welcome copy; objection and DQ reasons for the call
+  review.
