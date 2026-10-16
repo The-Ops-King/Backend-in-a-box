@@ -8,9 +8,10 @@ import { ensureOpportunityForBooking, ensureUser, userIdByEmail } from "./lifecy
 import { simTag, simulate } from "./simulate";
 import { meetingKey, pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, type RecordingRow } from "./recordings";
 import { callSetting } from "./call-settings";
-import { applyDocument, facts as agreementFacts } from "./agreements";
+import { applyDocument, facts as agreementFacts, isSigned } from "./agreements";
 import { foldCard } from "./cards";
 import { handMoved } from "./card-moves";
+import { carriesTag, companyScopeTag, inScope, scopeTag, stillInScope, tagIntoScope } from "./scope";
 
 export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; agreements: number; cardsMoved: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
@@ -86,13 +87,16 @@ export const boundFieldIds = (bindings: Record<string, string>) => new Set(Objec
 
 async function pollContacts(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
   const { since, isBaseline } = await cursor(c, co.id, "contacts", DateTime.now().minus({ days: 7 }));
-  const rows = await adapters.read.contactsChangedSince(ac, since.toISO()!);
+  // D117: a scoped company reads only its own people; anyone else the location holds is never replicated and starts nothing
+  const tag = scopeTag(bindings);
+  const rows = tag ? await adapters.read.contactsChangedSince(ac, since.toISO()!, tag) : await adapters.read.contactsChangedSince(ac, since.toISO()!);
   let max = since;
   const keep = boundFieldIds(bindings);
   for (const s of rows) {
+    const u = DateTime.fromISO(s.dateUpdated); if (u > max) max = u;
+    if (tag && !carriesTag(s.tags, tag)) continue;   // the search's own filter, held to the exact tag
     const { id, isNew, prevTags } = await upsertContact(c, co.id, co.timezone, s, keep);
     rep.contacts++;
-    const u = DateTime.fromISO(s.dateUpdated); if (u > max) max = u;
     if (isBaseline) { rep.baselined++; continue; }
     const ctx = { contact: { id, ghl_contact_id: s.id, tags: s.tags } };
     if (isNew) rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: s.id } }), ctx)).length;
@@ -179,6 +183,10 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
     const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at, slot_key, meeting_key)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$4,$19) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.setBy ?? null, JSON.stringify(s.answers ?? {}), s.rescheduleUrl ?? null, s.cancelUrl ?? null, s.tracking ?? {}, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null, key]);
     if (baseline) { if (rep) rep.baselined++; return; }   // replica only; an appointment that existed before install is not a new booking
+    // D117: a booking on a mapped calendar puts the person in scope (the calendar is the offer's), tagged or not; GHL is told with the tag
+    const tag = await companyScopeTag(c, co.id);
+    if (tag && !carriesTag((await one<{ tags: string[] }>(c, "select tags from contacts where id=$1", [contact.id]))?.tags, tag))
+      await tagIntoScope(c, co, ac, adapters, (await loadCompany(c, co.id)).bindings, contact.id, row!.id, tag);
     if (contact.lead) {   // the booking brought a new person: lead.created first (New lead, Speed to lead), the same shape the contacts poll emits, then the booking
       const started = await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: contact.lead.ghlContactId } }), { contact: { id: contact.id, ghl_contact_id: contact.lead.ghlContactId, tags: contact.lead.tags } });
       if (rep) rep.eventsDispatched += started.length;
@@ -233,19 +241,25 @@ async function pollCalendar(c: PoolClient, co: CompanyRow, ac: Company, adapters
   await saveCursor(c, co.id, entity, DateTime.now().toISO()!, true);
 }
 
-async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) {
+async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
   const { since, isBaseline } = await cursor(c, co.id, "conversations", DateTime.now().minus({ hours: 24 }));
+  const tag = scopeTag(bindings);
+  // D117: a thread of someone out of scope is the location's other business: no call row, no reply, nothing started. The baseline asks only the replica
+  const mine = (contactId: string) => (isBaseline ? inScope(c, contactId, tag) : stillInScope(c, co, ac, adapters, contactId, tag));
   const msgs = await adapters.read.inboundSince(ac, since.toISO()!);
   let max = since;
   for (const m of msgs) {
     // G14: the sender may be a duplicate CRM record folded into one person; those ids live as ghl_contact identifiers, the primary on the row
     let contact = await one<{ id: string }>(c, `select contact_id as id from contact_identifiers where company_id=$1 and kind='ghl_contact' and value=$2 and retired_at is null
       union all select id from contacts where company_id=$1 and ghl_contact_id=$2 limit 1`, [co.id, m.contactId]);
-    if (!contact && m.channel === "call") {   // a call to a brand-new lead can land before the contacts poll has them; the call is a fact worth keeping, so fetch the person now
+    // a call to a brand-new lead can land before the contacts poll has them; the call is a fact worth keeping, so fetch the person now.
+    // D117: not with a scope tag: a stranger's call is the location's other business, and the tagged contacts poll runs first each tick
+    if (!contact && m.channel === "call" && !tag) {
       const live = await adapters.read.getContact(ac, m.contactId);
       if (live) contact = { id: (await upsertContact(c, co.id, co.timezone, live)).id };
     }
     if (!contact) continue;
+    if ((m.channel === "call" || m.direction === "inbound") && !(await mine(contact.id))) continue;
     if (m.channel === "call") { await applyCall(c, co, ac, adapters, m, contact.id, isBaseline, rep); const d = DateTime.fromISO(m.dateAdded); if (d > max) max = d; continue; }
     // D38: the hub is not the CRM. Only a reply is kept, never the outbound side or a human's messages; retention drops the row later.
     // D89: and only that it came in (ids, channel, when, who), never its words: a step that needs them reads them from GHL by id (replies.ts)
@@ -298,11 +312,20 @@ async function pollPendingCalls(c: PoolClient, co: CompanyRow, ac: Company, adap
 }
 
 /** Documents & Contracts (D30): every document the location sent, mirrored; new → agreement.sent, first completion → agreement.signed. The first pass is a silent baseline. */
-async function pollAgreements(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport) {
+async function pollAgreements(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
   const { isBaseline } = await cursor(c, co.id, "agreements", DateTime.now());
+  const tag = scopeTag(bindings);
   for (const d of await adapters.read.documents(ac)) {
     const contact = d.contactId ? await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id=$2", [co.id, d.contactId]) : null;
-    const { row, events } = await applyDocument(c, co.id, d, contact?.id ?? null, { silent: isBaseline });
+    // D117: every document is still mirrored (so one signed while its person was out of scope is never news later), but only an in-scope
+    // person's is theirs and says anything. GHL is asked only when the document would say something (new, or newly signed)
+    let ours = !!contact;
+    if (tag && contact) {
+      const held = await one<{ signed_at: Date | null }>(c, "select signed_at from agreements where company_id=$1 and external_id=$2", [co.id, d.id]);
+      const news = !isBaseline && (!held || (!held.signed_at && isSigned(d.status)));
+      ours = news ? await stillInScope(c, co, ac, adapters, contact.id, tag) : await inScope(c, contact.id, tag);
+    }
+    const { row, events } = await applyDocument(c, co.id, d, ours ? contact!.id : null, { silent: isBaseline || (!!contact && !ours) });
     for (const ev of events) { rep.agreements++; rep.eventsDispatched += (await dispatchEvent(c, ev, { contact: { id: row.contact_id }, agreement: agreementFacts(row) })).length; }
   }
   await saveCursor(c, co.id, "agreements", DateTime.now().toISO()!, true);

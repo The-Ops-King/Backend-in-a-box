@@ -6,6 +6,7 @@ import type { GhlCard, GhlFieldDef, GhlObjectRecord, GhlReads } from "@/adapters
 import { loadCompany } from "./context";
 import { dayBounds } from "./metrics";
 import { isTestContact, testDomains } from "./mode";
+import { carriesTag, scopeTag } from "./scope";
 import { GHL_SOURCE, callTime, ledgerFacts, paymentObject, paymentRecords, salesCallConfig, salesCallsFor, signed, type CallClass, type GhlCtx, type Payment } from "./ghl-metrics";
 import { MetricError, type Period } from "./metric-registry";
 import { contactSource, sourceFields } from "./lead-source";
@@ -65,7 +66,8 @@ async function each<T>(items: T[], f: (x: T) => Promise<void>, n = 5): Promise<v
   for (let i = 0; i < items.length; i += n) await Promise.all(items.slice(i, i + n).map(f));
 }
 const lazy = <T>(f: () => Promise<T>) => { let p: Promise<T> | undefined; return () => (p ??= f()); };
-const text = (v: unknown) => (typeof v === "string" ? v.trim() : typeof v === "number" || typeof v === "boolean" ? String(v) : "");
+// a MONETORY field reads back as { currency, value } (D116): its value is the answer
+const text = (v: unknown): string => (typeof v === "string" ? v.trim() : typeof v === "number" || typeof v === "boolean" ? String(v) : v && typeof v === "object" && !Array.isArray(v) && "value" in v ? text((v as { value: unknown }).value) : "");
 /** One stored value as the answers it holds: a multi-pick is several, an option key reads as its label. */
 export function answers(v: unknown, def?: GhlFieldDef): string[] {
   const label = (x: string) => def?.options.find((o) => o.key === x)?.label ?? x;
@@ -263,6 +265,9 @@ async function rowsOf(g: Graph, unit: GraphUnit, period: Period, need: Set<strin
   // the ledger's word that a person is the team's test contact counts too (D73)
   const facts = await ledgerFacts({ ...g.ctx(start, end), filters: {}, memo: { sources: new Map() } }, [...new Set(rows.map((r) => r.ghl).filter(Boolean))]);
   rows = rows.filter((r) => !facts.get(r.ghl)?.test);
+  // D117: the location's other contacts are not this company's leads (the same rule the lead count keeps)
+  const tag = scopeTag(g.bindings);
+  if (tag && unit === "lead") rows = rows.filter((r) => carriesTag(r.contact?.tags, tag) || !!facts.get(r.ghl)?.booked);
   for (const r of rows) r.utm = facts.get(r.ghl)?.utm ?? null;
   if (unit !== "close") { const b = await g.closers(); for (const r of rows) r.closer = b.by.get(r.ghl) ?? null; }
   if (need.has("setter_card") || unit === "lead") { const b = await g.setters(); for (const r of rows) r.setter = b.by.get(r.ghl) ?? null; }

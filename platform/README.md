@@ -1161,6 +1161,20 @@ throwaway company `smoke` in shadow, and prints the whole story: events in order
 step in words, every message or Slack post that would have gone out, the pipeline cards and tags
 afterwards, what is parked for later, and the readiness list. Nothing external is called.
 
+## One offer in a shared location: the scope tag (D117)
+
+A company installed into a GHL location that belongs to another business (its contacts, dialers, calendars and pipelines)
+gets a scope tag at install: `"scopeTag": "dating"` in the install file, or `--scope-tag dating` (bound as `scope.tag`,
+lowercase; omitted on a re-install it stays as it is; `""` removes it). Then the engine's people are the contacts GHL tags
+with it, and anyone booked on the company's mapped calendars (their booking is the offer's; when the booking workflows'
+mode makes writes real the engine tags them in GHL, in shadow it records the tag it would have added). Everyone else in the
+location is never replicated, fetched or counted: the contacts poll asks GHL's search for the tag, dialer calls and replies of
+anyone else are ignored (a stranger is never fetched), their documents are mirrored but say nothing, the drift sweep pulls in
+only the tagged, leads count only the tagged and the bookers, and a payment whose email or phone names someone out of scope
+stays unlinked for a person to link. A tag taken off in GHL takes the person out of scope: nothing new starts for them,
+nothing is deleted, and runs already going carry on. In test mode a harness contact needs the scope tag as well as
+`sys-test`. No scope tag: the whole location is the company's, as before (Hair and PMU).
+
 ## Shadow mode (how a client gets migrated)
 
 Shadow posts to Slack ARE posted, with a "🧪 shadow —" prefix, when Slack is connected (D31): the team is not
@@ -1242,6 +1256,7 @@ pnpm install:company --name "Save Your Hair" --slug syh --tz America/Phoenix \
   --location <ghl_location_id> --pit <private_integration_token> \
   --calendar <id>=closing --calendar <id>=first_call \
   [--booking <id>] [--no-sms] [--enable] [--live]   # booking link; no number; turn workflows on; live instead of shadow
+  [--scope-tag dating]                              # D117: the location is shared; only these contacts (and the calendars' bookers) are the company's
 # appointments in Calendly instead of GHL calendars (ids are event type uuids; :self / :setter stamps every booking):
 #   --calendly-token <read token> --calendly-user james@company.com --calendar <uuid>=closing:self --calendar <uuid>=closing:setter
 pnpm tick                       # every company's tick in turn, then the engine's minute (what /api/tick with no parameters does)

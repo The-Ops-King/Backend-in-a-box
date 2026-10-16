@@ -7,6 +7,7 @@ import { isTestContact, testContactSql } from "./mode";
 import { MetricError, type GroupBy } from "./metric-registry";
 import { bookingSourceValues, callTime } from "./sales-call";
 import { contactSource, sourceFields } from "./lead-source";
+import { carriesTag, scopeTag } from "./scope";
 export { callTime } from "./sales-call";
 
 /**
@@ -131,12 +132,17 @@ export const NO_PAYMENTS = "GHL has no Payment records yet";
 export const paymentObject = (b: Record<string, string>) => b["crm.object_payment"] || "custom_objects.payment";
 export type Payment = { id: string; ghl: string; label: string; at: DateTime; amount: number; flow: "in" | "out" | "none"; type: string; status: string; closer: string; setter: string; props: Record<string, unknown> };
 const keyOf = (v: unknown) => norm(answerText(v)).replace(/[\s-]+/g, "_");
+/** A money value as GHL reads it back: a bare number, text ("$1,500"), or the `{ currency, value }` a MONETORY field holds (D116). */
+export function amountOf(v: unknown): number {
+  const x = v && typeof v === "object" && !Array.isArray(v) && "value" in v ? (v as { value: unknown }).value : v;
+  return Number(answerText(x).replace(/[$,\s]/g, "")) || 0;
+}
 export function paymentOf(r: GhlObjectRecord, tz: string): Payment {
   const p = r.properties, type = keyOf(p.type), status = keyOf(p.status);
   const raw = answerText(p.occurred_at);
   let at = /^\d{4}-\d{2}-\d{2}/.test(raw) ? DateTime.fromISO(raw, { zone: tz }) : Number.isFinite(Date.parse(raw)) ? DateTime.fromMillis(Date.parse(raw)).setZone(tz) : DateTime.invalid("none");
   if (!at.isValid) at = DateTime.fromISO(r.createdAt).setZone(tz);
-  const raw$ = Number(answerText(p.amount).replace(/[$,\s]/g, "")) || 0, amount = Math.abs(raw$);
+  const raw$ = amountOf(p.amount), amount = Math.abs(raw$);
   // Payment recorded writes a refund as its own line with a negative amount (D57): the sign says money out even when the CRM's picklist dropped the type
   const out = type === "refund" || type === "chargeback" || raw$ < 0;
   const flow = out ? (["failed", "pending"].includes(status) ? "none" : "out") : status === "succeeded" ? "in" : "none";
@@ -157,16 +163,17 @@ async function payments(x: GhlCtx): Promise<Payment[]> {
   return (x.memo.payments ??= paymentRecords(x.reads, x.ac, x.bindings, x.tz));
 }
 
-/** What the ledger knows about CRM ids: the latest booking's UTM source, the closer of the latest call, and whether any engine record behind the id is a test contact. */
-export async function ledgerFacts(x: GhlCtx, ids: string[]): Promise<Map<string, { utm: string | null; closer: string | null; test: boolean }>> {
+/** What the ledger knows about CRM ids: the latest booking's UTM source, the closer of the latest call, whether any engine record behind the id is a test contact, and whether they booked (D117: a booker is in scope). */
+export async function ledgerFacts(x: GhlCtx, ids: string[]): Promise<Map<string, { utm: string | null; closer: string | null; test: boolean; booked: boolean }>> {
   if (!ids.length) return new Map();
   const mine = "sa.contact_id in (select ct.id from contacts ct where ct.company_id=$1 and (ct.ghl_contact_id=x.ghl or ct.id in (select i.contact_id from contact_identifiers i where i.company_id=$1 and i.kind='ghl_contact' and i.value=x.ghl)))";
-  const rows = await many<{ ghl: string; utm: string | null; closer: string | null; test: boolean }>(x.c, `select x.ghl,
+  const rows = await many<{ ghl: string; utm: string | null; closer: string | null; test: boolean; booked: boolean }>(x.c, `select x.ghl,
       (select nullif(sa.tracking->>'utm_source','') from appointments sa where sa.company_id=$1 and sa.source<>'test' and coalesce(sa.tracking->>'utm_source','')<>'' and ${mine} order by sa.booked_at desc limit 1) as utm,
       (select sa.assigned_user_id::text from appointments sa where sa.company_id=$1 and sa.source<>'test' and ${mine} order by sa.starts_at desc limit 1) as closer,
-      exists (select 1 from contacts ct where ct.company_id=$1 and (ct.ghl_contact_id=x.ghl or ct.id in (select i.contact_id from contact_identifiers i where i.company_id=$1 and i.kind='ghl_contact' and i.value=x.ghl)) and ${testContactSql("ct", "$3")}) as test
+      exists (select 1 from contacts ct where ct.company_id=$1 and (ct.ghl_contact_id=x.ghl or ct.id in (select i.contact_id from contact_identifiers i where i.company_id=$1 and i.kind='ghl_contact' and i.value=x.ghl)) and ${testContactSql("ct", "$3")}) as test,
+      exists (select 1 from appointments sa where sa.company_id=$1 and ${mine}) as booked
     from unnest($2::text[]) as x(ghl)`, [x.companyId, ids, x.domains]);
-  return new Map(rows.map((r) => [r.ghl, { utm: r.utm, closer: r.closer, test: r.test }]));
+  return new Map(rows.map((r) => [r.ghl, { utm: r.utm, closer: r.closer, test: r.test, booked: r.booked }]));
 }
 
 async function leads(x: GhlCtx) {
@@ -176,7 +183,9 @@ async function leads(x: GhlCtx) {
     const raw = await read("contacts", () => x.reads.contactsAdded(x.ac, x.start, new Date(x.end.getTime() - 1)));
     const inWindow = raw.filter((k) => { const t = Date.parse(k.dateAdded); return t >= x.start.getTime() && t < x.end.getTime(); });
     const facts = await ledgerFacts(x, inWindow.map((k) => k.id));
-    const people = inWindow.filter((k) => !isTestContact({ tags: k.tags, emails: [k.email] }, x.domains) && !facts.get(k.id)?.test).map((k): Person => ({
+    // D117: with a scope tag, a lead is someone GHL tags with it or who booked on the company's calendars; the location's other contacts are not this company's leads
+    const tag = scopeTag(x.bindings), scoped = (k: (typeof inWindow)[number]) => !tag || carriesTag(k.tags, tag) || !!facts.get(k.id)?.booked;
+    const people = inWindow.filter((k) => scoped(k) && !isTestContact({ tags: k.tags, emails: [k.email] }, x.domains) && !facts.get(k.id)?.test).map((k): Person => ({
       ghl: k.id, name: `${k.firstName ?? ""} ${k.lastName ?? ""}`.trim() || k.email || k.id, at: DateTime.fromISO(k.dateAdded).setZone(x.tz),
       answer: cfg ? answerText(k.customFields[cfg.field]) : "", q: cfg ? qualify(k.customFields[cfg.field], cfg) : null, source: contactSource(k, sourceFields(x.bindings), facts.get(k.id)?.utm) }));
     return { people };

@@ -1,11 +1,14 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { dispatchEvent, emitEvent, type EventRow } from "./dispatch";
+import { companyScopeTag, inScope } from "./scope";
 
 /**
  * The ledger (D21). Every payment the provider reports is recorded, linked to a person or not. Linking is a ladder,
  * most reliable first, and one unambiguous hit or nothing: member id already seen on a linked payment, then email,
  * then phone (last ten digits). Guessing attributes revenue to the wrong person; an unlinked row gets fixed by hand.
+ * D117: with a scope tag, a hit on someone out of scope is no hit: the location holds the other business's people too, so the
+ * payment stays unlinked and the team links it by hand (a person's decision, which settles as before).
  */
 export type PaymentInput = {
   providerPaymentId: string; provider?: string;
@@ -40,6 +43,10 @@ export function deriveKind(amount: number, priorTotal: number, contractValue: nu
 
 /** One unambiguous match or nothing. */
 export async function resolvePayer(c: PoolClient, companyId: string, p: Pick<PaymentInput, "email" | "phone" | "memberId">): Promise<{ contactId: string; by: string } | null> {
+  const hit = await ladder(c, companyId, p);
+  return hit && (await inScope(c, hit.contactId, await companyScopeTag(c, companyId))) ? hit : null;
+}
+async function ladder(c: PoolClient, companyId: string, p: Pick<PaymentInput, "email" | "phone" | "memberId">): Promise<{ contactId: string; by: string } | null> {
   if (p.memberId) {
     const rows = await many<{ contact_id: string }>(c, "select distinct contact_id from payments where company_id=$1 and whop_member_id=$2 and contact_id is not null", [companyId, p.memberId]);
     if (rows.length === 1) return { contactId: rows[0].contact_id, by: "member_id" };

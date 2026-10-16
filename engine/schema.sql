@@ -324,7 +324,7 @@ insert into event_types values
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
   ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'), ('setter_call.result','call'), ('call.closing','call'),
   ('agreement.sent','agreement'), ('agreement.signed','agreement'),
-  ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'), ('card.moved','crm'),
+  ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'), ('card.moved','crm'), ('scope.left','crm'),
   ('schedule','clock'), ('eod.filed','report'), ('slack.reaction','slack'),
   ('alert.raised','engine'), ('alert.repeated','engine'), ('alert.resolved','engine'),
   ('drift.found','engine'), ('drift.sales_call_cancelled','engine'), ('drift.sales_call_unlinked','engine'),
