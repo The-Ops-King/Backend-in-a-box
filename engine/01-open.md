@@ -649,3 +649,11 @@ out. To settle with Tyler: lead tiers from the application answers (income, what
 route the call (strategy vs triage) and give the numbers their MQL / DQ split later. State: the Typeform webhook is
 registered (`biab-dating-nelly`, D122); the 19 application fields are in the GHL folder "Dating – Application"; the
 response import (285 so far) waits for Tyler's go, last.
+
+Tyler, 2026-10-16 (later):
+- The form's consent question is now required (made through the Typeform API; nothing else on the form changed).
+- The booking card shows age, based in, income, looking for, biggest challenge and wants (`bookingCard.intake`).
+- An existing GHL contact who applies keeps its name, email and phone; only blanks are filled.
+- **TODO:** the form's "Not now" path ends on Typeform's own "create your own typeform" screen (153 of 275 responses).
+  It should probably go to the Triage call link instead; do not change it until Tyler says.
+- Nelly's Calendly token: later.

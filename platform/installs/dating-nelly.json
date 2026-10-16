@@ -191,5 +191,33 @@
         "responseId": "field_contact_app_response_id"
       }
     }
+  },
+  "bookingCard": {
+    "intake": [
+      {
+        "label": "Age",
+        "field": "app_age"
+      },
+      {
+        "label": "Based in",
+        "field": "app_location"
+      },
+      {
+        "label": "Income",
+        "field": "app_income"
+      },
+      {
+        "label": "Looking for",
+        "field": "app_looking_for"
+      },
+      {
+        "label": "Biggest challenge",
+        "field": "app_dating_challenge"
+      },
+      {
+        "label": "Wants",
+        "field": "app_support_wanted"
+      }
+    ]
   }
 }
