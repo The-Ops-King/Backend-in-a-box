@@ -75,6 +75,15 @@ const filters: Record<string, Filter> = {
   lines: (v) => renderLines(v),
   // a picklist guard: the value only when it is one of the allowed ones, else nothing (the CRM drops an unknown option silently, which reads like the field was never written)
   oneof: (v, arg) => (typeof v === "string" && (arg ?? "").split(",").map((x) => x.trim()).includes(v) ? v : ""),
+  // D118: the company's own option key on a picklist the engine writes (`picklist.<arg>`): a list keeps the value only when it
+  // is one of them, as oneof does; a map gives the key it declares for the value (a closer's roster name → "mitch"), else
+  // nothing. A company that declared nothing for that picklist gets the value as it is.
+  option: (v, arg, _env, ctx) => {
+    const p = (ctx.picklist as Record<string, unknown> | undefined)?.[arg ?? ""];
+    if (p === undefined || p === null) return v;
+    if (Array.isArray(p)) return typeof v === "string" && p.includes(v) ? v : "";
+    return absent(v) ? "" : (p as Record<string, string>)[String(v).trim().toLowerCase()] ?? "";
+  },
   truncate: (v, arg) => { const n = Number(arg ?? 300); const s = String(v ?? ""); return s.length > n ? `${s.slice(0, n - 1)}…` : s; },
   // a labelled line only when there is a value: {{contact.fields.setter | prefix:*Setter:* }} → "*Setter:* Luis", or nothing at all
   prefix: (v, arg) => (v === undefined || v === null || v === "" ? "" : `${arg ?? ""} ${v}`.trim()),

@@ -206,7 +206,7 @@
       {
         "id": "r1",
         "type": "crm_record",
-        "object": "custom_objects.sales_call",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
         "key": "{{vars.call_key}}",
         "properties": {
           "display_label": "{{contact.name | default:Unknown}} — {{recording.started_at | date_company:yyyy-MM-dd}}",
@@ -218,10 +218,10 @@
           "outcome": "{{picklist.sales_call_outcome.showed}}",
           "recording_url": "{{recording.share_url | default:}}",
           "transcript_ref": "{{recording.url | default:}}",
-          "closer": "{{recording.closer.name | default:}}",
+          "closer": "{{recording.closer.name | default: | option:sales_call_closer}}",
           "duration_min": "{{vars.convo.total_min | default:}}",
           "disposition": "{{vars.outcome.disposition | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}",
-          "objection_primary": "{{vars.notes.primary_objection | oneof:price,partner,timing,fear,medical,burned_before,competitor,think_about_it | default:}}",
+          "objection_primary": "{{vars.notes.primary_objection | option:sales_call_objection | default:}}",
           "next_step": "{{vars.notes.next_step | default:}}",
           "next_step_date": "{{vars.notes.next_step_date | default:}}",
           "payment_terms": "{{vars.notes.payment_terms | default:}}",

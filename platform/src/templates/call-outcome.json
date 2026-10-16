@@ -423,7 +423,7 @@
       {
         "id": "r2",
         "type": "crm_record",
-        "object": "custom_objects.sales_call",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
         "key": "{{appointment.slot_key}}",
         "if_missing": "match",
         "properties": {
@@ -459,7 +459,7 @@
       {
         "id": "r1",
         "type": "crm_record",
-        "object": "custom_objects.sales_call",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
         "key": "{{appointment.slot_key}}",
         "if_missing": "match",
         "properties": {
@@ -505,7 +505,7 @@
       {
         "id": "r3",
         "type": "crm_record",
-        "object": "custom_objects.sales_call",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
         "key": "{{appointment.slot_key}}",
         "if_missing": "match",
         "properties": {

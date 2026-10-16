@@ -1,6 +1,6 @@
 /**
  * pnpm exec tsx scripts/render-charts.ts [--out <dir>] [--counts] [--names <file.json>] [name …] — screenshots of workflow charts drawn by the real
- * dashboard component (D107): each chart is built with chartOf from a template, a PMU copy or a built-in nested fixture,
+ * dashboard component (D107): each chart is built with chartOf from a template, a company's copy (<company>/<file>, D118) or a built-in nested fixture,
  * the chart-only page in dashboard/render is built with Vite, and Chromium (Playwright) shoots it at desktop width and on
  * a phone. Names: a template slug, pmu/<file>, nested, or messy (D111: a shape only the plain graph draws); add @id,id,… for
  * the chart with a run selected that went through those steps (id:skip, id:warn, … for another state than "ran"). --counts puts made-up run counts on the steps (D112), fewer
@@ -49,7 +49,9 @@ function nested(): Definition {
 const source = (name: string): Definition => {
   if (name === "nested") return nested();
   if (name === "messy") return messy();
-  if (name.startsWith("pmu/")) return parseDefinition(pmu(name.slice(4)));
+  // a company's own copy: pmu/<file>, dating-nelly/<file> (installs/<company>/<file>.json, D118)
+  const own = /^([a-z0-9-]+)\/([a-z0-9-]+)$/.exec(name);
+  if (own && fs.existsSync(path.join(ROOT, "installs", own[1], `${own[2]}.json`))) return parseDefinition(JSON.parse(fs.readFileSync(path.join(ROOT, "installs", own[1], `${own[2]}.json`), "utf8")).definition);
   const t = templates.find((x) => x.slug === name); if (!t) throw new Error(`no chart named ${name}`);
   return parseDefinition(t.definition);
 };

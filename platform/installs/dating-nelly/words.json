@@ -1,0 +1,22 @@
+{
+  "_note": "Dating Nelly's own words for its workflow copies (D118), read by scripts/build-copies.ts. Everything marked [placeholder] is not Tyler's yet: a welcome send whose words are a placeholder is built as skipped, and the DQ reasons only label what Jev reads (setter_result.act is off). Replace the words, run the build, save the copies.",
+  "welcome": {
+    "subject": "[placeholder — welcome email subject]",
+    "email": "<p>Hi {{contact.first_name | default:there}},</p><p>[placeholder — Dating Nelly's welcome email: what happens next, to come from Tyler]</p>",
+    "sms": "[placeholder — Dating Nelly's welcome text, to come from Tyler]"
+  },
+  "setterDq": {
+    "result": "[placeholder — Dating Nelly's DQ wording to come] The lead does not qualify: the setter or the lead established they are not a fit for the offer, or it is a bad or wrong contact.",
+    "reasons": {
+      "budget": "[placeholder] They cannot afford it or have no money for it right now.",
+      "age": "[placeholder] They are outside the ages the offer is for.",
+      "geo": "[placeholder] They are outside the area the company serves.",
+      "medical": "[placeholder — not a Dating Nelly reason yet] A health reason rules them out.",
+      "timeline": "[placeholder] Their timing does not work: not for a long while, or no urgency at all.",
+      "no_problem": "[placeholder] They do not actually have the problem the offer solves.",
+      "competitor": "[placeholder] They are already working with, or committed to, someone else.",
+      "bad_contact": "[placeholder] A wrong number, a fake or duplicate contact, or someone who never asked to be contacted.",
+      "other": "Any other reason, or the transcript does not say."
+    }
+  }
+}

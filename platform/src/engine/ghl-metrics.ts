@@ -5,7 +5,7 @@ import type { Company } from "@/adapters/types";
 import type { GhlObjectRecord, GhlReads } from "@/adapters/ghl/metrics";
 import { isTestContact, testContactSql } from "./mode";
 import { MetricError, type GroupBy } from "./metric-registry";
-import { bookingSourceValues, callTime } from "./sales-call";
+import { bookingSourceValues, callTime, closerNameOf, closerOptions } from "./sales-call";
 import { contactSource, sourceFields } from "./lead-source";
 import { carriesTag, scopeTag } from "./scope";
 export { callTime } from "./sales-call";
@@ -265,8 +265,11 @@ async function calls(x: GhlCtx): Promise<Call[]> {
       join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term`,
       [x.companyId, due.map((d) => d.r.id), due.map((d) => String(d.r.properties.external_id ?? "")), due.map((d) => String(d.r.properties.contact_id ?? "")), due.map((d) => (d.exact ? d.at.toJSDate() : null)), x.domains, x.tz, due.map((d) => d.at.toISODate())]) : [];
     const facts = await ledgerFacts(x, [...new Set(due.map((d) => String(d.r.properties.contact_id ?? "")).filter(Boolean))]);
-    const roster = await many<{ id: string; name: string }>(x.c, "select id::text as id, name from users where company_id=$1", [x.companyId]);
+    const roster = await many<{ id: string; name: string; email: string | null; ghl_user_id: string | null }>(x.c, "select id::text as id, name, email, ghl_user_id from users where company_id=$1", [x.companyId]);
     const closerOf = (n: string) => { const w = n.trim().toLowerCase(); if (!w) return ""; const hit = roster.filter((u) => u.name.toLowerCase() === w); return hit.length === 1 ? hit[0].id : n.trim(); };
+    // D118: a company whose Closer field holds option keys ("mitch") has them read back as the closer they belong to
+    const options = closerOptions(x.bindings, roster);
+    const salesCloserOf = (n: string) => closerOf(closerNameOf(n, options));
     const selfValue = norm(bookingSourceValues(x.bindings).self);
     const setterOf = (p: Record<string, unknown>) => (selfValue && norm(answerText(p.booking_source)) === selfValue ? "" : closerOf(answerText(p.setter)));
     const out: Call[] = [];
@@ -279,7 +282,7 @@ async function calls(x: GhlCtx): Promise<Call[]> {
       const { cls, flipped, cancelUnknown } = classifyCall(filed, a ? { status: a.status, cancelledAt: a.cancelled_at, startsAt: a.starts_at } : null);
       out.push({ id: r.id, ext: String(p.external_id ?? ""), ghl: ghlId, test: cand.some((h) => h.test) || !!facts.get(ghlId)?.test, name: a?.name ?? (String(p.display_label ?? "").trim() || ghlId || r.id), at, filed, disposition: norm(answerText(p.disposition)), cls, flipped, cancelUnknown,
         match: cand.length === 1 ? "one" : cand.length ? "many" : "none", appt: a ? { id: a.id, contact_id: a.contact_id, status: a.status, source: a.source, outcome: a.outcome, starts_at: a.starts_at, cancelled_at: a.cancelled_at } : null,
-        closer: closerOf(String(p.closer ?? "")), setter: setterOf(p), utm: facts.get(ghlId)?.utm ?? null, booking_source: a?.source === "calendly" ? "Calendly" : "the GHL calendar", booked: String(p.booking_source ?? ""),
+        closer: salesCloserOf(String(p.closer ?? "")), setter: setterOf(p), utm: facts.get(ghlId)?.utm ?? null, booking_source: a?.source === "calendly" ? "Calendly" : "the GHL calendar", booked: String(p.booking_source ?? ""),
         links: { contact_field: ownField.has(r.id), opportunity: String(p.opportunity_id ?? "").trim() } });
     }
     return out.sort((a, b) => a.at.toMillis() - b.at.toMillis());

@@ -503,7 +503,7 @@
       {
         "id": "r1",
         "type": "crm_record",
-        "object": "custom_objects.discovery_call",
+        "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
         "key": "{{vars.convo.key}}",
         "owner": "{{recording.caller.ghl_user_id | default:}}",
         "properties": {
@@ -703,7 +703,7 @@
       {
         "id": "r_late",
         "type": "crm_record",
-        "object": "custom_objects.discovery_call",
+        "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
         "key": "{{vars.convo.key}}",
         "if_missing": "skip",
         "properties": {
@@ -939,7 +939,7 @@
       {
         "id": "r2",
         "type": "crm_record",
-        "object": "custom_objects.discovery_call",
+        "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
         "key": "{{vars.convo.key}}",
         "if_missing": "skip",
         "only_if": {

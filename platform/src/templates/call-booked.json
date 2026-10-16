@@ -248,7 +248,7 @@
       {
         "id": "k5",
         "type": "crm_record",
-        "object": "custom_objects.sales_call",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
         "key": "{{event.slot.from | default:}}",
         "if_missing": "skip",
         "only_if": {
@@ -262,7 +262,7 @@
       {
         "id": "k4",
         "type": "crm_record",
-        "object": "custom_objects.sales_call",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
         "key": "{{appointment.slot_key}}",
         "properties": {
           "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
@@ -271,7 +271,7 @@
           "opportunity_id": "{{cards.closer.id | default:}}",
           "scheduled_at": "{{appointment.starts_at}}",
           "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
-          "closer": "{{appointment.closer.name | default:}}",
+          "closer": "{{appointment.closer.name | default: | option:sales_call_closer}}",
           "setter": "{{appointment.set_by | default:}}",
           "outcome": "{{picklist.sales_call_outcome.scheduled}}",
           "booking_source": "{{vars.booking_source | default:}}"

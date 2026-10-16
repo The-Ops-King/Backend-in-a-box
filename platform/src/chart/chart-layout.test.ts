@@ -13,6 +13,7 @@ const svgOf = (chart: Chart, rows = arrange(chart)) => svgDrawing(draw(rows, 100
 const graphSvg = (chart: Chart, g: Awaited<ReturnType<typeof layoutGraph>>) => svgDrawing(drawGraph(g, chart, 1000, 240, () => null).svg);
 import { layoutGraph } from "./graph";
 import { messy } from "./messy";
+import { companyCopies } from "./company-copies";
 
 // D107: the chart dropped every step after a fork inside a fork; Tyler saw PMU's Call booked end at its two
 // "A new booking or a reschedule?" forks, with no card moves, no tags, no Slack card and no Done. D111: every chart is held
@@ -21,7 +22,7 @@ const company = { name: "Acme", timezone: "America/Chicago" };
 const PMU = path.resolve(__dirname, "../../installs/pmu");
 const shipped = () => [
   ...templates.map((t) => ({ name: t.slug, def: parseDefinition(t.definition) })),
-  ...fs.readdirSync(PMU).filter((f) => f.endsWith(".json")).map((f) => ({ name: `pmu/${f.replace(/\.json$/, "")}`, def: parseDefinition(JSON.parse(fs.readFileSync(path.join(PMU, f), "utf8")).definition) })),
+  ...companyCopies(),   // PMU's and Dating Nelly's own copies (D118)
 ];
 const template = (slug: string) => parseDefinition(templates.find((t) => t.slug === slug)!.definition);
 const pmu = (file: string) => parseDefinition(JSON.parse(fs.readFileSync(path.join(PMU, `${file}.json`), "utf8")).definition);

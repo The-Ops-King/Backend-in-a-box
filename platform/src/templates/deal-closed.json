@@ -79,7 +79,7 @@
       {
         "id": "r1",
         "type": "crm_record",
-        "object": "custom_objects.sales_call",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
         "key": "{{records.sales_call.key}}",
         "if_missing": "skip",
         "properties": {

@@ -7,7 +7,7 @@ import { hasTranscript, isConnected, type RecordingRow } from "./recordings";
 import { latestAgreement, facts as agreementFacts, type AgreementRow } from "./agreements";
 import { eodFacts } from "./eod";
 import type { ContactTruth } from "./contact-truth";
-import { salesCallValues, bookingSourceValues } from "./sales-call";
+import { salesCallValues, bookingSourceValues, objectionOptions, closerOptions, CLOSER_OPTIONS_KEY, OBJECT_ROLES } from "./sales-call";
 import { discoveryResultValues, setterResultActs } from "./setter-result";
 import { callSetting } from "./call-settings";
 import { leadSourceSql, sourceFields, sourceFieldsParam, UNKNOWN_SOURCE } from "./lead-source";
@@ -93,7 +93,10 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     reaction: run.context.reaction,   // what a wait_for_reaction stored (D53); carried so the steps after it can say who decided even across a park
     calendar: {}, slack: { channel: {} }, crm: {}, prompt: {},
     // the company's own option keys for what the engine writes on a picklist (a Sales Call's outcome)
-    picklist: { sales_call_outcome: salesCallValues(bindings), sales_call_booking_source: bookingSourceValues(bindings), discovery_call_result: discoveryResultValues(bindings) },
+    // D118: the objections the Sales Call takes, and each closer's own option key (only when the company declared them)
+    picklist: { sales_call_outcome: salesCallValues(bindings), sales_call_booking_source: bookingSourceValues(bindings), discovery_call_result: discoveryResultValues(bindings),
+      sales_call_objection: objectionOptions(bindings),
+      ...(bindings[CLOSER_OPTIONS_KEY] ? { sales_call_closer: closerOptions(bindings, await many<{ name: string; email: string | null; ghl_user_id: string | null }>(c, "select name, email, ghl_user_id from users where company_id=$1", [company.id])) } : {}) },
     // company switches a template reads (D79: whether a setter call's result acts, or only says what it would do; D87: the call flow's windows)
     setting: { setter_result: { act: setterResultActs(bindings), set_within_min: callSetting(bindings, "setter_result.set_within_min") },
       calls: { transcript_wait_min: callSetting(bindings, "calls.transcript_wait_min"), conversation_gap_min: callSetting(bindings, "calls.conversation_gap_min") } },
@@ -168,7 +171,10 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       // D68: the CRM's copy as of this read; `stale` says why the engine's copy stood in instead (the CRM did not answer)
       fetched_at: truth?.ok && truth.fresh ? truth.fetched_at : undefined, stale: truth?.ok && !truth.fresh ? truth.why : undefined };
     ctx.agreement = agr ? agreementFacts(agr) : {};
-    ctx.records = Object.fromEntries(recs.map((r) => [r.object_key.replace(/^custom_objects\./, ""), { key: r.record_key, id: r.ghl_record_id ?? "" }]));
+    const records: Record<string, unknown> = Object.fromEntries(recs.map((r) => [r.object_key.replace(/^custom_objects\./, ""), { key: r.record_key, id: r.ghl_record_id ?? "" }]));
+    // D118: a record is also found by what it is (records.sales_call), whatever key the company's object has (crm.object_sales_call)
+    for (const role of OBJECT_ROLES) { const r = recs.find((x) => x.object_key === bindings[`crm.object_${role}`]); if (r) records[role] = { key: r.record_key, id: r.ghl_record_id ?? "" }; }
+    ctx.records = records;
   }
   // D104: the booking card's intake lines as the company set them, ready to post; none set, nothing
   if (ctx.contact) (ctx.contact as Record<string, unknown>).intake_lines = intakeText(intakeLines(bindings), fields, (ctx.appointment as { answers?: Record<string, unknown> } | undefined)?.answers, ((ctx.contact as { tags?: string[] }).tags ?? [])) || undefined;

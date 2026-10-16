@@ -8,6 +8,7 @@ import { evaluate } from "@/engine/predicate";
 import { templates } from "@/templates";
 import fs from "node:fs";
 import path from "node:path";
+import { companyCopies } from "@/chart/company-copies";
 
 const company = { name: "Acme", timezone: "America/Chicago" };
 
@@ -44,7 +45,7 @@ const pmuBooked = () => {
   raw.edges.push({ from: "s4r", to: out.to }); out.to = "s4r";
   return parseDefinition(raw);
 };
-const shipped = () => [...templates.map((t) => ({ name: t.slug, def: parseDefinition(t.definition) })), ...fs.readdirSync(path.resolve(__dirname, "../../installs/pmu")).filter((f) => f.endsWith(".json")).map((f) => ({ name: `pmu/${f}`, def: parseDefinition(JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../installs/pmu", f), "utf8")).definition) }))];
+const shipped = () => [...templates.map((t) => ({ name: t.slug, def: parseDefinition(t.definition) })), ...companyCopies()];   // PMU's and Dating Nelly's own copies (D118)
 
 describe("D103: sometimes-steps", () => {
   it("a node with only_if carries its short condition; the full sentence stays in cond; a step without only_if carries none", () => {

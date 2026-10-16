@@ -1,0 +1,741 @@
+{
+  "slug": "call-outcome",
+  "name": "Call outcome filed",
+  "category": "post_call",
+  "stage": "post_call",
+  "sort": 4,
+  "origin": "spec",
+  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed or deposit → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A call filed as rescheduled or cancelled on the call only updates its Sales Call record (Call booked reacts 🔁 to a real reschedule). The Sales Call record is updated with the outcome in the company's own option keys and, for a show, the disposition the closer confirmed; a booking whose record the engine never wrote is found in GHL by the booking's id, else the person and the start minute, never made. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54). A refiled answer edits, never adds (D76): the thread line is edited in place, the earlier answer's reaction and tags come off where they differ, and the cards follow the new answer (the most recent card on each board, whatever the last answer left it as, reopened where the new answer leaves it open). What the earlier answer left on the Sales Call record and the new one does not say is emptied (D77): a no-show or a call rescheduled on the call empties the disposition, cash, objection, next step and payment terms; a show with no call outcome empties the disposition. Close pending (half a close, D83) is a show: stat-showed and the disposition close_pending; it is never counted as a close (D88). The opportunity follows the answer (D88): a loss marks it lost (opportunity.lost); a refiled answer that takes the loss back opens it again.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "none"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "appointment.outcome",
+        "match": {
+          "eq": [
+            "{{event._source}}",
+            "disposition"
+          ]
+        }
+      },
+      {
+        "id": "t2",
+        "type": "trigger",
+        "event": "appointment.status_changed",
+        "match": {
+          "eq": [
+            "{{event.status.to}}",
+            "noshow"
+          ]
+        }
+      },
+      {
+        "id": "u1",
+        "type": "set_var",
+        "key": "tags_before",
+        "value": "{{event.previous_outcome | default:}}:{{event.previous_call_outcome | default:}}",
+        "pick": {
+          "noshow:": [
+            "stat-no-show",
+            "stat-possible-cancel"
+          ],
+          "showed:": [
+            "stat-showed"
+          ],
+          "showed:closed": [
+            "stat-showed",
+            "stat-closed-won"
+          ],
+          "showed:deposit": [
+            "stat-showed",
+            "stat-closed-won"
+          ],
+          "showed:follow_up": [
+            "stat-showed",
+            "stat-follow-up"
+          ],
+          "showed:lost": [
+            "stat-showed",
+            "stat-lost"
+          ],
+          "showed:unqualified": [
+            "stat-showed",
+            "stat-disqualified"
+          ],
+          "showed:pending": [
+            "stat-showed"
+          ]
+        },
+        "else_value": [],
+        "title": "What the call's earlier answer tagged"
+      },
+      {
+        "id": "u2",
+        "type": "set_var",
+        "key": "tags_now",
+        "value": "{{event.outcome}}:{{appointment.call_outcome | default:}}",
+        "pick": {
+          "noshow:": [
+            "stat-no-show"
+          ],
+          "showed:": [
+            "stat-showed"
+          ],
+          "showed:closed": [
+            "stat-showed",
+            "stat-closed-won"
+          ],
+          "showed:deposit": [
+            "stat-showed",
+            "stat-closed-won"
+          ],
+          "showed:follow_up": [
+            "stat-showed",
+            "stat-follow-up"
+          ],
+          "showed:lost": [
+            "stat-showed",
+            "stat-lost"
+          ],
+          "showed:unqualified": [
+            "stat-showed",
+            "stat-disqualified"
+          ],
+          "showed:pending": [
+            "stat-showed"
+          ]
+        },
+        "else_value": [],
+        "title": "What this answer tags"
+      },
+      {
+        "id": "u3",
+        "type": "set_var",
+        "key": "undo_emoji",
+        "value": "{{event.previous_outcome | default:}}>{{event.outcome}}",
+        "pick": {
+          "noshow>showed": "ghost",
+          "noshow>rescheduled": "ghost",
+          "showed>noshow": "white_check_mark",
+          "showed>rescheduled": "white_check_mark"
+        },
+        "else_value": "",
+        "title": "The reaction the earlier answer left that this one takes back"
+      },
+      {
+        "id": "u4",
+        "type": "tags",
+        "remove": [
+          "{{vars.tags_before}}"
+        ],
+        "keep": [
+          "{{vars.tags_now}}"
+        ],
+        "only_if": {
+          "and": [
+            {
+              "exists": "event.previous_outcome"
+            },
+            {
+              "neq": [
+                "{{event.previous_outcome | default:}}:{{event.previous_call_outcome | default:}}",
+                "{{event.outcome}}:{{appointment.call_outcome | default:}}"
+              ]
+            }
+          ]
+        },
+        "title": "A changed answer: take off what the earlier answer tagged and this one does not"
+      },
+      {
+        "id": "o_reopen",
+        "type": "update_opportunity",
+        "status": "open",
+        "only_if": {
+          "and": [
+            {
+              "eq": [
+                "{{event.previous_call_outcome | default:}}",
+                "lost"
+              ]
+            },
+            {
+              "neq": [
+                "{{appointment.call_outcome | default:}}",
+                "lost"
+              ]
+            }
+          ]
+        },
+        "title": "A changed answer takes the loss back: the opportunity is open again",
+        "from": [
+          "lost"
+        ]
+      },
+      {
+        "id": "b1",
+        "type": "branch",
+        "title": "Did they show?"
+      },
+      {
+        "id": "g1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "react": "ghost",
+        "as": {
+          "name": "No-show",
+          "icon": ":ghost:"
+        },
+        "template": "👻 No-show for the call {{appointment.starts_at | date_company}} with {{appointment.closer.name | default:the closer}}.",
+        "title": "React 👻 on the booking post",
+        "tag": "outcome:{{appointment.id}}",
+        "edit": true,
+        "unreact": {
+          "of": "tag:appointment:{{appointment.id}}",
+          "emojis": [
+            "{{vars.undo_emoji | default:}}"
+          ]
+        }
+      },
+      {
+        "id": "g2",
+        "type": "set_tag",
+        "tag": [
+          "stat-no-show"
+        ]
+      },
+      {
+        "id": "gn1",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_cancelled}}",
+        "if_missing": "skip",
+        "title": "Setter card → No-Show / Cancel / Reschedule, marked lost (the setter pipeline is won on a show, lost on a no-show; the next booking makes a fresh setter card)",
+        "status": "lost",
+        "pick": "latest"
+      },
+      {
+        "id": "gn2",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_cancelled}}",
+        "if_missing": "skip",
+        "title": "Closer card → No Show / Cancelled (move only: they can rebook)",
+        "pick": "latest",
+        "status": "open"
+      },
+      {
+        "id": "g3",
+        "type": "record",
+        "event": "intent.unanswered_no_show",
+        "only_if": {
+          "in": [
+            "{{appointment.pending_read.intent}}",
+            [
+              "cancelled",
+              "reschedule_request"
+            ]
+          ]
+        },
+        "data": {
+          "predicted": "{{appointment.pending_read.intent}}",
+          "predicted_confidence": "{{appointment.pending_read.confidence}}",
+          "asked_at": "{{appointment.pending_read.at}}",
+          "appointment_id": "{{appointment.id}}"
+        },
+        "title": "Record the no-show after an unanswered cancel or reschedule read"
+      },
+      {
+        "id": "g4",
+        "type": "tags",
+        "add": [
+          "stat-possible-cancel"
+        ],
+        "only_if": {
+          "in": [
+            "{{appointment.pending_read.intent}}",
+            [
+              "cancelled",
+              "reschedule_request"
+            ]
+          ]
+        },
+        "title": "Tag stat-possible-cancel: we were pretty sure they cancelled and the slot was never opened"
+      },
+      {
+        "id": "s1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "react": "white_check_mark",
+        "as": {
+          "name": "Showed",
+          "icon": ":white_check_mark:"
+        },
+        "template": "✅ Showed, per {{appointment.closer.name | default:the closer}}: {{appointment.call_outcome | words | default:no call outcome given}}.",
+        "title": "React ✅ on the booking post",
+        "tag": "outcome:{{appointment.id}}",
+        "edit": true,
+        "unreact": {
+          "of": "tag:appointment:{{appointment.id}}",
+          "emojis": [
+            "{{vars.undo_emoji | default:}}"
+          ]
+        }
+      },
+      {
+        "id": "s2",
+        "type": "set_tag",
+        "tag": [
+          "stat-showed"
+        ]
+      },
+      {
+        "id": "sc1",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_showed}}",
+        "if_missing": "skip",
+        "status": "won",
+        "title": "Setter card → Showed, won (as the recording path does; a no-op when it is already there)",
+        "pick": "latest"
+      },
+      {
+        "id": "b2",
+        "type": "branch",
+        "title": "How did the call go?"
+      },
+      {
+        "id": "c1",
+        "type": "set_tag",
+        "tag": [
+          "stat-closed-won"
+        ]
+      },
+      {
+        "id": "kc",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_scheduled}}",
+        "if_missing": "skip",
+        "pick": "latest",
+        "only_if": {
+          "or": [
+            {
+              "eq": [
+                "{{event.previous_outcome | default:}}",
+                "noshow"
+              ]
+            },
+            {
+              "in": [
+                "{{event.previous_call_outcome | default:}}",
+                [
+                  "follow_up",
+                  "lost",
+                  "unqualified"
+                ]
+              ]
+            }
+          ]
+        },
+        "title": "A changed answer to closed: the closer card leaves No Show / Follow Up / Lost / Disqualified for Scheduled (Payment recorded and Deal closed move it on)",
+        "status": "open"
+      },
+      {
+        "id": "c2",
+        "type": "set_tag",
+        "tag": [
+          "stat-follow-up"
+        ]
+      },
+      {
+        "id": "k2",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_follow_up}}",
+        "if_missing": "skip",
+        "title": "Closer card → Follow Up",
+        "pick": "latest",
+        "status": "open"
+      },
+      {
+        "id": "c3",
+        "type": "set_tag",
+        "tag": [
+          "stat-lost"
+        ]
+      },
+      {
+        "id": "k3",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_lost}}",
+        "if_missing": "skip",
+        "status": "lost",
+        "title": "Closer card → Lost, marked lost",
+        "pick": "latest"
+      },
+      {
+        "id": "o_lost",
+        "type": "update_opportunity",
+        "status": "lost",
+        "title": "Opportunity lost",
+        "from": [
+          "open"
+        ]
+      },
+      {
+        "id": "c4",
+        "type": "set_tag",
+        "tag": [
+          "stat-disqualified"
+        ]
+      },
+      {
+        "id": "k4",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_disqualified}}",
+        "if_missing": "skip",
+        "status": "lost",
+        "title": "Closer card → Disqualified, marked lost",
+        "pick": "latest"
+      },
+      {
+        "id": "x0",
+        "type": "exit",
+        "reason": "nothing_to_mark"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "noted"
+      },
+      {
+        "id": "r2",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{appointment.slot_key}}",
+        "if_missing": "match",
+        "properties": {
+          "external_id": "{{appointment.slot_key}}",
+          "outcome": "{{picklist.sales_call_outcome.noshow}}"
+        },
+        "title": "Sales Call record: no-show (what a held call carried is emptied)",
+        "clear": [
+          "disposition",
+          "cash_collected",
+          "objection_primary",
+          "next_step",
+          "next_step_date",
+          "payment_terms"
+        ]
+      },
+      {
+        "id": "v_disp",
+        "type": "set_var",
+        "key": "disposition",
+        "value": "{{appointment.call_outcome | default:}}",
+        "pick": {
+          "closed": "closed_won",
+          "deposit": "closed_won",
+          "follow_up": "follow_up",
+          "lost": "lost",
+          "unqualified": "dq",
+          "pending": "close_pending"
+        },
+        "else_value": "",
+        "title": "The closer's answer as the CRM's disposition"
+      },
+      {
+        "id": "r1",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{appointment.slot_key}}",
+        "if_missing": "match",
+        "properties": {
+          "external_id": "{{appointment.slot_key}}",
+          "outcome": "{{picklist.sales_call_outcome.showed}}",
+          "disposition": "{{vars.disposition | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}"
+        },
+        "title": "Sales Call record: showed, with the disposition",
+        "clear": [
+          "disposition"
+        ]
+      },
+      {
+        "id": "r3s",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "as": {
+          "name": "Rescheduled",
+          "icon": ":repeat:"
+        },
+        "template": "🔁 Rescheduled or cancelled on the call, per {{appointment.closer.name | default:the closer}}.",
+        "title": "A changed answer: the thread line says rescheduled and the earlier reaction comes off",
+        "tag": "outcome:{{appointment.id}}",
+        "edit": true,
+        "unreact": {
+          "of": "tag:appointment:{{appointment.id}}",
+          "emojis": [
+            "{{vars.undo_emoji | default:}}"
+          ]
+        },
+        "only_if": {
+          "in": [
+            "{{event.previous_outcome | default:}}",
+            [
+              "showed",
+              "noshow"
+            ]
+          ]
+        }
+      },
+      {
+        "id": "r3",
+        "type": "crm_record",
+        "object": "custom_objects.sales_call",
+        "key": "{{appointment.slot_key}}",
+        "if_missing": "match",
+        "properties": {
+          "external_id": "{{appointment.slot_key}}",
+          "outcome": "{{picklist.sales_call_outcome.on_call}}"
+        },
+        "title": "Sales Call record: rescheduled or cancelled on the call (what a held call carried is emptied)",
+        "clear": [
+          "disposition",
+          "cash_collected",
+          "objection_primary",
+          "next_step",
+          "next_step_date",
+          "payment_terms"
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "u1"
+      },
+      {
+        "from": "u1",
+        "to": "u2"
+      },
+      {
+        "from": "u2",
+        "to": "u3"
+      },
+      {
+        "from": "u3",
+        "to": "u4"
+      },
+      {
+        "from": "u4",
+        "to": "o_reopen"
+      },
+      {
+        "from": "t2",
+        "to": "g1"
+      },
+      {
+        "from": "b1",
+        "to": "g1",
+        "when": {
+          "eq": [
+            "{{event.outcome}}",
+            "noshow"
+          ]
+        },
+        "label": "no-show"
+      },
+      {
+        "from": "b1",
+        "to": "s1",
+        "when": {
+          "eq": [
+            "{{event.outcome}}",
+            "showed"
+          ]
+        },
+        "label": "showed"
+      },
+      {
+        "from": "b1",
+        "to": "r3s",
+        "when": {
+          "eq": [
+            "{{event.outcome}}",
+            "rescheduled"
+          ]
+        },
+        "label": "rescheduled or cancelled on the call"
+      },
+      {
+        "from": "b1",
+        "to": "x0",
+        "else": true,
+        "label": "anything else: nothing to mark"
+      },
+      {
+        "from": "g1",
+        "to": "g2"
+      },
+      {
+        "from": "s1",
+        "to": "s2"
+      },
+      {
+        "from": "b2",
+        "to": "c1",
+        "when": {
+          "in": [
+            "{{appointment.call_outcome}}",
+            [
+              "closed",
+              "deposit"
+            ]
+          ]
+        },
+        "label": "closed or deposit"
+      },
+      {
+        "from": "b2",
+        "to": "c2",
+        "when": {
+          "eq": [
+            "{{appointment.call_outcome}}",
+            "follow_up"
+          ]
+        },
+        "label": "follow-up"
+      },
+      {
+        "from": "b2",
+        "to": "c3",
+        "when": {
+          "eq": [
+            "{{appointment.call_outcome}}",
+            "lost"
+          ]
+        },
+        "label": "lost"
+      },
+      {
+        "from": "b2",
+        "to": "c4",
+        "when": {
+          "eq": [
+            "{{appointment.call_outcome}}",
+            "unqualified"
+          ]
+        },
+        "label": "disqualified"
+      },
+      {
+        "from": "b2",
+        "to": "x1",
+        "else": true,
+        "label": "no call outcome given"
+      },
+      {
+        "from": "c1",
+        "to": "kc"
+      },
+      {
+        "from": "c2",
+        "to": "k2"
+      },
+      {
+        "from": "c3",
+        "to": "k3"
+      },
+      {
+        "from": "c4",
+        "to": "k4"
+      },
+      {
+        "from": "g2",
+        "to": "gn1"
+      },
+      {
+        "from": "g3",
+        "to": "g4"
+      },
+      {
+        "from": "r2",
+        "to": "x1"
+      },
+      {
+        "from": "s2",
+        "to": "sc1"
+      },
+      {
+        "from": "v_disp",
+        "to": "r1"
+      },
+      {
+        "from": "r1",
+        "to": "b2"
+      },
+      {
+        "from": "g4",
+        "to": "r2"
+      },
+      {
+        "from": "gn1",
+        "to": "gn2"
+      },
+      {
+        "from": "gn2",
+        "to": "g3"
+      },
+      {
+        "from": "sc1",
+        "to": "v_disp"
+      },
+      {
+        "from": "k2",
+        "to": "x1"
+      },
+      {
+        "from": "k3",
+        "to": "o_lost"
+      },
+      {
+        "from": "k4",
+        "to": "x1"
+      },
+      {
+        "from": "r3",
+        "to": "x1"
+      },
+      {
+        "from": "kc",
+        "to": "x1"
+      },
+      {
+        "from": "r3s",
+        "to": "r3"
+      },
+      {
+        "from": "o_reopen",
+        "to": "b1"
+      },
+      {
+        "from": "o_lost",
+        "to": "x1"
+      }
+    ]
+  }
+}

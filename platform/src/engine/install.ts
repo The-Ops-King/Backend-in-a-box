@@ -12,6 +12,7 @@ import { fathomCreateWebhook } from "@/adapters/fathom/client";
 import { whopCreateWebhook } from "@/adapters/whop/client";
 import { goLive, type Cleared } from "./golive";
 import { BOOKING_CARD_KEY, backfillBookingCard, intakeProblem, type IntakeLine } from "./booking-card";
+import { OBJECTIONS_KEY, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { chartLayoutOf, notDrawable } from "@/api/chart-verdict";
 
 /**
@@ -41,7 +42,11 @@ export type InstallInput = {
   /** D73: financial qualification from the CRM's work-situation field (bound through `crm` as field_contact_work_situation): the answers that make an MQL and a DQ (qualify.mql_answers, qualify.dq_answers), matched exactly; a blank answer is an MQL only with unansweredIsMql (qualify.unanswered_is_mql). */
   qualify?: { mqlAnswers?: string[]; dqAnswers?: string[]; unansweredIsMql?: boolean };
   /** D73: the Sales Call custom object the show rate reads (crm.object_sales_call), what each of its `outcome` values means (sales_call.outcomes; also what the engine writes there, inverted: a new booking's `scheduled`, a no-show, a late cancel), and which `disposition` values are a sales DQ (sales_call.dq_dispositions). */
-  salesCall?: { object?: string; outcomes?: Record<string, "showed" | "noshow" | "cancelled" | "rescheduled" | "scheduled">; dqDispositions?: string[]; dispositions?: Record<string, "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified" | { meaning: "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified"; reason?: string }>; bookingSources?: { setter?: string; self?: string } };
+  salesCall?: { object?: string; outcomes?: Record<string, "showed" | "noshow" | "cancelled" | "rescheduled" | "scheduled">; dqDispositions?: string[]; dispositions?: Record<string, "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified" | { meaning: "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified"; reason?: string }>; bookingSources?: { setter?: string; self?: string };
+    /** D118: the Primary Objection options the company's Sales Call takes (sales_call.objections); unset, the templates' own list. */
+    objections?: string[];
+    /** D118: the option key each closer has on the Sales Call's Closer field, by email, CRM user id or roster name (sales_call.closer_options); unset, the closer is written by name. */
+    closerOptions?: Record<string, string> };
   /** D79: the Discovery Call record's `call_result` option keys, {key: set | follow_up | dq | not_interested} (discovery_call.results; unbound, the keys are those four), and whether Jev's read of a setter call acts (setter_result.act, default off: it only says what it would do). */
   discoveryCall?: { results?: Record<string, "set" | "follow_up" | "dq" | "not_interested">; act?: boolean };
   /** D104: the booking card's intake lines, the company's own (booking_card.intake): each a label and a bound contact field or a booking answer by name, optionally a second value after it. Omitted: left as it is; [] shows none. */
@@ -193,6 +198,9 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       escalate = { id, email: want.toLowerCase() };
     }
   }
+  const sc = input.salesCall;
+  if (sc?.objections !== undefined && (!Array.isArray(sc.objections) || !sc.objections.length || sc.objections.some((x) => typeof x !== "string" || !x.trim()))) throw new Error("salesCall.objections: a list of option keys");
+  if (sc?.closerOptions !== undefined && (!sc.closerOptions || typeof sc.closerOptions !== "object" || Array.isArray(sc.closerOptions) || Object.entries(sc.closerOptions).some(([k, v]) => !k.trim() || typeof v !== "string" || !v.trim()))) throw new Error("salesCall.closerOptions: { <email, CRM user id or roster name>: <option key> }");
   const cardProblems = (input.bookingCard?.intake ?? []).map(intakeProblem).filter(Boolean);
   if (input.bookingCard && (!Array.isArray(input.bookingCard.intake) || cardProblems.length)) throw new Error(`bookingCard.intake: ${cardProblems.join("; ") || "a list of lines"}`);
   // D56: live is never set by install itself; `mode: "live"` is a go-live after the install, with its readiness refusal and clean slate (D51)
@@ -243,6 +251,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
         await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) values ($1,'call_outcome',$2,$3,false,50) on conflict (company_id, domain, name) do nothing", [companyId, v.reason.trim(), v.meaning]);
     }
     if (input.salesCall?.dqDispositions) await bind("sales_call.dq_dispositions", "text", answers(input.salesCall.dqDispositions));
+    if (input.salesCall?.objections) await bind(OBJECTIONS_KEY, "text", answers(input.salesCall.objections));
+    if (input.salesCall?.closerOptions) await bind(CLOSER_OPTIONS_KEY, "text", JSON.stringify(Object.fromEntries(Object.entries(input.salesCall.closerOptions).map(([k, v]) => [k.trim(), v.trim()]))));
     if (input.bookingCard) await bind(BOOKING_CARD_KEY, "text", JSON.stringify(input.bookingCard.intake.map((l) => ({ label: l.label.trim(), ...(l.field !== undefined ? { field: l.field.trim() } : l.answer !== undefined ? { answer: l.answer.trim() } : { tags: Object.fromEntries(Object.entries(l.tags!).map(([t, w]) => [t.trim(), w.trim()])) }), ...(l.plus !== undefined ? { plus: l.plus.trim() } : {}) }))));
     if (input.discoveryCall?.results) await bind("discovery_call.results", "text", JSON.stringify(input.discoveryCall.results));
     if (input.discoveryCall?.act !== undefined) await bind("setter_result.act", "text", String(input.discoveryCall.act));

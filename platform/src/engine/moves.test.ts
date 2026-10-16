@@ -473,4 +473,21 @@ describe.skipIf(!process.env.DATABASE_URL)("the steps check reads an object name
     expect(steps(await run([])).join("\n")).toContain("writes custom_objects.sales_call, which no longer exists in the CRM");
     expect(steps(await run([])).join("\n")).not.toContain("{{");
   });
+  it("D118: an object named through a binding with today's key as its default is checked as the bound object, else as the default", async () => {
+    companyId = await freshCompany("mvs-objdef");
+    await install("payment-recorded");
+    const { runHealthStep } = await import("@/engine/health");
+    const { fakeProbes } = await import("@/engine/test-install");
+    const run = (objects: { key: string }[]) => asOperator(async (c) => runHealthStep(c, (await loadCompany(c, companyId)).row, fake, { ...fakeProbes, ghlCatalog: async () => ({ users: [], pipelines: [], contactFields: [], opportunityFields: [], associations: [], objects, tags: [], errors: [] }) } as never, { checks: { steps: true } as never, min_slots: 0, slots_days: 7 } as never));
+    const writes = (r: Awaited<ReturnType<typeof run>>) => r.findings.filter((f) => f.check === "steps" && !f.ok && / writes /.test(f.text)).map((f) => f.text).join("\n");
+    // unbound: today's keys
+    expect(writes(await run([{ key: "custom_objects.payment" }, { key: "custom_objects.sales_call" }]))).toBe("");
+    expect(writes(await run([{ key: "custom_objects.sales_call" }]))).toContain("writes custom_objects.payment, which no longer exists in the CRM");
+    // bound: the company's own
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.object_payment','id',$2),($1,'crm.object_sales_call','id',$3)", [companyId, Buffer.from("custom_objects.dating_payment"), Buffer.from("custom_objects.dating_sales_call")]));
+    expect(writes(await run([{ key: "custom_objects.dating_payment" }, { key: "custom_objects.dating_sales_call" }]))).toBe("");
+    const miss = writes(await run([{ key: "custom_objects.payment" }, { key: "custom_objects.sales_call" }]));
+    expect(miss).toContain("writes custom_objects.dating_payment, which no longer exists in the CRM");
+    expect(miss).not.toContain("{{");
+  });
 });

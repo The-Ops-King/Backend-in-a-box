@@ -1,0 +1,206 @@
+{
+ "workflow": "deal-closed",
+ "definition": {
+  "schema": 1,
+  "reentry": "once_per_contact",
+  "premise": {
+   "check": "contact_exists"
+  },
+  "nodes": [
+   {
+    "id": "t1",
+    "type": "trigger",
+    "event": "payment.received"
+   },
+   {
+    "id": "t2",
+    "type": "trigger",
+    "event": "agreement.signed"
+   },
+   {
+    "id": "c1",
+    "type": "check",
+    "when": {
+     "and": [
+      {
+       "eq": [
+        "{{contact.paid}}",
+        true
+       ]
+      },
+      {
+       "eq": [
+        "{{contact.agreement_signed}}",
+        true
+       ]
+      },
+      {
+       "not": {
+        "has": [
+         "{{contact.tags}}",
+         "stat-customer"
+        ]
+       }
+      }
+     ]
+    },
+    "else_exit": "not_yet"
+   },
+   {
+    "id": "g1",
+    "type": "set_tag",
+    "tag": [
+     "stat-customer"
+    ]
+   },
+   {
+    "id": "p1",
+    "type": "pipeline_card",
+    "pipeline": "{{crm.pipeline_closer}}",
+    "stage": "{{crm.stage_closer_closed_won}}",
+    "status": "won"
+   },
+   {
+    "id": "p2",
+    "type": "pipeline_card",
+    "pipeline": "{{crm.pipeline_setter}}",
+    "status": "won"
+   },
+   {
+    "id": "b1",
+    "type": "branch"
+   },
+   {
+    "id": "r1",
+    "type": "crm_record",
+    "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+    "key": "{{records.sales_call.key}}",
+    "if_missing": "skip",
+    "properties": {
+     "disposition": "closed_won",
+     "outcome": "{{picklist.sales_call_outcome.showed}}",
+     "cash_collected": "{{contact.cash_collected}}"
+    }
+   },
+   {
+    "id": "e1",
+    "type": "send_email",
+    "kind": "transactional",
+    "subject": "[placeholder — welcome email subject]",
+    "template": "<p>Hi {{contact.first_name | default:there}},</p><p>[placeholder — Dating Nelly's welcome email: what happens next, to come from Tyler]</p>",
+    "title": "Welcome email [placeholder: the words are not written yet, so it is skipped]",
+    "only_if": {
+     "exists": "vars.welcome_copy_written"
+    }
+   },
+   {
+    "id": "e2",
+    "type": "send_sms",
+    "kind": "transactional",
+    "template": "[placeholder — Dating Nelly's welcome text, to come from Tyler]",
+    "title": "Welcome text [placeholder: the words are not written yet, so it is skipped]",
+    "only_if": {
+     "exists": "vars.welcome_copy_written"
+    }
+   },
+   {
+    "id": "a1",
+    "type": "analyze",
+    "prompt": "{{prompt.close_cheer}}",
+    "format": "text",
+    "max_tokens": 80,
+    "into": "cheer",
+    "input": "Closer: {{contact.closer.name | default:the closer}}\nClient first name: {{contact.first_name | default:the client}}\nCash collected: ${{contact.cash_collected | money}}\nDeal value: ${{contact.revenue | money | default:unknown}}\nDays from first booking to payment: {{contact.days_to_close | default:unknown}}\nLead source: {{contact.source | default:unknown}}",
+    "optional": true
+   },
+   {
+    "id": "s1",
+    "type": "slack_post",
+    "channel": "{{slack.channel.deals}}",
+    "template": "*NEW CLOSE!* Well done {{contact.closer.mention | default:team}}!\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{contact.setter.mention | line:*Setter:*}}\n*Cash Collected:* ${{contact.cash_collected | money}}\n*Revenue Generated:* ${{contact.revenue | money | default:—}}\n\n*First Booking:* {{contact.first_booked_at | date_company:ccc LLL d | default:—}}\n*Days to Close:* {{contact.days_to_close | default:—}}\n\n*Source:* {{contact.source | default:—}}{{vars.cheer | line:}}",
+    "as": {
+     "name": "NEW CLOSE",
+     "icon": [
+      ":tada:",
+      ":boom:",
+      ":partying_face:",
+      ":bomb:",
+      ":mirror_ball:",
+      ":man_dancing:",
+      ":dancer:",
+      ":fire:",
+      ":rocket:",
+      ":champagne:"
+     ]
+    },
+    "title": "Post the win in Slack"
+   },
+   {
+    "id": "x1",
+    "type": "exit",
+    "reason": "closed"
+   }
+  ],
+  "edges": [
+   {
+    "from": "t1",
+    "to": "c1"
+   },
+   {
+    "from": "t2",
+    "to": "c1"
+   },
+   {
+    "from": "c1",
+    "to": "g1"
+   },
+   {
+    "from": "g1",
+    "to": "p1"
+   },
+   {
+    "from": "p1",
+    "to": "p2"
+   },
+   {
+    "from": "p2",
+    "to": "b1"
+   },
+   {
+    "from": "b1",
+    "to": "r1",
+    "when": {
+     "exists": "records.sales_call.key"
+    },
+    "label": "has a Sales Call record"
+   },
+   {
+    "from": "b1",
+    "to": "e1",
+    "else": true,
+    "label": "no Sales Call record"
+   },
+   {
+    "from": "r1",
+    "to": "e1"
+   },
+   {
+    "from": "e1",
+    "to": "e2"
+   },
+   {
+    "from": "e2",
+    "to": "a1"
+   },
+   {
+    "from": "a1",
+    "to": "s1"
+   },
+   {
+    "from": "s1",
+    "to": "x1"
+   }
+  ]
+ },
+ "note": "dating-nelly: the welcome email and text are the company's own (installs/dating-nelly/words.json); still placeholders, so both are skipped, not Hair's (D118)"
+}
