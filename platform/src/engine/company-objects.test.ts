@@ -32,7 +32,9 @@ const CHANGED = ["call-booked", "call-cancelled", "call-outcome", "call-recorded
 const BEFORE = path.resolve(__dirname, "fixtures/before-d118");
 const PMU = path.resolve(__dirname, "../../installs/pmu");
 const before = (slug: string) => JSON.parse(fs.readFileSync(path.join(BEFORE, `${slug}.json`), "utf8")).definition as unknown;
-const after = (slug: string) => templates.find((t) => t.slug === slug)!.definition as unknown;
+// D119 changed some of these templates again (a deposit is not a close): D118's claims are held against the templates as D118 left them
+const AFTER_D118 = path.resolve(__dirname, "fixtures/before-d119");
+const after = (slug: string) => (fs.existsSync(path.join(AFTER_D118, `${slug}.json`)) ? JSON.parse(fs.readFileSync(path.join(AFTER_D118, `${slug}.json`), "utf8")).definition : templates.find((t) => t.slug === slug)!.definition) as unknown;
 
 type Out = { ok: string } | { err: string };
 /** Every string of a definition by where it sits, rendered as a step would render it (a path the context lacks is its error). */

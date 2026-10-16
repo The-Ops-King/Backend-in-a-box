@@ -253,7 +253,7 @@ export function formatCombined(results: MetricResult[], o: Foot = {}): string {
 }
 
 export const SHORTCUTS: { command: string; about: string; example: string }[] = [
-  { command: "/mtd", about: "month to date: leads, MQLs, booked, show rate, close rate, cash, top source, vs the same days last month", example: "/mtd" },
+  { command: "/mtd", about: "month to date: leads, MQLs, booked, show rate, close rate, deposits, cash, top source, vs the same days last month", example: "/mtd" },
   { command: "/weekly", about: "last full week (or `this week`), the same numbers, vs the week before", example: "/weekly this week" },
   { command: "/monthly", about: "last full month (or `this month`), the same numbers, vs the month before", example: "/monthly" },
   { command: "/show-rate", about: "show rate by closer and by source, and whose calls have no EOD outcome (default this month)", example: "/show-rate last month" },

@@ -106,7 +106,7 @@ export function shippedLayout(kind: ReportKind = "daily"): Layout {
 // ---- generate ------------------------------------------------------------------------------------------------------------
 export type Built = { id: string; body: string; numbers: { totals: Totals; setters: Breakdown[]; closers: Breakdown[] } & { registry?: Numbers }; period: Period; facts: ReportFacts };
 /** The numbers the wrap-up reads by default, by the same registry the bot answers from (D73/D75), so the two can never disagree. The step's `metrics` replaces the list. */
-export const WRAPUP_METRICS = ["leads", "mqls", "booked", "booked_self", "booked_set", "reschedules", "dials", "connected", "speed_to_lead", "closes", "revenue", "cash_collected", "cash_gross", "refunds"];
+export const WRAPUP_METRICS = ["leads", "mqls", "booked", "booked_self", "booked_set", "reschedules", "dials", "connected", "speed_to_lead", "closes", "deposits", "deposit_cash", "revenue", "cash_collected", "cash_gross", "refunds"];
 
 /** The report step: the period's numbers from the registry (people, calls, deals and cash from GHL; bookings and dials from the ledger), put in the layout's words, kept in the wrapups ledger. Posting is the slack_post after it. */
 export async function buildReport(c: PoolClient, company: CompanyRow, kind: ReportKind, period: Period, opts: { breakdowns?: string[]; sections?: Record<string, boolean>; metrics?: string[]; layout?: Layout; ctx?: Record<string, unknown>; onDemand?: boolean; toDate?: boolean; reads?: GhlReads; now?: Date } = {}): Promise<Built> {

@@ -358,7 +358,7 @@ health page). Typeform is not integrated yet (#29): when it is, its webhook is r
 a Typeform token, verified each sweep (`GET /forms/{id}/webhooks`), and re-registered from the same button.
 
 
-## 35. Deal closed must not fire on a deposit, once deposits are a distinct kind
+## 35. ~~Deal closed must not fire on a deposit, once deposits are a distinct kind~~ — DONE 2026-10-16 (D119)
 
 Tyler, 2026-10-10, on Deal closed firing at the first dollar plus a signature: "Correct, not paid in full. However NOT if
 it's a deposit, which we don't have set up right now, but that's something we need to remember." Today the gate is
@@ -367,6 +367,10 @@ it's a deposit, which we don't have set up right now, but that's something we ne
 deposit is not yet a product the engine knows as its own kind (a reservation fee vs the first instalment of the price).
 When it is: the gate reads the kinds paid, not the fact of a payment — a deposit alone, even signed, is not a close; the
 first non-deposit dollar with the signature is. Decide with it whether the agreement chase and `stat-customer` wait too.
+
+Done by D119: a deposit is a payment for a declared deposit product (`depositProducts`), never an amount; Deal closed's
+gate reads `contact.paid_non_deposit`; the agreement, its chase and `stat-customer` wait for the first payment beyond a
+deposit (the chase only ever chases a sent agreement; `stat-customer` is Deal closed's own).
 
 ## 36. Setter cards never booked stay at New Lead
 
@@ -557,7 +561,7 @@ Setter call logged (`installs/dating-nelly/`, built from `words.json`) replace H
 nothing. Applied 2026-10-16 (templates, settings, prompts, both copies saved): still shadow, every workflow off.
 
 Tyler, 2026-10-16:
-- A deposit is not a close; the two are different (the details are being settled, see below).
+- A deposit is not a close; the two are different (settled: D119).
 - He gets the Anthropic key and the agreement later.
 - Keep Call booked's "send a personalized video" task.
 - He invites Nelly to RapidCloser's GHL.
@@ -573,8 +577,23 @@ Still open:
 - Tyler's words for `installs/dating-nelly/words.json`: welcome email subject and body, welcome text, the setter DQ wording
   and reasons (D118). Then build and save the copies again.
 - Nelly's email in `salesCall.closerOptions` (`"<email>": "nelly"`) once she is a GHL user; the setter's too if one closes.
-- Deposits as their own outcome: the Sales Call's disposition, the card, the tags, the agreement, the reports, and
-  whether Hair and PMU change too (#35).
+- Deposits (D119, built 2026-10-16, for Hair, PMU and Dating Nelly alike; not applied yet). To apply, per company:
+  - Templates: `POST /api/admin/templates` upgrades the untouched copies of Call outcome filed, Payment recorded, Deal
+    closed, Unsigned agreement chase and the three wrap-ups (Hair: Call outcome filed is live, its change is only the
+    deposit branch). Dating Nelly: save her rebuilt `installs/dating-nelly/deal-closed.json`. PMU: save its rebuilt
+    `installs/pmu/call-outcome.json`, `payment-recorded.json`, `deal-closed.json` (dry run first). Run the migration.
+  - Deposit products: Tyler names each company's (`depositProducts`, Whop product or plan ids). PMU's Whop has an archived
+    product "DEPOSIT" (`prod_PR9AINNIxjRFV`, plans $100–$3,500) and $100/$250/$500 plans on Beauty Moguls Method itself;
+    Dating Nelly has no processor yet; Hair's is to ask. Until declared, a company has no deposits.
+  - The Deposit stage and `crm.stage_closer_deposit`: Dating Nelly by re-running `provision-ghl --apply` on RapidCloser
+    (adds Deposit after Follow Up), then binding it; PMU's Beauty Moguls board and Hair's closer board by hand or a PUT
+    of the whole stage list (Tyler's call); until bound, a filed deposit leaves the card where it is.
+  - The Sales Call Deposit option: PMU and Dating Nelly have `deposit` and declare it; Hair's Outcome field has none (by
+    every sign; its options could not be read from here): until it is added in GHL and `"deposit": "deposit"` is added to
+    Hair's `salesCall.dispositions`, a deposit Hair files empties the Outcome.
+  - The numbers read deposits from GHL Payment records of type `deposit`. The only one the engine wrote on Hair is the
+    Oct 12 $1,500 test (a test contact, counted nowhere); a Payment record GHL's own automations typed `deposit` (the
+    $750 of Oct 5 was not the engine's) would count as a deposit: check Hair's before trusting the line.
 - RapidCloser's own GHL workflows: Tyler checks "Appointment Created", "SWS | Presuasion Call Booking Sequence" and anything
   on Contact Created or Tag Added (Enagic SMS WF, Enagic Email Campaign, Trigger Link Click [ANY]) before the CSV import, and
   that none triggers on the engine's stat-/seq-/meta tags before anything goes test or live.

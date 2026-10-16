@@ -345,13 +345,13 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     const ct = (await contactByGhl("ORP2"))!;
     const r2 = await asOperator(async (c) => { const r = await recordPayment(c, companyId, { providerPaymentId: "P-ORP-3", amount: 1000, status: "succeeded", paidAt: new Date(), email: "orphan2@x.com" }); if (r.outcome === "linked") await dispatchEvent(c, r.event, { contact: { id: ct.id } }); return r; });
     expect(r2.outcome).toBe("linked"); if (r2.outcome === "linked") { expect(r2.contactId).toBe(ct.id); expect(r2.healed).toBe(1); }
-    expect(await asOperator((c) => one<{ link_status: string; linked_by: string; kind: string }>(c, "select link_status, linked_by, kind from payments where company_id=$1 and whop_payment_id='P-ORP-2'", [companyId]))).toMatchObject({ link_status: "linked", linked_by: "heal", kind: "deposit" });
+    expect(await asOperator((c) => one<{ link_status: string; linked_by: string; kind: string }>(c, "select link_status, linked_by, kind from payments where company_id=$1 and whop_payment_id='P-ORP-2'", [companyId]))).toMatchObject({ link_status: "linked", linked_by: "heal", kind: "installment" });   // D119: a first payment short of the price is the first installment
     await tick(fake, undefined, companyId);
     const runs = (await runsFor("payment-recorded")).filter((x) => x.contact_id === ct.id);
     expect(runs).toHaveLength(2);
     // both runs start in one transaction and share started_at, so never rely on their order: sort by what each one knows
     const facts = runs.map((r) => r.context.event as { prior_total: number; running_total: number; linked_by: string; kind: string }).sort((a, b) => a.prior_total - b.prior_total);
-    expect(facts).toEqual([expect.objectContaining({ prior_total: 0, running_total: 1000, linked_by: "heal", kind: "deposit" }), expect.objectContaining({ prior_total: 1000, running_total: 2000, linked_by: "email", kind: "installment" })]);
+    expect(facts).toEqual([expect.objectContaining({ prior_total: 0, prior_non_deposit_total: 0, running_total: 1000, linked_by: "heal", kind: "installment" }), expect.objectContaining({ prior_total: 1000, prior_non_deposit_total: 1000, running_total: 2000, linked_by: "email", kind: "installment" })]);
   });
 
   // ---- 9: phone formats ----

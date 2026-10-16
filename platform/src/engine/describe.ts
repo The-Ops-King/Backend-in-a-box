@@ -100,6 +100,8 @@ const titleCase = (t: string) => t.replace(/\b\w/g, (c) => c.toUpperCase());
 export function stageWords(p: string): string {
   const m = /crm\.stage_(?:(setter|closer)_)?([a-z0-9_]+)/.exec(p); return m ? titleCase(humanWords(m[2])).replace(/\bDq\b/g, "DQ") : pathWords(p);
 }
+/** What an `exists` asks for: a stage binding is the board's stage ("Deposit stage on the closer board", D119), anything else its words. */
+const existsWords = (path: string) => { const m = /^crm\.stage_(setter|closer)_[a-z0-9_]+$/.exec(path); return m ? `${stageWords(path)} stage on the ${m[1]} board` : pathWords(path).replace(/^(a|an|the) /, ""); };
 /** A card's board from its pipeline binding: `{{crm.pipeline_closer}}` → "closer". */
 export const boardWords = (p: string) => /crm\.pipeline_([a-z0-9_]+)/.exec(p)?.[1].replace(/_/g, " ") ?? pathWords(p).replace(/ board$/, "");
 /** Message templates keep their text; bindings inside become their plain name so the chart does not show `{{calendar.closer_call.url}}`. */
@@ -139,7 +141,7 @@ export function predicateWords(p: Predicate, consts: Record<string, unknown> = {
     const each = a.map((x, i) => `${thing(pathWords(x))} is ${same ? "" : "not "}${thing(pathWords(b[i]))}`);
     return same ? each.join(" and ") : `${each.length === 2 ? "either " : ""}${each.slice(0, -1).join(", ")} or ${each.at(-1)}`;
   };
-  if ("exists" in p) { const t = pathWords(p.exists).replace(/^(a|an|the) /, ""); return `there is ${/^[aeiou]/i.test(t) ? "an" : "a"} ${t}`; }
+  if ("exists" in p) { const t = existsWords(p.exists); return `there is ${/^[aeiou]/i.test(t) ? "an" : "a"} ${t}`; }
   if ("eq" in p && pairs(p.eq[0], p.eq[1], true)) return pairs(p.eq[0], p.eq[1], true)!;
   if ("neq" in p && pairs(p.neq[0], p.neq[1], false)) return pairs(p.neq[0], p.neq[1], false)!;
   for (const c of ["gt", "gte", "lt", "lte"] as const) if (c in p) { const [l, r] = (p as Record<string, [unknown, unknown]>)[c]; const h = hour(l, c, r); if (h) return h; }
@@ -162,7 +164,7 @@ export function predicateWords(p: Predicate, consts: Record<string, unknown> = {
 /** The words for a predicate not holding: "this is not a reschedule" → "this is a reschedule". */
 export function notWords(p: Predicate, consts: Record<string, unknown> = {}): string {
   const w = (q: Predicate) => predicateWords(q, consts), n = (q: Predicate) => notWords(q, consts);
-  if ("exists" in p) return `there is no ${pathWords(p.exists).replace(/^(a|an|the) /, "")}`;
+  if ("exists" in p) return `there is no ${existsWords(p.exists)}`;
   if ("eq" in p) return w({ neq: p.eq }); if ("neq" in p) return w({ eq: p.neq });
   if ("gt" in p) return w({ lte: p.gt }); if ("gte" in p) return w({ lt: p.gte }); if ("lt" in p) return w({ gte: p.lt }); if ("lte" in p) return w({ gt: p.lte });
   if ("in" in p) { const vs = p.in[1].map((x) => value(consts[String(x).replace(/^\{\{\s*|\s*\}\}$/g, "")] ?? x)); return `${pathWords(p.in[0])} is ${vs.length === 1 ? `not ${vs[0]}` : vs.length === 2 ? `neither ${vs[0]} nor ${vs[1]}` : `none of ${vs.slice(0, -1).join(", ")} or ${vs.at(-1)}`}`; }

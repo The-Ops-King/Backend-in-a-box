@@ -240,7 +240,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
         [companyId, k3, ext, closing, ago({ hours: hoursAgo }).startOf("minute").toJSDate(), ago({ days: 8 }).toJSDate(), await term("appointment_outcome", outcome), result ? await term("call_outcome", result) : null]);
       await appt("AP8", 30, "showed", null);            // the old process filed closed won in GHL; the ledger only knows showed
       await appt("AP9", 40, "showed", "follow_up");     // GHL says it was a no-show after all
-      await appt("AP10", 50, "showed", "deposit");      // the engine filed a deposit, which GHL holds as closed won
+      await appt("AP10", 50, "showed", "deposit");      // the engine filed a deposit, which GHL holds as closed won (no deposit option declared: D119)
       await appt("AP11", 60, "showed", null);           // a disposition the engine has no meaning for
       await appt("AP12", 70, "showed", null);           // close pending: not a close
     });

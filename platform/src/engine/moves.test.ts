@@ -144,7 +144,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day form's outcomes 
     expect(outcomesOf(fields).map((o) => o.value)).toEqual(["closed", "deposit", "pending", "follow_up", "lost", "dq", "rescheduled", "no_show"]);
     expect(choiceOf("pending", fields)).toMatchObject({ label: "Close pending", attendance: "showed", call_outcome: "pending" });
     const call = (outcome: string) => ({ appointment_id: outcome, contact_id: "", contact: outcome, starts_at: "", href_contact: null, recording_url: null, outcome, revenue: 3000, cash: 500, next_date: null, next_steps: "", dq_reason: "", dq_note: "", about: "", notes: "", extra: {} });
-    expect(totalsOf([call("closed"), call("pending"), call("deposit")], fields)).toEqual({ calls_count: 3, closes: 1, deposits: 1, cash: 1000, revenue: 6000 });
+    // D119: a deposit's cash counts, its revenue does not (revenue contracted is a close's)
+    expect(totalsOf([call("closed"), call("pending"), call("deposit")], fields)).toEqual({ calls_count: 3, closes: 1, deposits: 1, cash: 1000, revenue: 3000 });
+    expect(fields.find((f) => f.key === "cash")!.when).toEqual(["closed", "deposit"]); expect(fields.find((f) => f.key === "revenue")!.when).toEqual(["closed"]);
     expect(fields.find((f) => f.key === "about")!.when).toEqual(["closed", "deposit", "pending", "follow_up", "lost", "dq"]);
   });
 

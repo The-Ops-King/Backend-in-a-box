@@ -5,7 +5,7 @@
   "stage": "payments",
   "sort": 20,
   "origin": "spec",
-  "description": "A payment landed in the ledger: cash collected on the contact becomes the running total, revenue generated is stamped once with the program price, pay-plan-active or pay-paid-full is set, the payment is written to the CRM's Payment object and linked to the contact and the closer card. On the first payment, if the agreement is not signed yet, the purchase agreement is sent for signature, stat-agreement-sent is added and the closer card moves to Agreement Sent. A dated note records the payment, the Sales Call record's cash collected is updated when there is one, and the team gets the Slack line. A refund is a new line in the same tracker with a minus sign: cash collected drops to the lower running total, the Payment record is written with the negative amount, pay-refunded is added (pay-paid-full / pay-plan-active stay as the last payment left them), the Slack line reads Refund, and nothing is re-stamped. Nothing goes to the customer from here. A payment on an open opportunity wins it (update_opportunity, one opportunity.won; D88: it was the engine's own rule).",
+  "description": "A payment landed in the ledger: cash collected on the contact becomes the running total (a deposit counts), revenue generated is stamped once with the program price on the first payment beyond a deposit, pay-plan-active or pay-paid-full is set (pay-deposit on a deposit), the payment is written to the CRM's Payment object and linked to the contact and the closer card. On the first payment beyond a deposit (D119: a deposit is a payment for one of the company's deposit products, and the agreement waits for the rest), if the agreement is not signed yet, the purchase agreement is sent for signature, stat-agreement-sent is added and the closer card moves to Agreement Sent. A dated note records the payment, the Sales Call record's cash collected is updated when there is one, and the team gets the Slack line. A refund is a new line in the same tracker with a minus sign: cash collected drops to the lower running total, the Payment record is written with the negative amount, pay-refunded is added (pay-paid-full / pay-plan-active stay as the last payment left them), the Slack line reads Refund, and nothing is re-stamped. Nothing goes to the customer from here. A payment beyond a deposit on an open opportunity wins it (update_opportunity, one opportunity.won; D88: it was the engine's own rule); a deposit wins nothing.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -53,12 +53,22 @@
         "type": "update_opportunity",
         "status": "won",
         "only_if": {
-          "eq": [
-            "{{event._type}}",
-            "payment.received"
+          "and": [
+            {
+              "eq": [
+                "{{event._type}}",
+                "payment.received"
+              ]
+            },
+            {
+              "neq": [
+                "{{event.kind}}",
+                "deposit"
+              ]
+            }
           ]
         },
-        "title": "Opportunity won on a payment (change the condition to win on paid in full, or move the step to Call outcome filed to win on the closer's answer)",
+        "title": "Opportunity won on a payment beyond a deposit (D119: a deposit wins nothing; change the condition to win on paid in full, or move the step to Call outcome filed to win on the closer's answer)",
         "from": [
           "open"
         ]
@@ -107,6 +117,14 @@
         "tag": [
           "pay-plan-active"
         ]
+      },
+      {
+        "id": "d1",
+        "type": "tags",
+        "add": [
+          "pay-deposit"
+        ],
+        "title": "Tag pay-deposit (a deposit is not a payment plan; the tag stays as a record that they paid one)"
       },
       {
         "id": "g1",
@@ -283,10 +301,16 @@
                 "{{event.kind}}",
                 "refund"
               ]
+            },
+            {
+              "neq": [
+                "{{event.kind}}",
+                "deposit"
+              ]
             }
           ]
         },
-        "label": "first payment: stamp revenue"
+        "label": "first payment beyond a deposit: stamp revenue"
       },
       {
         "from": "n2",
@@ -308,6 +332,17 @@
           ]
         },
         "label": "refund: tags stay as the last payment left them"
+      },
+      {
+        "from": "n3",
+        "to": "d1",
+        "when": {
+          "eq": [
+            "{{event.kind}}",
+            "deposit"
+          ]
+        },
+        "label": "deposit"
       },
       {
         "from": "n3",
@@ -335,6 +370,10 @@
         "to": "n4"
       },
       {
+        "from": "d1",
+        "to": "n4"
+      },
+      {
         "from": "n5",
         "to": "p_book"
       },
@@ -349,7 +388,7 @@
           "and": [
             {
               "eq": [
-                "{{event.prior_total}}",
+                "{{event.prior_non_deposit_total}}",
                 0
               ]
             },
@@ -360,14 +399,19 @@
               ]
             },
             {
-              "neq": [
-                "{{event.kind}}",
-                "refund"
-              ]
+              "not": {
+                "in": [
+                  "{{event.kind}}",
+                  [
+                    "refund",
+                    "deposit"
+                  ]
+                ]
+              }
             }
           ]
         },
-        "label": "first payment, agreement not signed"
+        "label": "first payment beyond a deposit, agreement not signed"
       },
       {
         "from": "a0",

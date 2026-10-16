@@ -5,7 +5,7 @@
   "stage": "closing",
   "sort": 30,
   "origin": "spec",
-  "description": "Starts on the first payment and runs once per contact: every 24 hours it checks whether the agreement has been signed; while it has not, the contact's owner gets a Slack DM (or an @mention in the alerts channel) and a CRM task, three times at most. A signature at any point ends it. After the third unanswered nudge the contact is tagged stat-agreement-unsigned and the alerts channel is told once.",
+  "description": "Starts on the first payment beyond a deposit (when Payment recorded sends the agreement; D119: a deposit sends none, so nothing is chased) and runs once per contact: every 24 hours it checks whether the agreement has been signed; while it has not, the contact's owner gets a Slack DM (or an @mention in the alerts channel) and a CRM task, three times at most. A signature at any point ends it. After the third unanswered nudge the contact is tagged stat-agreement-unsigned and the alerts channel is told once.",
   "definition": {
     "schema": 1,
     "reentry": "once_per_contact",
@@ -18,9 +18,19 @@
         "type": "trigger",
         "event": "payment.received",
         "match": {
-          "eq": [
-            "{{event.prior_total}}",
-            0
+          "and": [
+            {
+              "eq": [
+                "{{event.prior_non_deposit_total}}",
+                0
+              ]
+            },
+            {
+              "neq": [
+                "{{event.kind}}",
+                "deposit"
+              ]
+            }
           ]
         }
       },

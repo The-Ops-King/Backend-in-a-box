@@ -1,5 +1,5 @@
 {
-  "_note": "Dating Nelly, the pilot dating offer, inside the RapidCloser GHL location (D117 scope tag \"dating\"). Built by scripts/provision-ghl.ts from installs/dating/ghl-setup.json. No secrets: the PIT comes from the environment at install. Deposits run $100-$500 (Tyler, 2026-10-16).",
+  "_note": "Dating Nelly, the pilot dating offer, inside the RapidCloser GHL location (D117 scope tag \"dating\"). Built by scripts/provision-ghl.ts from installs/dating/ghl-setup.json. No secrets: the PIT comes from the environment at install. Deposits run $100-$500 (Tyler, 2026-10-16); a deposit is told apart by its product, never its amount (D119): her deposit product or plan ids go in depositProducts once her processor is set up, and crm.stage_closer_deposit binds the closer pipeline's Deposit stage once provision-ghl has added it.",
   "name": "Dating (Nelly)",
   "slug": "dating-nelly",
   "booking": {

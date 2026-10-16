@@ -340,8 +340,8 @@ async function readSlot(sh: Shared, s: Slot): Promise<SalesCallRow> {
     const first = pays[0], hours = (first.paid_at.getTime() - start.getTime()) / 36e5;
     const words = pays.map((p) => `$${Number(p.amount).toLocaleString("en-US")} ${p.status}${p.kind ? ` (${p.kind})` : ""} on ${local(p.paid_at, tz).toFormat("LLL d")} [${p.whop_payment_id}]`).join("; ");
     row.fields.cash_collected = cash; add("cash_collected", "payments ledger", words);
-    // the ledger calls a first payment short of the deal's value a deposit; with no value known that says nothing, so it is a close
-    const meaning = pays.filter((p) => p.status === "succeeded").every((p) => p.kind === "deposit" && p.contract_value != null) ? "deposit" : "closed";
+    // D119: a deposit is a payment for one of the company's deposit products; paid only deposits after this call, it ended as a deposit
+    const meaning = pays.filter((p) => p.status === "succeeded").every((p) => p.kind === "deposit") ? "deposit" : "closed";
     const key = keyFor(setup, meaning);
     if (key) disp.push({ value: key, source: "payments ledger", detail: `paid after this call and before any later one: ${words}`, rank: 1 });
     if (hours <= PAID_SHOWED_WITHIN_H) att.push({ value: "showed", source: "payments ledger", detail: `paid ${Math.round(hours)} h after the call`, rank: 3 });

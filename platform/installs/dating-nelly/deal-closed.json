@@ -24,7 +24,7 @@
      "and": [
       {
        "eq": [
-        "{{contact.paid}}",
+        "{{contact.paid_non_deposit}}",
         true
        ]
       },
@@ -44,7 +44,8 @@
       }
      ]
     },
-    "else_exit": "not_yet"
+    "else_exit": "not_yet",
+    "title": "Paid beyond a deposit and signed, and not a customer yet (D119: a deposit alone, even signed, is not a close)"
    },
    {
     "id": "g1",

@@ -1,6 +1,6 @@
 /**
  * One contact's whole journey through the real templates: new lead → setter call → booked → confirmed → reminders → showed
- * (recording) → EOD filed → deposit → agreement → signed (deal closed) → paid in full; then the side roads a sales-ops
+ * (recording) → EOD filed → first installment → agreement → signed (deal closed) → paid in full; then the side roads a sales-ops
  * operator worries about (a call booked five hours out, a texted cancel, a show the closer filed with no recording, a
  * no-show who rebooks). The catalogue is engine/06-journey-sweep.md; every `it.fails` here is a Finding there: the test
  * states the behaviour the operator expects, the engine does something else today, and the title says where. The
@@ -127,7 +127,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     });
   });
 
-  // ---- the happy path: Jordan Vale, setter-booked, confirms by text, shows, pays a deposit, signs, pays the balance ----
+  // ---- the happy path: Jordan Vale, setter-booked, confirms by text, shows, pays a first installment, signs, pays the balance ----
   describe("happy path: Jordan Vale, lead to paid in full", () => {
     let jordan: string, appt: string, bookingTs: string, reviewTs: string;
     const T0 = DateTime.now();
@@ -250,7 +250,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     });
     it("F6 (fixed, D61): the closer card leaves Scheduled on the filed outcome — Follow Up, Lost, Disqualified, No Show / Cancelled (Pat and Quinn below) — and on the money for a close; a recording alone leaves it, because the closer board has no Showed stage", async () => {
       expect(await cardOn(jordan, "PIPE-CLOSER")).toMatchObject({ stage: "STAGE-SCHED", status: "open" });
-      expect((templates.find((t) => t.slug === "call-outcome")!.definition.nodes as unknown as Record<string, string>[]).filter((n) => n.type === "pipeline_card").map((n) => `${n.id}:${n.stage}`).sort()).toEqual(["gn1:{{crm.stage_setter_cancelled}}", "gn2:{{crm.stage_closer_cancelled}}", "k2:{{crm.stage_closer_follow_up}}", "k3:{{crm.stage_closer_lost}}", "k4:{{crm.stage_closer_disqualified}}", "kc:{{crm.stage_closer_scheduled}}", "sc1:{{crm.stage_setter_showed}}"]);
+      expect((templates.find((t) => t.slug === "call-outcome")!.definition.nodes as unknown as Record<string, string>[]).filter((n) => n.type === "pipeline_card").map((n) => `${n.id}:${n.stage}`).sort()).toEqual(["gn1:{{crm.stage_setter_cancelled}}", "gn2:{{crm.stage_closer_cancelled}}", "k2:{{crm.stage_closer_follow_up}}", "k3:{{crm.stage_closer_lost}}", "k4:{{crm.stage_closer_disqualified}}", "kc:{{crm.stage_closer_scheduled}}", "kd:{{crm.stage_closer_deposit | default:}}", "sc1:{{crm.stage_setter_showed}}"]);
     });
 
     it("end of day, the closer files 'showed, closed': Call outcome filed adds stat-closed-won, ✅ ensured, a second thread line, the Sales Call record says showed / closed_won (F7, D59); it writes no card: the setter card is already won by the recording, and a close leaves the closer card to the money (D61)", async () => {
@@ -265,7 +265,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect((await apptRow(jordan))!.call_outcome).toBe("closed");
     });
 
-    it("the deposit: cash collected and revenue stamped, pay-plan-active, the agreement goes out and stat-agreement-sent, closer card → Agreement Sent, Payment record linked, 💵 on the booking post and the review, the chase and the close gate start", async () => {
+    it("the first installment (D119: short of the price is not a deposit; only a deposit product is): cash collected and revenue stamped, pay-plan-active, the agreement goes out and stat-agreement-sent, closer card → Agreement Sent, Payment record linked, 💵 on the booking post and the review, the chase and the close gate start", async () => {
       const nTags = tags.length, nDocs = docSends.length, nSent = sent.length;
       expect(await pay(jordan, "pay-jv-1", 1500)).toHaveLength(3);   // payment-recorded, deal-closed (gate), agreement-chase
       await tickAt(A.plus({ hours: 6 }));
@@ -274,11 +274,11 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(tags.slice(nTags)).toEqual(["pay-plan-active", "stat-agreement-sent"]);
       expect(docSends.slice(nDocs)).toEqual([{ templateId: "TPL-AGREE", contactId: "JV1", userId: "U1" }]);
       expect(await cardOn(jordan, "PIPE-CLOSER")).toMatchObject({ stage: "STAGE-AGREE", status: "open" });
-      expect(recordWrites.filter((w) => w.transaction_id === "pay-jv-1")).toEqual([expect.objectContaining({ op: "create", amount: 1500, type: "deposit", closer: "Sam Closer", setter: "Luis" })]);
+      expect(recordWrites.filter((w) => w.transaction_id === "pay-jv-1")).toEqual([expect.objectContaining({ op: "create", amount: 1500, type: "installment", closer: "Sam Closer", setter: "Luis" })]);
       expect(recordWrites.at(-1)).toMatchObject({ op: "update", cash_collected: "1500" });   // the Sales Call record
       expect(sent.length).toBe(nSent);   // nothing to the customer from here (D54)
       expect(reactionsOn(bookingTs).at(-1)).toBe("dollar"); expect(reactionsOn(reviewTs)).toEqual(["dollar"]);
-      expect(threadOf(bookingTs).at(-1)).toBe("💵 Paid $1,500 · deposit. Details in the payments channel.");   // F13 (D59)
+      expect(threadOf(bookingTs).at(-1)).toBe("💵 Paid $1,500 · installment. Details in the payments channel.");   // F13 (D59)
       expect(await lastRun("deal-closed", jordan)).toMatchObject({ status: "completed", exit_reason: "not_yet" });
       expect(await lastRun("agreement-chase", jordan)).toMatchObject({ status: "waiting", current_node: "w1" });
     });
@@ -615,8 +615,8 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     it("tags a template removes that no template ever adds: the nurture tags Call booked clears (set by the CRM, if at all; the CRM spells 'opt-in lead' as 'optin lead', D50) and the manual send-agreement trigger", () => {
       expect([...removes.keys()].filter((t) => !adds.has(t)).sort()).toEqual(["opt-in lead", "seq-no-show", "seq-nurture", "seq-winback", "sys-send-agreement-manually"]);
     });
-    it("tags a template adds that nothing ever removes (F9, D62): the milestones — every other stat-*, meta booked call, pay-paid-full, pay-refunded; the ones that would misfire on a filter come off: stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention on a fresh booking, stat-agreement-unsigned on the signature, stat-unconfirmed on the confirmation", () => {
-      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-paid-full", "pay-refunded", "stat-agreement-sent", "stat-agreement-signed", "stat-closed-won", "stat-customer", "stat-disqualified", "stat-follow-up", "stat-lost", "stat-new", "stat-showed"]);
+    it("tags a template adds that nothing ever removes (F9, D62): the milestones — every other stat-*, meta booked call, pay-deposit, pay-paid-full, pay-refunded; the ones that would misfire on a filter come off: stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention on a fresh booking, stat-agreement-unsigned on the signature, stat-unconfirmed on the confirmation", () => {
+      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-deposit", "pay-paid-full", "pay-refunded", "stat-agreement-sent", "stat-agreement-signed", "stat-closed-won", "stat-customer", "stat-deposit", "stat-disqualified", "stat-follow-up", "stat-lost", "stat-new", "stat-showed"]);
       expect(removes.get("stat-unconfirmed")).toEqual(["pre-call-sequence:n_conf"]);
       expect(removes.get("stat-booked")).toEqual(["call-cancelled:n5"]);
       for (const t of ["stat-no-show", "stat-cancelled", "stat-possible-cancel"]) expect(removes.get(t)).toEqual(["call-booked:s5", "call-booked:b6"]);

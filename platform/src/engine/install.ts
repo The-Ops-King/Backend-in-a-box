@@ -13,6 +13,7 @@ import { whopCreateWebhook } from "@/adapters/whop/client";
 import { goLive, type Cleared } from "./golive";
 import { BOOKING_CARD_KEY, backfillBookingCard, intakeProblem, type IntakeLine } from "./booking-card";
 import { OBJECTIONS_KEY, CLOSER_OPTIONS_KEY } from "./sales-call";
+import { DEPOSIT_PRODUCTS_KEY } from "./payments";
 import { chartLayoutOf, notDrawable } from "@/api/chart-verdict";
 
 /**
@@ -63,6 +64,8 @@ export type InstallInput = {
   /** The Slack bot (D70): who it pings when it cannot answer — a Slack user id, or an email resolved to one through Slack (needs users:read.email). */
   bot?: { escalateTo?: string };
   contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
+  /** D119: the payment processor's products that are a deposit, not a sale: Whop product ids (`prod_…`) or plan ids (`plan_…`), or a Zap's plan as it sends it. A payment for one is kind `deposit`; nothing else ever is. Bound as payments.deposit_products. Omitted: left as it is; [] removes them. */
+  depositProducts?: string[];
   /** Who takes calls: emails (or CRM user ids) from the roster. Only closers get the end-of-day link and DM (D34); everyone else on the roster is staff. Omitted: roles stay as they are. */
   closers?: string[];
   /** Everyone else's job, by email (or CRM user id): setter (makes setting calls), manager, owner, staff. Closers come from `closers`. Omitted: roles stay as they are. */
@@ -201,6 +204,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
   const sc = input.salesCall;
   if (sc?.objections !== undefined && (!Array.isArray(sc.objections) || !sc.objections.length || sc.objections.some((x) => typeof x !== "string" || !x.trim()))) throw new Error("salesCall.objections: a list of option keys");
   if (sc?.closerOptions !== undefined && (!sc.closerOptions || typeof sc.closerOptions !== "object" || Array.isArray(sc.closerOptions) || Object.entries(sc.closerOptions).some(([k, v]) => !k.trim() || typeof v !== "string" || !v.trim()))) throw new Error("salesCall.closerOptions: { <email, CRM user id or roster name>: <option key> }");
+  if (input.depositProducts !== undefined && (!Array.isArray(input.depositProducts) || input.depositProducts.some((x) => typeof x !== "string" || !x.trim()))) throw new Error("depositProducts: a list of product or plan ids, e.g. [\"prod_…\", \"plan_…\"]");
   const cardProblems = (input.bookingCard?.intake ?? []).map(intakeProblem).filter(Boolean);
   if (input.bookingCard && (!Array.isArray(input.bookingCard.intake) || cardProblems.length)) throw new Error(`bookingCard.intake: ${cardProblems.join("; ") || "a list of lines"}`);
   // D56: live is never set by install itself; `mode: "live"` is a go-live after the install, with its readiness refusal and clean slate (D51)
@@ -282,6 +286,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
     let inboundSecret = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='secret.zapier_inbound'", [companyId]))?.value;
     const inboundPlain = inboundSecret ? (await import("./crypto")).decrypt(inboundSecret) : `zi_${randomBytes(24).toString("base64url")}`;
     if (!inboundSecret) await bind("secret.zapier_inbound", "secret", inboundPlain);
+    if (input.depositProducts?.length) await bind(DEPOSIT_PRODUCTS_KEY, "text", JSON.stringify([...new Set(input.depositProducts.map((x) => x.trim()))]));
+    else if (input.depositProducts) await c.query("delete from bindings where company_id=$1 and key=$2", [companyId, DEPOSIT_PRODUCTS_KEY]);
     if (input.contractValueDefault !== undefined) await c.query("update companies set contract_value_default=$2 where id=$1", [companyId, input.contractValueDefault]);
     if (input.quietHours) await c.query("update companies set send_window_start=coalesce($2, send_window_start), send_window_end=coalesce($3, send_window_end), quiet_allow_transactional=coalesce($4, quiet_allow_transactional) where id=$1", [companyId, input.quietHours.start ?? null, input.quietHours.end ?? null, input.quietHours.allowTransactional ?? null]);
     const ac: Company = { id: companyId, locationId: input.locationId, pit, timezone: input.timezone, booking };

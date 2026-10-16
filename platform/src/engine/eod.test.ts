@@ -62,14 +62,14 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     });
   });
 
-  it("prefills the day from the ledger: Sarah a follow-up with what Jev read, Leo a deposit (paid less than the contract) with cash and revenue; totals follow", async () => {
+  it("prefills the day from the ledger: Sarah a follow-up with what Jev read, Leo a close (he paid; less than the contract is no deposit, D119: only a deposit product is) with cash and revenue; totals follow", async () => {
     const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, todayFor(TZ)));
-    expect(pre).toMatchObject({ calls_count: 2, closes: 0, deposits: 1, cash: 1500, revenue: 4000 });
+    expect(pre).toMatchObject({ calls_count: 2, closes: 1, deposits: 0, cash: 1500, revenue: 4000 });
     const s = pre.calls.find((x) => x.contact === "Sarah Kim")!, l = pre.calls.find((x) => x.contact === "Leo Ortiz")!;
     expect(s).toMatchObject({ outcome: "follow_up", next_steps: "decide with her partner", recording_url: "https://fathom.video/share/r1", revenue: null, cash: null });
     expect(s.about).toBe("Good call, price is the hang-up.\nPains: thinning at the crown\nGoals: keep what she has\nObjections: price");
     expect(s.next_date).toBeTruthy();
-    expect(l).toMatchObject({ outcome: "deposit", cash: 1500, revenue: 4000, about: "" });
+    expect(l).toMatchObject({ outcome: "closed", cash: 1500, revenue: 4000, about: "" });
     expect(l.href_contact).toBe("https://app.gohighlevel.com/v2/location/LOC/contacts/detail/GL");
   });
 
@@ -121,7 +121,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     await asOperator((c) => installTemplateForTest(c, companyId, "eod-filed"));
     const token = await asOperator((c) => tokenFor(c, allan));
     const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, todayFor(TZ)));
-    // Leo actually paid in full: a close, not a deposit
+    // Leo actually paid in full on the call
     const calls = pre.calls.map((x) => (x.contact === "Leo Ortiz" ? { ...x, outcome: "closed" as const, cash: 2000, notes: "paid in full on the call" } : { ...x, extra: { energy: "High" } }));
     const half = { ...pre, ...totalsOf(calls), calls_count: 3, calls, day_answers: { did_well: "Stayed on the objection" } };
     // the company made notes required: Sarah's is blank
@@ -131,7 +131,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const over = { ...answers, calls: answers.calls.map((x) => (x.contact === "Leo Ortiz" ? { ...x, cash: 5000 } : x)) };
     expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: over }))).toEqual({ ok: false, why: "Check Leo Ortiz: cash collected is more than revenue generated" });
     const changes = diffAnswers(pre, answers);
-    expect(changes.map(changeLine)).toEqual(["calls today 2 → 3", "closes 0 → 1", "deposits 1 → 0", "cash collected $1,500 → $2,000", "Leo Ortiz: Deposit → Closed", "Leo Ortiz: cash collected $1,500 → $2,000"]);
+    expect(changes.map(changeLine)).toEqual(["calls today 2 → 3", "cash collected $1,500 → $2,000", "Leo Ortiz: cash collected $1,500 → $2,000"]);
     // a blank the closer fills in is their answer, not a correction; a date the engine had and they moved is
     const p2 = { ...pre, calls: pre.calls.map((x) => ({ ...x, next_date: null, outcome: "" as const })) };
     expect(diffAnswers(p2, { ...answers, calls: answers.calls.map((x) => ({ ...x, next_date: "2026-10-21" })) }).filter((ch) => ch.field === "follow-up date" || ch.field === "").map(changeLine)).toEqual([]);
@@ -156,7 +156,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const summary = posts.slice(n).find((p) => p.channel === "CALERTS")!;
     expect(summary.text).toMatch(/^📝 \*Allan P\* filed .*: 3 calls, 1 close, \$2,000 collected, \$4,000 revenue generated\.\n• Sarah Kim: Follow up · next \w{3} \w{3} \d{1,2}\n• Leo Ortiz: Closed · \$2,000 collected · \$4,000 revenue\n\*What did I do well\?\* Stayed on the objection$/);   // what happened on each call, not what was corrected
     const filed = await asOperator((c) => one<{ submitted_at: Date | null; changes: unknown[] }>(c, "select submitted_at, changes from eod_reports where company_id=$1 and user_id=$2", [companyId, allan]));
-    expect(filed?.submitted_at).toBeTruthy(); expect(filed?.changes).toHaveLength(6);
+    expect(filed?.submitted_at).toBeTruthy(); expect(filed?.changes).toHaveLength(3);
     // filed: the clock finds nothing more to send for that day
     expect((await asOperator((c) => dispatchSchedules(c, DateTime.now().setZone(TZ).set({ hour: 18 }) as DateTime<true>, companyId))).started).toEqual([]);
   });

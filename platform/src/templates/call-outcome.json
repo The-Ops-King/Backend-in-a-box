@@ -5,7 +5,7 @@
   "stage": "post_call",
   "sort": 4,
   "origin": "spec",
-  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed or deposit → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A call filed as rescheduled or cancelled on the call only updates its Sales Call record (Call booked reacts 🔁 to a real reschedule). The Sales Call record is updated with the outcome in the company's own option keys and, for a show, the disposition the closer confirmed; a booking whose record the engine never wrote is found in GHL by the booking's id, else the person and the start minute, never made. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54). A refiled answer edits, never adds (D76): the thread line is edited in place, the earlier answer's reaction and tags come off where they differ, and the cards follow the new answer (the most recent card on each board, whatever the last answer left it as, reopened where the new answer leaves it open). What the earlier answer left on the Sales Call record and the new one does not say is emptied (D77): a no-show or a call rescheduled on the call empties the disposition, cash, objection, next step and payment terms; a show with no call outcome empties the disposition. Close pending (half a close, D83) is a show: stat-showed and the disposition close_pending; it is never counted as a close (D88). The opportunity follows the answer (D88): a loss marks it lost (opportunity.lost); a refiled answer that takes the loss back opens it again.",
+  "description": "A closer filed how a call went (the end-of-day form, the disposition form) or the CRM marked it a no-show: the booking post in Slack gets the reaction and a line in its thread, the contact gets the outcome tags, and the pipeline cards follow the call (D61). No-show → 👻, stat-no-show, the setter card to No-Show / Cancel / Reschedule, lost (the setter pipeline is won on a show, lost on a no-show; a rebook makes a fresh setter card) and the closer card to No Show / Cancelled, still open (a rebook reuses it). Showed → ✅ (Sales call recorded puts its own ✅ when the recording lands; this one makes sure it is there, never a second one), stat-showed and the setter card to Showed, won (a no-op when the recording already moved it), then the call outcome the closer confirmed: closed → stat-closed-won (the closer card waits for Deal closed / Payment recorded: Agreement Sent, Closed - Won), deposit → stat-deposit and the closer card to Deposit, still open (D119: a deposit is not a close; skipped when the board has no Deposit stage, crm.stage_closer_deposit), follow-up → stat-follow-up and the closer card to Follow Up, lost → stat-lost and the closer card to Lost (lost), disqualified → stat-disqualified and the closer card to Disqualified (lost). Every card step moves a card that exists and never makes one (a contact booked before the engine may have none). A call filed as rescheduled or cancelled on the call only updates its Sales Call record (Call booked reacts 🔁 to a real reschedule). The Sales Call record is updated with the outcome in the company's own option keys and, for a show, the disposition the closer confirmed, in the company's own option (sales_call.dispositions; a deposit is the Deposit option, and nothing when the field has none, never closed won); a booking whose record the engine never wrote is found in GHL by the booking's id, else the person and the start minute, never made. Jev's read of the transcript only pre-fills the form; the tags come from the closer's answer (D50, D54). A refiled answer edits, never adds (D76): the thread line is edited in place, the earlier answer's reaction and tags come off where they differ, and the cards follow the new answer (the most recent card on each board, whatever the last answer left it as, reopened where the new answer leaves it open). What the earlier answer left on the Sales Call record and the new one does not say is emptied (D77): a no-show or a call rescheduled on the call empties the disposition, cash, objection, next step and payment terms; a show with no call outcome empties the disposition. Close pending (half a close, D83) is a show: stat-showed and the disposition close_pending; it is never counted as a close (D88). The opportunity follows the answer (D88): a loss marks it lost (opportunity.lost); a refiled answer that takes the loss back opens it again.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -54,7 +54,7 @@
           ],
           "showed:deposit": [
             "stat-showed",
-            "stat-closed-won"
+            "stat-deposit"
           ],
           "showed:follow_up": [
             "stat-showed",
@@ -93,7 +93,7 @@
           ],
           "showed:deposit": [
             "stat-showed",
-            "stat-closed-won"
+            "stat-deposit"
           ],
           "showed:follow_up": [
             "stat-showed",
@@ -341,14 +341,35 @@
                 [
                   "follow_up",
                   "lost",
-                  "unqualified"
+                  "unqualified",
+                  "deposit"
                 ]
               ]
             }
           ]
         },
-        "title": "A changed answer to closed: the closer card leaves No Show / Follow Up / Lost / Disqualified for Scheduled (Payment recorded and Deal closed move it on)",
+        "title": "A changed answer to closed: the closer card leaves No Show / Follow Up / Lost / Disqualified / Deposit for Scheduled (Payment recorded and Deal closed move it on)",
         "status": "open"
+      },
+      {
+        "id": "c5",
+        "type": "set_tag",
+        "tag": [
+          "stat-deposit"
+        ]
+      },
+      {
+        "id": "kd",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_deposit | default:}}",
+        "if_missing": "skip",
+        "pick": "latest",
+        "status": "open",
+        "only_if": {
+          "exists": "crm.stage_closer_deposit"
+        },
+        "title": "Closer card → Deposit (a deposit is not a close: the card waits there for the rest of the payment; skipped when the board has no Deposit stage bound)"
       },
       {
         "id": "c2",
@@ -444,17 +465,8 @@
         "id": "v_disp",
         "type": "set_var",
         "key": "disposition",
-        "value": "{{appointment.call_outcome | default:}}",
-        "pick": {
-          "closed": "closed_won",
-          "deposit": "closed_won",
-          "follow_up": "follow_up",
-          "lost": "lost",
-          "unqualified": "dq",
-          "pending": "close_pending"
-        },
-        "else_value": "",
-        "title": "The closer's answer as the CRM's disposition"
+        "value": "{{appointment.call_outcome | default: | option:sales_call_disposition}}",
+        "title": "The closer's answer as the CRM's disposition, in the company's own option (sales_call.dispositions): a deposit is its Deposit option, never closed won"
       },
       {
         "id": "r1",
@@ -465,7 +477,7 @@
         "properties": {
           "external_id": "{{appointment.slot_key}}",
           "outcome": "{{picklist.sales_call_outcome.showed}}",
-          "disposition": "{{vars.disposition | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}"
+          "disposition": "{{vars.disposition | default:}}"
         },
         "title": "Sales Call record: showed, with the disposition",
         "clear": [
@@ -599,15 +611,23 @@
         "from": "b2",
         "to": "c1",
         "when": {
-          "in": [
+          "eq": [
             "{{appointment.call_outcome}}",
-            [
-              "closed",
-              "deposit"
-            ]
+            "closed"
           ]
         },
-        "label": "closed or deposit"
+        "label": "closed"
+      },
+      {
+        "from": "b2",
+        "to": "c5",
+        "when": {
+          "eq": [
+            "{{appointment.call_outcome}}",
+            "deposit"
+          ]
+        },
+        "label": "deposit"
       },
       {
         "from": "b2",
@@ -651,6 +671,10 @@
       {
         "from": "c1",
         "to": "kc"
+      },
+      {
+        "from": "c5",
+        "to": "kd"
       },
       {
         "from": "c2",
@@ -722,6 +746,10 @@
       },
       {
         "from": "kc",
+        "to": "x1"
+      },
+      {
+        "from": "kd",
         "to": "x1"
       },
       {

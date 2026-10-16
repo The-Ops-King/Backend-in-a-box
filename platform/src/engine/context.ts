@@ -7,7 +7,7 @@ import { hasTranscript, isConnected, type RecordingRow } from "./recordings";
 import { latestAgreement, facts as agreementFacts, type AgreementRow } from "./agreements";
 import { eodFacts } from "./eod";
 import type { ContactTruth } from "./contact-truth";
-import { salesCallValues, bookingSourceValues, objectionOptions, closerOptions, CLOSER_OPTIONS_KEY, OBJECT_ROLES } from "./sales-call";
+import { salesCallValues, dispositionValues, bookingSourceValues, objectionOptions, closerOptions, CLOSER_OPTIONS_KEY, OBJECT_ROLES } from "./sales-call";
 import { discoveryResultValues, setterResultActs } from "./setter-result";
 import { callSetting } from "./call-settings";
 import { leadSourceSql, sourceFields, sourceFieldsParam, UNKNOWN_SOURCE } from "./lead-source";
@@ -94,7 +94,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     calendar: {}, slack: { channel: {} }, crm: {}, prompt: {},
     // the company's own option keys for what the engine writes on a picklist (a Sales Call's outcome)
     // D118: the objections the Sales Call takes, and each closer's own option key (only when the company declared them)
-    picklist: { sales_call_outcome: salesCallValues(bindings), sales_call_booking_source: bookingSourceValues(bindings), discovery_call_result: discoveryResultValues(bindings),
+    picklist: { sales_call_outcome: salesCallValues(bindings), sales_call_disposition: dispositionValues(bindings), sales_call_booking_source: bookingSourceValues(bindings), discovery_call_result: discoveryResultValues(bindings),
       sales_call_objection: objectionOptions(bindings),
       ...(bindings[CLOSER_OPTIONS_KEY] ? { sales_call_closer: closerOptions(bindings, await many<{ name: string; email: string | null; ghl_user_id: string | null }>(c, "select name, email, ghl_user_id from users where company_id=$1", [company.id])) } : {}) },
     // company switches a template reads (D79: whether a setter call's result acts, or only says what it would do; D87: the call flow's windows)
@@ -137,7 +137,8 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   if (run.contact_id) {
     // D30 facts the agreement and close flows check: has this person paid, have they signed, who owns them in the CRM, and the latest CRM record of each object we wrote for them
     // cash collected is net of refund lines (D57), as the running total Payment recorded writes to the contact is
-    const pay = await one<{ n: number; total: string; first_at: Date | null }>(c, "select count(*) filter (where status='succeeded')::int as n, coalesce(sum(amount) filter (where status in ('succeeded','refunded')),0)::text as total, min(paid_at) filter (where status='succeeded') as first_at from payments where company_id=$1 and contact_id=$2", [company.id, run.contact_id]);
+    // D119: a deposit is not a close; what Deal closed reads is whether anything beyond a deposit has been paid
+    const pay = await one<{ n: number; beyond: number; deposits: number; total: string; first_at: Date | null }>(c, "select count(*) filter (where status='succeeded')::int as n, count(*) filter (where status='succeeded' and coalesce(kind,'')<>'deposit')::int as beyond, count(*) filter (where status='succeeded' and kind='deposit')::int as deposits, coalesce(sum(amount) filter (where status in ('succeeded','refunded')),0)::text as total, min(paid_at) filter (where status='succeeded') as first_at from payments where company_id=$1 and contact_id=$2", [company.id, run.contact_id]);
     const agr: AgreementRow | null = (await latestAgreement(c, company.id, run.contact_id)) ?? null;
     const ownerGhl = (contact?.assigned_ghl_user_id as string | null) ?? bindings["crm.default_closer"] ?? null;
     const owner = ownerGhl ? await one<{ id: string; name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select id, name, email, ghl_user_id, slack_user_id from users where company_id=$1 and ghl_user_id=$2", [company.id, ownerGhl]) : null;
@@ -161,7 +162,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     const opp = await one<{ v: string | null }>(c, "select coalesce(o.contract_value, co.contract_value_default)::text as v from opportunities o join companies co on co.id=o.company_id where o.company_id=$1 and o.contact_id=$2 and o.status in ('open','won') order by (o.status='open') desc, o.opened_at desc limit 1", [company.id, run.contact_id]);
     const revenue = opp?.v != null ? Number(opp.v) : undefined;
     const person = (u: { name: string; email: string; ghl_user_id: string; slack_user_id: string | null }) => ({ name: u.name, first_name: u.name.split(" ")[0], email: u.email, ghl_user_id: u.ghl_user_id, slack_user_id: u.slack_user_id, mention: u.slack_user_id ? `<@${u.slack_user_id}>` : u.name });
-    ctx.contact = { ...(ctx.contact as Record<string, unknown> ?? {}), paid: (pay?.n ?? 0) > 0, payments_count: pay?.n ?? 0, cash_collected: Number(pay?.total ?? 0), first_paid_at: firstPaidAt?.toISOString() ?? null,
+    ctx.contact = { ...(ctx.contact as Record<string, unknown> ?? {}), paid: (pay?.n ?? 0) > 0, paid_non_deposit: (pay?.beyond ?? 0) > 0, deposit_paid: (pay?.deposits ?? 0) > 0, payments_count: pay?.n ?? 0, cash_collected: Number(pay?.total ?? 0), first_paid_at: firstPaidAt?.toISOString() ?? null,
       agreement_signed: !!agr?.signed_at, agreement_sent: !!agr, owner: owner ? { ...person(owner), inherited: !contact?.assigned_ghl_user_id } : undefined,
       closer: closer ? { ...person(closer), from: closerCard ? "closer card" : "contact owner" } : undefined,
       setter: setterName ? (setterUser ? person(setterUser) : { name: setterName, first_name: setterName.split(" ")[0], mention: setterName }) : undefined,

@@ -8,7 +8,7 @@ import { loadCompany, type CompanyRow } from "./context";
 import { callTime, filedMeaning, closerNameOf, closerOptions, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
-import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, choiceOf, valueFor, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
+import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, choiceOf, valueFor, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
 
 /**
  * D34. The closer's end-of-day report: one link per closer, no login. Opening it shows their day prefilled from what the
@@ -114,7 +114,8 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
   for (const a of appts) {
     const rec = await one<{ share_url: string | null; analysis: Record<string, unknown> }>(c, "select share_url, analysis from recordings where company_id=$1 and (appointment_id=$2 or (contact_id=$3 and started_at between $4 and $5)) order by started_at desc limit 1", [company.id, a.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
     const notes = (rec?.analysis?.notes ?? {}) as Record<string, unknown>;
-    const pay = await one<{ total: string }>(c, "select coalesce(sum(amount),0)::text as total from payments where company_id=$1 and contact_id=$2 and status='succeeded' and paid_at between $3 and $4", [company.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
+    // D119: a day whose payments were all deposits pre-fills Deposit; the amount says nothing about it
+    const pay = await one<{ total: string; all_deposit: boolean }>(c, "select coalesce(sum(amount),0)::text as total, coalesce(bool_and(kind='deposit'),false) as all_deposit from payments where company_id=$1 and contact_id=$2 and status='succeeded' and paid_at between $3 and $4", [company.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
     const won = await one<{ v: string | null }>(c, "select contract_value::text as v from opportunities where company_id=$1 and contact_id=$2 and status='won' and won_at between $3 and $4 order by won_at desc limit 1", [company.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
     const paid = num(pay?.total), contract = won?.v ? num(won.v) : price;
     const disp = str(notes.disposition);
@@ -125,14 +126,14 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     // the company's own answer for what the ledger holds (B6): each outcome is found by what it means, not by its key
     const byCall = a.call_outcome_cat ? v({ call_outcome: a.call_outcome_cat as CallMeaning }) || (a.call_outcome_cat === "deposit" ? v({ call_outcome: "closed" }) : "") : "";
     const outcome: string = a.outcome_cat === "noshow" || a.status === "noshow" ? v({ attendance: "noshow" }) : a.outcome_cat === "rescheduled" ? v({ attendance: "rescheduled" })
-      : byCall || (paid > 0 ? (contract > 0 && paid < contract ? v({ call_outcome: "deposit" }) || v({ call_outcome: "closed" }) : v({ call_outcome: "closed" })) : won ? v({ call_outcome: "closed" })
+      : byCall || (paid > 0 ? (pay?.all_deposit ? v({ call_outcome: "deposit" }) || v({ call_outcome: "closed" }) : v({ call_outcome: "closed" })) : won ? v({ call_outcome: "closed" })
       : disp === "closed_won" ? v({ call_outcome: "closed" }) : disp === "follow_up" ? v({ call_outcome: "follow_up" }) : disp === "close_pending" ? v({ call_outcome: "pending" }) || v({ call_outcome: "follow_up" }) : disp === "lost" ? v({ call_outcome: "lost" }) : disp === "dq" ? v({ call_outcome: "unqualified" }) : "");
-    const money = isMoney(outcome, fields);
+    const money = isMoney(outcome, fields), contracted = isRevenueOutcome(outcome, fields);
     // A1 (D88): a card dragged to Lost or Disqualified filed the outcome; the form says so and asks why
     const moved = a.via === "card_moved" && (a.call_outcome_cat === "lost" || a.call_outcome_cat === "unqualified") ? `${a.notes ?? "Moved in the CRM"}. Say why.` : "";
     const aboutParts = [str(notes.summary), str(notes.pain) && `Pains: ${str(notes.pain)}`, str(notes.desire) && `Goals: ${str(notes.desire)}`, str(notes.objections) && `Objections: ${str(notes.objections)}`].filter(Boolean);
     calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null, recording_url: rec?.share_url ?? null,
-      outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: money ? contract || paid || null : null, cash: money ? paid || null : null,
+      outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: contracted ? contract || paid || null : null, cash: money ? paid || null : null,
       next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", lost_reason: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {} });
   }
   return { day, closer, company: { id: company.id, name: company.name, slug: company.slug, timezone: tz }, ...totalsOf(calls, fields), calls };
@@ -199,7 +200,7 @@ function dispositionNotes(call: CallEntry, fields: EodField[]): string {
     meaning === "unqualified" && (call.dq_reason || call.dq_note) ? `DQ: ${[call.dq_reason, call.dq_note].filter(Boolean).join(" - ")}` : "",
     meaning === "lost" && call.lost_reason ? `Lost: ${call.lost_reason}` : "",
     meaning === "follow_up" && (call.next_steps || call.next_date) ? `Next: ${call.next_steps}${call.next_date ? ` by ${call.next_date}` : ""}` : "",
-    isMoney(call.outcome, fields) ? `${outcomeLabel(call.outcome, fields)}: ${call.cash == null ? "?" : money(call.cash)} collected, ${call.revenue == null ? "?" : money(call.revenue)} revenue generated` : "",
+    isMoney(call.outcome, fields) ? `${outcomeLabel(call.outcome, fields)}: ${call.cash == null ? "?" : money(call.cash)} collected${isRevenueOutcome(call.outcome, fields) ? `, ${call.revenue == null ? "?" : money(call.revenue)} revenue generated` : ""}` : "",
     ...fields.filter((f) => f.scope === "call" && !f.builtin && call.extra?.[f.key]).map((f) => `${f.label}: ${call.extra[f.key]}`),
   ];
   return lines.filter(Boolean).join("\n");

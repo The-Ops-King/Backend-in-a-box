@@ -1,6 +1,6 @@
 {
  "workflow": "call-outcome",
- "note": "PMU: one board. No setter card; a no-show moves the card to No Show; a deposit is its own disposition (Deposit), as PMU tracks it",
+ "note": "PMU: one board. No setter card; a no-show moves the card to No Show; a deposit is its own disposition (Deposit, from PMU's sales_call.dispositions) and its card goes to Deposit once the board has that stage (D119)",
  "definition": {
   "schema": 1,
   "reentry": "always",
@@ -49,7 +49,7 @@
      ],
      "showed:deposit": [
       "stat-showed",
-      "stat-closed-won"
+      "stat-deposit"
      ],
      "showed:follow_up": [
       "stat-showed",
@@ -88,7 +88,7 @@
      ],
      "showed:deposit": [
       "stat-showed",
-      "stat-closed-won"
+      "stat-deposit"
      ],
      "showed:follow_up": [
       "stat-showed",
@@ -316,14 +316,35 @@
         [
          "follow_up",
          "lost",
-         "unqualified"
+         "unqualified",
+         "deposit"
         ]
        ]
       }
      ]
     },
-    "title": "A changed answer to closed: the closer card leaves No Show / Follow Up / Lost / Disqualified for Scheduled (Payment recorded and Deal closed move it on)",
+    "title": "A changed answer to closed: the closer card leaves No Show / Follow Up / Lost / Disqualified / Deposit for Scheduled (Payment recorded and Deal closed move it on)",
     "status": "open"
+   },
+   {
+    "id": "c5",
+    "type": "set_tag",
+    "tag": [
+     "stat-deposit"
+    ]
+   },
+   {
+    "id": "kd",
+    "type": "pipeline_card",
+    "pipeline": "{{crm.pipeline_closer}}",
+    "stage": "{{crm.stage_closer_deposit | default:}}",
+    "if_missing": "skip",
+    "pick": "latest",
+    "status": "open",
+    "only_if": {
+     "exists": "crm.stage_closer_deposit"
+    },
+    "title": "Closer card \u2192 Deposit (a deposit is not a close: the card waits there for the rest of the payment; skipped when the board has no Deposit stage bound)"
    },
    {
     "id": "c2",
@@ -398,7 +419,7 @@
    {
     "id": "r2",
     "type": "crm_record",
-    "object": "custom_objects.sales_call",
+    "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
     "key": "{{appointment.slot_key}}",
     "if_missing": "match",
     "properties": {
@@ -419,27 +440,19 @@
     "id": "v_disp",
     "type": "set_var",
     "key": "disposition",
-    "value": "{{appointment.call_outcome | default:}}",
-    "pick": {
-     "closed": "closed_won",
-     "deposit": "deposit",
-     "follow_up": "follow_up",
-     "lost": "lost",
-     "unqualified": "dq"
-    },
-    "else_value": "",
-    "title": "The closer's answer as the CRM's disposition"
+    "value": "{{appointment.call_outcome | default: | option:sales_call_disposition}}",
+    "title": "The closer's answer as the CRM's disposition, in the company's own option (sales_call.dispositions): a deposit is its Deposit option, never closed won"
    },
    {
     "id": "r1",
     "type": "crm_record",
-    "object": "custom_objects.sales_call",
+    "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
     "key": "{{appointment.slot_key}}",
     "if_missing": "match",
     "properties": {
      "external_id": "{{appointment.slot_key}}",
      "outcome": "{{picklist.sales_call_outcome.showed}}",
-     "disposition": "{{vars.disposition | oneof:closed_won,deposit,follow_up,lost,dq,no_offer | default:}}"
+     "disposition": "{{vars.disposition | default:}}"
     },
     "title": "Sales Call record: showed, with the disposition",
     "clear": [
@@ -479,7 +492,7 @@
    {
     "id": "r3",
     "type": "crm_record",
-    "object": "custom_objects.sales_call",
+    "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
     "key": "{{appointment.slot_key}}",
     "if_missing": "match",
     "properties": {
@@ -573,15 +586,23 @@
     "from": "b2",
     "to": "c1",
     "when": {
-     "in": [
+     "eq": [
       "{{appointment.call_outcome}}",
-      [
-       "closed",
-       "deposit"
-      ]
+      "closed"
      ]
     },
-    "label": "closed or deposit"
+    "label": "closed"
+   },
+   {
+    "from": "b2",
+    "to": "c5",
+    "when": {
+     "eq": [
+      "{{appointment.call_outcome}}",
+      "deposit"
+     ]
+    },
+    "label": "deposit"
    },
    {
     "from": "b2",
@@ -625,6 +646,10 @@
    {
     "from": "c1",
     "to": "kc"
+   },
+   {
+    "from": "c5",
+    "to": "kd"
    },
    {
     "from": "c2",
@@ -688,6 +713,10 @@
    },
    {
     "from": "kc",
+    "to": "x1"
+   },
+   {
+    "from": "kd",
     "to": "x1"
    },
    {
