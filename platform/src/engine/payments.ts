@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { dispatchEvent, emitEvent, type EventRow } from "./dispatch";
 import { companyScopeTag, inScope } from "./scope";
+import { nameThePayment, saysDeposit } from "./deposit-names";
 
 /**
  * The ledger (D21). Every payment the provider reports is recorded, linked to a person or not. Linking is a ladder,
@@ -33,8 +34,8 @@ export const cleared = (total: number, contractValue: number | null) => contract
 
 /**
  * deposit / installment / balance / paid_in_full / refund, from what came before. D119: a deposit is a payment for one of the
- * company's declared deposit products (`deposit`), never a guess from the amount: a first payment short of the price is the
- * first installment. A deposit counts toward the price, so the payment that clears it after a deposit is the balance.
+ * company's declared deposit products, or (addendum) for a product or plan named with the word "deposit" (`isDeposit`), never a
+ * guess from the amount: a first payment short of the price is the first installment. A deposit counts toward the price, so the payment that clears it after a deposit is the balance.
  */
 export function deriveKind(amount: number, priorTotal: number, contractValue: number | null, status: PaymentInput["status"], deposit = false): string {
   if (status === "failed") return "failed";
@@ -54,6 +55,15 @@ export function depositProducts(value: string | undefined | null): string[] {
 export function isDepositProduct(raw: Record<string, unknown> | null | undefined, products: string[]): boolean {
   if (!products.length || !raw) return false;
   return ["product_id", "plan_id", "plan"].some((k) => typeof raw[k] === "string" && products.includes((raw[k] as string).trim()));
+}
+/**
+ * D119 addendum: a payment is a deposit when its product or plan is one the company declared, or, for a company that declares
+ * none, when its product's or plan's name (`product_name` / `plan_name`, kept on raw) has the word "deposit" (`saysDeposit`).
+ * A declaration is the whole truth for its company: the names are not read beside it.
+ */
+export function isDeposit(raw: Record<string, unknown> | null | undefined, products: string[]): boolean {
+  if (products.length) return isDepositProduct(raw, products);
+  return !!raw && (saysDeposit(raw.product_name) || saysDeposit(raw.plan_name));
 }
 async function companyDepositProducts(c: PoolClient, companyId: string): Promise<string[]> {
   const b = await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [companyId, DEPOSIT_PRODUCTS_KEY]);
@@ -124,7 +134,7 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
     if (already) continue;
     const hPrior = money(Number((await one<{ t: string }>(c, "select coalesce(sum(amount),0) as t from payments where opportunity_id=$1 and status in ('succeeded','refunded') and id<>$2 and paid_at < $3", [opp.id, h.id, h.paid_at]))!.t));
     const hAmount = Number(h.amount), hStatus = h.status as PaymentInput["status"];
-    const hKind = deriveKind(hAmount, hPrior, opp.contract_value, hStatus, isDepositProduct(h.raw, products));
+    const hKind = deriveKind(hAmount, hPrior, opp.contract_value, hStatus, isDeposit(h.raw, products));
     await c.query("update payments set kind=$2 where id=$1", [h.id, hKind]);
     const hPriorPaid = await priorNonDeposit(c, opp.id, h.id, h.paid_at);
     const hRunning = hStatus === "failed" ? hPrior : money(hPrior + hAmount);
@@ -134,7 +144,7 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
   }
   const prior = await priorTotal(c, opp.id, payment.id);
   const amount = Number(payment.amount);
-  const kind = deriveKind(amount, prior, opp.contract_value, payment.status as PaymentInput["status"], isDepositProduct(payment.raw, products));
+  const kind = deriveKind(amount, prior, opp.contract_value, payment.status as PaymentInput["status"], isDeposit(payment.raw, products));
   const priorPaid = await priorNonDeposit(c, opp.id, payment.id);
   await c.query("update payments set contact_id=$2, opportunity_id=$3, kind=$4, link_status='linked', linked_by=$5 where id=$1", [payment.id, contactId, opp.id, kind, linkedBy]);
   const running = payment.status === "failed" ? prior : money(prior + amount);
@@ -171,6 +181,9 @@ export async function recordPayment(c: PoolClient, companyId: string, input: Pay
     const prior = (await one<PaymentRow>(c, "select * from payments where company_id=$1 and provider=$2 and whop_payment_id=$3", [companyId, provider, input.providerPaymentId]))!;
     return { outcome: "duplicate", payment: prior };
   }
+  // D119 addendum: a new payment without its product's or plan's name gets them from Whop (flagged and alerted when it cannot), so its kind can be told by the name
+  const named = await nameThePayment(c, companyId, inserted, await companyDepositProducts(c, companyId));
+  if (named) { await c.query("update payments set raw=$2 where id=$1", [inserted.id, named]); inserted.raw = named; }
   const match = forceContactId ? { contactId: forceContactId, by: "known" } : (await refundedPayer(c, companyId, provider, input)) ?? await resolvePayer(c, companyId, input);
   if (match) {
     const { event, healed } = await settle(c, companyId, match.contactId, inserted, match.by);

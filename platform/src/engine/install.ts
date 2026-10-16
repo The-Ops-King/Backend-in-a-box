@@ -64,7 +64,7 @@ export type InstallInput = {
   /** The Slack bot (D70): who it pings when it cannot answer — a Slack user id, or an email resolved to one through Slack (needs users:read.email). */
   bot?: { escalateTo?: string };
   contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
-  /** D119: the payment processor's products that are a deposit, not a sale: Whop product ids (`prod_…`) or plan ids (`plan_…`), or a Zap's plan as it sends it. A payment for one is kind `deposit`; nothing else ever is. Bound as payments.deposit_products. Omitted: left as it is; [] removes them. */
+  /** D119: the payment processor's products that are a deposit, not a sale: Whop product ids (`prod_…`) or plan ids (`plan_…`), or a Zap's plan as it sends it. A payment for one is kind `deposit`. Declared, the list is the whole truth; undeclared, a payment whose Whop product or plan is named with the word "deposit" is one (D119 addendum). Bound as payments.deposit_products. Omitted: left as it is; [] removes them. */
   depositProducts?: string[];
   /** Who takes calls: emails (or CRM user ids) from the roster. Only closers get the end-of-day link and DM (D34); everyone else on the roster is staff. Omitted: roles stay as they are. */
   closers?: string[];

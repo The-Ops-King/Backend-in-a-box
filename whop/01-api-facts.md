@@ -20,3 +20,12 @@
   Needs `developer:manage_webhook`. `GET /webhooks` wants `account_id`. `/me`, `/account` do not exist; `/companies` needs `company:basic:read`.
 - Hair's first real payment: `pay_aWgRacWKddVBAK`, $750, 2026-10-05, `subscription_create`.
 
+## Product and plan names (verified 2026-10-16, PMU's account API key, GET only; D119 addendum)
+- A Payment (`GET /payments/{id}` and the list) carries `product_id`, `plan_id` and `line_items[]`:
+  `{ id: li_…, product_id, product_title, plan_id, plan_title, label, quantity, subtotal, sku }`. PMU's: `product_title`
+  "Beauty Moguls Method", `plan_title` null. No top-level `product` / `plan` object.
+- `GET /products/{id}` → `{ id, title, route, visibility, … }`; `GET /plans/{id}` → `{ id, title (null when the plan has
+  none), product: { id, title }, plan_type, visibility, … }`. PMU's plans have no title.
+- No Whop webhook has reached Hair or PMU yet (2026-10-16): the webhook `data` is documented as the same Payment; the engine
+  reads `line_items` there too and asks the API when the names are not carried.
+

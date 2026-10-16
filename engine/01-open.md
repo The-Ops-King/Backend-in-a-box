@@ -370,7 +370,9 @@ first non-deposit dollar with the signature is. Decide with it whether the agree
 
 Done by D119: a deposit is a payment for a declared deposit product (`depositProducts`), never an amount; Deal closed's
 gate reads `contact.paid_non_deposit`; the agreement, its chase and `stat-customer` wait for the first payment beyond a
-deposit (the chase only ever chases a sent agreement; `stat-customer` is Deal closed's own).
+deposit (the chase only ever chases a sent agreement; `stat-customer` is Deal closed's own). D119 addendum (2026-10-16):
+a payment whose Whop product or plan is named with the word "deposit" is one too, for a company that declares no products;
+the gate reads the kind either way, so nothing here changes.
 
 ## 36. Setter cards never booked stay at New Lead
 
@@ -574,7 +576,7 @@ Still open:
   field, or Calendly.
 - Fathom: done 2026-10-16. Nelly records in her own account (nellysudri@gmail.com; Tyler: "we're using the other one now",
   blushtheapp.com is not used); the engine registered its own webhook from the key (`fathom.webhook_id` 8-RzsD2yJmHqCZL_).
-- Payments: Whop, with a separate deposit product (D119 `depositProducts`), once it is set up; the agreement template and sender (Deal closed
+- Payments: Whop, with a deposit product whose name has the word "Deposit" (D119 addendum; no ids to declare), once it is set up; the agreement template and sender (Deal closed
   needs paid and signed); the Anthropic key.
 - Tyler's words for `installs/dating-nelly/words.json`: welcome email subject and body, welcome text, the setter DQ wording
   and reasons (D118). Then build and save the copies again.
@@ -584,9 +586,14 @@ Still open:
     closed, Unsigned agreement chase and the three wrap-ups (Hair: Call outcome filed is live, its change is only the
     deposit branch). Dating Nelly: save her rebuilt `installs/dating-nelly/deal-closed.json`. PMU: save its rebuilt
     `installs/pmu/call-outcome.json`, `payment-recorded.json`, `deal-closed.json` (dry run first). Run the migration.
-  - Deposit products: Tyler names each company's (`depositProducts`, Whop product or plan ids). PMU's Whop has an archived
-    product "DEPOSIT" (`prod_PR9AINNIxjRFV`, plans $100–$3,500) and $100/$250/$500 plans on Beauty Moguls Method itself;
-    Dating Nelly has no processor yet; Hair's is to ask. Until declared, a company has no deposits.
+  - Deposit products: by name (D119 addendum, 2026-10-16), no ids to declare. Tyler names each company's deposit product
+    (or its plan) at Whop with the word "Deposit" ("Deposit", "VIP Deposit", "Deposit - $250"); a payment for it is a
+    deposit. The product's name is the safer place: Whop's payload is proven to carry it (`line_items[].product_title`),
+    and plans have no title unless one is given. PMU's archived "DEPOSIT" product (`prod_PR9AINNIxjRFV`) qualifies once it
+    is sold again; its $100/$250/$500 plans on Beauty Moguls Method do not unless titled with the word. Hair has no deposit
+    link yet; Dating Nelly has no processor yet. Each company's Whop key should stay bound (`secret.whop_api_key`): a payment
+    that comes without the names has them read from Whop, and without the key it raises a "could not be checked" alert.
+    `depositProducts` still works and, declared, is the whole truth for that company.
   - The Deposit stage and `crm.stage_closer_deposit`: Dating Nelly by re-running `provision-ghl --apply` on RapidCloser
     (adds Deposit after Follow Up), then binding it; PMU's Beauty Moguls board and Hair's closer board by hand or a PUT
     of the whole stage list (Tyler's call); until bound, a filed deposit leaves the card where it is.
