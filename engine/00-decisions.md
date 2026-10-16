@@ -3785,3 +3785,68 @@ back. So `propertyValue` sends MONETORY/MONETARY as that object, and NUMERICAL, 
 that is not a number still goes as written, so the CRM can name the problem. The backfill's "keep what someone filed in GHL"
 check compares the amount, not the object. Test: `nodes.test.ts` (money with its currency), `sales-call-backfill.test.ts`
 (the closed call's write).
+
+
+## D117. A company in a shared location acts only on its own people: the scope tag (2026-10-16)
+
+A new client, a dating and relationship offer, is installed into RapidCloser, a GHL location that belongs to another
+business: about 19k contacts, its own power dialers, calendars and pipelines. The engine had no company-level scope, so it
+would have treated the whole location as this company's. A read-only audit found the paths: the contacts poll replicated
+every contact and any old one GHL updated became a new lead (D65) with a card on the setter board; the drift sweep pulled
+in the same; every connected dialer call in the location became a setter call (AI read, Discovery Call record); every
+signed document of a known contact fired Agreement signed and Deal closed; leads in wrap-ups and `/mtd` were the location's.
+Bound boards (D88) and mapped calendars were already the company's. Tyler: the engine acts only on contacts tagged `dating`
+for this company.
+
+**The setting.** `scopeTag` at install (`--scope-tag`), bound as `scope.tag`, lowercase (GHL's tags are). Omitted on a
+re-install it stays; `""` removes it. No scope tag is the engine exactly as before: every path below asks first whether one
+is set (Hair and PMU have none; the rest of the suite is the proof).
+
+**In scope** (`scope.ts`): GHL carries the tag on them, or they booked on one of the company's mapped calendars (every
+ledger appointment is on one: `applyAppointment` keeps no other). A booker is in scope untagged, and the engine tags them in
+GHL. That write is the engine's, made when the booking is first seen, not a template step: membership must not depend on a
+workflow being installed and on (a new template would also put a workflow on Hair and PMU that never fires). Real or shadow
+is decided the way every write the engine makes on its workflows' behalf is (D52, D88's drift repairs, D92): `effectiveMode`
+over `handlerMode("appointment.booked")`, the least real rung of the workflows that answer the booking, else the company's;
+in test, only a test contact is written. In shadow nothing is written and the would-have is recorded as a tag step records
+it (`tag.added`, `shadow: true`; neither GHL nor the replica, so the next poll sees no phantom). A refusal does not hold the
+booking up (they are in scope by it): it is an alert to tag them by hand. A baseline booking (before install) is in scope
+and not tagged: the baseline writes nothing. A Calendly invitee the CRM has not shown yet has nothing to tag.
+
+**Every door, path by path.**
+- *Contacts poll*: the search carries `{field:"tags", operator:"contains", value:<tag>}` next to the dateUpdated range
+  (the shape of the existing filter, verified read-only on RapidCloser), so the location's other contacts are never read;
+  the poll also holds each row to the exact tag. An untagged contact GHL updates is not replicated and starts nothing.
+- *Tag removed*: the tagged search cannot show a removal (the person stops coming back), so before anything new starts
+  for someone in scope by the tag alone (a reply, a dialer call, a new or newly signed document) GHL is asked once. Gone:
+  the replica takes GHL's tags (no poll will diff them again, so nothing is swallowed), `scope.left` is recorded (a new
+  event type, never a start), nothing starts. Nothing is deleted; runs already going carry on. A booker needs no read.
+- *Dialer calls and replies* (`pollInbound`): a scoped company never fetches a stranger on a call (the D28 fetch is for
+  unscoped companies; the tagged contacts poll runs first each tick, so a tagged lead's call finds them). A known person out
+  of scope gets no call row, no `call.logged`, no `message.received`.
+- *Documents*: every document is still mirrored, but only an in-scope person's carries their id and says anything, so one
+  signed while its person was out of scope is never news later.
+- *Drift sweep*: only tagged contacts GHL added are pulled in; GHL's whole answer still says who is present (no extra reads).
+- *Leads* (`leads`, `mqls`, `marketing_dqs` in wrap-ups, `/mtd`, the bot; and the bot's lead rows in `ghl-graph`): tagged in
+  GHL, or booked (`ledgerFacts.booked`).
+- *History backfill*: only tagged contacts; calls only of in-scope people already known, no stranger fetched.
+- *Payments* (Whop, Zapier, the backfill's Whop pull): the match ladder already reads only the ledger; a hit on someone out
+  of scope is no hit, so the payment stays unlinked and Unlinked payment tells the team. Linking by hand is a person's
+  decision and settles as before. A refund follows the payment it reverses, as before.
+- *Not scoped, and why*: the cards poll (only the company's bound boards, and only people the ledger knows); bookings (the
+  mapped calendars are the scope); recordings (the company's own Fathom, matched only to ledger people and bookings); the
+  Slack doors and the end-of-day form (act on runs and appointments that exist); the Sales Call backfill (its people are the
+  ledger's bookers); closes, calls and cash in the metrics (the company's own closer board and Sales Call and Payment objects).
+  If the other business uses the same custom object keys in the location, those numbers would be shared: checked at install,
+  not by the engine.
+
+**Hardening, same change.** `paymentOf` read a Payment record's `amount` with `String()`; a MONETORY field reads back as
+`{currency, value}` (D116), which counted as 0. `amountOf` takes a number, text ("$1,500") or `{value}`. The bot's graph
+reader (`ghl-graph` `text`) had the same blind spot: a Sales Call's money property and the contact cash field read as blank;
+it now reads `{value}`. The Sales Call backfill already compared amounts (D116).
+
+Tests: `scope.test.ts` (an untagged contact updated in GHL is not ingested and starts nothing, a tagged one is a lead; an
+untagged booker is in scope and tagged only when writes are real; a dialer call of someone out of scope fetches and creates
+nobody; a removed tag takes them out, nothing starts, nothing deleted; a document of someone out of scope says nothing; drift
+pulls in only the tagged; leads count only the tagged and the bookers; a payment naming someone out of scope stays unlinked;
+a money amount as `{currency, value}`). Each fails without the change. The existing suite, untouched, is the no-tag proof.

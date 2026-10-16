@@ -11,6 +11,7 @@ import { outcomeTermFor } from "./disposition";
 import { rollupRange } from "./metrics";
 import { recordPayment, type PaymentInput } from "./payments";
 import { paymentInputs, whopListPayments } from "@/adapters/whop/client";
+import { carriesTag, inScope, scopeTag } from "./scope";
 
 /**
  * History (D29): the facts the poll would have seen had the engine been watching, read back once over a window and written
@@ -33,15 +34,18 @@ export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company
   const rep: BackfillReport = { from: window.from.toISOString(), to: window.to.toISOString(), contacts: 0, calls: 0, callsWithTranscript: 0, appointments: 0, recordings: 0, recordingsUnlinked: 0, outcomes: 0, outcomesUnmatched: 0, won: 0, payments: 0, paymentsUnlinked: 0, days: 0, errors: [] };
   const step = async (name: BackfillStep | "rollups", fn: () => Promise<void>) => { if (name !== "rollups" && only && !only.includes(name)) return; try { await fn(); } catch (e) { rep.errors.push(`${name}: ${String((e as Error).message).slice(0, 300)}`); } };
 
+  // D117: a scoped company's history is its own people's: the tagged, and the bookers its calendars bring
+  const tag = scopeTag(bindings);
   await step("contacts", async () => {
     const keep = boundFieldIds(bindings);
-    for (const s of await adapters.read.contactsAddedBetween(ac, window.from, window.to)) { await upsertContact(c, co.id, co.timezone, s, keep); rep.contacts++; }
+    for (const s of await adapters.read.contactsAddedBetween(ac, window.from, window.to)) { if (tag && !carriesTag(s.tags, tag)) continue; await upsertContact(c, co.id, co.timezone, s, keep); rep.contacts++; }
   });
 
   await step("calls", async () => {
     for (const m of await adapters.read.callsBetween(ac, window.from, window.to)) {
       let contact = await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id=$2", [co.id, m.contactId]);
-      if (!contact) { const live = await adapters.read.getContact(ac, m.contactId); if (!live) continue; contact = { id: (await upsertContact(c, co.id, co.timezone, live)).id }; }
+      if (!contact) { if (tag) continue; const live = await adapters.read.getContact(ac, m.contactId); if (!live) continue; contact = { id: (await upsertContact(c, co.id, co.timezone, live)).id }; }
+      else if (!(await inScope(c, contact.id, tag))) continue;
       const call = m.call ?? { status: m.status ?? "" };
       if (call.userId) await ensureUser(c, adapters, ac, call.userId);
       const { recording, isNew } = await recordPhoneCall(c, co.id, { externalId: m.id, contactId: contact.id, startedAt: new Date(m.dateAdded), durationSec: call.durationSec ?? 0, direction: m.direction, status: call.status, callerGhlUserId: call.userId,

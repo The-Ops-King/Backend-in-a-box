@@ -46,6 +46,8 @@ export type InstallInput = {
   discoveryCall?: { results?: Record<string, "set" | "follow_up" | "dq" | "not_interested">; act?: boolean };
   /** D104: the booking card's intake lines, the company's own (booking_card.intake): each a label and a bound contact field or a booking answer by name, optionally a second value after it. Omitted: left as it is; [] shows none. */
   bookingCard?: { intake: IntakeLine[] };
+  /** D117: the company is one offer inside a location another business shares: only contacts carrying this tag in the CRM, or booked on its mapped calendars, are its (bound as scope.tag, lowercase). Omitted: left as it is; "" removes it (the whole location is the company's again). */
+  scopeTag?: string;
   testDomains?: string[];                // bound as test.domains: email domains whose contacts pass in test (D52), e.g. ["jtylerray.com"]
   jevKey?: string;                       // bound as secret.jev_key; the classify node reads replies with it (env JEV_API_KEY is the fallback)
   /** Where the Health check workflow says what broke (D33, D88: Slack only): the channel, the face, how often an open alert is said again (minutes, 60), how many failed polls in a row make an alert (2). */
@@ -216,6 +218,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters): P
       if (vendor && prior && (prior.kind === "secret" ? decrypt(prior.value) : prior.value.toString("utf8")) !== value) await wakePausedOnAuth(c, companyId, vendor);
     };
     await bind("crm.location_id", "id", input.locationId); await bind("secret.ghl_pit", "secret", pit);
+    if (input.scopeTag?.trim()) await bind("scope.tag", "text", input.scopeTag.trim().toLowerCase());
+    else if (input.scopeTag === "") await c.query("delete from bindings where company_id=$1 and key='scope.tag'", [companyId]);
     if (input.testDomains) await bind("test.domains", "text", input.testDomains.map((d) => d.trim().toLowerCase().replace(/^@/, "")).filter(Boolean).join(","));
     if (booking.source === "calendly") {
       await bind("secret.calendly_token", "secret", booking.token); await bind("calendly.organization", "id", booking.organization);

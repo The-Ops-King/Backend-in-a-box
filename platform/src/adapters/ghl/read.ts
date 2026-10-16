@@ -37,12 +37,14 @@ type RawOpp = { id: string; contact?: { id: string }; contactId?: string; pipeli
 const mapCard = (o: RawOpp): LiveCard => ({ id: o.id, pipelineId: o.pipelineId, stageId: o.pipelineStageId, status: o.status, name: o.name ?? "", assignedUserId: o.assignedTo ?? undefined, updatedAt: o.updatedAt, contactId: o.contact?.id ?? o.contactId, updatedBy: o.lastStageChangeBy ?? o.updatedBy, stageChangedAt: o.lastStageChangeAt, monetaryValue: o.monetaryValue });
 
 export const ghlRead: CrmRead = {
-  async contactsChangedSince(c, sinceIso) {
+  async contactsChangedSince(c, sinceIso, tag) {
     const out: ContactSnapshot[] = [];
     let page = 1;
+    // D117: the scope tag goes to the search itself (verified read-only on RapidCloser), so the location's other contacts are never read
+    const filters = [{ field: "dateUpdated", operator: "range", value: { gte: sinceIso } }, ...(tag ? [{ field: "tags", operator: "contains", value: tag }] : [])];
     for (;;) {
       const r = await ghl<{ contacts: RawContact[]; total: number }>(c.pit, "POST", "/contacts/search", {
-        body: { locationId: c.locationId, page, pageLimit: 100, filters: [{ field: "dateUpdated", operator: "range", value: { gte: sinceIso } }], sort: [{ field: "dateUpdated", direction: "asc" }] },
+        body: { locationId: c.locationId, page, pageLimit: 100, filters, sort: [{ field: "dateUpdated", direction: "asc" }] },
       });
       out.push(...r.contacts.map(mapContact));
       if (r.contacts.length < 100 || out.length >= 2000) break;

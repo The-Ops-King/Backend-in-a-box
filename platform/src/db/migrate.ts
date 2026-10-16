@@ -189,6 +189,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`insert into core_categories (domain, value, label, sort) values ('setter_call_type','closing','Closing call',3) on conflict (domain, value) do nothing`);
     await c.query(`update core_categories set sort=4 where domain='setter_call_type' and value='other' and sort<>4`);
     await c.query(`insert into event_types values ('call.closing','call') on conflict do nothing`);
+    await c.query(`insert into event_types values ('scope.left','crm') on conflict do nothing`);   // D117: a person the scope tag no longer covers (recorded, never a start)
     await c.query(`alter table sends drop constraint if exists sends_channel_check`);
     await c.query(`alter table sends add constraint sends_channel_check check (channel in ('sms','email','slack','webhook'))`);
     await ownsOrAbsent(c, "slack_posts", "tag");
