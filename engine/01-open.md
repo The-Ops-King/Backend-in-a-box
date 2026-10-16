@@ -554,7 +554,13 @@ on Mitch). Dating Nelly is installed (`installs/dating-nelly.json`, slug `dating
 scope tag `dating` (D117). After its first poll it held 0 contacts, 0 events, 0 runs. D118: the templates now write her
 objects and option keys (`salesCall.objections`, `salesCall.closerOptions` in her install file), and her own Deal closed and
 Setter call logged (`installs/dating-nelly/`, built from `words.json`) replace Hair's words with marked placeholders that send
-nothing. To apply after deploy: templates for dating-nelly, her settings and prompts, then save the two copies.
+nothing. Applied 2026-10-16 (templates, settings, prompts, both copies saved): still shadow, every workflow off.
+
+Tyler, 2026-10-16:
+- A deposit is not a close; the two are different (the details are being settled, see below).
+- He gets the Anthropic key and the agreement later.
+- Keep Call booked's "send a personalized video" task.
+- He invites Nelly to RapidCloser's GHL.
 
 Still open:
 - Tyler: add Nelly (closer) and the setter (name and email to come) as RapidCloser GHL users, then reassign the calendars.
@@ -567,6 +573,8 @@ Still open:
 - Tyler's words for `installs/dating-nelly/words.json`: welcome email subject and body, welcome text, the setter DQ wording
   and reasons (D118). Then build and save the copies again.
 - Nelly's email in `salesCall.closerOptions` (`"<email>": "nelly"`) once she is a GHL user; the setter's too if one closes.
-- A filed deposit is written `closed_won` (Hair's model): should Dating Nelly's be `deposit`?
-- Call booked's "send a personalized video" task and the stat-/seq-/meta tags: confirm RapidCloser's own GHL workflows do
-  not trigger on those tag names before anything goes test or live.
+- Deposits as their own outcome: the Sales Call's disposition, the card, the tags, the agreement, the reports, and
+  whether Hair and PMU change too (#35).
+- RapidCloser's own GHL workflows: Tyler checks "Appointment Created", "SWS | Presuasion Call Booking Sequence" and anything
+  on Contact Created or Tag Added (Enagic SMS WF, Enagic Email Campaign, Trigger Link Click [ANY]) before the CSV import, and
+  that none triggers on the engine's stat-/seq-/meta tags before anything goes test or live.
