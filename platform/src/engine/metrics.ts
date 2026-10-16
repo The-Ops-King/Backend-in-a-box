@@ -154,7 +154,7 @@ export type SetterStats = {
 export type SetterMetrics = { from: string; to: string; timezone: string; reached_seconds: number; totals: SetterStats; setters: SetterStats[] };
 
 const UNASSIGNED = "unassigned";
-const OUTBOUND_DIAL = "r.provider='ghl' and r.raw->>'kind'='phone' and r.raw->>'direction'='outbound' and coalesce(r.raw->>'simulated','')=''";
+export const OUTBOUND_DIAL = "r.provider='ghl' and r.raw->>'kind'='phone' and r.raw->>'direction'='outbound' and coalesce(r.raw->>'simulated','')=''";
 const blank = (id: string, name: string): SetterStats => ({ id, name, leads_assigned: 0, never_dialled: 0, dials: 0, answered: 0, connected: 0, talk_sec: 0, contacts_reached: 0, leads_dialled_first: 0, stl_median_min: null, stl_avg_min: null, bookings: 0 });
 
 /** `testDomains`: leave the company's test contacts out (the bot's numbers, D73); omitted, everyone counts as before. */

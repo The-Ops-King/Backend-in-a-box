@@ -4035,3 +4035,88 @@ reading of what a name means; nothing about the amount, the buyer or the wording
   looked up, the Zapier door both ways, and a rename changing only later payments). Each fails without its change: with the
   change reverted 10 of 11 fail (the declared-company case held before); a substring match turns 2 red, names read beside a
   declaration 2, a silent miss without a key 1.
+
+## D121. The setup's calendars: its own group, its own team; a setter-booked call with no setter is an error (2026-10-16)
+
+Tyler, 2026-10-16: "Create a new calendar group for Nelly." Nelly takes the Dating calendars over from Mitch (earlier:
+"Assign them to Mitch for now. Eventually, when we get Nelly in, it will be Nelly"); she is now a RapidCloser GHL user
+(Nelly S., `2BnOPqPK68aqZ9QBIK6B`). And: "If it's set through the setter link, and there is no setter, throw an engine
+error." (Numbered D121: D120 is left to an entry being written in parallel.)
+
+**The calendar group** (`provision-ghl`). The setup declares `calendarGroup: { name, slug, description }`; the name takes
+the prefix ("Dating – Nelly"). Matched by name like everything else; missing, it is made (`POST /calendars/groups` with
+`locationId`, `name`, `description`, `slug`, `isActive`), unless another group already has its slug (blocked: nothing is
+made or grouped, the setup needs another slug). Every calendar of the setup goes in it: one made now is made in it
+(`groupId` on the create); one in no group gets its `groupId` (`PUT /calendars/<id>`); one already in someone else's group
+is left there and said (`exists-differs`). The group's id is taken from a fresh read of the groups by name, not from the
+create's answer.
+
+**The team is the setup's.** A calendar the setup names is the setup's own, so the team the setup gives it (`team`, or a
+calendar's own `team`) is set on it, the one declared change to something that exists beyond the additive ones (D119).
+GHL replaces `teamMembers` whole: one who stays keeps their priority and whether they are primary; a newcomer gets 0.5;
+with no primary left, the first is. The dry run says it exactly, as a new plan action `change-on-ours`: `Mitch Sapoff
+<mitch@revsignals.io> → Nelly S. <nellysudri@gmail.com>` (with who joins and who leaves when someone stays). A setup email
+that is no user in the location changes nothing (`exists-differs`). Calls already booked are not reassigned by the script.
+A calendar's length and hours are still only reported, never changed.
+
+**The guard, extended.** What the setup owns is read off the location by the setup's names (`ownedBy`), apart from the
+planner: its calendars and its group. A calendar PUT goes only to one of those calendars and carries only `groupId` and
+`teamMembers`; a `groupId` (on that PUT or on a calendar create) can only be the setup's own group; a group is never PUT;
+the dry run still sends nothing but GETs, and nothing is ever deleted. The other PUTs (a pipeline's stages, a field's
+options) are as before.
+
+**API shapes.** From GHL's own OpenAPI spec (`GoHighLevel/highlevel-api-docs`, `apps/calendars.json`, read 2026-10-16):
+`GET /calendars/groups?locationId` → `{ groups: [{ id, locationId, name, description, slug, isActive }] }`;
+`POST /calendars/groups` takes `GroupCreateDTO` (`locationId`, `name`, `description`, `slug` required, `isActive`) →
+`{ group }`; `PUT /calendars/{id}` takes `CalendarUpdateDTO`, every field optional, with `groupId` and `teamMembers`
+(`{ userId, priority, isPrimary, … }`); all with `Version: 2021-04-15`. Verified on RapidCloser read-only: the groups read
+(three groups: General Calendar, IG, RapidCloser; no Dating one) and the calendars' `groupId` (absent on the three Dating
+calendars, which are round robin with Mitch alone). Taken from the spec, not yet seen live: the create's answer and that a
+PUT carrying only `groupId` and `teamMembers` leaves the rest of the calendar as it is.
+
+Dating's setup now has `team: ["nellysudri@gmail.com"]`, the group `Nelly` / `dating-nelly`, and its install skeleton
+names Nelly in `closers` and `salesCall.closerOptions` as `installs/dating-nelly.json` already does. Dry run on RapidCloser
+(2026-10-16): create the group; on each of the three calendars the team Mitch → Nelly and into the group; everything else
+exists. Not applied here.
+
+**A setter-booked call with no setter is an error** (`setter-missing.ts`). When the poll first sees a new booking (not a
+baseline) that the engine takes as setter-booked (`self_booked` false, D24: a `booking: "setter"` calendar, a setter
+calendar under the `calendar` rule, or `either` on one) and the booking names no setter (`set_by` blank: a GHL calendar
+never does; Calendly when the setter question has no answer), the engine raises one alert, `setter:missing:<appointment
+id>`, level error, source engine: "Setter-booked call with no setter: Ann Doe, Mon Oct 19, 3:00 PM EDT on Dating – Strategy
+Call (Setter). Say who set it: put the setter's name in Ann Doe's Setter field in GHL and this clears." (with no Setter field
+bound: "Say who set it, then resolve this alert."). It is raised before Call booked runs, so nothing waits on it.
+
+- **Who set it is known** by, in this order: the booking (`set_by`); a team member's connected dial to that person that the
+  booking came during or within the Set window after (D87's rule, the one the setter numbers already credit); the
+  contact's Setter field (`crm.field_contact_setter`) filled in after the booking. A dial that already names the setter
+  when the booking is first seen means no alert at all. A Setter field that already held a name before the booking is not
+  taken for this booking (it may be an earlier one's): the alert says what it holds, and a person resolves it if that is
+  right; it closes once the field changes to a name.
+- **It closes by itself**: each poll (entity `setters`, after the calls) asks every open one again; the Setter field is the
+  replica's, and GHL's own every 5 minutes for a person with a GHL id (a booker in scope only by their booking is not in the
+  tagged contacts poll, D117). The name goes on the booking (`set_by`, only when blank), so the numbers credit the setter,
+  and Health check says ✅. A booking gone from the ledger closes it quietly. A cancel does not: a person resolves it.
+- **It fires in shadow and test as in live**, as the engine's other alerts do: an alert is not a run (D76: "The operator's
+  alerts are not runs and still go"; D88: the engine collects, Health check says it; D117's tag refusal and D119's
+  deposit check are raised whatever the mode). Dating Nelly has every workflow off, Health check included, so until it is
+  on the alert is on the dashboard and not in Slack.
+- **Every company.** A question calendar with no answer is self-booked (D24), never this alert. Hair (the `calendar` rule;
+  "45 Min Strategy Call - S" is its setter event type) and PMU (`booking: "setter"` on "The Beauty Moguls Consultation S")
+  alert only when the setter question has no answer: Calendly's answer is trimmed, so blank or spaces is none; any words
+  are an answer, read as given (no reading of what they mean). Production, read-only 2026-10-16: Hair's two setter-booked
+  Calendly bookings both named a setter; PMU has no setter-booked booking yet. So none would have fired on their history.
+  But PMU's Consultation S has no setter question yet (open item 34): until it has one, every booking on it has no answer
+  and alerts, which is the rule as Tyler gave it; add the question before Annabelle starts setting.
+- Not changed: Call booked's booking card still says "Setter: unknown" when it posts before anyone says (the alert is the
+  error, the card is not edited after).
+
+Tests: `provision.test.ts` (a fresh location: the group made and the calendars made in it with Nelly; the calendars as
+the first run left them: the dry run only reads and gives the exact before → after, apply makes the group and PUTs exactly
+the three with only `teamMembers` and `groupId`, the other business's calendars and group untouched, a second run only
+reads; one who stays keeps their place and a group made by hand under the name is used; a calendar in someone else's group
+not moved and a taken slug making nothing; the guard refusing an undeclared calendar, another key, another group, a group
+PUT, a dry-run write and a delete), `setter-missing.test.ts` (a GHL setter booking raises one error in shadow, worded as
+above, a self or question booking none; the Setter field typed in GHL closes it and fills `set_by`; a field filled before
+the booking does not; a dial during the booking names the setter and nothing is raised; Calendly in Hair's and PMU's
+shapes alerts only without an answer; blank and spaces are no answer). Removing the poll's call turns 5 of the 6 red.

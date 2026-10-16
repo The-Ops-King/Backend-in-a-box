@@ -1,8 +1,8 @@
 {
-  "_note": "What one dating company needs in its GHL location, read by scripts/provision-ghl.ts (additive only: it creates what is missing and never renames, changes or deletes). A second dating company is a copy of this file with its own prefix, object keys, calendar names, team and closer options. `prefix` goes in front of every pipeline, contact/opportunity field and calendar name; object keys and labels are written out in full. Option keys are the ones the engine writes and the install maps read (salesCall, discoveryCall below). salesCall.closerOptions names each closer's key on the Sales Call Closer field by their email (D118): a new closer gets an option here and a line there; the objections are read off the field's own options. `install` is merged into the output as the install skeleton; contract value and the deposit products (depositProducts, D119) live there, not in GHL. The closer pipeline's Deposit stage is where a call filed as a deposit waits for the rest (D119). Mitch Sapoff is the placeholder closer and the only calendar team member for now.",
+  "_note": "What one dating company needs in its GHL location, read by scripts/provision-ghl.ts (additive only: it creates what is missing and never renames, changes or deletes). A second dating company is a copy of this file with its own prefix, object keys, calendar names, team and closer options. `prefix` goes in front of every pipeline, contact/opportunity field and calendar name; object keys and labels are written out in full. Option keys are the ones the engine writes and the install maps read (salesCall, discoveryCall below). salesCall.closerOptions names each closer's key on the Sales Call Closer field by their email (D118): a new closer gets an option here and a line there; the objections are read off the field's own options. `install` is merged into the output as the install skeleton; contract value and the deposit products (depositProducts, D119) live there, not in GHL. The closer pipeline's Deposit stage is where a call filed as a deposit waits for the rest (D119). The calendars sit in the calendar group `calendarGroup` (its name takes the prefix) and their team is `team` (or a calendar's own `team`): these are the setup's own calendars, so a changed team here is set on them, the dry run saying who leaves and who joins (D121). Nelly took the calendars over from Mitch Sapoff, the placeholder, on 2026-10-16.",
   "prefix": "Dating – ",
   "timezone": "America/New_York",
-  "team": ["mitch@revsignals.io"],
+  "team": ["nellysudri@gmail.com"],
   "hours": { "days": [1, 2, 3, 4, 5], "open": "09:00", "close": "17:00" },
   "pipelines": [
     { "binding": "setter", "name": "Setter Pipeline", "stages": [
@@ -117,6 +117,7 @@
     { "name": "Strategy Call (Setter)", "minutes": 45, "term": "closing", "booking": "setter" },
     { "name": "Triage Call", "minutes": 15, "term": "first_call", "callName": "Triage call", "bookingCalendar": true }
   ],
+  "calendarGroup": { "name": "Nelly", "slug": "dating-nelly", "description": "Dating (Nelly): the strategy and triage calls" },
   "install": {
     "name": "Dating Nelly",
     "slug": "dating-nelly",
@@ -130,10 +131,10 @@
         "no_offer": { "meaning": "unqualified", "reason": "No offer made (DQ before the pitch)" },
         "financing_denied": { "meaning": "lost", "reason": "Financing denied" }, "close_pending": "pending" },
       "dqDispositions": ["dq", "no_offer"],
-      "closerOptions": { "mitch@revsignals.io": "mitch" }
+      "closerOptions": { "mitch@revsignals.io": "mitch", "nellysudri@gmail.com": "nelly" }
     },
     "discoveryCall": { "results": { "set": "set", "follow_up": "follow_up", "dq": "dq", "not_interested": "not_interested" } },
-    "closers": ["mitch@revsignals.io"],
+    "closers": ["nellysudri@gmail.com", "mitch@revsignals.io"],
     "testDomains": ["jtylerray.com"],
     "enable": false
   }

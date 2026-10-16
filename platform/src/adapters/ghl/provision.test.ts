@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { provision, type Http, type Setup } from "./provision";
+import { guard, provision, type Http, type Setup } from "./provision";
 
 const setup = JSON.parse(readFileSync(path.resolve(__dirname, "../../../installs/dating/ghl-setup.json"), "utf8")) as Setup;
 const LOC = "loc1";
@@ -21,6 +21,7 @@ function fakeGhl(seed: (g: ReturnType<typeof empty>) => void = () => {}) {
       if (route === "/objects/") return { objects: g.objects };
       if (route === "/associations/") return { associations: g.associations };
       if (route === "/calendars/") return { calendars: g.calendars };
+      if (route === "/calendars/groups") return { groups: g.groups };
       if (route === "/users/") return { users: g.users };
       const ok = /^\/custom-fields\/object-key\/(.+)$/.exec(route);
       if (ok) return { fields: g.objFields.filter((f) => f.objectKey === ok[1]), folders: g.objects.some((o) => o.key === ok[1]) ? [{ id: `folder:${ok[1]}` }] : [] };
@@ -35,6 +36,9 @@ function fakeGhl(seed: (g: ReturnType<typeof empty>) => void = () => {}) {
     if (method === "POST" && route === "/custom-fields/") { const f = { id: id(), name: body.name, fieldKey: body.fieldKey, dataType: body.dataType, objectKey: body.objectKey, parentId: body.parentId, options: body.options }; g.objFields.push(f); return { field: f }; }
     if (method === "POST" && route === "/associations/") { const a = { id: id(), ...body }; g.associations.push(a); return a; }
     if (method === "POST" && route === "/calendars/") { const c = { id: id(), ...body }; g.calendars.push(c); return { calendar: c }; }
+    if (method === "POST" && route === "/calendars/groups") { const x = { id: id(), ...body }; g.groups.push(x); return { group: x }; }
+    const cp = /^\/calendars\/([^/]+)$/.exec(route);
+    if (method === "PUT" && cp) { const cal = g.calendars.find((x) => x.id === cp[1])!; Object.assign(cal, body); return { calendar: cal }; }
     const pp = /^\/opportunities\/pipelines\/(.+)$/.exec(route);
     if (method === "PUT" && pp) { const pl = g.pipelines.find((x) => x.id === pp[1])!; pl.stages = body.stages.map((s: { id?: string }) => ({ ...s, id: s.id ?? id() })); return {}; }
     const cf = /^\/custom-fields\/(.+)$/.exec(route);
@@ -51,8 +55,9 @@ function empty() {
     objects: [] as { id: string; key: string; labels: { singular: string; plural?: string } }[],
     objFields: [] as { id: string; name: string; fieldKey: string; dataType: string; objectKey: string; parentId?: string; options?: { key: string; label: string }[] }[],
     associations: [] as { id: string; key: string; firstObjectKey: string; secondObjectKey: string }[],
-    calendars: [] as { id: string; name: string; slotDuration?: number; slotDurationUnit?: string; teamMembers?: { userId: string }[]; openHours?: unknown }[],
-    users: [{ id: "mitch", email: "Mitch@RevSignals.io" }, { id: "other", email: "someone@else.com" }],
+    calendars: [] as { id: string; name: string; groupId?: string; slotDuration?: number; slotDurationUnit?: string; slotInterval?: number; teamMembers?: { userId: string; priority?: number; isPrimary?: boolean }[]; openHours?: unknown }[],
+    groups: [] as { id: string; name: string; slug: string; description?: string; isActive?: boolean }[],
+    users: [{ id: "mitch", name: "Mitch Sapoff", email: "Mitch@RevSignals.io" }, { id: "nelly", name: "Nelly S.", email: "nellysudri@gmail.com" }, { id: "other", name: "Someone", email: "someone@else.com" }],
   };
 }
 // another business already in the location: its things must never be written to
@@ -62,7 +67,9 @@ const foreign = (g: ReturnType<typeof empty>) => {
   g.objects.push({ id: "theirObj", key: "custom_objects.sales_call", labels: { singular: "Sales Call" } });
   g.objFields.push({ id: "theirOutcome", name: "Outcome", fieldKey: "custom_objects.sales_call.outcome", dataType: "SINGLE_OPTIONS", objectKey: "custom_objects.sales_call", options: [{ key: "x", label: "X" }] });
   g.associations.push({ id: "theirAssoc", key: "contact_sales_call", firstObjectKey: "contact", secondObjectKey: "custom_objects.sales_call" });
-  g.calendars.push({ id: "theirCal", name: "Strategy Session", slotDuration: 30 });
+  g.groups.push({ id: "theirGroup", name: "General Calendar", slug: "generalcalendar" });
+  g.calendars.push({ id: "theirCal", name: "Strategy Session", slotDuration: 30, groupId: "theirGroup", teamMembers: [{ userId: "mitch" }] });
+  g.calendars.push({ id: "theirLoose", name: "Dating Coach Intro", slotDuration: 30, teamMembers: [{ userId: "mitch" }] });   // in no group, a name near ours: still not the setup's
 };
 
 describe("provision-ghl", () => {
@@ -95,10 +102,15 @@ describe("provision-ghl", () => {
     expect(crm.assoc_payment_opportunity).toBeTruthy();
     expect((r.install.salesCall as { object: string }).object).toBe("custom_objects.dating_sales_call");
     expect((r.install.salesCall as { objections: string[] }).objections).toEqual(["price", "partner", "timing", "fear", "competitor", "think_about_it"]);   // D118: the field's own options
-    expect((r.install.salesCall as { closerOptions: Record<string, string> }).closerOptions).toEqual({ "mitch@revsignals.io": "mitch" });
+    expect((r.install.salesCall as { closerOptions: Record<string, string> }).closerOptions).toEqual({ "mitch@revsignals.io": "mitch", "nellysudri@gmail.com": "nelly" });
     expect(Object.values(r.install.calendars as Record<string, { term: string }>).map((c) => c.term).sort()).toEqual(["closing", "closing", "first_call"]);
     expect(r.install.closerCall).toBeTruthy(); expect(r.install.bookingCalendar).not.toBe(r.install.closerCall);
-    expect(f.g.calendars.filter((c) => c.id !== "theirCal").every((c) => (c.teamMembers ?? [])[0]?.userId === "mitch")).toBe(true);
+    const group = f.g.groups.find((x) => x.name === "Dating – Nelly")!;
+    expect(group).toMatchObject({ locationId: LOC, slug: "dating-nelly", isActive: true });
+    const ours = f.g.calendars.filter((c) => c.name.startsWith("Dating – "));
+    expect(ours).toHaveLength(3);
+    expect(ours.every((c) => c.groupId === group.id && c.teamMembers!.map((t) => t.userId).join() === "nelly")).toBe(true);
+    expect(f.g.calendars.find((c) => c.id === "theirCal")).toMatchObject({ groupId: "theirGroup", teamMembers: [{ userId: "mitch" }] });
     // the other business's things are as they were
     expect(f.g.pipelines.find((p) => p.id === "theirPipe")!.stages).toHaveLength(1);
     expect(f.g.objFields.find((x) => x.id === "theirOutcome")!.options).toEqual([{ key: "x", label: "X" }]);
@@ -154,5 +166,83 @@ describe("provision-ghl", () => {
     // an object whose label is taken under another key is not made, and its associations wait
     expect(f.writes().some((c) => c.body?.key === "custom_objects.dating_payment")).toBe(false);
     expect(r.plan.filter((l) => l.action === "blocked").map((l) => l.what)).toHaveLength(2);
+  });
+});
+
+describe("D121: the setup's calendars go in its own group, and their team is the setup's", () => {
+  const hours = [1, 2, 3, 4, 5].map((d) => ({ daysOfTheWeek: [d], hours: [{ openHour: 9, openMinute: 0, closeHour: 17, closeMinute: 0 }] }));
+  // the three calendars as the first run made them: on Mitch, in no group (RapidCloser before D121)
+  const built = (g: ReturnType<typeof empty>) => {
+    foreign(g);
+    for (const [id, name, min] of [["cDirect", "Dating – Strategy Call (Direct)", 45], ["cSetter", "Dating – Strategy Call (Setter)", 45], ["cTriage", "Dating – Triage Call", 15]] as const)
+      g.calendars.push({ id, name, slotDuration: min, slotDurationUnit: "mins", openHours: hours, teamMembers: [{ userId: "mitch", priority: 0.5, isPrimary: true }] });
+  };
+  const calWrites = (f: ReturnType<typeof fakeGhl>) => f.writes().filter((c) => c.path.startsWith("/calendars"));
+
+  it("the dry run only reads and says the exact before → after; apply makes the group and changes only the three; a second run is a no-op", async () => {
+    const f = fakeGhl(built);
+    const dry = await provision(setup, LOC, f.http, { apply: false });
+    expect(f.writes()).toEqual([]);
+    expect(dry.plan).toContainEqual({ action: "create", what: 'calendar group "Dating – Nelly"', detail: "slug dating-nelly; the setup's 3 calendars go in it" });
+    expect(dry.plan).toContainEqual({ action: "change-on-ours", what: '  team of calendar "Dating – Strategy Call (Setter)"', id: "cSetter",
+      detail: "Mitch Sapoff <Mitch@RevSignals.io> → Nelly S. <nellysudri@gmail.com>; calls already booked are not reassigned by this" });
+    expect(dry.plan).toContainEqual({ action: "missing-on-ours", what: '  group of calendar "Dating – Triage Call"', id: "cTriage", detail: 'goes in "Dating – Nelly" (made above)' });
+    expect(dry.plan.filter((l) => l.action === "change-on-ours").map((l) => l.id)).toEqual(["cDirect", "cSetter", "cTriage"]);
+    expect(dry.plan.some((l) => l.what.includes("Strategy Session") || l.what.includes("Dating Coach"))).toBe(false);
+
+    const r = await provision(setup, LOC, f.http, { apply: true });
+    const group = f.g.groups.find((x) => x.name === "Dating – Nelly")!;
+    expect(calWrites(f).map((c) => `${c.method} ${c.path}`)).toEqual(["POST /calendars/groups", "PUT /calendars/cDirect", "PUT /calendars/cSetter", "PUT /calendars/cTriage"]);
+    for (const c of calWrites(f).filter((x) => x.method === "PUT")) expect(c.body).toEqual({ teamMembers: [{ userId: "nelly", priority: 0.5, isPrimary: true }], groupId: group.id });
+    expect(f.writes().some((c) => /their/.test(c.path) || /their/.test(JSON.stringify(c.body ?? {})))).toBe(false);
+    expect(f.g.calendars.find((c) => c.id === "theirCal")).toMatchObject({ groupId: "theirGroup", teamMembers: [{ userId: "mitch" }] });
+    expect(f.g.calendars.find((c) => c.id === "theirLoose")).toEqual({ id: "theirLoose", name: "Dating Coach Intro", slotDuration: 30, teamMembers: [{ userId: "mitch" }] });
+    expect(f.g.groups.find((x) => x.id === "theirGroup")).toEqual({ id: "theirGroup", name: "General Calendar", slug: "generalcalendar" });
+    expect(r.after!.every((l) => l.action === "exists")).toBe(true);
+    expect(r.install._missing).toBeUndefined();
+
+    const before = f.calls.length;
+    const again = await provision(setup, LOC, f.http, { apply: true });
+    expect(f.calls.slice(before).every((c) => c.method === "GET")).toBe(true);
+    expect(again.writes).toEqual([]);
+    expect(again.plan.every((l) => l.action === "exists")).toBe(true);
+  });
+
+  it("one who stays keeps their place; a group made by hand under the name is used, not made again", async () => {
+    const two = { ...setup, team: ["nellysudri@gmail.com", "mitch@revsignals.io"] };
+    const f = fakeGhl((g) => { built(g); g.groups.push({ id: "byHand", name: "dating - nelly", slug: "whatever" }); });
+    const dry = await provision(two, LOC, f.http, { apply: false });
+    expect(dry.plan.find((l) => l.id === "cDirect" && l.action === "change-on-ours")?.detail)
+      .toBe("Mitch Sapoff <Mitch@RevSignals.io> → Nelly S. <nellysudri@gmail.com>, Mitch Sapoff <Mitch@RevSignals.io> (joins: Nelly S. <nellysudri@gmail.com>); calls already booked are not reassigned by this");
+    await provision(two, LOC, f.http, { apply: true });
+    expect(calWrites(f).some((c) => c.method === "POST")).toBe(false);
+    expect(calWrites(f).find((c) => c.path === "/calendars/cSetter")!.body).toEqual({ groupId: "byHand", teamMembers: [{ userId: "nelly", priority: 0.5, isPrimary: false }, { userId: "mitch", priority: 0.5, isPrimary: true }] });
+  });
+
+  it("a calendar of the setup's in someone else's group is not moved; a taken slug makes no group and moves nothing", async () => {
+    const f = fakeGhl((g) => { built(g); g.calendars.find((c) => c.id === "cTriage")!.groupId = "theirGroup"; g.groups.push({ id: "slugOwner", name: "Someone's", slug: "Dating-Nelly" }); });
+    const r = await provision(setup, LOC, f.http, { apply: true });
+    expect(r.plan).toContainEqual({ action: "blocked", what: 'calendar group "Dating – Nelly"', detail: `its slug "dating-nelly" is the group "Someone's"'s: not made (give the setup another slug)` });
+    expect(r.plan).toContainEqual({ action: "exists-differs", what: '  group of calendar "Dating – Triage Call"', id: "cTriage", detail: 'in the group "General Calendar", not the setup\'s: not moved' });
+    expect(calWrites(f).some((c) => c.method === "POST" || "groupId" in (c.body ?? {}))).toBe(false);
+    expect(f.g.calendars.find((c) => c.id === "cTriage")!.groupId).toBe("theirGroup");
+    expect(r.install._missing).toEqual(['calendar group "Dating – Nelly"']);
+  });
+
+  it("the guard: a calendar PUT only to a calendar the setup names, only its group and team, only the setup's group; never a group; nothing in a dry run", async () => {
+    const sent: string[] = [];
+    const http: Http = async (m, p) => { sent.push(`${m} ${p}`); return {}; };
+    const own = { paths: new Set<string>(), calendars: new Set(["cSetter"]), group: "ourGroup" };
+    const live = guard(http, true, own, []);
+    await expect(live("PUT", "/calendars/theirCal", { body: { teamMembers: [] } })).rejects.toThrow(/not a calendar this setup names/);
+    await expect(live("PUT", "/calendars/cSetter", { body: { teamMembers: [], name: "x" } })).rejects.toThrow(/name is never changed/);
+    await expect(live("PUT", "/calendars/cSetter", { body: { groupId: "theirGroup" } })).rejects.toThrow(/not this setup's/);
+    await expect(live("PUT", "/calendars/groups/ourGroup", { body: { name: "x" } })).rejects.toThrow(/not a calendar this setup names/);
+    await expect(live("POST", "/calendars/", { body: { name: "x", groupId: "theirGroup" } })).rejects.toThrow(/not this setup's/);
+    await expect(live("DELETE", "/calendars/cSetter")).rejects.toThrow(/never deletes/);
+    await expect(guard(http, false, own, [])("PUT", "/calendars/cSetter", { body: { groupId: "ourGroup" } })).rejects.toThrow(/dry run/);
+    expect(sent).toEqual([]);
+    await live("PUT", "/calendars/cSetter", { body: { groupId: "ourGroup", teamMembers: [{ userId: "nelly" }] } });
+    expect(sent).toEqual(["PUT /calendars/cSetter"]);
   });
 });

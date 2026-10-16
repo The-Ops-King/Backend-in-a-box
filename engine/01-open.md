@@ -520,7 +520,8 @@ Still open:
 - The agreement goes out on every first payment (only the $10k program sells today). When the smaller offer exists under
   its own Whop product name, PMU's Payment recorded copy sends the agreement only for the program's product.
 - Consultation S has no "who set this" booking question: a setter-booked call's setter reads "unknown" until it has one
-  (before Annabelle starts setting).
+  (before Annabelle starts setting). Since D121 each such booking is also an engine error alert ("Setter-booked call with no
+  setter"), so add the question first.
 - MQL / DQ: PMU qualifies by the `meta booked call mql` / `meta booked call dq` tags (a Zap sets them), not a field; the
   numbers' MQL split needs to read the tags.
 - **Messages (blocks test/live):** PMU's copies carry the template copy. The pre-call reminders are placeholders, and
@@ -548,7 +549,8 @@ Decisions:
 - Contact fields: appointment date, setter, cash collected, revenue generated, the UTMs and fbclid. Opportunity fields:
   setter owner, stage entered.
 - Custom objects: Dating Sales Call, Dating Payment, Dating Discovery. Sales Call closer options: Nelly, Mitch.
-- GHL calendars for now (Calendly later), all assigned to Mitch until Nelly is a user:
+- GHL calendars for now (Calendly later), assigned to Mitch until Nelly was a user, now Nelly's (D121), in the calendar
+  group "Dating – Nelly":
   - Strategy Call (Direct), 45 min, self-booked closer call;
   - Strategy Call (Setter), 45 min, setter-booked closer call;
   - Triage Call, 15 min, the setter's qualifying call (a downsell, or a lead not yet worth a full slot).
@@ -569,10 +571,18 @@ Tyler, 2026-10-16:
 - He invites Nelly to RapidCloser's GHL.
 
 Still open:
-- Tyler: add Nelly (closer) and the setter (name and email to come) as RapidCloser GHL users, then reassign the calendars.
+- Calendars to Nelly (D121, built 2026-10-16, not applied): Nelly is a RapidCloser GHL user (Nelly S.,
+  nellysudri@gmail.com, `2BnOPqPK68aqZ9QBIK6B`). The setup file now gives the three calendars her as their team and puts
+  them in their own calendar group "Dating – Nelly" (slug `dating-nelly`). Dry run on RapidCloser: make the group; on each
+  calendar the team Mitch Sapoff → Nelly S. and into the group; nothing else. Apply: `provision-ghl --apply` (only the group
+  is created; only the three calendars are PUT, with only their team and group). Still to come: the setter as a GHL user
+  (name and email to come).
 - The Typeform: its questions and answers become intake fields and booking-card lines. UTMs arrive from it. A direct
   Typeform integration, no Zapier (#34).
-- With GHL calendars, a setter-booked call does not say who set it. The setter calendar needs a "who set this" booking
+- With GHL calendars, a setter-booked call does not say who set it. Since D121 that is an engine alert per booking
+  ("Setter-booked call with no setter: …. Say who set it"), cleared when the contact's Setter field is filled in GHL or a
+  setter's dial set the booking (D87); in shadow too, but Dating Nelly's Health check is off, so it shows on the dashboard,
+  not in Slack, until Health check is on. Still: the setter calendar needs a "who set this" booking
   field, or Calendly.
 - Fathom: done 2026-10-16. Nelly records in her own account (nellysudri@gmail.com; Tyler: "we're using the other one now",
   blushtheapp.com is not used); the engine registered its own webhook from the key (`fathom.webhook_id` 8-RzsD2yJmHqCZL_).
@@ -580,7 +590,8 @@ Still open:
   needs paid and signed); the Anthropic key.
 - Tyler's words for `installs/dating-nelly/words.json`: welcome email subject and body, welcome text, the setter DQ wording
   and reasons (D118). Then build and save the copies again.
-- Nelly's email in `salesCall.closerOptions` (`"<email>": "nelly"`) once she is a GHL user; the setter's too if one closes.
+- Nelly's email in `salesCall.closerOptions`: done (`installs/dating-nelly.json`, and the setup's skeleton since D121); the
+  setter's too if one closes.
 - Deposits (D119, built 2026-10-16, for Hair, PMU and Dating Nelly alike; not applied yet). To apply, per company:
   - Templates: `POST /api/admin/templates` upgrades the untouched copies of Call outcome filed, Payment recorded, Deal
     closed, Unsigned agreement chase and the three wrap-ups (Hair: Call outcome filed is live, its change is only the

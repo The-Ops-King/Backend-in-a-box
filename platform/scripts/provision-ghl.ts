@@ -2,7 +2,8 @@ import "./_env";
 /**
  * pnpm exec tsx scripts/provision-ghl.ts --setup installs/dating/ghl-setup.json --pit-env DATING2_GHL_PIT --location-env DATING2_GHL_LOCATION_ID --out <file.json> [--apply]
  * Additive GHL setup (src/adapters/ghl/provision.ts). Without --apply it only reads and prints the plan. With --apply it creates
- * what is missing; a re-run after a partial failure picks up where it stopped. --out gets the install skeleton: the setup's
+ * what is missing; a re-run after a partial failure picks up where it stopped. D121: the setup's calendars go in its
+ * `calendarGroup` (made if missing) and take its `team`; the plan shows a team change as `change-on-ours` with before → after. --out gets the install skeleton: the setup's
  * `install` block with every id found or made (crm map, calendars, closerCall, bookingCalendar, salesCall.object).
  */
 import { readFileSync, writeFileSync } from "node:fs";
