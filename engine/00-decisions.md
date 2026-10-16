@@ -4035,3 +4035,52 @@ reading of what a name means; nothing about the amount, the buyer or the wording
   looked up, the Zapier door both ways, and a rename changing only later payments). Each fails without its change: with the
   change reverted 10 of 11 fail (the declared-company case held before); a substring match turns 2 red, names read beside a
   declaration 2, a silent miss without a key 1.
+
+## D120. A call Calendly re-makes keeps its slot key: one call, one Sales Call record (2026-10-16)
+
+Found backfilling PMU (D115 addendum): when a host edits an event in her connected calendar, Calendly cancels it ("Rescheduled
+from connected calendar event") and makes a new one, often at the very same time. The live poll treated that as no move (under a
+minute is no reschedule, no `appointment.rescheduled`) but still repointed the booking's slot key to the new event's id
+(`applyAppointment`, `slot_key=$2` with the new id). The Sales Call record Call booked made stays keyed by the old id
+(`crm_records.record_key`, and the GHL record's `external_id`), so every later step keyed by `{{appointment.slot_key}}` missed it.
+Reproduced against the shipped templates (`remake.test.ts`, before the fix): Call outcome filed's r1 skipped ("no record in the
+CRM to update": the match fallback leaves out records already in `crm_records`), Call recorded created a second record, in shadow
+a second `crm_records` row; a real move after a re-make logged the wrong slot as left (`slot.from` = the re-made id), so Call
+booked's k5 found nothing and the original record stayed `scheduled` for good. Two re-makes between two polls were worse: the
+newest event names one the ledger never held, so the poll made a second booking (a second `appointment.booked`, a second record).
+
+Decided: **the slot key is the call's, not the event's.** A same-time re-make moves the booking's `external_id` to the new event
+and leaves `slot_key` as it was (the old event's id, or `external_id` where it was null). A real move still gives the new slot the
+new event's id and logs the left one under the slot key it had, so a move after any number of re-makes logs the record Call
+booked made. The poll walks back up to four hops through the source (`getAppointment(...).rescheduledFrom`) when the event it
+replaced is not in the ledger, so a chain made between two polls still repoints the one booking.
+
+Why not the alternatives:
+- **Re-key `crm_records` and the GHL record's `external_id` on each re-make**: a CRM write the poll would have to make (only when
+  the mode makes CRM writes real, D52/D92), so shadow and test would keep the bug for everyone the mode holds back, and each
+  re-make would be another write to fail, retry and keep idempotent (D66) outside any run. Drift (D88) and the backfill (D115)
+  match the record by `external_id`; changing it under them invites the very mismatch this fixes.
+- **Find the record by the appointment and its slot history**: needs a slot history table and every record step taught to read
+  it; the key already exists and means "this call slot" (D76).
+Keeping the key stable needs no write to anyone, behaves the same in every mode, and leaves `step_effects` and `crm_records`
+exactly as they are.
+
+Also:
+- `if_missing: match` (`bookingRecord`) and the Sales Call matcher behind drift and the numbers (`ghl-metrics`) match a
+  record's `external_id` against the booking's slot key as well as its event id.
+- The backfill names a left slot as the engine did: within a chain of same-time re-makes, the id the engine already wrote
+  (`crm_records`) or logged as left (`slot.from`), else the event's own id as before (so records the PMU backfill already wrote
+  keep their keys). A booking whose slot key is the event Calendly re-made says it keeps the record it was booked under.
+- A GHL calendar keeps the booking's id; nothing changes there.
+
+Production, read-only on 2026-10-16: no harm yet. Hair, PMU and Dating Nelly hold no two Sales Call records for one person and
+start, no record whose key matches no booking except PMU's six backfilled left slots (each a real move, at its own time) and
+one harness record each on Hair and PMU (`test-…`), no step that wrote a key the booking no longer carries outside PMU's
+harness moves, and no two live bookings for one person at one start. So there is nothing to repair. Hair's Calendly rows from
+before D76 carry a null `slot_key`; a re-make keeps their `external_id` as the key.
+
+Tests: `remake.test.ts` (a re-make, then Call outcome filed and Call recorded update the one record; re-made twice; re-made
+twice between two polls; a re-make then a real move logs Call booked's record rescheduled and the outcome lands on the new
+slot's; the backfill names that left slot once, under the engine's key; a shadow company keeps one `crm_records` row; a GHL
+calendar's move is unchanged). Six of the seven fail without the poll change (the GHL case held before), the backfill case
+without the backfill change.

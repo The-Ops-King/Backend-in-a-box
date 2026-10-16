@@ -171,12 +171,22 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   const key = meetingKey(s.meetingUrl) ?? null;
   let existing = await find(s.id);
   if (!existing && s.rescheduledFrom) {
-    // the source cancelled the old booking and created this one; to us it is the same appointment moved
-    const prior = await find(s.rescheduledFrom);
+    // the source cancelled the old booking and created this one; to us it is the same appointment moved.
+    // D120: re-made or moved more than once between two polls, it names an event the ledger never held; the source says what that one replaced
+    let prior = await find(s.rescheduledFrom);
+    for (let hop = 0, was = s.rescheduledFrom; !prior && hop < 4; hop++) {
+      const back = (await bookingFor(adapters, ac).getAppointment(ac, was))?.rescheduledFrom;
+      if (!back) break;
+      prior = await find(back); was = back;
+    }
     if (prior) {
-      // D76: each call slot is its own Sales Call; the moved booking's new slot is keyed by the new event's id and the old slot's record stays the old one's
-      await c.query("update appointments set external_id=$2, slot_key=$2, reschedule_url=coalesce($3, reschedule_url), cancel_url=coalesce($4, cancel_url) where id=$1", [prior.id, s.id, s.rescheduleUrl ?? null, s.cancelUrl ?? null]);
-      existing = { ...prior, external_id: s.id, repointed_from: prior.slot_key ?? prior.external_id };
+      // D76: each call slot is its own Sales Call; the moved booking's new slot is keyed by the new event's id and the old slot's record stays the old one's.
+      // D120: a re-make at the same time (the host edited the event in a connected calendar) is no new slot: the booking follows the new event's id,
+      // but its slot key, and so the Sales Call record keyed by it, stays the call's own however many times the event is re-made
+      const slot = prior.slot_key ?? prior.external_id;
+      const remade = Math.abs(prior.starts_at.getTime() - new Date(s.startTime).getTime()) <= 60e3;
+      await c.query("update appointments set external_id=$2, slot_key=$3, reschedule_url=coalesce($4, reschedule_url), cancel_url=coalesce($5, cancel_url) where id=$1", [prior.id, s.id, remade ? slot : s.id, s.rescheduleUrl ?? null, s.cancelUrl ?? null]);
+      existing = { ...prior, external_id: s.id, slot_key: remade ? slot : s.id, repointed_from: slot };
     }
   }
   if (!existing) {
