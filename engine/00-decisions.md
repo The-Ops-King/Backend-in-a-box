@@ -4169,3 +4169,9 @@ PUT, a dry-run write and a delete), `setter-missing.test.ts` (a GHL setter booki
 above, a self or question booking none; the Setter field typed in GHL closes it and fills `set_by`; a field filled before
 the booking does not; a dial during the booking names the setter and nothing is raised; Calendly in Hair's and PMU's
 shapes alerts only without an answer; blank and spaces are no answer). Removing the poll's call turns 5 of the 6 red.
+
+Applying it on RapidCloser (2026-10-16) showed GHL's calendar PUT is not a patch: a PUT carrying only the team and the group
+reset each Dating calendar to 30 minutes with no open hours (and filled its other unset settings with GHL's defaults). They
+were restored by hand to 45 / 45 / 15 minutes, Mon–Fri 9–5 (no booking had been made). The script now sends every calendar
+PUT with the calendar's own length, interval and hours as GHL already holds them, and the test's fake GHL resets what a PUT
+leaves out, as GHL does; without the fix three tests fail.

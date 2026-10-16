@@ -38,7 +38,8 @@ function fakeGhl(seed: (g: ReturnType<typeof empty>) => void = () => {}) {
     if (method === "POST" && route === "/calendars/") { const c = { id: id(), ...body }; g.calendars.push(c); return { calendar: c }; }
     if (method === "POST" && route === "/calendars/groups") { const x = { id: id(), ...body }; g.groups.push(x); return { group: x }; }
     const cp = /^\/calendars\/([^/]+)$/.exec(route);
-    if (method === "PUT" && cp) { const cal = g.calendars.find((x) => x.id === cp[1])!; Object.assign(cal, body); return { calendar: cal }; }
+    // as GHL does: a calendar PUT resets the schedule it is not sent (seen live 2026-10-16)
+    if (method === "PUT" && cp) { const cal = g.calendars.find((x) => x.id === cp[1])!; Object.assign(cal, { slotDuration: 30, slotInterval: 30, openHours: {} }, body); return { calendar: cal }; }
     const pp = /^\/opportunities\/pipelines\/(.+)$/.exec(route);
     if (method === "PUT" && pp) { const pl = g.pipelines.find((x) => x.id === pp[1])!; pl.stages = body.stages.map((s: { id?: string }) => ({ ...s, id: s.id ?? id() })); return {}; }
     const cf = /^\/custom-fields\/(.+)$/.exec(route);
@@ -190,10 +191,13 @@ describe("D121: the setup's calendars go in its own group, and their team is the
     expect(dry.plan.filter((l) => l.action === "change-on-ours").map((l) => l.id)).toEqual(["cDirect", "cSetter", "cTriage"]);
     expect(dry.plan.some((l) => l.what.includes("Strategy Session") || l.what.includes("Dating Coach"))).toBe(false);
 
+    const sched = JSON.stringify(f.g.calendars.filter((c) => ["cDirect", "cSetter", "cTriage"].includes(c.id)).map((c) => [c.id, c.slotDuration, c.openHours]));
     const r = await provision(setup, LOC, f.http, { apply: true });
     const group = f.g.groups.find((x) => x.name === "Dating – Nelly")!;
     expect(calWrites(f).map((c) => `${c.method} ${c.path}`)).toEqual(["POST /calendars/groups", "PUT /calendars/cDirect", "PUT /calendars/cSetter", "PUT /calendars/cTriage"]);
-    for (const c of calWrites(f).filter((x) => x.method === "PUT")) expect(c.body).toEqual({ teamMembers: [{ userId: "nelly", priority: 0.5, isPrimary: true }], groupId: group.id });
+    for (const c of calWrites(f).filter((x) => x.method === "PUT")) expect(c.body).toMatchObject({ teamMembers: [{ userId: "nelly", priority: 0.5, isPrimary: true }], groupId: group.id });
+    // GHL resets the schedule a PUT leaves out: each calendar keeps its own length and hours
+    expect(JSON.stringify(f.g.calendars.filter((c) => ["cDirect", "cSetter", "cTriage"].includes(c.id)).map((c) => [c.id, c.slotDuration, c.openHours]))).toBe(sched);
     expect(f.writes().some((c) => /their/.test(c.path) || /their/.test(JSON.stringify(c.body ?? {})))).toBe(false);
     expect(f.g.calendars.find((c) => c.id === "theirCal")).toMatchObject({ groupId: "theirGroup", teamMembers: [{ userId: "mitch" }] });
     expect(f.g.calendars.find((c) => c.id === "theirLoose")).toEqual({ id: "theirLoose", name: "Dating Coach Intro", slotDuration: 30, teamMembers: [{ userId: "mitch" }] });
@@ -216,7 +220,7 @@ describe("D121: the setup's calendars go in its own group, and their team is the
       .toBe("Mitch Sapoff <Mitch@RevSignals.io> → Nelly S. <nellysudri@gmail.com>, Mitch Sapoff <Mitch@RevSignals.io> (joins: Nelly S. <nellysudri@gmail.com>); calls already booked are not reassigned by this");
     await provision(two, LOC, f.http, { apply: true });
     expect(calWrites(f).some((c) => c.method === "POST")).toBe(false);
-    expect(calWrites(f).find((c) => c.path === "/calendars/cSetter")!.body).toEqual({ groupId: "byHand", teamMembers: [{ userId: "nelly", priority: 0.5, isPrimary: false }, { userId: "mitch", priority: 0.5, isPrimary: true }] });
+    expect(calWrites(f).find((c) => c.path === "/calendars/cSetter")!.body).toMatchObject({ groupId: "byHand", teamMembers: [{ userId: "nelly", priority: 0.5, isPrimary: false }, { userId: "mitch", priority: 0.5, isPrimary: true }] });
   });
 
   it("a calendar of the setup's in someone else's group is not moved; a taken slug makes no group and moves nothing", async () => {

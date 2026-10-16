@@ -39,7 +39,7 @@ type State = {
   contactFields: Field[]; opportunityFields: Field[];
   objects: { id: string; key: string; labels?: { singular?: string } }[];
   associations: { id: string; key: string; firstObjectKey: string; secondObjectKey: string }[];
-  calendars: { id: string; name: string; groupId?: string | null; slotDuration?: number; slotDurationUnit?: string; teamMembers?: Member[]; openHours?: { daysOfTheWeek: number[]; hours: { openHour: number; openMinute: number; closeHour: number; closeMinute: number }[] }[] }[];
+  calendars: { id: string; name: string; groupId?: string | null; slotDuration?: number; slotDurationUnit?: string; slotInterval?: number; slotIntervalUnit?: string; teamMembers?: Member[]; openHours?: { daysOfTheWeek: number[]; hours: { openHour: number; openMinute: number; closeHour: number; closeMinute: number }[] }[] }[];
   groups: { id: string; name: string; slug?: string; isActive?: boolean }[];
   users: { id: string; email?: string; name?: string }[];
 };
@@ -74,8 +74,9 @@ export function ownedBy(setup: Setup, s: Pick<State, "calendars" | "groups">, ow
   if (g) own.group = g.id;
   return own;
 }
-/** The only settings a calendar PUT may carry (D121): which group it is in, and its team. */
-const CALENDAR_KEYS = new Set(["groupId", "teamMembers"]);
+/** The only settings a calendar PUT may carry (D121): which group it is in, its team, and its schedule as it already stands
+ * (GHL's PUT resets what it is not sent: a team-only PUT set the Dating calendars to 30 minutes with no hours, 2026-10-16). */
+const CALENDAR_KEYS = new Set(["groupId", "teamMembers", "slotDuration", "slotDurationUnit", "slotInterval", "slotIntervalUnit", "openHours"]);
 
 /**
  * Every write passes here. A dry run sends nothing but GETs; DELETE is never sent; a PUT goes only to an id this run matched
@@ -215,7 +216,7 @@ async function pass(setup: Setup, s: State, loc: string, call: Http, apply: bool
   const o = hm(setup.hours.open), c = hm(setup.hours.close);
   // GHL takes one entry per weekday ("openHours.0.must be a valid day of week" for a list of days, 2026-10-16)
   const openHours = setup.hours.days.map((d) => ({ daysOfTheWeek: [d], hours: [{ openHour: o.h, openMinute: o.m, closeHour: c.h, closeMinute: c.m }] }));
-  const hoursKey = (h: State["calendars"][number]["openHours"]) => JSON.stringify((h ?? []).flatMap((x) => x.daysOfTheWeek.map((d) => [d, x.hours.map((y) => [y.openHour, y.openMinute, y.closeHour, y.closeMinute])])).sort());
+  const hoursKey = (h: State["calendars"][number]["openHours"]) => JSON.stringify((Array.isArray(h) ? h : []).flatMap((x) => x.daysOfTheWeek.map((d) => [d, x.hours.map((y) => [y.openHour, y.openMinute, y.closeHour, y.closeMinute])])).sort());
   // D121: the setup's calendar group, made if missing; the setup's calendars go in it (never one that is in someone else's)
   const G = setup.calendarGroup, gname = G ? P + G.name : "";
   let groupId: string | undefined, group: "found" | "planned" | "blocked" | undefined;
@@ -269,7 +270,9 @@ async function pass(setup: Setup, s: State, loc: string, call: Http, apply: bool
         else if (group === "blocked") say("blocked", `  group of ${what}`, ex.id, `"${gname}" is not there and will not be made`);
         else { say("missing-on-ours", `  group of ${what}`, ex.id, `goes in "${gname}"${group === "planned" && !groupId ? " (made above)" : ""}`); if (groupId) put.groupId = groupId; }
       }
-      if (apply && Object.keys(put).length) await call("PUT", `/calendars/${ex.id}`, { ...CAL, body: put });
+      // GHL's PUT resets every scheduling setting it is not sent, so the calendar's own schedule goes back with it, unchanged
+      const keep = { slotDuration: ex.slotDuration, slotDurationUnit: ex.slotDurationUnit ?? "mins", slotInterval: ex.slotInterval ?? ex.slotDuration, slotIntervalUnit: ex.slotIntervalUnit ?? ex.slotDurationUnit ?? "mins", openHours: Array.isArray(ex.openHours) ? ex.openHours : [] };
+      if (apply && Object.keys(put).length) await call("PUT", `/calendars/${ex.id}`, { ...CAL, body: { ...put, ...keep } });
       continue;
     }
     if (lost.length) { say("blocked", what, undefined, `no user in the location with email ${lost.join(", ")}`); continue; }
