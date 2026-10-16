@@ -749,6 +749,12 @@ not name. The one setting it changes on something that exists is a declared cale
 in its `calendarGroup` (made if missing; one already in someone else's group is not moved). A second run after an apply is
 all `exists`. `--out` gets the install skeleton (crm ids, calendars, picks).
 
+A contact field with `"folder": "Application"` goes in the setup's own contact-field folder ("Dating – Application"), made if
+missing (D122). GHL documents contact folders nowhere; the folder is made the way this repo's first build made "Core System"
+(`POST /locations/{id}/customFields` with `documentType: "folder"`) and the fields go in it by `parentId`. If GHL will not make
+it, the plan says `blocked` and the fields are made without a folder: make it in GHL and move them by hand. A field made
+earlier outside its folder is bound and said, never moved.
+
 ## Alerts and the health sweep (D33)
 
 The engine says what broke the minute it breaks, and nothing while it works. A step that fails is retried in
@@ -1236,6 +1242,47 @@ only the tagged, leads count only the tagged and the bookers, and a payment whos
 stays unlinked for a person to link. A tag taken off in GHL takes the person out of scope: nothing new starts for them,
 nothing is deleted, and runs already going carry on. In test mode a harness contact needs the scope tag as well as
 `sys-test`. No scope tag: the whole location is the company's, as before (Hair and PMU).
+
+## Typeform applications (D122)
+
+A Typeform form is a door straight into the engine, no Zapier. In the install file (or the install API body):
+
+```json
+"typeform": {
+  "token": "<personal access token; never in the repo>",
+  "forms": { "AjY7UfXZ": {
+    "name": "VIP Matchmaking Application",
+    "answers": { "<question ref>": "first_name | last_name | email | phone | field_contact_<binding>", "…": "…" },
+    "hidden": { "utm_source": "field_contact_utm_source", "…": "…" },
+    "submittedAt": "field_contact_app_submitted_at", "responseId": "field_contact_app_response_id" } }
+}
+```
+
+Answers are mapped by the question's `ref` (`GET /forms/{id}` lists them), never its words; every `field_contact_…` target is a
+`crm` binding. With a token, install checks each ref against the form and registers the engine's own webhook on each form whose
+fields are all bound: tag `biab-<slug>`, URL `<PUBLIC_URL>/api/webhooks/typeform/<company id>`, a secret the engine makes once
+(`secret.typeform_webhook`); deliveries are checked against `Typeform-Signature`. Health check verifies the webhook each sweep
+(gone, off or pointing elsewhere is an alert with **Re-register the Typeform webhook**). A submission finds the person in GHL by
+email, then phone, creates or updates them with the scope tag, GHL's own name, email and phone (only where GHL has them blank),
+every answer and the UTMs, as the mode allows (shadow records the would-be write on `form.submitted`), and records
+`form.submitted` with the person; someone new to the company is a new lead once. A response is taken once, however often
+Typeform sends it.
+
+The responses from before the webhook come in with the importer, through the same path:
+
+```bash
+# dry run (reads Typeform and GHL, writes nothing anywhere)
+pnpm exec tsx scripts/import-typeform.ts --company dating-nelly --form AjY7UfXZ --out /tmp/typeform-dryrun.txt
+# without the database, from the install file and tokens in the environment
+pnpm exec tsx scripts/import-typeform.ts --install installs/dating-nelly.json --form AjY7UfXZ --token-env DN_TYPEFORM_TOKEN \
+  --pit-env DATING2_GHL_PIT --location-env DATING2_GHL_LOCATION_ID
+# apply: real GHL writes whatever the company's mode (a deliberate one-off), 50 a run, oldest first; re-run until nothing remains
+pnpm exec tsx scripts/import-typeform.ts --company dating-nelly --form AjY7UfXZ --apply [--limit 50]
+```
+
+In production: `POST /api/admin/typeform-import` with `{ "company": "dating-nelly", "form": "AjY7UfXZ" }` (dry run; the answer
+carries the report) and `"apply": true` (answers `written`, `skipped`, `failed`, `remaining`). A response already written is
+skipped; imported history starts no workflow and no New lead.
 
 ## Shadow mode (how a client gets migrated)
 

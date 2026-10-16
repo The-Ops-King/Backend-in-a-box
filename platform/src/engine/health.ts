@@ -20,13 +20,15 @@ import { fallbacksOf, parseDefinition } from "./definition";
 import { liveGhlReads, type GhlReads } from "@/adapters/ghl/metrics";
 import { crmPresence, ledgerDrift } from "./ledger-drift";
 import { chartLayoutOf } from "@/api/chart-verdict";
+import { typeformGetWebhook } from "@/adapters/typeform/client";
+import { formsOf, publicBase, TF_TAG_KEY, TF_TOKEN_KEY, typeformWebhookUrl, unboundOf } from "./typeform";
 
 /**
  * D33. The hourly sweep: a read-only look at every connection a company runs on. Its own automation, with its own
  * clock, channel, face and list of checks. It says nothing while everything works; a check that fails becomes an alert
  * (source `health`) and clears itself when the next sweep finds it fine.
  */
-export type Finding = { check: string; item?: string; ok: boolean; level: Level; text: string; detail?: Record<string, unknown>; fix?: { label: string; action: "reregister_whop" | "reregister_fathom" }; href?: string; hrefLabel?: string; thread?: string;
+export type Finding = { check: string; item?: string; ok: boolean; level: Level; text: string; detail?: Record<string, unknown>; fix?: { label: string; action: "reregister_whop" | "reregister_fathom" | "reregister_typeform" }; href?: string; hrefLabel?: string; thread?: string;
   /** The alert's key when it is not `health:<check>:<item>` (duplicates are `duplicate:<contact_id>`, D63), and the engine page its Open link goes to when it is not the health page. */
   key?: string; page?: string };
 
@@ -49,6 +51,7 @@ export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "whop_webhook", label: "Whop webhook", about: "the payment webhook the engine registered still exists and is enabled" },
   { id: "fathom_key", label: "Fathom key", about: "the API key still lists meetings" },
   { id: "fathom_webhook", label: "Fathom webhook", about: "the recording webhook is still registered (or, when Fathom cannot list webhooks, that deliveries keep arriving)" },
+  { id: "typeform_webhook", label: "Typeform webhook", about: "on every form the company maps, the engine's own webhook is still there, on, sending form responses to this engine (not somewhere else); gone, off or pointing elsewhere is an alert with a button that puts it back" },
   { id: "slack", label: "Slack", about: "the bot token is alive and the bot is in every channel the workflows post to" },
   { id: "anthropic", label: "Anthropic key", about: "the AI key still answers (the company's, else the server's)" },
   { id: "jev", label: "Jev (reply reading)", about: "the TypeSafe AI key still answers; without it every reply goes to a person" },
@@ -68,6 +71,7 @@ export type HealthProbes = {
   calendlyWhoAmI: typeof calendlyWhoAmI; calendlyAvailableTimes: typeof calendlyAvailableTimes;
   calendlyEventTypeHosts: typeof calendlyEventTypeHosts; calendlyEventTypeSchedules: typeof calendlyEventTypeSchedules; calendlyBusyTimes: typeof calendlyBusyTimes;
   whopPing: typeof whopPing; whopGetWebhook: typeof whopGetWebhook; fathomPing: typeof fathomPing; fathomListWebhooks: typeof fathomListWebhooks; anthropicPing: typeof anthropicPing; jevPing?: typeof jevPing;
+  typeformGetWebhook?: typeof typeformGetWebhook;
   urlOk: (url: string) => Promise<{ ok: boolean; status?: number; error?: string }>;
   /** the CRM reads the drift check compares with (D73); without them the check does not run */
   ghl?: GhlReads;
@@ -85,7 +89,7 @@ export async function urlOk(url: string): Promise<{ ok: boolean; status?: number
 /** Wait between re-asks of a vendor that did not answer; 0 in tests. */
 export let PROBE_RETRY_MS = 3000;
 export const setProbeRetryMs = (ms: number) => { PROBE_RETRY_MS = ms; };
-export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, ghlCalendarTeam, calendlyWhoAmI, calendlyAvailableTimes, calendlyEventTypeHosts, calendlyEventTypeSchedules, calendlyBusyTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk, ghl: liveGhlReads };
+export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, ghlCalendarTeam, calendlyWhoAmI, calendlyAvailableTimes, calendlyEventTypeHosts, calendlyEventTypeSchedules, calendlyBusyTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk, ghl: liveGhlReads, typeformGetWebhook };
 
 const DAYS_AHEAD = 7;
 type SlotRead = { name: string; id: string; slots: number; href?: string; times: string[] };
@@ -190,6 +194,24 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
       if (days === null) ok("fathom_webhook", "Registered; no delivery yet (Fathom does not list webhooks, so this is as far as the sweep can see).");
       else if (days > (row.fathom_silent_days ?? 14)) bad("fathom_webhook", "warning", `No Fathom delivery in ${days} days (Fathom does not list webhooks, so this is the only signal).`);
       else ok("fathom_webhook", `Last Fathom delivery ${days} day${days === 1 ? "" : "s"} ago.`);
+    }
+  }
+
+  // Typeform (D122, open item 34): the engine's webhook on each mapped form, as Typeform has it now
+  if (on("typeform_webhook") && bindings[TF_TOKEN_KEY] && probes.typeformGetWebhook) {
+    const fix = { label: "Re-register the Typeform webhook", action: "reregister_typeform" as const }, tag = bindings[TF_TAG_KEY], base = publicBase();
+    for (const [formId, f] of Object.entries(formsOf(bindings))) {
+      const name = f.name ? `"${f.name}" (${formId})` : formId, unbound = unboundOf(f, bindings);
+      if (unbound.length) { bad("typeform_webhook", "warning", `Typeform form ${name} is mapped to fields that are not bound (${unbound.join(", ")}), so its webhook is not registered.`, formId); continue; }
+      if (!tag) { bad("typeform_webhook", "error", `Typeform form ${name} has no webhook registered by the engine. Submissions are not arriving.`, formId, undefined, fix); continue; }
+      const r = await probes.typeformGetWebhook(bindings[TF_TOKEN_KEY], formId, tag);
+      const want = base ? typeformWebhookUrl(base, company.id) : null;
+      if (!r.ok) bad("typeform_webhook", r.status === 401 || r.status === 403 ? "error" : "warning", r.status === 401 || r.status === 403 ? `The Typeform token was refused (${r.status}) reading the webhook of ${name}. Replace it.` : `Cannot read the Typeform webhook of ${name}: ${r.error}`, formId);
+      else if (!r.found) bad("typeform_webhook", "error", `The Typeform webhook "${tag}" on ${name} is gone. Submissions will stop arriving.`, formId, undefined, fix);
+      else if (want && r.hook.url !== want) bad("typeform_webhook", "error", `The Typeform webhook "${tag}" on ${name} sends to ${r.hook.url}, not to this engine. Submissions are going elsewhere.`, formId, { url: r.hook.url, want }, fix);
+      else if (!r.hook.enabled) bad("typeform_webhook", "error", `The Typeform webhook "${tag}" on ${name} is turned off. Submissions will stop arriving.`, formId, undefined, fix);
+      else if (r.hook.event_types && r.hook.event_types.form_response === false) bad("typeform_webhook", "error", `The Typeform webhook "${tag}" on ${name} no longer sends form responses.`, formId, undefined, fix);
+      else ok("typeform_webhook", `Webhook "${tag}" on ${name} is registered, on, and sends here.`, formId);
     }
   }
 

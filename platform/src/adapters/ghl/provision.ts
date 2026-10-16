@@ -16,7 +16,8 @@ export type Setup = {
   prefix: string; timezone: string; team: string[];
   hours: { days: number[]; open: string; close: string };
   pipelines: { binding: string; name: string; stages: { binding: string; name: string }[] }[];
-  contactFields: { binding: string; name: string; type: string }[];
+  /** D122: `folder` puts a contact field in the setup's own contact-field folder of that name (the prefix goes in front). */
+  contactFields: { binding: string; name: string; type: string; folder?: string }[];
   opportunityFields: { binding: string; name: string; type: string }[];
   objects: { binding: string; key: string; label: string; plural: string; primary: { key: string; name: string }; fields: { key: string; name: string; type: string; options?: Opt[] }[] }[];
   /** first / second: "contact", "opportunity", or an object's binding; the direction is the one the templates relate in */
@@ -31,12 +32,14 @@ export type Http = (method: string, path: string, opts?: { version?: GhlVersion;
 export type Action = "create" | "exists" | "exists-differs" | "missing-on-ours" | "change-on-ours" | "blocked";
 export type Line = { action: Action; what: string; id?: string; detail?: string };
 
-type Field = { id: string; name: string; dataType?: string; documentType?: string };
+type Field = { id: string; name: string; dataType?: string; documentType?: string; parentId?: string };
 type ObjField = { id: string; name: string; fieldKey: string; dataType?: string; parentId?: string; options?: { key: string; label?: string }[] | null };
 type State = {
   timezone?: string;
   pipelines: { id: string; name: string; stages: { id: string; name: string; position?: number; showInFunnel?: boolean; showInPieChart?: boolean }[] }[];
   contactFields: Field[]; opportunityFields: Field[];
+  /** contact-field folders, by the id the fields name as their parent (GHL's list leaves folders out; each is read by id) */
+  folders: { id: string; name: string }[];
   objects: { id: string; key: string; labels?: { singular?: string } }[];
   associations: { id: string; key: string; firstObjectKey: string; secondObjectKey: string }[];
   calendars: { id: string; name: string; groupId?: string | null; slotDuration?: number; slotDurationUnit?: string; slotInterval?: number; slotIntervalUnit?: string; teamMembers?: Member[]; openHours?: { daysOfTheWeek: number[]; hours: { openHour: number; openMinute: number; closeHour: number; closeMinute: number }[] }[] }[];
@@ -59,7 +62,12 @@ async function readState(call: Http, loc: string): Promise<State> {
     call("GET", `/calendars/?locationId=${loc}`, CAL), call("GET", `/users/?locationId=${loc}`), call("GET", `/calendars/groups?locationId=${loc}`, CAL),
   ]);
   const fields = (r: { customFields?: Field[] }) => (r.customFields ?? []).filter((f) => f.documentType !== "folder");
-  return { timezone: l.location?.timezone, pipelines: p.pipelines ?? [], contactFields: fields(cf), opportunityFields: fields(of), objects: ob.objects ?? [],
+  // D122: a contact folder is a custom field with documentType "folder" (verified read-only on RapidCloser, 2026-10-16: the list
+  // omits them, GET /locations/{id}/customFields/{folderId} answers one); the folders in use are the parents the fields name
+  const parents = [...new Set(fields(cf).map((f) => f.parentId).filter((x): x is string => !!x))];
+  const folders = (await Promise.all(parents.map(async (id) => { const r = await call("GET", `/locations/${loc}/customFields/${id}`); return r.customField?.documentType === "folder" ? { id, name: String(r.customField.name ?? "") } : null; })))
+    .filter((x): x is { id: string; name: string } => !!x);
+  return { timezone: l.location?.timezone, pipelines: p.pipelines ?? [], contactFields: fields(cf), opportunityFields: fields(of), folders, objects: ob.objects ?? [],
     associations: as.associations ?? [], calendars: ca.calendars ?? [], users: us.users ?? [], groups: gr.groups ?? [] };
 }
 
@@ -145,11 +153,30 @@ async function pass(setup: Setup, s: State, loc: string, call: Http, apply: bool
     await call("PUT", path, { body: { name: ex.name, stages: list.map((x, i) => ({ ...x, position: i })) } });
   }
 
-  for (const [model, list, have] of [["contact", setup.contactFields, s.contactFields], ["opportunity", setup.opportunityFields, s.opportunityFields]] as const) for (const f of list) {
+  // D122: the setup's contact-field folders. GHL's spec documents folders for custom objects only; a contact folder is made the
+  // way this repo's first build made "Core System" (POST /locations/{id}/customFields with documentType "folder"), and the
+  // fields go in it by parentId. A folder GHL does not make (or whose id it does not give) is said, and its fields go in without one.
+  const folderIds = new Map<string, string | null>();
+  for (const fname of [...new Set(setup.contactFields.map((f) => f.folder).filter((x): x is string => !!x))]) {
+    const name = P + fname, what = `contact field folder "${name}"`, ex = s.folders.find((x) => norm(x.name) === norm(name));
+    if (ex) { say("exists", what, ex.id); folderIds.set(fname, ex.id); continue; }
+    say("create", what, undefined, `holds ${setup.contactFields.filter((f) => f.folder === fname).length} contact fields`);
+    folderIds.set(fname, null);
+    if (!apply) continue;
+    const r = await call("POST", `/locations/${loc}/customFields`, { body: { name, documentType: "folder", model: "contact", dataType: "TEXT" } }).catch((e: Error) => ({ error: String(e.message).slice(0, 200) }));
+    const id = r?.customFieldFolder?.id ?? r?.customField?.id ?? r?.folder?.id ?? r?.id;
+    if (typeof id === "string" && id) folderIds.set(fname, id);
+    else say("blocked", what, undefined, `GHL did not make it${r?.error ? ` (${r.error})` : " (no folder id in its answer)"}: its fields go in without a folder; make "${name}" in GHL and move them into it by hand`);
+  }
+  for (const [model, list, have] of [["contact", setup.contactFields, s.contactFields], ["opportunity", setup.opportunityFields, s.opportunityFields]] as const) for (const f of list as { binding: string; name: string; type: string; folder?: string }[]) {
     const name = P + f.name, what = `${model} field "${name}"`, ex = have.find((x) => norm(x.name) === norm(name));
-    if (!ex) { say("create", what, undefined, f.type); if (apply) await call("POST", `/locations/${loc}/customFields`, { body: { name, dataType: f.type, model } }); continue; }
+    const parentId = f.folder ? folderIds.get(f.folder) ?? undefined : undefined;
+    if (!ex) { say("create", what, undefined, `${f.type}${f.folder ? `, in "${P + f.folder}"` : ""}`); if (apply) await call("POST", `/locations/${loc}/customFields`, { body: { name, dataType: f.type, model, ...(parentId ? { parentId } : {}) } }); continue; }
     if (T(ex.dataType) !== T(f.type)) { say("exists-differs", what, ex.id, `is ${ex.dataType}, the setup wants ${f.type}: left alone and not bound`); continue; }
-    say("exists", what, ex.id, ex.dataType); crm[`field_${model}_${f.binding}`] = ex.id;
+    crm[`field_${model}_${f.binding}`] = ex.id;
+    // a field already made outside its folder stays where it is (a field is never PUT): said, so a person can move it
+    if (f.folder && folderIds.get(f.folder) && ex.parentId !== folderIds.get(f.folder)) { say("exists-differs", what, ex.id, `${ex.dataType}, in the folder "${s.folders.find((x) => x.id === ex.parentId)?.name ?? ex.parentId ?? "none"}", not "${P + f.folder}": bound, not moved (move it by hand)`); continue; }
+    say("exists", what, ex.id, ex.dataType);
   }
 
   const objectsOk = new Set<string>();

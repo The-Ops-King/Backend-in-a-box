@@ -1,5 +1,5 @@
 {
-  "_note": "Dating Nelly, the pilot dating offer, inside the RapidCloser GHL location (D117 scope tag \"dating\"). Built by scripts/provision-ghl.ts from installs/dating/ghl-setup.json. No secrets: the PIT comes from the environment at install. Deposits run $100-$500 (Tyler, 2026-10-16); a deposit is told apart by its product, never its amount (D119): her deposit product or plan ids go in depositProducts once her processor is set up, and crm.stage_closer_deposit binds the closer pipeline's Deposit stage once provision-ghl has added it.",
+  "_note": "Dating Nelly, the pilot dating offer, inside the RapidCloser GHL location (D117 scope tag \"dating\"). Built by scripts/provision-ghl.ts from installs/dating/ghl-setup.json. No secrets: the PIT comes from the environment at install. Deposits run $100-$500 (Tyler, 2026-10-16); a deposit is told apart by its product, never its amount (D119): her deposit product or plan ids go in depositProducts once her processor is set up, and crm.stage_closer_deposit binds the closer pipeline's Deposit stage once provision-ghl has added it. D122: her Typeform application (AjY7UfXZ) is mapped by question ref under typeform; the token is given at install (DN_TYPEFORM_TOKEN), and the field_contact_app_* ids come from provision-ghl --apply.",
   "name": "Dating (Nelly)",
   "slug": "dating-nelly",
   "booking": {
@@ -132,5 +132,45 @@
     "call_notes": "You are the note-taker for a sales team. Read the transcript of a sales call and pull out what the team needs to remember. Use only what was actually said; never invent details. Quote the prospect's own words where they matter.\n\nAnswer with exactly this JSON shape:\n{\n  \"summary\": \"two or three sentences on what happened and where it landed\",\n  \"prospect_situation\": \"their current situation in their own terms\",\n  \"pain\": [\"each problem they described, in their words\"],\n  \"desire\": [\"what they said they want\"],\n  \"objections\": [{\"objection\": \"short label\", \"quote\": \"what they said\", \"handled\": true or false}],\n  \"disposition\": \"closed_won\" | \"follow_up\" | \"lost\" | \"dq\" | \"financing_denied\" | \"close_pending\" | \"unclear\",\n  \"primary_objection\": \"price\" | \"partner\" | \"timing\" | \"fear\" | \"competitor\" | \"think_about_it\" | \"\",\n  \"next_step\": \"the agreed next step, or empty\",\n  \"next_step_date\": \"YYYY-MM-DD if a date was agreed, else empty\",\n  \"payment_terms\": \"what was agreed about payment, or empty\",\n  \"quotes\": [\"up to three verbatim lines worth keeping\"]\n}",
     "call_review": "You are the note-taker for a sales team. Read the transcript of a sales call and pull out what the team needs to remember. Use only what was actually said; never invent details. Quote the prospect's own words where they matter.\n\nYou are also the team's sales coach: score what you can hear in the transcript against the team's process; do not guess at anything the transcript does not show. Be direct and specific, and cite the moment in the call for every finding.\n\nAnswer with exactly this JSON shape:\n{\n  \"notes\": {\n  \"summary\": \"two or three sentences on what happened and where it landed\",\n  \"prospect_situation\": \"their current situation in their own terms\",\n  \"pain\": [\"each problem they described, in their words\"],\n  \"desire\": [\"what they said they want\"],\n  \"objections\": [{\"objection\": \"short label\", \"quote\": \"what they said\", \"handled\": true or false}],\n  \"disposition\": \"closed_won\" | \"follow_up\" | \"lost\" | \"dq\" | \"financing_denied\" | \"close_pending\" | \"unclear\",\n  \"primary_objection\": \"price\" | \"partner\" | \"timing\" | \"fear\" | \"competitor\" | \"think_about_it\" | \"\",\n  \"next_step\": \"the agreed next step, or empty\",\n  \"next_step_date\": \"YYYY-MM-DD if a date was agreed, else empty\",\n  \"payment_terms\": \"what was agreed about payment, or empty\",\n  \"quotes\": [\"up to three verbatim lines worth keeping\"]\n},\n  \"rubric\": {\n  \"overall_score\": 1 to 10,\n  \"scores\": {\"rapport\": 1 to 10, \"discovery\": 1 to 10, \"pain_depth\": 1 to 10, \"presentation\": 1 to 10, \"objection_handling\": 1 to 10, \"close_attempt\": 1 to 10},\n  \"strengths\": [\"what the closer did well, with the moment\"],\n  \"misses\": [\"what the closer missed or did poorly, with the moment\"],\n  \"coaching\": [\"the one to three changes that would most improve the next call\"],\n  \"talk_ratio\": \"closer vs prospect, roughly, if it can be judged\"\n}\n}",
     "setter_call_notes": "You read transcripts of setter phone calls for a sales team. Report what was said. Do not invent enthusiasm, and do not soften a bad call. If something was not discussed, say so rather than guessing.\n\nScore fit against this rubric exactly:\n10-8  named a specific problem, gave a timeline, asked about price or next steps\n7-5   engaged and answered questions, but vague on urgency or budget\n4-2   polite but passive; no stated problem or timeline\n1     wrong number, spam, or not a prospect at all\n\nAnswer with exactly this JSON shape:\n{\n  \"summary\": \"what the call was about and where it landed, one or two sentences\",\n  \"pains\": \"what is bothering them, in their words; empty string if it did not come up\",\n  \"goals\": \"what they want; empty string if it did not come up\",\n  \"triage\": \"anything that affects whether they are a fit (budget, timing, decision maker); empty string if nothing\",\n  \"next_step\": \"the next step agreed or suggested on the call (a callback time, information to send, the call with the specialist); empty string if none\",\n  \"fit_quality\": 1 to 10 per the rubric,\n  \"digest\": \"the Slack-ready write-up: the summary, then a line each for Pains, Goals and Triage only when they came up, then Fit: N/10 and a few words why. A short confirmation call where nothing new was said is one line.\"\n}"
+  },
+  "typeform": {
+    "forms": {
+      "AjY7UfXZ": {
+        "name": "VIP Matchmaking Application",
+        "answers": {
+          "1e47ac33-7607-4fdd-aeec-68544c339151": "first_name",
+          "ff1142ad-8e09-4ad9-971c-c779c7e8ec47": "last_name",
+          "f2a32a24-03eb-40b8-9abf-e3630476f483": "phone",
+          "3e2907ea-f48b-49a7-ac17-34b5defaaee8": "field_contact_app_age",
+          "26820646-2695-468b-8f8b-298acb395f80": "field_contact_app_location",
+          "55064785-c89f-44f4-b474-0abf290ac873": "field_contact_app_profession",
+          "874b8bef-a59d-4bbf-a3fc-d309e055d9ec": "field_contact_app_relationship_status",
+          "7f6bcb50-22f1-4c13-9623-4ee5e780898d": "field_contact_app_income",
+          "b7d23d02-0888-40c9-9267-851c7efa2228": "field_contact_app_looking_for",
+          "9a728b8d-6698-4364-8c13-cf5de19fa1c6": "field_contact_app_has_children",
+          "32ddff25-2457-4c33-b03f-8a7b58c7456f": "field_contact_app_wants_children",
+          "d4608615-2cb7-4006-8a68-62c247206362": "field_contact_app_religion",
+          "9982a020-5442-4723-9acc-4d6755d06394": "field_contact_app_shared_faith",
+          "e0fae0e9-25c4-4d68-810a-14434b688c56": "field_contact_app_relocating",
+          "da1b3d27-00fd-49bf-8924-67afa3db8a1c": "field_contact_app_ideal_partner",
+          "1fe81d1a-18f7-4395-96b1-dbae0f08c1b9": "field_contact_app_dating_challenge",
+          "b490c521-a209-491f-96ac-98d8f2188de1": "field_contact_app_support_wanted",
+          "7cfb390d-0daf-489d-a6b8-70a4d14a2720": "field_contact_app_open_to_coaching",
+          "51927b21-936c-4de4-bee1-0a50732c36aa": "email",
+          "7e8dcb1c-066c-436c-aac9-ff4b7cb892ca": "field_contact_app_strategy_session",
+          "1cbca1a9-d44b-4d53-b638-c27a0081467b": "field_contact_app_consent"
+        },
+        "hidden": {
+          "utm_source": "field_contact_utm_source",
+          "utm_medium": "field_contact_utm_medium",
+          "utm_campaign": "field_contact_utm_campaign",
+          "utm_content": "field_contact_utm_content",
+          "utm_term": "field_contact_utm_term",
+          "fbclid": "field_contact_fbclid"
+        },
+        "submittedAt": "field_contact_app_submitted_at",
+        "responseId": "field_contact_app_response_id"
+      }
+    }
   }
 }

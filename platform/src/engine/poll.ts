@@ -17,10 +17,10 @@ import { raiseSetterMissing, settleSetterAlerts } from "./setter-missing";
 export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; agreements: number; cardsMoved: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
 // US/CA: ten digits, or eleven with a leading 1, with or without the plus, are one number; any other length stays as typed
-const normPhone = (p?: string) => p ? p.replace(/[^\d+]/g, "").replace(/^\+?1?(\d{10})$/, "+1$1") : undefined;
+export const normPhone = (p?: string) => p ? p.replace(/[^\d+]/g, "").replace(/^\+?1?(\d{10})$/, "+1$1") : undefined;
 const normEmail = (e?: string) => e?.trim().toLowerCase() || undefined;
 /** As typed (case, hyphens, apostrophes), minus surrounding and doubled spaces; blank is null so a template's `default:` can speak. */
-const normName = (n?: string | null) => n?.trim().replace(/\s+/g, " ") || null;
+export const normName = (n?: string | null) => n?.trim().replace(/\s+/g, " ") || null;
 /** A zone the CRM or a booking sent that Luxon cannot use is no zone at all (the company's stands in). */
 const validZone = (tz?: string | null) => (tz && DateTime.now().setZone(tz).isValid ? tz : undefined);
 
@@ -78,7 +78,7 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
 }
 
 /** Attaches an identifier; one the CRM had retired from someone (a recycled number) moves to the person who carries it now. A current identifier of another person is left alone. */
-async function attachIdentifier(c: PoolClient, companyId: string, contactId: string, kind: "ghl_contact" | "email" | "phone", value: string) {
+export async function attachIdentifier(c: PoolClient, companyId: string, contactId: string, kind: "ghl_contact" | "email" | "phone", value: string) {
   await c.query(`insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,$3,$4)
     on conflict (company_id, kind, value) do update set contact_id=excluded.contact_id, retired_at=null, created_at=now() where contact_identifiers.retired_at is not null`, [companyId, contactId, kind, value]);
 }
