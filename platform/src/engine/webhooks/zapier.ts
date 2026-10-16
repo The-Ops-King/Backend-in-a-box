@@ -4,7 +4,8 @@ import type { RecordingInput } from "../recordings";
 /**
  * Payments forwarded by a Zap (Whop → Zapier → Webhooks by Zapier → us) when the processor's own webhooks are out of
  * reach. The Zap maps fields; names are accepted in snake_case or camelCase. Idempotency is the transaction id, same
- * as the direct webhook, so a Zap replay is a no-op.
+ * as the direct webhook, so a Zap replay is a no-op. D119 addendum: the product's and plan's names (`product_name` / `plan_name`,
+ * or `product_title` / `plan_title`) tell a deposit by the naming rule; a Zap that sends only Whop ids has the names read from Whop.
  */
 export function parseZapierPayment(body: Record<string, unknown>): { ok: true; input: PaymentInput } | { ok: false; why: string } {
   const pick = (...keys: string[]) => { for (const k of keys) { const v = body[k]; if (v !== undefined && v !== null && String(v).trim() !== "") return String(v).trim(); } return undefined; };
@@ -22,10 +23,16 @@ export function parseZapierPayment(body: Record<string, unknown>): { ok: true; i
     providerPaymentId: id, provider: (pick("provider", "processor") ?? "whop").toLowerCase(),
     amount: status === "refunded" ? -Math.abs(amountNum) : amountNum, currency: pick("currency") ?? "USD", status, paidAt,
     email: pick("email", "customer_email", "customerEmail", "user_email"), phone: pick("phone", "customer_phone", "customerPhone"), memberId: pick("member_id", "memberId", "whop_user_id", "whopUserId", "user_id"),
-    // D119: the product and plan, so a payment for one of the company's deposit products is told apart (raw.plan is the older catch-all)
-    raw: { via: "zapier", plan: pick("plan", "plan_id", "product"), product_id: pick("product_id", "productId"), plan_id: pick("plan_id", "planId"), metadata: body.metadata ?? undefined },
+    // D119: the product and plan, so a payment for one of the company's deposit products is told apart (raw.plan is the older catch-all).
+    // D119 addendum: their names, so one whose product or plan is named with the word "deposit" is one; a Zap's `product` / `plan`
+    // that is not a Whop id (prod_… / plan_…) is taken as the name, one that is as the id
+    raw: { via: "zapier", plan: pick("plan", "plan_id", "product"), product_id: pick("product_id", "productId") ?? idOf(pick("product"), "prod_"), plan_id: pick("plan_id", "planId") ?? idOf(pick("plan"), "plan_"),
+      product_name: pick("product_name", "productName", "product_title", "productTitle") ?? nameOf(pick("product"), "prod_"), plan_name: pick("plan_name", "planName", "plan_title", "planTitle") ?? nameOf(pick("plan"), "plan_"), metadata: body.metadata ?? undefined },
   } };
 }
+
+const idOf = (v: string | undefined, prefix: string) => (v?.startsWith(prefix) ? v : undefined);
+const nameOf = (v: string | undefined, prefix: string) => (v && !v.startsWith(prefix) ? v : undefined);
 
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
 /**

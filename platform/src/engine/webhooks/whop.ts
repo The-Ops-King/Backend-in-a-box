@@ -1,5 +1,6 @@
 import type { PaymentInput } from "../payments";
 import { verifyStandardWebhook } from "./standard";
+import { whopNames } from "@/adapters/whop/client";
 
 /** Whop signs with Standard Webhooks (whop/01-api-facts.md); the ws_ secret is used as given. */
 export const verifyWhopSignature = verifyStandardWebhook;
@@ -11,12 +12,12 @@ const amountOf = (v: unknown): number | undefined => {
   const n = Number(v); return Number.isFinite(n) ? n : undefined;
 };
 
-/** v1 envelope → what the ledger needs. Returns null for events the ledger does not record. */
+/** v1 envelope → what the ledger needs. Returns null for events the ledger does not record. D119 addendum: the product's and plan's names ride along in raw (`product_name`, `plan_name`). */
 export function parseWhopEvent(env: WhopEnvelope): (PaymentInput & { deliveryId: string; eventType: string }) | null {
   const d = env.data ?? {};
   const base = { deliveryId: env.id, eventType: env.type, provider: "whop" as const, currency: String(d.currency ?? (d.total as { currency?: string } | undefined)?.currency ?? "usd"),
     email: typeof d.customer_email === "string" ? d.customer_email : undefined, phone: typeof d.customer_phone === "string" ? d.customer_phone : undefined,
-    memberId: typeof d.member_id === "string" ? d.member_id : undefined, raw: { type: env.type, plan_id: d.plan_id, product_id: d.product_id, membership_id: d.membership_id, billing_reason: d.billing_reason, payment_method_type: d.payment_method_type, metadata: d.metadata } };
+    memberId: typeof d.member_id === "string" ? d.member_id : undefined, raw: { type: env.type, plan_id: d.plan_id, product_id: d.product_id, ...whopNames(d), membership_id: d.membership_id, billing_reason: d.billing_reason, payment_method_type: d.payment_method_type, metadata: d.metadata } };
   const when = (s: unknown) => (typeof s === "string" && !Number.isNaN(Date.parse(s)) ? new Date(s) : new Date());
   switch (env.type) {
     case "payment.succeeded": {

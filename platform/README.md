@@ -105,11 +105,20 @@ secret with `whop: { webhookSecret }`.
 **Deposits are a product, not an amount (D119).** The install declares which of the processor's products are a
 deposit: `"depositProducts": ["prod_…", "plan_…"]` (Whop product ids or plan ids, or a Zap's `plan`/`product_id`/`plan_id`
 as it sends them; bound as `payments.deposit_products`; omitted, left as it is; `[]` removes them). A payment whose
-`product_id` or `plan_id` is one of them is kind `deposit`; nothing else ever is: a first payment short of the price is
-the first `installment`, and with no product declared there are no deposits at all. A deposit counts toward the price
+`product_id` or `plan_id` is one of them is kind `deposit`; the amount never says so: a first payment short of the price is
+the first `installment` (with no product declared, the names tell: below). A deposit counts toward the price
 (the payment that clears it after is the `balance`), shows in cash collected, and is not a close: the agreement, its
 chase, the won opportunity and Deal closed wait for the first payment beyond it (`event.prior_non_deposit_total`,
 `contact.paid_non_deposit`). Facts about Whop's payload are in `whop/01-api-facts.md`.
+
+**Or by name (D119 addendum).** A company that declares no deposit products needs no ids: a payment whose Whop **product's
+or plan's name has the word "deposit"** (whole, any case: "Deposit", "VIP Deposit", "Deposit - $250"; not "deposited") is a
+deposit. Name the deposit product (or its plan) at Whop with the word. Whop's payload carries the names (`line_items[]`
+`product_title` / `plan_title`); a payment that comes with ids only has them read from Whop with `secret.whop_api_key`
+(cached an hour per company). Either way they are kept on the payment as `raw.product_name` / `raw.plan_name`. Declared
+`depositProducts` win: a company that declares them is told by its list alone. When a name cannot be had (no key, Whop
+down), the payment is not a deposit, is never held, is flagged `raw.deposit_check`, and raises an alert
+(`payment:deposit-unchecked:<id>`) saying the agreement went out if it was the first payment. Past payments keep their kinds.
 
 ### Payments through Zapier instead
 
@@ -117,8 +126,10 @@ When the processor's own webhooks are out of reach, a Zap forwards them: trigger
 Zapier, then **Webhooks by Zapier → POST** to `/api/webhooks/zapier/<companyId>/payment` with header
 `x-engine-secret: <secret>` (install returns the secret under `inbound`) and a JSON body of the
 mapped fields: `transaction_id`, `amount`, `email`, `phone`, `member_id`, `paid_at`, `status`
-(`succeeded` default, or `failed` / `refunded`). Same ledger, same linking, same idempotency on
-the transaction id, so a replayed Zap changes nothing.
+(`succeeded` default, or `failed` / `refunded`), and for deposits `product_name` and `plan_name` (or `product_title` /
+`plan_title`; a `product` / `plan` that is not a Whop `prod_…` / `plan_…` id is taken as the name) and `product_id` /
+`plan_id`. A Zap that sends only the ids has the names read from Whop when the company's Whop key is bound. Same ledger,
+same linking, same idempotency on the transaction id, so a replayed Zap changes nothing.
 
 ## Recordings (D22)
 

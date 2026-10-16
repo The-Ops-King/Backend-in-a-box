@@ -3982,3 +3982,56 @@ installment of a payment plan.
   ids 1, the disposition picklist 3. Existing tests that encoded the guess say installment now (`payments`, `journey`,
   `templates.scenarios`, `edge-cases.contacts`, `eod`, `moves`); D118's identity test holds D118's claim against the
   templates as D118 left them (`fixtures/before-d119`).
+
+### D119 addendum. A deposit is told by its name too: the word "deposit" (2026-10-16)
+
+Tyler, 2026-10-16: "We don't have a deposit link for either [Hair or PMU] yet. But I'll make sure they say 'deposit'." So
+there are no ids to declare per company: for every company (Hair, PMU, Dating Nelly, whose Whop is not set up yet), a payment
+is kind `deposit` when its Whop **product's name or its plan's name has the word "deposit"**: whole, in any case ("Deposit",
+"VIP Deposit", "Deposit - $250", "vip-deposit"); a word that only contains it does not count ("deposited", "nondeposit",
+"Redeposit", and the plural "Deposits"). This is an exact naming convention on a label the company itself sets at Whop, read
+the way an id is read (`DEPOSIT_WORD`, `deposit-names.ts`: the letters `deposit` with no letter or digit either side), not a
+reading of what a name means; nothing about the amount, the buyer or the wording around it is ever read.
+
+- **Declared ids still work, and win.** A company that declares `depositProducts` is told by its list alone: a declared
+  product or plan is a deposit whatever it is called, and nothing else is, the names not read (`isDeposit`, `payments.ts`).
+  That keeps the declaration an escape hatch for a name that says deposit and is not one ("No Deposit Plan").
+- **Where the names come from.** Whop's Payment carries them on `line_items[]`: `product_title` and `plan_title`. Verified
+  2026-10-16 read-only on PMU's key: `GET /payments/pay_VIuXKUpc6WJnhA` and the payment list carry `product_id`, `plan_id`
+  and `line_items: [{ product_id, product_title: "Beauty Moguls Method", plan_id, plan_title: null }]` (its plan has no
+  title: `GET /plans/plan_7tHpabPHO7RrA` is `title: null`, with `product: { id, title }`; `GET /products/{id}` has `title`).
+  The webhook's `data` is the same Payment (`whop/01-api-facts.md`); no Whop webhook has reached Hair or PMU yet (their
+  ledgers are backfills, which kept only the ids: `pay_aWgRac…` `prod_HrtmAIvLFEK7r` / `plan_GrC5lgQYrE6bY`). Both doors and
+  the backfill now keep `product_name` and `plan_name` on the payment's `raw` (the line item for the payment's own product
+  first; a nested `product`/`plan` object's `title` or a flat `product_title` also count), so reports and the dashboard can show
+  them. A key left out was not carried; `null` was carried and is no name.
+- **Names not carried: read from Whop.** A new succeeded payment whose product or plan has an id but no name carried (a Zap
+  that sends only ids, a payload without line items) has them read with the company's `secret.whop_api_key`
+  (`GET /products/{id}`, `GET /plans/{id}`, 3 s timeout, since a Whop webhook waits for its answer), the product first and the
+  plan only if the product's name does not say deposit. Cached per company in `engine_state` `whop_names:<companyId>`, an hour
+  (a product renamed is seen within the hour; a new product is a new id, never stale). Failed payments and refunds are never
+  looked up: their kinds are never deposits. A company that declares products is never looked up either.
+- **When a name cannot be had** (no Whop key, Whop down or slow, an unknown id, a non-Whop processor without names), the
+  payment is **not a deposit**, recorded and settled as any other, **never held**; it is flagged on the row
+  (`raw.deposit_check: { failed, at }`, findable later) and raises an error alert `payment:deposit-unchecked:<payment id>`
+  (source `engine`; a person resolves it) that says the payment, why, and that the agreement went out if it was the first
+  payment. Why not the other way: taken wrongly as a deposit, a real payment would send no agreement, never win the
+  opportunity and never close, and nothing would say so; taken wrongly as not a deposit, the agreement goes out early, which
+  the person sees and the alert names the same minute. Holding the payment until Whop answers (a non-2xx so Whop redelivers)
+  was not chosen: a lasting failure (a revoked key) would leave real money unrecorded for Whop's three days of retries.
+- **The Zapier door** takes the names as `product_name` / `plan_name` (also `product_title` / `plan_title`, camelCase); a Zap's
+  `product` / `plan` that is not a Whop id (`prod_…` / `plan_…`) is taken as the name, one that is as the id. A Zap that
+  sends only the ids has the names read from Whop as above (provider `whop`).
+- **Past payments keep their kinds**, as D119 decided: a kind is derived once, when the payment settles (on arrival, or when
+  an unlinked one is linked or healed), and nothing re-derives a settled payment. A product renamed to say deposit changes
+  only the payments after it; there is no migration.
+- Tyler: name each deposit product (or its plan) at Whop with the word "Deposit". The product's name is the one Whop's payload
+  is proven to carry; a plan's title is optional at Whop and empty on PMU's plans today. PMU's archived "DEPOSIT" product
+  (`prod_PR9AINNIxjRFV`) qualifies once it is sold again; its $100/$250/$500 plans on Beauty Moguls Method do not unless they
+  are titled with the word.
+- Tests: `deposit-names.test.ts` (the whole word; declared ids win; the names in Whop's payload, the backfill's and a Zap's;
+  through the ledger with a fake Whop: the payload's names with no call, the lookup and its cache, Whop down and an unknown id
+  (not a deposit, recorded, flagged, alerted), no key, failed payments and refunds never looked up, the declared company never
+  looked up, the Zapier door both ways, and a rename changing only later payments). Each fails without its change: with the
+  change reverted 10 of 11 fail (the declared-company case held before); a substring match turns 2 red, names read beside a
+  declaration 2, a silent miss without a key 1.
