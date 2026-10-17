@@ -13,7 +13,7 @@ features:
     display_name: Ops Engine
     always_online: true
   slash_commands:
-    - { command: /mtd, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Month to date: leads, shows, closes, cash vs last month", usage_hint: "", should_escape: false }
+    - { command: /mtd, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Month to date: leads, shows, closes, cash vs last month", should_escape: false }
     - { command: /weekly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Last week's numbers (or: this week)", usage_hint: "[this week]", should_escape: false }
     - { command: /monthly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Last month's numbers (or: this month)", usage_hint: "[this month]", should_escape: false }
     - { command: /show-rate, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Show rate by closer and source", usage_hint: "[last month]", should_escape: false }
@@ -23,7 +23,7 @@ features:
     - { command: /leads, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Leads, MQLs and marketing DQs by source", usage_hint: "[yesterday]", should_escape: false }
     - { command: /closes, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Every close in the period: who, closer, day won", usage_hint: "[last month]", should_escape: false }
     - { command: /leaderboard, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Closers by cash, setters by sets", usage_hint: "[last week]", should_escape: false }
-    - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "What the bot can answer", usage_hint: "", should_escape: false }
+    - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "What the bot can answer", should_escape: false }
 oauth_config:
   scopes:
     bot:
