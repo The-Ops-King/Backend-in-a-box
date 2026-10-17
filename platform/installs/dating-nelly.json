@@ -233,5 +233,6 @@
   },
   "alerts": {
     "slackChannel": "C0C9UDURSGM"
-  }
+  },
+  "quietWhenEmpty": true
 }

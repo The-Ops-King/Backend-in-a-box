@@ -249,6 +249,17 @@ booking questions with their top answers), `by.closer` / `by.setter` (when `brea
 nothing at all is the `empty` line. The shipped layout says exactly what the old code said. `period: in_progress` sends
 this week or month so far instead of the one just ended. A copy with no layout of its own is worded by the shipped one.
 
+**Quiet when empty (D124).** Install key `quietWhenEmpty: true` (bound as `reports.quiet_when_empty`; omitted on a
+re-install it stays as it is, `false` turns it off; also settable with `POST /api/admin/bindings/set`): a scheduled
+wrap-up or leaderboard with nothing in it posts nothing. The post step opts in with `quiet_when_empty: "vars.<into>.nothing"`,
+the step before's own fact, from the data, never the words: `report.nothing` (every number read zero or unread, the
+show-rate breakdown all zero, no booking answers, no per-person number, and GHL was read; a failed GHL read is never
+nothing) and `board.nothing` (no closer cash or close, no setter set). The run log says "nothing happened, so nothing was
+posted (quiet when empty)" and the send is kept suppressed with what it would have said; a run started by hand posts
+anyway. With the setting on, the chart draws the post as a sometimes-step, "only if something happened"; without it,
+nothing changes. The Daily, Weekly and Monthly wrap-ups and the Weekly leaderboard opt in; Calendar availability, Health
+check, Ledger drift and the EOD workflows already post only when there is something.
+
 ### Setter metrics (D64)
 
 "What is Luis's speed to lead, and how many calls has he actually connected?" is answered from the ledger

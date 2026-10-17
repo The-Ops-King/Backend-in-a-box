@@ -83,6 +83,8 @@ export type InstallInput = {
    * whose fields are all bound. Omitted: left as it is.
    */
   typeform?: { token?: string; forms?: TypeformForms };
+  /** D124: nothing is posted when nothing happened: a scheduled wrap-up or leaderboard with nothing in it posts nothing (bound as reports.quiet_when_empty). Omitted: left as it is; false turns it off. */
+  quietWhenEmpty?: boolean;
   /** Dark hours. Sends wait for the window; `allowTransactional` lets automated receipts ("you're booked") through at any hour. */
   quietHours?: { start?: string; end?: string; allowTransactional?: boolean };
 };
@@ -302,6 +304,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     if (input.alerts?.pollFailures !== undefined) await bind("alerts.poll_failures", "number", String(input.alerts.pollFailures));
     if (input.alerts?.asName) await bind("alerts.as_name", "text", input.alerts.asName);
     if (input.alerts?.asIcon) await bind("alerts.as_icon", "text", input.alerts.asIcon);
+    if (input.quietWhenEmpty !== undefined) await bind("reports.quiet_when_empty", "text", String(input.quietWhenEmpty));
     // prompts: the company's own text wins; a default fills any prompt a template needs that nobody wrote yet
     const boundKeys = new Set((await many<{ key: string }>(c, "select key from bindings where company_id=$1", [companyId])).map((b) => b.key));
     for (const [k, v] of Object.entries(input.prompts ?? {})) await bind(`prompt.${k}`, "text", v);

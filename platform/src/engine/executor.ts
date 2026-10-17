@@ -23,6 +23,7 @@ import { APPOINTMENT_FACTS, APPOINTMENT_JOINS, appointmentRow, runLookup } from 
 import { dropTranscripts, hydrateTranscripts } from "./transcripts";
 import { dropReplies, hydrateReplies, mentionsReplyText, readsReplyText, scrubReplyText } from "./replies";
 import { boardOf, stageWords } from "./card-moves";
+import { QUIET_SUPPRESSED, QUIET_WHY, quietWhenEmpty } from "./quiet";
 
 /** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
 export const SHADOW_PREFIX = "🧪 *shadow* — ";
@@ -411,6 +412,11 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const channelId = [node.channel, ...fallbacksOf(node.fallback_channel)].map(channelOf).find(Boolean);
       // render first even when it cannot post: the dashboard shows what WOULD have gone to Slack, which is the whole point of shadow
       const text = render(node.template, d.ctx, env(d));
+      // D124: quiet when empty: the step before found nothing (its own fact, from the data), so a scheduled run posts nothing; a run started by hand still posts
+      if (node.quiet_when_empty && quietWhenEmpty(d.bindings) && (d.ctx.event as { manual?: boolean } | undefined)?.manual !== true && resolvePath(d.ctx, node.quiet_when_empty) === true) {
+        await recordSend(d, node, "slack", text, "suppressed", QUIET_SUPPRESSED);
+        return { status: "skipped", next, result: { kind: "noop", why: QUIET_WHY } };
+      }
       if (!conn || !channelId) { await recordSend(d, node, "slack", text, "suppressed", conn ? "unbound: slack channel" : "unbound: slack"); return { status: "skipped", next, result: { kind: "blocked", why: conn ? "slack channel not bound" : "slack not connected", would_post: text.slice(0, 160) } }; }
       // a thread reply needs the parent's ts: an earlier post in this run, or a post another run remembered under a tag ("tag:eod-reminder:<user>:<day>").
       // Without one (parent skipped, nothing under that tag) it posts to the channel and says so.
@@ -769,9 +775,9 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const { parsePeriod } = await import("./metric-registry");
       const period = parsePeriod(words, d.company.timezone, d.now);
       if (!period) return { status: "failed", error: `leaderboard: "${words}" is not a period I can read (try "last week", "this month", "last 30 days")` };
-      const { formatLeaderboard, getLeaderboard } = await import("./leaderboard");
+      const { formatLeaderboard, getLeaderboard, nothingOnBoard } = await import("./leaderboard");
       const lb = await getLeaderboard(d.c, d.company.id, { period, now: d.now.toJSDate() }, d.probes?.ghl);
-      setPath(d.ctx, `vars.${node.into}`, { ...lb, body: formatLeaderboard(lb) });
+      setPath(d.ctx, `vars.${node.into}`, { ...lb, body: formatLeaderboard(lb), nothing: nothingOnBoard(lb) });
       return { status: "ok", next, result: { period: { from: period.from, to: period.to }, closers: lb.closers.length, setters: lb.setters.length, ...(lb.cash_unavailable ? { cash: lb.cash_unavailable } : {}) } };
     }
     case "set_var": {

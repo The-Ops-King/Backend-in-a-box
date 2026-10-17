@@ -41,9 +41,18 @@ export type Layout = { heading: Record<string, string>; sections: { title: strin
  * zero or unread, so a line about it says nothing), `raw` (the same with 0), `calls` (the show-rate breakdown, null when zero), `rates`
  * (show and close rate in whole percent, null without a denominator), `money_moved` (cash came in or went out), `said` (the first ten
  * booking questions, each with its top four answers and the rest counted), `by` (per closer / setter, when the step asks for it).
+ * `nothing` (D124): true when nothing happened (every number read is zero or unread, the show-rate breakdown is all zero,
+ * nothing was said on a form, no per-person number, and GHL was read), else null; a company quiet when empty posts nothing then.
  */
 export type ReportFacts = { kind: ReportKind; to_date: boolean; start: string; end: string; read_at: string; period: Period; n: Numbers; raw: Record<string, number>; calls: Record<keyof CallsSeen, number | null> | null; rates: { show_rate: number | null; close_rate: number | null }; money_moved: true | null;
-  said: { label: string; answered: number; top: { answer: string; count: number }[]; rest: number; rest_kinds: number }[]; by: { closer: Breakdown[]; setter: Breakdown[] }; ghl_error: string | null };
+  said: { label: string; answered: number; top: { answer: string; count: number }[]; rest: number; rest_kinds: number }[]; by: { closer: Breakdown[]; setter: Breakdown[] }; ghl_error: string | null; nothing: true | null };
+
+/** D124: nothing happened in the period, from the numbers (never the words): see `ReportFacts.nothing`. A GHL read that failed is not nothing: what it would have said is not known. */
+export function nothingHappened(a: { numbers: Numbers; calls?: CallsSeen | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] } }): true | null {
+  const k = a.calls, calls = k ? [k.booked, k.showed, k.noshow, k.cancelled, k.missing, k.rescheduled] : [];   // the counts only: GHL's breakdown carries name lists too
+  const counts = [...Object.values(a.numbers), ...calls, ...[...(a.by?.closer ?? []), ...(a.by?.setter ?? [])].flatMap((p) => Object.values(p.values))];
+  return !a.ghlError && !a.said.length && counts.every((x) => !x) ? true : null;
+}
 
 export type Said = { label: string; answered: number; top: [string, number][]; rest: number; restKinds: number }[];
 /** What the period's new bookings answered on the booking form, tallied per question. Reads the questions the booking source carries (D24); no list to maintain. Test contacts out (D73). */
@@ -76,6 +85,7 @@ export function reportFacts(args: { kind: ReportKind; period: Period; tz: string
     money_moved: v("cash_gross") > 0 || v("refunds") > 0 ? true : null,
     said: args.said.slice(0, 10).map((q) => ({ label: q.label, answered: q.answered, top: q.top.map(([a, n]) => ({ answer: a.length > 62 ? `${a.slice(0, 59)}…` : a, count: n })), rest: q.rest, rest_kinds: q.restKinds })),
     by: args.by ?? { closer: [], setter: [] }, ghl_error: args.ghlError ?? null,
+    nothing: nothingHappened(args),
   };
 }
 

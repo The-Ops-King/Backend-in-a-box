@@ -47,6 +47,10 @@ export async function getLeaderboard(c: PoolClient, companyId: string, q: { peri
     closers, setters, ...(cash.unavailable ? { cash_unavailable: cash.unavailable } : {}) };
 }
 
+/** D124: nothing happened on the board: no closer has cash or a close, and no setter has a set (true, else null). From the numbers, never the words. */
+export const nothingOnBoard = (lb: Pick<Leaderboard, "closers" | "setters">): true | null =>
+  lb.closers.some((x) => (x.cash ?? 0) !== 0 || x.closes > 0) || lb.setters.some((x) => x.sets > 0) ? null : true;
+
 // ---- the words ------------------------------------------------------------------------------------------------------------
 /** Slack on a phone wraps a code block at about this many characters; every line inside one stays within it. */
 export const BOARD_WIDTH = 34;

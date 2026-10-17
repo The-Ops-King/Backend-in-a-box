@@ -684,3 +684,11 @@ applicant `dating` and starts New lead once (the door no longer does either). Th
   Open: a booker who is not in GHL (in shadow, every applicant until the import's real write) leaves Triage call booked paused at
   "Wait for GHL to have the person" after an hour; the Sales Call option `closing` is still labelled "Strategy Call" in GHL (a
   rename by hand, if wanted); Pre-call sequence takes both types (both closing): reminders for the 15-minute session too.
+
+- Nelly's Calendly token: later.
+
+Tyler, 2026-10-17: "for this client I want nothing to post if nothing happened." Built (D124, not applied): install key
+`quietWhenEmpty` (`reports.quiet_when_empty`); the three wrap-ups and the Weekly leaderboard post nothing on a scheduled run
+with nothing in it, by their own numbers. Her install file has `"quietWhenEmpty": true`. Apply: re-install Dating Nelly with
+it (or `bindings/set` the one key), then `POST /api/admin/templates { company: "dating-nelly", templates: ["daily-wrap-up",
+"weekly-wrap-up", "monthly-wrap-up", "weekly-leaderboard"] }` (her four copies are untouched, so they upgrade).
