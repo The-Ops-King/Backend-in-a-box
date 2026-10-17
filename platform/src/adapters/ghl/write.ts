@@ -34,6 +34,9 @@ export const ghlWrite: CrmWrite = {
   async updateRecord(c, objectKey, recordId, properties, ownerUserId) {
     await ghl(c.pit, "PUT", `/objects/${objectKey}/records/${recordId}?locationId=${c.locationId}`, { body: { properties, ...(ownerUserId ? { owners: { add: [ownerUserId] } } : {}) } });
   },
+  async deleteRecord(c, objectKey, recordId) {
+    await ghl(c.pit, "DELETE", `/objects/${objectKey}/records/${recordId}?locationId=${c.locationId}`);
+  },
   async relateRecords(c, associationId, firstRecordId, secondRecordId) {
     try { await ghl(c.pit, "POST", "/associations/relations", { body: { locationId: c.locationId, associationId, firstRecordId, secondRecordId } }); }
     catch (e) { const st = (e as { status?: number }).status; if (st !== 400 && st !== 409) throw e; }   // already related
