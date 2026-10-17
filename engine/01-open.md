@@ -726,3 +726,17 @@ Dating (Nelly), 2026-10-17: moved to quiet (D132; the move cleared 194 rehearsal
 import applied with New lead, on Tyler's word ("import them, add the dating tag and run the new lead automation in our silent
 mode"): 295 responses, 290 contacts created and 5 updated in RapidCloser, 0 failed; each tagged dating, New lead making the setter
 card at New Lead (spot-checked in GHL). The runs drain at the engine's per-minute pace.
+
+## 47. Answer an alert in Slack and have it fixed; Resolve suggests and does the fix (Tyler, 2026-10-17; design open)
+
+Tyler: "I should be able to respond to the slack message how to fix the error and have it fix ... I got the message that says
+'should it be live in GHL?' I should be able to respond yes and have it update. Or ... 'no do this instead' and have it work.
+Probably spin up a headless Claude instance ... when the resolve button is there it should suggest a resolution, and the resolve
+button does the suggestion." Open: who may act, which actions the agent may take, when it confirms first, where it runs.
+
+## 48. A rung per workflow at onboarding (Tyler, 2026-10-17; design open, onboarding work later today)
+
+Tyler: "certain flows might go fully live while other flows are still in test mode, or ... silent mode, or ... ghost ... a plan
+of which goes where ... end of day flows like forms submitted, as long as they don't have any kind of an SMS or client facing
+feature, can basically always be strictly in silent mode ... I just want to make sure that we are not alerting everybody for
+everything while I'm testing." Per-workflow rungs exist (D92); open: the default rung by what a workflow does, set at onboarding.
