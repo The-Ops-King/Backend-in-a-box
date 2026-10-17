@@ -40,11 +40,12 @@ describe("D118: Dating Nelly's copies", () => {
     expect(install.prompts).toEqual(datingPrompts(install.salesCall.objections));
   });
 
-  it("differ from the template only in her words: the welcome email and text, and why a setter DQs a lead", () => {
+  it("differ from the template only in her words (the welcome email and text, why a setter DQs a lead) and the won card's value (D130)", () => {
     const changed = (slug: string) => { const t = new Map(template(slug).nodes.map((n) => [n.id, JSON.stringify(n)])); const d = file(slug).definition;
       expect(d.edges).toEqual(template(slug).edges); expect(d.nodes.map((n) => n.id)).toEqual([...t.keys()]);
       return d.nodes.filter((n) => t.get(n.id) !== JSON.stringify(n)).map((n) => n.id); };
-    expect(changed("deal-closed")).toEqual(["e1", "e2"]);
+    expect(changed("deal-closed")).toEqual(["p1", "e1", "e2"]);
+    expect(file("deal-closed").definition.nodes.find((n) => n.id === "p1")).toEqual({ ...template("deal-closed").nodes.find((n) => n.id === "p1"), value: "{{contact.revenue}}" });
     expect(changed("setter-call-logged")).toEqual(["a3", "a4"]);
     // the template still carries Hair's words; her copies carry none
     expect(JSON.stringify(template("deal-closed"))).toMatch(HAIR_WORDS);

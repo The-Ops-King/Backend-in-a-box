@@ -255,6 +255,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D119: a deposit is not a close, comp
     await sign(hair, who);
     expect((await lastRun(hair, "deal-closed", who))?.exit_reason).toBe("closed");
     expect(tagsOf(who)).toContain("stat-customer");
+    expect(cardWrites(who).filter((k) => "monetaryValue" in k)).toEqual([]);   // Hair's template sets no value (D130 is Dating's copy)
   });
 
   it("Hair: the end-of-day form pre-fills a call paid short of the price as a close with its revenue, not a deposit (the amount says nothing)", async () => {
@@ -329,6 +330,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D119: a deposit is not a close, comp
     expect(await kindOf(dating, "pay_dani_2")).toBe("installment");
     expect((await lastRun(dating, "deal-closed", who))?.exit_reason).toBe("closed");
     expect(tagsOf(who)).toContain("stat-customer");
+    // D130: the won closer card carries the deal's value (its opportunity's $5,000), not the cash so far
+    expect(cardWrites(who).find((k) => k.status === "won" && k.stageId === "ST-WON")).toMatchObject({ op: "update", monetaryValue: 5000 });
     expect((await runsOf(dating, "agreement-chase", who)).length).toBe(1);
   });
 

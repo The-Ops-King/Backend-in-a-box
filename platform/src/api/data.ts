@@ -60,7 +60,7 @@ export async function companyPage(c: PoolClient, co: CompanyHead) {
     let schedule: string | null = null;
     try { const def = parseDefinition(w.definition); const trigs = def.nodes.filter((n) => n.type === "trigger" && n.schedule); if (trigs.length) schedule = trigs.map((t) => (t.type === "trigger" && t.schedule ? scheduleWords(t.schedule) : "")).join("; "); } catch { /* readiness says so */ }
     const r = readyOf.get(w.id);
-    return { id: w.id, name: w.name, enabled: w.enabled, stage: w.stage, sort: w.sort, origin: w.origin, description: w.description, people: w.people, in_flight: w.in_flight, needs_hand: w.needs_hand, last_ran: w.last_ran, schedule, ready: !!r?.ready, missing: r?.missing ?? [], gaps: r?.gaps ?? [], parse_error: r?.parseError, mode: r?.mode ?? null, runs_in: r?.runsIn ?? co.mode };
+    return { id: w.id, name: w.name, enabled: w.enabled, stage: w.stage, sort: w.sort, origin: w.origin, description: w.description, people: w.people, in_flight: w.in_flight, needs_hand: w.needs_hand, last_ran: w.last_ran, schedule, ready: !!r?.ready, missing: r?.missing ?? [], gaps: r?.gaps ?? [], needs: r?.needs ?? [], parse_error: r?.parseError, mode: r?.mode ?? null, runs_in: r?.runsIn ?? co.mode };
   }).sort((a, b) => stageIndex(a.stage) - stageIndex(b.stage) || a.sort - b.sort || a.name.localeCompare(b.name));
   const alerts = await one<{ n: number }>(c, "select count(*)::int as n from alerts where company_id=$1 and resolved_at is null", [co.id]);
   return { company: co, stages: STAGES, workflows, issues: ready.issues, alerts_open: alerts?.n ?? 0 };
@@ -142,7 +142,7 @@ export async function workflowPage(c: PoolClient, co: CompanyHead, id: string, l
   const schedule = def ? def.nodes.filter((n) => n.type === "trigger" && n.schedule).map((t) => (t.type === "trigger" && t.schedule ? scheduleWords(t.schedule) : "")).join("; ") : "";
   return { company: co, workflow: { id: w.id, name: w.name, enabled: w.enabled, stage: w.stage, origin: w.origin, description: w.description, version: w.current_version, diverged: w.diverged, last_ran: stats?.last_ran ?? null, schedule: schedule || null, parse_error, mode: mine?.mode ?? null, runs_in: mine?.runsIn ?? co.mode },
     tiles: { people: stats?.people ?? 0, in_flight: stats?.in_flight ?? 0, finished: stats?.finished ?? 0, needs_hand: stats?.needs_hand ?? 0 }, chart, runs: rows,
-    ready: { ready: !!mine?.ready, missing: mine?.missing ?? [], gaps: mine?.gaps ?? [], issues: ready.issues.filter((i) => !i.href || i.href.endsWith(`/w/${id}`)) } };
+    ready: { ready: !!mine?.ready, missing: mine?.missing ?? [], gaps: mine?.gaps ?? [], needs: mine?.needs ?? [], issues: ready.issues.filter((i) => !i.href || i.href.endsWith(`/w/${id}`)) } };
 }
 
 /** The run page: the feed, what happens next, the chart with this run's states. */

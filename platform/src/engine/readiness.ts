@@ -11,9 +11,14 @@ const bindingsOf = (rows: { key: string; value: Buffer }[]) => Object.fromEntrie
  */
 export type Issue = { level: "blocker" | "warning"; text: string; href?: string };
 /** `mode`: the workflow's own rung, null when it follows the company; `runsIn`: the rung its runs stand on (D92). */
-export type WorkflowReadiness = { id: string; name: string; slug: string | null; enabled: boolean; mode: Mode | null; runsIn: Mode; postsToSlack: boolean; missing: string[]; optionalUnbound: string[]; gaps: string[]; placeholders: number; parseError?: string; ready: boolean };
+/** `needs`: a source the workflow starts from that the company has not connected (its triggers can never fire), by name; unlike `missing`, it does not stop the workflow being turned on, so it can still be tested with staged facts (D128). */
+export type WorkflowReadiness = { id: string; name: string; slug: string | null; enabled: boolean; mode: Mode | null; runsIn: Mode; postsToSlack: boolean; missing: string[]; optionalUnbound: string[]; gaps: string[]; needs: string[]; placeholders: number; parseError?: string; ready: boolean };
 /** The steps that need Slack to do their job: a post, a DM, a wait for a tap on a post. */
 const SLACK_STEPS = new Set(["slack_post", "notify_owner", "wait_for_reaction"]);
+/** D128: where a trigger's events come from, when that is a vendor the company connects: payments only arrive from Whop (its webhook, made from the API key). */
+const SOURCES: { name: string; starts: (event: string) => boolean; connected: (bound: Set<string>) => boolean }[] = [
+  { name: "Whop", starts: (e) => e.startsWith("payment."), connected: (b) => b.has("secret.whop_api_key") || b.has("secret.whop_webhook") },
+];
 const SLACK_BLOCKER = "Slack is not connected: every Slack post (team alerts, booking cards, call reviews, unlinked payments) is recorded but never posted.";
 /** A message body nobody has written yet; the marker the templates ship with, not a reading of the words. */
 export const isPlaceholderCopy = (body: string | undefined) => /\[placeholder\b/i.test(body ?? "");
@@ -33,9 +38,9 @@ export async function companyReadiness(c: PoolClient, companyId: string, slugPre
     const missing = w.manifest.bindings.filter((b) => b.required && !bound.has(b.key)).map((b) => b.key);
     const optionalUnbound = w.manifest.bindings.filter((b) => !b.required && !bound.has(b.key) && !(b.fallback && bound.has(b.fallback))).map((b) => b.key);   // a channel with a bound fallback is not a gap: its posts land there
     const gaps = w.slug ? KNOWN_GAPS[w.slug] ?? [] : [];
-    let parseError: string | undefined, placeholders = 0, postsToSlack = false;
-    try { const def = parseDefinition(w.definition); placeholders = def.nodes.filter((n) => (n.type === "send_sms" || n.type === "send_email") && isPlaceholderCopy(n.template)).length; postsToSlack = def.nodes.some((n) => SLACK_STEPS.has(n.type)); } catch (e) { parseError = String((e as Error).message).split("\n").find((l) => /message/.test(l))?.replace(/.*"message":\s*"?/, "").replace(/"?,?\s*$/, "") ?? "does not parse"; }
-    return { id: w.id, name: w.name, slug: w.slug, enabled: w.enabled, mode: w.mode, runsIn: runMode(co.mode, w.mode), postsToSlack, missing, optionalUnbound, gaps, placeholders, parseError, ready: !missing.length && !gaps.length && !parseError };
+    let parseError: string | undefined, placeholders = 0, postsToSlack = false, needs: string[] = [];
+    try { const def = parseDefinition(w.definition); const events = def.nodes.flatMap((n) => (n.type === "trigger" ? [n.event] : [])); needs = SOURCES.filter((s) => events.some(s.starts) && !s.connected(bound)).map((s) => s.name); placeholders = def.nodes.filter((n) => (n.type === "send_sms" || n.type === "send_email") && isPlaceholderCopy(n.template)).length; postsToSlack = def.nodes.some((n) => SLACK_STEPS.has(n.type)); } catch (e) { parseError = String((e as Error).message).split("\n").find((l) => /message/.test(l))?.replace(/.*"message":\s*"?/, "").replace(/"?,?\s*$/, "") ?? "does not parse"; }
+    return { id: w.id, name: w.name, slug: w.slug, enabled: w.enabled, mode: w.mode, runsIn: runMode(co.mode, w.mode), postsToSlack, missing, optionalUnbound, gaps, needs, placeholders, parseError, ready: !missing.length && !gaps.length && !needs.length && !parseError };
   });
   const issues: Issue[] = [];
   if (co.mode !== "live") issues.push({ level: "warning", text: `Company is in ${co.mode}: ${MODE_WORDS[co.mode].about}.` });
@@ -49,6 +54,7 @@ export async function companyReadiness(c: PoolClient, companyId: string, slugPre
   for (const w of workflows) {
     if (w.parseError) issues.push(unparseable(w, slugPrefix));
     if (w.missing.length) issues.push({ level: w.enabled ? "blocker" : "warning", text: `${w.name}${w.enabled ? " is ON but" : ""} is missing ${w.missing.join(", ")}.`, href: `${slugPrefix}/w/${w.id}` });
+    if (w.needs.length) issues.push({ level: "warning", text: `${w.name}${w.enabled ? " is on but" : ""} never starts until ${w.needs.join(" and ")} is connected: what starts it comes from there.`, href: `${slugPrefix}/w/${w.id}` });
     for (const g of w.gaps) issues.push({ level: "warning", text: `${w.name}: ${g}`, href: `${slugPrefix}/w/${w.id}` });
     if (w.enabled && w.placeholders) issues.push({ level: "warning", text: `${w.name}: ${w.placeholders} message${w.placeholders === 1 ? " is" : "s are"} still placeholder copy.`, href: `${slugPrefix}/w/${w.id}` });
     if (w.enabled && w.optionalUnbound.some((k) => k.startsWith("slack.channel."))) issues.push({ level: "warning", text: `${w.name}: no Slack channel bound (${w.optionalUnbound.filter((k) => k.startsWith("slack.channel.")).join(", ")}); its posts are skipped.`, href: `${slugPrefix}/w/${w.id}` });

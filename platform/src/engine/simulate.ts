@@ -13,6 +13,7 @@ import { contactPasses, isTestContact, testDomains, TEST_DOMAINS_KEY } from "./m
 import { formsOf, takeDelivery, type Submitted, type TypeformFormMap } from "./typeform";
 import { depositProducts, DEPOSIT_PRODUCTS_KEY, normEmail } from "./payments";
 import { fileCall, loadEodForm } from "./eod";
+import { harnessScripts } from "./harness-scripts";
 import { choiceOf, isMoney, isRevenueOutcome, outcomesOf } from "./eod-form";
 
 /**
@@ -152,7 +153,7 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
       const startedAt = a ? new Date(a.starts_at.getTime() + 60e3) : new Date();
       const r = await recordRecording(c, company.id, { provider: "fathom", externalId: `test-${randomUUID().slice(0, 8)}`, title: `${name} <> ${closer?.name ?? "Closer"}`, startedAt, durationMin: 41, shareUrl: "https://example.test/recording", recordedBy: closer ? { name: closer.name, email: closer.email } : undefined,
         invitees: [...(closer ? [{ name: closer.name, email: closer.email, isExternal: false }] : []), { name, email, isExternal: true }],
-        transcript: [{ speaker: closer?.name ?? "Closer", text: "Thanks for hopping on. Tell me what you have been noticing." }, { speaker: name, text: "It has been thinning at the crown for about two years and I want to fix it before it gets worse." }, { speaker: closer?.name ?? "Closer", text: "Got it. Here is how the program works and what it costs." }, { speaker: name, text: "That is a lot right now, but I want to do this. Can I split it?" }, { speaker: closer?.name ?? "Closer", text: "Yes, two payments. Let us get you started." }], raw: { simulated: true } });
+        transcript: (await harnessScripts(c, company.id)).closerCall.map((l) => ({ speaker: l.speaker === "prospect" ? name : closer?.name ?? "Closer", text: l.text.replace(/\{first\}/g, name.split(" ")[0]) })), raw: { simulated: true } });
       if (r.outcome !== "linked") return { ok: false, why: r.outcome === "duplicate" ? "duplicate recording id" : `recording did not link to this contact: ${r.reason}` };
       const appt = r.appointmentId ? await one<Record<string, unknown>>(c, "select a.id, a.starts_at, a.status, json_build_object('category', t.category) as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [r.appointmentId]) : null;
       return { ok: true, action, detail: { recording: r.recording.id, appointment: r.appointmentId }, runsStarted: (await dispatchEvent(c, r.event, { ...ctx, appointment: appt ?? undefined })).length };
@@ -181,11 +182,7 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
       const { recording, isNew } = await recordPhoneCall(c, company.id, { externalId: `test-call-${randomUUID().slice(0, 8)}`, contactId: contact.id, startedAt: new Date(Date.now() - 20 * 60e3), durationSec: 184, direction: "outbound", status: "completed", callerGhlUserId: setter?.ghl_user_id,
         conversationUrl: loc && contact.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/conversations/conversations/${contact.ghl_contact_id}` : undefined, raw: { simulated: true } });
       if (!isNew) return { ok: false, why: "duplicate call id" };
-      const { recording: row, event } = await settlePhoneCall(c, recording, { transcript: [
-        { speaker: "0", text: `Hey ${name.split(" ")[0]}, this is the team calling about the form you filled out. Got two minutes?` }, { speaker: "1", text: "Yeah, sure." },
-        { speaker: "0", text: "What made you reach out?" }, { speaker: "1", text: "It has been getting worse for about a year and I want to deal with it before it gets any further." },
-        { speaker: "0", text: "Makes sense. If we could fix that, what would that change for you?" }, { speaker: "1", text: "Honestly just feeling like myself again. What does it cost?" },
-        { speaker: "0", text: "The specialist walks you through pricing on the call. Does Thursday at two work?" }, { speaker: "1", text: "Thursday at two works." }] }, { hold: true });
+      const { recording: row, event } = await settlePhoneCall(c, recording, { transcript: (await harnessScripts(c, company.id)).setterCall.map((l) => ({ speaker: l.speaker === "prospect" ? "1" : "0", text: l.text.replace(/\{first\}/g, name.split(" ")[0]) })) }, { hold: true });
       return { ok: true, action, detail: { recording: row.id, caller: row.recorded_by_name }, runsStarted: event ? (await dispatchEvent(c, event, { ...ctx, recording: { id: row.id, ...phoneFacts(row) } })).length : 0 };
     }
     case "agreement": case "sign": {

@@ -41,7 +41,7 @@ export const ghlWrite: CrmWrite = {
   async createOpportunity(c, input) {
     const r = await ghl<{ opportunity: { id: string } }>(c.pit, "POST", "/opportunities/", { body: {
       locationId: c.locationId, contactId: input.contactId, pipelineId: input.pipelineId, pipelineStageId: input.stageId, name: input.name, status: input.status,
-      ...(input.assignedUserId ? { assignedTo: input.assignedUserId } : {}), ...(input.customFields?.length ? { customFields: input.customFields } : {}),
+      ...(input.assignedUserId ? { assignedTo: input.assignedUserId } : {}), ...(input.customFields?.length ? { customFields: input.customFields } : {}), ...(input.monetaryValue !== undefined ? { monetaryValue: input.monetaryValue } : {}),
     } });
     return { id: r.opportunity.id };
   },
@@ -50,6 +50,7 @@ export const ghlWrite: CrmWrite = {
     if (patch.pipelineId) body.pipelineId = patch.pipelineId; if (patch.stageId) body.pipelineStageId = patch.stageId;
     if (patch.name) body.name = patch.name; if (patch.status) body.status = patch.status; if (patch.assignedUserId) body.assignedTo = patch.assignedUserId;
     if (patch.customFields?.length) body.customFields = patch.customFields;
+    if (patch.monetaryValue !== undefined) body.monetaryValue = patch.monetaryValue;
     await ghl(c.pit, "PUT", `/opportunities/${id}`, { body });
   },
   /**

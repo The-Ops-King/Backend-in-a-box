@@ -902,13 +902,16 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   const name = node.keep_name && card ? card.name : node.name ? render(node.name, nameCtx, env(d)) : card?.name ?? render("{{contact.name}}", nameCtx, env(d));   // a card made without a name carries the person's
   const customFields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== "");
   const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
+  const valueText = node.value ? render(node.value, d.ctx, env(d)).replace(/[$,\s]/g, "") : "";
+  const monetaryValue = valueText ? Number(valueText) : undefined;
+  if (monetaryValue !== undefined && !(Number.isFinite(monetaryValue) && monetaryValue >= 0)) return { status: "failed", error: `pipeline_card ${node.id}: value "${valueText}" is not an amount` };
   // no open card: a step with a stage makes one there (D41: a contact always has their cards); a status-only step has no stage to make one in, so there is nothing to mark
   if (!card && node.if_missing === "skip") return { status: "skipped", next, result: { kind: "noop", why: "no open card on this board to move; this step never creates one" } };
   if (!card && !node.stage) return { status: "skipped", next, result: { kind: "noop", why: `no open card on this board to mark ${node.status ?? "updated"}` } };
   if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
-  const write = { pipelineId, stageId, name, status: node.status ?? ("open" as const), assignedUserId, customFields };
+  const write = { pipelineId, stageId, name, status: node.status ?? ("open" as const), assignedUserId, customFields, ...(monetaryValue !== undefined ? { monetaryValue } : {}) };
   // D61: a card already where this step would put it (a second filing, a hand that moved it first) is left alone: no CRM write, no replica bump
-  if (card && card.ghl_stage_id === stageId && card.name === name && (!node.status || node.status === card.status) && !customFields.length && !assignedUserId) return { status: "skipped", next, result: { kind: "noop", why: "already there", stage: stageId, crm_card: card.ghl_opportunity_id } };
+  if (card && card.ghl_stage_id === stageId && card.name === name && (!node.status || node.status === card.status) && !customFields.length && !assignedUserId && monetaryValue === undefined) return { status: "skipped", next, result: { kind: "noop", why: "already there", stage: stageId, crm_card: card.ghl_opportunity_id } };
   // the pursuit the card belongs to: the run's, else the contact's open one, else a new one
   let oppId = d.run.opportunity_id ?? card?.opportunity_id ?? (await one<{ id: string }>(d.c, "select id from opportunities where company_id=$1 and contact_id=$2 and status='open' order by opened_at desc limit 1", [d.company.id, d.run.contact_id]))?.id;
   if (!oppId) {
@@ -944,7 +947,7 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
   d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
   await refreshCardsCtx(d, pipelineId);
-  return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card && !goneCard ? "moved" : "created", ...(goneCard ? { replaced_gone_card: goneCard } : {}), ...(card && !goneCard ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), fields: customFields } };
+  return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card && !goneCard ? "moved" : "created", ...(goneCard ? { replaced_gone_card: goneCard } : {}), ...(card && !goneCard ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), ...(monetaryValue !== undefined ? { value: monetaryValue } : {}), fields: customFields } };
 }
 
 /** A crm_record step's `relate`, after the record is in `record.*`: each link both ends of which rendered. */

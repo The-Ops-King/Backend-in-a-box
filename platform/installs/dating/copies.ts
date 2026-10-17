@@ -52,8 +52,10 @@ export function datingCopies(company: string, words: DatingWords, own?: { setup:
   Object.assign(e1, { subject: words.welcome.subject, template: words.welcome.email, title: held ? "Welcome email [placeholder: the words are not written yet, so it is skipped]" : "Welcome email" });
   Object.assign(e2, { template: words.welcome.sms, title: held ? "Welcome text [placeholder: the words are not written yet, so it is skipped]" : "Welcome text" });
   if (held) { e1.only_if = HELD; e2.only_if = HELD; }
+  // D130: the won closer card carries what the deal is worth (the opportunity's contract value, else the program price); the cash is the Sales Call's
+  node(dc, "p1").value = "{{contact.revenue}}";
   out.push({ workflow: "deal-closed", definition: dc as unknown as Record<string, unknown>,
-    note: `${company}: the welcome email and text are the company's own (installs/${company}/words.json)${held ? "; still placeholders, so both are skipped" : ""}, not Hair's (D118)` });
+    note: `${company}: the welcome email and text are the company's own (installs/${company}/words.json)${held ? "; still placeholders, so both are skipped" : ""}, not Hair's (D118); the won closer card carries the deal's value (D130)` });
 
   // Setter call logged: why a setter DQs a lead, in the company's words
   const scl = load("setter-call-logged");

@@ -19,12 +19,13 @@ import { tick } from "./runner";
 import { fakeAdapters } from "./test-install";
 import { simulate, simulateForm, type SimAction, type FormInput } from "./simulate";
 import { templates } from "@/templates";
+import { DEFAULT_SCRIPTS, harnessProblem, type HarnessTranscripts } from "./harness-scripts";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
 import { POST as simulateRoute } from "../../app/api/admin/simulate/route";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const KEY = "d125-operator-key", prevSecret = process.env.CRON_SECRET;
-const NELLY = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../installs/dating-nelly.json"), "utf8")) as InstallInput & { typeform: { forms: Record<string, { answers: Record<string, string> }> } };
+const NELLY = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../installs/dating-nelly.json"), "utf8")) as InstallInput & { typeform: { forms: Record<string, { answers: Record<string, string> }> }; harness: HarnessTranscripts };
 const own = (slug: string) => JSON.parse(fs.readFileSync(path.resolve(__dirname, `../../installs/dating-nelly/${slug}.json`), "utf8")) as { name: string; note: string; definition: unknown; create: { stage: string; sort: number; takesOver?: string } };
 const FORM = "AjY7UfXZ", STRATEGY = "86985d27-22e5-4b6b-ab66-8e68e9ee8e30", CONSULT = "80955126-29fe-48ea-a85e-ba4bcd145790", TZ = "America/Los_Angeles";
 const REF = Object.fromEntries(Object.entries(NELLY.typeform.forms[FORM].answers).map(([ref, t]) => [t, ref]));
@@ -63,8 +64,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
   beforeAll(async () => {
     process.env.CRON_SECRET = KEY;
     await migrate();
-    const { crm, salesCall, calendars, closerCall, bookingCalendar, scopeTag, testDomains, typeform, contractValueDefault } = NELLY;
-    co = (await installCompany({ name: "Dating (Nelly) D125", slug: SLUG, timezone: TZ, locationId: "LOC-D125", pit: "fake", crm, salesCall, calendars, closerCall, bookingCalendar, scopeTag, testDomains, contractValueDefault,
+    const { crm, salesCall, calendars, closerCall, bookingCalendar, scopeTag, testDomains, typeform, contractValueDefault, harness } = NELLY;
+    co = (await installCompany({ name: "Dating (Nelly) D125", slug: SLUG, timezone: TZ, locationId: "LOC-D125", pit: "fake", crm, salesCall, calendars, closerCall, bookingCalendar, scopeTag, testDomains, contractValueDefault, harness,
       typeform: { forms: typeform.forms }, closers: ["nellysudri@d125.test"], templates: templates.map((t) => t.slug).filter((s) => s !== "call-booked") }, fake)).companyId;
     await asOperator(async (c) => {
       for (const slug of ["new-from-typeform", "triage-call-booked", "sales-call-booked"]) {
@@ -188,8 +189,12 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     const ct = (r.ok && r.detail.contact) as string;
     const done = async (action: SimAction, o: Partial<Parameters<typeof simulate>[0]> = {}) => { const x = await sim(ct, action, o); expect(x.ok, `${action}: ${JSON.stringify(x)}`).toBe(true); await settle(); return x.ok ? x : null!; };
     await done("book-self", { calendar: "Consultation", startsAt: DateTime.now().setZone(TZ).minus({ hours: 2 }).toISO()! });
-    const rec = await done("record", { calendar: "Consultation" });
+    // D131: the staged calls speak the company's offer, from its install, with the people's names (read before the runs are done: D87 drops a held transcript then)
+    const said = (id: unknown) => asOperator(async (c) => (await one<{ t: { speaker: string; text: string }[] }>(c, "select transcript as t from recordings where id=$1", [id]))!.t);
+    const staged = async (action: SimAction, o: Partial<Parameters<typeof simulate>[0]> = {}) => { const x = await sim(ct, action, o); expect(x.ok, `${action}: ${JSON.stringify(x)}`).toBe(true); const t = x.ok ? await said(x.detail.recording) : []; await settle(); return { x: x.ok ? x : null!, t }; };
+    const { x: rec, t: closerSaid } = await staged("record", { calendar: "Consultation" });
     expect(rec.detail.appointment).toBeTruthy();
+    expect(closerSaid.map((l) => `${l.speaker}: ${l.text}`)).toEqual(NELLY.harness.closerCall!.map((l) => `${l.speaker === "prospect" ? "Test Applicant" : "Nelly S."}: ${l.text}`));
     // D126: the closer's end-of-day answer for this one call, through the form's own per-call path
     const filed = await done("outcome", { outcome: "Deposit", amount: 250 });
     expect(filed.detail).toMatchObject({ appointment: rec.detail.appointment, call_type: "Consultation", outcome: "deposit", cash: 250, filed: "filed" });
@@ -198,7 +203,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
       .toEqual({ attendance: "showed", call_outcome: "deposit", notes: "Filed by the test harness\nDeposit: $250 collected" });
     expect((await done("outcome", { outcome: "deposit", amount: 250 })).detail).toMatchObject({ filed: "held" });   // the same answer twice is not filed twice
     expect(await asOperator((c) => many(c, "select 1 from eod_reports where company_id=$1", [co]))).toEqual([]);   // the closer's day is theirs to file
-    expect((await done("call")).detail).toMatchObject({ caller: "Nelly S." });
+    const { x: call, t: setterSaid } = await staged("call");
+    expect(call.detail).toMatchObject({ caller: "Nelly S." });
+    expect(setterSaid[0]).toMatchObject({ speaker: "0", text: "Hey Test, this is the team calling about the application you sent in. Got two minutes?" });
     const dep = await done("pay", { deposit: true, amount: 250 });
     expect(dep.detail).toMatchObject({ amount: 250, kind: "deposit" });
     const paid = await done("pay", { amount: 4750 });
@@ -218,6 +225,15 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     expect(await sim(ct, "outcome", { outcome: "deposit" })).toMatchObject({ ok: false, why: expect.stringMatching(/only a call that has started/) });
     expect((await sim(ct, "reschedule", { calendar: "Consultation", startsAt: DateTime.now().setZone(TZ).minus({ hours: 1 }).toISO()! })).ok).toBe(true);
     expect(await sim(ct, "outcome", { outcome: "won" })).toMatchObject({ ok: false, why: expect.stringMatching(/^outcome is one of the company's end-of-day answers: "closed" \(Closed\), "deposit" \(Deposit\)/) });
+  });
+
+  it("D131: harness scripts are checked at install (a role that is not on that call, a call with one speaker); without its own a company stages the offer-neutral pair", async () => {
+    expect(harnessProblem(NELLY.harness)).toBeNull();
+    expect(harnessProblem({ closerCall: [{ speaker: "setter", text: "Hi" }, { speaker: "prospect", text: "Hi" }] })).toBe("closerCall[0]: speaker is closer or prospect");
+    expect(harnessProblem({ setterCall: [{ speaker: "setter", text: "Hi" }, { speaker: "setter", text: "Hello?" }] })).toBe("setterCall: both setter and prospect speak");
+    expect(harnessProblem({ demoCall: [] })).toBe('"demoCall" is not closerCall or setterCall');
+    await expect(installCompany({ name: "x", slug: SLUG, timezone: TZ, locationId: "LOC-D125", pit: "fake", calendars: {}, templates: [], harness: { closerCall: [{ speaker: "closer", text: "" }, { speaker: "prospect", text: "Hi" }] } }, fake)).rejects.toThrow("harness: closerCall[0]: text is needed");
+    expect(JSON.stringify(DEFAULT_SCRIPTS)).not.toMatch(/hair|crown|thinning/i);
   });
 
   it("the admin route: book takes a calendar; form refuses answers that are not a map; an unknown contact still 404s for every action but a form by email", async () => {

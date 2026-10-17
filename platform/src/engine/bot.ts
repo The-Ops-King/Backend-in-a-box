@@ -53,7 +53,7 @@ async function resolveAsker(deps: BotDeps, ctx: Ctx, slackUser: string): Promise
   if (!email) return null;
   return asOperator(async (c) => {
     const u = await one<{ id: string; name: string; role: string }>(c, "select id::text as id, name, role from users where company_id=$1 and lower(email)=$2 and active limit 1", [ctx.companyId, email.toLowerCase()]);
-    if (u) await c.query("update users set slack_user_id=$2 where id=$1", [u.id, slackUser]);
+    if (u) await c.query("update users set slack_user_id=$2 where id=$1 and slack_user_id is null", [u.id, slackUser]);   // D129: a hand mapping is never replaced by a match on email
     return u ?? null;
   });
 }

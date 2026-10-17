@@ -104,7 +104,7 @@ export interface CrmWrite {
 }
 export type ContactWrite = { firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedUserId?: string; customFields?: { id: string; field_value: string }[] };
 /** A pipeline card as the CRM sees it. `customFields` are CRM field ids with already-rendered values. */
-export type OpportunityWrite = { pipelineId: string; stageId: string; name: string; status: "open" | "won" | "lost" | "abandoned"; assignedUserId?: string; customFields?: { id: string; field_value: string }[] };
+export type OpportunityWrite = { pipelineId: string; stageId: string; name: string; status: "open" | "won" | "lost" | "abandoned"; assignedUserId?: string; customFields?: { id: string; field_value: string }[]; monetaryValue?: number };
 export type SendResult = { externalId: string; accepted: boolean; error?: string };
 export interface Sender {
   sendSms(c: Company, contactId: string, body: string): Promise<SendResult>;

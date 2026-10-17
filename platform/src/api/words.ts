@@ -230,7 +230,7 @@ function generic(def: Definition, n: Node, nm: Namer): { title: string; meta?: s
       const unread = [board, stage].filter((x): x is Named => !!x && !x.read);
       // every stage it moves from, never "and 5 more": which cards it leaves alone is what the step does
       return { title, meta: list(unread.length > 0 && `${unread.map((x) => x.text).join(", ")}:${mark(unread).replace(/[()]/g, "")}`, n.stage && n.status && (n.status === "open" ? "kept open" : `marked ${n.status}`), from.length > 0 && `only from ${from.map((x) => x.text).join(", ")}${mark(from)}`, n.if_missing === "skip" && "only if there is a card",
-        n.keep_name ? "keeps its name" : n.name && n.if_missing !== "skip" && `named ${filled(def, n.name)}`, n.assign_to && `owner: ${pathWords(n.assign_to)}`) };
+        n.keep_name ? "keeps its name" : n.name && n.if_missing !== "skip" && `named ${filled(def, n.name)}`, n.assign_to && `owner: ${pathWords(n.assign_to)}`, n.value && `value: ${filled(def, n.value)}`) };
     }
     case "crm_record": {
       const obj = nm.object(n.object);

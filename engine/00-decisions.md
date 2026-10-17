@@ -4572,3 +4572,49 @@ next sweep. The canonical manifest gained `groups:read` the same day.
 
 Tests: `health.slack-scope.test.ts` (one channel on three settings, missing_scope → one finding with the text, its steps
 verified; another channel not found still said once; slack check off → per step). The first fails without the change.
+
+## D128. A workflow a payment starts says it needs Whop, without being kept off (2026-10-17)
+
+Tyler: "The payment failed should also need the Whop API key." Payment failed showed ready (its only setting is a Slack channel)
+while it could never start: Dating has no Whop, and every payment the engine knows came from Whop (Hair and PMU, `pay_…`).
+
+Readiness gains `needs`: a source a workflow's triggers come from that the company has not connected, by name. Today one: Whop,
+for any `payment.*` trigger, connected by `secret.whop_api_key` or `secret.whop_webhook`. A workflow with a need is not ready:
+the dashboard tag says "needs Whop", and a warning says it never starts until Whop is connected. Unlike `missing`, a need does not
+refuse turning it on, because the harness stages payments to test those workflows before Whop exists (Dating's journey did).
+A Zap that posts payments is not counted as a source: no company sends them that way.
+
+Tests: `readiness.whop.test.ts` (Payment failed, Payment recorded and Deal closed need Whop, New lead does not; the warning; it
+still turns on through the admin route; a webhook secret, or an API key, connects it).
+
+## D129. A team member's Slack account mapped by hand when its email is not their GHL one (2026-10-17)
+
+The engine finds a person in Slack by their GHL email. Mitch is mitch@revsignals.io in GHL and mitch@salesagency.ai in Slack, and
+Tyler is in no GHL roster at all; Tyler: "map it by hand ... we need to think about emails not matching." Install key `slackUsers:
+{ <roster email or GHL user id>: <Slack user id, or the email Slack has> }` sets the roster row's Slack id (an email is looked up
+through the connected bot; an unknown person, an email Slack does not know, or a value that is neither refuses the install). The
+lookups by email fill only an empty id, so nothing replaces a hand mapping; a re-install without the key leaves it. Tyler, on no
+roster, is the escalation person (`bot.escalateTo`), which is what lets him press Resolve and Retry.
+
+Tests: `install.slack-users.test.ts`.
+
+## D130. The pipeline_card step sets the card's value; Dating's won card carries the deal (2026-10-17)
+
+The synthetic journey ended with both won cards at $0: no step wrote a card's value, while GHL's won-card numbers add it up.
+Tyler, asked whether Deal closed should set it: "Yes ... 5k as the revenue", the Whop dollars landing as cash. `pipeline_card`
+takes `value` (rendered to an amount; `$` and commas allowed; blank leaves it; anything else fails the step), sent as GHL's
+`monetaryValue` on create and update. Dating's Deal closed (built in `installs/dating/copies.ts`) sets the won closer card to
+`{{contact.revenue}}`: the opportunity's contract value, else the program price. Cash collected stays on the Sales Call and the
+payment records. Hair's and PMU's templates are untouched.
+
+Tests: `deposits.test.ts` (Dating's won card update carries 5000; Hair's writes no value).
+
+## D131. The harness's staged calls speak the company's offer (2026-10-17)
+
+`record` and `call` staged one hair-loss script for every company, so Dating's staged closer call came back "closed won" about
+thinning hair. The scripts move to `harness-scripts.ts`: an offer-neutral pair by default, and the company's own from install key
+`harness: { closerCall?, setterCall? }` (lines of { speaker: closer|setter|prospect, text }, `{first}` for the first name; both
+roles must speak), bound as `harness.transcripts`. Dating's install carries a dating pair whose closer call ends on a deposit.
+
+Tests: `simulate-form.test.ts` (Dating's staged calls are its own lines with the people's names; the install refuses a bad
+script; the defaults name no offer).

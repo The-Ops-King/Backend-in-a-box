@@ -14,6 +14,7 @@ import { goLive, type Cleared } from "./golive";
 import { BOOKING_CARD_KEY, backfillBookingCard, intakeProblem, type IntakeLine } from "./booking-card";
 import { OBJECTIONS_KEY, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { DEPOSIT_PRODUCTS_KEY } from "./payments";
+import { HARNESS_KEY, harnessProblem, type HarnessTranscripts } from "./harness-scripts";
 import { chartLayoutOf, notDrawable } from "@/api/chart-verdict";
 import { checkMapAgainstForms, mapProblems, registerTypeform, TF_FORMS_KEY, TF_TOKEN_KEY, type TypeformForms } from "./typeform";
 import { liveTypeform, type TypeformApi } from "@/adapters/typeform/client";
@@ -65,6 +66,10 @@ export type InstallInput = {
   slackSigningSecret?: string;           // the Slack app's signing secret, so the reactions door can trust what Slack sends (D45)
   /** The Slack bot (D70): who it pings when it cannot answer — a Slack user id, or an email resolved to one through Slack (needs users:read.email). */
   bot?: { escalateTo?: string };
+  /** D129: a team member whose Slack account is not under their GHL email, mapped by hand: { <roster email or CRM user id>: <Slack user id, or the email Slack has for them> }. Mentions, DMs and the alert buttons then know them; nothing found by email replaces it. */
+  slackUsers?: Record<string, string>;
+  /** D131: what the test harness's staged calls say, in the company's own offer (bound as harness.transcripts): the closer call `record` stages and the setter call `call` stages, line by line. Omitted: left as it is; without any, an offer-neutral script. */
+  harness?: HarnessTranscripts;
   contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
   /** D119: the payment processor's products that are a deposit, not a sale: Whop product ids (`prod_…`) or plan ids (`plan_…`), or a Zap's plan as it sends it. A payment for one is kind `deposit`. Declared, the list is the whole truth; undeclared, a payment whose Whop product or plan is named with the word "deposit" is one (D119 addendum). Bound as payments.deposit_products. Omitted: left as it is; [] removes them. */
   depositProducts?: string[];
@@ -202,21 +207,27 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     slackTeam = { team_id: d.team_id, bot_user_id: d.user_id ?? null };
   }
   // D70: the bot's escalation person, resolved to a Slack id outside the transaction (it asks Slack)
+  let slackTokenNow: string | null | undefined;
+  const slackToken = async () => (slackTokenNow !== undefined ? slackTokenNow : (slackTokenNow = input.slackToken && input.slackToken !== "disconnect" ? input.slackToken : await asOperator(async (c) => {
+    const conn = await one<{ bot_token: Buffer }>(c, "select sc.bot_token from slack_connections sc join companies co on co.id=sc.company_id where co.slug=$1", [input.slug]);
+    return conn ? decrypt(conn.bot_token) : null;
+  })));
+  /** A Slack user id as given, or the one Slack has for an email. */
+  const slackIdOf = async (want: string, what: string) => {
+    if (!want.includes("@")) { if (!/^[UW][A-Z0-9]{4,}$/.test(want)) throw new Error(`${what}: "${want}" is neither a Slack user id (U…) nor an email`); return want; }
+    const token = await slackToken();
+    if (!token) throw new Error(`${what} is an email but no Slack token is connected to look it up`);
+    const id = await adapters.notifier.lookupUserByEmail(token, want);
+    if (!id) throw new Error(`no one in the Slack workspace has the email ${want}`);
+    return id;
+  };
   let escalate: { id: string; email?: string } | null = null;
   if (input.bot?.escalateTo) {
     const want = input.bot.escalateTo.trim();
-    if (!want.includes("@")) escalate = { id: want };
-    else {
-      const token = input.slackToken && input.slackToken !== "disconnect" ? input.slackToken : await asOperator(async (c) => {
-        const conn = await one<{ bot_token: Buffer }>(c, "select sc.bot_token from slack_connections sc join companies co on co.id=sc.company_id where co.slug=$1", [input.slug]);
-        return conn ? decrypt(conn.bot_token) : null;
-      });
-      if (!token) throw new Error("bot.escalateTo is an email but no Slack token is connected to look it up");
-      const id = await adapters.notifier.lookupUserByEmail(token, want);
-      if (!id) throw new Error(`no one in the Slack workspace has the email ${want}`);
-      escalate = { id, email: want.toLowerCase() };
-    }
+    escalate = want.includes("@") ? { id: await slackIdOf(want, "bot.escalateTo"), email: want.toLowerCase() } : { id: want };
   }
+  const slackUsers: { who: string; id: string }[] = [];
+  for (const [who, to] of Object.entries(input.slackUsers ?? {})) slackUsers.push({ who: who.trim(), id: await slackIdOf(String(to).trim(), `slackUsers["${who}"]`) });
   const sc = input.salesCall;
   if (sc?.objections !== undefined && (!Array.isArray(sc.objections) || !sc.objections.length || sc.objections.some((x) => typeof x !== "string" || !x.trim()))) throw new Error("salesCall.objections: a list of option keys");
   if (sc?.closerOptions !== undefined && (!sc.closerOptions || typeof sc.closerOptions !== "object" || Array.isArray(sc.closerOptions) || Object.entries(sc.closerOptions).some(([k, v]) => !k.trim() || typeof v !== "string" || !v.trim()))) throw new Error("salesCall.closerOptions: { <email, CRM user id or roster name>: <option key> }");
@@ -315,6 +326,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     if (!inboundSecret) await bind("secret.zapier_inbound", "secret", inboundPlain);
     if (input.depositProducts?.length) await bind(DEPOSIT_PRODUCTS_KEY, "text", JSON.stringify([...new Set(input.depositProducts.map((x) => x.trim()))]));
     else if (input.depositProducts) await c.query("delete from bindings where company_id=$1 and key=$2", [companyId, DEPOSIT_PRODUCTS_KEY]);
+    if (input.harness) { const why = harnessProblem(input.harness); if (why) throw new Error(`harness: ${why}`); await bind(HARNESS_KEY, "text", JSON.stringify(input.harness)); }
     if (input.contractValueDefault !== undefined) await c.query("update companies set contract_value_default=$2 where id=$1", [companyId, input.contractValueDefault]);
     if (input.quietHours) await c.query("update companies set send_window_start=coalesce($2, send_window_start), send_window_end=coalesce($3, send_window_end), quiet_allow_transactional=coalesce($4, quiet_allow_transactional) where id=$1", [companyId, input.quietHours.start ?? null, input.quietHours.end ?? null, input.quietHours.allowTransactional ?? null]);
     const ac: Company = { id: companyId, locationId: input.locationId, pit, timezone: input.timezone, booking };
@@ -322,6 +334,9 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
       await c.query(`insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'staff',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name`, [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);
     // the bot names whoever it pings ("Let me ping Tyler"): their roster row learns their Slack id
     if (escalate?.email) await c.query("update users set slack_user_id=$3 where company_id=$1 and lower(email)=$2", [companyId, escalate.email, escalate.id]);
+    // D129: after the escalation person, so a hand mapping for the same person wins
+    for (const m of slackUsers)
+      if (!(await c.query("update users set slack_user_id=$3 where company_id=$1 and (lower(email)=lower($2) or ghl_user_id=$2)", [companyId, m.who, m.id])).rowCount) throw new Error(`slackUsers: no one on the roster is "${m.who}" (their GHL email or user id)`);
     if (input.closers) {
       const who = input.closers.map((x) => x.toLowerCase());
       await c.query("update users set role='staff' where company_id=$1 and role='closer' and not (lower(email)=any($2) or ghl_user_id=any($2))", [companyId, who]);

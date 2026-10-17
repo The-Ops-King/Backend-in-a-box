@@ -238,5 +238,74 @@
   "quietWhenEmpty": true,
   "bot": {
     "escalateTo": "jt@jtylerray.com"
+  },
+  "harness": {
+    "closerCall": [
+      {
+        "speaker": "closer",
+        "text": "Thanks for hopping on. Tell me where you are with dating right now."
+      },
+      {
+        "speaker": "prospect",
+        "text": "I have been on the apps for about two years. Lots of first dates, nothing that lasts, and I am tired of it."
+      },
+      {
+        "speaker": "closer",
+        "text": "What would it mean to meet someone who wants the same things you do?"
+      },
+      {
+        "speaker": "prospect",
+        "text": "Honestly, everything. I want a real partner and a family in the next few years."
+      },
+      {
+        "speaker": "closer",
+        "text": "Here is how the coaching works and what it costs."
+      },
+      {
+        "speaker": "prospect",
+        "text": "That is more than I planned, but I want to do this. Can I put a deposit down today and pay the rest next week?"
+      },
+      {
+        "speaker": "closer",
+        "text": "Yes. A deposit today holds your spot, and the rest is due next week."
+      }
+    ],
+    "setterCall": [
+      {
+        "speaker": "setter",
+        "text": "Hey {first}, this is the team calling about the application you sent in. Got two minutes?"
+      },
+      {
+        "speaker": "prospect",
+        "text": "Yeah, sure."
+      },
+      {
+        "speaker": "setter",
+        "text": "What made you apply?"
+      },
+      {
+        "speaker": "prospect",
+        "text": "I am tired of the apps and I want something serious."
+      },
+      {
+        "speaker": "setter",
+        "text": "Makes sense. If you met the right person this year, what would that change for you?"
+      },
+      {
+        "speaker": "prospect",
+        "text": "Everything, honestly. What does the coaching cost?"
+      },
+      {
+        "speaker": "setter",
+        "text": "Nelly walks you through that on the call. Does Thursday at two work?"
+      },
+      {
+        "speaker": "prospect",
+        "text": "Thursday at two works."
+      }
+    ]
+  },
+  "slackUsers": {
+    "mitch@revsignals.io": "mitch@salesagency.ai"
   }
 }

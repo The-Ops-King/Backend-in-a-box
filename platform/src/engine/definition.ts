@@ -148,7 +148,9 @@ export const Node = z.discriminatedUnion("type", [
   // `status` closes the card (won/lost): the board's terminal column. A closed card no longer counts as the contact's open card on that board.
   z.object({ ...base, type: z.literal("pipeline_card"), pipeline: z.string(), stage: z.string().optional(), name: z.string().optional(), assign_to: z.string().optional(), status: z.enum(["open", "won", "lost", "abandoned"]).optional(), if_missing: z.enum(["create", "skip"]).default("create"), pick: z.enum(["open", "latest"]).default("open"), fields: z.array(z.object({ id: z.string(), value: z.string() })).default([]),
     // D105: move a card only off these stages (a card anywhere else is left where it is); keep_name: an existing card keeps its name, `name` is for a card this step makes
-    from_stages: z.array(z.string()).optional(), keep_name: z.boolean().optional() }),
+    from_stages: z.array(z.string()).optional(), keep_name: z.boolean().optional(),
+    // D130: the card's dollar value (GHL's opportunity value), rendered to a number; blank leaves it as it is
+    value: z.string().optional() }),
   // Reads a document (the call transcript by default) against a prompt bound per company ({{prompt.<name>}}), answer stored under vars.<into>.
   // json: the answer is parsed and its fields are addressable ({{vars.notes.summary}}); text: stored as a string.
   // optional: decoration (a congratulations line); when the AI cannot run the step is skipped and the run goes on without the value
