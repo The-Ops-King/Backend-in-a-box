@@ -28,6 +28,8 @@ export async function clearRehearsalRuns(c: PoolClient, companyId: string, workf
     : "select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and r.born_in = any($3::text[]) and coalesce(w.mode,$2)=$2", workflowId ? [companyId, workflowId, below] : [companyId, to, below])).map((r) => r.id);
   const n = async (sql: string, arg: unknown) => (await c.query(sql, [arg])).rowCount ?? 0;
   if (ids.length) {
+    // a run started by an event a cleared run wrote (New from Typeform's lead.created starting New lead) lets go of it first; a run that stays keeps its history, not the pointer
+    await n("update runs set triggered_by_event=null where triggered_by_event in (select id from events where run_id = any($1::uuid[]))", ids);
     out.events += await n("delete from events where run_id = any($1::uuid[])", ids);
     out.sends = await n("delete from sends where run_id = any($1::uuid[])", ids);
     out.steps = await n("delete from run_steps where run_id = any($1::uuid[])", ids);
@@ -59,6 +61,7 @@ export async function clearStrayHarnessBookings(c: PoolClient, companyId: string
   const n = async (sql: string, arg: unknown) => (await c.query(sql, [arg])).rowCount ?? 0;
   const runs = (await many<{ id: string }>(c, "select id from runs where appointment_id = any($1::uuid[]) and born_in<>'live'", [ids])).map((r) => r.id);
   if (runs.length) {
+    await n("update runs set triggered_by_event=null where triggered_by_event in (select id from events where run_id = any($1::uuid[]))", runs);
     out.events += await n("delete from events where run_id = any($1::uuid[])", runs);
     out.sends = await n("delete from sends where run_id = any($1::uuid[])", runs);
     out.steps = await n("delete from run_steps where run_id = any($1::uuid[])", runs);

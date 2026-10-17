@@ -4680,3 +4680,9 @@ already shows filed is held as before; GHL not answering leaves the old rule.
 
 Tests: `eod.test.ts` (the ledger holds Mia's no-show and GHL is blank: refiling starts one Call outcome filed run, for her only;
 GHL filled: refiling starts none).
+
+Addendum (2026-10-17): moving Dating into quiet failed ("violates foreign key constraint runs_triggered_by_event_fkey"): New
+from Typeform's `record` step writes the lead.created that starts New lead, so a cleared run's event was still the trigger of
+another run when the events went. The clean slate (and the stray harness cleanup) now first lets go of those pointers, as a
+surviving run already loses its synthetic booking's; going live had the same latent fault. `mode.test.ts` moves a company
+holding such a chain into quiet (it fails with the production error without the change).

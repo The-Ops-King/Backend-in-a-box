@@ -202,7 +202,17 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
   it("D132: moving up into quiet passes the readiness gate and clears the runs born in ghost or test (their first steps never wrote); moving down is the flag", async () => {
     await setMode("ghost");
     const ct = await contact("L7", "client3@gmail.com", []);
-    await lead(ct); await tick(fake, undefined, companyId);
+    // a run that starts another (as New from Typeform starts New lead): the started runs point at the event the first one wrote
+    await asOperator(async (c) => {
+      const nodes = [{ id: "t1", type: "trigger", event: "form.submitted" }, { id: "r1", type: "record", event: "lead.created", start: true, data: {} }, { id: "x1", type: "exit", reason: "done" }];
+      const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "none" }, nodes, edges: nodes.slice(0, -1).map((n, i) => ({ from: n.id, to: nodes[i + 1].id })) });
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Form starts lead','always',true) returning id", [companyId]))!;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'d132')", [wf.id, def, extractManifest(def)]);
+      await syncTriggers(c, companyId, wf.id, def);
+      await dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: ct, opportunity_id: null, appointment_id: null, event_type: "form.submitted", source: "test", data: {} }), { contact: { id: ct } });
+    });
+    await tick(fake, undefined, companyId); await tick(fake, undefined, companyId);
+    expect(await asOperator((c) => many(c, "select 1 from runs r join events e on e.id=r.triggered_by_event where r.company_id=$1 and e.run_id is not null", [companyId]))).not.toEqual([]);
     expect((await runsOf(ct)).length).toBeGreaterThan(0); expect((await runsOf(ct)).every((r) => r.born_in === "ghost")).toBe(true);
     const up = await asOperator((c) => setCompanyMode(c, companyId, "quiet", "/c/ladder", "test"));
     expect(up).toMatchObject({ ok: true, changed: true, mode: "quiet" });
