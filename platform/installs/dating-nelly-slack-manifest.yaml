@@ -30,6 +30,7 @@ oauth_config:
       - chat:write
       - chat:write.customize
       - channels:read
+      - groups:read
       - reactions:read
       - reactions:write
       - users:read.email

@@ -682,7 +682,7 @@ features:
     display_name: Ops
     always_online: true
   slash_commands:
-    - { command: /mtd, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Month to date: leads, shows, closes, cash vs last month", usage_hint: "", should_escape: false }
+    - { command: /mtd, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Month to date: leads, shows, closes, cash vs last month", should_escape: false }
     - { command: /weekly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Last week's numbers (or: this week)", usage_hint: "[this week]", should_escape: false }
     - { command: /monthly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Last month's numbers (or: this month)", usage_hint: "[this month]", should_escape: false }
     - { command: /show-rate, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Show rate by closer and source", usage_hint: "[last month]", should_escape: false }
@@ -692,13 +692,14 @@ features:
     - { command: /leads, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Leads, MQLs and marketing DQs by source", usage_hint: "[yesterday]", should_escape: false }
     - { command: /closes, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Every close in the period: who, closer, day won", usage_hint: "[last month]", should_escape: false }
     - { command: /leaderboard, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Closers by cash, setters by sets", usage_hint: "[last week]", should_escape: false }
-    - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "What the bot can answer", usage_hint: "", should_escape: false }
+    - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "What the bot can answer", should_escape: false }   # no usage_hint: Slack refuses an empty one
 oauth_config:
   scopes:
     bot:
       - chat:write
       - chat:write.customize      # existing: posts under a step's name and icon
       - channels:read             # existing: the health sweep checks the bot is in its channels
+      - groups:read               # the same check for a private channel (without it every step posting there is red: missing_scope)
       - reactions:read            # existing (D45)
       - reactions:write           # existing (D44): also the 👀
       - users:read.email          # existing: mentions; now also "my …" and the escalation person
