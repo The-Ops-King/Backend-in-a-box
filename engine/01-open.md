@@ -698,8 +698,10 @@ cancel → Consultation → recording → outcome Deposit $250 → deposit paid 
 expected workflow once; both cards ended won, the Sales Call record closed_won with $5,000, the stat tags all on. Found:
 - The bot lacks `groups:read`, so every step posting to the private ops-test channel is red in Health check (missing_scope; the
   posts themselves land). Manifests fixed; Tyler adds the scope in the Slack app and reinstalls it.
-- Payment recorded is off (no `crm.agreement_template`): a payment posts nothing, makes no Dating Payment record, and leaves the
-  cards' value at $0. Turns on with the agreement template.
+- Payment recorded is off (no `crm.agreement_template`): a payment posts nothing and makes no Dating Payment record. Turns on
+  with the agreement template.
+- Both won cards hold $0: no workflow sets a card's value, for any company, yet the GHL won-card numbers (`ghl-metrics.ts`, the
+  closes list) add it up. Open question for Tyler: should Deal closed set the closer card's value (cash or contract)?
 - Deal closed's welcome email (placeholder copy) to the test address waits for 8 AM PT quiet hours.
 - Calendly's "Complimentary Dating Strategy Session ♡" shows no open time in the next 7 days (Health check, yellow).
 - The staged recording's transcript is hair-themed (the harness's one transcript), so the AI review reads it as a close.
