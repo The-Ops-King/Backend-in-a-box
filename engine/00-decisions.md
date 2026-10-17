@@ -4724,3 +4724,14 @@ Open (not built): the backfill should find a company's own Sales Call for a book
 `closerSalesCalls` does) instead of making one, and read the engine's end-of-day answers as evidence.
 
 Tests: `crm-repair.test.ts`.
+
+## D138. Replaying an upcoming booking that has no run (2026-10-17)
+
+Found auditing Dating for launch: moving it into quiet cleared the runs of four real bookings made the day before (their calls
+still ahead), so Triage call booked never wrote their cards, Sales Calls or Nelly's task; six more were booked before the
+engine's first Calendly read (the baseline: replicas only, by design). `replayBookings` (`POST /api/admin/replay-bookings`, dry
+run first) hands an upcoming booking with no run to the booked-call workflows as the poll does: its stored `appointment.booked`
+dispatched again with the poll's context; a baseline booking only with `baseline: true`, recording an engine event marked
+`replay`. A call that has started, a cancelled booking, or one that already has a run is refused. Audited.
+
+Tests: `replay.test.ts`.
