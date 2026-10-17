@@ -4540,3 +4540,20 @@ Strategy session runs only Triage call booked and a Consultation only Sales call
 calendar is the Consultation; record, call (never the other business's staff), deposit, balance, agreement, sign; the route).
 Each fails without its change: the term name 3, the calendar choice 2, the deterministic id 1, the reset 1, the test-domain gate
 2, the caller 1.
+
+## D126. The harness files one staged call's outcome, as the end-of-day form does, without filing the closer's day (2026-10-17)
+
+The synthetic journey stopped at the outcome: the only way to file one is the closer's end-of-day link, and the operator has no
+way to it (the query door hides `report_token`, as it should, and the listing is behind the dashboard sign-in). Filing through
+the link would also be wrong for a test: an end-of-day report is the closer's whole day, so it would store Nelly's real day as
+filed, post its summary and stop her reminders, for one fake call.
+
+`outcome` (admin route and `sys-test-outcome`) takes `outcome`, one of the company's end-of-day answers by value or label, and
+files it for the latest open staged call that has started, as its closer, through `fileCall`: the per-call body of `submitEod`,
+moved out unchanged so the form and the harness are one path (the same answer twice is held, not filed twice). A money answer's
+cash is `amount`, else the program price, a deposit 100; revenue only on a close (D119). No `eod_reports` row, no `eod.filed`.
+Refused: an answer the company does not have (the refusal lists theirs), a call that has not started (only those are on the form),
+no staged call. The end-of-day form itself is checked by a person once, on a real call.
+
+Tests: `simulate-form.test.ts` (the journey files Deposit for $250 after the recording: showed + deposit on the ledger, the note,
+Call outcome filed once, the second filing held, no report stored; the three refusals) and `eod.test.ts` unchanged and passing.

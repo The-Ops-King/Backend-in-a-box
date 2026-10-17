@@ -12,6 +12,8 @@ import { applyDocument, facts as agreementFacts } from "./agreements";
 import { contactPasses, isTestContact, testDomains, TEST_DOMAINS_KEY } from "./mode";
 import { formsOf, takeDelivery, type Submitted, type TypeformFormMap } from "./typeform";
 import { depositProducts, DEPOSIT_PRODUCTS_KEY, normEmail } from "./payments";
+import { fileCall, loadEodForm } from "./eod";
+import { choiceOf, isMoney, isRevenueOutcome, outcomesOf } from "./eod-form";
 
 /**
  * D23: the test harness lives in the engine, not in the CRM. A simulated step is a real event through the real
@@ -21,7 +23,7 @@ import { depositProducts, DEPOSIT_PRODUCTS_KEY, normEmail } from "./payments";
  * forced: in live mode a run would write real tags and cards for the test person. D92: refused too, for anyone but a
  * test contact, while a workflow that is on stands live on its own: its run about the staged fact would reach a real person.
  */
-export const SIM_ACTIONS = ["form", "create", "book", "book-self", "reschedule", "cancel", "pay", "record", "call", "agreement", "sign", "reset"] as const;
+export const SIM_ACTIONS = ["form", "create", "book", "book-self", "reschedule", "cancel", "pay", "record", "outcome", "call", "agreement", "sign", "reset"] as const;
 export type SimAction = (typeof SIM_ACTIONS)[number];
 export const simTag = (tag: string): SimAction | null => { const m = /^sys-test-([a-z-]+)$/.exec(tag.trim().toLowerCase()); return m && (SIM_ACTIONS as readonly string[]).includes(m[1]) ? (m[1] as SimAction) : null; };
 
@@ -31,9 +33,12 @@ export const simTag = (tag: string): SimAction | null => { const m = /^sys-test-
  * D125: `calendar` (book, book-self, reschedule, cancel, record): which mapped calendar, by its external id, its call type's name
  * ("Strategy session") or its own name; without it, book takes the closer call's calendar as before and the others the latest
  * open staged booking. `deposit` (pay): the payment is for a deposit (D119: by its product, or a name saying deposit).
+ * D126: `outcome` (outcome): one of the company's end-of-day answers, by its value or its label ("deposit", "Closed", "no_show"), filed
+ * for the latest open staged call that has started, by its closer, through the end-of-day form's own per-call path; `amount` is the
+ * cash said (a money answer; default the program price, a deposit 100). The closer's day is not filed: their other calls are real.
  * `adapters`: the CRM's, for `form` alone (the door looks the person up in GHL and writes them as the mode allows).
  */
-type Ctx = { c: PoolClient; company: CompanyRow; contactId: string; force?: boolean; daysOut?: number; closer?: string; startsAt?: string; amount?: number; calendar?: string; deposit?: boolean; adapters?: Adapters } & FormInput;
+type Ctx = { c: PoolClient; company: CompanyRow; contactId: string; force?: boolean; daysOut?: number; closer?: string; startsAt?: string; amount?: number; calendar?: string; deposit?: boolean; outcome?: string; adapters?: Adapters } & FormInput;
 export type SimResult = { ok: true; action: SimAction; detail: Record<string, unknown>; runsStarted: number } | { ok: false; why: string };
 
 type Cal = { id: string; external_id: string; name: string; appointment_term: string; term_name: string; term_category: string; default_user_id: string | null };
@@ -151,6 +156,21 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
       if (r.outcome !== "linked") return { ok: false, why: r.outcome === "duplicate" ? "duplicate recording id" : `recording did not link to this contact: ${r.reason}` };
       const appt = r.appointmentId ? await one<Record<string, unknown>>(c, "select a.id, a.starts_at, a.status, json_build_object('category', t.category) as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [r.appointmentId]) : null;
       return { ok: true, action, detail: { recording: r.recording.id, appointment: r.appointmentId }, runsStarted: (await dispatchEvent(c, r.event, { ...ctx, appointment: appt ?? undefined })).length };
+    }
+    case "outcome": {
+      const a = await openTestAppointment(c, company.id, contact.id, cal?.id);
+      if (!a) return { ok: false, why: `no open simulated appointment${cal ? ` on "${cal.term_name}"` : ""} to file; run book first` };
+      if (a.starts_at.getTime() > Date.now()) return { ok: false, why: `the call starts ${a.starts_at.toISOString()}: only a call that has started is on the end-of-day form (book it with startsAt in the past)` };
+      if (!a.assigned_user_id) return { ok: false, why: "the staged call has no closer to file it" };
+      const fields = await loadEodForm(c, company.id), asked = x.outcome?.trim() ?? "";
+      const choice = choiceOf(asked, fields) ?? outcomesOf(fields).find((o) => o.label.toLowerCase() === asked.toLowerCase());
+      if (!choice) return { ok: false, why: `outcome is one of the company's end-of-day answers: ${outcomesOf(fields).map((o) => `"${o.value}" (${o.label})`).join(", ")}` };
+      const price = Number((await one<{ v: string | null }>(c, "select contract_value_default as v from companies where id=$1", [company.id]))?.v) || null;
+      const cash = isMoney(choice.value, fields) ? x.amount ?? (choice.call_outcome === "deposit" ? 100 : price) : null;
+      const r = await fileCall(c, company.id, fields, { appointment_id: a.id, contact_id: contact.id, contact: name, starts_at: a.starts_at.toISOString(), href_contact: null, recording_url: null, outcome: choice.value,
+        revenue: isRevenueOutcome(choice.value, fields) ? price : null, cash, next_date: null, next_steps: "", dq_reason: "", dq_note: "", about: "", notes: "Filed by the test harness", extra: {} }, a.assigned_user_id);
+      if (r.status === "skipped") return { ok: false, why: `"${choice.label}" could not be filed: the company has no outcome term for it` };
+      return { ok: true, action, detail: { appointment: a.id, call_type: a.term_name, outcome: choice.value, label: choice.label, cash, filed: r.status }, runsStarted: r.runs };
     }
     case "call": {
       // a connected setter call, 20 minutes ago (so the post's 15 minutes after hang-up are already over), with a transcript the classifier will read as a setting call;
