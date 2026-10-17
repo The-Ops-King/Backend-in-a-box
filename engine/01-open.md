@@ -692,3 +692,14 @@ Tyler, 2026-10-17: "for this client I want nothing to post if nothing happened."
 with nothing in it, by their own numbers. Her install file has `"quietWhenEmpty": true`. Apply: re-install Dating Nelly with
 it (or `bindings/set` the one key), then `POST /api/admin/templates { company: "dating-nelly", templates: ["daily-wrap-up",
 "weekly-wrap-up", "monthly-wrap-up", "weekly-leaderboard"] }` (her four copies are untouched, so they upgrade).
+
+Synthetic journey, test mode, 2026-10-17 (`nellytest1@jtylerray.com`, harness D125/D126): form → Strategy session → reschedule →
+cancel → Consultation → recording → outcome Deposit $250 → deposit paid → balance $4,750 → agreement → signed. Every step ran the
+expected workflow once; both cards ended won, the Sales Call record closed_won with $5,000, the stat tags all on. Found:
+- The bot lacks `groups:read`, so every step posting to the private ops-test channel is red in Health check (missing_scope; the
+  posts themselves land). Manifests fixed; Tyler adds the scope in the Slack app and reinstalls it.
+- Payment recorded is off (no `crm.agreement_template`): a payment posts nothing, makes no Dating Payment record, and leaves the
+  cards' value at $0. Turns on with the agreement template.
+- Deal closed's welcome email (placeholder copy) to the test address waits for 8 AM PT quiet hours.
+- Calendly's "Complimentary Dating Strategy Session ♡" shows no open time in the next 7 days (Health check, yellow).
+- The staged recording's transcript is hair-themed (the harness's one transcript), so the AI review reads it as a close.
