@@ -1,4 +1,4 @@
-/** The mode ladder (D52, addendum 2): in test everyone runs; a sys-test or test-domain contact gets writes and sends for real, anyone else runs as in shadow. */
+/** The mode ladder (D52, addendum 2): in test everyone runs; a sys-test or test-domain contact gets writes and sends for real, anyone else runs as in ghost (D132: shadow renamed). Quiet: everyone's CRM work is real, nothing reaches a contact, Slack only to test channels. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { DateTime } from "luxon";
 import { asOperator, one, many } from "@/db/client";
@@ -7,6 +7,7 @@ import { installCompany } from "@/engine/install";
 import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
 import { contactPasses, effectiveMode } from "@/engine/mode";
+import { setCompanyMode } from "@/engine/golive";
 import { fakeAdapters } from "@/engine/test-install";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { syncTriggers } from "@/engine/install";
@@ -52,7 +53,7 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     expect(v?.value.toString("utf8")).toBe("jtylerray.com");
   });
 
-  it("test: everyone's run starts, born in test; the tagged and the test-domain contact get it for real, the real contact gets it as in shadow", async () => {
+  it("test: everyone's run starts, born in test; the tagged and the test-domain contact get it for real, the real contact gets it as in ghost", async () => {
     await setMode("test");
     const tagged = await contact("L1", "someone@gmail.com", ["sys-test"]);
     const domain = await contact("L2", "me@jtylerray.com", []);
@@ -74,15 +75,15 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     expect(newLead).toMatchObject({ workflow: "new-lead", status: "completed", exit_reason: "done" });
     expect(speed).toMatchObject({ workflow: "speed-to-lead", status: "waiting", current_node: "n3" });   // parked for a reply as live would be
     const steps = await stepsOf(newLead.id);
-    expect(steps.find((s) => s.node_type === "set_tag")).toMatchObject({ status: "ok", result: { shadow: true, would_tag: ["stat-new"] } });
-    expect(steps.find((s) => s.node_type === "pipeline_card")).toMatchObject({ status: "ok", result: { shadow: true, card: "created" } });
-    expect((await sendsOf(real))).toMatchObject([{ status: "shadow", suppressed_reason: null }, { status: "shadow", suppressed_reason: null }]);   // email and text, written down, not delivered
-    expect(await localTags(real)).not.toContain("stat-new");   // like shadow: neither the CRM's tags nor our replica of them
-    const logged = await asOperator((c) => one<{ data: { shadow?: boolean } }>(c, "select data from events where run_id=$1 and event_type='tag.added'", [newLead.id]));
-    expect(logged?.data.shadow).toBe(true);
+    expect(steps.find((s) => s.node_type === "set_tag")).toMatchObject({ status: "ok", result: { ghost: true, would_tag: ["stat-new"] } });
+    expect(steps.find((s) => s.node_type === "pipeline_card")).toMatchObject({ status: "ok", result: { ghost: true, card: "created" } });
+    expect((await sendsOf(real))).toMatchObject([{ status: "ghost", suppressed_reason: null }, { status: "ghost", suppressed_reason: null }]);   // email and text, written down, not delivered
+    expect(await localTags(real)).not.toContain("stat-new");   // ghost: neither the CRM's tags nor our replica of them
+    const logged = await asOperator((c) => one<{ data: { ghost?: boolean } }>(c, "select data from events where run_id=$1 and event_type='tag.added'", [newLead.id]));
+    expect(logged?.data.ghost).toBe(true);
   });
 
-  it("test: the tag comes off mid-run — the run keeps going, and from its next step behaves as in shadow", async () => {
+  it("test: the tag comes off mid-run — the run keeps going, and from its next step behaves as in ghost", async () => {
     const tagged = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='L1'", [companyId])))!.id;
     await asOperator((c) => c.query("update contacts set tags='{}' where id=$1", [tagged]));
     await asOperator((c) => c.query("update runs set next_run_at=now() - interval '1 minute' where company_id=$1 and contact_id=$2 and status='waiting'", [companyId, tagged]));
@@ -91,12 +92,12 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     const speed = (await runsOf(tagged)).find((r) => r.workflow === "speed-to-lead")!;
     expect(speed).toMatchObject({ status: "completed", exit_reason: "no_reply" });   // not exited at a gate
     const ledger = await sendsOf(tagged);
-    expect(ledger.map((s) => s.status)).toEqual(["sent", "sent", "shadow"]);   // the first two went for real while tagged; the follow-up is a would-send
+    expect(ledger.map((s) => s.status)).toEqual(["sent", "sent", "ghost"]);   // the first two went for real while tagged; the follow-up is a would-send
     expect(sent.filter((s) => s.to === "L1").length).toBe(before);
-    expect((await stepsOf(speed.id)).find((s) => s.node_id === "n5")).toMatchObject({ status: "ok", result: { shadow: true } });
+    expect((await stepsOf(speed.id)).find((s) => s.node_id === "n5")).toMatchObject({ status: "ok", result: { ghost: true } });
   });
 
-  it("test: a run born tagged whose tag comes off before its first step runs through as in shadow instead of exiting", async () => {
+  it("test: a run born tagged whose tag comes off before its first step runs through as in ghost instead of exiting", async () => {
     const tagged = await contact("L4", "other@gmail.com", ["sys-test"]);
     expect((await lead(tagged)).length).toBe(2);   // started in test, not yet ticked
     await asOperator((c) => c.query("update contacts set tags='{}' where id=$1", [tagged]));   // the tag comes off before the first step
@@ -104,23 +105,23 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     const runs = await runsOf(tagged);
     expect(runs.map((r) => r.born_in)).toEqual(["test", "test"]);
     expect(runs.find((r) => r.workflow === "new-lead")).toMatchObject({ status: "completed", exit_reason: "done" });
-    expect((await stepsOf(runs.find((r) => r.workflow === "new-lead")!.id)).find((s) => s.node_type === "set_tag")).toMatchObject({ result: { shadow: true, would_tag: ["stat-new"] } });
-    expect((await sendsOf(tagged)).map((s) => s.status)).toEqual(["shadow", "shadow"]);
+    expect((await stepsOf(runs.find((r) => r.workflow === "new-lead")!.id)).find((s) => s.node_type === "set_tag")).toMatchObject({ result: { ghost: true, would_tag: ["stat-new"] } });
+    expect((await sendsOf(tagged)).map((s) => s.status)).toEqual(["ghost", "ghost"]);
     expect(crmTags.some((t) => t.to === "L4")).toBe(false); expect(sent.some((s) => s.to === "L4")).toBe(false);
     expect(await asOperator((c) => contactPasses(c, companyId, tagged, "test", { "test.domains": "jtylerray.com" }))).toMatchObject({ ok: false });
   });
 
-  it("live and shadow: everyone passes; the effective mode is shadow only in shadow or for a non-test contact in test", async () => {
+  it("live and ghost: everyone passes; the effective mode is ghost only in ghost or for a non-test contact in test", async () => {
     const nobody = "00000000-0000-0000-0000-000000000000";
-    for (const m of ["shadow", "live"] as const) expect(await asOperator((c) => contactPasses(c, companyId, nobody, m, {}))).toEqual({ ok: true });
+    for (const m of ["ghost", "live"] as const) expect(await asOperator((c) => contactPasses(c, companyId, nobody, m, {}))).toEqual({ ok: true });
     const real = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='L3'", [companyId])))!.id;
     const domain = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='L2'", [companyId])))!.id;
     const b = { "test.domains": "jtylerray.com" };
     await asOperator(async (c) => {
-      expect(await effectiveMode(c, companyId, real, "shadow", b)).toBe("shadow"); expect(await effectiveMode(c, companyId, null, "shadow", b)).toBe("shadow");
+      expect(await effectiveMode(c, companyId, real, "ghost", b)).toBe("ghost"); expect(await effectiveMode(c, companyId, null, "ghost", b)).toBe("ghost");
       expect(await effectiveMode(c, companyId, real, "live", b)).toBe("real");
-      expect(await effectiveMode(c, companyId, real, "test", b)).toBe("shadow"); expect(await effectiveMode(c, companyId, domain, "test", b)).toBe("real");
-      expect(await effectiveMode(c, companyId, null, "test", b)).toBe("shadow");   // D76: a team-facing run (end of day, wrap-ups) reaches nobody until live
+      expect(await effectiveMode(c, companyId, real, "test", b)).toBe("ghost"); expect(await effectiveMode(c, companyId, domain, "test", b)).toBe("real");
+      expect(await effectiveMode(c, companyId, null, "test", b)).toBe("ghost");   // D76: a team-facing run (end of day, wrap-ups) reaches nobody until live
       expect(await effectiveMode(c, companyId, null, "live", b)).toBe("real");
     });
   });
@@ -164,5 +165,46 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('bot.escalate_to','slack.channel.ops')", [companyId]));
     dms.length = 0; await filed(); await tick(fake, undefined, companyId);
     expect(dms).toEqual([]);
+  });
+  it("D132 quiet: a real contact's CRM work is written and nothing reaches them (texts and emails held), Slack goes only to a test channel; a test contact gets everything", async () => {
+    await asOperator(async (c) => {
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.bookings','channel',$2),($1,'slack.channel.deals','channel',$3),($1,'test.slack_channels','text',$2) on conflict (company_id,key) do update set value=excluded.value", [companyId, Buffer.from("CTEST"), Buffer.from("CREAL")]);
+      const nodes = [{ id: "t1", type: "trigger", event: "lead.created" }, { id: "p1", type: "slack_post", channel: "{{slack.channel.bookings}}", template: "booked {{contact.first_name}}" }, { id: "p2", type: "slack_post", channel: "{{slack.channel.deals}}", template: "deal {{contact.first_name}}" }, { id: "x1", type: "exit", reason: "done" }];
+      const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "none" }, nodes, edges: nodes.slice(0, -1).map((n, i) => ({ from: n.id, to: nodes[i + 1].id })) });
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Quiet posts','always',true) returning id", [companyId]))!;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'d132')", [wf.id, def, extractManifest(def)]);
+      await syncTriggers(c, companyId, wf.id, def);
+    });
+    await setMode("quiet");
+    const real = await contact("L5", "client2@gmail.com", []), mine = await contact("L6", "quiet@jtylerray.com", []);
+    const posted = dms.length;
+    for (const ct of [real, mine]) await lead(ct);
+    await tick(fake, undefined, companyId);
+    // the real contact: the CRM got the tag and the card; the text and the email were held, not sent; Slack only in the test channel
+    expect(crmTags).toContainEqual({ to: "L5", tag: "stat-new" }); expect(crmCards).toContain("L5"); expect(await localTags(real)).toContain("stat-new");
+    expect(sent.some((s) => s.to === "L5")).toBe(false);
+    expect(await sendsOf(real)).toMatchObject([{ status: "quiet", suppressed_reason: "quiet mode: nothing reaches a contact" }, { status: "quiet", suppressed_reason: "quiet mode: nothing reaches a contact" }]);
+    const newPosts = dms.slice(posted);
+    expect(newPosts.filter((p) => p.text.endsWith("booked T")).map((p) => p.channel)).toEqual(["CTEST", "CTEST"]);   // both contacts' posts to the test channel went
+    expect(newPosts.filter((p) => p.text.endsWith("deal T")).map((p) => p.channel)).toEqual(["CREAL"]);   // only the test contact's reached the other channel
+    expect(newPosts.find((p) => p.channel === "CTEST")!.text).toMatch(/^🧪 \*quiet\* — /);
+    // the test contact: everything real
+    expect(sent.filter((s) => s.to === "L6").map((s) => s.kind).sort()).toEqual(["email", "sms"]);
+  });
+
+  it("D132: moving up into quiet passes the readiness gate and clears the runs born in ghost or test (their first steps never wrote); moving down is the flag", async () => {
+    await setMode("ghost");
+    const ct = await contact("L7", "client3@gmail.com", []);
+    await lead(ct); await tick(fake, undefined, companyId);
+    expect((await runsOf(ct)).length).toBeGreaterThan(0); expect((await runsOf(ct)).every((r) => r.born_in === "ghost")).toBe(true);
+    const up = await asOperator((c) => setCompanyMode(c, companyId, "quiet", "/c/ladder", "test"));
+    expect(up).toMatchObject({ ok: true, changed: true, mode: "quiet" });
+    expect(await runsOf(ct)).toEqual([]);
+    expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and born_in in ('ghost','test')", [companyId]))).toEqual([]);
+    await lead(await contact("L8", "client4@gmail.com", [])); await tick(fake, undefined, companyId);
+    const quietBorn = (await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and born_in='quiet'", [companyId]))).length;
+    expect(quietBorn).toBeGreaterThan(0);
+    expect(await asOperator((c) => setCompanyMode(c, companyId, "test", "/c/ladder", "test"))).toMatchObject({ ok: true, changed: true });
+    expect((await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and born_in='quiet'", [companyId]))).length).toBe(quietBorn);   // down is the flag: nothing cleared
   });
 });

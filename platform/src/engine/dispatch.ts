@@ -74,7 +74,7 @@ async function keySuffix(c: PoolClient, template: string, args: { event: EventRo
 export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record<string, unknown>): Promise<string[]> {
   // D117/D123: a lead is never started for someone out of the company's scope, whichever door the lead.created came through
   // (every one today is in scope; this holds the rule for a door or a workflow step added later). In scope is the replica's
-  // answer (tagged, a booker, or a form submitter), so a booker or applicant untagged in shadow still passes.
+  // answer (tagged, a booker, or a form submitter), so a booker or applicant untagged in ghost still passes.
   if (e.event_type === "lead.created" && e.contact_id) {
     const { companyScopeTag, inScope } = await import("./scope");
     const tag = await companyScopeTag(c, e.company_id);

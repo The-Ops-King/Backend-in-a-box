@@ -81,7 +81,7 @@ describe.skipIf(!process.env.DATABASE_URL)("a company's scope tag (D117)", () =>
     expect((await events("appointment.booked")).map((e) => e.contact_id)).toEqual([b1!.id]);
     expect(tagged).toEqual([]);
     expect(b1!.tags).toEqual([]);   // neither GHL nor the replica: the next poll must not see a phantom removal
-    expect((await events("tag.added")).filter((e) => e.contact_id === b1!.id).map((e) => e.data)).toEqual([{ tag: "dating", shadow: true, by: "scope" }]);
+    expect((await events("tag.added")).filter((e) => e.contact_id === b1!.id).map((e) => e.data)).toEqual([{ tag: "dating", ghost: true, by: "scope" }]);
   });
 
   it("when writes are real the booker is tagged in GHL and on the replica", async () => {
@@ -91,7 +91,7 @@ describe.skipIf(!process.env.DATABASE_URL)("a company's scope tag (D117)", () =>
       await poll();
       expect(tagged).toEqual([{ id: "B2", tag: "dating" }]);
       expect((await contactOf("B2"))!.tags).toEqual(["dating"]);
-    } finally { await asOperator((c) => c.query("update companies set mode='shadow' where id=$1", [companyId])); }
+    } finally { await asOperator((c) => c.query("update companies set mode='ghost' where id=$1", [companyId])); }
   });
 
   it("a dialer call with someone out of scope is ignored: nobody is fetched or created, no call row", async () => {

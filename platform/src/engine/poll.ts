@@ -79,7 +79,7 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
 
 /**
  * D123: a new CRM record is a new lead (D65 addendum), except one that only gives a CRM id to a replica that had none and is a lead
- * already: the person the Typeform door made a lead before GHL had them (in shadow nothing is written to GHL) arriving in GHL
+ * already: the person the Typeform door made a lead before GHL had them (in ghost nothing is written to GHL) arriving in GHL
  * later is the same lead, not a second one. A replica without a CRM id is a lead only by a form (every other lead.created names a
  * CRM record), so on a company with no form nothing changes.
  */

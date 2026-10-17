@@ -64,7 +64,7 @@ Every template carries a `stage` on the customer's journey (`src/engine/stages.t
 | agreement-chase | first payment beyond a deposit (the one the agreement goes out on, D119) | 24h → unsigned? → nudge the owner (Slack DM, else `slack.channel.alerts` with an @mention; CRM task on the contact) → 24h → … three nudges at most; a signature ends it; after the third: tag `stat-agreement-unsigned`, one alerts post |
 | payment-recorded (extended) | payment linked | as before, plus on the first payment with no signature: send the agreement, `stat-agreement-sent`, closer card → Agreement Sent (`crm.stage_closer_agreement_sent`); dated note; Sales Call record cash collected updated when there is one |
 | card-moved | `card.moved` (a pipeline card dragged by hand in the CRM, any bound board, D61) | "🗂️ <who> moved the <board> card to <stage>" in the booking post's thread; into the closer's No Show / Cancelled or the setter's No-Show / Cancel / Reschedule → a no-show, into Lost → showed + lost, into Disqualified → showed + DQ, filed with `record_outcome` `source: disposition` (as the end-of-day form files it, so Call outcome filed runs) once the call has started and when the call does not already carry it; any other stage is noted. Installs ON into an existing company (D88) |
-| payment-unlinked | `payment.unlinked` | the "*Unlinked payment*" post in the alerts channel (else bookings), marked only in shadow (D88) |
+| payment-unlinked | `payment.unlinked` | the "*Unlinked payment*" post in the alerts channel (else bookings), marked only in ghost (D88) |
 | recording-unlinked | `recording.unlinked` | the "*Unmatched recording*" post in the alerts channel (else bookings) with why, who was on it and the link to match it (D88) |
 | ledger-drift | `drift.sales_call_cancelled`, `drift.sales_call_unlinked` (the hourly sweep, D73/D76) | sets a Sales Call the booking source cancelled before its start to cancelled, links a Sales Call to its contact and its one closer card (field and association), each by the record's id (D88). Needs `crm.object_sales_call` |
 | weekly-leaderboard | schedule: Mondays 09:00 company time (D94) | a `leaderboard` step for last week (Mon–Sun): closers ranked by cash collected with closes and close rate, setters ranked by sets with the show rate of their sets, the same registry numbers the bot says; posted to `slack.channel.ops`, else `slack.channel.reports`, with the period under it. The day, time, period, channel and the line under the board are the workflow's |
@@ -204,7 +204,7 @@ override with `prompts: { call_notes: "…" }` at install). The answer is parsed
 under `vars.<into>`, so later steps address its fields (`{{vars.notes.disposition}}`) or render the
 whole thing as Slack/note text with the `lines` filter (`{{vars.notes | lines}}`). The key is
 `secret.anthropic_key` per company (`anthropicKey` at install; env `ANTHROPIC_API_KEY` is the
-fallback); without one the node fails loudly. Analysis runs in shadow too: it writes nothing to the
+fallback); without one the node fails loudly. Analysis runs in ghost too: it writes nothing to the
 CRM, and seeing what the AI would say is the point. Model: Claude Opus 5.5, prompt cached, server-side
 fallback on a safety decline. Each read is a `call.analyzed` event and is kept on the recording row.
 
@@ -330,7 +330,7 @@ workflow: an install that adds them starts each as the old copy stood (on or off
 off in the same transaction; an old copy the company edited stays as it is and they install off. Time, day, channel, breakdowns (per setter / per closer) and sections (what they
 said = booking-form answers tallied per question) are the steps' settings, edited like any other workflow.
 Each trigger fires once per period (the clock's reentry key); a missed day sends late, never twice. Every
-wrap-up is shown on `/app/c/<slug>/wrap-ups` exactly as sent (shadow: posted with the shadow label).
+wrap-up is shown on `/app/c/<slug>/wrap-ups` exactly as sent (ghost: posted with the ghost label).
 `POST /api/admin/reports { company, kind }` starts that kind's wrap-up now (the workflow whose trigger is `t_<kind>`)
 with the period in progress (today so far / this week so far / this month so far).
 
@@ -407,7 +407,7 @@ location sent is a row in `agreements` (document id, signer contact, status sent
 `agreement.signed`, once, whatever order the poll sees things in. The first pass is a silent baseline.
 `send_document` sends a template to the contact from a CRM user (needs the token's documents send
 scope; the request body is unverified until that scope exists) and records the row first so the poll
-does not announce it twice. In shadow it is skipped like every CRM write. Facts every run can check:
+does not announce it twice. In ghost it is skipped like every CRM write. Facts every run can check:
 `contact.paid`, `contact.payments_count`, `contact.cash_collected`, `contact.first_paid_at`,
 `contact.agreement_signed`, `contact.agreement_sent`, `contact.owner` (the CRM assignee, else
 `crm.default_closer`; name, email, Slack id when known), `agreement.*` (the latest agreement), and
@@ -444,7 +444,7 @@ so a template is portable across companies. One open card per contact per board:
 and renames it instead of duplicating; `if_missing: skip` makes a step move-only. Cards live in
 `pipeline_cards`, each hanging off the contact's one open opportunity (the pursuit), so a setter
 card and a closer card for the same sale share one opportunity, and the booking attaches to that
-same pursuit. In shadow the card exists only in our table.
+same pursuit. In ghost the card exists only in our table.
 
 Custom-object records (`crm_record` node) are upserted by our own key (the Whop payment id, the
 Calendly event uuid) through `crm_records`, so the CRM's lagging search is never consulted;
@@ -503,7 +503,7 @@ every stage it moves from, whether it needs a card, its name and owner; boards, 
 names (`crmNamer`: one GHL read per company, kept ten minutes; unread, the key words marked "(name not read from GHL)"); a CRM record its object and the values that
 matter ("outcome = rescheduled"); a Slack post what it posts and where. A step's hand-written `title` is never the
 words, only a small label above them, so a changed setting can never hide behind an old title. Each step also
-carries how many runs reached it in the last 7 days, shadow runs included (`stepCounts` in `src/api/data.ts`: one
+carries how many runs reached it in the last 7 days, ghost runs included (`stepCounts` in `src/api/data.ts`: one
 grouped query on `runs` ⋈ `run_steps` by node id, so a step kept across versions is one step; in the workflow
 page's chart payload as `chart.counts`); a 0 is drawn too.
 
@@ -663,11 +663,11 @@ unbound, that step skips and says the board has no Deposit stage.
 A company's own words (a welcome, DQ reasons) are company copies: `scripts/build-copies.ts <company>` builds a dating
 company's from `installs/<company>/words.json` (D118), as `installs/pmu/build.py` builds PMU's.
 
-**Until live, the team hears nothing directly (D76).** In shadow and test a DM to a team member (a `slack_post` to a user
+**Until live, the team hears nothing directly (D76).** In ghost and test a DM to a team member (a `slack_post` to a user
 id, the owner's DM from `notify_owner`, the end-of-day reminder) goes to the company's ops channel instead, bound as
 `slack.channel.ops` (install input `slack: { ops: "C…" }`; Hair's is C0C7QCTHL8L), else to the operator's DM
 (`bot.escalate_to`), prefixed "Would have sent to <name>:"; neither bound, it is recorded only. A run with no contact is
-shadow in test. "Until live" is the run's: a workflow live on its own (D92) DMs real people while the company is in test.
+ghost in test. "Until live" is the run's: a workflow live on its own (D92) DMs real people while the company is in test.
 
 **Setup, once per Slack app** (then **reinstall the app to the workspace**: Slack asks for the new scopes; the bot token
 normally stays the same, and if Slack shows a new one, re-run install with it as `slackToken`). App manifest fragment, with the
@@ -852,8 +852,8 @@ posts.
 
 **A skipped step says why.** Every skip carries a kind: `noop` (nothing to do, by design: no card to move,
 SMS off for the company, already sent) or `blocked` (something is missing: Slack not connected, a channel not
-bound, no AI key). The timeline shows "nothing to do" or "blocked" instead of a bare "skipped", a shadow
-write shows "shadow", and a blocked step raises a warning alert the minute it happens, cleared when a later
+bound, no AI key). The timeline shows "nothing to do" or "blocked" instead of a bare "skipped", a ghost
+write shows "ghost", and a blocked step raises a warning alert the minute it happens, cleared when a later
 run gets past that step. "Remember" steps (`set_var`, copy plumbing) are not shown in the outline or the
 timeline; the definition under Advanced has them.
 
@@ -898,7 +898,7 @@ because a wrong prefill is a data gap to fix at the source, and puts a ✅ and a
 Submitting again replaces the day.
 
 The form's rows are the closer's bookings on the engine's ledger, and nothing else (D110): the engine polls bookings from
-install on, shadow included, so every call a closer takes is one of them. A Sales Call in GHL with no booking behind it
+install on, ghost included, so every call a closer takes is one of them. A Sales Call in GHL with no booking behind it
 is never a row, and the reminder does not count it; D77's rows for calls booked before the engine, and the workflow that
 wrote them to GHL, are gone. A changed answer, on any row, empties on the Sales Call what the earlier answer set and the
 new one does not (`crm_record.clear`, sent as `null`).
@@ -927,7 +927,7 @@ Tested in `eod.test.ts`.
 ## Readiness (is it safe to go live?)
 
 The company page and every workflow page carry a readiness card built from facts
-(`src/engine/readiness.ts`): shadow vs live, Slack connected or not, each workflow's required bindings
+(`src/engine/readiness.ts`): ghost vs live, Slack connected or not, each workflow's required bindings
 present or missing, Slack channels unbound, and the gaps the engine knows it still has for a template
 (`KNOWN_GAPS` — delete the entry when the piece ships). A workflow that is ON with a missing binding is a
 blocker; the same gap on a workflow that is OFF is a note. Nothing here is typed by hand.
@@ -941,7 +941,7 @@ longer wants (off first; its runs and their sends go with it, the events it emit
 `Authorization: Bearer $CRON_SECRET`. Turning on a workflow that is missing a required binding is
 refused (409) — the same thing the readiness card calls blocking. Every flip and delete is in `audit_log`.
 
-The same POST sets a workflow's own mode (D92): `{ "company", "workflow", "mode": "shadow"|"test"|"live"|null, "by": "<who>" }`
+The same POST sets a workflow's own mode (D92): `{ "company", "workflow", "mode": "ghost"|"test"|"quiet"|"live"|null, "by": "<who>" }`
 (`enabled` optional alongside; `null` or `"company"` follows the company again). A mode that puts the workflow's runs live
 is refused (409, with `blockers`) unless its definition runs, its required settings are bound and, when it posts, DMs or
 waits on a tap, Slack is connected; it then clears that workflow's runs not born live. The GET lists each workflow's
@@ -979,7 +979,7 @@ the AI keys `secret.anthropic_key` and `secret.jev_key` (a client's own accounts
 To see what the engine would do for a person without firing a single Zap or GHL workflow, stage
 the step instead of performing it. **Only for a test contact** (tagged `sys-test` or on a test-domain email), in every
 mode, forced or not (D97): a staged booking on a real person lands on their closer's end of day, the reminders and the
-numbers even when every run about it is shadow. `force` only lets a test contact be staged while the company is live.
+numbers even when every run about it is ghost. `force` only lets a test contact be staged while the company is live.
 `POST /api/admin/harness-cleanup { company, dryRun? }` removes harness bookings already sitting on real people, with the
 rehearsal runs they started. Three ways to stage, same code:
 
@@ -1012,7 +1012,7 @@ workflow held to it (Triage call booked, Sales call booked) runs exactly as for 
 "form"?: "<form id or name>", "answers"?: { "<ref | first_name | field_contact_app_age | app_age | utm_source>": value }, "responseId"?: "n1" }`.
 The person need not exist: the response goes through `takeDelivery`, the function the signed Typeform webhook calls, so
 the door finds them in GHL (email, then phone) or makes them, writes the answers as the mode allows (real for a test
-contact in test mode, would-have in shadow), records `form.submitted` (`simulated: true`) and New from Typeform and New lead
+contact in test mode, would-have in ghost), records `form.submitted` (`simulated: true`) and New from Typeform and New lead
 run as for a live applicant. Every mapped question gets a plausible answer (the email as given, a fictional 555-01xx phone
 one per email, UTM source `sys-test`); `answers` overrides by ref, target or hidden name, and a key the form does not have is
 refused. The response id is `sim-…`: one per form and email unless `responseId` names another, so the same request twice is
@@ -1106,7 +1106,7 @@ start to `recording.set_until`, `{ booking_source: setter, booked_since: "{{reco
 
 **`crm_record` by the CRM's id.** `record_id` (a template, e.g. `"{{vars.found.id}}"` from a lookup or a webhook)
 addresses a record the engine did not make, instead of the engine's own `key`. The step only ever updates that
-record (an id that renders empty is skipped, never a create); the rules are the ones a keyed update has: shadow
+record (an id that renders empty is skipped, never a create); the rules are the ones a keyed update has: ghost
 and a test-mode contact that does not pass write nothing (and our ledger is not told they did), properties the
 object lacks are left out and named (`not_on_object`, D76), `clear` empties what this answer does not set (D77),
 `relate` links it. Our ledger keeps it under the key of the row that already has that CRM id, else `key` when
@@ -1126,7 +1126,7 @@ won or lost is one `opportunity.won` / `opportunity.lost` event (`{ by: "workflo
 dispatched to the workflows that start on it; the row and the event are one transaction, so a retry finds the status
 set and emits nothing again. `card: { pipeline, stage? }` marks the contact's card on that board the same way (and
 moves it when a stage is given) through the pipeline card step's own code: the CRM read first, a hand that moved it
-wins, shadow writes nothing, an open card only (reopening picks the latest). Ours, so the ledger part runs in shadow.
+wins, ghost writes nothing, an open card only (reopening picks the latest). Ours, so the ledger part runs in ghost.
 
 ```json
 { "id": "o_lost", "type": "update_opportunity", "status": "lost", "lost_reason": "{{vars.reason}}",
@@ -1149,8 +1149,8 @@ Sales call recorded this way.
 Business behaviour that lived in engine code now lives in workflows and settings (D88). The pieces that made it
 possible, all data in the definition:
 
-- `slack_post.label`: `mode` (the rung's mark before live, D31/D52, the default), `shadow` (only while the run is
-  in shadow mode: the workflow's own, else the company's, D92) or `none` (an alert about the engine itself, never marked).
+- `slack_post.label`: `mode` (the rung's mark before live, D31/D52, the default), `ghost` (only while the run is
+  in ghost mode: the workflow's own, else the company's, D92) or `none` (an alert about the engine itself, never marked).
 - `slack_post.buttons` (D93): Block Kit buttons under the post's words, each with its own `only_if`; Health check's
   alert post uses them for Retry (a skipped step) and Resolve, handled by the Slack interactions door.
 - `record_outcome.source: disposition` (with `user` and `via`): a person's answer filed exactly as the end-of-day form
@@ -1207,7 +1207,7 @@ answers are on the appointment as `{{appointment.answers.<name>}}`. Templates on
 
 A booking taken as setter-booked whose setter nobody named (a GHL calendar never names one; Calendly when the setter
 question has no answer) is an engine error alert, one per booking, `setter:missing:<appointment id>` (D121): "Setter-booked
-call with no setter: <name>, <time> on <calendar>. Say who set it". It is raised in shadow and test too (an alert is not a
+call with no setter: <name>, <time> on <calendar>. Say who set it". It is raised in ghost and test too (an alert is not a
 run). It clears by itself, and the name goes on the booking's `set_by`, once the setter is known: a team member's connected
 dial the booking came during or within the Set window after (D87), or the contact's Setter field (`crm.field_contact_setter`)
 filled in after the booking (GHL is read back every 5 minutes); with no Setter field bound, a person resolves it.
@@ -1265,7 +1265,7 @@ should go at midnight sets the flag; without it they wait for 08:00 with everyth
 
 `pnpm smoke` (optionally `--template <slug>` repeated to mirror a real company's set) runs "a client
 comes in, then books a call" through the real engine against `DATABASE_URL` with fake adapters, in a
-throwaway company `smoke` in shadow, and prints the whole story: events in order, each run step by
+throwaway company `smoke` in ghost, and prints the whole story: events in order, each run step by
 step in words, every message or Slack post that would have gone out, the pipeline cards and tags
 afterwards, what is parked for later, and the readiness list. Nothing external is called.
 
@@ -1275,7 +1275,7 @@ A company installed into a GHL location that belongs to another business (its co
 gets a scope tag at install: `"scopeTag": "dating"` in the install file, or `--scope-tag dating` (bound as `scope.tag`,
 lowercase; omitted on a re-install it stays as it is; `""` removes it). Then the engine's people are the contacts GHL tags
 with it, and anyone booked on the company's mapped calendars (their booking is the offer's; when the booking workflows'
-mode makes writes real the engine tags them in GHL, in shadow it records the tag it would have added). Everyone else in the
+mode makes writes real the engine tags them in GHL, in ghost it records the tag it would have added). Everyone else in the
 location is never replicated, fetched or counted: the contacts poll asks GHL's search for the tag, dialer calls and replies of
 anyone else are ignored (a stranger is never fetched), their documents are mirrored but say nothing, the drift sweep pulls in
 only the tagged, leads count only the tagged and the bookers, and a payment whose email or phone names someone out of scope
@@ -1304,7 +1304,7 @@ fields are all bound: tag `biab-<slug>`, URL `<PUBLIC_URL>/api/webhooks/typeform
 (`secret.typeform_webhook`); deliveries are checked against `Typeform-Signature`. Health check verifies the webhook each sweep
 (gone, off or pointing elsewhere is an alert with **Re-register the Typeform webhook**). A submission finds the person in GHL by
 email, then phone, creates or updates them with GHL's own name, email and phone (only where GHL has them blank), every answer
-and the UTMs, as the mode allows (shadow records the would-be write on `form.submitted`), and records and dispatches
+and the UTMs, as the mode allows (ghost records the would-be write on `form.submitted`), and records and dispatches
 `form.submitted` with the person (in scope by it, tagged or not). A response is taken once, however often Typeform sends it.
 D123: what an applicant then gets is a workflow on `form.submitted`, drawn on its chart: Dating's own **New from Typeform**
 (built by `build-copies` from `installs/<company>/copies.json`) adds the scope tag and starts New lead once, only for someone
@@ -1329,31 +1329,36 @@ starts no workflow and no New lead, unless `"newLead": true` / `--new-lead` (D12
 never saw is dispatched as `form.submitted` exactly as the webhook dispatches one, so New from Typeform runs for it (in its own
 mode) and New lead starts once a person.
 
-## Shadow mode (how a client gets migrated)
+## Ghost mode (how a client gets migrated)
 
-Shadow posts to Slack ARE posted, with a "🧪 shadow —" prefix, when Slack is connected (D31): the team is not
-the CRM or the contact, and seeing the posts is the point of the run. The send is recorded as `shadow`.
+Ghost posts to Slack ARE posted, with a "🧪 ghost —" prefix, when Slack is connected (D31): the team is not
+the CRM or the contact, and seeing the posts is the point of the run. The send is recorded as `ghost`.
 
-Every company climbs a ladder (D52): **shadow** → **test** → **live**, the control at the top of its page.
-Shadow is below: everyone runs, nothing is written or sent, the record says what would have happened (which
-card, which stage, which tag). **Test** is the dress rehearsal: the team's own test contacts, tagged
+Every company climbs a ladder (D52, D132): **ghost** → **test** → **quiet** → **live**, the control at the top of its page.
+Ghost (called shadow before D132; the old name is refused with the new one named) is below: everyone runs, nothing is
+written or sent, the record says what would have happened (which card, which stage, which tag). **Test** is the dress rehearsal: the team's own test contacts, tagged
 `sys-test` in the CRM or with an email on a test domain (`test.domains`, set at install as `testDomains`),
-get everything for real: CRM writes, emails, texts (when SMS is on). Everyone else runs as in shadow, nothing
+get everything for real: CRM writes, emails, texts (when SMS is on). Everyone else runs as in ghost, nothing
 written or sent: their runs start and go all the way through, every write and send recorded as would-have, so
 the team still sees what the engine would do for real leads. Posts to Slack before live carry a 🧪 *mode*
-prefix (🧪 *shadow* for a run shadowed in test). Live is then taken in sections with the workflows' own switches: the simple ones first,
+prefix (🧪 *ghost* for a run held as ghost in test). **Quiet** runs the CRM side for everyone: tags, cards, fields,
+records, notes and tasks are written for real, but nothing reaches a contact (a text, an email, an agreement or an outbound
+webhook is held back, recorded as `quiet` in `sends`), and Slack posts go only to the company's test channels
+(`test.slack_channels`, set at install as `testSlackChannels`; an alert about the engine itself always goes). Test contacts
+still get everything. Moving up into quiet, like into live, passes the readiness gate and clears the runs born on a lower rung
+(their first steps never wrote, so nothing resumes halfway); moving down is just the flag. Live is then taken in sections with the workflows' own switches: the simple ones first,
 then the ones that only note things, then one system at a time.
 
-**Live per workflow (D92).** A workflow can stand on its own rung: the mode control on its page (company · shadow · test ·
-live) or the admin route below. Unset, it follows the company. A run goes by its workflow's mode when set, else the
-company's, for everything that decides real or shadow: CRM writes, sends, the 🧪 label, DMs held back until live, runs
+**Live per workflow (D92).** A workflow can stand on its own rung: the mode control on its page (company · ghost · test ·
+quiet · live) or the admin route below. Unset, it follows the company. A run goes by its workflow's mode when set, else the
+company's, for everything that decides real, quiet or ghost: CRM writes, sends, the 🧪 label, DMs held back until live, runs
 with no contact. So a company in test can put New lead live for everyone while the rest stays in test, which is how a
 client is switched from its old GHL workflows one pair at a time. Going live on one workflow passes the company's gate
 narrowed to it (its definition runs, its settings are bound, Slack is connected if it posts) and clears that workflow's
 runs not born live; the company's own Go live clears only the runs of workflows that will be live. Install and template
 upgrades never touch a workflow's mode. The workflow list and page say whose mode it is: "Live (this workflow)", "Test (company)".
 
-Every company is in **shadow** until someone presses **Go live**. In shadow the engine polls,
+Every company is in **ghost** until someone presses **Go live**. In ghost the engine polls,
 dispatches, runs and branches exactly as live, renders every message, and writes nothing to GHL:
 sends are recorded as "would send" with the exact text, tags and notes are logged, appointment
 updates are logged. A read-only Private Integration Token is enough. Verified on a real
@@ -1362,8 +1367,8 @@ location with all nine workflows on: zero messages, zero tags reached GHL.
 So: install with a read-only token → let it run → read `/c/<slug>/sends` ("Would have sent") →
 fix copy or timing → **Go live** on the company page, then turn workflows on one at a time.
 Go live is refused while readiness has a blocker (the response lists them), and it clears every
-run born in shadow with its steps, would-sends and events: shadow was rehearsal, none of it is
-history (D51). Each run carries `born_in`; back to shadow is only the flag.
+run born in ghost with its steps, would-sends and events: ghost was rehearsal, none of it is
+history (D51). Each run carries `born_in`; back to ghost is only the flag.
 
 ## Reading a workflow
 
@@ -1383,7 +1388,7 @@ examples on hover, bindings, versions, definition (audit), **Turn on / Turn off*
 on the same outline with every step colored, with **Retry this step / Skip this step** when it paused (the company and
 workflow pages count those as "needs a hand") · `/c/<slug>/appointments` last 7 and next 14 days, flags calls needing a
 disposition · `/c/<slug>/appointments/<id>` the **disposition form** (did they show, how it
-went, notes) · `/c/<slug>/contacts/<id>` the journey · `/c/<slug>/sends` every message sent, suppressed, failed, or (in shadow) would-have-sent · **Go live / Switch to shadow** on the company page.
+went, notes) · `/c/<slug>/contacts/<id>` the journey · `/c/<slug>/sends` every message sent, suppressed, failed, or (in ghost) would-have-sent · **Go live / Switch to ghost** on the company page.
 
 ## Bring-up from a session that has the secrets
 
@@ -1396,7 +1401,7 @@ pnpm bootstrap --name "J. Tyler Ray" --slug jtr --tz America/Phoenix \
   --calendar GLWzPNAZPoxkROdFJbPH=closing --calendar RzQgbmwwCIJeHv8YLXO8=closing --calendar kbEwrOhdlzxAHIpNLqF7=first_call
 ```
 
-Migrates the Supabase database, installs the location in shadow with SMS off and every workflow
+Migrates the Supabase database, installs the location in ghost with SMS off and every workflow
 off. Then put the same connection string into Vercel as `DATABASE_URL` (or `SUPABASE_DB_URL`;
 the app reads either) and redeploy, and `backend-in-a-box.vercel.app` is live.
 
@@ -1409,7 +1414,7 @@ pnpm db:migrate                 # applies ../engine/schema.sql + forces RLS on e
 pnpm install:company --name "Save Your Hair" --slug syh --tz America/Phoenix \
   --location <ghl_location_id> --pit <private_integration_token> \
   --calendar <id>=closing --calendar <id>=first_call \
-  [--booking <id>] [--no-sms] [--enable] [--live]   # booking link; no number; turn workflows on; live instead of shadow
+  [--booking <id>] [--no-sms] [--enable] [--live]   # booking link; no number; turn workflows on; live instead of ghost
   [--scope-tag dating]                              # D117: the location is shared; only these contacts (and the calendars' bookers) are the company's
 # appointments in Calendly instead of GHL calendars (ids are event type uuids; :self / :setter stamps every booking):
 #   --calendly-token <read token> --calendly-user james@company.com --calendar <uuid>=closing:self --calendar <uuid>=closing:setter

@@ -81,7 +81,7 @@ function StepList({ chart, stateOf }: { chart: Chart; stateOf: (id: string) => S
 export function NodeWords({ chart, id, state, extra, states }: { chart: Chart; id: string; state?: St | null; extra?: ReactNode; states?: Record<string, St> }) {
   if (grouped(chart).nodes.some((x) => x.id === id && x.group)) return <GroupWords chart={chart} id={id} states={states} extra={extra} />;
   const n = chart.nodes.find((x) => x.id === id); if (!n) return null;
-  const w = { ok: "Done", ghost: "Done in shadow: nothing written or sent", here: "Waiting here", warn: "Failed", skip: "Skipped: its condition was not met", blocked: "Blocked: it did not go out", next: "Not reached", stop: "Stopped" }[state ?? "next"];
+  const w = { ok: "Done", ghost: "Done in ghost, or held back in quiet: see the step", here: "Waiting here", warn: "Failed", skip: "Skipped: its condition was not met", blocked: "Blocked: it did not go out", next: "Not reached", stop: "Stopped" }[state ?? "next"];
   return <>
     {n.label ? <p className="m" style={{ color: "var(--fg-3)", fontSize: 12, margin: "0 0 2px" }}>{n.label}</p> : null}
     <h4><Title text={n.title} />{n.meta ? <span style={{ color: "var(--fg-2)", fontWeight: 500 }}> · {n.meta}</span> : null}</h4>

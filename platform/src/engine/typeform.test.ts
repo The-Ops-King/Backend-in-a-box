@@ -144,16 +144,16 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
   });
 
   it("shadow: nothing is written to GHL; the would-be write is recorded; the applicant is in scope untagged; New from Typeform records the tag and makes them a new lead once", async () => {
-    await setMode("shadow");
+    await setMode("ghost");
     const r = response("sh1", { email: "Shadow@X.com", utm: "fb", partner: "Kind and steady." });
     const out = await deliver(payload(r));
-    expect(out).toMatchObject({ status: 200, body: { outcome: "recorded", shadow: true, action: "create", matched: null } });
+    expect(out).toMatchObject({ status: 200, body: { outcome: "recorded", ghost: true, action: "create", matched: null } });
     expect(writes).toEqual([]);
     const p = await byEmail("shadow@x.com");
     expect(p).toMatchObject({ ghl_contact_id: null, tags: [] });
     const [ev] = await events("form.submitted", p!.id);
     expect(ev.source).toBe("form");
-    expect(ev.data).toMatchObject({ form_id: FORM, response_id: "sh1", shadow: true, via: "webhook", would_write: { action: "create", standard: { firstName: "Ann", lastName: "Doe", email: "shadow@x.com" },
+    expect(ev.data).toMatchObject({ form_id: FORM, response_id: "sh1", ghost: true, via: "webhook", would_write: { action: "create", standard: { firstName: "Ann", lastName: "Doe", email: "shadow@x.com" },
       fields: { field_contact_app_age: "41", field_contact_app_relationship_status: "Divorced", field_contact_app_has_children: "No", field_contact_app_ideal_partner: "Kind and steady.", field_contact_utm_source: "fb", field_contact_app_submitted_at: r.submitted_at, field_contact_app_response_id: "sh1" } } });
     expect(Object.keys((ev.data.would_write as { fields: object }).fields)).not.toContain("field_contact_fbclid");   // blank hidden field: nothing
     expect(ev.data.would_write).not.toHaveProperty("tags");   // D123: the door writes no tag
@@ -163,7 +163,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
     expect(await asOperator((c) => inScope(c, p!.id, "dating"))).toBe(true);
     await settle();
     expect(writes).toEqual([]);
-    expect((await events("tag.added", p!.id)).filter((e) => e.data.tag === "dating")).toEqual([expect.objectContaining({ source: "engine", data: { tag: "dating", shadow: true } })]);
+    expect((await events("tag.added", p!.id)).filter((e) => e.data.tag === "dating")).toEqual([expect.objectContaining({ source: "engine", data: { tag: "dating", ghost: true } })]);
     expect(await events("lead.created", p!.id)).toEqual([expect.objectContaining({ source: "engine", data: expect.objectContaining({ form_id: FORM, response_id: "sh1", by: "form" }) })]);
     expect(await runsOf("New lead", p!.id)).toHaveLength(1);
     expect((await byEmail("shadow@x.com"))!.tags).toEqual([]);   // shadow: the replica keeps GHL's tags (none)
@@ -172,7 +172,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
   it("a retried delivery is one submission: the second answers duplicate and writes nothing", async () => {
     await setMode("live");
     const raw = payload(response("dup1", { email: "dup@x.com" }));
-    expect((await deliver(raw)).body).toMatchObject({ outcome: "recorded", shadow: false, action: "create" });
+    expect((await deliver(raw)).body).toMatchObject({ outcome: "recorded", ghost: false, action: "create" });
     const w = writes.length;
     expect((await deliver(raw)).body).toMatchObject({ outcome: "duplicate", responseId: "dup1" });
     expect(writes.length).toBe(w);
@@ -187,7 +187,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
     await setMode("live");
     writes.length = 0;
     const r = response("new1", { email: "new@x.com", phone: "+15550001111", utm: "ig", consent: true });
-    expect((await deliver(payload(r))).body).toMatchObject({ outcome: "recorded", shadow: false, action: "create", runsStarted: 1 });
+    expect((await deliver(payload(r))).body).toMatchObject({ outcome: "recorded", ghost: false, action: "create", runsStarted: 1 });
     expect(writes).toHaveLength(1);
     const made = writes[0] as { op: string; id: string; body: { tags: string[]; customFields: { id: string; field_value: string }[]; email: string; phone: string; firstName: string; source: string } };
     expect(made.op).toBe("create");
@@ -275,7 +275,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
   });
 
   it("apply writes each response once, oldest first, whatever the mode, and starts nothing; a re-run writes nothing; a response the door only shadowed is written, once", async () => {
-    await setMode("shadow");
+    await setMode("ghost");
     const shadowed = response("h0", { email: "eve@x.com", at: "2026-10-09T09:00:00Z" });
     await deliver(payload(shadowed));
     history = [shadowed, ...history];
@@ -320,7 +320,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
   });
 
   it("D123: an applicant the door made a lead in shadow (not in GHL) who turns up in GHL later, tagged, is the same lead, not a second", async () => {
-    await setMode("shadow");
+    await setMode("ghost");
     await deliver(payload(response("pg1", { email: "kim@x.com", phone: "+15550009999" })));
     await settle();
     const p = (await byEmail("kim@x.com"))!;

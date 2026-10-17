@@ -24,7 +24,7 @@
         "type": "slack_post",
         "channel": "{{slack.channel.alerts}}",
         "fallback_channel": "{{slack.channel.bookings}}",
-        "label": "shadow",
+        "label": "ghost",
         "title": "Tell the team a payment matched nobody",
         "template": "*Unlinked payment* · ${{event.amount | abs | fixed:2}} {{event.status}}\nNobody in the CRM matched this buyer.\n*Email:* {{event.customer_email | default:—}} · *Phone:* {{event.customer_phone | default:—}} · *Whop member:* {{event.whop_member_id | default:—}}\nLink it: {{company.base_url}}/c/{{company.slug}}/payments"
       },

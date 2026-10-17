@@ -28,11 +28,11 @@ export function Tiles({ items }: { items: { n: number; word: string; kind?: "h" 
 
 export { STATE_WORDS, STATE_ORDER } from "@/chart/states";
 type StripStep = { state: string; title?: string; meta?: string; note?: string };
-/** One segment's tooltip: "Add “stat-new” tag — done in shadow: would have tagged “stat-new”". */
+/** One segment's tooltip: "Add “stat-new” tag — done in ghost: would have tagged “stat-new”". */
 export function stepLine(p: StripStep): string {
   const name = `${(p.title ?? "A step").replace(/[‹›]/g, "")}${p.meta ? ` · ${p.meta.replace(/[‹›]/g, "")}` : ""}`;
-  const note = (p.note ?? "").replace(/Didn't go out: /, "").replace(/Done in shadow: /, "").trim();
-  const said = { ok: "ran", ghost: "done in shadow", skip: "skipped", blocked: "blocked, did not go out", here: "waiting here", warn: "failed", stop: "stopped", next: "not reached yet" }[p.state] ?? p.state;
+  const note = (p.note ?? "").replace(/Didn't go out: /, "").replace(/Done in ghost: /, "").replace(/Held back in quiet: /, "").trim();
+  const said = { ok: "ran", ghost: "done in ghost or held in quiet", skip: "skipped", blocked: "blocked, did not go out", here: "waiting here", warn: "failed", stop: "stopped", next: "not reached yet" }[p.state] ?? p.state;
   return `${name} — ${said}${note && p.state !== "next" ? `: ${note}` : p.state === "skip" ? ": its condition was not met" : ""}`;
 }
 /** The strip: one segment per step on the path, full width; each segment says what its step did when hovered. */

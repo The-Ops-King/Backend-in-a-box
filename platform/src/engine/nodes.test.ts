@@ -426,13 +426,13 @@ describe.skipIf(!HAS_DB)("building blocks (D85)", () => {
     });
     it("in shadow nothing reaches the CRM and the ledger is not told it did", async () => {
       const ct = await newContact("Uma"); recordCalls.length = 0;
-      await asOperator((c) => c.query("update companies set mode='shadow' where id=$1", [companyId]));
+      await asOperator((c) => c.query("update companies set mode='ghost' where id=$1", [companyId]));
       try {
         const id = await fire(ct, "byid", { record: "REC-12", outcome: "showed" });
         await tickAt(DateTime.now());
         expect(recordCalls).toEqual([]);
         expect(await ledger("REC-12")).toEqual([]);
-        expect((await steps(id, "n1"))[0]).toMatchObject({ status: "ok", result: { shadow: true, would_update: { outcome: "showed" }, crm_id: "REC-12" } });
+        expect((await steps(id, "n1"))[0]).toMatchObject({ status: "ok", result: { ghost: true, would_update: { outcome: "showed" }, crm_id: "REC-12" } });
       } finally { await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId])); }
     });
   });

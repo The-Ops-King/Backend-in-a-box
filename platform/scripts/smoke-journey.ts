@@ -49,7 +49,7 @@ async function narrateSince(companyId: string, contactId: string, sinceEventId: 
     const steps = await asOperator((c) => many<{ node_id: string; status: string; result: Record<string, unknown>; error: string | null }>(c, "select node_id, status, result, error from run_steps where run_id=$1 order by started_at", [r.id]));
     for (const s of steps) {
       const n = def.nodes.find((x) => x.id === s.node_id); const d = n ? describeNode(n) : { title: s.node_id };
-      const res = s.error ? `✗ ${s.error}` : s.result && Object.keys(s.result).length ? Object.entries(s.result).filter(([k]) => !["shadow"].includes(k)).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`).join(", ").slice(0, 220) : "";
+      const res = s.error ? `✗ ${s.error}` : s.result && Object.keys(s.result).length ? Object.entries(s.result).filter(([k]) => !["ghost"].includes(k)).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`).join(", ").slice(0, 220) : "";
       say(`  - ${s.status === "ok" ? "✓" : s.status === "waiting" ? "⏳" : s.status === "skipped" ? "↷" : s.status === "failed" ? "✗" : "·"} ${d.title}${res ? ` — ${res}` : ""}`);
     }
     const sends = await asOperator((c) => many<{ channel: string; status: string; rendered_body: string; suppressed_reason: string | null }>(c, "select channel, status, rendered_body, suppressed_reason from sends where run_id=$1 order by scheduled_for", [r.id]));
@@ -69,7 +69,7 @@ async function narrateSince(companyId: string, contactId: string, sinceEventId: 
       for (const t of ["wrapups", "wrapup_schedules", "rollups_daily", "agreements", "sends", "runs", "events", "workflow_triggers", "workflows", "messages", "crm_records", "webhook_deliveries", "payments", "recordings", "form_submissions", "forms", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "intake", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
       await c.query("delete from companies where id=$1", [co.id]); }
   });
-  const inst = await installCompany({ name: "Smoke (synthetic)", slug: "smoke", timezone: TZ, locationId: "LOC-SMOKE", pit: "pit-fake", mode: "shadow", enable: true,
+  const inst = await installCompany({ name: "Smoke (synthetic)", slug: "smoke", timezone: TZ, locationId: "LOC-SMOKE", pit: "pit-fake", mode: "ghost", enable: true,
     calendars: { "EVT-SELF": { term: "closing", selfBooked: true }, "EVT-SETTER": { term: "closing", selfBooked: false } },
     crm: { pipeline_setter: "Setter board", pipeline_closer: "Closer board", stage_setter_new_lead: "New Lead, Not Booked", stage_setter_direct_booked: "Direct Booked Call", stage_setter_appointment_set: "Appointment Set", stage_closer_scheduled: "Scheduled", stage_setter_cancelled: "Cancelled (setter)", stage_closer_cancelled: "Cancelled (closer)", stage_setter_showed: "Showed",
       field_opportunity_stage_entered: "Stage Entered Date", field_opportunity_setter_owner: "Setter Owner", field_contact_appointment_date: "Appointment Date", field_contact_setter: "Setter", field_contact_hair_loss: "Hair Loss", field_contact_hair_loss_stage: "Hair Loss Stage", field_contact_noticing_for: "Noticing For", field_contact_commit_routine: "Commit Routine", field_contact_work_situation: "Work Situation",
@@ -78,7 +78,7 @@ async function narrateSince(companyId: string, contactId: string, sinceEventId: 
   const companyId = inst.companyId;
   await asOperator((c) => c.query("update runs set next_run_at = now() + interval '1 day' where company_id <> $1 and status in ('active','waiting')", [companyId]));   // park other companies' runs in this database
   say(`# Smoke journey — ${DateTime.now().setZone(TZ).toFormat("ccc LLL d yyyy, h:mm a ZZZZ")}\n`);
-  say(`Company **Smoke (synthetic)** in **shadow**, ${onlyTemplates.length ? `templates ${onlyTemplates.join(", ")}` : `all ${inst.installed.length} templates`} on, fake adapters (no GHL, Calendly, Slack or Anthropic calls). Bindings are labelled with words instead of ids so the output reads.`);
+  say(`Company **Smoke (synthetic)** in **ghost**, ${onlyTemplates.length ? `templates ${onlyTemplates.join(", ")}` : `all ${inst.installed.length} templates`} on, fake adapters (no GHL, Calendly, Slack or Anthropic calls). Bindings are labelled with words instead of ids so the output reads.`);
   say(inst.installed.filter((s) => !s.endsWith("enabled")).length ? `Not enabled: ${inst.installed.filter((s) => !s.endsWith("enabled")).join("; ")}` : "Every template enabled.");
 
   // 1. a client comes in: the CRM poll sees a new contact with a phone, an intake form filled

@@ -80,7 +80,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D121: a setter-booked call with no s
     expect(al[0]).toMatchObject({ key: `${SETTER_ALERT}${a1.id}`, level: "error", source: "engine", resolved_at: null });
     const when = START.setZone("America/New_York").toFormat("ccc LLL d, h:mm a ZZZZ");
     expect(al[0].text).toBe(`Setter-booked call with no setter: Ann Doe, ${when} on Dating – Strategy Call (Setter). Say who set it: put the setter's name in Ann Doe's Setter field in GHL and this clears.`);
-    expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [dating])))!.mode).toBe("shadow");
+    expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [dating])))!.mode).toBe("ghost");
     // seen again on the next polls: still the one alert
     await pollDating(); await pollDating();
     expect(await alertsOf(dating)).toHaveLength(1);

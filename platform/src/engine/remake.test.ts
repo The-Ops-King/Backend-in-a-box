@@ -60,7 +60,7 @@ async function wipe(slug: string) {
   });
 }
 /** A company on Call booked, Call outcome filed and Call recorded, all on; on Calendly unless `ghl`. */
-async function company(slug: string, mode: "live" | "shadow", ghl = false): Promise<string> {
+async function company(slug: string, mode: "live" | "ghost", ghl = false): Promise<string> {
   await wipe(slug);
   const input: InstallInput = { name: slug, slug, timezone: TZ, locationId: `LOC-${slug}`, pit: "fake", calendars: { CAL: "closing" }, closers: ["casey@remake.test"], crm: CRM, salesCall: { object: OBJECT, outcomes: OUTCOMES },
     templates: ["call-booked", "call-outcome", "call-recorded"], enable: true, anthropicKey: "sk-fake", contractValueDefault: 5000 };
@@ -124,7 +124,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D120: a call Calendly re-makes at th
   beforeAll(async () => {
     await migrate();
     live = await company("remake-live", "live");
-    shadow = await company("remake-shadow", "shadow");
+    shadow = await company("remake-shadow", "ghost");
     ghl = await company("remake-ghl", "live", true);
   });
 

@@ -9,7 +9,7 @@ import { predicateWords, durationWords, skippedWords } from "./describe";
 import { syncCards, pickCard, latestCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow, timeParam } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
-import type { Effective, Mode } from "./mode";
+import { testChannels, type Effective, type Mode } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { raise } from "./alerts";
 import { applyOutcome, outcomeTermFor, recordDisposition } from "./disposition";
@@ -25,10 +25,10 @@ import { dropReplies, hydrateReplies, mentionsReplyText, readsReplyText, scrubRe
 import { boardOf, stageWords } from "./card-moves";
 import { QUIET_SUPPRESSED, QUIET_WHY, quietWhenEmpty } from "./quiet";
 
-/** Shadow posts to the team are real posts, labelled; nothing else in shadow leaves the engine. */
-export const SHADOW_PREFIX = "🧪 *shadow* — ";
-/** A post made before live says which rung it came from, so the team never reads a rehearsal as a real client; a run shadowed in test says shadow. The rung is the run's (D92). */
-const modePrefix = (d: ExecDeps, label: "mode" | "shadow" | "none" = "mode") => (label === "none" || d.mode === "live" ? "" : label === "shadow" ? (d.mode === "shadow" ? SHADOW_PREFIX : "") : d.effective === "shadow" ? SHADOW_PREFIX : `🧪 *${d.mode}* — `);
+/** Ghost posts to the team are real posts, labelled; nothing else in ghost leaves the engine. */
+export const GHOST_PREFIX = "🧪 *ghost* — ";
+/** A post made before live says which rung it came from, so the team never reads a rehearsal as a real client; a run held as ghost in test says ghost. The rung is the run's (D92). */
+const modePrefix = (d: ExecDeps, label: "mode" | "ghost" | "none" = "mode") => (label === "none" || d.mode === "live" ? "" : label === "ghost" ? (d.mode === "ghost" ? GHOST_PREFIX : "") : d.effective === "ghost" ? GHOST_PREFIX : `🧪 *${d.mode}* — `);
 /** The step's own name/icon, else the company's defaults (bindings slack.name / slack.icon), else the app. A list of icons is handed on whole; the notifier picks one per post.
  *  An icon that is one whole `{{expr}}` takes the value as it is, so a set_var can hand over a list of faces (a reschedule's 🔁 instead of the calendars). */
 const faces = (d: ExecDeps, icon: string): string[] => { const m = /^\s*\{\{([^}]+)\}\}\s*$/.exec(icon); const v = m ? resolveExpr(m[1], d.ctx, env(d)) : render(icon, d.ctx, env(d)); return (Array.isArray(v) ? v : [v]).map((x) => (x === undefined || x === null ? "" : String(x))).filter(Boolean); };
@@ -88,8 +88,15 @@ export const listenerOf = (ctx: Record<string, unknown>): Listener | undefined =
 export type ExecDeps = { c: PoolClient; adapters: Adapters; company: CompanyRow; adapterCompany: Company; bindings: Record<string, string>; run: RunRow; ctx: Record<string, unknown>; edgesFrom: (id: string) => Edge[]; now: DateTime; probes?: HealthProbes; /** the run's rung (D92: the workflow's own, else the company's) */ mode: Mode; effective: Effective; cardsReadError?: string; /** D89: the reply words this step was given (replies.ts), for a step that writes what it rendered */ replyTexts?: string[] };
 
 const contactTz = (d: ExecDeps) => { const tz = (d.ctx.contact as { timezone?: string } | undefined)?.timezone; return tz && DateTime.now().setZone(tz).isValid ? tz : d.company.timezone; };
-/** A shadowed run (shadow mode, or test with a contact that does not pass) proceeds exactly as it would live, but nothing is written to the CRM; sends are recorded as "would have sent". */
-const shadow = (d: ExecDeps) => d.effective === "shadow";
+/** A ghost run (ghost mode, or test with a contact that does not pass) proceeds exactly as it would live, but nothing is written to the CRM; sends are recorded as "would have sent". */
+/** Nothing written to the CRM (D52): the step records what it would have done. */
+const ghost = (d: ExecDeps) => d.effective === "ghost";
+/** D132: the CRM is written, but nothing reaches the contact: a text, an email, an agreement or an outbound webhook is held back. */
+const held = (d: ExecDeps) => d.effective !== "real";
+const heldFlag = (d: ExecDeps) => (ghost(d) ? { ghost: true } : { quiet: true });
+const QUIET_HELD = "quiet mode: nothing reaches a contact";
+/** D132: in quiet, a Slack post goes only to one of the company's test channels; an alert about the engine itself (label none) always goes. */
+const quietChannelWhy = (d: ExecDeps, channel: string, label?: string) => d.effective === "quiet" && label !== "none" && !testChannels(d.bindings).includes(channel) ? `quiet mode: ${channel} is not one of the company's test channels (test.slack_channels)` : null;
 const single = (d: ExecDeps, id: string): string | null => onwardEdge(d.edgesFrom(id))?.to ?? null;
 const env = (d: ExecDeps) => ({ now: d.now, tz: contactTz(d), companyTz: d.company.timezone });
 
@@ -104,9 +111,9 @@ function validityOk(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "send_
   return !limit || d.now <= limit ? { ok: true } : { ok: false, why: `past after_event limit ${limit.toISO()}` };
 }
 
-async function recordSend(d: ExecDeps, node: Node, channel: "sms" | "email" | "slack" | "webhook", body: string, status: "queued" | "suppressed", reason?: string): Promise<{ id: string } | null> {
+async function recordSend(d: ExecDeps, node: Node, channel: "sms" | "email" | "slack" | "webhook", body: string, status: "queued" | "suppressed" | "ghost" | "quiet", reason?: string | null): Promise<{ id: string } | null> {
   const key = `${d.run.id}:${node.id}`;
-  // D66: a row the vendor refused (`failed`) is reclaimed by the retry; queued, sent, suppressed and shadow rows stay as they are, so nothing goes out twice
+  // D66: a row the vendor refused (`failed`) is reclaimed by the retry; queued, sent, suppressed, ghost and quiet rows stay as they are, so nothing goes out twice
   const row = await one<{ id: string }>(d.c, `insert into sends (company_id, run_id, contact_id, channel, idempotency_key, rendered_body, status, suppressed_reason, scheduled_for)
     values ($1,$2,$3,$4,$5,$6,$7,$8,now()) on conflict (idempotency_key) do update set status=excluded.status, suppressed_reason=excluded.suppressed_reason, rendered_body=excluded.rendered_body, error=null, scheduled_for=now() where sends.status='failed' returning id`,
     [d.company.id, d.run.id, d.run.contact_id, channel, key, body, status, reason ?? null]);
@@ -145,13 +152,13 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   const who = d.ctx.contact as { phone?: string | null; email?: string | null } | undefined;
   if (who && !(channel === "sms" ? who.phone : who.email)) { const why = `no ${channel === "sms" ? "phone" : "email"} on the contact`; await recordSend(d, node, channel, body, "suppressed", why); return { status: "skipped", next, result: { kind: "noop", why } }; }
   // D66 (F2): a person the poll has not matched to the CRM yet has nothing to send to; the CRM is never asked about contact "undefined", so nobody is stamped gone
-  if (!shadow(d) && !(d.ctx.contact as { ghl_contact_id?: string | null } | undefined)?.ghl_contact_id) return { status: "failed", error: `${node.type}: contact has no CRM id yet (nothing to send to)` };
+  if (!held(d) && !(d.ctx.contact as { ghl_contact_id?: string | null } | undefined)?.ghl_contact_id) return { status: "failed", error: `${node.type}: contact has no CRM id yet (nothing to send to)` };
   const send = await recordSend(d, node, channel, body, "queued");
   if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already sent (idempotency)" } };
-  if (shadow(d)) {
-    await d.c.query("update sends set status='shadow', sent_at=now() where id=$1", [send.id]);
-    await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "message.sent", source: "engine", data: { channel, node: node.id, shadow: true, substituted } });
-    return { status: "ok", next, result: { shadow: true, would_send: body.slice(0, 120), substituted } };
+  if (held(d)) {
+    await d.c.query("update sends set status=$2, suppressed_reason=$3, sent_at=now() where id=$1", [send.id, ghost(d) ? "ghost" : "quiet", ghost(d) ? null : QUIET_HELD]);
+    await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "message.sent", source: "engine", data: { channel, node: node.id, ...heldFlag(d), substituted } });
+    return { status: "ok", next, result: { ...heldFlag(d), would_send: body.slice(0, 120), substituted } };
   }
   const ghlContactId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
   const r = node.type === "send_sms"
@@ -227,9 +234,9 @@ async function applyTags(d: ExecDeps, type: Node["type"], next: string | null, w
   // D76: a tag the same step adds is never also taken off (undoing an earlier answer keeps what the new one also says)
   const dirs = ([["add", "tag.added", "would_tag"], ["remove", "tag.removed", "would_untag"]] as const).filter(([k]) => want[k] !== undefined).map(([k, event, would]) => ({ add: k === "add", raw: want[k]!, tags: k === "add" ? rendered(want.add) : rendered(want[k]).filter((t) => !added.includes(t)), event, would })).filter((x) => x.tags.length);
   if (!dirs.length) return { status: "skipped", next, result: { kind: "noop", why: "no tag to add or take off" } };
-  if (shadow(d)) {   // shadow: log it, touch neither GHL nor our replica of GHL's tags (the next poll would just "revert" it and emit a phantom tag.removed)
-    for (const x of dirs) for (const tag of x.tags) await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: x.event, source: "engine", data: { tag, shadow: true } });
-    return { status: "ok", next, result: { shadow: true, ...Object.fromEntries(dirs.map((x) => [x.would, x.tags])) } };
+  if (ghost(d)) {   // ghost: log it, touch neither GHL nor our replica of GHL's tags (the next poll would just "revert" it and emit a phantom tag.removed)
+    for (const x of dirs) for (const tag of x.tags) await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: x.event, source: "engine", data: { tag, ghost: true } });
+    return { status: "ok", next, result: { ghost: true, ...Object.fromEntries(dirs.map((x) => [x.would, x.tags])) } };
   }
   if (!ghlId) return { status: "failed", error: `${type}: contact has no CRM id yet` };
   for (const x of dirs) {
@@ -296,7 +303,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const templateId = render(node.template, d.ctx, env(d)), sender = node.sender ? render(node.sender, d.ctx, env(d)) || undefined : undefined;
       const name = node.name ? render(node.name, d.ctx, env(d)) : null;
       if (!templateId) return { status: "failed", error: `send_document ${node.id}: template rendered empty (bind crm.agreement_template)` };
-      if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_send_document: { template: templateId, sender, to: contact?.ghl_contact_id } } };
+      if (held(d)) return { status: "ok", next, result: { ...heldFlag(d), would_send_document: { template: templateId, sender, to: contact?.ghl_contact_id } } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "send_document: contact has no CRM id yet" };
       const cl = await claim(d, node, "document");
       if (!cl.fresh) return cl.done ? { status: "ok", next, result: { document: cl.external_id, template: templateId, sender, reused: true } } : { status: "skipped", next, result: { kind: "blocked", why: `document not sent twice: ${PENDING_WHY}` } };
@@ -316,7 +323,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const out: Record<string, unknown> = { owner: owner?.name ?? null };
       if (node.task) {
         const dueAt = d.now.plus(parseDuration(node.task.due)).toJSDate(), title = render(node.task.title, d.ctx, env(d));
-        if (shadow(d)) out.would_create_task = { title, due: dueAt.toISOString(), assignedUserId: owner?.ghl_user_id };
+        if (ghost(d)) out.would_create_task = { title, due: dueAt.toISOString(), assignedUserId: owner?.ghl_user_id };
         else if (contact?.ghl_contact_id) {
           const cl = await claim(d, node, "task");
           if (!cl.fresh) { out.task = cl.external_id; out.task_reused = cl.done; if (!cl.done) out.task_why = PENDING_WHY; }
@@ -330,17 +337,19 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const target = route ? route.to : slackUser ?? fallback;
       const body = route ? `${route.prefix}${text}` : slackUser ? text : `${owner?.name ? `*${owner.name}* ` : ""}${text}`;
       if (!conn || !target) { await recordSend(d, node, "slack", body, "suppressed", conn ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, kind: "blocked", why: conn ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
+      const quietWhy = quietChannelWhy(d, target);
+      if (quietWhy) { await recordSend(d, node, "slack", body, "quiet", quietWhy); return { status: "ok", next, result: { ...out, quiet: true, why: quietWhy, would_post: body.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", body, "queued"); if (!send) return { status: "skipped", next, result: { ...out, kind: "noop", why: "already posted (idempotency)" } };
       const r = await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(decrypt(conn.bot_token), target, `${modePrefix(d)}${body}`, persona(d, node.as)));
       if ("refused" in r) return { status: "skipped", next, result: { ...out, kind: "blocked", why: `Slack refused the post: ${r.refused}`, would_post: body.slice(0, 160) } };
-      await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
-      return { status: "ok", next, result: { ...out, ...(shadow(d) ? { shadow: true } : {}), dm: !!slackUser, ...(route ? { redirected_to_operator: route.to } : {}), ts: r.ts } };
+      await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, ghost(d) ? "ghost" : "sent", r.ts]);
+      return { status: "ok", next, result: { ...out, ...(ghost(d) ? { ghost: true } : {}), dm: !!slackUser, ...(route ? { redirected_to_operator: route.to } : {}), ts: r.ts } };
     }
 
     case "wait_for_reply": {
       // boundary = our last send in this run (so a reply to something earlier doesn't count), else run start
-      // boundary = our last contact-facing send in this run (sent, or would-have-sent in shadow); Slack posts don't count
-      const lastSend = await one<{ sent_at: Date }>(d.c, "select sent_at from sends where run_id=$1 and channel in ('sms','email') and status in ('sent','shadow') order by sent_at desc limit 1", [d.run.id]);
+      // boundary = our last contact-facing send in this run (sent, or would-have-sent in ghost, or held in quiet); Slack posts don't count
+      const lastSend = await one<{ sent_at: Date }>(d.c, "select sent_at from sends where run_id=$1 and channel in ('sms','email') and status in ('sent','ghost','quiet') order by sent_at desc limit 1", [d.run.id]);
       const since = lastSend?.sent_at ?? d.run.started_at ?? new Date(0);
       // D89: which messages came in and when; their words are read from GHL by the step that needs them (replies.ts)
       const replies = await many<{ ghl_message_id: string; occurred_at: Date; channel: string }>(d.c,
@@ -410,7 +419,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (conn) await resolveMentions(d, decrypt(conn.bot_token));   // also fills user.slack_user_id, which a DM step uses as its channel
       const channelOf = (c: string) => { const ref = /^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/.exec(c); return ref ? (resolvePath(d.ctx, ref[1]) as string | undefined) : c; };
       const channelId = [node.channel, ...fallbacksOf(node.fallback_channel)].map(channelOf).find(Boolean);
-      // render first even when it cannot post: the dashboard shows what WOULD have gone to Slack, which is the whole point of shadow
+      // render first even when it cannot post: the dashboard shows what WOULD have gone to Slack, which is the whole point of ghost
       const text = render(node.template, d.ctx, env(d));
       // D124: quiet when empty: the step before found nothing (its own fact, from the data), so a scheduled run posts nothing; a run started by hand still posts
       if (node.quiet_when_empty && quietWhenEmpty(d.bindings) && (d.ctx.event as { manual?: boolean } | undefined)?.manual !== true && resolvePath(d.ctx, node.quiet_when_empty) === true) {
@@ -432,9 +441,12 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (route && "blocked" in route) { await recordSend(d, node, "slack", text, "suppressed", route.blocked); return { status: "skipped", next, result: { kind: "noop", why: route.blocked, would_post: text.slice(0, 160) } }; }
       // a DM held back until live goes to the operator; it threads under an earlier redirected post when that one went to the operator too
       if (route && parentChannel !== route.to) { parentTs = undefined; parentChannel = undefined; }
+      // Slack is the team, not the CRM or the contact: in ghost the post still goes out, marked, so the team sees what the engine would do (D31); in quiet only to a test channel (D132)
+      const postTo = route ? route.to : parentTs && parentChannel ? parentChannel : channelId;
+      const quietWhy = quietChannelWhy(d, postTo, node.label);
+      if (quietWhy) { await recordSend(d, node, "slack", text, "quiet", quietWhy); return { status: "ok", next, result: { quiet: true, why: quietWhy, would_post: text.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already posted (idempotency)" } };
-      // Slack is the team, not the CRM or the contact: in shadow the post still goes out, marked, so the team sees what the engine would do (D31)
-      const token = decrypt(conn.bot_token), postTo = route ? route.to : parentTs && parentChannel ? parentChannel : channelId;
+      const token = decrypt(conn.bot_token);
       const shown = `${route ? route.prefix : ""}${text}`, body = !parentTs ? `${modePrefix(d, node.label)}${shown}` : shown;
       // D76: a post that says where a thing stands (a call's filed outcome, the day's report) is edited in place when it is said again, never repeated
       const prior = node.edit && node.tag ? await one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, render(node.tag, d.ctx, env(d))]) : null;
@@ -446,7 +458,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         ? await slackPostOrFail(d, send.id, async () => { await update(token, prior.channel, prior.ts, body, blocks); return { ts: prior.ts, channel: prior.channel }; })
         : await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(token, postTo, body, persona(d, node.as), parentTs, blocks));
       if ("refused" in r) return { status: "skipped", next, result: { kind: "blocked", why: `Slack refused the post: ${r.refused}`, would_post: text.slice(0, 160) } };
-      await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, shadow(d) ? "shadow" : "sent", r.ts]);
+      await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, ghost(d) ? "ghost" : "sent", r.ts]);
       setPath(d.ctx, `vars.__slack.${node.id}`, r.ts);
       let reacted = false;
       for (const emoji of (node.react ? (Array.isArray(node.react) ? node.react : [node.react]) : []).map((e) => render(e, d.ctx, env(d))).filter(Boolean)) if (parentTs) reacted = (await d.adapters.notifier.react(token, postTo, parentTs, emoji).catch(() => false)) || reacted;
@@ -463,7 +475,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (node.react_on) { const target = await postOf(node.react_on.of); if (target) for (const emoji of node.react_on.emojis.map((e) => render(e, d.ctx, env(d))).filter(Boolean)) if (await d.adapters.notifier.react(token, target.channel, target.ts, emoji).catch(() => false)) reactedOn++; }
       let tag: string | undefined;
       if (node.tag) { tag = render(node.tag, d.ctx, env(d)); await d.c.query("insert into slack_posts (company_id, tag, channel, ts, run_id) values ($1,$2,$3,$4,$5) on conflict (company_id, tag) do update set channel=excluded.channel, ts=excluded.ts, run_id=excluded.run_id, posted_at=now()", [d.company.id, tag, at, r.ts, d.run.id]); }
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), ...(route ? { redirected_to_operator: route.to } : {}), ...(prior && update ? { edited: prior.ts } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null, ...(tagged ? { tag: tagged } : {}) } : {}), ...(tag ? { remembered_as: tag } : {}), ...(node.react ? { reacted } : {}), ...(node.offer ? { offered } : {}), ...(buttons.length ? { buttons: buttons.map((b) => b.text) } : {}), ...(node.unreact ? { unreacted } : {}), ...(node.react_on ? { reacted_on: reactedOn } : {}) } };
+      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), ...(route ? { redirected_to_operator: route.to } : {}), ...(prior && update ? { edited: prior.ts } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null, ...(tagged ? { tag: tagged } : {}) } : {}), ...(tag ? { remembered_as: tag } : {}), ...(node.react ? { reacted } : {}), ...(node.offer ? { offered } : {}), ...(buttons.length ? { buttons: buttons.map((b) => b.text) } : {}), ...(node.unreact ? { unreacted } : {}), ...(node.react_on ? { reacted_on: reactedOn } : {}) } };
     }
 
     case "classify": {
@@ -510,7 +522,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
     case "note": {
       const ghlId = (d.ctx.contact as { ghl_contact_id?: string | null } | undefined)?.ghl_contact_id;
       const noteText = render(node.template, d.ctx, env(d));
-      if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_note: noteText.slice(0, 160) } };
+      if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_note: noteText.slice(0, 160) } };
       if (!ghlId) return { status: "failed", error: "note: contact has no CRM id yet" };
       const cl = await claim(d, node, "note");
       if (!cl.fresh) return cl.done ? { status: "ok", next, result: { reused: true, why: "written on an earlier try" } } : { status: "skipped", next, result: { kind: "blocked", why: `note not written twice: ${PENDING_WHY}` } };
@@ -533,7 +545,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       }
       // only the CRM's own calendars accept writes; a Calendly booking is read-only to us, so the node records that and moves on
       if (a!.source !== "ghl") return { status: "ok", next, result: { skipped: true, reason: `appointments from ${a!.source} are read-only`, would_update: patch } };
-      if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch } };
+      if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_update: patch } };
       await d.adapters.write.updateAppointment(d.adapterCompany, a!.external_id, patch);
       if (typeof patch.status !== "string") return { status: "ok", next, result: patch };
       // D66 (C6): one event per (run, step, appointment, status), so a retry after a crash between our row and the emit emits once, and a crash before it still emits
@@ -570,14 +582,14 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (byId) return recordById(d, node, next, objectKey, key, byId, properties, cleared, owner, dropped);
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
       let ghlId = existing?.ghl_record_id ?? null;
-      // an update-only step: nothing to update when we never made the record, or made it only in shadow (no CRM id); a bare record keyed by an id alone would be a duplicate
+      // an update-only step: nothing to update when we never made the record, or made it only in ghost (no CRM id); a bare record keyed by an id alone would be a duplicate
       let matched: string | undefined;
-      if (node.if_missing !== "create" && !(shadow(d) ? existing : ghlId)) {
+      if (node.if_missing !== "create" && !(ghost(d) ? existing : ghlId)) {
         const found = node.if_missing === "match" ? await bookingRecord(d, objectKey) : { why: "this step never creates one" };
         if ("why" in found) return { status: "skipped", next, result: { kind: "noop", why: `no ${objectKey} record in the CRM to update: ${found.why}` } };
         ghlId = matched = found.id;
       }
-      if (!shadow(d)) {
+      if (!ghost(d)) {
         // D66: a create the CRM answered but our row never recorded becomes an update of that record; one it never answered is not asked twice
         const cl = ghlId ? null : await claim(d, node, "record");
         if (cl && !cl.fresh) { if (cl.done && cl.external_id) ghlId = cl.external_id; else return { status: "skipped", next, result: { kind: "blocked", why: `${objectKey} record not created twice: ${PENDING_WHY}` } }; }
@@ -591,7 +603,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         [d.company.id, objectKey, key, ghlId, d.run.contact_id, properties]);
       d.ctx.record = { id: ghlId ?? "", key, object: objectKey, properties };
       const related = await relate(d, node);
-      return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
+      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
     }
     case "update_contact": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
@@ -611,7 +623,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const already = kept.length ? { already_set: kept } : {};
       const nothing = !patch.firstName && !patch.lastName && !patch.phone && !patch.timezone && !patch.assignedUserId && !patch.customFields.length;
       if (nothing) return { status: "skipped", next, result: { kind: "noop", why: kept.length ? "nothing to write: the CRM already has every value" : "nothing to write: every value rendered empty", ...already } };
-      if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_update: patch, ...already } };
+      if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_update: patch, ...already } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "update_contact: contact has no CRM id yet" };
       await d.adapters.write.updateContact(d.adapterCompany, contact.ghl_contact_id, patch);
       // our replica of the CRM contact learns what we just wrote, so a later step in the same minute reads it (the next poll confirms it)
@@ -624,7 +636,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const title = render(node.title, d.ctx, env(d)), body = node.body ? render(node.body, d.ctx, env(d)) : undefined;
       const dueAt = d.now.plus(parseDuration(render(node.due, d.ctx, env(d)) || "+1d")).toJSDate();
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
-      if (shadow(d)) return { status: "ok", next, result: { shadow: true, would_create_task: { title, body, due: dueAt.toISOString(), assignedUserId } } };
+      if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_create_task: { title, body, due: dueAt.toISOString(), assignedUserId } } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "create_task: contact has no CRM id yet" };
       const cl = await claim(d, node, "task");
       if (!cl.fresh) return cl.done ? { status: "ok", next, result: { task_id: cl.external_id, title, due: dueAt.toISOString(), assignedUserId, reused: true } } : { status: "skipped", next, result: { kind: "blocked", why: `task not created twice: ${PENDING_WHY}` } };
@@ -634,7 +646,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
     }
     case "update_opportunity": return updateOpportunity(d, node, next);
     case "analyze": {
-      // not a CRM write, so it runs in shadow too: seeing what the AI would say about a call is the point of shadow
+      // not a CRM write, so it runs in ghost too: seeing what the AI would say about a call is the point of ghost
       const apiKey = d.bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY;
       const soft = (error: string): StepOutcome => node.optional ? { status: "skipped", next, result: { kind: "blocked", why: error } } : { status: "failed", error };
       if (!apiKey) return soft("analyze: no Anthropic key — bind secret.anthropic_key for this company");
@@ -671,7 +683,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         if (d.ctx.appointment) (d.ctx.appointment as Record<string, unknown>).outcome = category;
         return { status: "ok", next, result: { outcome: category, call_outcome: node.call_outcome ? render(node.call_outcome, d.ctx, env(d)) : null, as: "disposition", events: r.events, runs_started: r.runs } };
       }
-      // ours, never the CRM: a show is a fact about our appointment row, so shadow mode records it too
+      // ours, never the CRM: a show is a fact about our appointment row, so ghost mode records it too
       const r = await applyOutcome(d.c, { companyId: d.company.id, appointmentId: d.run.appointment_id, outcomeTermId: termId, callOutcomeTermId: callTerm?.id ?? null, notes, source: "engine", runId: d.run.id, by: `workflow:${node.id}` });
       if (d.ctx.appointment) (d.ctx.appointment as Record<string, unknown>).outcome = r.outcome;
       return { status: "ok", next, result: { outcome: r.outcome, events: r.events, runs_started: r.runs } };
@@ -685,7 +697,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const bodyText = node.body === undefined ? undefined : typeof node.body === "string" ? render(node.body, sctx, env(d)) : JSON.stringify(deepRender(node.body, sctx, env(d)));
       if (bodyText !== undefined && typeof node.body !== "string" && !Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) headers["Content-Type"] = "application/json";
       const safeUrl = url.replace(/([?&](?:key|token|api_key|apikey|secret)=)[^&]+/gi, "$1…");
-      if (shadow(d)) { await recordSend(d, node, "webhook", bodyText ?? "", "suppressed", "shadow"); return { status: "ok", next, result: { shadow: true, would_call: `${node.method} ${safeUrl}`, would_send: bodyText?.slice(0, 300) } }; }
+      if (held(d)) { await recordSend(d, node, "webhook", bodyText ?? "", ghost(d) ? "ghost" : "quiet", ghost(d) ? null : QUIET_HELD); return { status: "ok", next, result: { ...heldFlag(d), would_call: `${node.method} ${safeUrl}`, would_send: bodyText?.slice(0, 300) } }; }
       const send = await recordSend(d, node, "webhook", bodyText ?? "", "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already called (idempotency)" } };
       try {
         const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 20_000);
@@ -834,7 +846,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
  * Our ledger's opportunity: the run's, else the contact's open one. D85: won / lost / open with a lost reason, one
  * opportunity.won / opportunity.lost per change (the row and the event are one transaction, so a retry finds the status already
  * set and emits nothing again), dispatched like any event; `card` marks the contact's card on that board through pipelineCard.
- * Ours, never the CRM, so it runs in shadow too; the card follows the card step's own shadow rule.
+ * Ours, never the CRM, so it runs in ghost too; the card follows the card step's own ghost rule.
  */
 async function updateOpportunity(d: ExecDeps, node: Extract<Node, { type: "update_opportunity" }>, next: string | null): Promise<StepOutcome> {
   const r = (v: unknown) => (typeof v === "string" ? render(v, d.ctx, env(d)).trim() : v);
@@ -855,7 +867,7 @@ async function updateOpportunity(d: ExecDeps, node: Extract<Node, { type: "updat
     Object.assign(out, { status: { from: cur.status, to: status } });
     if (status !== "open") {
       const ev = await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: `opportunity.${status}`, source: "engine",
-        data: { by: "workflow", node: node.id, from: cur.status, ...(reason ? { lost_reason: term?.category ?? reason, ...(term ? {} : { lost_reason_unknown: true }) } : {}), ...(shadow(d) ? { shadow: true } : {}) } });
+        data: { by: "workflow", node: node.id, from: cur.status, ...(reason ? { lost_reason: term?.category ?? reason, ...(term ? {} : { lost_reason_unknown: true }) } : {}), ...(ghost(d) ? { ghost: true } : {}) } });
       out.started = await dispatchEvent(d.c, ev, { contact: { id: d.run.contact_id }, opportunity: { id: oppId, status } });
     }
   } else if (term) await d.c.query("update opportunities set lost_reason_term=$2 where id=$1 and status='lost'", [oppId, term.id]);
@@ -916,12 +928,12 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   let oppId = d.run.opportunity_id ?? card?.opportunity_id ?? (await one<{ id: string }>(d.c, "select id from opportunities where company_id=$1 and contact_id=$2 and status='open' order by opened_at desc limit 1", [d.company.id, d.run.contact_id]))?.id;
   if (!oppId) {
     oppId = (await one<{ id: string }>(d.c, "insert into opportunities (company_id, contact_id, opened_by) values ($1,$2,$3) returning id", [d.company.id, d.run.contact_id, `workflow:${node.id}`]))!.id;
-    await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "opportunity.opened", source: "engine", data: { by: "workflow", node: node.id, shadow: shadow(d) } });
+    await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: oppId, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "opportunity.opened", source: "engine", data: { by: "workflow", node: node.id, ghost: ghost(d) } });
   }
   const ownerRow = assignedUserId ? await one<{ id: string }>(d.c, "select id from users where company_id=$1 and ghl_user_id=$2", [d.company.id, assignedUserId]) : undefined;
   // D69: a card the CRM answers is not there (deleted by a person, or with the contact) is gone from the replica too, and the step makes a fresh one, once (the create is claimed below)
   let goneCard: string | undefined;
-  if (card && !shadow(d) && card.ghl_opportunity_id) {
+  if (card && !ghost(d) && card.ghl_opportunity_id) {
     try { await d.adapters.write.updateOpportunity(d.adapterCompany, card.ghl_opportunity_id, write); }
     catch (e) {
       if (!cardGone(e)) throw e;
@@ -932,10 +944,10 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   }
   // the replica says what the CRM was told (a step with no status reopens a closed card it picked), stamped when the CRM took it, not when the run began: a snapshot from before this write is the past, never a hand
   if (card && !goneCard) {
-    await d.c.query(`update pipeline_cards set name=$2, ghl_stage_id=$3, assigned_user_id=coalesce($4, assigned_user_id), status=${shadow(d) ? "coalesce($5, status)" : "$5"}, updated_at=clock_timestamp() where id=$1`, [card.id, name, stageId, ownerRow?.id ?? null, shadow(d) ? node.status ?? null : write.status]);
+    await d.c.query(`update pipeline_cards set name=$2, ghl_stage_id=$3, assigned_user_id=coalesce($4, assigned_user_id), status=${ghost(d) ? "coalesce($5, status)" : "$5"}, updated_at=clock_timestamp() where id=$1`, [card.id, name, stageId, ownerRow?.id ?? null, ghost(d) ? node.status ?? null : write.status]);
   } else {
     let ghlId: string | null = null;
-    if (!shadow(d)) {
+    if (!ghost(d)) {
       if (!contact?.ghl_contact_id) return { status: "failed", error: "pipeline_card: contact has no CRM id yet" };
       // D66: the CRM was read first (D41) and has no card, so a pending claim means the earlier try never reached it; a done claim is a card the read missed (index lag) and is reused
       const cl = await claim(d, node, "card");
@@ -947,7 +959,7 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
   d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
   await refreshCardsCtx(d, pipelineId);
-  return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true } : {}), card: card && !goneCard ? "moved" : "created", ...(goneCard ? { replaced_gone_card: goneCard } : {}), ...(card && !goneCard ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), ...(monetaryValue !== undefined ? { value: monetaryValue } : {}), fields: customFields } };
+  return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), card: card && !goneCard ? "moved" : "created", ...(goneCard ? { replaced_gone_card: goneCard } : {}), ...(card && !goneCard ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), ...(monetaryValue !== undefined ? { value: monetaryValue } : {}), fields: customFields } };
 }
 
 /** A crm_record step's `relate`, after the record is in `record.*`: each link both ends of which rendered. */
@@ -956,7 +968,7 @@ async function relate(d: ExecDeps, node: Extract<Node, { type: "crm_record" }>):
   for (const r of node.relate) {
     const assoc = render(r.association, d.ctx, env(d)), first = render(r.first, d.ctx, env(d)), second = render(r.second, d.ctx, env(d));
     if (!assoc || !first || !second) continue;
-    if (!shadow(d)) await d.adapters.write.relateRecords(d.adapterCompany, assoc, first, second);
+    if (!ghost(d)) await d.adapters.write.relateRecords(d.adapterCompany, assoc, first, second);
     related.push(`${first}→${second}`);
   }
   return related;
@@ -974,7 +986,7 @@ async function recordById(d: ExecDeps, node: Extract<Node, { type: "crm_record" 
   const ours = await one<{ id: string; record_key: string }>(d.c, "select id, record_key from crm_records where company_id=$1 and object_key=$2 and ghl_record_id=$3 order by updated_at desc limit 1", [d.company.id, objectKey, ghlId]);
   const recordKey = ours?.record_key ?? (key || `ghl:${ghlId}`);
   let ourId: string | null = ours?.id ?? null;
-  if (!shadow(d)) {
+  if (!ghost(d)) {
     await d.adapters.write.updateRecord(d.adapterCompany, objectKey, ghlId, write, owner);
     ourId = (await one<{ id: string }>(d.c, `insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,$5,$6)
       on conflict (company_id, object_key, record_key) do update set ghl_record_id=excluded.ghl_record_id, properties=crm_records.properties || excluded.properties, updated_at=now() returning id`,
@@ -982,7 +994,7 @@ async function recordById(d: ExecDeps, node: Extract<Node, { type: "crm_record" 
   }
   d.ctx.record = { id: ghlId, key: recordKey, object: objectKey, properties: write };
   const related = await relate(d, node);
-  return { status: "ok", next, result: { ...(shadow(d) ? { shadow: true, would_update: write } : {}), record: "updated", by_crm_id: true, our_id: ourId, crm_id: ghlId, properties: write, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
+  return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true, would_update: write } : {}), record: "updated", by_crm_id: true, our_id: ourId, crm_id: ghlId, properties: write, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
 }
 
 type EventPin = { entered?: string; after_id?: number; since?: string | null; until?: string | null; consumed?: number[] };
@@ -1030,7 +1042,7 @@ async function waitForEvent(d: ExecDeps, node: Extract<Node, { type: "wait_for_e
 }
 
 /**
- * D73's one-to-one rule, for a booking whose record the engine never wrote (booked before install, or while shadowed):
+ * D73's one-to-one rule, for a booking whose record the engine never wrote (booked before install, or while in ghost):
  * the record carrying the booking's own id, else the one of this person (any of their GHL ids) starting the same minute
  * (with no readable time, the same day). Never by name; a record already tied to another booking is not a candidate.
  */

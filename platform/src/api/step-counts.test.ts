@@ -30,7 +30,7 @@ describe.skipIf(!process.env.DATABASE_URL)("run counts per step (D112)", () => {
       const run = async (key: string, daysAgo: number, steps: [string, string][], opts: { finished?: boolean; contact?: boolean; born?: string } = {}) => {
         const ct = opts.contact === false ? null : (await one<{ id: string }>(c, "insert into contacts (company_id, first_name) values ($1,$2) returning id", [companyId, key]))!.id;
         const r = (await one<{ id: string }>(c, `insert into runs (company_id, workflow_id, workflow_version, contact_id, status, born_in, context, reentry_key, started_at, finished_at)
-          values ($1,$2,1,$3,$4,$5,'{}',$6, now() - make_interval(days => $7), case when $8 then now() - make_interval(days => $7) + interval '1 minute' end) returning id`, [companyId, workflowId, ct, opts.finished === false ? "waiting" : "completed", opts.born ?? "shadow", key, daysAgo, opts.finished !== false]))!.id;
+          values ($1,$2,1,$3,$4,$5,'{}',$6, now() - make_interval(days => $7), case when $8 then now() - make_interval(days => $7) + interval '1 minute' end) returning id`, [companyId, workflowId, ct, opts.finished === false ? "waiting" : "completed", opts.born ?? "ghost", key, daysAgo, opts.finished !== false]))!.id;
         for (const [node, status] of steps) await c.query("insert into run_steps (run_id, node_id, node_type, status, result, started_at) values ($1,$2,'x',$3,'{}', now() - make_interval(days => $4))", [r, node, status, daysAgo]);
       };
       await run("old", 8, [["t1", "ok"], ["n1", "ok"], ["n2", "ok"], ["n3", "ok"], ["x1", "ok"]]);

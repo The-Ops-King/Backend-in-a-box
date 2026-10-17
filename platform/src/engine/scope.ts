@@ -17,7 +17,7 @@ export const SCOPE_KEY = "scope.tag";
 export const scopeTag = (bindings: Record<string, string>): string | null => bindings[SCOPE_KEY]?.trim().toLowerCase() || null;
 export const carriesTag = (tags: string[] | null | undefined, tag: string) => (tags ?? []).some((t) => t.trim().toLowerCase() === tag);
 /** The rule in SQL over a contacts row aliased `ct`; `tag` is a text parameter (null: no scope, everyone passes). */
-/** D122: someone who submitted one of the company's own forms is its person too, like a booker (in shadow the tag is only what would have been written). */
+/** D122: someone who submitted one of the company's own forms is its person too, like a booker (in ghost the tag is only what would have been written). */
 export const scopeSql = (ct: string, tag: string) =>
   `(${tag}::text is null or exists (select 1 from unnest(${ct}.tags) st(t) where lower(st.t) = ${tag}::text) or exists (select 1 from appointments sa where sa.contact_id=${ct}.id)
     or exists (select 1 from events sf where sf.company_id=${ct}.company_id and sf.contact_id=${ct}.id and sf.event_type='form.submitted'))`;
@@ -57,18 +57,18 @@ export async function stillInScope(c: PoolClient, co: CompanyRow, ac: Company, a
 
 /**
  * A booker brought into scope by their booking gets the tag in GHL, so the CRM agrees with the engine and the tagged poll sees
- * them. Real or shadow is decided as every write the engine makes for its workflows is (D52, D92): `effectiveMode` over the rung
- * of the workflows answering the booking (`handlerMode`). In shadow (or test, for someone who is not a test contact) nothing is
- * written and the would-have is recorded as a tag step records it (`tag.added`, shadow). A refusal does not hold the booking
+ * them. Real or ghost is decided as every write the engine makes for its workflows is (D52, D92): `effectiveMode` over the rung
+ * of the workflows answering the booking (`handlerMode`). In ghost (or test, for someone who is not a test contact) nothing is
+ * written and the would-have is recorded as a tag step records it (`tag.added`, ghost). A refusal does not hold the booking
  * up (they are in scope by it either way): it is an alert, so a person can tag them by hand.
  */
-export async function tagIntoScope(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, bindings: Record<string, string>, contactId: string, appointmentId: string, tag: string): Promise<"tagged" | "shadow" | "failed" | "no_crm_id"> {
+export async function tagIntoScope(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, bindings: Record<string, string>, contactId: string, appointmentId: string, tag: string): Promise<"tagged" | "ghost" | "failed" | "no_crm_id"> {
   const ct = await one<{ ghl: string | null; name: string | null }>(c, "select ghl_contact_id as ghl, nullif(trim(coalesce(first_name,'')||' '||coalesce(last_name,'')),'') as name from contacts where id=$1", [contactId]);
   if (!ct?.ghl) return "no_crm_id";   // a Calendly invitee the CRM has not shown yet: in scope by the booking; nothing to tag
   const base = { company_id: co.id, contact_id: contactId, opportunity_id: null, appointment_id: appointmentId, event_type: "tag.added", source: "engine" };
-  if ((await effectiveMode(c, co.id, contactId, await handlerMode(c, co.id, "appointment.booked"), bindings)) === "shadow") {
-    await emitEvent(c, { ...base, data: { tag, shadow: true, by: "scope" } });
-    return "shadow";
+  if ((await effectiveMode(c, co.id, contactId, await handlerMode(c, co.id, "appointment.booked"), bindings)) === "ghost") {
+    await emitEvent(c, { ...base, data: { tag, ghost: true, by: "scope" } });
+    return "ghost";
   }
   try { await adapters.write.addTag(ac, ct.ghl, tag); }
   catch (e) {

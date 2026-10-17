@@ -10,10 +10,11 @@ import { loadCompany } from "./context";
 import { defaultPrompts } from "@/prompts";
 import { fathomCreateWebhook } from "@/adapters/fathom/client";
 import { whopCreateWebhook } from "@/adapters/whop/client";
-import { goLive, type Cleared } from "./golive";
+import { setCompanyMode, WRITES_FOR_ALL, type Cleared } from "./golive";
 import { BOOKING_CARD_KEY, backfillBookingCard, intakeProblem, type IntakeLine } from "./booking-card";
 import { OBJECTIONS_KEY, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { DEPOSIT_PRODUCTS_KEY } from "./payments";
+import { modeProblem, TEST_CHANNELS_KEY } from "./mode";
 import { HARNESS_KEY, harnessProblem, type HarnessTranscripts } from "./harness-scripts";
 import { chartLayoutOf, notDrawable } from "@/api/chart-verdict";
 import { checkMapAgainstForms, mapProblems, registerTypeform, TF_FORMS_KEY, TF_TOKEN_KEY, type TypeformForms } from "./typeform";
@@ -68,6 +69,8 @@ export type InstallInput = {
   bot?: { escalateTo?: string };
   /** D129: a team member whose Slack account is not under their GHL email, mapped by hand: { <roster email or CRM user id>: <Slack user id, or the email Slack has for them> }. Mentions, DMs and the alert buttons then know them; nothing found by email replaces it. */
   slackUsers?: Record<string, string>;
+  /** D132: the Slack channels (ids) a quiet company may post to; every other post is held back in quiet. Bound as test.slack_channels; [] removes them. */
+  testSlackChannels?: string[];
   /** D131: what the test harness's staged calls say, in the company's own offer (bound as harness.transcripts): the closer call `record` stages and the setter call `call` stages, line by line. Omitted: left as it is; without any, an offer-neutral script. */
   harness?: HarnessTranscripts;
   contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
@@ -80,7 +83,7 @@ export type InstallInput = {
   templates?: string[];                  // slugs; default all
   enable?: boolean;                      // default false — Tyler's rule: build off, enable deliberately
   smsEnabled?: boolean;                  // default true; false when the sub-account has no number
-  mode?: import("./mode").Mode;          // default shadow; the ladder is shadow → test → live (D52)
+  mode?: import("./mode").Mode;          // default ghost; the ladder is ghost → test → quiet → live (D52, D132); up into quiet or live passes the readiness gate after the install
   /**
    * D122: Typeform, straight into the engine. `token`: a personal access token (bound as secret.typeform_token; it reads the
    * forms and their responses and manages their webhooks). `forms`: each form's map by question ref (typeform.forms, see
@@ -178,8 +181,8 @@ export const canon = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && 
 
 /** D16: upload info, pick templates, done. Idempotent. Workflows install OFF unless enable=true. A re-run upgrades untouched copies to the current template; edited copies are left alone. */
 export type Inbound = { secret: string; zapierPaymentUrl: string; zapierRecordingUrl: string; whopWebhookUrl: string; fathomWebhookUrl: string; fathomWebhook?: string };
-/** `wentLive`: what the go-live cleared, when `mode: "live"` moved the company there (D56). */
-export async function installCompany(input: InstallInput, adapters: Adapters, typeformApi: TypeformApi = liveTypeform): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: Inbound; wentLive?: Cleared; typeform?: string[] }> {
+/** `wentLive` / `wentQuiet`: what the move cleared, when `mode` moved the company up into live or quiet (D56, D132). */
+export async function installCompany(input: InstallInput, adapters: Adapters, typeformApi: TypeformApi = liveTypeform): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: Inbound; wentLive?: Cleared; wentQuiet?: Cleared; typeform?: string[] }> {
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   const calMap: Record<string, { term: string; name?: string; selfBooked?: boolean; booking?: "self" | "setter" | "question"; questions?: Record<string, string> }> = Object.fromEntries(Object.entries(input.calendars ?? {}).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
   // resolve the booking source outside the transaction: it talks to Calendly.
@@ -245,15 +248,17 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
   const cardProblems = (input.bookingCard?.intake ?? []).map(intakeProblem).filter(Boolean);
   if (input.bookingCard && (!Array.isArray(input.bookingCard.intake) || cardProblems.length)) throw new Error(`bookingCard.intake: ${cardProblems.join("; ") || "a list of lines"}`);
   // D56: live is never set by install itself; `mode: "live"` is a go-live after the install, with its readiness refusal and clean slate (D51)
-  const modeFlag = input.mode === "live" ? null : input.mode ?? null;
+  // D132: up into quiet or live goes through the gate once everything is installed (setCompanyMode); "shadow" is refused with its new name
+  if (input.mode !== undefined) { const why = modeProblem(input.mode); if (why) throw new Error(why); }
+  const modeFlag = input.mode && WRITES_FOR_ALL.includes(input.mode) ? null : input.mode ?? null;
   const out = await asOperator(async (c) => {
     // D88: a company that already existed gets a template that carries what the engine used to do by itself ON, so an upgrade never lets that go quiet
     const existed = !!(await one(c, "select 1 from companies where slug=$1", [input.slug]));
     const storedPit = input.pit ? null : await one<{ value: Buffer }>(c, "select b.value from bindings b join companies co on co.id=b.company_id where co.slug=$1 and b.key='secret.ghl_pit'", [input.slug]);
     const pit = input.pit ?? (storedPit ? decrypt(storedPit.value) : null);
     if (!pit) throw new Error("pit is required: this company has no CRM token stored yet");
-    // re-running install never silently flips a live company back to shadow or re-enables SMS: only explicitly passed values change
-    const co = await one<{ id: string }>(c, `insert into companies (name, slug, timezone, sms_enabled, mode) values ($1,$2,$3,coalesce($4,true),coalesce($5,'shadow'))
+    // re-running install never silently flips a live company back to ghost or re-enables SMS: only explicitly passed values change
+    const co = await one<{ id: string }>(c, `insert into companies (name, slug, timezone, sms_enabled, mode) values ($1,$2,$3,coalesce($4,true),coalesce($5,'ghost'))
       on conflict (slug) do update set name=excluded.name, timezone=excluded.timezone,
         sms_enabled=case when $4::boolean is null then companies.sms_enabled else excluded.sms_enabled end,
         mode=case when $5::text is null then companies.mode else excluded.mode end returning id`, [input.name, input.slug, input.timezone, input.smsEnabled ?? null, modeFlag]);
@@ -326,6 +331,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     if (!inboundSecret) await bind("secret.zapier_inbound", "secret", inboundPlain);
     if (input.depositProducts?.length) await bind(DEPOSIT_PRODUCTS_KEY, "text", JSON.stringify([...new Set(input.depositProducts.map((x) => x.trim()))]));
     else if (input.depositProducts) await c.query("delete from bindings where company_id=$1 and key=$2", [companyId, DEPOSIT_PRODUCTS_KEY]);
+    if (input.testSlackChannels?.length) await bind(TEST_CHANNELS_KEY, "text", [...new Set(input.testSlackChannels.map((x) => x.trim()).filter(Boolean))].join(","));
+    else if (input.testSlackChannels) await c.query("delete from bindings where company_id=$1 and key=$2", [companyId, TEST_CHANNELS_KEY]);
     if (input.harness) { const why = harnessProblem(input.harness); if (why) throw new Error(`harness: ${why}`); await bind(HARNESS_KEY, "text", JSON.stringify(input.harness)); }
     if (input.contractValueDefault !== undefined) await c.query("update companies set contract_value_default=$2 where id=$1", [companyId, input.contractValueDefault]);
     if (input.quietHours) await c.query("update companies set send_window_start=coalesce($2, send_window_start), send_window_end=coalesce($3, send_window_end), quiet_allow_transactional=coalesce($4, quiet_allow_transactional) where id=$1", [companyId, input.quietHours.start ?? null, input.quietHours.end ?? null, input.quietHours.allowTransactional ?? null]);
@@ -397,13 +404,11 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     }
     return { companyId, calendars: calendarsOut, installed, ...(typeformOut ? { typeform: typeformOut } : {}), inbound: { secret: inboundPlain, zapierPaymentUrl: `/api/webhooks/zapier/${companyId}/payment`, zapierRecordingUrl: `/api/webhooks/zapier/${companyId}/recording`, whopWebhookUrl: `/api/webhooks/whop/${companyId}`, fathomWebhookUrl: `/api/webhooks/fathom/${companyId}`, fathomWebhook } };
   });
-  if (input.mode === "live") {
-    const r = await asOperator(async (c) => {
-      const co = (await one<{ mode: string }>(c, "select mode from companies where id=$1", [out.companyId]))!;
-      return co.mode === "live" ? null : goLive(c, out.companyId, `/app/c/${input.slug}`, "install");
-    });
-    if (r && !r.ok) throw new Error(`Installed, but not ready to go live (the company stays in its current mode): ${r.blockers.map((b) => b.text).join(" ")}`);
-    if (r?.ok) return { ...out, wentLive: r.cleared };
+  if (input.mode && WRITES_FOR_ALL.includes(input.mode)) {
+    const to = input.mode;
+    const r = await asOperator((c) => setCompanyMode(c, out.companyId, to, `/app/c/${input.slug}`, "install"));
+    if (!r.ok) throw new Error(`Installed, but not ready to go ${to} (the company stays in its current mode): ${r.blockers.map((b) => b.text).join(" ")}`);
+    if (r.cleared) return { ...out, ...(to === "live" ? { wentLive: r.cleared } : { wentQuiet: r.cleared }) };
   }
   return out;
 }

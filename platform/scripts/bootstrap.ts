@@ -26,9 +26,9 @@ const all = (k: string) => args.map((a, i) => (a === `--${k}` ? args[i + 1] : nu
     locationId: location!, pit: pit!,
     calendars: Object.fromEntries(all("calendar").map((s) => s.split("=") as [string, string])),
     closerCall: opt("closer-call"), bookingCalendar: opt("booking"),
-    smsEnabled: false, mode: "shadow", enable: false,
+    smsEnabled: false, mode: "ghost", enable: false,
   }, liveAdapters);
-  console.log(`company ${opt("slug") ?? "company"} = ${r.companyId} (shadow, SMS off, all workflows OFF)`);
+  console.log(`company ${opt("slug") ?? "company"} = ${r.companyId} (ghost, SMS off, all workflows OFF)`);
   r.calendars.forEach((s) => console.log(`  ${s}`)); r.installed.forEach((s) => console.log(`  ${s}`));
   await db().end();
 })().catch((e) => { console.error(e); process.exit(1); });

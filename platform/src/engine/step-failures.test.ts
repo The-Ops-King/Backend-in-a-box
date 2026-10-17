@@ -590,7 +590,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
     });
 
     it("shadow: the CRM is read (cards first, D41) but never written; a replica card with no CRM id, the run completes", async () => {
-      await asOperator((c) => c.query("update companies set mode='shadow' where id=$1", [companyId]));
+      await asOperator((c) => c.query("update companies set mode='ghost' where id=$1", [companyId]));
       try {
         const ct = await person("SHADOW1");
         const id = await start(wfNewLead, ct);

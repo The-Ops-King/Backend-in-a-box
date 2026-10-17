@@ -75,7 +75,7 @@ function RunRow({ r, tz, on, onPick }: { r: RunListRow; tz: string; on: boolean;
   return <button type="button" className={`row ${on ? "sel" : ""}`} aria-pressed={on} onClick={onPick}>
     <Ic state={r.state} />
     <span className="mid"><span className="nm">{r.who}</span><Strip path={r.path} note={r.at} /></span>
-    <span className="d tnum">{shortDate(r.started_at, tz)}{inShadow(r.path) ? <small className="sh"><Ghost />in shadow</small> : null}</span>
+    <span className="d tnum">{shortDate(r.started_at, tz)}{inShadow(r.path) ? <small className="sh"><Ghost />in ghost</small> : null}</span>
   </button>;
 }
 
@@ -88,7 +88,7 @@ function Picked({ sel, row, page, error, tz, slug, onClear }: { sel: string; row
   const steps: { state: string; title: string; meta?: string; note?: string }[] = page?.feed ?? row?.path ?? [];
   const ghost = inShadow(steps);
   const at = page?.run.at ?? row?.at ?? "";
-  const status = ghost ? (at.startsWith("done") ? at.replace(/^done/, "done in shadow") : `${at} · in shadow`) : at;
+  const status = ghost ? (at.startsWith("done") ? at.replace(/^done/, "done in ghost") : `${at} · in ghost`) : at;
   const missed = steps.filter((s) => s.state === "skip" || s.state === "blocked" || s.state === "warn" || s.state === "stop");
   const appt = page?.run.appointment;
   const contact = page?.run.contact_id ?? row?.contact_id;
@@ -98,6 +98,6 @@ function Picked({ sel, row, page, error, tz, slug, onClear }: { sel: string; row
       <span className="acts"><Link className="btn" to={`/app/c/${slug}/r/${sel}`}>Open the full run</Link>{contact ? <Link className="btn" to={`/app/c/${slug}/contacts/${contact}`}>Open the contact</Link> : null}<button type="button" className="btn" onClick={onClear} title="Back to the plain chart (Esc)">Clear</button></span>
     </div>
     {appt ? <p className="m">Call {callTime(appt.starts_at, tz)}{appt.closer ? ` with ${appt.closer}` : ""}{appt.status !== "confirmed" && appt.status !== "booked" ? ` (${appt.status})` : ""}</p> : null}
-    {missed.length ? <ul className="missed">{missed.slice(0, 6).map((s, i) => <li key={i}><Ic state={s.state} /><span><b><Title text={s.title + (s.meta ? ` · ${s.meta}` : "")} /></b> <span className={`w ${s.state}`}>{s.state === "skip" ? "skipped" : s.state === "blocked" ? "did not go out" : s.state === "warn" ? "failed" : "stopped"}</span>{s.note ? `: ${s.note.replace(/^Didn't go out: /, "")}` : ""}</span></li>)}{missed.length > 6 ? <li className="m">and {missed.length - 6} more on the full run</li> : null}</ul> : page || row ? <p className="m">Every step it reached ran{ghost ? ", in shadow" : ""}.</p> : null}
+    {missed.length ? <ul className="missed">{missed.slice(0, 6).map((s, i) => <li key={i}><Ic state={s.state} /><span><b><Title text={s.title + (s.meta ? ` · ${s.meta}` : "")} /></b> <span className={`w ${s.state}`}>{s.state === "skip" ? "skipped" : s.state === "blocked" ? "did not go out" : s.state === "warn" ? "failed" : "stopped"}</span>{s.note ? `: ${s.note.replace(/^Didn't go out: /, "")}` : ""}</span></li>)}{missed.length > 6 ? <li className="m">and {missed.length - 6} more on the full run</li> : null}</ul> : page || row ? <p className="m">Every step it reached ran{ghost ? ", in ghost" : ""}.</p> : null}
   </div>;
 }

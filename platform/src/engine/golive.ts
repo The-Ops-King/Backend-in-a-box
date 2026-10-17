@@ -1,23 +1,31 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { companyReadiness, workflowLiveBlockers, type Issue } from "./readiness";
-import { runMode, testContactSql, testDomains, TEST_DOMAINS_KEY, type Mode } from "./mode";
+import { MODES, runMode, testContactSql, testDomains, TEST_DOMAINS_KEY, type Mode } from "./mode";
 
 /**
- * Go live (D51). Every rung below live was rehearsal: no run born there survives the switch — the runs,
- * their steps, their would-sends and the events they wrote. Refused while readiness has a blocker, so a company
- * cannot go live half-wired. Back to shadow is just the mode flag.
+ * Go live (D51), and D132's go quiet: the two rungs that write the CRM for everyone. Moving up into one is refused while readiness
+ * has a blocker (half-wired workflows would write real people's records), and no run born on a lower rung survives the move —
+ * the runs, their steps, their would-sends and the events they wrote — so nothing picks up halfway with its first steps never
+ * done. Into quiet: the runs born in ghost or test. Into live: every run not born live (a quiet-born run held back its
+ * messages, so a sequence must not resume mid-way), and the harness's synthetic bookings. Moving down is just the mode flag.
  */
+/** The rungs that write the CRM for everyone (D132). */
+export const WRITES_FOR_ALL: Mode[] = ["quiet", "live"];
+const rank = (m: Mode) => MODES.indexOf(m);
+/** The runs a move up to `to` leaves behind: born on a rung below it. */
+const bornBelow = (to: Mode) => MODES.filter((m) => rank(m) < rank(to));
 export type Cleared = { runs: number; steps: number; sends: number; events: number; appointments: number };
 /**
  * The clean slate (item 9): every run not born live, and every synthetic appointment the test harness made, with what pointed at them. Real CRM facts (contacts, their tags, real appointments) stay: the CRM is the truth about those.
- * D92: for the company, only the runs of workflows that will run live (those on their own shadow or test rung keep rehearsing); for one workflow going live on its own, only its runs, and the synthetic bookings stay for the rest.
+ * D92: for the company, only the runs of workflows that will run live (those on their own lower rung keep rehearsing); for one workflow going live on its own, only its runs, and the synthetic bookings stay for the rest.
  */
-export async function clearRehearsalRuns(c: PoolClient, companyId: string, workflowId?: string): Promise<Cleared> {
+export async function clearRehearsalRuns(c: PoolClient, companyId: string, workflowId?: string, to: Mode = "live"): Promise<Cleared> {
   const out: Cleared = { runs: 0, steps: 0, sends: 0, events: 0, appointments: 0 };
+  const below = bornBelow(to);
   const ids = (await many<{ id: string }>(c, workflowId
-    ? "select id from runs where company_id=$1 and workflow_id=$2 and born_in<>'live'"
-    : "select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and r.born_in<>'live' and coalesce(w.mode,'live')='live'", workflowId ? [companyId, workflowId] : [companyId])).map((r) => r.id);
+    ? "select id from runs where company_id=$1 and workflow_id=$2 and born_in = any($3::text[])"
+    : "select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and r.born_in = any($3::text[]) and coalesce(w.mode,$2)=$2", workflowId ? [companyId, workflowId, below] : [companyId, to, below])).map((r) => r.id);
   const n = async (sql: string, arg: unknown) => (await c.query(sql, [arg])).rowCount ?? 0;
   if (ids.length) {
     out.events += await n("delete from events where run_id = any($1::uuid[])", ids);
@@ -25,7 +33,7 @@ export async function clearRehearsalRuns(c: PoolClient, companyId: string, workf
     out.steps = await n("delete from run_steps where run_id = any($1::uuid[])", ids);
     out.runs = await n("delete from runs where id = any($1::uuid[])", ids);
   }
-  if (workflowId) return out;
+  if (workflowId || to !== "live") return out;   // a quiet company's staged bookings are its test contacts' rehearsal, still real for them
   const synthetic = (await many<{ id: string }>(c, "select id from appointments where company_id=$1 and source='test'", [companyId])).map((a) => a.id);
   if (synthetic.length) {
     await n("update runs set appointment_id=null where appointment_id = any($1::uuid[])", synthetic);   // a live-born run about a synthetic booking keeps its history, loses the pointer
@@ -65,25 +73,30 @@ export async function clearStrayHarnessBookings(c: PoolClient, companyId: string
   return out;
 }
 
-export async function goLive(c: PoolClient, companyId: string, slugPrefix: string, via: string): Promise<{ ok: true; cleared: Cleared } | { ok: false; blockers: Issue[] }> {
-  const r = await companyReadiness(c, companyId, slugPrefix);
-  const blockers = r.issues.filter((i) => i.level === "blocker");
-  if (blockers.length) return { ok: false, blockers };
-  const co = (await one<{ mode: string }>(c, "select mode from companies where id=$1", [companyId]))!;
+export type CompanyModeChange = { ok: true; changed: boolean; mode: Mode; cleared?: Cleared } | { ok: false; blockers: Issue[] };
+/** The company onto a rung (D52, D132): up into quiet or live through the gate and the clean slate above; any other move is the flag. Audited. */
+export async function setCompanyMode(c: PoolClient, companyId: string, to: Mode, slugPrefix: string, via: string): Promise<CompanyModeChange> {
+  const co = (await one<{ mode: Mode }>(c, "select mode from companies where id=$1", [companyId]))!;
+  if (co.mode === to) return { ok: true, changed: false, mode: to };
+  const up = WRITES_FOR_ALL.includes(to) && rank(to) > rank(co.mode);
+  if (up) {
+    const blockers = (await companyReadiness(c, companyId, slugPrefix)).issues.filter((i) => i.level === "blocker");
+    if (blockers.length) return { ok: false, blockers };
+  }
   await c.query("begin");
   try {
-    const cleared = await clearRehearsalRuns(c, companyId);
-    await c.query("update companies set mode='live' where id=$1", [companyId]);
-    await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'company.mode','company',$4,$2,$3)", [companyId, { mode: co.mode }, { mode: "live", via, cleared }, companyId]);
+    const cleared = up ? await clearRehearsalRuns(c, companyId, undefined, to) : undefined;
+    await c.query("update companies set mode=$2 where id=$1", [companyId, to]);
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'company.mode','company',$4,$2,$3)", [companyId, { mode: co.mode }, { mode: to, via, ...(cleared ? { cleared } : {}) }, companyId]);
     await c.query("commit");
-    return { ok: true, cleared };
+    return { ok: true, changed: true, mode: to, ...(cleared ? { cleared } : {}) };
   } catch (e) { await c.query("rollback"); throw e; }
 }
 
 export type WorkflowModeChange = { ok: true; changed: boolean; mode: Mode | null; runs_in: Mode; cleared?: Cleared } | { ok: false; status: number; error: string; blockers?: Issue[] };
 /**
- * D92: a workflow's own rung, or null to follow the company again. Whatever puts its runs live (its own live, or back to a
- * live company) passes the go-live gate narrowed to this workflow and clears its runs not born live, as Go live does (D51).
+ * D92: a workflow's own rung, or null to follow the company again. Whatever moves its runs up into quiet or live (its own rung,
+ * or back to such a company) passes the gate narrowed to this workflow and clears its runs born below, as the company's move does (D51, D132).
  * `by` is who asked, `via` the door; both go to the audit log with the rung before and after.
  */
 export async function setWorkflowMode(c: PoolClient, workflowId: string, mode: Mode | null, by: string, via: string): Promise<WorkflowModeChange> {
@@ -91,14 +104,14 @@ export async function setWorkflowMode(c: PoolClient, workflowId: string, mode: M
   if (!w) return { ok: false, status: 404, error: "no such workflow" };
   const from = runMode(w.company, w.own), to = runMode(w.company, mode);
   if (w.own === mode) return { ok: true, changed: false, mode, runs_in: to };
-  const goesLive = to === "live" && from !== "live";
-  if (goesLive) {
+  const up = WRITES_FOR_ALL.includes(to) && rank(to) > rank(from);
+  if (up) {
     const blockers = await workflowLiveBlockers(c, w.company_id, workflowId, `/app/c/${w.slug}`);
-    if (blockers.length) return { ok: false, status: 409, error: `${w.name} is not ready to go live: ${blockers.map((b) => b.text).join(" ")}`, blockers };
+    if (blockers.length) return { ok: false, status: 409, error: `${w.name} is not ready to go ${to}: ${blockers.map((b) => b.text).join(" ")}`, blockers };
   }
   await c.query("begin");
   try {
-    const cleared = goesLive ? await clearRehearsalRuns(c, w.company_id, workflowId) : undefined;
+    const cleared = up ? await clearRehearsalRuns(c, w.company_id, workflowId, to) : undefined;
     await c.query("update workflows set mode=$2 where id=$1", [workflowId, mode]);
     await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.mode','workflow',$2,$3,$4)",
       [w.company_id, workflowId, { mode: w.own, runs_in: from }, { mode, runs_in: to, by, via, ...(cleared ? { cleared } : {}) }]);

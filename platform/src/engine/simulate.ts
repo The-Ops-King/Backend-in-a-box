@@ -64,7 +64,7 @@ const openTestAppointment = (c: PoolClient, companyId: string, contactId: string
 /**
  * Why the harness may not stage a fact for this person, or null when it may. D97: only ever a test contact (tagged sys-test or on
  * a test domain), in every mode and forced or not: a staged booking on a real person lands on their closer's end of day, the
- * reminders and the numbers even when every run about it is shadow. `force` only lets a test contact be staged while live.
+ * reminders and the numbers even when every run about it is ghost. `force` only lets a test contact be staged while live.
  */
 export async function harnessRefusal(c: PoolClient, company: Pick<CompanyRow, "id" | "mode">, contactId: string, force = false): Promise<string | null> {
   const domains = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [company.id, TEST_DOMAINS_KEY]))?.value.toString("utf8");
@@ -265,7 +265,7 @@ export function stageResponse(form: TypeformFormMap, email: string, responseId: 
  * them, as it does for a real applicant. Only for a test contact (an email on a test domain, or someone the ledger has tagged
  * sys-test, D97), and refused while live unless forced. The response is synthetic (`sim-…`) and goes through `takeDelivery`, the
  * function the signed webhook calls, so New from Typeform, New lead and the GHL writes are the live ones: real for a test contact
- * in test mode, would-have in shadow. Typeform is never called. One response id is one application, as at the door.
+ * in test mode, would-have in ghost. Typeform is never called. One response id is one application, as at the door.
  */
 export async function simulateForm(x: { c: PoolClient; company: CompanyRow; adapters: Adapters; email: string; force?: boolean } & FormInput): Promise<SimResult> {
   const { c, company } = x;
@@ -288,5 +288,5 @@ export async function simulateForm(x: { c: PoolClient; company: CompanyRow; adap
   const r = out.body as Partial<Submitted> & { ignored?: string };
   if (!r.outcome) return { ok: false, why: r.ignored ?? "the door took nothing" };
   if (r.outcome !== "recorded") return { ok: true, action: "form", detail: { outcome: r.outcome, form: formId, response_id: rid, contact: known?.contact_id ?? null }, runsStarted: 0 };
-  return { ok: true, action: "form", detail: { outcome: r.outcome, form: formId, response_id: rid, contact: r.contactId, ghl_contact_id: r.ghlContactId, action: r.action, matched: r.matched, shadow: r.shadow }, runsStarted: r.runsStarted ?? 0 };
+  return { ok: true, action: "form", detail: { outcome: r.outcome, form: formId, response_id: rid, contact: r.contactId, ghl_contact_id: r.ghlContactId, action: r.action, matched: r.matched, ghost: r.ghost }, runsStarted: r.runsStarted ?? 0 };
 }

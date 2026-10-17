@@ -314,8 +314,8 @@ describe.skipIf(!HAS_DB)("setter call result (D79, D87)", () => {
       const r = (await runOf(d.contactId))!;
       expect(r).toMatchObject({ status: "completed" });
       expect([tags.length, recordWrites.length, oppWrites.length]).toEqual([nTags, nRec, nOpp]);
-      expect((await step(r.id, "k_tag"))?.result).toMatchObject({ shadow: true, would_tag: ["dq-budget"] });
-      expect((await step(r.id, "r1"))?.result).toMatchObject({ shadow: true, properties: expect.objectContaining({ call_result: "dq" }) });
+      expect((await step(r.id, "k_tag"))?.result).toMatchObject({ ghost: true, would_tag: ["dq-budget"] });
+      expect((await step(r.id, "r1"))?.result).toMatchObject({ ghost: true, properties: expect.objectContaining({ call_result: "dq" }) });
       expect(await eventsOf(d.contactId, "setter_call.result")).toHaveLength(1);
     } finally {
       await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));

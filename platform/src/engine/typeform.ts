@@ -14,7 +14,7 @@ import { normEmail } from "./payments";
  * D122: a Typeform form is a door straight into the engine, no Zapier. The engine registers its own webhook on each form the
  * install maps (signed with a secret it makes), checks it every health sweep and puts it back with one click. A submission
  * finds the person in GHL (email, then phone), creates or updates them with the standard fields, the application fields and
- * the UTMs, as the company's mode allows (shadow: the would-be write is recorded, nothing written), and records and dispatches
+ * the UTMs, as the company's mode allows (ghost: the would-be write is recorded, nothing written), and records and dispatches
  * `form.submitted` with the person in scope. D123: what a new applicant then gets (the scope tag, New lead) is a workflow on
  * `form.submitted` (Dating's "New from Typeform"), drawn on its chart, not this door. One response id is one submission, however
  * often Typeform delivers it.
@@ -163,7 +163,7 @@ async function ledgerPerson(c: PoolClient, co: CompanyRow, bindings: Record<stri
 export type Submitted =
   | { outcome: "duplicate" | "already_written"; responseId: string }
   | { outcome: "unidentified"; responseId: string }
-  | { outcome: "recorded"; responseId: string; contactId: string; shadow: boolean; action: "create" | "update"; matched: Found["by"] | null; ghlContactId: string | null; runsStarted: number };
+  | { outcome: "recorded"; responseId: string; contactId: string; ghost: boolean; action: "create" | "update"; matched: Found["by"] | null; ghlContactId: string | null; runsStarted: number };
 
 /**
  * One submission, from the webhook or the importer. The webhook: a response already seen is a no-op (Typeform retries); the
@@ -198,7 +198,8 @@ export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Compa
   const person = { id: await ledgerPerson(c, co, bindings, p, found) };
   // D123: the door writes no tag; only the importer's one-off history write carries the scope tag
   const tags = opts.via === "import" ? [scopeTag(bindings)].filter((t): t is string => !!t) : [];
-  const real = opts.real === true || (await effectiveMode(c, co.id, person.id, await handlerMode(c, co.id, "form.submitted"), bindings)) === "real";
+  // a CRM write: real in quiet too (D132), recorded only in ghost
+  const real = opts.real === true || (await effectiveMode(c, co.id, person.id, await handlerMode(c, co.id, "form.submitted"), bindings)) !== "ghost";
   const plan = planWrite(p, found?.snap ?? null, tags, form.name ? `Typeform: ${form.name}` : "Typeform");
   let ghlId = found?.snap.id ?? null, action = plan.action, tagsDone = plan.tags;
   if (real) {
@@ -212,9 +213,9 @@ export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Compa
     }
     await c.query(`insert into webhook_deliveries (company_id, provider, delivery_id) values ($1,'${WRITTEN}',$2) on conflict do nothing`, [co.id, key]);
   }
-  for (const tag of tagsDone) await emitEvent(c, { ...base, contact_id: person.id, event_type: "tag.added", occurred_at: at, data: { tag, by: "form", ...(real ? {} : { shadow: true }) } });
-  const data = { ...about, matched: found?.by ?? null, ghl_contact_id: ghlId, action, shadow: !real, fields: plan.fields, ...(plan.kept.length ? { kept: plan.kept } : {}), ...(p.unbound.length ? { unbound: p.unbound } : {}),
-    // in shadow the would-be write is the record, as a step's would-have is (D52): the values included
+  for (const tag of tagsDone) await emitEvent(c, { ...base, contact_id: person.id, event_type: "tag.added", occurred_at: at, data: { tag, by: "form", ...(real ? {} : { ghost: true }) } });
+  const data = { ...about, matched: found?.by ?? null, ghl_contact_id: ghlId, action, ghost: !real, fields: plan.fields, ...(plan.kept.length ? { kept: plan.kept } : {}), ...(p.unbound.length ? { unbound: p.unbound } : {}),
+    // in ghost the would-be write is the record, as a step's would-have is (D52): the values included
     ...(real ? {} : { would_write: { action: plan.action, ...(plan.ghlContactId ? { ghl_contact_id: plan.ghlContactId } : {}), standard: plan.standard, ...(plan.tags.length ? { tags: plan.tags } : {}), fields: Object.fromEntries(p.fields.filter((f) => f.id).map((f) => [f.binding, f.value])) } }) };
   const ctx = { contact: { id: person.id, ghl_contact_id: ghlId }, form: { id: formId, name: form.name ?? null, response_id: responseId } };
   if (opts.via === "import") {
@@ -222,11 +223,11 @@ export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Compa
     const ev = seen ? await emitEvent(c, { ...base, contact_id: person.id, event_type: "form.submitted", occurred_at: at, data: { ...data, ...(opts.newLead ? { new_lead: true } : {}) } }) : null;
     const runs = ev && opts.newLead ? (await dispatchEvent(c, ev, ctx)).length : 0;
     await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'typeform.imported','contact',$2,$3)", [co.id, person.id, { form_id: formId, response_id: responseId, action, ghl_contact_id: ghlId, matched: found?.by ?? null, ...(opts.newLead ? { new_lead: !!ev } : {}) }]);
-    return { outcome: "recorded", responseId, contactId: person.id, shadow: false, action, matched: found?.by ?? null, ghlContactId: ghlId, runsStarted: runs };
+    return { outcome: "recorded", responseId, contactId: person.id, ghost: false, action, matched: found?.by ?? null, ghlContactId: ghlId, runsStarted: runs };
   }
   // D123: New from Typeform answers it (the tag, New lead once); the clean place for qualification too (D73's `qualify`, not decided yet)
   const runs = (await dispatchEvent(c, await emitEvent(c, { ...base, contact_id: person.id, event_type: "form.submitted", occurred_at: at, data }), ctx)).length;
-  return { outcome: "recorded", responseId, contactId: person.id, shadow: !real, action, matched: found?.by ?? null, ghlContactId: ghlId, runsStarted: runs };
+  return { outcome: "recorded", responseId, contactId: person.id, ghost: !real, action, matched: found?.by ?? null, ghlContactId: ghlId, runsStarted: runs };
 }
 
 /** The webhook door: signature first (401 makes Typeform retry, so a secret put back in place heals it), then one submission. */

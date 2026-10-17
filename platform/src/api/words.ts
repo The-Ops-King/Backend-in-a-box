@@ -26,7 +26,7 @@ export type SlackFace = { name: string; icon: string | null };
 export type Plumb = { verb: "remember" | "look up"; what: string; text?: boolean };
 export type ChartNode = { id: string; kind: ChartKind; title: string; meta?: string; label?: string; detail?: string; quote?: string; cond?: string; onlyIf?: string; channel?: "sms" | "email" | "slack"; face?: SlackFace; thread?: boolean; react?: string | string[]; offer?: string[]; helper?: boolean; logo?: string; plumb?: Plumb; group?: string[] };
 export type ChartEdge = { from: string; to: string; label: string; else?: boolean };
-/** counts (D112): per step, the runs that reached it in the last `days` days (shadow runs too) and how many of those skipped it; on the workflow page's chart only. */
+/** counts (D112): per step, the runs that reached it in the last `days` days (ghost runs too) and how many of those skipped it; on the workflow page's chart only. */
 export type Chart = { nodes: ChartNode[]; edges: ChartEdge[]; counts?: { days: number; by: Record<string, { went: number; skipped: number }> } };
 
 /** skip: the step's condition said no, or there was nothing to do; blocked: it meant to act but could not (not connected, refused). */
@@ -399,10 +399,14 @@ function noteOf(s: StepRow, tz: string): string | undefined {
   if (typeof r.quiet_hours_until === "string") bits.push(`Held for the send window until ${stamp(r.quiet_hours_until, tz)}`);
   return bits.join(" · ") || undefined;
 }
-/** What a step done in shadow would have done, from the would_* its result carries. */
-function shadowWords(r: Record<string, unknown>): string {
+/** What a step done in ghost would have done, or what quiet held back (D132), from the would_* its result carries. */
+function heldWords(r: Record<string, unknown>): string {
   const list = (v: unknown) => (Array.isArray(v) ? v : [v]).map((t) => `“${String(t)}”`).join(", ");
-  if (typeof r.ts === "string") return "Done in shadow: posted to the team, marked shadow; nothing went to the contact or the CRM.";
+  if (r.quiet) {
+    if (typeof r.would_post === "string") return `Held back in quiet: ${typeof r.why === "string" ? r.why.replace(/^quiet mode: /, "") : "not a test channel"}; nothing was posted.`;
+    return `Held back in quiet: ${r.would_send_document ? "the document was not sent" : r.would_call ? "the webhook was not called" : "it was not sent"}; nothing reaches a contact in quiet.`;
+  }
+  if (typeof r.ts === "string") return "Done in ghost: posted to the team, marked ghost; nothing went to the contact or the CRM.";
   const bits: string[] = [];
   if (r.would_tag) bits.push(`would have tagged ${list(r.would_tag)}`);
   if (r.would_untag) bits.push(`would have removed ${list(r.would_untag)}`);
@@ -411,7 +415,7 @@ function shadowWords(r: Record<string, unknown>): string {
   if (r.would_note) bits.push("would have left the note");
   if (r.would_update) bits.push("would have updated the CRM");
   const task = r.would_create_task as { title?: string } | undefined; if (task) bits.push(task.title ? `would have made the task “${task.title}”` : "would have made the task");
-  return `Done in shadow: ${bits.length ? bits.join("; ") : "this is what it would have done"}. Nothing was written to the CRM or sent to anyone.`;
+  return `Done in ghost: ${bits.length ? bits.join("; ") : "this is what it would have done"}. Nothing was written to the CRM or sent to anyone.`;
 }
 const stamp = (iso: string, tz: string) => DateTime.fromISO(iso).setZone(tz).toFormat("ccc LLL d · h:mm a");
 
@@ -439,7 +443,7 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
     let state: StepState = s.status === "ok" ? "ok" : s.status === "skipped" || s.status === "stale" ? "skip" : s.status === "failed" ? "warn" : s.status === "waiting" ? (live && run.current_node === s.node_id && !steps.slice(i + 1).some((x) => x.node_id === s.node_id) ? "here" : "ok") : s.status === "paused" ? "stop" : "ok";
     if (s.node_type === "wait" && state === "ok" && last && live && run.current_node === s.node_id) state = "here";
     if (state === "skip" && (s.result?.kind === "blocked" || s.result?.kind === "gave_up")) state = "blocked";
-    if (state === "ok" && s.result?.shadow) state = "ghost";
+    if (state === "ok" && (s.result?.ghost || s.result?.shadow || s.result?.quiet)) state = "ghost";   // shadow: a row from before D132
     void last;
     // a wait row that already fired reads as done; a wait row the run still sits on reads as "here" with when it moves
     const send = sendFor(s.node_id);
@@ -450,7 +454,7 @@ export function pathOf(full: Definition, run: RunLike, steps: StepRow[], sends: 
     if (n?.only_if && typeof s.result?.why === "string" && s.result.why.endsWith("; it is not")) item.note = `Didn't go out: ${skippedWords(n.only_if)}`;
     // D105's "the card is on <stage>" was worded from the binding key when the step ran: the CRM's name for that stage now
     if (typeof s.result?.stage === "string" && typeof s.result?.why === "string" && s.result.why.startsWith("left where it is: the card is on ")) { const st = names.stageId(s.result.stage); item.note = `Didn't go out: left where it is: the card is on ${st.text}${mark([st])}, a stage this step does not move from`; }
-    if (state === "ghost") item.note = [item.note, shadowWords(s.result ?? {})].filter(Boolean).join(" · ");
+    if (state === "ghost") item.note = [item.note, heldWords(s.result ?? {})].filter(Boolean).join(" · ");
     if (send && send.rendered_body) { item.words = send.channel === "slack" ? send.rendered_body : strip(send.rendered_body) ?? null; item.send_state = send.status; if (send.status === "failed" && send.error) item.note = send.error; }
     if (s.node_type === "exit" && state === "ok") { const w = exitWords(run.exit_reason ?? "done"); item.title = "Done"; item.note = w.startsWith("Stop: ") ? w.replace(/^Stop: /, "") : undefined; }
     // the runner writes a second row for the same node when it parks and resumes (dark hours, a wait): one row, the later state

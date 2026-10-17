@@ -159,7 +159,7 @@ describe.skipIf(!process.env.DATABASE_URL)("lead source through the engine (D78)
     await person("LS2");
     await book("A-LS2", "LS2");
     expect(utmWrites("LS2")).toEqual([]);
-    expect((await captureStep("LS2"))[0]).toMatchObject({ status: "ok", result: { shadow: true, would_update: { customFields: expect.arrayContaining([{ id: "CF-UTM-SRC", field_value: "fb" }]) } } });
+    expect((await captureStep("LS2"))[0]).toMatchObject({ status: "ok", result: { ghost: true, would_update: { customFields: expect.arrayContaining([{ id: "CF-UTM-SRC", field_value: "fb" }]) } } });
     await person("LS3", { tags: ["sys-test"] });
     await book("A-LS3", "LS3", {});
     expect(utmWrites("LS3")).toEqual([]);

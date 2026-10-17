@@ -72,7 +72,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
         const o = own(slug);
         expect(await createCompanyWorkflow(c, { companyId: co, name: o.name, definition: o.definition, note: o.note, ...o.create }), slug).toMatchObject({ ok: true, created: true });
       }
-      await c.query("update companies set mode='shadow', send_window_start='00:00', send_window_end='23:59' where id=$1", [co]);
+      await c.query("update companies set mode='ghost', send_window_start='00:00', send_window_end='23:59' where id=$1", [co]);
       await c.query("update calendars set source='calendly' where company_id=$1", [co]);
       // RapidCloser's roster holds the other business's staff too: never the caller of a staged setter call
       await c.query("insert into users (company_id, email, name, role, ghl_user_id) values ($1,'andy@other.test','Andy Other','staff','U-ANDY')", [co]);
@@ -89,7 +89,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     const email = "tyler+shadow@jtylerray.com";
     expect(await byEmail(email)).toBeUndefined();
     const r = await form(email);
-    expect(r).toMatchObject({ ok: true, action: "form", detail: { outcome: "recorded", form: FORM, shadow: true, action: "create", ghl_contact_id: null } });
+    expect(r).toMatchObject({ ok: true, action: "form", detail: { outcome: "recorded", form: FORM, ghost: true, action: "create", ghl_contact_id: null } });
     if (!r.ok) return;
     expect(String(r.detail.response_id)).toMatch(/^sim-[0-9a-f]{16}$/);
     const who = (await byEmail(email))!;
@@ -98,7 +98,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     expect(writes).toEqual([]);
     const [sub] = await events(who.id, "form.submitted");
     expect(sub.source).toBe("form");
-    expect(sub.data).toMatchObject({ simulated: true, via: "webhook", response_id: r.detail.response_id, shadow: true,
+    expect(sub.data).toMatchObject({ simulated: true, via: "webhook", response_id: r.detail.response_id, ghost: true,
       would_write: { action: "create", standard: { email, firstName: "Test", lastName: "Applicant", phone: expect.stringMatching(/^\+131055501\d\d$/) }, fields: { field_contact_app_age: "36", field_contact_app_location: "Los Angeles, CA", field_contact_utm_source: "sys-test", field_contact_app_response_id: r.detail.response_id } } });
     await settle();
     const rs = await runs(who.id);
@@ -130,7 +130,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     await setMode("live");
     expect(await form("tyler+live@jtylerray.com")).toMatchObject({ ok: false, why: expect.stringMatching(/^company is live/) });
     expect(await byEmail("tyler+live@jtylerray.com")).toBeUndefined();
-    await setMode("shadow");
+    await setMode("ghost");
     expect(writes).toEqual([]);
   });
 
@@ -138,7 +138,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     await setMode("test");
     const email = "tyler+test@jtylerray.com";
     const r = await form(email);
-    expect(r).toMatchObject({ ok: true, detail: { outcome: "recorded", shadow: false, action: "create", ghl_contact_id: expect.stringMatching(/^G\d+$/) } });
+    expect(r).toMatchObject({ ok: true, detail: { outcome: "recorded", ghost: false, action: "create", ghl_contact_id: expect.stringMatching(/^G\d+$/) } });
     if (!r.ok) return;
     const id = r.detail.ghl_contact_id as string;
     const created = writes.find((w) => w.op === "create" && w.id === id)!.body as { email: string; customFields: { id: string; field_value: string }[]; source: string };
@@ -152,7 +152,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     // someone on no test domain is still refused in test, and nothing more is written
     expect(await form("someone@gmail.com")).toMatchObject({ ok: false });
     expect(writes.filter((w) => w.op === "create")).toHaveLength(1);
-    await setMode("shadow");
+    await setMode("ghost");
   });
 
   it("reset clears what form staged: the same request is a first application again, New lead included", async () => {

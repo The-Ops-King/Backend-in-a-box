@@ -16,7 +16,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // engine-internal additions beyond schema.sql; idempotent so an already-migrated database picks them up
     await c.query(`create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())`);
     await c.query(`alter table companies add column if not exists sms_enabled boolean not null default true`);
-    await c.query(`alter table companies add column if not exists mode text not null default 'shadow'`);
+    await c.query(`alter table companies add column if not exists mode text not null default 'ghost'`);
     await c.query(`alter table runs add column if not exists wake_on_reply boolean not null default false`);
     await c.query(`alter table runs add column if not exists wake_on_tag text`);   // D53: the Slack post whose tap wakes a run parked on wait_for_reaction
     await c.query(`alter table runs add column if not exists wake_on_event text`);   // D85: the event type whose arrival wakes a run parked on wait_for_event
@@ -38,14 +38,19 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D52: the mode ladder; the check constraints follow the list in one place
     await c.query(`update companies set mode='test' where mode='rehearsal'`); await c.query(`update runs set born_in='test' where born_in='rehearsal'`);   // the rung existed for an hour (D52 addendum)
     await c.query(`alter table companies drop constraint if exists companies_mode_check`);
-    await c.query(`alter table companies add constraint companies_mode_check check (mode in ('shadow','test','live'))`);
+    // D132: shadow is ghost, and quiet (the CRM written for everyone, nothing reaching a contact) sits between test and live
+    await c.query(`update companies set mode='ghost' where mode='shadow'`);
+    await c.query(`alter table companies alter column mode set default 'ghost'`);
+    await c.query(`alter table companies add constraint companies_mode_check check (mode in ('ghost','test','quiet','live'))`);
     await c.query(`alter table workflows add column if not exists mode text`);   // D92: the workflow's own rung; null follows the company
     await c.query(`alter table workflows drop constraint if exists workflows_mode_check`);
-    await c.query(`alter table workflows add constraint workflows_mode_check check (mode in ('shadow','test','live'))`);
+    await c.query(`update workflows set mode='ghost' where mode='shadow'`);
+    await c.query(`alter table workflows add constraint workflows_mode_check check (mode in ('ghost','test','quiet','live'))`);
     // D123: a company's own workflow (no template) that does a shipped template's job for that company: install never puts that template back
     await c.query(`alter table workflows add column if not exists takes_over text`);
     await c.query(`alter table runs drop constraint if exists runs_born_in_check`);
-    await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('shadow','test','live'))`);
+    await c.query(`update runs set born_in='ghost' where born_in='shadow'`);
+    await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('ghost','test','quiet','live'))`);
     // D88: alerts are Slack only, said by the Health check workflow; the email and webhook destinations are gone with their paths
     await c.query(`delete from bindings where key in ('alerts.email','alerts.email_from','alerts.webhook','secret.resend_key')`);
     // D88: settings nothing read (purge_after_months, opp_lost_on, opp_inactive_days) or that half worked (opp_opens_on, opp_won_on) are gone; won and lost are workflow steps
@@ -53,7 +58,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table companies add column if not exists reply_retention_days int not null default 7`);
     await c.query(`alter table companies add column if not exists sends_retention_days int not null default 30`);
     await c.query(`alter table sends drop constraint if exists sends_status_check`);
-    await c.query(`alter table sends add constraint sends_status_check check (status in ('queued','sent','failed','suppressed','shadow'))`);
+    // D132: a would-have send in ghost is 'ghost'; one held back in quiet is 'quiet'
+    await c.query(`update sends set status='ghost' where status='shadow'`);
+    await c.query(`alter table sends add constraint sends_status_check check (status in ('queued','sent','failed','suppressed','ghost','quiet'))`);
     // booking source generalisation (2026-10-06): columns lose their GHL prefix, calendars/appointments carry a source.
     // Renames are guarded so a database created from the current schema.sql passes straight through.
     await c.query(`do $$ begin

@@ -114,7 +114,7 @@ async function runRows(c: PoolClient, co: CompanyHead, runs: RunFull[]): Promise
 
 /**
  * D112: per step, the runs that reached it in the last `days` days, and how many of those skipped it. By node id, so a
- * step kept across versions counts as one; shadow runs count (a company runs in shadow first); a company-level run (a
+ * step kept across versions counts as one; ghost runs count (a company runs in ghost first); a company-level run (a
  * schedule) counts like any other. A run that finished before the window cannot have a step in it, so it is not read.
  */
 export async function stepCounts(c: PoolClient, workflowId: string, days = 7): Promise<Record<string, { went: number; skipped: number }>> {
@@ -172,7 +172,7 @@ export async function runPage(c: PoolClient, id: string) {
     if (hit) states[hit.id] = r.status === "paused" ? "stop" : "ok";
   }
   return { company: co, workflow: { id: r.workflow_id, name: r.workflow },
-    run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, shadow: (await effectiveMode(c, co.id, r.contact_id, (await workflowMode(c, r.workflow_id))!.mode, bindings)) === "shadow",
+    run: { id: r.id, who: r.who, contact_id: r.contact_id, user_id: r.user_id, status: r.status, state: st.state, at: st.at, exit_reason: r.exit_reason, started_at: r.started_at, finished_at: r.finished_at, next_run_at: r.next_run_at, appointment: appt, ...await (async () => { const e = await effectiveMode(c, co.id, r.contact_id, (await workflowMode(c, r.workflow_id))!.mode, bindings); return { ghost: e === "ghost", quiet: e === "quiet" }; })(),
       // D66: where it stopped and why, and whether a person can retry or skip that step (a step with no plain way on can only be retried)
       current_node: r.current_node, step_error: r.step_error ?? null, step_attempt: r.step_attempt ?? 0, can_skip: !!(r.current_node && def && onwardEdge(indexDefinition(def).edgesFrom(r.current_node))) ,
       // D77: held on a blocking step that is down (re-checked alone at next_run_at), and the steps it skipped after their tries, each retryable on its own
@@ -228,7 +228,7 @@ export async function contactPage(c: PoolClient, id: string) {
     facts, identifiers: idents.map((i) => [i.kind, i.value] as [string, string]), runs: rows, next, history, harness: await harnessOf(c, co, id) };
 }
 
-/** Every wrap-up generated for this company, newest first, exactly as Slack got it (or would have, in shadow). */
+/** Every wrap-up generated for this company, newest first, exactly as Slack got it (or would have, in ghost). */
 /** Setter metrics (D64) for an inclusive local date range; the default is this week so far in the company's zone. */
 export async function metricsPage(c: PoolClient, co: CompanyHead, from?: string | null, to?: string | null) {
   const today = DateTime.now().setZone(co.timezone);

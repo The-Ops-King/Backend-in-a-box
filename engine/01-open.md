@@ -706,14 +706,14 @@ expected workflow once; both cards ended won, the Sales Call record closed_won w
 - Calendly's "Complimentary Dating Strategy Session ♡" shows no open time in the next 7 days (Health check, yellow).
 - The staged recording's transcript is hair-themed (the harness's one transcript), so the AI review reads it as a close.
 
-## 45. The mode ladder renamed and a rung added (Tyler, 2026-10-17; design open)
+## 45. The mode ladder renamed and a rung added (Tyler, 2026-10-17) — built: D132
 
 Tyler: "test mode, which is only me, and then shadow mode is where everything moves and gets written to GHL ... I want things
 moving behind the scenes without any worries about sending SMS to people, or about screwing with live pipelines ... If we name it
 Ghost and Shadow, I'm going to get them confused. Maybe we eliminate Shadow and call that Ghost mode ... the second test mode
 something like quiet mode." Read as: ghost (today's shadow: everyone recorded, nothing written) → test (only Tyler) → quiet
-(everyone; GHL written, nothing sent to a contact) → live. Open before building: what quiet does with Slack posts, GHL tasks,
-agreements (a sent document is an email), and RapidCloser's own GHL workflows that our tags could start.
+(everyone; GHL written, nothing sent to a contact) → live. Answered: quiet holds texts, emails, agreements and Slack posts to
+non-test channels; GHL tasks go; RapidCloser's own GHL workflows are all off (Tyler).
 
 ## 46. Every workflow explained in plain English, drillable (Tyler, 2026-10-17; design open)
 

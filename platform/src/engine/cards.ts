@@ -8,7 +8,7 @@ import { handMoved, type HandMove } from "./card-moves";
  * them and folds that into `pipeline_cards`: a card the engine never made (a GHL workflow, a human) is adopted; a
  * known card takes the stage, name and status the CRM shows. Rows are never deleted on absence (the CRM's search
  * index lags a few seconds behind a create), so a card the engine just made is still there on the next read.
- * In shadow the engine's own cards have no CRM id; a live card on the same board outranks them (see `pickCard`).
+ * In ghost the engine's own cards have no CRM id; a live card on the same board outranks them (see `pickCard`).
  * D61: a known card whose stage or status differs from the replica, with a CRM stamp newer than our last write to
  * it, was moved by a hand (or a CRM workflow), never by us: `foldCard` reports it and `handMoved` records it.
  */

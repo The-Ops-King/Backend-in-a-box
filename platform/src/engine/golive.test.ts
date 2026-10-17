@@ -5,7 +5,7 @@ import { migrate } from "@/db/migrate";
 import { installCompany } from "@/engine/install";
 import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
-import { clearStrayHarnessBookings, goLive } from "@/engine/golive";
+import { clearStrayHarnessBookings, setCompanyMode } from "@/engine/golive";
 import { fakeAdapters } from "@/engine/test-install";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -28,17 +28,17 @@ describe.skipIf(!process.env.DATABASE_URL)("go live", () => {
     await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: ct, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "test", data: {} }), { contact: { id: ct } }));
     await tick(fake, undefined, companyId);
     const born = await asOperator((c) => one<{ born_in: string; n: string }>(c, "select born_in, (select count(*)::text from run_steps s where s.run_id=r.id) as n from runs r where company_id=$1", [companyId]));
-    expect(born?.born_in).toBe("shadow"); expect(Number(born?.n)).toBeGreaterThan(0);
+    expect(born?.born_in).toBe("ghost"); expect(Number(born?.n)).toBeGreaterThan(0);
     // no Slack connection: a blocker
-    const refused = await asOperator((c) => goLive(c, companyId, "/c/golive", "test"));
+    const refused = await asOperator((c) => setCompanyMode(c, companyId, "live", "/c/golive", "test"));
     expect(refused.ok).toBe(false); if (!refused.ok) expect(refused.blockers.map((b) => b.text).join(" ")).toMatch(/Slack is not connected/);
-    expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [companyId])))?.mode).toBe("shadow");
+    expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [companyId])))?.mode).toBe("ghost");
     await asOperator((c) => c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id) values ($1,'T1',$2,'U1')", [companyId, Buffer.from("x")]));
     // a synthetic booking from the test harness is rehearsal too
     const term = await asOperator((c) => one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' limit 1", [companyId]));
     await asOperator((c) => c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'test','test-1',$3,now(),now()+interval '45 minutes',now(),'confirmed')", [companyId, ct, term!.id]));
-    const live = await asOperator((c) => goLive(c, companyId, "/c/golive", "test"));
-    expect(live.ok).toBe(true); if (live.ok) { expect(live.cleared.runs).toBe(1); expect(live.cleared.steps).toBeGreaterThan(0); expect(live.cleared.appointments).toBe(1); }
+    const live = await asOperator((c) => setCompanyMode(c, companyId, "live", "/c/golive", "test"));
+    expect(live.ok).toBe(true); if (live.ok) { expect(live.cleared!.runs).toBe(1); expect(live.cleared!.steps).toBeGreaterThan(0); expect(live.cleared!.appointments).toBe(1); }
     expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from appointments where company_id=$1 and source='test'", [companyId])))?.n).toBe("0");
     expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [companyId])))?.mode).toBe("live");
     expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from runs where company_id=$1", [companyId])))?.n).toBe("0");

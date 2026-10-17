@@ -24,7 +24,7 @@ export function Steps({ items, tz, who }: { items: PathItem[]; tz: string; who?:
     const at = s.at ? (s.state === "next" || s.state === "here" ? when(s.at, tz) : when(s.at, tz)) : s.state === "next" ? "when it is due" : "";
     return <div key={`${s.node_id}-${i}`} className={`s ${s.state} ${has ? "has" : ""} ${o ? "open" : ""}`} onClick={has ? () => setOpen((x) => ({ ...x, [i]: !x[i] })) : undefined} role={has ? "button" : undefined} tabIndex={has ? 0 : undefined} onKeyDown={has ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((x) => ({ ...x, [i]: !x[i] })); } } : undefined}>
       <Ic state={s.state} />
-      <span className="t"><Title text={title} />{at ? <span className="d">{at}</span> : null}{has ? <span className="pk"><Chev />{s.state === "skip" || s.state === "blocked" ? "why" : words ? "the words" : "shadow"}</span> : null}
+      <span className="t"><Title text={title} />{at ? <span className="d">{at}</span> : null}{has ? <span className="pk"><Chev />{s.state === "skip" || s.state === "blocked" ? "why" : words ? "the words" : "what it held"}</span> : null}
         {sub ? <small>{sub}</small> : null}
         {s.onlyIf && s.state === "next" ? <small className="if">only if {s.onlyIf}; otherwise skipped</small> : null}
         {why ? <small className="why" hidden={!o}>{s.note}</small> : null}

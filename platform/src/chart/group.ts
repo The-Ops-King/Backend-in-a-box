@@ -105,7 +105,7 @@ export function groupState(states: (StepState | null)[]): { st: StepState | null
   return skipped ? { st, words: `${k - skipped} ran · ${skipped} skipped` } : { st };
 }
 
-const STEP_STATE: Record<StepState, string> = { ok: "ran", ghost: "ran in shadow", here: "waiting here", warn: "failed", skip: "skipped: its condition was not met", blocked: "blocked", next: "not reached", stop: "stopped" };
+const STEP_STATE: Record<StepState, string> = { ok: "ran", ghost: "ran in ghost (or held back in quiet)", here: "waiting here", warn: "failed", skip: "skipped: its condition was not met", blocked: "blocked", next: "not reached", stop: "stopped" };
 export type GroupStep = { id: string; title: string; meta?: string; label?: string; cond?: string; went?: string; state?: StepState; stateWords?: string };
 /**
  * A box's popover (D114): what it is for, then every step inside in order with its full words, its condition, and how

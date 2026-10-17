@@ -11,7 +11,7 @@ create table companies (
   send_window_end   time not null default '20:00',
   quiet_allow_transactional boolean not null default false,   -- dark hours: true lets transactional sends ("you're booked") through; human-sounding sends always wait
   sms_enabled       boolean not null default true,      -- false when the sub-account has no number; SMS nodes skip
-  mode              text not null default 'shadow' check (mode in ('shadow','test','live')),  -- the ladder (D52): shadow runs everyone and writes nothing; test = sys-test contacts and test-domain emails only, everything real for them; live = everyone
+  mode              text not null default 'ghost' check (mode in ('ghost','test','quiet','live')),  -- the ladder (D52, D132): ghost runs everyone and writes nothing; test = sys-test contacts and test-domain emails only, everything real for them; quiet = the CRM written for everyone, nothing reaching a contact, Slack only to test channels; live = everyone
   status            text not null default 'active'
                     check (status in ('onboarding','active','hosted','archived')),
   archived_at       timestamptz,
@@ -407,7 +407,7 @@ create table workflows (
   name              text not null,
   current_version   int not null default 1,
   enabled           boolean not null default false,
-  mode              text check (mode in ('shadow','test','live')),   -- D92: the workflow's own rung; null follows companies.mode. Install never writes it
+  mode              text check (mode in ('ghost','test','quiet','live')),   -- D92: the workflow's own rung; null follows companies.mode. Install never writes it
   reentry_policy    text not null
                     check (reentry_policy in ('once_per_contact','once_per_appointment','once_per_opportunity','once_per_contact_per_window','always')),
   reentry_window    interval,                             -- for the per_window policy
@@ -482,7 +482,7 @@ create table runs (
   pending_events      jsonb not null default '[]',          -- triggers that arrived while this run held the once-per key; replayed if the run stops at a gate (D30)
   claimed_at          timestamptz,                         -- scheduler lease
   claimed_by          text,
-  born_in             text not null default 'live' check (born_in in ('shadow','test','live')),   -- the run's mode when it started (the workflow's own, else the company's, D92); runs not born live are cleared at Go live (D51)
+  born_in             text not null default 'live' check (born_in in ('ghost','test','quiet','live')),   -- the run's mode when it started (the workflow's own, else the company's, D92); runs not born live are cleared at Go live (D51)
   step_attempt        int not null default 0,              -- D66: tries of the current step so far (a transient failure retries in place; reset when the step passes or a person retries)
   step_error          text,                                 -- D66: the last error of the current step, as the vendor said it
   step_held           boolean not null default false,       -- D77: paused ON its step because a blocking step is down; the scheduler re-checks only that step (next_run_at) until it passes
@@ -536,7 +536,7 @@ create table sends (
   rendered_body      text not null,                        -- what actually went out, after send-time render
   scheduled_for      timestamptz,
   sent_at            timestamptz,
-  status             text not null check (status in ('queued','sent','failed','suppressed','shadow')),   -- shadow = would have sent
+  status             text not null check (status in ('queued','sent','failed','suppressed','ghost','quiet')),   -- ghost = would have sent; quiet = held back in quiet (D132)
   suppressed_reason  text,                                 -- stale, quiet_hours_deferred, premise_dead, unbound
   external_id        text,                                 -- GHL message id, Slack ts
   error              text

@@ -342,14 +342,14 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
 
   it("re-running install with mode: live on a shadow company is a go-live: refused while readiness has a blocker, and shadow-born runs are cleared first (D51)", async () => {
     const input = { name: "Edges 2", slug: "edges2", timezone: TZ, locationId: "LOC2", pit: "pit-fake", calendars: { CAL: "closing" }, bookingCalendar: "CAL", templates: ["speed-to-lead"], enable: true, quietHours: { start: "00:00", end: "23:59" } };   // the texts here are about go-live, not the hour
-    const co2 = (await installCompany({ ...input, mode: "shadow" }, fake)).companyId;
+    const co2 = (await installCompany({ ...input, mode: "ghost" }, fake)).companyId;
     const id = await asOperator(async (c) => { const x = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, timezone) values ($1,'CS1','Sh',$2) returning id", [co2, TZ]))!.id; await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email','sh@x.com'),($1,$2,'phone','+16025550099')", [co2, x]); return x; });
     await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: co2, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "test", data: {} }), { contact: { id } }));
     await tick(fake, undefined, co2);
-    expect((await runsFor("speed-to-lead", co2))[0]).toMatchObject({ status: "waiting", current_node: "n3", born_in: "shadow" });
+    expect((await runsFor("speed-to-lead", co2))[0]).toMatchObject({ status: "waiting", current_node: "n3", born_in: "ghost" });
     // no Slack yet: the same refusal the dashboard gives, and the flag does not move
     await expect(installCompany({ ...input, mode: "live" }, fake)).rejects.toThrow(/not ready to go live.*Slack is not connected/);
-    expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [co2])))?.mode).toBe("shadow");
+    expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [co2])))?.mode).toBe("ghost");
     await asOperator((c) => c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id, channels) values ($1,'T2',$2,'UBOT2','{}')", [co2, encrypt("xoxb-fake")]));
     const live = await installCompany({ ...input, mode: "live" }, fake);
     expect(live.wentLive?.runs).toBe(1);

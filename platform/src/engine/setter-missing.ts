@@ -14,7 +14,7 @@ import { OUTBOUND_DIAL } from "./metrics";
  * a team member to that person with the booking made during it or within the Set window after (D87, the rule the setter
  * numbers already use); the contact's Setter field (`crm.field_contact_setter`) filled in after the booking. The alert closes
  * the minute one of them answers, and the name goes on the booking (`set_by`) so the numbers count it. An alert is not a run:
- * it is raised in shadow and test as in live (D76, D88).
+ * it is raised in ghost and test as in live (D76, D88).
  */
 export const SETTER_ALERT = "setter:missing:";
 export const setterAlertKey = (appointmentId: string) => `${SETTER_ALERT}${appointmentId}`;

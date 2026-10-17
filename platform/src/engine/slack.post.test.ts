@@ -43,7 +43,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Slack posts: persona, mentions, thre
       const co = await one<{ id: string }>(c, "select id from companies where slug='slackp'");
       if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
         for (const t of ["sends", "runs", "events", "payments", "pipeline_cards", "appointments", "opportunities", "contact_identifiers", "contacts", "workflow_triggers", "workflows", "slack_connections", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
-      companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode, contract_value_default) values ('Slack P','slackp','America/New_York','shadow',4000) returning id"))!.id;
+      companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode, contract_value_default) values ('Slack P','slackp','America/New_York','ghost',4000) returning id"))!.id;
       await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories", [companyId]);
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'slack.channel.deals','channel',$4),($1,'crm.pipeline_closer','id',$5),($1,'crm.field_contact_setter','id',$6),($1,'crm.field_contact_lead_source','id',$7),($1,'prompt.close_cheer','text',$8),($1,'secret.anthropic_key','secret',$9)",
         [companyId, Buffer.from("LOC"), encrypt("p"), Buffer.from("CDEALS"), Buffer.from("PCLOSER"), Buffer.from("F_SETTER"), Buffer.from("F_SRC"), Buffer.from("cheer"), encrypt("sk-fake")]);
@@ -76,7 +76,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Slack posts: persona, mentions, thre
     expect(posts).toHaveLength(2);
     const [post, reply] = posts;
     expect(post.channel).toBe("CDEALS"); expect(post.threadTs).toBeUndefined();
-    expect(post.text).toContain("🧪 *shadow* — *NEW CLOSE!* Well done <@UALLAN>!");
+    expect(post.text).toContain("🧪 *ghost* — *NEW CLOSE!* Well done <@UALLAN>!");
     expect(post.text).toContain("|Leo Ortiz>\n*Setter:* <@ULUIS>\n*Cash:* $1,500 · *Revenue:* $4,000");
     expect(post.text).toContain("*First Booking:* Thu Oct 1 · *Days to Close:* 3");
     expect(post.text).toContain("*Source:* instagram\nWell done Allan, that is a fast one.");

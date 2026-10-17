@@ -91,9 +91,9 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
     const [nl] = await runsOf(real, newLead), [sp] = await runsOf(real, speed);
     expect([nl.born_in, sp.born_in]).toEqual(["live", "test"]);
     expect(crmTags).toContainEqual({ to: "F1", tag: "stat-new" }); expect(crmCards).toContain("F1");
-    expect((await stepOf(nl.id, "set_tag"))?.result.shadow).toBeUndefined();
+    expect((await stepOf(nl.id, "set_tag"))?.result.ghost).toBeUndefined();
     // Speed to lead: the would-sends, nothing reached the sender
-    expect(await sendsOf(real)).toEqual([{ channel: "email", status: "shadow" }, { channel: "sms", status: "shadow" }]);
+    expect(await sendsOf(real)).toEqual([{ channel: "email", status: "ghost" }, { channel: "sms", status: "ghost" }]);
     expect(sent.some((s) => s.to === "F1")).toBe(false);
     // the dashboard and the operator route say whose mode it is
     const r = await asOperator((c) => companyReadiness(c, companyId, "/c/flowmode"));
@@ -110,7 +110,7 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
     const [nl] = await runsOf(real, newLead);
     expect(nl.born_in).toBe("test");
     expect(crmTags.some((t) => t.to === "F2")).toBe(false); expect(crmCards).not.toContain("F2");
-    expect((await stepOf(nl.id, "set_tag"))?.result).toMatchObject({ shadow: true, would_tag: ["stat-new"] });
+    expect((await stepOf(nl.id, "set_tag"))?.result).toMatchObject({ ghost: true, would_tag: ["stat-new"] });
     const last = await asOperator((c) => one<{ before: unknown; after: unknown }>(c, "select before, after from audit_log where company_id=$1 and action='workflow.mode' order by id desc limit 1", [companyId]));
     expect(last).toMatchObject({ before: { mode: "live", runs_in: "live" }, after: { mode: null, runs_in: "test", by: "Tyler" } });
   });
@@ -126,14 +126,14 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
     const filed = async () => { posts.length = 0; await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "eod.filed", source: "user", data: { user_id: james } }), { user: { id: james } })); await tick(fake, undefined, companyId); return posts.map((p) => [p.channel, p.text]); };
 
     // following the company (test): no contact is shadow (D76), the DM goes to the operator
-    expect(await filed()).toEqual([["CTEAM", "🧪 *shadow* — Day filed by James"], ["UOP", "🧪 *shadow* — Would have sent to James Closer:\nThanks, James"]]);
+    expect(await filed()).toEqual([["CTEAM", "🧪 *ghost* — Day filed by James"], ["UOP", "🧪 *ghost* — Would have sent to James Closer:\nThanks, James"]]);
     // this workflow live: real, unlabelled, and the DM is James's
     expect(await setFlow(team, "live")).toMatchObject({ ok: true, runs_in: "live" });
     expect(await filed()).toEqual([["CTEAM", "Day filed by James"], ["UJAMES", "Thanks, James"]]);
     expect((await asOperator((c) => one<{ born_in: string }>(c, "select born_in from runs where workflow_id=$1 order by started_at desc limit 1", [team])))?.born_in).toBe("live");
     // a live company with this workflow held in test: shadow again, the DM held back
     await setCompany("live"); await setFlow(team, "test");
-    expect(await filed()).toEqual([["CTEAM", "🧪 *shadow* — Day filed by James"], ["UOP", "🧪 *shadow* — Would have sent to James Closer:\nThanks, James"]]);
+    expect(await filed()).toEqual([["CTEAM", "🧪 *ghost* — Day filed by James"], ["UOP", "🧪 *ghost* — Would have sent to James Closer:\nThanks, James"]]);
     await setFlow(team, null);
     expect(await filed()).toEqual([["CTEAM", "Day filed by James"], ["UJAMES", "Thanks, James"]]);
     await setCompany("test");
@@ -144,10 +144,10 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
     const mine = await contact("F3", "me@jtylerray.com"), real = await contact("F4", "client2@gmail.com");
     const said = async (ct: string) => { posts.length = 0; await lead(ct); await tick(fake, undefined, companyId); return posts.filter((p) => p.channel === "CTEAM").map((p) => p.text); };
     expect(await said(mine)).toEqual(["🧪 *test* — New lead Pat"]);
-    expect(await said(real)).toEqual(["🧪 *shadow* — New lead Pat"]);
-    await setFlow(wf, "shadow");
-    expect(await said(mine)).toEqual(["🧪 *shadow* — New lead Pat"]);
-    await setCompany("shadow"); await setFlow(wf, "test");
+    expect(await said(real)).toEqual(["🧪 *ghost* — New lead Pat"]);
+    await setFlow(wf, "ghost");
+    expect(await said(mine)).toEqual(["🧪 *ghost* — New lead Pat"]);
+    await setCompany("ghost"); await setFlow(wf, "test");
     expect(await said(mine)).toEqual(["🧪 *test* — New lead Pat"]);
     await setCompany("test"); await setFlow(wf, null);
   });
@@ -156,7 +156,7 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
     const real = await contact("F5", "client3@gmail.com"), mine = await contact("F6", "me6@jtylerray.com");
     const co = { id: companyId, mode: "test" as const };
     expect(await asOperator((c) => harnessRefusal(c, co, real))).toMatch(/^not a test contact/);   // test mode, nothing live: still no (Calvin, Oct 9)
-    expect(await asOperator((c) => harnessRefusal(c, { ...co, mode: "shadow" }, real))).toMatch(/^not a test contact/);
+    expect(await asOperator((c) => harnessRefusal(c, { ...co, mode: "ghost" }, real))).toMatch(/^not a test contact/);
     expect(await asOperator((c) => harnessRefusal(c, { ...co, mode: "live" }, real, true))).toMatch(/^not a test contact/);   // force never covers a real person
     await setFlow(newLead, "live");
     expect(await asOperator((c) => harnessRefusal(c, co, mine))).toBeNull();
@@ -175,11 +175,11 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
   });
 
   it("install and a template upgrade never change a workflow's mode", async () => {
-    await setFlow(speed, "shadow");
+    await setFlow(speed, "ghost");
     await asOperator((c) => c.query("update workflows set template_version=0 where id=$1", [speed]));   // the template moved on
     const again = await installCompany(input, fake);
     expect(again.installed.find((s) => s.startsWith("speed-to-lead"))).toMatch(/upgraded/);
-    expect(await asOperator((c) => workflowMode(c, speed))).toEqual({ mode: "shadow", own: "shadow", company: "test" });
+    expect(await asOperator((c) => workflowMode(c, speed))).toEqual({ mode: "ghost", own: "ghost", company: "test" });
     expect(await asOperator((c) => workflowMode(c, newLead))).toEqual({ mode: "live", own: "live", company: "test" });
   });
 });

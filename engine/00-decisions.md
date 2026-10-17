@@ -4618,3 +4618,33 @@ roles must speak), bound as `harness.transcripts`. Dating's install carries a da
 
 Tests: `simulate-form.test.ts` (Dating's staged calls are its own lines with the people's names; the install refuses a bad
 script; the defaults name no offer).
+
+## D132. The ladder: ghost → test → quiet → live (2026-10-17)
+
+Tyler: "I want to be able to have things moving and going behind the scenes without any issues or worries about sending SMS
+to people ... If we name it Ghost and Shadow, I'm going to get them confused. Maybe we eliminate Shadow and call that Ghost
+mode ... the second test mode something like quiet mode." Confirmed: "that ladder looks right"; quiet is "off emails and
+agreements, and slack notifications to non-test channels"; "Update the mode yes."
+
+- **ghost** is shadow renamed, nothing else changed: everyone runs, nothing written or sent. The stored values move (companies,
+  workflows, runs.born_in, sends.status `shadow` → `ghost`); `"shadow"` given to install or a mode route is refused naming
+  `ghost`. A stored definition's `slack_post.label: "shadow"` still reads (as `ghost`), so no history is rewritten; step
+  results written from now carry `ghost`, and the dashboard reads either.
+- **quiet** (new, between test and live): a non-test contact's run writes the CRM for real (tags, cards, fields, records,
+  notes, tasks, the Typeform door's contact write), but nothing reaches the contact: a text, an email, an agreement and an
+  outbound webhook are held, recorded as `sends.status = 'quiet'` with the reason. A Slack post goes only to a channel listed
+  in `test.slack_channels` (install `testSlackChannels`); any other is held the same way, DMs (already redirected to the ops
+  channel before live, D76) included; an alert about the engine itself (`label: none`) always goes. A test contact gets
+  everything, as in test. A run with no contact is quiet too.
+- **Moving up** into quiet or live (company or one workflow, D92) passes the readiness gate and clears the runs born on a lower
+  rung: into quiet the ghost- and test-born ones (their CRM steps never ran, so they must not resume halfway writing); into
+  live every run not born live, as before (a quiet-born run held its messages back). The harness's staged bookings are cleared
+  only going live. Moving down is the flag. `setCompanyMode` is the one door (dashboard, install).
+- Readiness warns when a quiet workflow posts to Slack and no test channel is set (every post would be held).
+
+Not covered by quiet: a GHL automation of the location that our tags or stages trigger. For RapidCloser Tyler confirmed every
+one is off.
+
+Tests: `mode.test.ts` (in quiet a real contact's tag and card reach the CRM, its text and email are held with the reason, its
+Slack post reaches the test channel only, a test contact gets everything; moving into quiet clears the ghost-born runs and
+keeps the quiet-born ones when moving back down). The other suites only had the name changed.

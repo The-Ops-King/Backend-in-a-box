@@ -243,7 +243,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D118: Dating Nelly's runs, in shadow
     await wipe("d118run");
     co = (await installCompany(base("d118run", { ...DATING, templates: ["call-booked", "call-recorded", "payment-recorded"], enable: true, anthropicKey: "sk-fake", closers: ["mitch@d118.test"], crm: { ...DATING.crm, ...RUN_CRM } }), adapters())).companyId;
     expect(await asOperator((c) => many(c, "select name from workflows where company_id=$1 and not enabled", [co]))).toEqual([]);
-    await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59', mode='shadow' where id=$1", [co]));
+    await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59', mode='ghost' where id=$1", [co]));
     ct = await asOperator(async (c) => {
       const id = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone) values ($1,'G-RUN','Dana','Lee',$2) returning id", [co, TZ]))!.id;
       await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email','dana@d118.test')", [co, id]);

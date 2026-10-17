@@ -231,7 +231,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
   });
 
   it("shadow mode: the run completes, messages are recorded as would-send, nothing reaches the CRM", async () => {
-    await asOperator((c) => c.query("update companies set mode='shadow', sms_enabled=true where id=$1", [companyId]));
+    await asOperator((c) => c.query("update companies set mode='ghost', sms_enabled=true where id=$1", [companyId]));
     const id = await newContact("CSHADOW", "shadow@x.com"); await withPhone(id, "+16025550199");
     await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: {} }), { contact: { id } }));
     const n = since(), nt = tags.length, nOpps = oppWrites.length; await tick(fake, undefined, companyId);
@@ -243,11 +243,11 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const speed = (await runsFor("speed-to-lead")).find((r) => r.contact_id === id)!;
     expect(speed).toMatchObject({ status: "waiting", current_node: "n3" });   // and the sequence is parked for a reply as it would be live
     const ledger = await asOperator((c) => many<{ status: string; rendered_body: string }>(c, "select status, rendered_body from sends where run_id=$1 order by channel", [speed.id]));
-    expect(ledger).toEqual([{ status: "shadow", rendered_body: expect.any(String) }, { status: "shadow", rendered_body: expect.any(String) }]);   // email and text, written down, not delivered
+    expect(ledger).toEqual([{ status: "ghost", rendered_body: expect.any(String) }, { status: "ghost", rendered_body: expect.any(String) }]);   // email and text, written down, not delivered
     const local = await asOperator((c) => one<{ tags: string[] }>(c, "select tags from contacts where id=$1", [id]));
     expect(local?.tags ?? []).not.toContain("stat-new");   // shadow touches neither GHL nor our replica of GHL's tags
-    const logged = await asOperator((c) => one<{ data: { shadow?: boolean } }>(c, "select data from events where run_id=$1 and event_type='tag.added'", [lead.id]));
-    expect(logged?.data.shadow).toBe(true);        // but the journey records what would have happened
+    const logged = await asOperator((c) => one<{ data: { ghost?: boolean } }>(c, "select data from events where run_id=$1 and event_type='tag.added'", [lead.id]));
+    expect(logged?.data.ghost).toBe(true);        // but the journey records what would have happened
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
   });
 
@@ -577,7 +577,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator((c) => c.query("update contacts set tags = array_append(tags, 'sys-test') where id=$1 and not ('sys-test' = any(tags))", [id]));   // D97: the harness stages only for a test contact
     const sim = (action: Parameters<typeof simulate>[1]) => asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return simulate({ c, company: row, contactId: id }, action); });
     const live = await sim("create"); expect(live).toMatchObject({ ok: false, why: expect.stringMatching(/live/) });   // this company runs live; the harness refuses
-    await asOperator((c) => c.query("update companies set mode='shadow' where id=$1", [companyId]));
+    await asOperator((c) => c.query("update companies set mode='ghost' where id=$1", [companyId]));
     expect(await sim("create")).toMatchObject({ ok: true, runsStarted: 2 });   // new-lead + speed-to-lead
     await tick(fake, undefined, companyId);
     expect((await runsFor("new-lead")).find((r) => r.contact_id === id)).toMatchObject({ status: "completed", exit_reason: "done" });
