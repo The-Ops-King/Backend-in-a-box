@@ -1,3 +1,4 @@
+import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
@@ -23,6 +24,16 @@ export type AlertRow = { id: string; company_id: string | null; key: string; lev
 
 /** The defaults of the two alert settings (bindings, D88): `alerts.repeat_minutes` and `alerts.poll_failures`. */
 export const REPEAT_AFTER_MIN = 60;
+/** D135: an open alert is said again only within these hours (alerts.repeat_hours, alerts.repeat_timezone): Tyler's working day, Arizona. */
+export const REPEAT_HOURS = "07:00-17:00", REPEAT_TZ = "America/Phoenix";
+/** Whether `now` falls in a "HH:MM-HH:MM" window in `tz`; a window that does not parse is always open. */
+export function inRepeatHours(now: Date, hours = REPEAT_HOURS, tz = REPEAT_TZ): boolean {
+  const m = /^\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*$/.exec(hours);
+  const local = DateTime.fromJSDate(now).setZone(tz);
+  if (!m || !local.isValid) return true;
+  const at = local.hour * 60 + local.minute, from = +m[1] * 60 + +m[2], to = +m[3] * 60 + +m[4];
+  return from <= to ? at >= from && at < to : at >= from || at < to;
+}
 export const POLL_FAILURES = 2;
 const NIL = "00000000-0000-0000-0000-000000000000";
 
@@ -175,8 +186,19 @@ export async function announceDue(c: PoolClient, _adapters: Adapters, now = new 
       or a.announced_at < $1::timestamptz - make_interval(mins => greatest(1, coalesce(nullif(regexp_replace(convert_from(b.value, 'UTF8'), '\\D', '', 'g'), '')::int, $3)))))
       or (a.resolved_at is not null and not a.resolved_announced)) order by a.first_seen`, [now, onlyCompanyId ?? null, REPEAT_AFTER_MIN, ENGINE_SCOPE]);
   const { dispatchEvent, emitEvent } = await import("./dispatch");
+  const hours = new Map<string, boolean>();
+  const repeatsNow = async (companyId: string | null) => {
+    const k = companyId ?? "";
+    if (!hours.has(k)) {
+      const b = companyId ? Object.fromEntries((await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key in ('alerts.repeat_hours','alerts.repeat_timezone')", [companyId])).map((r) => [r.key, r.value.toString("utf8")])) : {};
+      hours.set(k, inRepeatHours(now, b["alerts.repeat_hours"] || REPEAT_HOURS, b["alerts.repeat_timezone"] || REPEAT_TZ));
+    }
+    return hours.get(k)!;
+  };
   for (const a of due) {
     const type = a.resolved_at ? "alert.resolved" : a.announce_count > 0 ? "alert.repeated" : "alert.raised";
+    // D135: a still-open alert waits for the repeat hours (once, when they open); a new alert and a resolved one go at once
+    if (type === "alert.repeated" && !(await repeatsNow(a.company_id))) continue;
     let handed = false;
     if (aboutEngine(a)) handed = await sendWebhook(type, a.company ? { ...a, text: `${a.company}: ${a.text}` } : a, now);   // the engine itself: no company workflow to say it
     else if (a.company_id) {

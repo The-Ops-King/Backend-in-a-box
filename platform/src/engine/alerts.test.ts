@@ -7,7 +7,7 @@ import { encrypt } from "@/engine/crypto";
 import { parseDefinition, extractManifest, indexDefinition } from "@/engine/definition";
 import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
-import { tickAlerts, openAlerts, raise, resolve, announceDue } from "@/engine/alerts";
+import { tickAlerts, openAlerts, raise, resolve, announceDue, inRepeatHours } from "@/engine/alerts";
 import { type HealthProbes, CHECKS, type Finding } from "@/engine/health";
 import { fireNow } from "@/engine/clock";
 import { installTemplateForTest, replicaSnapshot } from "@/engine/test-install";
@@ -36,6 +36,15 @@ const alertsThenSay = async (poll = pollRep, tk = tickRep, at = new Date()) => {
 const tagRuns = (status: string) => asOperator((c) => many(c, "select 1 from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Tag it' and r.status=$2", [companyId, status]));
 const fire = () => asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: null, event_type: "tag.added", source: "test", data: { tag: "x" } }), { contact: { id: contactId } }));
 
+describe("D135: still-open alerts repeat only in the repeat hours", () => {
+  it("7am to 5pm Arizona by default: 6:59 no, 7:00 yes, 4:59 pm yes, 5:00 pm no; another window and zone; a window that does not parse is always open", () => {
+    const az = (hhmm: string) => DateTime.fromISO(`2026-10-17T${hhmm}`, { zone: "America/Phoenix" }).toJSDate();
+    expect([az("06:59"), az("07:00"), az("16:59"), az("17:00")].map((t) => inRepeatHours(t))).toEqual([false, true, true, false]);
+    expect(inRepeatHours(DateTime.fromISO("2026-10-17T23:30", { zone: "America/New_York" }).toJSDate(), "22:00-06:00", "America/New_York")).toBe(true);
+    expect(inRepeatHours(az("03:00"), "whenever")).toBe(true);
+  });
+});
+
 describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
   beforeAll(async () => {
     await migrate();
@@ -47,7 +56,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
       await c.query("insert into engine_state (key, value, updated_at) values ('alerts_cursor', $1, now()) on conflict (key) do update set value=$1", [{ since: new Date().toISOString() }]);   // other suites' failed runs are not this test's
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode) values ('Alert Co','alrt','America/New_York','live') returning id"))!.id;
       await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories", [companyId]);
-      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'alerts.slack_channel','channel',$4),($1,'slack.channel.deals','channel',$5),($1,'crm.pipeline_closer','id',$6),($1,'crm.stage_closer_won','id',$7),($1,'crm.field_contact_setter','id',$8)",
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'alerts.slack_channel','channel',$4),($1,'slack.channel.deals','channel',$5),($1,'crm.pipeline_closer','id',$6),($1,'crm.stage_closer_won','id',$7),($1,'crm.field_contact_setter','id',$8),($1,'alerts.repeat_hours','text','00:00-24:00')",   // repeats at any hour here: the hours have their own test
         [companyId, Buffer.from("LOC"), encrypt("p"), Buffer.from("CALERTS"), Buffer.from("CNOTIN"), Buffer.from("PIPE1"), Buffer.from("STAGE_GONE"), Buffer.from("FLD1")]);
       await c.query("insert into slack_connections (company_id, team_id, bot_token, channels) values ($1,'T1',$2,'{}')", [companyId, encrypt("xoxb-fake")]);
       contactId = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,'GC1','Leo','Ortiz') returning id", [companyId]))!.id;

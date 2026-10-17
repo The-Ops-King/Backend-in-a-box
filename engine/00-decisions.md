@@ -4686,3 +4686,13 @@ from Typeform's `record` step writes the lead.created that starts New lead, so a
 another run when the events went. The clean slate (and the stray harness cleanup) now first lets go of those pointers, as a
 surviving run already loses its synthetic booking's; going live had the same latent fault. `mode.test.ts` moves a company
 holding such a chain into quiet (it fails with the production error without the change).
+
+## D135. A still-open alert is said again only from 7am to 5pm Arizona time (2026-10-17)
+
+Tyler: "each alert every hour is a lot. 'Still open' alerts should be 7am through 5pm az time." A new alert and a resolved one
+still go at once; an `alert.repeated` outside the window waits, and the first tick inside it says it once (then hourly, by
+`alerts.repeat_minutes`, as before). Per company: `alerts.repeat_hours` ("07:00-17:00") and `alerts.repeat_timezone`
+("America/Phoenix"), the defaults; install `alerts.repeatHours` / `alerts.repeatTimezone`; both on the Settings page. A window
+may cross midnight; one that does not parse is always open.
+
+Tests: `alerts.test.ts` (the window's edges, another zone across midnight, an unparsable window).

@@ -61,7 +61,8 @@ export type InstallInput = {
   testDomains?: string[];                // bound as test.domains: email domains whose contacts pass in test (D52), e.g. ["jtylerray.com"]
   jevKey?: string;                       // bound as secret.jev_key; the classify node reads replies with it (env JEV_API_KEY is the fallback)
   /** Where the Health check workflow says what broke (D33, D88: Slack only): the channel, the face, how often an open alert is said again (minutes, 60), how many failed polls in a row make an alert (2). */
-  alerts?: { slackChannel?: string; asName?: string; asIcon?: string; repeatMinutes?: number; pollFailures?: number };
+  /** repeatHours / repeatTimezone (D135): when a still-open alert is said again, "07:00-17:00" in America/Phoenix by default. */
+  alerts?: { slackChannel?: string; asName?: string; asIcon?: string; repeatMinutes?: number; repeatHours?: string; repeatTimezone?: string; pollFailures?: number };
   prompts?: Record<string, string>;      // prompt.<name> overrides; defaults from src/prompts fill the rest
   slackToken?: string;                   // the Slack app's bot token (xoxb-…); verified with Slack, stored encrypted; "disconnect" removes it
   slackSigningSecret?: string;           // the Slack app's signing secret, so the reactions door can trust what Slack sends (D45)
@@ -317,6 +318,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     if (input.jevKey) await bind("secret.jev_key", "secret", input.jevKey);
     if (input.alerts?.slackChannel) await bind("alerts.slack_channel", "channel", input.alerts.slackChannel);
     if (input.alerts?.repeatMinutes !== undefined) await bind("alerts.repeat_minutes", "number", String(input.alerts.repeatMinutes));
+    if (input.alerts?.repeatHours) await bind("alerts.repeat_hours", "text", input.alerts.repeatHours.trim());
+    if (input.alerts?.repeatTimezone) await bind("alerts.repeat_timezone", "text", input.alerts.repeatTimezone.trim());
     if (input.alerts?.pollFailures !== undefined) await bind("alerts.poll_failures", "number", String(input.alerts.pollFailures));
     if (input.alerts?.asName) await bind("alerts.as_name", "text", input.alerts.asName);
     if (input.alerts?.asIcon) await bind("alerts.as_icon", "text", input.alerts.asIcon);
