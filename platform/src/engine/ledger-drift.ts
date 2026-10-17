@@ -90,15 +90,16 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     or exists (select 1 from contact_identifiers i where i.company_id=$1 and i.kind='ghl_contact' and i.value=x.id)`, [company.id, mine.map((k) => k.id)])).map((r) => r.id));
   const missing = mine.filter((k) => !known.has(k.id));
   if (missing.length) {
-    const { upsertContact, boundFieldIds } = await import("./poll");
+    const { upsertContact, boundFieldIds, newLeadOnUpsert } = await import("./poll");
     for (const s of missing) await guarded(async () => {
       const up = await upsertContact(c, company.id, company.timezone, s, boundFieldIds(bindings));
       // the record is new to the engine here, so the sweep is what makes it a lead: the poll will now see it as known and fire nothing.
       // how late it is goes with the event: the lead workflows decide what a late lead gets (Speed to lead skips the first text and tells the team)
       const minutesLate = Math.max(0, Math.round((now.toMillis() - Date.parse(s.dateAdded)) / 60_000));
-      if (up.isNew) await dispatchEvent(c, await emitEvent(c, { company_id: company.id, contact_id: up.id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: s.id, by: "health", minutes_late: minutesLate } }), { contact: { id: up.id, ghl_contact_id: s.id, tags: s.tags } });
-      await audit("contact", up.id, null, { repair: "pulled_in", ghl_contact_id: s.id, lead_created: up.isNew, minutes_late: minutesLate });
-      repaired(s.id, `${snapName(s)} was in GHL but not the ledger; pulled in${up.isNew ? " (New lead fired once)" : ""}`, { ghl_contact_id: s.id, contact_id: up.id, name: snapName(s), lead_created: up.isNew }, s.id, "pulled_in");
+      const lead = await newLeadOnUpsert(c, company.id, up);
+      if (lead) await dispatchEvent(c, await emitEvent(c, { company_id: company.id, contact_id: up.id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: s.id, by: "health", minutes_late: minutesLate } }), { contact: { id: up.id, ghl_contact_id: s.id, tags: s.tags } });
+      await audit("contact", up.id, null, { repair: "pulled_in", ghl_contact_id: s.id, lead_created: lead, minutes_late: minutesLate });
+      repaired(s.id, `${snapName(s)} was in GHL but not the ledger; pulled in${lead ? " (New lead fired once)" : ""}`, { ghl_contact_id: s.id, contact_id: up.id, name: snapName(s), lead_created: lead }, s.id, "pulled_in");
     }, (e) => ask("missing", { name: snapName(s), why: why(e), ghl_contact_id: s.id }));
   }
 

@@ -9,6 +9,7 @@ import { workflowRefs } from "./coverage";
 import { canon, syncTriggers } from "./install";
 import { chartLayoutOf, notDrawable, type Layout } from "@/api/chart-verdict";
 import { RETIRED_EVENTS } from "./describe";
+import { templates } from "@/templates";
 
 /**
  * D100: a company's whole copy of a workflow saved at once (steps added and removed, edges rewired), for onboarding a client
@@ -142,6 +143,42 @@ export async function saveDefinition(c: PoolClient, args: { workflowId: string; 
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.definition_saved','workflow',$2,$3,$4)",
     [w.company_id, w.id, { version: w.current_version }, { version: next, note: args.note.trim(), by: args.by ?? "operator", diff, ...(v.missing.length ? { missing: v.missing } : {}) }]);
   return { ok: true, saved: true, dryRun: false, version: next, ...base };
+}
+
+export type CreateWorkflowResult =
+  | { ok: true; created: boolean; dryRun: boolean; id?: string; name: string; takesOver: string | null; missing: string[]; warnings: string[]; layout: Layout }
+  | { ok: false; status: number; why: string; problems?: string[] };
+
+/**
+ * D123: a company's own workflow, made from a whole definition (no template behind it: template upgrades never touch it). It is
+ * made OFF, version 1, its triggers synced, audited. `takesOver`: the shipped template whose job it does for this company (Call
+ * booked, split in two by calendar for Dating (Nelly)); install never puts that template on the company again, and the company
+ * must not still have the template's copy (removed first with DELETE /api/admin/workflows), so one booking can never run both.
+ */
+export async function createCompanyWorkflow(c: PoolClient, args: { companyId: string; name: string; definition: unknown; note: string; by?: string; stage?: string; sort?: number; takesOver?: string; dryRun?: boolean }): Promise<CreateWorkflowResult> {
+  const name = args.name?.trim();
+  if (!name) return { ok: false, status: 400, why: "a name is required" };
+  if (!args.note?.trim()) return { ok: false, status: 400, why: "a note is required: say what it does and why" };
+  if (await one(c, "select 1 from workflows where company_id=$1 and lower(name)=lower($2)", [args.companyId, name])) return { ok: false, status: 409, why: `this company already has a workflow named "${name}"` };
+  const takesOver = args.takesOver?.trim() || null;
+  if (takesOver) {
+    if (!templates.some((t) => t.slug === takesOver)) return { ok: false, status: 400, why: `takesOver: no shipped template "${takesOver}"` };
+    const copy = await one<{ name: string; enabled: boolean }>(c, "select w.name, w.enabled from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug=$2", [args.companyId, takesOver]);
+    if (copy) return { ok: false, status: 409, why: `the company still has "${copy.name}"${copy.enabled ? " and it is ON" : ""}: turn it off and remove it first (DELETE /api/admin/workflows { company, workflow: "${takesOver}" }), so no event runs both` };
+  }
+  const v = await validateDefinition(c, args.companyId, args.definition);
+  if (!v.ok) return { ok: false, status: 422, why: `the definition does not validate (${v.problems.length} problem${v.problems.length === 1 ? "" : "s"})`, problems: v.problems };
+  const chart = await chartLayoutOf(v.def);
+  if (chart.layout === "list") return { ok: false, status: 422, why: notDrawable(chart.problems), problems: chart.problems };
+  const base = { name, takesOver, missing: v.missing, warnings: v.warnings, layout: chart.layout };
+  if (args.dryRun) return { ok: true, created: false, dryRun: true, ...base };
+  const wf = (await one<{ id: string }>(c, `insert into workflows (company_id, name, reentry_policy, reentry_window, stage, sort, origin, takes_over) values ($1,$2,$3,$4,$5,$6,'company',$7) returning id`,
+    [args.companyId, name, v.def.reentry, v.def.reentry_window ?? null, args.stage ?? null, args.sort ?? 0, takesOver]))!;
+  await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,$4)", [wf.id, v.def, v.manifest, args.note.trim()]);
+  await syncTriggers(c, args.companyId, wf.id, v.def);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'workflow.created','workflow',$2,$3)",
+    [args.companyId, wf.id, { name, note: args.note.trim(), by: args.by ?? "operator", ...(takesOver ? { takes_over: takesOver } : {}), ...(v.missing.length ? { missing: v.missing } : {}) }]);
+  return { ok: true, created: true, dryRun: false, id: wf.id, ...base };
 }
 
 /** A company's workflow by its id, its template's slug, or its exact name. */

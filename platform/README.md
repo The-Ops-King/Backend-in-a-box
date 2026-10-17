@@ -948,6 +948,14 @@ A definition that does not validate is refused (422) with every reason in `probl
 the diff without saving. Bindings the definition needs and the company lacks come back in `missing`: saved while the
 workflow is off (turning it on stays refused until they are bound), refused (409) while it is on.
 
+D123: the same `POST` with `"create": { "stage"?, "sort"?, "takesOver"? }` and a `workflow` name the company does not have makes
+**the company's own workflow** (no template behind it, OFF, version 1, triggers synced, audited `workflow.created`); answer
+`{ ok, created, dryRun, id, name, takesOver, missing, warnings, layout }`. `takesOver` names the shipped template whose job it does
+for that company (Dating (Nelly)'s Triage call booked and Sales call booked take over `call-booked`): install never puts that
+template back, and the create is refused (409) while the company still has the template's copy: remove it first with
+`DELETE /api/admin/workflows { company, workflow: "<template slug>" }` (refused while on). The files `build-copies` writes for
+own workflows carry `name` and `create`.
+
 `POST /api/admin/bindings/copy` with `{ "from": "<slug>", "to": "<slug>", "keys": ["secret.anthropic_key"], "by"? }` copies
 secret bindings from one company to another inside the engine: decrypted there, encrypted again, never returned. Only
 the AI keys `secret.anthropic_key` and `secret.jev_key` (a client's own accounts: CRM, booking, payments, webhook secrets, are set by install); a key `from` does not have refuses the whole call (404). Answer:
@@ -1263,10 +1271,12 @@ Answers are mapped by the question's `ref` (`GET /forms/{id}` lists them), never
 fields are all bound: tag `biab-<slug>`, URL `<PUBLIC_URL>/api/webhooks/typeform/<company id>`, a secret the engine makes once
 (`secret.typeform_webhook`); deliveries are checked against `Typeform-Signature`. Health check verifies the webhook each sweep
 (gone, off or pointing elsewhere is an alert with **Re-register the Typeform webhook**). A submission finds the person in GHL by
-email, then phone, creates or updates them with the scope tag, GHL's own name, email and phone (only where GHL has them blank),
-every answer and the UTMs, as the mode allows (shadow records the would-be write on `form.submitted`), and records
-`form.submitted` with the person; someone new to the company is a new lead once. A response is taken once, however often
-Typeform sends it.
+email, then phone, creates or updates them with GHL's own name, email and phone (only where GHL has them blank), every answer
+and the UTMs, as the mode allows (shadow records the would-be write on `form.submitted`), and records and dispatches
+`form.submitted` with the person (in scope by it, tagged or not). A response is taken once, however often Typeform sends it.
+D123: what an applicant then gets is a workflow on `form.submitted`, drawn on its chart: Dating's own **New from Typeform**
+(built by `build-copies` from `installs/<company>/copies.json`) adds the scope tag and starts New lead once, only for someone
+who is not a lead yet. Without that workflow on, a submission is recorded and nothing else happens.
 
 The responses from before the webhook come in with the importer, through the same path:
 
@@ -1277,12 +1287,15 @@ pnpm exec tsx scripts/import-typeform.ts --company dating-nelly --form AjY7UfXZ 
 pnpm exec tsx scripts/import-typeform.ts --install installs/dating-nelly.json --form AjY7UfXZ --token-env DN_TYPEFORM_TOKEN \
   --pit-env DATING2_GHL_PIT --location-env DATING2_GHL_LOCATION_ID
 # apply: real GHL writes whatever the company's mode (a deliberate one-off), 50 a run, oldest first; re-run until nothing remains
-pnpm exec tsx scripts/import-typeform.ts --company dating-nelly --form AjY7UfXZ --apply [--limit 50]
+pnpm exec tsx scripts/import-typeform.ts --company dating-nelly --form AjY7UfXZ --apply [--limit 50] [--new-lead]
 ```
 
 In production: `POST /api/admin/typeform-import` with `{ "company": "dating-nelly", "form": "AjY7UfXZ" }` (dry run; the answer
-carries the report) and `"apply": true` (answers `written`, `skipped`, `failed`, `remaining`). A response already written is
-skipped; imported history starts no workflow and no New lead.
+carries the report) and `"apply": true` (answers `written`, `skipped`, `failed`, `remaining`, `runsStarted`). A response already
+written is skipped. The importer writes the scope tag with the rest (history New from Typeform never saw). Imported history
+starts no workflow and no New lead, unless `"newLead": true` / `--new-lead` (D123): then each newly imported response the webhook
+never saw is dispatched as `form.submitted` exactly as the webhook dispatches one, so New from Typeform runs for it (in its own
+mode) and New lead starts once a person.
 
 ## Shadow mode (how a client gets migrated)
 

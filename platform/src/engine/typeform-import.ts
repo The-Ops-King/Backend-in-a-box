@@ -12,7 +12,9 @@ import { findInGhl, formsOf, parseResponse, submitApplication, TF_TOKEN_KEY, WRI
  * and writes nothing anywhere, and says what apply would do. Apply is a deliberate, one-off real write (as D115's backfill),
  * whatever the company's mode: Tyler approves the import as the last step. Oldest first, so a person who applied twice ends
  * with their latest answers; a response already written is skipped, so a re-run (or a batch after a batch) carries on where
- * it stopped. History starts nothing: no New lead, no workflow.
+ * it stopped. History starts nothing: no New lead, no workflow, unless `newLead` (D123): then each response the door never saw is
+ * dispatched as `form.submitted` exactly as the webhook dispatches one, so New from Typeform tags them and starts New lead for
+ * whoever is not a lead yet, once per person, in that workflow's own mode.
  */
 export type DryRun = {
   form: { id: string; title: string }; at: string;
@@ -41,7 +43,7 @@ export async function dryRunImport(a: { token: string; formId: string; form: Typ
   const resp = [...done].sort((x, y) => String(x.submitted_at).localeCompare(String(y.submitted_at)));
   const titles = new Map(formFields(def).map((f) => [f.ref, f.title.replace(/\s+/g, " ").trim()]));
   const parsed = resp.map((r) => ({ r, p: parseResponse(a.form, r, a.bindings) }));
-  const tag = scopeTag(a.bindings), tags = [...new Set([tag, ...(a.form.tags ?? [])].filter((t): t is string => !!t).map((t) => t.toLowerCase()))];
+  const tag = scopeTag(a.bindings), tags = tag ? [tag] : [];
 
   // the people: one GHL read set per person (email, else phone), not per response
   const byPerson = new Map<string, { email?: string; phone?: string; n: number }>();
@@ -126,7 +128,7 @@ export const writtenKeys = async (companyId: string) => new Set((await asOperato
  * Apply: up to `limit` responses not yet written, oldest first, each in its own transaction (a failure leaves the others
  * written and is listed; the next run tries it again). Real writes whatever the mode.
  */
-export async function applyImport(a: { companyId: string; formId: string; adapters: Adapters; api?: TypeformApi; limit?: number }): Promise<{ written: number; created: number; updated: number; skipped: number; failed: { response_id: string; error: string }[]; remaining: number }> {
+export async function applyImport(a: { companyId: string; formId: string; adapters: Adapters; api?: TypeformApi; limit?: number; newLead?: boolean }): Promise<{ written: number; created: number; updated: number; skipped: number; failed: { response_id: string; error: string }[]; remaining: number; runsStarted: number }> {
   const api = a.api ?? liveTypeform;
   const { bindings } = await asOperator((c) => loadCompany(c, a.companyId));
   const form = formsOf(bindings)[a.formId]; if (!form) throw new Error(`form ${a.formId} is not mapped for this company`);
@@ -135,11 +137,11 @@ export async function applyImport(a: { companyId: string; formId: string; adapte
   const done = await writtenKeys(a.companyId);
   const todo = resp.filter((r) => !done.has(`${a.formId}:${r.response_id ?? r.token}`));
   const limit = Math.max(1, a.limit ?? 50);
-  const out = { written: 0, created: 0, updated: 0, skipped: resp.length - todo.length, failed: [] as { response_id: string; error: string }[], remaining: 0 };
+  const out = { written: 0, created: 0, updated: 0, skipped: resp.length - todo.length, failed: [] as { response_id: string; error: string }[], remaining: 0, runsStarted: 0 };
   for (const r of todo.slice(0, limit)) {
     try {
-      const s = await asOperator(async (c) => { const { row, adapterCompany, bindings: b } = await loadCompany(c, a.companyId); return submitApplication(c, row, adapterCompany, b, a.adapters, a.formId, form, r, { via: "import", real: true }); });
-      if (s.outcome === "recorded") { out.written++; if (s.action === "create") out.created++; else out.updated++; } else out.skipped++;
+      const s = await asOperator(async (c) => { const { row, adapterCompany, bindings: b } = await loadCompany(c, a.companyId); return submitApplication(c, row, adapterCompany, b, a.adapters, a.formId, form, r, { via: "import", real: true, newLead: a.newLead === true }); });
+      if (s.outcome === "recorded") { out.written++; out.runsStarted += s.runsStarted; if (s.action === "create") out.created++; else out.updated++; } else out.skipped++;
     } catch (e) { out.failed.push({ response_id: r.response_id ?? r.token, error: String((e as Error).message).slice(0, 200) }); }
   }
   out.remaining = Math.max(0, todo.length - limit) + out.failed.length;

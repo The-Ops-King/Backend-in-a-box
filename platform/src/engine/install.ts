@@ -29,7 +29,7 @@ export type InstallInput = {
   name: string; slug: string; timezone: string; locationId: string;
   /** The CRM private integration token. Required the first time; a re-install may omit it and keeps the one already stored (tokens rotate; template upgrades should not need the secret again). */
   pit?: string;
-  /** Where appointments live. Default: the CRM's own calendars. Calendly: a read token; `userEmail` narrows event types and events to one host. */
+  /** Where appointments live. Default: the CRM's own calendars. Calendly: a read token (its user's organization is bound as calendly.organization); `userEmail` must be a member of that organization and is bound as calendly.user (the Setup page's "Calendly host"), but narrows nothing: every member's event types are listed and only the mapped ones are polled (D26). */
   booking?: { source: "ghl" } | { source: "calendly"; token: string; userEmail?: string; phoneQuestion?: string; setterQuestion?: string };
   calendars?: Record<string, CalendarMapping>;   // calendar / event type external id → closing | first_call | qualifying | follow_up
   /** How setter-booked vs self-booked is decided (D24): by the calendar (default), by the setter question on the booking, or either. */
@@ -96,7 +96,12 @@ export async function installTemplates(c: import("pg").PoolClient, companyId: st
   const installed: string[] = [];
   const replaced = new Map<string, { name: string; by: string[] }>();
   await backfillBookingCard(c, companyId);   // D104: before Call booked can upgrade to the card that reads it
+  // D123: a template one of the company's own workflows does the job of is never put back on it
+  const takenOver = new Map<string, string[]>();
+  for (const r of await many<{ takes_over: string; name: string }>(c, "select takes_over, name from workflows where company_id=$1 and takes_over is not null order by name", [companyId])) takenOver.set(r.takes_over, [...(takenOver.get(r.takes_over) ?? []), r.name]);
   for (const t of templates.filter((t) => wanted.includes(t.slug))) {
+    const by = takenOver.get(t.slug);
+    if (by) { installed.push(`${t.slug} → not installed: the company's own ${by.map((n) => `“${n}”`).join(" and ")} ${by.length > 1 ? "do" : "does"} its job (D123)`); continue; }
     const def = parseDefinition(t.definition); const manifest = extractManifest(def);
     // D111: a template whose chart no layout draws exactly is not put on a company (chart-layout.test holds every shipped one to it)
     const chart = await chartLayoutOf(def);

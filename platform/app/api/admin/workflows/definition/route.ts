@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { asOperator, one } from "@/db/client";
 import { operatorAuthorized } from "@/engine/admin-auth";
-import { findCompanyWorkflow, saveDefinition } from "@/engine/definitions";
+import { createCompanyWorkflow, findCompanyWorkflow, saveDefinition } from "@/engine/definitions";
 export const dynamic = "force-dynamic";
 
 /**
@@ -11,6 +11,9 @@ export const dynamic = "force-dynamic";
  *      layout: how its page draws it (D111: "tidy", or "graph" when its shape is beyond the tidy chart); refused 422 with every
  *      `problems`, among them a chart no layout draws exactly; 409 when the workflow is ON and the definition needs a binding the company lacks.
  *      dryRun validates and returns the diff without saving. A save is a new version of this company's copy only, diverged.
+ *      D123: with `create: { stage?, sort?, takesOver? }` and a `workflow` name the company does not have, the company's own workflow
+ *      is made (no template, OFF, version 1) → { ok, created, dryRun, id, name, takesOver, missing, warnings, layout }; `takesOver` is the
+ *      shipped template it does the job of for this company (install never puts that template back; refused 409 while its copy exists).
  * Authorization: Bearer $CRON_SECRET.
  */
 export async function GET(req: Request) {
@@ -30,13 +33,18 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const body = (await req.json().catch(() => null)) as { company?: string; workflow?: string; definition?: unknown; note?: string; by?: string; dryRun?: boolean } | null;
+  const body = (await req.json().catch(() => null)) as { company?: string; workflow?: string; definition?: unknown; note?: string; by?: string; dryRun?: boolean; create?: { stage?: string; sort?: number; takesOver?: string } } | null;
   if (!body?.company || !body.workflow || !body.definition || typeof body.definition !== "object") return NextResponse.json({ error: "company, workflow and definition are required" }, { status: 400 });
   if (typeof body.note !== "string" || !body.note.trim()) return NextResponse.json({ error: "note is required: say what changed and why" }, { status: 400 });
   return asOperator(async (c) => {
     const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [body.company]);
     if (!co) return NextResponse.json({ error: "no such company" }, { status: 404 });
     const w = await findCompanyWorkflow(c, co.id, body.workflow!);
+    if (!w.ok && body.create && typeof body.create === "object" && w.why === "no such workflow for this company") {
+      const r = await createCompanyWorkflow(c, { companyId: co.id, name: body.workflow!, definition: body.definition, note: body.note!, by: body.by || "operator", stage: body.create.stage, sort: body.create.sort, takesOver: body.create.takesOver, dryRun: body.dryRun === true });
+      if (!r.ok) return NextResponse.json({ error: r.why, ...(r.problems ? { problems: r.problems } : {}) }, { status: r.status });
+      return NextResponse.json(r);
+    }
     if (!w.ok) return NextResponse.json({ error: w.why }, { status: 404 });
     const r = await saveDefinition(c, { workflowId: w.id, definition: body.definition, note: body.note!, by: body.by || "operator", dryRun: body.dryRun === true });
     if (!r.ok) return NextResponse.json({ error: r.why, ...(r.problems ? { problems: r.problems } : {}), ...(r.missing ? { missing: r.missing } : {}) }, { status: r.status });

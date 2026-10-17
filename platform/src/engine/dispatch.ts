@@ -72,6 +72,17 @@ async function keySuffix(c: PoolClient, template: string, args: { event: EventRo
 
 /** Event in → every enabled trigger that matches → a run each (subject to reentry). */
 export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record<string, unknown>): Promise<string[]> {
+  // D117/D123: a lead is never started for someone out of the company's scope, whichever door the lead.created came through
+  // (every one today is in scope; this holds the rule for a door or a workflow step added later). In scope is the replica's
+  // answer (tagged, a booker, or a form submitter), so a booker or applicant untagged in shadow still passes.
+  if (e.event_type === "lead.created" && e.contact_id) {
+    const { companyScopeTag, inScope } = await import("./scope");
+    const tag = await companyScopeTag(c, e.company_id);
+    if (tag && !(await inScope(c, e.contact_id, tag))) {
+      await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'scope.lead_refused','contact',$2,$3)", [e.company_id, e.contact_id, { event_id: e.id, tag, source: e.source }]);
+      return [];
+    }
+  }
   const triggers = await many<{ id: string; workflow_id: string; node_id: string; match: unknown }>(c, `
     select t.id, t.workflow_id, t.node_id, t.match from workflow_triggers t join workflows w on w.id=t.workflow_id
     where t.company_id=$1 and t.event_type=$2 and t.enabled and w.enabled`, [e.company_id, e.event_type]);

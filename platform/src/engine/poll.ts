@@ -44,7 +44,7 @@ async function saveCursor(c: PoolClient, companyId: string, entity: string, valu
 }
 
 /** Upserts a contact replica + identifiers; returns our id and whether it was new. */
-export async function upsertContact(c: PoolClient, companyId: string, companyTz: string, s: ContactSnapshot, keepFields?: Set<string>): Promise<{ id: string; isNew: boolean; rejoined: boolean; prevTags: string[] }> {
+export async function upsertContact(c: PoolClient, companyId: string, companyTz: string, s: ContactSnapshot, keepFields?: Set<string>): Promise<{ id: string; isNew: boolean; rejoined: boolean; adopted: boolean; prevTags: string[] }> {
   // D29: the replica keeps only the custom fields a binding names (crm.field_contact_*); a sub-account can carry hundreds, and form answers live as one JSON on the contact instead
   if (keepFields) s = { ...s, customFields: Object.fromEntries(Object.entries(s.customFields).filter(([id]) => keepFields.has(id))) };
   const existing = await one<{ id: string; tags: string[] }>(c, "select id, tags from contacts where company_id=$1 and ghl_contact_id=$2", [companyId, s.id]);
@@ -52,13 +52,13 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
   const firstName = normName(s.firstName), lastName = normName(s.lastName);
   // a snapshot without GHL's attribution (a read that does not carry it) leaves the one already kept
   const attribution = s.attribution ? JSON.stringify(s.attribution) : null;
-  let id = existing?.id, matched = false;
+  let id = existing?.id, matched = false, adopted = false;
   if (!id) {
     // identity resolution: an email/phone we've already seen (and still current, G15) means this is the same person's
     // history. The record the CRM is delivering now is the truth and becomes the primary id writes go to (D65). It is
     // still a new lead: the CRM made a new contact, and that is the fact the workflows answer to (D65 addendum).
-    const match = await one<{ contact_id: string }>(c, `select i.contact_id from contact_identifiers i where i.company_id=$1 and i.retired_at is null and ((i.kind='email' and i.value=$2) or (i.kind='phone' and i.value=$3)) limit 1`, [companyId, email ?? "", phone ?? ""]);
-    if (match) { id = match.contact_id; matched = true; await c.query("update contacts set ghl_contact_id=$2, gone_at=null where id=$1", [id, s.id]); }
+    const match = await one<{ contact_id: string; had: string | null }>(c, `select i.contact_id, ct.ghl_contact_id as had from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.retired_at is null and ((i.kind='email' and i.value=$2) or (i.kind='phone' and i.value=$3)) limit 1`, [companyId, email ?? "", phone ?? ""]);
+    if (match) { id = match.contact_id; matched = true; adopted = !match.had; await c.query("update contacts set ghl_contact_id=$2, gone_at=null where id=$1", [id, s.id]); }
   }
   const tz = zone ?? companyTz;
   if (!id) {
@@ -74,7 +74,19 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
   }
   for (const [kind, value] of [["ghl_contact", s.id], ["email", email], ["phone", phone]] as const)
     if (value) await attachIdentifier(c, companyId, id, kind, value);
-  return { id, isNew: !existing, rejoined: matched, prevTags: existing?.tags ?? [] };
+  return { id, isNew: !existing, rejoined: matched, adopted, prevTags: existing?.tags ?? [] };
+}
+
+/**
+ * D123: a new CRM record is a new lead (D65 addendum), except one that only gives a CRM id to a replica that had none and is a lead
+ * already: the person the Typeform door made a lead before GHL had them (in shadow nothing is written to GHL) arriving in GHL
+ * later is the same lead, not a second one. A replica without a CRM id is a lead only by a form (every other lead.created names a
+ * CRM record), so on a company with no form nothing changes.
+ */
+export async function newLeadOnUpsert(c: PoolClient, companyId: string, up: { id: string; isNew: boolean; adopted: boolean }): Promise<boolean> {
+  if (!up.isNew) return false;
+  if (!up.adopted) return true;
+  return !(await one(c, "select 1 from events where company_id=$1 and contact_id=$2 and event_type='lead.created' limit 1", [companyId, up.id]));
 }
 
 /** Attaches an identifier; one the CRM had retired from someone (a recycled number) moves to the person who carries it now. A current identifier of another person is left alone. */
@@ -96,11 +108,11 @@ async function pollContacts(c: PoolClient, co: CompanyRow, ac: Company, adapters
   for (const s of rows) {
     const u = DateTime.fromISO(s.dateUpdated); if (u > max) max = u;
     if (tag && !carriesTag(s.tags, tag)) continue;   // the search's own filter, held to the exact tag
-    const { id, isNew, prevTags } = await upsertContact(c, co.id, co.timezone, s, keep);
+    const up = await upsertContact(c, co.id, co.timezone, s, keep), { id, prevTags } = up;
     rep.contacts++;
     if (isBaseline) { rep.baselined++; continue; }
     const ctx = { contact: { id, ghl_contact_id: s.id, tags: s.tags } };
-    if (isNew) rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: s.id } }), ctx)).length;
+    if (await newLeadOnUpsert(c, co.id, up)) rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: s.id } }), ctx)).length;
     for (const t of s.tags.filter((t) => !prevTags.includes(t))) {
       // a sys-test-<action> tag is an instruction to the harness, not a fact about the person: it never becomes a tag.added event
       const sim = simTag(t);
@@ -121,7 +133,7 @@ async function resolveContactForBooking(c: PoolClient, co: CompanyRow, ac: Compa
     if (!live) return null;
     // G16: a person whose first appearance is their booking is a new lead here and now; the contacts poll will see an existing row
     const up = await upsertContact(c, co.id, co.timezone, live);
-    return { id: up.id, lead: up.isNew ? { ghlContactId: live.id, tags: live.tags } : undefined };
+    return { id: up.id, lead: (await newLeadOnUpsert(c, co.id, up)) ? { ghlContactId: live.id, tags: live.tags } : undefined };
   }
   const inv = s.invitee; if (!inv) return null;
   const email = normEmail(inv.email), phone = normPhone(inv.phone), zone = validZone(inv.timezone);

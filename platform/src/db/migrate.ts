@@ -42,6 +42,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table workflows add column if not exists mode text`);   // D92: the workflow's own rung; null follows the company
     await c.query(`alter table workflows drop constraint if exists workflows_mode_check`);
     await c.query(`alter table workflows add constraint workflows_mode_check check (mode in ('shadow','test','live'))`);
+    // D123: a company's own workflow (no template) that does a shipped template's job for that company: install never puts that template back
+    await c.query(`alter table workflows add column if not exists takes_over text`);
     await c.query(`alter table runs drop constraint if exists runs_born_in_check`);
     await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('shadow','test','live'))`);
     // D88: alerts are Slack only, said by the Health check workflow; the email and webhook destinations are gone with their paths

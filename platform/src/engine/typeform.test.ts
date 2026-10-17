@@ -1,9 +1,10 @@
 /**
  * D122: Typeform straight into the engine. The engine registers its own signed webhook on each mapped form, the door takes a
  * signed delivery once (Typeform retries), finds the person in GHL by email then phone, writes them as the mode allows (shadow:
- * only the would-be write is recorded), records form.submitted with the person in scope, and makes a new person a new lead
- * once. The importer reads the old responses: a dry run writes nothing; apply writes each response once. The health sweep
- * verifies the webhook and the fix puts it back.
+ * only the would-be write is recorded), and records form.submitted with the person in scope. D123: the tag and New lead are
+ * the New from Typeform workflow's steps (Dating (Nelly)'s own, built by build-copies), New lead once a person. The importer
+ * reads the old responses: a dry run writes nothing; apply writes each response once, and with newLead runs each new one
+ * through the same workflow. The health sweep verifies the webhook and the fix puts it back.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHmac } from "node:crypto";
@@ -19,6 +20,11 @@ import { runHealthStep, setProbeRetryMs } from "@/engine/health";
 import { fakeAdapters, fakeProbes } from "@/engine/test-install";
 import { receiveTypeform, registerTypeform, verifyTypeformSignature, answerText, TF_SECRET_KEY, type TypeformFormMap } from "@/engine/typeform";
 import { applyImport, dryRunImport } from "@/engine/typeform-import";
+import { createCompanyWorkflow } from "@/engine/definitions";
+import { dispatchEvent, emitEvent } from "@/engine/dispatch";
+import { tick } from "@/engine/runner";
+import fs from "node:fs";
+import path from "node:path";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
 import type { TfResponse, TfWebhook, TypeformApi } from "@/adapters/typeform/client";
 
@@ -31,7 +37,8 @@ const map: TypeformFormMap = {
   hidden: { utm_source: "field_contact_utm_source", fbclid: "field_contact_fbclid" },
   submittedAt: "field_contact_app_submitted_at", responseId: "field_contact_app_response_id",
 };
-const crmIds = { field_contact_app_age: "F_AGE", field_contact_app_relationship_status: "F_STATUS", field_contact_app_has_children: "F_KIDS", field_contact_app_ideal_partner: "F_PARTNER", field_contact_app_consent: "F_CONSENT", field_contact_utm_source: "F_UTM", field_contact_fbclid: "F_FB", field_contact_app_submitted_at: "F_SUB", field_contact_app_response_id: "F_RID" };
+const NEW_FROM_TYPEFORM = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../installs/dating-nelly/new-from-typeform.json"), "utf8")) as { name: string; note: string; definition: unknown; create: { stage: string; sort: number } };
+const crmIds = { pipeline_setter: "P-S", stage_setter_new_lead: "ST-NEW", field_contact_app_age: "F_AGE", field_contact_app_relationship_status: "F_STATUS", field_contact_app_has_children: "F_KIDS", field_contact_app_ideal_partner: "F_PARTNER", field_contact_app_consent: "F_CONSENT", field_contact_utm_source: "F_UTM", field_contact_fbclid: "F_FB", field_contact_app_submitted_at: "F_SUB", field_contact_app_response_id: "F_RID" };
 
 // Typeform as the form has it: refs are what count; the question words below are not what the map reads
 const hooks = new Map<string, TfWebhook>(), puts: { form: string; tag: string; url: string; secret: string }[] = [];
@@ -84,6 +91,9 @@ const payload = (r: TfResponse) => JSON.stringify({ event_id: `ev-${r.token}`, e
 let companyId = "", slug = "", secret = "";
 const sign = (raw: string, key = secret) => `sha256=${createHmac("sha256", key).update(raw).digest("base64")}`;
 const deliver = (raw: string, sig: string | null = sign(raw)) => asOperator((c) => receiveTypeform(c, companyId, sig, raw, fake));
+/** The runs the door's dispatch started: New from Typeform, and New lead after it. */
+const settle = async () => { for (let i = 0; i < 3; i++) await tick(fake, DateTime.now() as DateTime<true>, companyId); };
+const runsOf = (wf: string, contactId: string) => asOperator((c) => many<{ id: string; status: string }>(c, "select r.id, r.status from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name=$2 and r.contact_id=$3 order by r.started_at", [companyId, wf, contactId]));
 const setMode = (mode: string) => asOperator((c) => c.query("update companies set mode=$2 where id=$1", [companyId, mode]));
 const events = (type: string, contactId?: string) => asOperator((c) => many<{ contact_id: string | null; data: Record<string, unknown>; source: string }>(c, `select contact_id, data, source from events where company_id=$1 and event_type=$2 ${contactId ? "and contact_id=$3" : ""} order by id`, contactId ? [companyId, type, contactId] : [companyId, type]));
 const ledger = (ghl: string) => asOperator((c) => one<{ id: string; tags: string[] }>(c, "select id, tags from contacts where company_id=$1 and ghl_contact_id=$2", [companyId, ghl]));
@@ -93,8 +103,12 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
   beforeAll(async () => {
     await migrate(); setProbeRetryMs(0);
     slug = `tf-${Date.now()}`;
-    const r = await installCompany({ name: "Dating TF", slug, timezone: "UTC", locationId: "LOC", pit: "pit", calendars: {}, scopeTag: "dating", crm: crmIds, typeform: { token: "tf-token", forms: { [FORM]: map } } }, fake, tf);
+    const r = await installCompany({ name: "Dating TF", slug, timezone: "UTC", locationId: "LOC", pit: "pit", calendars: {}, scopeTag: "dating", crm: crmIds, typeform: { token: "tf-token", forms: { [FORM]: map } }, templates: ["new-lead"], enable: true }, fake, tf);
     companyId = r.companyId;
+    // D123: her own New from Typeform, as the definition route makes it, turned on
+    const made = await asOperator((c) => createCompanyWorkflow(c, { companyId, name: NEW_FROM_TYPEFORM.name, definition: NEW_FROM_TYPEFORM.definition, note: NEW_FROM_TYPEFORM.note, ...NEW_FROM_TYPEFORM.create }));
+    expect(made).toMatchObject({ ok: true, created: true, layout: "tidy" });
+    await asOperator((c) => c.query("update workflows set enabled=true where company_id=$1 and name in ('New from Typeform', 'New lead')", [companyId]));
     expect(r.typeform).toEqual([`${FORM}: webhook "biab-${slug}" → https://engine.test/api/webhooks/typeform/${companyId}`]);
     secret = (await asOperator((c) => loadCompany(c, companyId))).bindings[TF_SECRET_KEY];
     await asOperator((c) => c.query("update companies set status='onboarding' where id=$1", [companyId]));
@@ -129,7 +143,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
     expect(await asOperator((c) => many(c, "select 1 from webhook_deliveries where company_id=$1", [companyId]))).toEqual([]);
   });
 
-  it("shadow: nothing is written to GHL; the would-be write is recorded; the applicant is in scope untagged and a new lead once", async () => {
+  it("shadow: nothing is written to GHL; the would-be write is recorded; the applicant is in scope untagged; New from Typeform records the tag and makes them a new lead once", async () => {
     await setMode("shadow");
     const r = response("sh1", { email: "Shadow@X.com", utm: "fb", partner: "Kind and steady." });
     const out = await deliver(payload(r));
@@ -139,12 +153,20 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
     expect(p).toMatchObject({ ghl_contact_id: null, tags: [] });
     const [ev] = await events("form.submitted", p!.id);
     expect(ev.source).toBe("form");
-    expect(ev.data).toMatchObject({ form_id: FORM, response_id: "sh1", shadow: true, via: "webhook", would_write: { action: "create", tags: ["dating"], standard: { firstName: "Ann", lastName: "Doe", email: "shadow@x.com" },
+    expect(ev.data).toMatchObject({ form_id: FORM, response_id: "sh1", shadow: true, via: "webhook", would_write: { action: "create", standard: { firstName: "Ann", lastName: "Doe", email: "shadow@x.com" },
       fields: { field_contact_app_age: "41", field_contact_app_relationship_status: "Divorced", field_contact_app_has_children: "No", field_contact_app_ideal_partner: "Kind and steady.", field_contact_utm_source: "fb", field_contact_app_submitted_at: r.submitted_at, field_contact_app_response_id: "sh1" } } });
     expect(Object.keys((ev.data.would_write as { fields: object }).fields)).not.toContain("field_contact_fbclid");   // blank hidden field: nothing
-    expect(await events("tag.added", p!.id)).toEqual([expect.objectContaining({ data: { tag: "dating", by: "form", shadow: true } })]);
-    expect(await events("lead.created", p!.id)).toHaveLength(1);
+    expect(ev.data.would_write).not.toHaveProperty("tags");   // D123: the door writes no tag
+    // in scope by the submission alone, before anything has run, untagged (D117/D122)
+    expect(await events("tag.added", p!.id)).toEqual([]);
+    expect(await events("lead.created", p!.id)).toEqual([]);
     expect(await asOperator((c) => inScope(c, p!.id, "dating"))).toBe(true);
+    await settle();
+    expect(writes).toEqual([]);
+    expect((await events("tag.added", p!.id)).filter((e) => e.data.tag === "dating")).toEqual([expect.objectContaining({ source: "engine", data: { tag: "dating", shadow: true } })]);
+    expect(await events("lead.created", p!.id)).toEqual([expect.objectContaining({ source: "engine", data: expect.objectContaining({ form_id: FORM, response_id: "sh1", by: "form" }) })]);
+    expect(await runsOf("New lead", p!.id)).toHaveLength(1);
+    expect((await byEmail("shadow@x.com"))!.tags).toEqual([]);   // shadow: the replica keeps GHL's tags (none)
   });
 
   it("a retried delivery is one submission: the second answers duplicate and writes nothing", async () => {
@@ -156,23 +178,29 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
     expect(writes.length).toBe(w);
     const p = await byEmail("dup@x.com");
     expect(await events("form.submitted", p!.id)).toHaveLength(1);
+    await settle();
     expect(await events("lead.created", p!.id)).toHaveLength(1);
+    expect(await runsOf("New from Typeform", p!.id)).toHaveLength(1);
   });
 
-  it("live, a new person: one contact made with the tag, the standard fields and the application fields by ref; the replica holds them, so the poll makes no second lead", async () => {
+  it("live, a new person: one contact made with the standard fields and the application fields by ref; New from Typeform tags them and makes one lead; the poll makes no second", async () => {
     await setMode("live");
     writes.length = 0;
     const r = response("new1", { email: "new@x.com", phone: "+15550001111", utm: "ig", consent: true });
-    expect((await deliver(payload(r))).body).toMatchObject({ outcome: "recorded", shadow: false, action: "create", lead: true });
+    expect((await deliver(payload(r))).body).toMatchObject({ outcome: "recorded", shadow: false, action: "create", runsStarted: 1 });
     expect(writes).toHaveLength(1);
     const made = writes[0] as { op: string; id: string; body: { tags: string[]; customFields: { id: string; field_value: string }[]; email: string; phone: string; firstName: string; source: string } };
     expect(made.op).toBe("create");
-    expect(made.body).toMatchObject({ firstName: "Ann", lastName: "Doe", email: "new@x.com", phone: "+15550001111", tags: ["dating"], source: "Typeform: VIP Matchmaking Application" });
+    expect(made.body).toMatchObject({ firstName: "Ann", lastName: "Doe", email: "new@x.com", phone: "+15550001111", tags: [], source: "Typeform: VIP Matchmaking Application" });
     expect(Object.fromEntries(made.body.customFields.map((f) => [f.id, f.field_value]))).toEqual({ F_AGE: "41", F_STATUS: "Divorced", F_KIDS: "No", F_CONSENT: "I acknowledge and consent", F_UTM: "ig", F_SUB: r.submitted_at, F_RID: "new1" });
     const p = await ledger(made.id);
-    expect(p!.tags).toEqual(["dating"]);
+    expect(p!.tags).toEqual([]);
+    await settle();
+    expect(writes.slice(1).filter((w) => w.body === "dating")).toEqual([{ op: "tag", id: made.id, body: "dating" }]);   // New lead's own stat-new follows
+    expect((await ledger(made.id))!.tags).toContain("dating");
     expect(await events("lead.created", p!.id)).toHaveLength(1);
-    expect(await events("tag.added", p!.id)).toEqual([expect.objectContaining({ data: { tag: "dating", by: "form" } })]);
+    // a real tag step records its step's list as written (applyTags), here New from Typeform's ["dating"]
+    expect((await events("tag.added", p!.id)).filter((e) => JSON.stringify(e.data.tag).includes("dating"))).toEqual([expect.objectContaining({ source: "engine", data: { tag: ["dating"] } })]);
     updated = [crm.get(made.id)!];
     await pollCompany(fake, companyId);
     updated = [];
@@ -183,13 +211,15 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
     await setMode("live");
     other("THEIRS1", { firstName: "Jen", email: "jen@x.com" });
     writes.length = 0;
-    expect((await deliver(payload(response("em1", { first: "Jennifer", email: "JEN@x.com", phone: "+15550002222" })))).body).toMatchObject({ outcome: "recorded", action: "update", matched: "email", ghlContactId: "THEIRS1", lead: true });
-    expect(writes.map((w) => w.op)).toEqual(["update", "tag"]);
+    expect((await deliver(payload(response("em1", { first: "Jennifer", email: "JEN@x.com", phone: "+15550002222" })))).body).toMatchObject({ outcome: "recorded", action: "update", matched: "email", ghlContactId: "THEIRS1" });
+    expect(writes.map((w) => w.op)).toEqual(["update"]);
+    await settle();   // the tag is New from Typeform's, added on its own (New lead's stat-new after it)
+    expect(writes.filter((w) => w.op !== "tag" || w.body === "dating").map((w) => w.op)).toEqual(["update", "tag"]);
     expect(writes[0].body).toMatchObject({ lastName: "Doe", phone: "+15550002222" });
     expect(writes[0].body).not.toHaveProperty("firstName");
     expect(writes[1]).toEqual({ op: "tag", id: "THEIRS1", body: "dating" });
     const k = crm.get("THEIRS1")!;
-    expect(k).toMatchObject({ firstName: "Jen", tags: ["hair-client", "dating"] });
+    expect(k).toMatchObject({ firstName: "Jen", tags: expect.arrayContaining(["hair-client", "dating"]) });
     expect(k.customFields).toMatchObject({ THEIRS: "kept", F_AGE: "41" });
     const [ev] = await events("form.submitted", (await ledger("THEIRS1"))!.id);
     expect(ev.data).toMatchObject({ matched: "email", action: "update", kept: ["first_name"] });
@@ -204,10 +234,13 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
     expect(crm.get("THEIRS2")!.email).toBe("amy.old@x.com");
   });
 
-  it("a second application from someone the company already knows is no new lead", async () => {
+  it("a second application from someone already a lead is no new lead: New from Typeform runs, its New lead step is skipped", async () => {
     await setMode("live");
-    expect((await deliver(payload(response("new2", { email: "new@x.com", phone: "+15550001111", age: 42 })))).body).toMatchObject({ outcome: "recorded", action: "update", lead: false });
+    expect((await deliver(payload(response("new2", { email: "new@x.com", phone: "+15550001111", age: 42 })))).body).toMatchObject({ outcome: "recorded", action: "update" });
+    await settle();
     const p = await byEmail("new@x.com");
+    const [, second] = await runsOf("New from Typeform", p!.id);
+    expect(await asOperator((c) => one(c, "select status, result from run_steps where run_id=$1 and node_id='n2'", [second.id]))).toMatchObject({ status: "skipped" });
     expect(await events("lead.created", p!.id)).toHaveLength(1);
     expect(await events("form.submitted", p!.id)).toHaveLength(2);
     expect(crm.get(p!.ghl_contact_id!)!.customFields.F_AGE).toBe("42");
@@ -265,6 +298,52 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
     const eve = await byEmail("eve@x.com");
     expect(eve!.ghl_contact_id).toBeTruthy();
     expect(eve!.tags).toEqual(["dating"]);
+  });
+
+  it("D123: apply with newLead runs each new applicant through New from Typeform as the webhook would: tagged, one lead a person even when they applied twice; a response the door saw is not run again", async () => {
+    await setMode("live");
+    const seenByDoor = response("n0", { email: "gil@x.com", at: "2026-10-11T09:00:00Z" });
+    await deliver(payload(seenByDoor));
+    await settle();
+    history = [seenByDoor, response("n1", { email: "hal@x.com", at: "2026-10-11T10:00:00Z" }), response("n2", { email: "Hal@x.com", at: "2026-10-11T11:00:00Z", age: 52 }), response("n3", { email: "ivy@x.com", at: "2026-10-11T12:00:00Z" })];
+    const r = await applyImport({ companyId, formId: FORM, adapters: fake, api: tf, newLead: true });
+    expect(r).toMatchObject({ written: 3, skipped: 1, failed: [], remaining: 0, runsStarted: 3 });
+    await settle();
+    const hal = (await byEmail("hal@x.com"))!, ivy = (await byEmail("ivy@x.com"))!, gil = (await byEmail("gil@x.com"))!;
+    expect(await events("lead.created", hal.id)).toHaveLength(1);
+    expect(await runsOf("New from Typeform", hal.id)).toHaveLength(2);
+    expect(await runsOf("New lead", hal.id)).toHaveLength(1);
+    expect(await events("lead.created", ivy.id)).toHaveLength(1);
+    expect(await events("lead.created", gil.id)).toHaveLength(1);
+    expect(await runsOf("New from Typeform", gil.id)).toHaveLength(1);
+    expect(hal.tags).toContain("dating");
+  });
+
+  it("D123: an applicant the door made a lead in shadow (not in GHL) who turns up in GHL later, tagged, is the same lead, not a second", async () => {
+    await setMode("shadow");
+    await deliver(payload(response("pg1", { email: "kim@x.com", phone: "+15550009999" })));
+    await settle();
+    const p = (await byEmail("kim@x.com"))!;
+    expect(p.ghl_contact_id).toBeNull();
+    expect(await events("lead.created", p.id)).toHaveLength(1);
+    other("KIM1", { email: "kim@x.com", tags: ["dating"] });
+    updated = [crm.get("KIM1")!];
+    await pollCompany(fake, companyId);
+    updated = [];
+    expect((await ledger("KIM1"))!.id).toBe(p.id);
+    expect(await events("lead.created", p.id)).toHaveLength(1);
+    expect(await runsOf("New lead", p.id)).toHaveLength(1);
+  });
+
+  it("D117/D123: a lead.created for someone out of scope starts nothing, whatever sent it; the same for someone tagged starts New lead", async () => {
+    const lead = (tags: string[]) => asOperator(async (c) => {
+      const id = (await one<{ id: string }>(c, "insert into contacts (company_id, first_name, timezone, tags) values ($1,'Out','UTC',$2) returning id", [companyId, tags]))!.id;
+      return { id, started: await dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "engine", data: {} }), { contact: { id } }) };
+    });
+    const out = await lead(["hair-client"]);
+    expect(out.started).toEqual([]);
+    expect(await asOperator((c) => one(c, "select after from audit_log where company_id=$1 and action='scope.lead_refused' and target_id=$2", [companyId, out.id]))).toMatchObject({ after: { tag: "dating", source: "engine" } });
+    expect((await lead(["dating"])).started).toHaveLength(1);
   });
 
   it("the health sweep: registered and pointing here is fine; gone, elsewhere or off is an error with a re-register button, which puts it back", async () => {

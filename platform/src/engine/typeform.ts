@@ -13,9 +13,11 @@ import { normEmail } from "./payments";
 /**
  * D122: a Typeform form is a door straight into the engine, no Zapier. The engine registers its own webhook on each form the
  * install maps (signed with a secret it makes), checks it every health sweep and puts it back with one click. A submission
- * finds the person in GHL (email, then phone), creates or updates them with the scope tag, the standard fields, the
- * application fields and the UTMs, as the company's mode allows (shadow: the would-be write is recorded, nothing written),
- * and records `form.submitted` with the person in scope. One response id is one submission, however often Typeform delivers it.
+ * finds the person in GHL (email, then phone), creates or updates them with the standard fields, the application fields and
+ * the UTMs, as the company's mode allows (shadow: the would-be write is recorded, nothing written), and records and dispatches
+ * `form.submitted` with the person in scope. D123: what a new applicant then gets (the scope tag, New lead) is a workflow on
+ * `form.submitted` (Dating's "New from Typeform"), drawn on its chart, not this door. One response id is one submission, however
+ * often Typeform delivers it.
  * Answers are mapped by the question's `ref`, never its words. The importer (typeform-import.ts) writes the old responses
  * through this same path.
  */
@@ -33,10 +35,10 @@ const isStd = (t: string): t is Std => t in STANDARD;
 
 /**
  * One form's map, by the question's `ref`: `answers` (ref → `first_name` | `last_name` | `email` | `phone` | a contact field
- * binding), `hidden` (hidden field name → binding), and where the submission time and the response id go. `tags`: more tags
- * besides the scope tag.
+ * binding), `hidden` (hidden field name → binding), and where the submission time and the response id go. Tags are not the
+ * door's: a workflow on form.submitted adds them (D123).
  */
-export type TypeformFormMap = { name?: string; answers: Record<string, string>; hidden?: Record<string, string>; submittedAt?: string; responseId?: string; tags?: string[] };
+export type TypeformFormMap = { name?: string; answers: Record<string, string>; hidden?: Record<string, string>; submittedAt?: string; responseId?: string };
 export type TypeformForms = Record<string, TypeformFormMap>;
 
 export const formsOf = (bindings: Record<string, string>): TypeformForms => { try { return JSON.parse(bindings[TF_FORMS_KEY] ?? "{}") as TypeformForms; } catch { return {}; } };
@@ -50,6 +52,7 @@ export function mapProblems(forms: unknown): string[] {
     if (!/^[A-Za-z0-9]+$/.test(id)) out.push(`${id}: not a Typeform form id`);
     if (!f || typeof f !== "object" || !f.answers || typeof f.answers !== "object" || !Object.keys(f.answers).length) { out.push(`${id}: answers is required (ref → target)`); continue; }
     for (const t of targetsOf(f)) if (typeof t !== "string" || !(isStd(t) || /^field_contact_[a-z0-9_]+$/.test(t))) out.push(`${id}: target "${String(t)}" is neither ${Object.keys(STANDARD).join(", ")} nor a field_contact_… binding`);
+    if ("tags" in f) out.push(`${id}: tags are a workflow step on form.submitted now, not part of the form's map (D123)`);
     if (Object.values(f.hidden ?? {}).some(isStd) || (f.submittedAt && isStd(f.submittedAt)) || (f.responseId && isStd(f.responseId))) out.push(`${id}: hidden fields, the submission time and the response id go to contact fields`);
   }
   return out;
@@ -144,32 +147,34 @@ export async function applyWrite(ac: Company, adapters: Adapters, plan: WritePla
   return { id, action: "update", tagsAdded: plan.tags };
 }
 
-/** The ledger's person for the submission: GHL's record when there is one (replicated as the poll would), else one the ledger knows by email or phone, else a new replica that waits for a GHL id. `isNew`: the ledger did not know them. */
-async function ledgerPerson(c: PoolClient, co: CompanyRow, bindings: Record<string, string>, p: Parsed, found: Found | null): Promise<{ id: string; isNew: boolean }> {
+/** The ledger's person for the submission: GHL's record when there is one (replicated as the poll would), else one the ledger knows by email or phone, else a new replica that waits for a GHL id. */
+async function ledgerPerson(c: PoolClient, co: CompanyRow, bindings: Record<string, string>, p: Parsed, found: Found | null): Promise<string> {
   const email = normEmail(p.std.email), phone = normPhone(p.std.phone);
   const known = await one<{ contact_id: string }>(c, `select contact_id from contact_identifiers where company_id=$1 and retired_at is null
     and ((kind='ghl_contact' and value=$2) or (kind='email' and value=$3) or (kind='phone' and value=$4)) order by (kind='ghl_contact') desc limit 1`, [co.id, found?.snap.id ?? "", email ?? "", phone ?? ""]);
-  if (found) return { id: (await upsertContact(c, co.id, co.timezone, found.snap, boundFieldIds(bindings))).id, isNew: !known };
-  if (known) return { id: known.contact_id, isNew: false };
+  if (found) return (await upsertContact(c, co.id, co.timezone, found.snap, boundFieldIds(bindings))).id;
+  if (known) return known.contact_id;
   const row = (await one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name, timezone, timezone_source) values ($1,$2,$3,$4,'company_default') returning id", [co.id, normName(p.std.first_name), normName(p.std.last_name), co.timezone]))!;
   if (email) await attachIdentifier(c, co.id, row.id, "email", email);
   if (phone) await attachIdentifier(c, co.id, row.id, "phone", phone);
-  return { id: row.id, isNew: true };
+  return row.id;
 }
 
 export type Submitted =
   | { outcome: "duplicate" | "already_written"; responseId: string }
   | { outcome: "unidentified"; responseId: string }
-  | { outcome: "recorded"; responseId: string; contactId: string; shadow: boolean; action: "create" | "update"; matched: Found["by"] | null; ghlContactId: string | null; lead: boolean; runsStarted: number };
+  | { outcome: "recorded"; responseId: string; contactId: string; shadow: boolean; action: "create" | "update"; matched: Found["by"] | null; ghlContactId: string | null; runsStarted: number };
 
 /**
  * One submission, from the webhook or the importer. The webhook: a response already seen is a no-op (Typeform retries); the
- * write follows the mode (`effectiveMode` over the rung of what answers `form.submitted`, as D117's tag write); a person the
- * ledger did not know is a new lead (`lead.created`, as the contacts poll would make it, made here and once: the replica is
- * written first, so the poll sees no one new); `form.submitted` starts what listens. The importer (`real`): a deliberate real
- * write whatever the mode; a response already written is skipped; history starts nothing (no lead, no dispatch).
+ * write follows the mode (`effectiveMode` over the rung of what answers `form.submitted`: the New from Typeform workflow's);
+ * `form.submitted` is recorded with the person (in scope by it, D117/D122) and starts what listens: D123, the scope tag and
+ * New lead are that workflow's steps, not this door's. The importer (`real`): a deliberate real write whatever the mode, the
+ * scope tag included (history the workflow never saw, so GHL and the tagged poll know them); a response already written is
+ * skipped; history starts nothing, unless `newLead`: then a response the door never saw is dispatched exactly as the webhook
+ * dispatches one, so the applicant runs what a live one does, once (the workflow's own check makes New lead once per person).
  */
-export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Company, bindings: Record<string, string>, adapters: Adapters, formId: string, form: TypeformFormMap, r: TfResponse, opts: { via: "webhook" | "import"; real?: boolean }): Promise<Submitted> {
+export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Company, bindings: Record<string, string>, adapters: Adapters, formId: string, form: TypeformFormMap, r: TfResponse, opts: { via: "webhook" | "import"; real?: boolean; newLead?: boolean }): Promise<Submitted> {
   const responseId = r.response_id ?? r.token, key = `${formId}:${responseId}`;
   const seen = !!(await one(c, `insert into webhook_deliveries (company_id, provider, delivery_id) values ($1,'${SEEN}',$2) on conflict do nothing returning delivery_id`, [co.id, key]));
   if (opts.via === "webhook" && !seen) return { outcome: "duplicate", responseId };
@@ -190,8 +195,9 @@ export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Compa
     const snap = mine ? await adapters.read.getContact(ac, mine.ghl) : null;
     if (snap) found = { snap, by: "ledger" };
   }
-  const person = await ledgerPerson(c, co, bindings, p, found);
-  const tags = [...new Set([scopeTag(bindings), ...(form.tags ?? [])].filter((t): t is string => !!t?.trim()).map((t) => t.trim().toLowerCase()))];
+  const person = { id: await ledgerPerson(c, co, bindings, p, found) };
+  // D123: the door writes no tag; only the importer's one-off history write carries the scope tag
+  const tags = opts.via === "import" ? [scopeTag(bindings)].filter((t): t is string => !!t) : [];
   const real = opts.real === true || (await effectiveMode(c, co.id, person.id, await handlerMode(c, co.id, "form.submitted"), bindings)) === "real";
   const plan = planWrite(p, found?.snap ?? null, tags, form.name ? `Typeform: ${form.name}` : "Typeform");
   let ghlId = found?.snap.id ?? null, action = plan.action, tagsDone = plan.tags;
@@ -209,19 +215,18 @@ export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Compa
   for (const tag of tagsDone) await emitEvent(c, { ...base, contact_id: person.id, event_type: "tag.added", occurred_at: at, data: { tag, by: "form", ...(real ? {} : { shadow: true }) } });
   const data = { ...about, matched: found?.by ?? null, ghl_contact_id: ghlId, action, shadow: !real, fields: plan.fields, ...(plan.kept.length ? { kept: plan.kept } : {}), ...(p.unbound.length ? { unbound: p.unbound } : {}),
     // in shadow the would-be write is the record, as a step's would-have is (D52): the values included
-    ...(real ? {} : { would_write: { action: plan.action, ...(plan.ghlContactId ? { ghl_contact_id: plan.ghlContactId } : {}), standard: plan.standard, tags: plan.tags, fields: Object.fromEntries(p.fields.filter((f) => f.id).map((f) => [f.binding, f.value])) } }) };
+    ...(real ? {} : { would_write: { action: plan.action, ...(plan.ghlContactId ? { ghl_contact_id: plan.ghlContactId } : {}), standard: plan.standard, ...(plan.tags.length ? { tags: plan.tags } : {}), fields: Object.fromEntries(p.fields.filter((f) => f.id).map((f) => [f.binding, f.value])) } }) };
+  const ctx = { contact: { id: person.id, ghl_contact_id: ghlId }, form: { id: formId, name: form.name ?? null, response_id: responseId } };
   if (opts.via === "import") {
-    if (seen) await emitEvent(c, { ...base, contact_id: person.id, event_type: "form.submitted", occurred_at: at, data });
-    await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'typeform.imported','contact',$2,$3)", [co.id, person.id, { form_id: formId, response_id: responseId, action, ghl_contact_id: ghlId, matched: found?.by ?? null }]);
-    return { outcome: "recorded", responseId, contactId: person.id, shadow: false, action, matched: found?.by ?? null, ghlContactId: ghlId, lead: false, runsStarted: 0 };
+    // a response the door already saw was dispatched then: it is never run again (seen is false)
+    const ev = seen ? await emitEvent(c, { ...base, contact_id: person.id, event_type: "form.submitted", occurred_at: at, data: { ...data, ...(opts.newLead ? { new_lead: true } : {}) } }) : null;
+    const runs = ev && opts.newLead ? (await dispatchEvent(c, ev, ctx)).length : 0;
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'typeform.imported','contact',$2,$3)", [co.id, person.id, { form_id: formId, response_id: responseId, action, ghl_contact_id: ghlId, matched: found?.by ?? null, ...(opts.newLead ? { new_lead: !!ev } : {}) }]);
+    return { outcome: "recorded", responseId, contactId: person.id, shadow: false, action, matched: found?.by ?? null, ghlContactId: ghlId, runsStarted: runs };
   }
-  const ctx = { contact: { id: person.id, ghl_contact_id: ghlId, tags }, form: { id: formId, name: form.name ?? null, response_id: responseId } };
-  let runs = 0;
-  // D122: a person new to the company is a new lead, the way a newly tagged contact is (New lead fires once, here, not again from the poll)
-  if (person.isNew) runs += (await dispatchEvent(c, await emitEvent(c, { ...base, contact_id: person.id, event_type: "lead.created", data: { ghl_contact_id: ghlId, form_id: formId, response_id: responseId, shadow: !real } }), ctx)).length;
-  // the clean place for qualification (D73's `qualify`, not decided yet): a workflow on form.submitted reading the bound application field
-  runs += (await dispatchEvent(c, await emitEvent(c, { ...base, contact_id: person.id, event_type: "form.submitted", occurred_at: at, data }), ctx)).length;
-  return { outcome: "recorded", responseId, contactId: person.id, shadow: !real, action, matched: found?.by ?? null, ghlContactId: ghlId, lead: person.isNew, runsStarted: runs };
+  // D123: New from Typeform answers it (the tag, New lead once); the clean place for qualification too (D73's `qualify`, not decided yet)
+  const runs = (await dispatchEvent(c, await emitEvent(c, { ...base, contact_id: person.id, event_type: "form.submitted", occurred_at: at, data }), ctx)).length;
+  return { outcome: "recorded", responseId, contactId: person.id, shadow: !real, action, matched: found?.by ?? null, ghlContactId: ghlId, runsStarted: runs };
 }
 
 /** The webhook door: signature first (401 makes Typeform retry, so a secret put back in place heals it), then one submission. */
