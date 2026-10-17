@@ -4441,3 +4441,51 @@ second lead; a `lead.created` out of scope starts nothing and is audited, tagged
 change: the dispatch guard 1, the adoption guard 1, the door's tag 3, install putting Call booked back 3, the create not refusing 3,
 the import dispatch 1, `contact.is_lead` 6, booked workflows on the category instead of the type 2. The chart tests hold the three
 new files to D111 (tidy, exact).
+
+## D125. The harness stages a Typeform application, and books on the calendar it is told (2026-10-17)
+
+Tyler wants a full synthetic end-to-end test of Dating (Nelly) run by the operator: application → Strategy session → reschedule
+→ cancel → Consultation → recording → end of day → deposit → payment → signature. The harness (D23) had two gaps: an applicant
+could not be staged (her people arrive through the Typeform door, D122/D123), and a booking always went on the closer call's
+calendar, so the Strategy session (Triage call booked) could not be staged at all.
+
+**`form`.** `{ company, contact: <email>, action: "form", form?, answers?, responseId? }`. Unlike every other action the person
+need not exist: an application is how a person arrives, so the door finds or makes them. The harness builds a synthetic
+response from the company's form map (`typeform.forms`): every mapped question answered plausibly (the email as given; a phone
+from the 555-0100…0199 range kept for fiction, one per email, so GHL's phone lookup finds no real person; UTM source `sys-test`),
+`answers` overriding by ref, target or hidden name (a key the form lacks is refused, not ignored). It goes through
+`takeDelivery`, now the one function the signed webhook calls after the signature check, so the GHL lookup and write, the
+ledger's person, `form.submitted`, New from Typeform and New lead are the live ones; the only difference is `simulated: true` on
+the event. The write follows the mode as always: real for a test contact in test (and live, forced), would-have in shadow.
+Typeform is never called.
+- *Only a test contact (D97)*: an email on a test domain, or someone the ledger already holds who passes (`sys-test`). Someone
+  GHL alone tags `sys-test` is refused: the harness would have to read GHL to know, and the door would then write to them.
+  Refused while live unless forced, as every action.
+- *One application per response id*: the id is `sim-` + a hash of form and email, so the same request twice is the door's own
+  duplicate (`webhook_deliveries`); `responseId` names a second application (New from Typeform again, no second lead).
+- *Reset* removes the delivery marks of the person's `sim-` responses with the rest, so the same `form` is a first application
+  again. A real response's marks stay: Typeform's retries must stay no-ops. The contact stays, as for every reset (in test mode it
+  mirrors the GHL contact the door really made; GHL is never undone).
+- From the contact page or a `sys-test-form` tag it applies with the contact's own email (both now pass the CRM adapters).
+
+**`calendar`.** `book`, `book-self`: the calendar to book on, by external id, call type name (any case) or the calendar's own
+name, among the company's active mapped calendars; unknown is refused naming the ones there are. Without it, as before (the
+closer call). `reschedule`, `cancel`, `record`: the latest open staged booking on that calendar. The fix that matters: the staged
+booking's and reschedule's run context now carry the call type's **name** with its category (the poll always did), because D123's
+booked workflows match `appointment.term.name`; without it a staged Strategy session or Consultation ran neither. The booked
+event carries `calendar_id` as the poll's does. `reschedule` also takes `startsAt` and keeps the booking's length.
+
+**Also, found checking every action on a Calendly company and a form-made contact.** `pay` takes `deposit: true` (D119: the
+company's first declared deposit product, else a product named "Deposit (test)"; default $100), so deposit → balance can be
+staged. `call` dialed as the first active GHL user by name when there was no setter: in RapidCloser that is the other business's
+staff (production read-only: Dating has no setter; 12 of 14 users are staff), so the caller is now a setter, else one of the
+company's own closers or managers. `record`, `agreement`, `sign`, `cancel` needed nothing.
+
+Tests: `simulate-form.test.ts` (the real Dating install file, Calendly calendars, her three own workflows; shadow: the person is
+made, `sim-` id, no GHL write, New from Typeform and New lead once; the same request is a duplicate, a new `responseId` a second
+application and no second lead, an unknown answer key refused; an email on no test domain refused with nothing made, live refused;
+test mode: the GHL create with the answers by ref and the `dating` tag for real; reset then the same `form` is first again; a
+Strategy session runs only Triage call booked and a Consultation only Sales call booked, reschedule and cancel by calendar, no
+calendar is the Consultation; record, call (never the other business's staff), deposit, balance, agreement, sign; the route).
+Each fails without its change: the term name 3, the calendar choice 2, the deterministic id 1, the reset 1, the test-domain gate
+2, the caller 1.

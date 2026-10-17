@@ -978,14 +978,34 @@ rehearsal runs they started. Three ways to stage, same code:
 - `POST /api/admin/simulate` `{ "company": "<slug>", "contact": "<email | GHL id | our id>", "action": "<action>" }`
   with `Authorization: Bearer $CRON_SECRET`.
 
-Actions: `create` (a lead comes in), `book` (a setter books the closing call, 3 days out, 2pm in the
-contact's zone), `book-self`, `reschedule` (+2 days), `cancel`, `pay` (the program price), `agreement`
+Actions: `form` (a Typeform application, D125: below), `create` (a lead comes in), `book` (a setter books the closing call, 3 days out, 2pm in the
+contact's zone), `book-self`, `reschedule` (+2 days, or to `startsAt`), `cancel`, `pay` (the program price; `deposit: true`
+stages a deposit, D119, default $100), `agreement`
 (an agreement sent and unsigned), `sign` (the agreement completed), `record`
 (a Fathom-shaped recording with a short transcript, through the match ladder), `call` (a connected
-3-minute dialer call 20 minutes ago with a setting-call transcript, dialed by the roster's setter; GHL has no such
+3-minute dialer call 20 minutes ago with a setting-call transcript, dialed by the roster's setter, else one of the company's
+own closers or managers, never the other business's staff of a shared location; GHL has no such
 call to read it back from, so the transcript is held like a webhook's until the run is done),
 `reset` (the engine
-forgets every run, send, card, pursuit and synthetic appointment for that person; the contact stays).
+forgets every run, send, card, pursuit and synthetic appointment for that person, and a staged application's delivery
+marks, so the same `form` is a first application again; the contact stays).
+
+**Which calendar (D125).** A company with several mapped calendars (Dating (Nelly)'s Strategy session and Consultation) says
+which with `calendar`: the calendar's external id, its call type's name (`"Strategy session"`, any case) or its own name. `book`
+and `book-self` book on it (without it: the closer call's calendar, as before); `reschedule`, `cancel` and `record` take the
+latest open staged booking on it (without it: the latest open one). The booked event carries the call type's name, so a
+workflow held to it (Triage call booked, Sales call booked) runs exactly as for a real booking: one of them, never both.
+
+**A staged application (`form`, D125).** `{ "company": "dating-nelly", "contact": "tyler+n1@jtylerray.com", "action": "form",
+"form"?: "<form id or name>", "answers"?: { "<ref | first_name | field_contact_app_age | app_age | utm_source>": value }, "responseId"?: "n1" }`.
+The person need not exist: the response goes through `takeDelivery`, the function the signed Typeform webhook calls, so
+the door finds them in GHL (email, then phone) or makes them, writes the answers as the mode allows (real for a test
+contact in test mode, would-have in shadow), records `form.submitted` (`simulated: true`) and New from Typeform and New lead
+run as for a live applicant. Every mapped question gets a plausible answer (the email as given, a fictional 555-01xx phone
+one per email, UTM source `sys-test`); `answers` overrides by ref, target or hidden name, and a key the form does not have is
+refused. The response id is `sim-…`: one per form and email unless `responseId` names another, so the same request twice is
+one application. Typeform itself is never called. Only an email on a test domain, or someone the ledger already has tagged
+`sys-test`. From the contact page or a `sys-test-form` tag it applies with the contact's own email.
 Synthetic appointments have `source = 'test'` and never exist at a booking source; the premise check
 trusts our row for them. The closer on a staged booking is the calendar's host when known, else the
 user bound as `crm.default_closer` (a GHL user id), else the first closer on the roster. Refused while the company is live (`force: true` on the API overrides).
