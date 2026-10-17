@@ -170,6 +170,7 @@ refusal (`notifier.ts:16`), caught by `slackPostOrFail` (`:143-150`).
 | Slack not connected | Suppressed `unbound: slack`, run continues | `executor.ts:299` | `templates.scenarios.test.ts › payment-failed…` |
 | Channel binding unbound, no fallback | Suppressed `unbound: slack channel`, a warning alert | `executor.ts:296,299` | `alerts.test.ts › a step that could not run (Slack channel not bound)…` |
 | Thread parent missing (`thread_only`) | `noop: nothing to react to` | `executor.ts:309` | `templates.scenarios.test.ts` (D45 lines) |
+| Nothing happened, company quiet when empty (`quiet_when_empty`, D124) | `noop: nothing happened, so nothing was posted (quiet when empty)`; send suppressed | `executor.ts` slack_post | `quiet.test.ts` |
 | A `tag:` anchor the context cannot name | Posts to the channel, says so | `executor.ts:305` | `edge-cases.test.ts › two payments…` (G4) |
 | Posted, then the call died before the ledger update | The retry finds the `queued` row and skips `already posted (idempotency)` | `executor.ts:310` | `not yet` |
 | Reactions (`offer`, `react`, `unreact`, `react_on`) refused | Say so in the step result; a post with no offered reactions should still be a tap target (F5) | Every reaction error is swallowed to `false` (`:318-326`) | `not yet` |

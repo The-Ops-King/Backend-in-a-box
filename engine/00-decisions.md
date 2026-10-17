@@ -4296,3 +4296,54 @@ fields, a second run a no-op, a field outside the folder bound and not moved, a 
 code: dropping the signature check, the idempotency, the mode, the phone lookup, the blank-only rule, the separate tag add, the
 scope rule, the replica after the write, the importer's written check, the health check or the door's lead turns 1–4 of the 12
 red; dropping the folder's `parentId` or the folder read turns 5 of the provision tests red.
+
+## D124. Quiet when empty: a scheduled post with nothing in it is not posted, for a company that says so (2026-10-17)
+
+(Numbered D124: D123 is left to an entry being written in parallel.)
+
+Tyler, for Dating (Nelly): "for this client I want nothing to post if nothing happened." The Daily wrap-up posted
+"Nothing today: no leads, bookings, calls or payments." every evening, the weekly and monthly ones their own "Nothing last
+week/month", and the Weekly leaderboard "_No closes yet._ / _No sets yet._".
+- **The setting.** Per company: install key `quietWhenEmpty: true` (bound as `reports.quiet_when_empty`; omitted on a
+  re-install it stays as it is, `false` turns it off). It is one of the engine-level settings the Settings page offers, so
+  D109's `POST /api/admin/bindings/set` takes it too. `src/engine/quiet.ts` holds the key and the words.
+- **What opts in.** A `slack_post` names the step before's own fact: `quiet_when_empty: "vars.report.nothing"`. With the
+  setting on, a scheduled run where that fact is `true` posts nothing: the step is skipped, the run log says "nothing
+  happened, so nothing was posted (quiet when empty)", and the send is kept `suppressed` ("quiet when empty: nothing
+  happened") with what it would have said, as every other suppressed post is. A run started by hand (`fireNow`,
+  `event.manual`) posts whatever it holds: someone asked. The report step still keeps its wrap-up in `wrapups`.
+- **"Nothing" is the data's, per workflow, never the words.**
+  - Wrap-ups (daily, weekly, monthly): `report.nothing` (`nothingHappened` in `reports.ts`) is true when every registry
+    number the step read is zero or unread, every count in the show-rate breakdown (calls due, showed, no-shows, cancelled,
+    missing outcomes, rescheduled) is zero, nobody answered a booking or intake question, no per-closer or per-setter line
+    has a number, and GHL was read. A GHL read that failed is not nothing: what it would have said is not known, and the
+    post says GHL could not be read.
+  - Weekly leaderboard: `board.nothing` (`nothingOnBoard` in `leaderboard.ts`) is true when no closer has cash or a close
+    and no setter has a set (a closer listed only for shows, or a setter only for the show rate of earlier sets, is not
+    something; a close counts when GHL holds no Payment records, since the board ranks by closes then).
+- **Audited, unchanged** (they already post only when there is something): Calendar availability and Health check post
+  only through alerts, raised for a finding and said by Health check's alert ways (raised, still open, resolved); a sweep
+  with no finding raises nothing and posts nothing. Ledger drift starts only on a finding (`drift.*`) and writes GHL,
+  never Slack. The EOD reminder's check stops at "nothing to file" when nothing is due, and its operator line is
+  `only_if` something is overdue two days. EOD filed starts only when a closer files. None of them carries the field.
+- **On the chart** (D111, D103). For a company with the setting on, the post is a sometimes-step: dashed, "only if something
+  happened; otherwise skipped" under its words, the popover "Only if something happened: this company posts nothing when
+  nothing happened (quiet when empty); a run started by hand posts anyway. Otherwise it is skipped and the run goes on."
+  (`chartOf` reads the company's bindings, as the workflow and run pages pass them.) For any other company the post always
+  runs and is drawn so: the chart is the chart before D124, node for node and SVG for SVG. The skip goes on by the normal
+  edge, so no line is added; D111's check holds the chart exact either way.
+- **Without the setting nothing changes.** The four templates differ from before only by the field (and a sentence of
+  description); the facts gain a `nothing` value nothing else reads. Hair's four copies are edited (diverged) and do not
+  take a template upgrade; PMU's are untouched and, upgraded, post byte for byte as before (it has no setting).
+- Apply, for Dating (Nelly): re-install with `installs/dating-nelly.json` (now `"quietWhenEmpty": true`), or set the one
+  binding with `POST /api/admin/bindings/set { company: "dating-nelly", key: "reports.quiet_when_empty", value: "true" }`;
+  then `POST /api/admin/templates { company: "dating-nelly", templates: ["daily-wrap-up", "weekly-wrap-up",
+  "monthly-wrap-up", "weekly-leaderboard"] }` upgrades her four untouched copies.
+- Tests: `quiet.test.ts` (the wrap-up's nothing from numbers, calls, a name list GHL hands over, answers, a failed read and
+  per-person lines; the board's from cash, closes and sets; the setting's values; only the four templates opt in; the chart
+  with the setting on, exact at both widths and saying "something happened", and without it or set false equal to the chart
+  of the template without the field, SVG and all; on an empty Monday with the setting on neither the wrap-up nor the
+  leaderboard posts, each step skipped with the reason and its send suppressed; something in the day posts; a run by hand
+  posts even when empty; without the setting and with it false the templates now and before D124, side by side on one
+  company, post the same text and record the same step results; install binds, keeps and turns off the key). Turning the
+  executor's check off turns the empty-day test red.

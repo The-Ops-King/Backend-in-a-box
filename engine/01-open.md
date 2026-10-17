@@ -657,3 +657,9 @@ Tyler, 2026-10-16 (later):
 - **TODO:** the form's "Not now" path ends on Typeform's own "create your own typeform" screen (153 of 275 responses).
   It should probably go to the Triage call link instead; do not change it until Tyler says.
 - Nelly's Calendly token: later.
+
+Tyler, 2026-10-17: "for this client I want nothing to post if nothing happened." Built (D124, not applied): install key
+`quietWhenEmpty` (`reports.quiet_when_empty`); the three wrap-ups and the Weekly leaderboard post nothing on a scheduled run
+with nothing in it, by their own numbers. Her install file has `"quietWhenEmpty": true`. Apply: re-install Dating Nelly with
+it (or `bindings/set` the one key), then `POST /api/admin/templates { company: "dating-nelly", templates: ["daily-wrap-up",
+"weekly-wrap-up", "monthly-wrap-up", "weekly-leaderboard"] }` (her four copies are untouched, so they upgrade).

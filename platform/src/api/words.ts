@@ -6,6 +6,7 @@ import { UNREAD, UNREAD_MANY, namer, type Named, type Namer } from "./crm-names"
 import { scheduleWords } from "@/engine/when";
 import type { Projected } from "@/engine/project";
 import { withImplicit } from "@/chart/implicit";
+import { QUIET_COND, QUIET_ONLY_IF, quietWhenEmpty } from "@/engine/quiet";
 
 /**
  * The words the dashboard shows for a workflow and for one run of it. The engine's own describe.ts says what a node does;
@@ -320,8 +321,11 @@ export function chartOf(full: Definition, company: { name: string; timezone: str
     if (jevRef) d.detail = `Jev answered “${jevRef.question}” and had to be at least ${Math.round(jevRef.threshold * 100)}% sure; a reading a careful person would doubt counts as unclear. ${d.detail ?? ""}`.trim();
     let quote: string | undefined;
     try { const ex = nodeExamples(n, ctx, company.timezone)[0]?.example.text; quote = n.type === "slack_post" || n.type === "notify_owner" ? ex?.trim() : n.type === "send_sms" || n.type === "send_email" || n.type === "note" ? strip(ex) : undefined; } catch { quote = d.quote; }
-    const cond = n.only_if ? `Only if ${predicateWords(n.only_if)}${n.type === "slack_post" && n.thread_only ? "; and only when the post it reacts to is in Slack" : ""}` : n.type === "slack_post" && n.thread_only ? "Only when the post it reacts to is in Slack; nothing is posted otherwise" : n.type === "pipeline_card" && n.if_missing === "skip" ? "Only if a card is already on that board; this step never creates one" : n.type === "pipeline_card" && !n.stage ? "Only when a card is already on that board: there is no stage to make one in" : n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : undefined;
-    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, label: s.label, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, onlyIf: n.only_if ? onlyIfWords(n.only_if, constsOf(full)) : undefined, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), helper: (n.type === "set_var" || n.type === "classify" || n.type === "lookup" || n.type === "wait") || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource), plumb: plumbOf(n, s.title) };
+    // D124: a post quiet when empty is a sometimes-step only for a company with the setting on; for any other it always runs, and is drawn so
+    const quiet = n.type === "slack_post" && !!n.quiet_when_empty && quietWhenEmpty(bindings);
+    const onlyIf = [n.only_if ? onlyIfWords(n.only_if, constsOf(full)) : null, quiet ? QUIET_ONLY_IF : null].filter(Boolean).join(" and ") || undefined;
+    const cond = quiet ? (n.only_if ? `Only if ${predicateWords(n.only_if)} and ${QUIET_COND.replace(/^Only if /, "")}` : QUIET_COND) : n.only_if ? `Only if ${predicateWords(n.only_if)}${n.type === "slack_post" && n.thread_only ? "; and only when the post it reacts to is in Slack" : ""}` : n.type === "slack_post" && n.thread_only ? "Only when the post it reacts to is in Slack; nothing is posted otherwise" : n.type === "pipeline_card" && n.if_missing === "skip" ? "Only if a card is already on that board; this step never creates one" : n.type === "pipeline_card" && !n.stage ? "Only when a card is already on that board: there is no stage to make one in" : n.type === "send_sms" || n.type === "send_email" ? (n.validity?.min_lead ? `Only when the call is more than ${durationWords(n.validity.min_lead)} away when this comes due` : undefined) : undefined;
+    return { id: n.id, kind: kindOf(n), title: s.title, meta: s.meta, label: s.label, detail: n.type === "exit" ? exitWords(n.reason) : d.detail, quote, cond, onlyIf, channel: channelOf(n), face: faceOf(n, bindings), ...threadOf(n), helper: (n.type === "set_var" || n.type === "classify" || n.type === "lookup" || n.type === "wait") || undefined, logo: jevRef ? "jev" : logoOf(n, bookingSource), plumb: plumbOf(n, s.title) };
   });
   const edges: ChartEdge[] = def.edges.map((e) => ({ from: e.from, to: e.to, label: edgeWords(e, def.nodes.find((n) => n.id === e.from)), else: e.else || undefined }));
   // before the implicit ways (their words name steps by title) and again after (the ends they add are steps too)
