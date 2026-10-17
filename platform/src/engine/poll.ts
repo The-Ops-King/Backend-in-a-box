@@ -116,7 +116,7 @@ async function pollContacts(c: PoolClient, co: CompanyRow, ac: Company, adapters
     for (const t of s.tags.filter((t) => !prevTags.includes(t))) {
       // a sys-test-<action> tag is an instruction to the harness, not a fact about the person: it never becomes a tag.added event
       const sim = simTag(t);
-      if (sim) { const r = await simulate({ c, company: co, contactId: id }, sim); if (r.ok) rep.eventsDispatched += r.runsStarted; await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "run.exited", source: "test", data: { harness: sim, ...(r.ok ? { detail: r.detail, runs_started: r.runsStarted } : { refused: r.why }) } }); continue; }
+      if (sim) { const r = await simulate({ c, company: co, contactId: id, adapters }, sim); if (r.ok) rep.eventsDispatched += r.runsStarted; await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "run.exited", source: "test", data: { harness: sim, ...(r.ok ? { detail: r.detail, runs_started: r.runsStarted } : { refused: r.why }) } }); continue; }
       rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "tag.added", source: "ghl_poll", data: { tag: t } }), ctx)).length;
     }
     for (const t of prevTags.filter((t) => !s.tags.includes(t))) rep.eventsDispatched += (await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "tag.removed", source: "ghl_poll", data: { tag: t } }), ctx)).length;

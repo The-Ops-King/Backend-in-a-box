@@ -174,7 +174,7 @@ export type Submitted =
  * skipped; history starts nothing, unless `newLead`: then a response the door never saw is dispatched exactly as the webhook
  * dispatches one, so the applicant runs what a live one does, once (the workflow's own check makes New lead once per person).
  */
-export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Company, bindings: Record<string, string>, adapters: Adapters, formId: string, form: TypeformFormMap, r: TfResponse, opts: { via: "webhook" | "import"; real?: boolean; newLead?: boolean }): Promise<Submitted> {
+export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Company, bindings: Record<string, string>, adapters: Adapters, formId: string, form: TypeformFormMap, r: TfResponse, opts: { via: "webhook" | "import"; real?: boolean; newLead?: boolean; simulated?: boolean }): Promise<Submitted> {
   const responseId = r.response_id ?? r.token, key = `${formId}:${responseId}`;
   const seen = !!(await one(c, `insert into webhook_deliveries (company_id, provider, delivery_id) values ($1,'${SEEN}',$2) on conflict do nothing returning delivery_id`, [co.id, key]));
   if (opts.via === "webhook" && !seen) return { outcome: "duplicate", responseId };
@@ -182,7 +182,7 @@ export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Compa
   const p = parseResponse(form, r, bindings);
   const base = { company_id: co.id, opportunity_id: null, appointment_id: null, source: "form" } as const;
   const at = r.submitted_at ? new Date(r.submitted_at) : undefined;
-  const about = { form_id: formId, form_name: form.name ?? null, response_id: responseId, submitted_at: r.submitted_at ?? null, via: opts.via };
+  const about = { form_id: formId, form_name: form.name ?? null, response_id: responseId, submitted_at: r.submitted_at ?? null, via: opts.via, ...(opts.simulated ? { simulated: true } : {}) };
   if (!p.std.email && !p.std.phone) {
     if (seen) await emitEvent(c, { ...base, contact_id: null, event_type: "form.submitted", occurred_at: at, data: { ...about, unidentified: true } });
     return { outcome: "unidentified", responseId };
@@ -231,17 +231,28 @@ export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Compa
 
 /** The webhook door: signature first (401 makes Typeform retry, so a secret put back in place heals it), then one submission. */
 export async function receiveTypeform(c: PoolClient, companyId: string, signature: string | null, raw: string, adapters: Adapters): Promise<{ status: number; body: Record<string, unknown> }> {
-  const { row, adapterCompany, bindings } = await loadCompany(c, companyId);
-  const secret = bindings[TF_SECRET_KEY];
+  const loaded = await loadCompany(c, companyId);
+  const secret = loaded.bindings[TF_SECRET_KEY];
   if (!secret) return { status: 401, body: { error: "typeform webhook secret not bound for this company" } };
   const v = verifyTypeformSignature(secret, signature, raw);
   if (!v.ok) return { status: 401, body: { error: v.why } };
-  let body: { event_type?: string; form_response?: TfResponse & { form_id?: string } };
+  let body: TfDelivery;
   try { body = JSON.parse(raw); } catch { return { status: 400, body: { error: "body is not JSON" } }; }
+  return takeDelivery(c, loaded, body, adapters);
+}
+
+export type TfDelivery = { event_type?: string; form_response?: TfResponse & { form_id?: string } };
+/**
+ * A delivery the door takes, once it is known to be Typeform's (signed), or the test harness's (D23, `form`; D125): the same
+ * one submission either way, so New from Typeform, New lead and the GHL writes are exactly the live ones. `simulated` only marks
+ * the event (as every staged fact is marked); nothing else differs.
+ */
+export async function takeDelivery(c: PoolClient, loaded: Awaited<ReturnType<typeof loadCompany>>, body: TfDelivery, adapters: Adapters, opts: { simulated?: boolean } = {}): Promise<{ status: number; body: Record<string, unknown> }> {
+  const { row, adapterCompany, bindings } = loaded;
   if (body.event_type !== "form_response" || !body.form_response) return { status: 200, body: { ok: true, ignored: body.event_type ?? "no event type" } };
   const formId = body.form_response.form_id ?? "", form = formsOf(bindings)[formId];
   if (!form) return { status: 200, body: { ok: true, ignored: `form ${formId} is not mapped for this company` } };
-  const r = await submitApplication(c, row, adapterCompany, bindings, adapters, formId, form, body.form_response, { via: "webhook" });
+  const r = await submitApplication(c, row, adapterCompany, bindings, adapters, formId, form, body.form_response, { via: "webhook", ...(opts.simulated ? { simulated: true } : {}) });
   return { status: 200, body: { ok: true, ...r } };
 }
 
