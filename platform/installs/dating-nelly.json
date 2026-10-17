@@ -234,5 +234,8 @@
   "alerts": {
     "slackChannel": "C0C9UDURSGM"
   },
-  "quietWhenEmpty": true
+  "quietWhenEmpty": true,
+  "bot": {
+    "escalateTo": "jt@jtylerray.com"
+  }
 }
