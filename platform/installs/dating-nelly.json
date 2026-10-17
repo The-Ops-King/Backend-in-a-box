@@ -218,5 +218,20 @@
         "field": "app_support_wanted"
       }
     ]
+  },
+  "slack": {
+    "bookings": "C0C9UDURSGM",
+    "ops": "C0C9UDURSGM",
+    "alerts": "C0C9UDURSGM",
+    "calls": "C0C9UDURSGM",
+    "setter_calls": "C0C9UDURSGM",
+    "reports": "C0C9UDURSGM",
+    "attention": "C0C9UDURSGM",
+    "payments": "C0C9UDURSGM",
+    "deals": "C0C9UDURSGM",
+    "eod": "C0C9UDURSGM"
+  },
+  "alerts": {
+    "slackChannel": "C0C9UDURSGM"
   }
 }
