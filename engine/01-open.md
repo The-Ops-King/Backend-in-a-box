@@ -721,3 +721,8 @@ Tyler, on the New from Typeform chart's "Log: A new lead is added in GHL" step: 
 clear English explanation of what they do, and then ... drill into more specifics ... If it says 'wait until a person,' we should
 be able to click on that and ask what that means." The `record` step's title (src/api/words.ts) reuses the trigger's sentence and
 reads as a GHL write; fix it as part of this.
+
+Dating (Nelly), 2026-10-17: moved to quiet (D132; the move cleared 194 rehearsal runs). Test channel #ops-test (D133). Typeform
+import applied with New lead, on Tyler's word ("import them, add the dating tag and run the new lead automation in our silent
+mode"): 295 responses, 290 contacts created and 5 updated in RapidCloser, 0 failed; each tagged dating, New lead making the setter
+card at New Lead (spot-checked in GHL). The runs drain at the engine's per-minute pace.
