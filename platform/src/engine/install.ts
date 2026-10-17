@@ -14,7 +14,7 @@ import { setCompanyMode, WRITES_FOR_ALL, type Cleared } from "./golive";
 import { BOOKING_CARD_KEY, backfillBookingCard, intakeProblem, type IntakeLine } from "./booking-card";
 import { OBJECTIONS_KEY, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { DEPOSIT_PRODUCTS_KEY } from "./payments";
-import { modeProblem, TEST_CHANNELS_KEY } from "./mode";
+import { modeProblem, TEST_CHANNEL_KEY } from "./mode";
 import { HARNESS_KEY, harnessProblem, type HarnessTranscripts } from "./harness-scripts";
 import { chartLayoutOf, notDrawable } from "@/api/chart-verdict";
 import { checkMapAgainstForms, mapProblems, registerTypeform, TF_FORMS_KEY, TF_TOKEN_KEY, type TypeformForms } from "./typeform";
@@ -69,8 +69,8 @@ export type InstallInput = {
   bot?: { escalateTo?: string };
   /** D129: a team member whose Slack account is not under their GHL email, mapped by hand: { <roster email or CRM user id>: <Slack user id, or the email Slack has for them> }. Mentions, DMs and the alert buttons then know them; nothing found by email replaces it. */
   slackUsers?: Record<string, string>;
-  /** D132: the Slack channels (ids) a quiet company may post to; every other post is held back in quiet. Bound as test.slack_channels; [] removes them. */
-  testSlackChannels?: string[];
+  /** D133: the one Slack channel (id) every post goes to before its run is live, whatever channel its step names; going live is the switch. Bound as test.slack_channel; "" removes it. */
+  testSlackChannel?: string;
   /** D131: what the test harness's staged calls say, in the company's own offer (bound as harness.transcripts): the closer call `record` stages and the setter call `call` stages, line by line. Omitted: left as it is; without any, an offer-neutral script. */
   harness?: HarnessTranscripts;
   contractValueDefault?: number;         // the program price; new opportunities get it as contract_value until a closer sets one
@@ -331,8 +331,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     if (!inboundSecret) await bind("secret.zapier_inbound", "secret", inboundPlain);
     if (input.depositProducts?.length) await bind(DEPOSIT_PRODUCTS_KEY, "text", JSON.stringify([...new Set(input.depositProducts.map((x) => x.trim()))]));
     else if (input.depositProducts) await c.query("delete from bindings where company_id=$1 and key=$2", [companyId, DEPOSIT_PRODUCTS_KEY]);
-    if (input.testSlackChannels?.length) await bind(TEST_CHANNELS_KEY, "text", [...new Set(input.testSlackChannels.map((x) => x.trim()).filter(Boolean))].join(","));
-    else if (input.testSlackChannels) await c.query("delete from bindings where company_id=$1 and key=$2", [companyId, TEST_CHANNELS_KEY]);
+    if (input.testSlackChannel?.trim()) await bind(TEST_CHANNEL_KEY, "channel", input.testSlackChannel.trim());
+    else if (input.testSlackChannel !== undefined) await c.query("delete from bindings where company_id=$1 and key=$2", [companyId, TEST_CHANNEL_KEY]);
     if (input.harness) { const why = harnessProblem(input.harness); if (why) throw new Error(`harness: ${why}`); await bind(HARNESS_KEY, "text", JSON.stringify(input.harness)); }
     if (input.contractValueDefault !== undefined) await c.query("update companies set contract_value_default=$2 where id=$1", [companyId, input.contractValueDefault]);
     if (input.quietHours) await c.query("update companies set send_window_start=coalesce($2, send_window_start), send_window_end=coalesce($3, send_window_end), quiet_allow_transactional=coalesce($4, quiet_allow_transactional) where id=$1", [companyId, input.quietHours.start ?? null, input.quietHours.end ?? null, input.quietHours.allowTransactional ?? null]);

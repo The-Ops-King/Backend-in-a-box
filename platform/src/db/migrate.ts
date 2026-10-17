@@ -60,6 +60,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table sends drop constraint if exists sends_status_check`);
     // D132: a would-have send in ghost is 'ghost'; one held back in quiet is 'quiet'
     await c.query(`update sends set status='ghost' where status='shadow'`);
+    // D133: one test channel (the first of D132's list); every pre-live post goes there
+    await c.query(`update bindings set key='test.slack_channel', kind='channel', value=convert_to(split_part(convert_from(value,'utf8'),',',1),'utf8') where key='test.slack_channels' and not exists (select 1 from bindings b where b.company_id=bindings.company_id and b.key='test.slack_channel')`);
+    await c.query(`delete from bindings where key='test.slack_channels'`);
     await c.query(`alter table sends add constraint sends_status_check check (status in ('queued','sent','failed','suppressed','ghost','quiet'))`);
     // booking source generalisation (2026-10-06): columns lose their GHL prefix, calendars/appointments carry a source.
     // Renames are guarded so a database created from the current schema.sql passes straight through.

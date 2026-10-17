@@ -166,9 +166,9 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     dms.length = 0; await filed(); await tick(fake, undefined, companyId);
     expect(dms).toEqual([]);
   });
-  it("D132 quiet: a real contact's CRM work is written and nothing reaches them (texts and emails held), Slack goes only to a test channel; a test contact gets everything", async () => {
+  it("D132 quiet: a real contact's CRM work is written and nothing reaches them (texts and emails held); a test contact gets everything. D133: before live every Slack post goes to the test channel, saying where it was for; live posts where the step points", async () => {
     await asOperator(async (c) => {
-      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.bookings','channel',$2),($1,'slack.channel.deals','channel',$3),($1,'test.slack_channels','text',$2) on conflict (company_id,key) do update set value=excluded.value", [companyId, Buffer.from("CTEST"), Buffer.from("CREAL")]);
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.bookings','channel',$2),($1,'slack.channel.deals','channel',$3),($1,'test.slack_channel','channel',$2) on conflict (company_id,key) do update set value=excluded.value", [companyId, Buffer.from("CTEST"), Buffer.from("CREAL")]);
       const nodes = [{ id: "t1", type: "trigger", event: "lead.created" }, { id: "p1", type: "slack_post", channel: "{{slack.channel.bookings}}", template: "booked {{contact.first_name}}" }, { id: "p2", type: "slack_post", channel: "{{slack.channel.deals}}", template: "deal {{contact.first_name}}" }, { id: "x1", type: "exit", reason: "done" }];
       const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "none" }, nodes, edges: nodes.slice(0, -1).map((n, i) => ({ from: n.id, to: nodes[i + 1].id })) });
       const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Quiet posts','always',true) returning id", [companyId]))!;
@@ -180,16 +180,23 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     const posted = dms.length;
     for (const ct of [real, mine]) await lead(ct);
     await tick(fake, undefined, companyId);
-    // the real contact: the CRM got the tag and the card; the text and the email were held, not sent; Slack only in the test channel
+    // the real contact: the CRM got the tag and the card; the text and the email were held, not sent
     expect(crmTags).toContainEqual({ to: "L5", tag: "stat-new" }); expect(crmCards).toContain("L5"); expect(await localTags(real)).toContain("stat-new");
     expect(sent.some((s) => s.to === "L5")).toBe(false);
     expect(await sendsOf(real)).toMatchObject([{ status: "quiet", suppressed_reason: "quiet mode: nothing reaches a contact" }, { status: "quiet", suppressed_reason: "quiet mode: nothing reaches a contact" }]);
     const newPosts = dms.slice(posted);
-    expect(newPosts.filter((p) => p.text.endsWith("booked T")).map((p) => p.channel)).toEqual(["CTEST", "CTEST"]);   // both contacts' posts to the test channel went
-    expect(newPosts.filter((p) => p.text.endsWith("deal T")).map((p) => p.channel)).toEqual(["CREAL"]);   // only the test contact's reached the other channel
-    expect(newPosts.find((p) => p.channel === "CTEST")!.text).toMatch(/^🧪 \*quiet\* — /);
+    // every post, the test contact's too, went to the test channel; the one meant for another channel says which
+    expect(newPosts.filter((p) => /(booked|deal) T$/.test(p.text)).map((p) => p.channel)).toEqual(["CTEST", "CTEST", "CTEST", "CTEST"]);
+    expect(newPosts.filter((p) => p.text.endsWith("booked T")).every((p) => /^🧪 \*quiet\* — booked T$/.test(p.text))).toBe(true);
+    expect(newPosts.filter((p) => p.text.endsWith("deal T")).every((p) => /^🧪 \*quiet\* — For <#CREAL>:\ndeal T$/.test(p.text))).toBe(true);
     // the test contact: everything real
     expect(sent.filter((s) => s.to === "L6").map((s) => s.kind).sort()).toEqual(["email", "sms"]);
+    // going live is the switch: the same steps post where they point, unmarked
+    await setMode("live");
+    const before = dms.length;
+    await lead(await contact("L9", "client9@gmail.com", [])); await tick(fake, undefined, companyId);
+    expect(dms.slice(before).filter((p) => /(booked|deal) T$/.test(p.text))).toEqual([{ channel: "CTEST", text: "booked T" }, { channel: "CREAL", text: "deal T" }]);
+    await setMode("quiet");
   });
 
   it("D132: moving up into quiet passes the readiness gate and clears the runs born in ghost or test (their first steps never wrote); moving down is the flag", async () => {

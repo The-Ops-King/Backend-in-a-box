@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { parseDefinition } from "./definition";
-import { MODE_WORDS, runMode, TEST_CHANNELS_KEY, TEST_DOMAINS_KEY, testChannels, testDomains, type Mode } from "./mode";
+import { MODE_WORDS, runMode, TEST_CHANNEL_KEY, TEST_DOMAINS_KEY, testDomains, type Mode } from "./mode";
 const bindingsOf = (rows: { key: string; value: Buffer }[]) => Object.fromEntries(rows.map((r) => [r.key, r.value.toString("utf8")]));
 
 /**
@@ -44,8 +44,8 @@ export async function companyReadiness(c: PoolClient, companyId: string, slugPre
   });
   const issues: Issue[] = [];
   if (co.mode !== "live") issues.push({ level: "warning", text: `Company is in ${co.mode}: ${MODE_WORDS[co.mode].about}.` });
-  if (workflows.some((w) => w.enabled && w.runsIn === "quiet" && w.postsToSlack) && !testChannels(bindingsOf(await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key=$2", [companyId, TEST_CHANNELS_KEY]))).length)
-    issues.push({ level: "warning", text: "Quiet with no test Slack channel (test.slack_channels): every Slack post is held back, so the team sees nothing.", href: `${slugPrefix}/setup` });
+  if (slack && workflows.some((w) => w.enabled && w.runsIn !== "live" && w.postsToSlack) && !bound.has(TEST_CHANNEL_KEY))
+    issues.push({ level: "warning", text: "No test Slack channel (test.slack_channel): before live, posts go to their own channels marked 🧪, and DMs to the ops channel. Set one and every pre-live post goes there instead.", href: `${slugPrefix}/setup` });
   if ((co.mode === "test" || co.mode === "quiet") && !testDomains(bindingsOf(await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key=$2", [companyId, TEST_DOMAINS_KEY]))).length)
     issues.push({ level: "warning", text: `No test email domain (test.domains): in ${co.mode} only contacts tagged sys-test get everything.`, href: `${slugPrefix}/setup` });
   if (!slack) issues.push({ level: "blocker", text: SLACK_BLOCKER, href: `${slugPrefix}/setup#slack` });

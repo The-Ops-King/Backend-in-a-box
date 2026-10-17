@@ -308,7 +308,5 @@
   "slackUsers": {
     "mitch@revsignals.io": "mitch@salesagency.ai"
   },
-  "testSlackChannels": [
-    "C0C9UDURSGM"
-  ]
+  "testSlackChannel": "C0C9UDURSGM"
 }

@@ -9,7 +9,7 @@ import { predicateWords, durationWords, skippedWords } from "./describe";
 import { syncCards, pickCard, latestCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow, timeParam } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
-import { testChannels, type Effective, type Mode } from "./mode";
+import { TEST_CHANNEL_KEY, type Effective, type Mode } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { raise } from "./alerts";
 import { applyOutcome, outcomeTermFor, recordDisposition } from "./disposition";
@@ -95,8 +95,7 @@ const ghost = (d: ExecDeps) => d.effective === "ghost";
 const held = (d: ExecDeps) => d.effective !== "real";
 const heldFlag = (d: ExecDeps) => (ghost(d) ? { ghost: true } : { quiet: true });
 const QUIET_HELD = "quiet mode: nothing reaches a contact";
-/** D132: in quiet, a Slack post goes only to one of the company's test channels; an alert about the engine itself (label none) always goes. */
-const quietChannelWhy = (d: ExecDeps, channel: string, label?: string) => d.effective === "quiet" && label !== "none" && !testChannels(d.bindings).includes(channel) ? `quiet mode: ${channel} is not one of the company's test channels (test.slack_channels)` : null;
+
 const single = (d: ExecDeps, id: string): string | null => onwardEdge(d.edgesFrom(id))?.to ?? null;
 const env = (d: ExecDeps) => ({ now: d.now, tz: contactTz(d), companyTz: d.company.timezone });
 
@@ -198,18 +197,22 @@ export async function markGone(c: PoolClient, company: Pick<CompanyRow, "id" | "
 /** A Slack user id (a DM), as opposed to a channel. */
 const isSlackUser = (id: string) => /^[UW][A-Z0-9]{2,}$/.test(id);
 /**
- * D76: until the run is live (D92: the workflow's own mode, else the company's), a DM to a team member never reaches them. It goes to the company's ops channel
- * (`slack.channel.ops`), else the operator's DM (`bot.escalate_to`), "Would have sent to <name>:" first, unless the run is
- * about a test contact and the operator is the recipient. Neither bound: written down, posted nowhere.
- * Null: deliver as addressed (live, a channel, or the operator's own test DM).
+ * Where a Slack post goes before its run is live (the run's rung, D92). D133: with a test channel set (`test.slack_channel`), every post
+ * goes there instead of where its step points (its live channel), saying where it was for: "For #deals:" or "Would have sent to
+ * <name>:" for a DM. Going live is the switch; nothing else changes. Without one, as before: a channel post goes to its own
+ * channel, marked (D31), and a DM goes to the ops channel (`slack.channel.ops`), else the operator (`bot.escalate_to`), unless the
+ * run is about a test contact and the operator is the recipient (D76). Null: deliver as addressed.
  */
-async function dmRoute(d: ExecDeps, recipient: string | undefined): Promise<null | { to: string; prefix: string } | { blocked: string }> {
-  if (!recipient || !isSlackUser(recipient) || d.mode === "live") return null;
-  const operator = d.bindings["bot.escalate_to"], target = d.bindings["slack.channel.ops"] || operator;
-  if (operator && recipient === operator && d.effective === "real" && d.run.contact_id) return null;
-  if (!target) return { blocked: `${d.mode} mode: a DM to a team member goes to the ops channel until live, and neither it (slack.channel.ops) nor an operator (bot.escalate_to) is set` };
-  const name = (await one<{ name: string }>(d.c, "select name from users where company_id=$1 and slack_user_id=$2 limit 1", [d.company.id, recipient]))?.name ?? recipient;
-  return { to: target, prefix: `Would have sent to ${name}:\n` };
+async function slackRoute(d: ExecDeps, target: string | undefined): Promise<null | { to: string; prefix: string } | { blocked: string }> {
+  if (!target || d.mode === "live") return null;
+  const nameOf = async (u: string) => (await one<{ name: string }>(d.c, "select name from users where company_id=$1 and slack_user_id=$2 limit 1", [d.company.id, u]))?.name ?? u;
+  const test = d.bindings[TEST_CHANNEL_KEY];
+  if (test) return target === test ? null : { to: test, prefix: isSlackUser(target) ? `Would have sent to ${await nameOf(target)}:\n` : `For <#${target}>:\n` };
+  if (!isSlackUser(target)) return null;
+  const operator = d.bindings["bot.escalate_to"], ops = d.bindings["slack.channel.ops"] || operator;
+  if (operator && target === operator && d.effective === "real" && d.run.contact_id) return null;
+  if (!ops) return { blocked: `${d.mode} mode: a DM to a team member goes to the test channel (test.slack_channel), else the ops channel, until live, and none of them (nor an operator, bot.escalate_to) is set` };
+  return { to: ops, prefix: `Would have sent to ${await nameOf(target)}:\n` };
 }
 
 /** D56: Slack refusing a post (bad token, channel gone) fails that send and alerts; the run goes on (the CRM steps after a post are the point of the run). */
@@ -332,18 +335,16 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       }
       const fallback = node.fallback_channel ? (/^\{\{/.test(node.fallback_channel) ? (resolvePath(d.ctx, node.fallback_channel.replace(/[{}\s]/g, "")) as string | undefined) : node.fallback_channel) : undefined;
       const slackUser = owner?.slack_user_id ?? null;   // resolveMentions already looked the owner up
-      const route = await dmRoute(d, slackUser ?? undefined);
+      const route = await slackRoute(d, slackUser ?? fallback);
       if (route && "blocked" in route) { await recordSend(d, node, "slack", text, "suppressed", route.blocked); return { status: "skipped", next, result: { ...out, kind: "noop", why: route.blocked, would_post: text.slice(0, 160) } }; }
       const target = route ? route.to : slackUser ?? fallback;
-      const body = route ? `${route.prefix}${text}` : slackUser ? text : `${owner?.name ? `*${owner.name}* ` : ""}${text}`;
+      const named = slackUser ? text : `${owner?.name ? `*${owner.name}* ` : ""}${text}`, body = route ? `${route.prefix}${named}` : named;
       if (!conn || !target) { await recordSend(d, node, "slack", body, "suppressed", conn ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, kind: "blocked", why: conn ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
-      const quietWhy = quietChannelWhy(d, target);
-      if (quietWhy) { await recordSend(d, node, "slack", body, "quiet", quietWhy); return { status: "ok", next, result: { ...out, quiet: true, why: quietWhy, would_post: body.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", body, "queued"); if (!send) return { status: "skipped", next, result: { ...out, kind: "noop", why: "already posted (idempotency)" } };
       const r = await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(decrypt(conn.bot_token), target, `${modePrefix(d)}${body}`, persona(d, node.as)));
       if ("refused" in r) return { status: "skipped", next, result: { ...out, kind: "blocked", why: `Slack refused the post: ${r.refused}`, would_post: body.slice(0, 160) } };
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, ghost(d) ? "ghost" : "sent", r.ts]);
-      return { status: "ok", next, result: { ...out, ...(ghost(d) ? { ghost: true } : {}), dm: !!slackUser, ...(route ? { redirected_to_operator: route.to } : {}), ts: r.ts } };
+      return { status: "ok", next, result: { ...out, ...(ghost(d) ? { ghost: true } : {}), dm: !!slackUser, ...(route ? { redirected_to: route.to } : {}), ts: r.ts } };
     }
 
     case "wait_for_reply": {
@@ -437,14 +438,12 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       }
       else if (node.thread_of) parentTs = resolvePath(d.ctx, `vars.__slack.${node.thread_of}`) as string | undefined;
       if (node.thread_only && !parentTs) { await recordSend(d, node, "slack", text, "suppressed", "no post to reply to"); return { status: "skipped", next, result: { kind: "noop", why: "nothing to react to: the post this replies to is not in Slack (booked before the engine, or its channel was unbound)" } }; }
-      const route = await dmRoute(d, channelId);
+      const route = await slackRoute(d, channelId);
       if (route && "blocked" in route) { await recordSend(d, node, "slack", text, "suppressed", route.blocked); return { status: "skipped", next, result: { kind: "noop", why: route.blocked, would_post: text.slice(0, 160) } }; }
-      // a DM held back until live goes to the operator; it threads under an earlier redirected post when that one went to the operator too
-      if (route && parentChannel !== route.to) { parentTs = undefined; parentChannel = undefined; }
-      // Slack is the team, not the CRM or the contact: in ghost the post still goes out, marked, so the team sees what the engine would do (D31); in quiet only to a test channel (D132)
+      // a post redirected before live threads under an earlier post only when that one was redirected to the same place
+      if (route && parentChannel && parentChannel !== route.to) { parentTs = undefined; parentChannel = undefined; }
+      // Slack is the team, not the CRM or the contact: before live the post still goes out, marked, so the team sees what the engine would do (D31), in the test channel when one is set (D133)
       const postTo = route ? route.to : parentTs && parentChannel ? parentChannel : channelId;
-      const quietWhy = quietChannelWhy(d, postTo, node.label);
-      if (quietWhy) { await recordSend(d, node, "slack", text, "quiet", quietWhy); return { status: "ok", next, result: { quiet: true, why: quietWhy, would_post: text.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", text, "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already posted (idempotency)" } };
       const token = decrypt(conn.bot_token);
       const shown = `${route ? route.prefix : ""}${text}`, body = !parentTs ? `${modePrefix(d, node.label)}${shown}` : shown;
@@ -475,7 +474,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (node.react_on) { const target = await postOf(node.react_on.of); if (target) for (const emoji of node.react_on.emojis.map((e) => render(e, d.ctx, env(d))).filter(Boolean)) if (await d.adapters.notifier.react(token, target.channel, target.ts, emoji).catch(() => false)) reactedOn++; }
       let tag: string | undefined;
       if (node.tag) { tag = render(node.tag, d.ctx, env(d)); await d.c.query("insert into slack_posts (company_id, tag, channel, ts, run_id) values ($1,$2,$3,$4,$5) on conflict (company_id, tag) do update set channel=excluded.channel, ts=excluded.ts, run_id=excluded.run_id, posted_at=now()", [d.company.id, tag, at, r.ts, d.run.id]); }
-      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), ...(route ? { redirected_to_operator: route.to } : {}), ...(prior && update ? { edited: prior.ts } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null, ...(tagged ? { tag: tagged } : {}) } : {}), ...(tag ? { remembered_as: tag } : {}), ...(node.react ? { reacted } : {}), ...(node.offer ? { offered } : {}), ...(buttons.length ? { buttons: buttons.map((b) => b.text) } : {}), ...(node.unreact ? { unreacted } : {}), ...(node.react_on ? { reacted_on: reactedOn } : {}) } };
+      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), ...(route ? { redirected_to: route.to } : {}), ...(prior && update ? { edited: prior.ts } : {}), ts: r.ts, ...(node.thread_of ? { in_thread_of: parentTs ?? null, ...(tagged ? { tag: tagged } : {}) } : {}), ...(tag ? { remembered_as: tag } : {}), ...(node.react ? { reacted } : {}), ...(node.offer ? { offered } : {}), ...(buttons.length ? { buttons: buttons.map((b) => b.text) } : {}), ...(node.unreact ? { unreacted } : {}), ...(node.react_on ? { reacted_on: reactedOn } : {}) } };
     }
 
     case "classify": {

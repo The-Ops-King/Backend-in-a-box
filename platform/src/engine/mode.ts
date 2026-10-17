@@ -7,7 +7,8 @@ import { many, one } from "@/db/client";
  * - test: the team's own test contacts (tagged sys-test, or an email on a test domain) get everything for real; everyone else
  *   runs as in ghost.
  * - quiet: everyone's CRM work is real (tags, cards, fields, records, notes, tasks), but nothing reaches a contact (no text,
- *   email, agreement or outbound webhook) and Slack posts only to the company's test channels; test contacts get everything.
+ *   email, agreement or outbound webhook); test contacts get everything.
+ * Before live, every Slack post goes to the company's test channel when one is set (D133).
  * - live: everyone, everything.
  * One rule carries the ladder, `effectiveMode`: what a run about a contact does (ghost, quiet or real).
  * D92: a workflow may stand on its own rung (`workflows.mode`); null follows the company. `runMode` is that rule, and
@@ -21,14 +22,13 @@ export const modeProblem = (v: unknown): string | null => isMode(v) ? null : v =
 export const MODE_WORDS: Record<Mode, { label: string; about: string }> = {
   ghost: { label: "ghost", about: "everyone runs; nothing is written to the CRM or sent to anyone, the record says what would have happened" },
   test: { label: "test", about: "test contacts get everything for real; everyone else runs as in ghost" },
-  quiet: { label: "quiet", about: "the CRM is written for everyone, but nothing reaches a contact and Slack posts only to test channels; test contacts get everything" },
+  quiet: { label: "quiet", about: "the CRM is written for everyone, but nothing reaches a contact; test contacts get everything" },
   live: { label: "live", about: "sends go out and the CRM is written, for everyone" },
 };
 export const TEST_TAG = "sys-test";
 export const TEST_DOMAINS_KEY = "test.domains";
-/** D132: the Slack channels a quiet company may post to (comma-separated ids). */
-export const TEST_CHANNELS_KEY = "test.slack_channels";
-export const testChannels = (bindings: Record<string, string>) => (bindings[TEST_CHANNELS_KEY] ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+/** D133: the one Slack channel every post goes to before its run is live (the steps keep their live channels; going live is the switch). */
+export const TEST_CHANNEL_KEY = "test.slack_channel";
 export const testDomains = (bindings: Record<string, string>) => (bindings[TEST_DOMAINS_KEY] ?? "").split(",").map((d) => d.trim().toLowerCase().replace(/^@/, "")).filter(Boolean);
 
 /** The one rule for "the team's own test contact" (D52): tagged sys-test, or an email on one of the company's test domains. Test mode lets them through; every metric leaves them out (D73). */

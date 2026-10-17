@@ -4648,3 +4648,20 @@ one is off.
 Tests: `mode.test.ts` (in quiet a real contact's tag and card reach the CRM, its text and email are held with the reason, its
 Slack post reaches the test channel only, a test contact gets everything; moving into quiet clears the ghost-born runs and
 keeps the quiet-born ones when moving back down). The other suites only had the name changed.
+
+## D133. Before live, every Slack post goes to the one test channel; going live is the switch (2026-10-17)
+
+Tyler, on D132's quiet holding posts to non-test channels: "test channel only. I'd like a setting on the specific workflow step
+that is the live channel, then one in the settings that's the test channel. So I set the test channel once and the other slack
+channels once and it's just a toggle to go live."
+
+Replaces D132's list of test channels and its holding of other posts. One setting, `test.slack_channel` (Settings, or install
+`testSlackChannel`; D132's list migrates to its first channel). A run whose rung is not live (ghost, test or quiet; the
+workflow's own rung, else the company's, D92) posts every Slack message there instead of where its step points: a channel post
+says "For #<its channel>:" when that is another channel, a DM "Would have sent to <name>:", both under the rung's 🧪 mark; a
+thread reply follows its parent there. Every step keeps its live channel, so the company going live (or one workflow) moves
+the posts and nothing else changes. Without a test channel, as before: a post goes to its own channel marked (D31), a DM to
+the ops channel or the operator (D76); readiness says so. Hair (test, no test channel) is unchanged.
+
+Tests: `mode.test.ts` (in quiet both contacts' posts to two channels land in the test channel, the other channel's says so;
+live, the same steps post where they point, unmarked).

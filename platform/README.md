@@ -1343,9 +1343,11 @@ written or sent: their runs start and go all the way through, every write and se
 the team still sees what the engine would do for real leads. Posts to Slack before live carry a 🧪 *mode*
 prefix (🧪 *ghost* for a run held as ghost in test). **Quiet** runs the CRM side for everyone: tags, cards, fields,
 records, notes and tasks are written for real, but nothing reaches a contact (a text, an email, an agreement or an outbound
-webhook is held back, recorded as `quiet` in `sends`), and Slack posts go only to the company's test channels
-(`test.slack_channels`, set at install as `testSlackChannels`; an alert about the engine itself always goes). Test contacts
-still get everything. Moving up into quiet, like into live, passes the readiness gate and clears the runs born on a lower rung
+webhook is held back, recorded as `quiet` in `sends`). Test contacts still get everything. **Slack before live (D133):** with
+a test channel set (`test.slack_channel`, Settings, or `testSlackChannel` at install) every post from a run that is not live
+goes there instead of where its step points, saying where it was for ("For #deals:", "Would have sent to <name>:"). Each step
+keeps its live channel, so going live (the company, or one workflow) is the only switch. Without one, a pre-live post goes to
+its own channel marked 🧪 (D31) and a DM to the ops channel (D76). Moving up into quiet, like into live, passes the readiness gate and clears the runs born on a lower rung
 (their first steps never wrote, so nothing resumes halfway); moving down is just the flag. Live is then taken in sections with the workflows' own switches: the simple ones first,
 then the ones that only note things, then one system at a time.
 
