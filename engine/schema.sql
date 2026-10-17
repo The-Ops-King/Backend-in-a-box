@@ -262,6 +262,7 @@ create table crm_records (
   ghl_record_id  text,                                   -- null in shadow
   contact_id     uuid references contacts(id),
   properties     jsonb not null default '{}',            -- last written
+  adopted        boolean not null default false,         -- D137: a record GHL or a person made that the engine took over (never deleted by the engine)
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
   unique (company_id, object_key, record_key)

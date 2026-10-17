@@ -60,6 +60,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table sends drop constraint if exists sends_status_check`);
     // D132: a would-have send in ghost is 'ghost'; one held back in quiet is 'quiet'
     await c.query(`update sends set status='ghost' where status='shadow'`);
+    // D137: a record the engine took over (made by GHL or a person) is adopted, never one the engine made: the repair route never deletes it
+    await c.query(`alter table crm_records add column if not exists adopted boolean not null default false`);
+    await c.query(`update crm_records cr set adopted=true from audit_log a where a.action='crm_record.repair' and a.after ? 'key' and a.before->>'record' = cr.ghl_record_id and not cr.adopted`);
     // D133: one test channel (the first of D132's list); every pre-live post goes there
     await c.query(`update bindings set key='test.slack_channel', kind='channel', value=convert_to(split_part(convert_from(value,'utf8'),',',1),'utf8') where key='test.slack_channels' and not exists (select 1 from bindings b where b.company_id=bindings.company_id and b.key='test.slack_channel')`);
     await c.query(`delete from bindings where key='test.slack_channels'`);

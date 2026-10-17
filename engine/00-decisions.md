@@ -4708,3 +4708,19 @@ writes GHL. A company with no deposit disposition is compared as a close (what i
 Call for the booking: the ledger decides, as before. A mismatch GHL and the ledger keep is Ledger drift's to raise, as it is.
 
 Tests: `eod.test.ts` (blank → filed; GHL showing "showed" for a no-show → filed; GHL showing the no-show → held).
+
+## D137. The operator puts one GHL record right; the engine never deletes what it did not make (2026-10-17)
+
+Tyler, on Calvin Coates still blank in GHL: "I need you to fix Calvin right now." The Sales Call backfill, given the no-show,
+made a second record instead of filling Hair's own (a record GHL made on booking, with another booking id, that the backfill
+did not recognise as Calvin's). `POST /api/admin/crm-record` (`repairRecord`): set a record's fields; make a record the
+engine's for a booking (`key`, marked `adopted` when the engine did not make it; the engine's record it replaces stays known
+under a `replaced:` key); or delete a record, only one the engine made (its crm_records row, not adopted). A record with no row
+needs `force` and a why, logged; an adopted one is never deleted, forced or not. Every repair is in the audit log. GHL refuses
+`locationId` on a record DELETE though its PUT needs it. Calvin: the outcome set on Hair's record, it made the engine's for the
+booking, the duplicate removed.
+
+Open (not built): the backfill should find a company's own Sales Call for a booking (same person and minute, as
+`closerSalesCalls` does) instead of making one, and read the engine's end-of-day answers as evidence.
+
+Tests: `crm-repair.test.ts`.
