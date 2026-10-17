@@ -38,8 +38,8 @@ export const slackNotifier: Notifier = {
   },
   async channelInfo(token, channelId) {
     const res = await fetch(`https://slack.com/api/conversations.info?channel=${encodeURIComponent(channelId)}`, { headers: { Authorization: `Bearer ${token}` } });
-    const data = (await res.json()) as { ok: boolean; channel?: { name?: string; is_member?: boolean }; error?: string };
-    return { ok: data.ok, name: data.channel?.name, member: data.channel?.is_member, error: data.error };
+    const data = (await res.json()) as { ok: boolean; channel?: { name?: string; is_member?: boolean }; error?: string; needed?: string };
+    return { ok: data.ok, name: data.channel?.name, member: data.channel?.is_member, error: data.error, needed: data.needed };
   },
   async lookupUserByEmail(token, email) {
     const res = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, { headers: { Authorization: `Bearer ${token}` } });

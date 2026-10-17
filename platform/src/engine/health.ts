@@ -101,7 +101,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
   const out: Finding[] = [];
   const ok = (check: string, text: string, item?: string, detail?: Record<string, unknown>) => out.push({ check, item, ok: true, level: "warning", text, detail });
   const bad = (check: string, level: Level, text: string, item?: string, detail?: Record<string, unknown>, fix?: Finding["fix"]) => out.push({ check, item, ok: false, level, text, detail, fix });
-  const channelCache = new Map<string, { ok: boolean; name?: string; member?: boolean; error?: string }>();
+  const channelCache = new Map<string, Awaited<ReturnType<Adapters["notifier"]["channelInfo"]>>>();
   const channelInfo = async (token: string, id: string) => { if (!channelCache.has(id)) channelCache.set(id, await adapters.notifier.channelInfo(token, id).catch((e) => ({ ok: false, error: String((e as Error).message) }))); return channelCache.get(id)!; };
   const connected = !!ac.pit && !!ac.locationId;
 
@@ -229,7 +229,11 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
         for (const [k, id] of channels) {
           if (!id || seen.has(id)) continue; seen.add(id);
           const info = await channelInfo(token, id);
-          if (!info.ok) bad("slack", "error", `Channel for ${k} (${id}) cannot be read: ${info.error ?? "unknown"}.`, id);
+          // one finding per channel, naming every setting that points at it: the steps check leaves an unreadable channel to this one
+          const keys = channels.filter(([, v]) => v === id).map(([key]) => key), named = keys.length > 1 ? `${keys.length} settings (${keys.join(", ")})` : k;
+          if (!info.ok) bad("slack", "error", info.error === "missing_scope" && info.needed
+            ? `Channel ${id}, used by ${named}, cannot be checked: the Slack app is missing the ${info.needed} permission${info.needed === "groups:read" ? " (the channel is private)" : ""}. Add it under OAuth & Permissions and reinstall the app. Posts there may still land.`
+            : `Channel for ${named} (${id}) cannot be read: ${info.error ?? "unknown"}.`, id);
           else if (info.member === false) bad("slack", "warning", `The bot is not in #${info.name ?? id} (${k}); posts there will fail. Invite it.`, id);
           else fine++;
         }
@@ -285,7 +289,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
             else if (r.value.startsWith("crm.assoc_") && !assocs.has(v)) miss(`step ${r.node}: association ${r.value} (${v}) no longer exists in the CRM.`);
             else if ((r.value === "crm.default_closer" || r.value === "crm.agreement_sender") && !users.has(v)) miss(`step ${r.node}: ${r.value} (${v}) is no longer a user in the location.`);
             else if (r.value.startsWith("calendar.") && !cals.has(v)) miss(`step ${r.node}: ${r.value} points at a calendar (${v}) that is not active for this company.`);
-            else if (r.value.startsWith("slack.channel.") && token) { const info = await channelInfo(token, v); if (!info.ok) miss(`step ${r.node}: channel ${r.value} (${v}) cannot be read: ${info.error ?? "unknown"}.`); else verified++; break; }   // membership is the slack check's finding, once per channel
+            else if (r.value.startsWith("slack.channel.") && token) { const info = await channelInfo(token, v); if (info.ok) verified++; else if (!on("slack")) miss(`step ${r.node}: channel ${r.value} (${v}) cannot be read: ${info.error ?? "unknown"}.`); break; }   // membership and readability are the slack check's finding, once per channel, not once per step
             else verified++;
             break;
           }

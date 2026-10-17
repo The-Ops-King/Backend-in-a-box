@@ -151,14 +151,15 @@ async function person(co: string, key: string) {
     await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3)", [co, ct, `${key.toLowerCase()}@d119.test`]);
     const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing' and is_default", [co]))!.id;
     const closer = (await one<{ id: string }>(c, "select id from users where company_id=$1 and email='casey@d119.test'", [co]))!.id;
-    const at = DateTime.now().minus({ minutes: 50 });
+    // 50 minutes ago, but never in the hour before local midnight, so the call and its payments share a local day whatever the clock says
+    const ago = DateTime.now().minus({ minutes: 50 }).setZone(TZ), at = ago.hour === 23 ? ago.set({ hour: 22 }) : ago;
     const opp = (await one<{ id: string }>(c, "insert into opportunities (company_id, contact_id, opened_by, contract_value) values ($1,$2,'first_booking',5000) returning id", [co, ct]))!.id;
     const appt = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, opportunity_id, external_id, appointment_term, assigned_user_id, starts_at, ends_at, booked_at, status) values ($1,$2,$3,$4,$5,$6,$7,$8,now() - interval '3 days','confirmed') returning id",
       [co, ct, opp, `A-${key}`, term, closer, at.toJSDate(), at.plus({ minutes: 45 }).toJSDate()]))!.id;
     const objects = (await loadCompany(c, co)).bindings;
     await c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id) values ($1,$2,$3,$4,$5)", [co, objects["crm.object_sales_call"] ?? "custom_objects.sales_call", `A-${key}`, `SC-${key}`, ct]);
     await c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, status) values ($1,$2,$3,$4,'P-C','ST-SCHED',$5,'open')", [co, opp, ct, `CARD-${key}`, `${key} Test`]);
-    return { ct, appt, ghl: `G-${key}`, card: `CARD-${key}` };
+    return { ct, appt, ghl: `G-${key}`, card: `CARD-${key}`, at: at.toJSDate() };
   });
 }
 type Who = Awaited<ReturnType<typeof person>>;
@@ -169,9 +170,11 @@ const file = async (co: string, who: Who, callOutcome: string) => {
   });
   for (let i = 0; i < 2; i++) await tick(fake, undefined, co);
 };
+let paid = 0;
 const pay = async (co: string, who: Who, id: string, amount: number, raw: Record<string, unknown>) => {
   const r = await asOperator(async (c) => {
-    const input: PaymentInput = { providerPaymentId: id, amount, status: "succeeded", paidAt: new Date(), raw };
+    // paid during the call, a second apart in the order made: on the call's local day (at 12:13 AM a payment "now" was the next day's)
+    const input: PaymentInput = { providerPaymentId: id, amount, status: "succeeded", paidAt: new Date(who.at.getTime() + ++paid * 1000), raw };
     const out = await recordPayment(c, co, input, who.ct);
     if (out.outcome !== "linked") throw new Error(out.outcome);
     await dispatchEvent(c, out.event, { contact: { id: who.ct } });
@@ -257,7 +260,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D119: a deposit is not a close, comp
   it("Hair: the end-of-day form pre-fills a call paid short of the price as a close with its revenue, not a deposit (the amount says nothing)", async () => {
     const who = await person(hair, "Hal");
     await pay(hair, who, "pay_hal_1", 750, { billing_reason: "subscription_create" });
-    const day = await asOperator(async (c) => { const { row } = await loadCompany(c, hair); const u = (await one<{ id: string }>(c, "select id from users where company_id=$1 and email='casey@d119.test'", [hair]))!; return prefill(c, row, { id: u.id, name: "Casey Closer", email: "casey@d119.test" }, DateTime.now().minus({ minutes: 50 }).setZone(TZ).toFormat("yyyy-MM-dd")); });
+    const day = await asOperator(async (c) => { const { row } = await loadCompany(c, hair); const u = (await one<{ id: string }>(c, "select id from users where company_id=$1 and email='casey@d119.test'", [hair]))!; return prefill(c, row, { id: u.id, name: "Casey Closer", email: "casey@d119.test" }, DateTime.fromJSDate(who.at).setZone(TZ).toFormat("yyyy-MM-dd")); });
     expect(day.calls.find((x) => x.appointment_id === who.appt)).toMatchObject({ outcome: "closed", cash: 750, revenue: 5000 });
   });
 
@@ -280,9 +283,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D119: a deposit is not a close, comp
   });
 
   it("PMU: the call filed as a deposit is its Deposit outcome, stat-deposit and the card on Deposit; the end-of-day form pre-fills Deposit with the cash and no revenue", async () => {
-    const who = (await asOperator((c) => one<{ id: string; appt: string }>(c, "select ct.id, a.id as appt from contacts ct join appointments a on a.contact_id=ct.id where ct.company_id=$1 and ct.ghl_contact_id='G-Pia'", [pmu])))!;
-    const pia: Who = { ct: who.id, appt: who.appt, ghl: "G-Pia", card: "CARD-Pia" };
-    const day = await asOperator(async (c) => { const { row } = await loadCompany(c, pmu); const u = (await one<{ id: string }>(c, "select id from users where company_id=$1 and email='casey@d119.test'", [pmu]))!; return prefill(c, row, { id: u.id, name: "Casey Closer", email: "casey@d119.test" }, DateTime.now().minus({ minutes: 50 }).setZone(TZ).toFormat("yyyy-MM-dd")); });
+    const who = (await asOperator((c) => one<{ id: string; appt: string; at: Date }>(c, "select ct.id, a.id as appt, a.starts_at as at from contacts ct join appointments a on a.contact_id=ct.id where ct.company_id=$1 and ct.ghl_contact_id='G-Pia'", [pmu])))!;
+    const pia: Who = { ct: who.id, appt: who.appt, ghl: "G-Pia", card: "CARD-Pia", at: who.at };
+    const day = await asOperator(async (c) => { const { row } = await loadCompany(c, pmu); const u = (await one<{ id: string }>(c, "select id from users where company_id=$1 and email='casey@d119.test'", [pmu]))!; return prefill(c, row, { id: u.id, name: "Casey Closer", email: "casey@d119.test" }, DateTime.fromJSDate(pia.at).setZone(TZ).toFormat("yyyy-MM-dd")); });
     expect(day.calls.find((x) => x.appointment_id === pia.appt)).toMatchObject({ outcome: "deposit", cash: 500, revenue: null });
     expect(day).toMatchObject({ closes: 0, deposits: 1, cash: 500, revenue: 0 });
     await file(pmu, pia, "deposit");
@@ -294,8 +297,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D119: a deposit is not a close, comp
   });
 
   it("PMU: the payment that comes back for the rest is the balance: it sends the agreement (card → Purchase), starts the chase, wins the opportunity; signed, the deal closes", async () => {
-    const row = (await asOperator((c) => one<{ id: string; appt: string }>(c, "select ct.id, a.id as appt from contacts ct join appointments a on a.contact_id=ct.id where ct.company_id=$1 and ct.ghl_contact_id='G-Pia'", [pmu])))!;
-    const pia: Who = { ct: row.id, appt: row.appt, ghl: "G-Pia", card: "CARD-Pia" };
+    const row = (await asOperator((c) => one<{ id: string; appt: string; at: Date }>(c, "select ct.id, a.id as appt, a.starts_at as at from contacts ct join appointments a on a.contact_id=ct.id where ct.company_id=$1 and ct.ghl_contact_id='G-Pia'", [pmu])))!;
+    const pia: Who = { ct: row.id, appt: row.appt, ghl: "G-Pia", card: "CARD-Pia", at: row.at };
     const nDocs = docs.length;
     const r = await pay(pmu, pia, "pay_pia_rest", 4500, { product_id: "prod_MAIN", plan_id: "plan_4500" });
     expect(r.payment.kind).toBe("balance"); expect(r.event.data).toMatchObject({ prior_total: 500, prior_non_deposit_total: 0, running_total: 5000, cleared: true });

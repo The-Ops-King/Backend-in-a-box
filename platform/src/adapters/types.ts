@@ -140,7 +140,7 @@ export interface Notifier {
   /** auth.test: is the token alive, and who is it. */
   authTest(token: string): Promise<{ ok: boolean; team?: string; user?: string; error?: string }>;
   /** conversations.info: does the channel exist and is the bot in it. */
-  channelInfo(token: string, channelId: string): Promise<{ ok: boolean; name?: string; member?: boolean; error?: string }>;
+  channelInfo(token: string, channelId: string): Promise<{ ok: boolean; name?: string; member?: boolean; error?: string; needed?: string }>;
   /** users.info: a Slack user's email (needs users:read.email), null when Slack does not say. Optional: the bot falls back to asking who they are. */
   userEmail?(token: string, userId: string): Promise<string | null>;
 }

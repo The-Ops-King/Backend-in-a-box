@@ -4557,3 +4557,18 @@ no staged call. The end-of-day form itself is checked by a person once, on a rea
 
 Tests: `simulate-form.test.ts` (the journey files Deposit for $250 after the recording: showed + deposit on the ledger, the note,
 Call outcome filed once, the second filing held, no report stored; the three refusals) and `eod.test.ts` unchanged and passing.
+
+## D127. An unreadable Slack channel is one Health check alert, naming the permission to add (2026-10-17)
+
+Dating's ops-test channel is private and the bot had no `groups:read`: Slack answered `missing_scope` for it, and Health check
+raised one red alert on the slack check plus one per enabled workflow step that posts there (22 in all, each re-said after an
+hour), for one cause. Tyler, asked whether alerts sharing a cause should be one: "Yes".
+
+The slack check already reads each bound channel once. It now names every setting that points at the channel, and for
+`missing_scope` the permission Slack says is `needed` (`groups:read`: the channel is private), what to do (add it under OAuth &
+Permissions, reinstall the app) and that posts may still land. The steps check leaves a channel it cannot read to the slack
+check, as it already did for membership; with the slack check off it still says it per step. The steps' own alerts close on the
+next sweep. The canonical manifest gained `groups:read` the same day.
+
+Tests: `health.slack-scope.test.ts` (one channel on three settings, missing_scope → one finding with the text, its steps
+verified; another channel not found still said once; slack check off → per step). The first fails without the change.
