@@ -4696,3 +4696,15 @@ still go at once; an `alert.repeated` outside the window waits, and the first ti
 may cross midnight; one that does not parse is always open.
 
 Tests: `alerts.test.ts` (the window's edges, another zone across midnight, an unparsable window).
+
+## D136. GHL, not the ledger, decides whether a refiled answer still needs filing (2026-10-17)
+
+Tyler: "It should check almost for sure only GoHighLevel rather than only the engine. We want to make sure that everything is
+based off of GHL. And if there's a disconnect ... we throw the alert." D134 refiled only when GHL was blank; a GHL Sales Call
+saying something other than the closer's answer was still held by the ledger. Now the submit reads each call's Sales Call
+(`closerSalesCalls`, which gains the attendance its outcome means and the call outcome its disposition means,
+`dispositionMeaning`): the answer is held only when GHL already shows it; blank or different, it is filed and Call outcome filed
+writes GHL. A company with no deposit disposition is compared as a close (what its filing writes). GHL not answering, or no Sales
+Call for the booking: the ledger decides, as before. A mismatch GHL and the ledger keep is Ledger drift's to raise, as it is.
+
+Tests: `eod.test.ts` (blank → filed; GHL showing "showed" for a no-show → filed; GHL showing the no-show → held).

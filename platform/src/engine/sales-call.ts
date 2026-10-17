@@ -66,6 +66,17 @@ export function bookingSourceValues(bindings: Record<string, string>): { setter:
 }
 
 /** The meaning a Sales Call's own outcome value carries by the company's map (`sales_call.outcomes`): null when blank or unmapped ("scheduled"), i.e. nobody filed it. */
+/** D136: what a Sales Call's disposition value means (closed, deposit, follow_up, ...), by the company's map, else the defaults; null when it means nothing. */
+export function dispositionMeaning(value: unknown, bindings: Record<string, string>): string | null {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (!v) return null;
+  let map: Record<string, unknown> = {};
+  try { const j = JSON.parse(bindings["sales_call.dispositions"] ?? "{}") as unknown; if (j && typeof j === "object" && !Array.isArray(j)) map = j as Record<string, unknown>; } catch { map = {}; }
+  const entries = Object.keys(map).length ? Object.entries(map).map(([k, x]) => [k, typeof x === "string" ? x : (x as { meaning?: unknown } | null)?.meaning] as const) : Object.entries(DISPOSITION_DEFAULTS).map(([m, k]) => [k, m] as const);
+  const hit = entries.find(([k]) => k.trim().toLowerCase() === v)?.[1];
+  return typeof hit === "string" ? hit : null;
+}
+
 export function filedMeaning(outcome: unknown, bindings: Record<string, string>): string | null {
   const v = String(Array.isArray(outcome) ? outcome.join(", ") : outcome ?? "").trim().replace(/\s+/g, " ").toLowerCase();
   if (!v) return null;

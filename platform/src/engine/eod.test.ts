@@ -379,7 +379,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const refs = await asOperator(async (c) => Number((await one<{ n: string }>(c, "select ((select count(*) from events where event_type='eod.call_filed') + (select count(*) from workflow_triggers where event_type='eod.call_filed'))::text as n"))!.n));
     expect(!!(await row())).toBe(refs > 0);
   });
-  it("D134: refiling a call the ledger has answered but whose GHL Sales Call is still blank (the first filing never reached GHL) files it again; once GHL has it, refiling holds", async () => {
+  it("D134/D136: GHL decides whether a refiled answer is filed: blank (the first filing never reached GHL) or saying something else, it is filed again; once GHL shows it, refiling holds", async () => {
     const day = DateTime.now().setZone(TZ).minus({ days: 1 }).toFormat("yyyy-MM-dd");
     const token = await asOperator((c) => tokenFor(c, allan));
     const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, day));
@@ -395,6 +395,11 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       let n = await outcomeRuns();
       expect(await file()).toMatchObject({ ok: true });
       expect(await outcomeRuns()).toBe(n + 1);   // Mia only: GHL is blank for her, the others are held as before
+      // D136: GHL saying something else is no answer either: filed again
+      fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [record("showed")] : []);
+      n = await outcomeRuns();
+      expect(await file()).toMatchObject({ ok: true });
+      expect(await outcomeRuns()).toBe(n + 1);
       fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [record("no_show")] : []);
       n = await outcomeRuns();
       expect(await file()).toMatchObject({ ok: true });
