@@ -4665,3 +4665,18 @@ the ops channel or the operator (D76); readiness says so. Hair (test, no test ch
 
 Tests: `mode.test.ts` (in quiet both contacts' posts to two channels land in the test channel, the other channel's says so;
 live, the same steps post where they point, unmarked).
+
+## D134. Refiling a call GHL still shows blank files it again (2026-10-17)
+
+Hair: Calvin Coates (Mon Oct 12) stayed a Ledger drift question ("the engine has no-show but GHL's Sales Call has no
+outcome") however often James refiled the day; Tyler: "I've submitted the EOD several times so that tells me there's an issue."
+The no-show was first filed on Oct 15, while Hair's Call outcome filed was still in ghost, so its run wrote nothing to GHL; going
+live cleared that run (D92). Every refile since was held: `fileCall` skips an answer the ledger already holds (the sweep of
+2026-10-10, so Call outcome filed does not post twice), and the ledger held it.
+
+The end-of-day submit now reads the closer's Sales Calls in GHL (the reminder's own read, `closerSalesCalls`) and files again
+any call that is due with no outcome there, even when the ledger holds the answer, so Call outcome filed writes GHL. A call GHL
+already shows filed is held as before; GHL not answering leaves the old rule.
+
+Tests: `eod.test.ts` (the ledger holds Mia's no-show and GHL is blank: refiling starts one Call outcome filed run, for her only;
+GHL filled: refiling starts none).

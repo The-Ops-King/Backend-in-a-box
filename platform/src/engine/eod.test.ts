@@ -379,4 +379,29 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const refs = await asOperator(async (c) => Number((await one<{ n: string }>(c, "select ((select count(*) from events where event_type='eod.call_filed') + (select count(*) from workflow_triggers where event_type='eod.call_filed'))::text as n"))!.n));
     expect(!!(await row())).toBe(refs > 0);
   });
+  it("D134: refiling a call the ledger has answered but whose GHL Sales Call is still blank (the first filing never reached GHL) files it again; once GHL has it, refiling holds", async () => {
+    const day = DateTime.now().setZone(TZ).minus({ days: 1 }).toFormat("yyyy-MM-dd");
+    const token = await asOperator((c) => tokenFor(c, allan));
+    const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, day));
+    const calls = pre.calls.map((x) => ({ ...x, outcome: x.outcome || ("no_show" as const), notes: x.notes || "never joined", next_steps: x.next_steps || "call back", next_date: x.next_date ?? (x.outcome === "follow_up" ? DateTime.now().plus({ days: 2 }).toISODate() : null), lost_reason: x.lost_reason || "Price" }));
+    const mia = (await asOperator((c) => one<{ external_id: string; starts_at: Date; ghl: string }>(c, "select a.external_id, a.starts_at, ct.ghl_contact_id as ghl from appointments a join contacts ct on ct.id=a.contact_id where a.company_id=$1 and ct.first_name='Mia'", [companyId])))!;
+    const record = (outcome: string) => ({ id: "SC-MIA", createdAt: mia.starts_at.toISOString(), properties: { display_label: "Mia Chen", closer: "Allan P", contact_id: mia.ghl, outcome, scheduled_at: mia.starts_at.toISOString(), call_date: day, external_id: mia.external_id } });
+    const before = fake.read.objectRecords;
+    await asOperator(async (c) => { for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]); });
+    const outcomeRuns = () => asOperator(async (c) => (await many<{ appt: string }>(c, "select r.appointment_id::text as appt from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Call outcome filed'", [companyId])).length);
+    try {
+      const file = () => asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} }, adapters: fake }));
+      fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [record("")] : []);
+      let n = await outcomeRuns();
+      expect(await file()).toMatchObject({ ok: true });
+      expect(await outcomeRuns()).toBe(n + 1);   // Mia only: GHL is blank for her, the others are held as before
+      fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [record("no_show")] : []);
+      n = await outcomeRuns();
+      expect(await file()).toMatchObject({ ok: true });
+      expect(await outcomeRuns()).toBe(n);
+    } finally {
+      fake.read.objectRecords = before;
+      await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes')", [companyId]));
+    }
+  });
 });

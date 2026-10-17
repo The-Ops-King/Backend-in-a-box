@@ -210,9 +210,11 @@ function dispositionNotes(call: CallEntry, fields: EodField[]): string {
  * One call's answer through the disposition path, as the end-of-day form files it: "filed", "held" when the ledger already holds that
  * answer (filed before, a card moved by hand, the CRM's no-show; Call outcome filed already posted it, and a second run would post it
  * twice), "skipped" for no answer, an answer the company's list lacks, or an appointment that vanished. D126: the harness files one
- * staged call through this too.
+ * staged call through this too. D134: `refile` files an answer the ledger already holds again, for a call whose GHL Sales Call
+ * has no outcome: the first filing never reached GHL (it ran in ghost, and going live cleared its run), so holding it back
+ * would leave GHL blank however often the closer files.
  */
-export async function fileCall(c: PoolClient, companyId: string, fields: EodField[], call: CallEntry, userId: string): Promise<{ status: "filed" | "held" | "skipped"; runs: number }> {
+export async function fileCall(c: PoolClient, companyId: string, fields: EodField[], call: CallEntry, userId: string, refile = false): Promise<{ status: "filed" | "held" | "skipped"; runs: number }> {
   const skipped = { status: "skipped" as const, runs: 0 };
   if (!call.outcome) return skipped;
   // B6: what the company's answer means decides what is filed, whatever the answer is called
@@ -223,14 +225,14 @@ export async function fileCall(c: PoolClient, companyId: string, fields: EodFiel
   const callCat = choice.attendance === "showed" ? choice.call_outcome ?? null : null;
   const callOutcomeTermId = callCat ? (await callTerm(callCat)) ?? (callCat === "deposit" ? await callTerm("closed") : null) : null;
   const held = await one<{ outcome_term: string | null; call_outcome_term: string | null; status: string }>(c, "select outcome_term, call_outcome_term, status from appointments where id=$1 and company_id=$2", [call.appointment_id, companyId]);
-  if (held && (held.outcome_term === outcomeTermId ? outcomeCat !== "showed" || held.call_outcome_term === callOutcomeTermId : outcomeCat === "noshow" && !held.outcome_term && held.status === "noshow")) return { status: "held", runs: 0 };
+  if (!refile && held && (held.outcome_term === outcomeTermId ? outcomeCat !== "showed" || held.call_outcome_term === callOutcomeTermId : outcomeCat === "noshow" && !held.outcome_term && held.status === "noshow")) return { status: "held", runs: 0 };
   try { return { status: "filed", runs: (await recordDisposition(c, { companyId, appointmentId: call.appointment_id, outcomeTermId, callOutcomeTermId, notes: dispositionNotes(call, fields), userId })).runs }; } catch { return skipped; }
 }
 
 /** File the day: check the required answers, store it, record each call's outcome through the disposition path, tell the alerts channel what was corrected, tick the DM. */
-export async function submitEod(c: PoolClient, args: { token: string; day: string; answers: EodAnswers }): Promise<{ ok: true; changes: Change[]; recorded: number } | { ok: false; why: string }> {
+export async function submitEod(c: PoolClient, args: { token: string; day: string; answers: EodAnswers; adapters?: Adapters }): Promise<{ ok: true; changes: Change[]; recorded: number } | { ok: false; why: string }> {
   const closer = await closerByToken(c, args.token); if (!closer || !closer.active || !closer.company_id) return { ok: false, why: "this link is not for anyone" };
-  const { row: company } = await loadCompany(c, closer.company_id);
+  const { row: company, adapterCompany, bindings } = await loadCompany(c, closer.company_id);
   const fields = await loadEodForm(c, company.id);
   const missing = missingAnswers(fields, args.answers.calls, args.answers.day_answers ?? {});
   if (missing.length) return { ok: false, why: `Still needed: ${missing.join("; ")}` };
@@ -240,8 +242,11 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   // a row that is not a booking (a "ghl:<record>" row from a form opened before D110) is dropped before anything is stored
   args = { ...args, answers: { ...args.answers, calls: args.answers.calls.filter((x) => BOOKING_ID.test(x.appointment_id)) } };
   const changes = diffAnswers(pre, args.answers, fields);
+  // D134: the calls whose GHL Sales Call is due and has no outcome are filed even when the ledger already holds the answer; GHL not read: as before
+  let blankInGhl = new Set<string>();
+  if (args.adapters) { try { blankInGhl = new Set((await closerSalesCalls(c, args.adapters, adapterCompany, company.id, bindings, closer.name, company.timezone, DateTime.now())).filter((r) => r.due && !r.filed).map((r) => r.appointment_id)); } catch { /* GHL did not answer */ } }
   let recorded = 0;
-  for (const call of args.answers.calls) if ((await fileCall(c, company.id, fields, call, closer.id)).status !== "skipped") recorded++;
+  for (const call of args.answers.calls) if ((await fileCall(c, company.id, fields, call, closer.id, blankInGhl.has(call.appointment_id))).status !== "skipped") recorded++;
   const wasFiled = (await one<{ submitted_at: Date | null }>(c, "select submitted_at from eod_reports where company_id=$1 and user_id=$2 and day=$3", [company.id, closer.id, args.day]))?.submitted_at ?? null;
   const row = await one<{ id: string }>(c, `insert into eod_reports (company_id, user_id, day, prefill, answers, changes, submitted_at) values ($1,$2,$3,$4,$5,$6,now())
     on conflict (company_id, user_id, day) do update set prefill=excluded.prefill, answers=excluded.answers, changes=excluded.changes, submitted_at=now() returning id`, [company.id, closer.id, args.day, JSON.stringify(pre), JSON.stringify(args.answers), JSON.stringify(changes)]);

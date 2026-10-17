@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { liveAdapters } from "@/adapters";
 import { asOperator } from "@/db/client";
 import { fail, ok, readJson } from "@/api/http";
 import { loadCompany } from "@/engine/context";
@@ -41,7 +42,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const dayKeys = dayFields(fields).map((f) => f.key);
     const day_answers = Object.fromEntries(Object.entries(body.day_answers ?? {}).filter(([k, v]) => dayKeys.includes(k) && String(v) !== "").map(([k, v]) => [k, String(v)]));
     const answers: EodAnswers = { calls_count: num(body.calls_count) ?? 0, closes: num(body.closes) ?? t.closes, deposits: num(body.deposits) ?? t.deposits, cash: num(body.cash) ?? t.cash, revenue: num(body.revenue) ?? t.revenue, calls, day_answers };
-    return submitEod(c, { token, day: body.day!, answers });
+    return submitEod(c, { token, day: body.day!, answers, adapters: liveAdapters });
   });
   return r.ok ? ok({ ok: true, recorded: r.recorded, changes: r.changes.length }) : fail(422, r.why);
 }
