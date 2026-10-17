@@ -705,3 +705,19 @@ expected workflow once; both cards ended won, the Sales Call record closed_won w
 - Deal closed's welcome email (placeholder copy) to the test address waits for 8 AM PT quiet hours.
 - Calendly's "Complimentary Dating Strategy Session ♡" shows no open time in the next 7 days (Health check, yellow).
 - The staged recording's transcript is hair-themed (the harness's one transcript), so the AI review reads it as a close.
+
+## 45. The mode ladder renamed and a rung added (Tyler, 2026-10-17; design open)
+
+Tyler: "test mode, which is only me, and then shadow mode is where everything moves and gets written to GHL ... I want things
+moving behind the scenes without any worries about sending SMS to people, or about screwing with live pipelines ... If we name it
+Ghost and Shadow, I'm going to get them confused. Maybe we eliminate Shadow and call that Ghost mode ... the second test mode
+something like quiet mode." Read as: ghost (today's shadow: everyone recorded, nothing written) → test (only Tyler) → quiet
+(everyone; GHL written, nothing sent to a contact) → live. Open before building: what quiet does with Slack posts, GHL tasks,
+agreements (a sent document is an email), and RapidCloser's own GHL workflows that our tags could start.
+
+## 46. Every workflow explained in plain English, drillable (Tyler, 2026-10-17; design open)
+
+Tyler, on the New from Typeform chart's "Log: A new lead is added in GHL" step: "it's the symptom of a bigger problem ... a very
+clear English explanation of what they do, and then ... drill into more specifics ... If it says 'wait until a person,' we should
+be able to click on that and ask what that means." The `record` step's title (src/api/words.ts) reuses the trigger's sentence and
+reads as a GHL write; fix it as part of this.
