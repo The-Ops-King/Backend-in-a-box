@@ -190,6 +190,14 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     await done("book-self", { calendar: "Consultation", startsAt: DateTime.now().setZone(TZ).minus({ hours: 2 }).toISO()! });
     const rec = await done("record", { calendar: "Consultation" });
     expect(rec.detail.appointment).toBeTruthy();
+    // D126: the closer's end-of-day answer for this one call, through the form's own per-call path
+    const filed = await done("outcome", { outcome: "Deposit", amount: 250 });
+    expect(filed.detail).toMatchObject({ appointment: rec.detail.appointment, call_type: "Consultation", outcome: "deposit", cash: 250, filed: "filed" });
+    expect(filed.runsStarted).toBe(1);
+    expect(await asOperator((c) => one(c, "select ot.category as attendance, cot.category as call_outcome, fs.answers->>'notes' as notes from appointments a join company_terms ot on ot.id=a.outcome_term join company_terms cot on cot.id=a.call_outcome_term join form_submissions fs on fs.id=a.disposition_id where a.id=$1", [rec.detail.appointment])))
+      .toEqual({ attendance: "showed", call_outcome: "deposit", notes: "Filed by the test harness\nDeposit: $250 collected" });
+    expect((await done("outcome", { outcome: "deposit", amount: 250 })).detail).toMatchObject({ filed: "held" });   // the same answer twice is not filed twice
+    expect(await asOperator((c) => many(c, "select 1 from eod_reports where company_id=$1", [co]))).toEqual([]);   // the closer's day is theirs to file
     expect((await done("call")).detail).toMatchObject({ caller: "Nelly S." });
     const dep = await done("pay", { deposit: true, amount: 250 });
     expect(dep.detail).toMatchObject({ amount: 250, kind: "deposit" });
@@ -199,6 +207,17 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     const signed = await done("sign");
     expect(signed.detail).toMatchObject({ status: "completed" });
     expect(await runs(ct)).toEqual(expect.arrayContaining(["New from Typeform", "New lead", "Sales call booked", "Sales call recorded", "Setter call logged", "Payment recorded", "Agreement signed", "Deal closed"]));
+    expect(count(await runs(ct), "Call outcome filed")).toBe(1);
+  });
+
+  it("outcome refuses an answer the company does not have (and says which it has), a call that has not started, and no staged call", async () => {
+    const r = await form("tyler+outcome@jtylerray.com");
+    const ct = (r.ok && r.detail.contact) as string;
+    expect(await sim(ct, "outcome", { outcome: "deposit" })).toMatchObject({ ok: false, why: expect.stringMatching(/^no open simulated appointment/) });
+    expect((await sim(ct, "book-self", { calendar: "Consultation" })).ok).toBe(true);
+    expect(await sim(ct, "outcome", { outcome: "deposit" })).toMatchObject({ ok: false, why: expect.stringMatching(/only a call that has started/) });
+    expect((await sim(ct, "reschedule", { calendar: "Consultation", startsAt: DateTime.now().setZone(TZ).minus({ hours: 1 }).toISO()! })).ok).toBe(true);
+    expect(await sim(ct, "outcome", { outcome: "won" })).toMatchObject({ ok: false, why: expect.stringMatching(/^outcome is one of the company's end-of-day answers: "closed" \(Closed\), "deposit" \(Deposit\)/) });
   });
 
   it("the admin route: book takes a calendar; form refuses answers that are not a map; an unknown contact still 404s for every action but a form by email", async () => {

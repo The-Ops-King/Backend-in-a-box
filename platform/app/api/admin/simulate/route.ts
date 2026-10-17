@@ -9,14 +9,15 @@ export const dynamic = "force-dynamic"; export const maxDuration = 60;
 /**
  * Stage a synthetic step for a test contact, behind the scenes (D23). Nothing reaches Calendly, Typeform or any Zap; the CRM only
  * as the step's own workflows (and, for `form`, the Typeform door) write it in the company's mode.
- * POST { company: <slug>, contact: <email | our id | GHL id>, action: form|create|book|book-self|reschedule|cancel|pay|record|call|agreement|sign|reset,
+ * POST { company: <slug>, contact: <email | our id | GHL id>, action: form|create|book|book-self|reschedule|cancel|pay|record|outcome|call|agreement|sign|reset,
  *   force?: boolean, daysOut?: number, closer?: name|email, startsAt?: ISO (book; reschedule's new start),
- *   calendar?: external id | call type name (book, book-self, reschedule, cancel, record; D125), amount?: number (pay; default the program price, a deposit 100),
+ *   calendar?: external id | call type name (book, book-self, reschedule, cancel, record, outcome; D125), amount?: number (pay, outcome; default the program price, a deposit 100),
+ *   outcome?: an end-of-day answer's value or label (outcome; D126),
  *   deposit?: boolean (pay), form?: form id | name, answers?: { <ref | target | hidden name>: value }, responseId?: string (form; D125) }
  * `form` takes an email the ledger need not know: the door finds or makes the person, as for a real applicant.
  * Authorization: Bearer $CRON_SECRET. Refused for a live company unless force=true.
  */
-type Body = { company?: string; contact?: string; action?: string; force?: boolean; daysOut?: number; closer?: string; startsAt?: string; amount?: number; calendar?: string; deposit?: boolean; form?: string; answers?: Record<string, string | number | boolean>; responseId?: string };
+type Body = { company?: string; contact?: string; action?: string; force?: boolean; daysOut?: number; closer?: string; startsAt?: string; amount?: number; calendar?: string; deposit?: boolean; form?: string; answers?: Record<string, string | number | boolean>; responseId?: string; outcome?: string };
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const body = (await req.json().catch(() => null)) as Body | null;
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
     const r = body.action === "form" && who.includes("@") ? await simulateForm({ c, company, adapters: liveAdapters, email: who, ...formOpts })
       : !ct ? null
       : await simulate({ c, company, contactId: ct.id, daysOut: body.daysOut, closer: body.closer, startsAt: body.startsAt, amount: typeof body.amount === "number" && body.amount > 0 ? body.amount : undefined,
-        calendar: body.calendar, deposit: body.deposit === true, adapters: liveAdapters, ...formOpts }, body.action as SimAction);
+        calendar: body.calendar, deposit: body.deposit === true, outcome: typeof body.outcome === "string" ? body.outcome : undefined, adapters: liveAdapters, ...formOpts }, body.action as SimAction);
     if (!r) return NextResponse.json({ error: `no contact matches ${who} (the poll must have seen them first)` }, { status: 404 });
     if (!r.ok) return NextResponse.json({ error: r.why }, { status: 409 });
     const contact = (typeof r.detail.contact === "string" ? r.detail.contact : null) ?? ct?.id ?? null;
