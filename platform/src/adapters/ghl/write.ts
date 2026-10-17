@@ -35,7 +35,7 @@ export const ghlWrite: CrmWrite = {
     await ghl(c.pit, "PUT", `/objects/${objectKey}/records/${recordId}?locationId=${c.locationId}`, { body: { properties, ...(ownerUserId ? { owners: { add: [ownerUserId] } } : {}) } });
   },
   async deleteRecord(c, objectKey, recordId) {
-    await ghl(c.pit, "DELETE", `/objects/${objectKey}/records/${recordId}?locationId=${c.locationId}`);
+    await ghl(c.pit, "DELETE", `/objects/${objectKey}/records/${recordId}`);   // GHL refuses locationId here (422), though its PUT needs it
   },
   async relateRecords(c, associationId, firstRecordId, secondRecordId) {
     try { await ghl(c.pit, "POST", "/associations/relations", { body: { locationId: c.locationId, associationId, firstRecordId, secondRecordId } }); }

@@ -36,7 +36,8 @@ export async function POST(req: Request) {
       await c.query("delete from crm_records where id=$1", [ours!.id]);
     }
     if (b.key) {
-      await c.query("delete from crm_records where company_id=$1 and object_key=$2 and record_key=$3 and ghl_record_id<>$4", [co.id, object, b.key, b.record_id]);
+      // the record it replaces stays known as the engine's (so this route may still remove it), under a key no booking has
+      await c.query("update crm_records set record_key='replaced:' || record_key || ':' || coalesce(ghl_record_id,''), updated_at=now() where company_id=$1 and object_key=$2 and record_key=$3 and ghl_record_id is distinct from $4", [co.id, object, b.key, b.record_id]);
       await c.query(`insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id) values ($1,$2,$3,$4,(select ct.id from contacts ct where ct.company_id=$1 and ct.ghl_contact_id=$5 limit 1))
         on conflict do nothing`, [co.id, object, b.key, b.record_id, String(rec.properties.contact_id ?? "")]);
     }
