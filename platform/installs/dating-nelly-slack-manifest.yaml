@@ -1,0 +1,56 @@
+# Ops Engine for Dating (Nelly): paste at api.slack.com/apps → Create New App → From an app manifest → (the dating
+# workspace) → YAML. Then Install to Workspace and send the Bot User OAuth Token (xoxb-…, OAuth & Permissions) and the
+# Signing Secret (Basic Information). The slash commands assume this workspace has no other Ops Engine app in it: Slack
+# gives a command to the app installed last (see installs/pmu-slack-manifest.yaml).
+display_information:
+  name: Ops Engine
+  description: Sales ops engine for Dating (Nelly)
+features:
+  app_home:
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: Ops Engine
+    always_online: true
+  slash_commands:
+    - { command: /mtd, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Month to date: leads, shows, closes, cash vs last month", usage_hint: "", should_escape: false }
+    - { command: /weekly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Last week's numbers (or: this week)", usage_hint: "[this week]", should_escape: false }
+    - { command: /monthly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Last month's numbers (or: this month)", usage_hint: "[this month]", should_escape: false }
+    - { command: /show-rate, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Show rate by closer and source", usage_hint: "[last month]", should_escape: false }
+    - { command: /close-rate, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Close rate by closer and source", usage_hint: "[last month]", should_escape: false }
+    - { command: /cash, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Cash collected, refunds and net by closer", usage_hint: "[last week]", should_escape: false }
+    - { command: /availability, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Open calendar slots per day and per closer", usage_hint: "[days, up to 7]", should_escape: false }
+    - { command: /leads, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Leads, MQLs and marketing DQs by source", usage_hint: "[yesterday]", should_escape: false }
+    - { command: /closes, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Every close in the period: who, closer, day won", usage_hint: "[last month]", should_escape: false }
+    - { command: /leaderboard, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Closers by cash, setters by sets", usage_hint: "[last week]", should_escape: false }
+    - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "What the bot can answer", usage_hint: "", should_escape: false }
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - chat:write.customize
+      - channels:read
+      - reactions:read
+      - reactions:write
+      - users:read.email
+      - users:read
+      - commands
+      - app_mentions:read
+      - im:history
+      - channels:history
+      - groups:history
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/interactions"
+  event_subscriptions:
+    request_url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb"
+    bot_events:
+      - reaction_added
+      - app_mention
+      - message.im
+      - message.channels
+      - message.groups
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
