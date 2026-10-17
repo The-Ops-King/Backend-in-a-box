@@ -1,0 +1,8 @@
+{
+  "_note": "D123: Dating (Nelly)'s own workflows, read by scripts/build-copies.ts with installs/dating-nelly.json. Each booked workflow is Call booked for one call type (the calendar's own type in the install file's calendars), so a booking runs exactly one; together they take Call booked's place for her. fromForm: what an applicant gets on form.submitted (the scope tag, New lead once).",
+  "booked": [
+    { "workflow": "triage-call-booked", "name": "Triage call booked", "callType": "Strategy session", "salesCallType": "strategy_session", "tags": ["stat-triage-first"] },
+    { "workflow": "sales-call-booked", "name": "Sales call booked", "callType": "Consultation", "salesCallType": "closing" }
+  ],
+  "fromForm": { "workflow": "new-from-typeform", "name": "New from Typeform" }
+}

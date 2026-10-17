@@ -10,7 +10,7 @@ import { DateTime } from "luxon";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { templates } from "@/templates";
-import { datingCopies, datingPrompts, type DatingWords } from "../../installs/dating/copies";
+import { datingCopies, datingPrompts, type DatingSetup, type DatingWords } from "../../installs/dating/copies";
 import { installCompany } from "./install";
 import { findCompanyWorkflow, saveDefinition, validateDefinition } from "./definitions";
 import { loadCompany } from "./context";
@@ -25,14 +25,16 @@ process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const DIR = path.resolve(__dirname, "../../installs/dating-nelly");
 const INSTALL = path.resolve(__dirname, "../../installs/dating-nelly.json");
 const words = JSON.parse(fs.readFileSync(path.join(DIR, "words.json"), "utf8")) as DatingWords;
+const setup = JSON.parse(fs.readFileSync(path.join(DIR, "copies.json"), "utf8")) as DatingSetup;
+const installBits = () => JSON.parse(fs.readFileSync(INSTALL, "utf8")) as { scopeTag: string; calendars: Record<string, { term: string; name?: string }> };
 const file = (slug: string) => JSON.parse(fs.readFileSync(path.join(DIR, `${slug}.json`), "utf8")) as { workflow: string; note: string; definition: { nodes: { id: string }[]; edges: unknown[] } };
 const template = (slug: string) => templates.find((t) => t.slug === slug)!.definition as unknown as { nodes: { id: string }[]; edges: unknown[] };
 const HAIR_WORDS = /hair|scalp|follicle|thinning|saveyourhair|allan|telegram|clinician|burned_before/i;
 
 describe("D118: Dating Nelly's copies", () => {
   it("are exactly what the build makes from the templates and her words (pnpm exec tsx scripts/build-copies.ts dating-nelly --check)", () => {
-    const built = datingCopies("dating-nelly", words);
-    expect(built.map((c) => c.workflow).sort()).toEqual(fs.readdirSync(DIR).filter((f) => f.endsWith(".json") && f !== "words.json").map((f) => f.replace(/\.json$/, "")).sort());
+    const built = datingCopies("dating-nelly", words, { setup, install: installBits() });
+    expect(built.map((c) => c.workflow).sort()).toEqual(fs.readdirSync(DIR).filter((f) => f.endsWith(".json") && f !== "words.json" && f !== "copies.json").map((f) => f.replace(/\.json$/, "")).sort());
     for (const c of built) expect(file(c.workflow), c.workflow).toEqual(JSON.parse(JSON.stringify(c)));
     const install = JSON.parse(fs.readFileSync(INSTALL, "utf8")) as { prompts: Record<string, string>; salesCall: { objections: string[] } };
     expect(install.prompts).toEqual(datingPrompts(install.salesCall.objections));
@@ -48,6 +50,51 @@ describe("D118: Dating Nelly's copies", () => {
     expect(JSON.stringify(template("deal-closed"))).toMatch(HAIR_WORDS);
     for (const slug of ["deal-closed", "setter-call-logged"]) expect(JSON.stringify(file(slug).definition)).not.toMatch(HAIR_WORDS);
     expect(JSON.stringify(file("setter-call-logged").definition)).not.toMatch(/medical condition|medical, timeline/);
+  });
+
+  it("D123: her booked-call workflows are Call booked held to one call type each, with one card fork after the booking paths as PMU's (D105, D107); New from Typeform tags and starts New lead once", () => {
+    type N = { id: string } & Record<string, unknown>; type E = { from: string; to: string; label?: string; when?: unknown; else?: boolean };
+    const t = new Map(template("call-booked").nodes.map((n) => [n.id, n as N]));
+    const def = (slug: string) => file(slug).definition as unknown as { nodes: N[]; edges: E[] };
+    for (const slug of ["triage-call-booked", "sales-call-booked"]) {
+      const d = def(slug), ids = d.nodes.map((n) => n.id);
+      // every step of the template but the closer card in each path (s4, b5), which the fork's two card steps replace; nothing else dropped
+      expect([...t.keys()].filter((id) => !ids.includes(id)), slug).toEqual(["s4", "b5"]);
+      expect(ids.filter((id) => !t.has(id)).sort(), slug).toEqual(["b_suffix", "c_new", "c_rs", "f_card", "s_suffix"]);
+      const ways = (from: string) => d.edges.filter((e) => e.from === from).map((e) => `${e.to}${e.label ? ` (${e.label})` : ""}`).sort();
+      expect(ways("s5")).toEqual(["f_card"]); expect(ways("b6")).toEqual(["f_card"]);
+      expect(ways("f_card")).toEqual(["c_new (a new booking)", "c_rs (a reschedule)"]);
+      expect(d.edges.find((e) => e.from === "f_card" && e.to === "c_rs")!.when).toEqual({ eq: ["{{event._type}}", "appointment.rescheduled"] });
+      expect(ways("c_new")).toEqual(["k3"]); expect(ways("k3")).toEqual(["k4"]);   // the video task under a new booking
+      expect(ways("c_rs")).toEqual(["k5"]); expect(ways("k5")).toEqual(["k4"]);   // the old slot's Sales Call under a reschedule
+      const n = (id: string) => d.nodes.find((x) => x.id === id)!;
+      expect(n("k3").only_if).toBeUndefined(); expect(n("k5").only_if).toBeUndefined();
+      expect(n("c_rs")).toMatchObject({ type: "pipeline_card", pipeline: "{{crm.pipeline_closer}}", stage: "{{crm.stage_closer_scheduled}}", keep_name: true, from_stages: ["{{crm.stage_closer_scheduled}}", "{{crm.stage_closer_cancelled}}"] });
+      expect(n("c_new")).toMatchObject({ type: "pipeline_card", stage: "{{crm.stage_closer_scheduled}}", name: "{{contact.name}} -- {{vars.card_suffix}}" });
+      expect(n("c_new")).not.toHaveProperty("keep_name");
+      // the steps they keep are the template's own, but for the call type, the Sales Call's call type and the triage tag
+      for (const id of ids.filter((id) => t.has(id) && !["t1", "t2", "k3", "k5", "k4", "s5", "b6"].includes(id))) expect(n(id), `${slug} ${id}`).toEqual(t.get(id));
+    }
+    const triage = def("triage-call-booked"), sales = def("sales-call-booked");
+    const at = (d: typeof triage, id: string) => d.nodes.find((n) => n.id === id)!;
+    for (const [d, type] of [[triage, "Strategy session"], [sales, "Consultation"]] as const) for (const id of ["t1", "t2"]) expect(at(d, id).match).toEqual({ eq: ["{{appointment.term.name}}", type] });
+    expect((at(triage, "k4").properties as Record<string, string>).call_type).toBe("strategy_session");
+    expect((at(sales, "k4").properties as Record<string, string>).call_type).toBe("closing");
+    for (const id of ["s5", "b6"]) expect(at(triage, id).add).toEqual([...(t.get(id) as unknown as { add: string[] }).add, "stat-triage-first"]);
+    for (const id of ["s5", "b6"]) expect(at(sales, id)).toEqual(t.get(id));
+    expect(JSON.stringify(sales)).not.toContain("stat-triage-first");
+    for (const slug of ["triage-call-booked", "sales-call-booked"]) expect(file(slug)).toMatchObject({ create: { takesOver: "call-booked", stage: "booking" } });
+    const nf = file("new-from-typeform") as unknown as { name: string; create: Record<string, unknown>; definition: { nodes: Record<string, unknown>[] } };
+    expect(nf.name).toBe("New from Typeform");
+    expect(nf.create).not.toHaveProperty("takesOver");
+    expect(nf.definition.nodes.map((n) => [n.type, n.event ?? n.add ?? null])).toEqual([["trigger", "form.submitted"], ["tags", ["dating"]], ["record", "lead.created"], ["exit", null]]);
+    expect(nf.definition.nodes[2]).toMatchObject({ start: true, only_if: { eq: ["{{contact.is_lead}}", false] } });
+  });
+
+  it("D123: the build refuses a closing calendar no booked workflow takes (it would run nothing once Call booked is taken over), and a type no calendar books", () => {
+    const inst = installBits();
+    expect(() => datingCopies("x", words, { setup, install: { ...inst, calendars: { ...inst.calendars, OTHER: { term: "closing" } } } })).toThrow(/a closing calendar books "the default closing type"/);
+    expect(() => datingCopies("x", words, { setup: { ...setup, booked: [...setup.booked, { workflow: "w", name: "W", callType: "Nowhere", salesCallType: "closing" }] }, install: inst })).toThrow(/no calendar of the install books "Nowhere"/);
   });
 
   it("her prompts: her six objections, no medical reason in a setter's triage; everything else is the shipped prompt", () => {

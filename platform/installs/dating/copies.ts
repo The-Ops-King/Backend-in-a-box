@@ -5,6 +5,10 @@
  * company's objects, the closer's option key, the objections) the templates read from the company's settings, so every
  * other workflow stays the template's and keeps getting its upgrades.
  *
+ * D123: the company's own workflows too, from installs/<company>/copies.json and its install file: one booked-call workflow per
+ * call type its calendars book (built from Call booked, its trigger held to that call type; together they take Call booked's
+ * place for the company), and New from Typeform (the scope tag and New lead for an applicant, on form.submitted).
+ *
  * Words still marked [placeholder] keep their sends from going out: each such send is skipped ("only if there is a welcome
  * copy written", which nothing sets) until the words are the company's and the copies are built again.
  * Build: pnpm exec tsx scripts/build-copies.ts dating-nelly (--check: say whether the files are current, write nothing).
@@ -18,7 +22,17 @@ export type DatingWords = {
   /** a3's meaning of a DQ, and a4's words for each setter DQ reason (the setter_dq_reason options) */
   setterDq: { result: string; reasons: Record<string, string> };
 };
-export type Copy = { workflow: string; note: string; definition: Record<string, unknown> };
+/**
+ * D123: `booked`, one per call type a calendar of the install books (its `calendars[…].name`): the workflow's file and name, the
+ * Sales Call's `call_type` option it writes, and any tags a booking of that type adds. `fromForm`: the applicant workflow.
+ */
+export type DatingSetup = {
+  booked: { workflow: string; name: string; callType: string; salesCallType: string; tags?: string[] }[];
+  fromForm?: { workflow: string; name: string };
+};
+type InstallBits = { scopeTag?: string; calendars?: Record<string, string | { term: string; name?: string }> };
+/** A copy of a template's workflow the company already has (saved over it), or (D123) the company's own workflow, made with `create`. */
+export type Copy = { workflow: string; note: string; definition: Record<string, unknown>; name?: string; create?: { stage: string; sort: number; takesOver?: string } };
 type Node = { id: string; type: string; [k: string]: unknown };
 type Def = { nodes: Node[]; edges: unknown[] };
 
@@ -28,7 +42,7 @@ const node = (d: Def, id: string) => { const n = d.nodes.find((x) => x.id === id
 /** A send that must not go out while its words are a placeholder: nothing sets vars.welcome_copy_written. */
 const HELD = { exists: "vars.welcome_copy_written" };
 
-export function datingCopies(company: string, words: DatingWords): Copy[] {
+export function datingCopies(company: string, words: DatingWords, own?: { setup: DatingSetup; install: InstallBits }): Copy[] {
   const out: Copy[] = [];
 
   // Deal closed: the company's welcome email and text instead of Hair's
@@ -52,6 +66,101 @@ export function datingCopies(company: string, words: DatingWords): Copy[] {
   if (dqHeld) a4.title = "Jev: why disqualified? [placeholder: the company's DQ reasons are not written yet]";
   out.push({ workflow: "setter-call-logged", definition: scl as unknown as Record<string, unknown>,
     note: `${company}: why a setter DQs a lead, in the company's words (installs/${company}/words.json)${dqHeld ? "; still placeholders" : ""}, not Hair's (D118)` });
+  if (own) out.push(...ownWorkflows(company, own.setup, own.install));
+  return out;
+}
+
+const template = (slug: string) => templates.find((t) => t.slug === slug)!;
+type Edge = { from: string; to: string; label?: string; when?: unknown; else?: boolean };
+/** Removes node `id`, joining the edges into it to its one way on. */
+const drop = (d: Def, id: string) => {
+  const edges = d.edges as Edge[], outs = edges.filter((e) => e.from === id);
+  if (outs.length !== 1) throw new Error(`${id} has ${outs.length} ways on`);
+  for (const e of edges) if (e.to === id) e.to = outs[0].to;
+  d.edges = edges.filter((e) => e.from !== id); d.nodes = d.nodes.filter((n) => n.id !== id);
+};
+/** Puts node `n` right after `prev` (which has one way on), in the line and in the node list. */
+const after = (d: Def, prev: string, n: Node) => {
+  const outs = (d.edges as Edge[]).filter((e) => e.from === prev);
+  if (outs.length !== 1) throw new Error(`${prev} has ${outs.length} ways on`);
+  d.nodes.splice(d.nodes.findIndex((x) => x.id === prev) + 1, 0, n);
+  (d.edges as Edge[]).push({ from: n.id, to: outs[0].to }); outs[0].to = n.id;
+};
+const RESCHEDULE = { eq: ["{{event._type}}", "appointment.rescheduled"] };
+
+/**
+ * D123/D105/D107: Call booked with one card fork after the setter and self paths rejoin, the way PMU's copy has it ("A new booking
+ * or a reschedule?"), on the two boards of the Hair model: each path keeps what says how the call was booked (the remembered
+ * values, the setter on the contact, the setter card, the tags), and the closer card moves in the fork. A new booking puts it on
+ * Scheduled, named -- Direct / -- Setter Booked, then the video task; a reschedule moves it to Scheduled only off a pre-call stage
+ * (Scheduled, Cancelled / No Show; her board has no Rescheduled stage) keeping its name, then logs the old slot's Sales Call as
+ * rescheduled. Both rejoin at the Sales Call record. Dropped from the template: s4 and b5 (the closer card in each path, now the
+ * fork's c_new / c_rs) and k3's and k5's "only if" (the fork's ways say it); nothing else.
+ */
+function bookedWithFork(): Def {
+  const d = load("call-booked");
+  for (const id of ["s4", "b5"]) drop(d, id);
+  after(d, "s2b", { id: "s_suffix", type: "set_var", key: "card_suffix", value: "Direct" });
+  after(d, "b2b", { id: "b_suffix", type: "set_var", key: "card_suffix", value: "Setter Booked" });
+  const edges = d.edges as Edge[];
+  if (edges.filter((e) => e.to === "k3").map((e) => e.from).sort().join() !== "b6,s5") throw new Error("Call booked's paths no longer meet at k3");
+  const card = { type: "pipeline_card", pipeline: "{{crm.pipeline_closer}}", stage: "{{crm.stage_closer_scheduled}}", name: "{{contact.name}} -- {{vars.card_suffix}}", assign_to: "{{appointment.closer.ghl_user_id | default:}}",
+    fields: [{ id: "{{crm.field_opportunity_setter_owner}}", value: "{{appointment.set_by | default:}}" }] };
+  d.nodes.splice(d.nodes.findIndex((n) => n.id === "k3"), 0,
+    { id: "f_card", type: "branch", title: "A new booking or a reschedule?" },
+    { ...card, id: "c_new", title: "Closer card → Scheduled, named -- Direct / -- Setter Booked" },
+    { ...card, id: "c_rs", title: "Closer card → Scheduled, if it is before the call (its name stays)", keep_name: true, from_stages: ["{{crm.stage_closer_scheduled}}", "{{crm.stage_closer_cancelled}}"] });
+  d.edges = edges.filter((e) => e.to !== "k3" && e.from !== "k3" && e.from !== "k5");
+  (d.edges as Edge[]).push({ from: "s5", to: "f_card" }, { from: "b6", to: "f_card" },
+    { from: "f_card", to: "c_rs", label: "a reschedule", when: RESCHEDULE }, { from: "f_card", to: "c_new", label: "a new booking", else: true },
+    { from: "c_new", to: "k3" }, { from: "k3", to: "k4" }, { from: "c_rs", to: "k5" }, { from: "k5", to: "k4" });
+  delete node(d, "k3").only_if; delete node(d, "k5").only_if;
+  node(d, "k5").title = "The Sales Call for the old time: logged as rescheduled";
+  const k5 = d.nodes.splice(d.nodes.findIndex((n) => n.id === "k5"), 1)[0];
+  d.nodes.splice(d.nodes.findIndex((n) => n.id === "k3") + 1, 0, k5);
+  return d;
+}
+
+/**
+ * D123: the company's own workflows. Each booked-call one is Call booked with both triggers held to its call type (a calendar's
+ * own type, D101, so a booking runs exactly one of them), its Sales Call written with its call_type option, and its extra tags
+ * on the booking's tag steps. Every closing calendar the install maps must book one of these types: Call booked is taken over,
+ * so a closing call of any other type would run nothing.
+ */
+function ownWorkflows(company: string, setup: DatingSetup, install: InstallBits): Copy[] {
+  const out: Copy[] = [];
+  const cals = Object.values(install.calendars ?? {}).map((m) => (typeof m === "string" ? { term: m } : m));
+  const types = setup.booked.map((b) => b.callType);
+  if (new Set(types).size !== types.length) throw new Error("copies.json: each booked workflow needs its own call type");
+  for (const t of types) if (!cals.some((m) => m.name === t)) throw new Error(`copies.json: no calendar of the install books "${t}" (calendars[…].name)`);
+  for (const m of cals) if (m.term === "closing" && !types.includes(m.name ?? "")) throw new Error(`copies.json: a closing calendar books "${m.name ?? "the default closing type"}", which no booked workflow takes: it would run nothing once Call booked is taken over`);
+  const cb = template("call-booked");
+  for (const b of setup.booked) {
+    const d = bookedWithFork();
+    const isType = { eq: ["{{appointment.term.name}}", b.callType] };
+    Object.assign(node(d, "t1"), { match: isType, title: `Only a ${b.callType} booking (its calendar's call type)` });
+    Object.assign(node(d, "t2"), { match: isType, title: `Only a ${b.callType} moved` });
+    (node(d, "k4").properties as Record<string, string>).call_type = b.salesCallType;
+    if (b.tags?.length) for (const id of ["s5", "b6"]) { const n = node(d, id); n.add = [...(n.add as string[]), ...b.tags]; }
+    out.push({ workflow: b.workflow, name: b.name, create: { stage: cb.stage, sort: cb.sort, takesOver: "call-booked" }, definition: d as unknown as Record<string, unknown>,
+      note: `${company}: Call booked for a ${b.callType} booking only (its calendar's call type), the Sales Call's call type ${b.salesCallType}${b.tags?.length ? `, and the tag${b.tags.length > 1 ? "s" : ""} ${b.tags.join(", ")}` : ""}; one card fork after the booking paths, a new booking (closer card to Scheduled, the video task) or a reschedule (the card to Scheduled only before the call, its name kept; the old slot's Sales Call logged rescheduled), as PMU's (D105, D107, D123)` });
+  }
+  if (setup.fromForm) {
+    const tag = install.scopeTag?.trim().toLowerCase();
+    if (!tag) throw new Error("copies.json fromForm: the install file has no scopeTag to tag an applicant with");
+    const nl = template("new-lead");
+    out.push({ workflow: setup.fromForm.workflow, name: setup.fromForm.name, create: { stage: nl.stage, sort: nl.sort - 1 },
+      note: `${company}: an application (form.submitted, D122) puts the person in the offer with the tag ${tag} and starts New lead once, if they are not a lead yet (D123)`,
+      definition: { schema: 1, reentry: "always", premise: { check: "contact_exists" },
+        nodes: [
+          { id: "t1", type: "trigger", event: "form.submitted" },
+          { id: "n1", type: "tags", title: `Into the offer: the tag ${tag}`, add: [tag] },
+          { id: "n2", type: "record", title: "Start New lead, once a person", event: "lead.created", start: true, only_if: { eq: ["{{contact.is_lead}}", false] },
+            data: { ghl_contact_id: "{{contact.ghl_contact_id | default:}}", form_id: "{{event.form_id}}", response_id: "{{event.response_id}}", by: "form" } },
+          { id: "x1", type: "exit", reason: "done" },
+        ],
+        edges: [{ from: "t1", to: "n1" }, { from: "n1", to: "n2" }, { from: "n2", to: "x1" }] } });
+  }
   return out;
 }
 

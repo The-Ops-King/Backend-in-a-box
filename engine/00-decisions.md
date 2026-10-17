@@ -4296,3 +4296,148 @@ fields, a second run a no-op, a field outside the folder bound and not moved, a 
 code: dropping the signature check, the idempotency, the mode, the phone lookup, the blank-only rule, the separate tag add, the
 scope rule, the replica after the write, the importer's written check, the health check or the door's lead turns 1–4 of the 12
 red; dropping the folder's `parentId` or the folder read turns 5 of the provision tests red.
+
+## D123. Dating (Nelly) books in her Calendly; a booking runs one of her two booked workflows; an applicant's tag and New lead are a workflow (2026-10-17)
+
+Tyler, 2026-10-17: switch Dating (Nelly) from the three GHL calendars to Nelly's Calendly (nellysudri@gmail.com), where her
+bookings really happen, with exactly two event types mapped; a Strategy Session booking also tags `stat-triage-first`. Then,
+the same day, the design changed: two booked workflows instead of one Call booked plus a tag, and a visible workflow for what
+a new applicant gets, so the tag is on a chart and not in the Typeform door's code; and the imported applicants run through
+the new lead automation.
+
+**Her Calendly, verified read-only (2026-10-17, `GET /users/me`, `/organization_memberships`, `/event_types`, `/scheduled_events`).**
+The token is Nelly Sudri's (owner); the organization has one other member, "shawnee" (sobregn@gmail.com, one event type
+"Dating Consultation"). Twenty event types in all: nineteen Nelly's (two inactive, two "Blush" collective) and shawnee's one.
+Mapped, both closing, both self-booked, both with one optional question ("Please share anything that will help prepare for our
+meeting."), no phone and no setter question:
+- `86985d27-22e5-4b6b-ab66-8e68e9ee8e30` "Complimentary Dating Strategy Session ♡", 15 min, the Typeform's link: its own call type
+  **"Strategy session"** (D101), `bookingCalendar` (the self-book link the templates send);
+- `80955126-29fe-48ea-a85e-ba4bcd145790` "Private Dating Consultation with Nelly" (trailing space at Calendly; listing trims it),
+  60 min: its own call type **"Consultation"**, the `closerCall`.
+Nothing else is mapped (the 15-Min Discovery Call and the Private Dating Strategy Call are kept for a later setter triage). The
+three GHL calendars stay built in RapidCloser, unmapped: a re-install with `booking.source: "calendly"` turns the GHL calendar rows
+inactive and drops their poll cursors (they hold no booking). Install takes the token as `booking.token` in the body (from
+`DN_CALENDLY_TOKEN` at install, never in the file) and binds `secret.calendly_token`, `calendly.organization` (the token user's
+organization) and `calendly.user` from `booking.userEmail`, which must be a member of that organization; it narrows nothing (every
+member's event types are listed, only mapped ones are polled, D26), so the install's doc comment that said it narrowed is fixed.
+
+**Closing with a named type, not first_call: right.** No shipped template or PMU copy triggers on `first_call` (grep: none
+mentions it), so a `first_call` mapping would run nothing; the Strategy Session is a self-booked call with Nelly that the team
+works like a closing call. As PMU's "Demo call" (D101), a named type under `closing` counts as a closing call in every number,
+and Call cancelled, Call outcome filed, Pre-call sequence, Cancellation rebook and the end-of-day form, all on the category,
+take both types unchanged.
+
+**Two booked workflows, her own (Tyler's change).** *Triage call booked* (a Strategy session) and *Sales call booked* (a
+Consultation) are Call booked with both triggers held to the call type (`{"eq": ["{{appointment.term.name}}", "Strategy session"]}`),
+the Sales Call's `call_type` written (`strategy_session`, a new option; `closing`), and on Triage `stat-triage-first` added to the
+booking's two tag steps (s5, b6). Each calendar is mapped to its own type, so a booking matches exactly one trigger; a reschedule (same event type
+at Calendly) runs the same one again. The match is on the call type, not the calendar id: the type is the calendar's by the
+install mapping, it reads on the chart ("term name is “Strategy session”", the same words PMU's chart already uses for the
+term name), and D112 holds every chart free of ids. Built by `scripts/build-copies.ts dating-nelly` from
+`installs/dating-nelly/copies.json` (`booked`: workflow, name, call type, Sales Call call type, tags) and the install file; the build
+refuses a call type no calendar books and a closing calendar no booked workflow takes (that booking would run nothing).
+
+*Their shape: one card fork, as PMU's (Tyler, on her Call booked chart: "the workflow is still fucked up").* The shipped Call
+booked runs the paths' tag steps into the video task (only if not a reschedule), then a dashed "slot the call moved from"
+record with an otherwise bypass. Tyler had said for PMU that the video task belongs under the new booking and the reschedule
+under the rescheduled card (D105, D107); both of hers are built that way, on her two boards (the Hair model): the setter and
+self paths keep what says how the call was booked (the remembered values, plus `card_suffix` "Direct" / "Setter Booked", the
+setter on the contact, the setter card to Direct Booked / Appointment Set, the tags), then one fork "A new booking or a
+reschedule?": *a new booking* moves the closer card to Scheduled named "-- Direct" / "-- Setter Booked" (c_new), then the video
+task (k3); *a reschedule* moves the closer card to Scheduled only off Scheduled or Cancelled / No Show, keeping its name (c_rs,
+D105: her board has no Rescheduled stage, and a card in Follow Up or past the call is left alone), then logs the old slot's
+Sales Call rescheduled (k5); both rejoin at the Sales Call record (k4), the Slack card's look, the Slack card and Done.
+Dropped from the template, and only these: s4 and b5 (the closer card inside each path, now c_new and c_rs) and the `only_if`
+of k3 and k5 (the fork's ways say it). A step-by-step check holds every other node to the template's own. The triggers carry a
+label naming the call type. Charts rendered at desktop and phone width (`scripts/render-charts.ts`): every step drawn, tidy
+and exact (D111), no "otherwise" bypass but New from Typeform's one real sometimes-step.
+
+*Why not the generic tag option first asked about* (a calendar mapping `tags`, applied by Call booked or by the engine at
+booking): in the shipped Call booked it adds a step to Hair's chart (Hair's copy tracks the template), which must not change;
+applied by the engine it is a write on no chart (D111), the opposite of what Tyler asked; and after the redesign the tag sits in
+her own Triage workflow's tag steps, where the chart draws it. So no `tags` option was built.
+
+**A company's own workflow, and taking over a template** (new, generic). There was no way to make a workflow that is not a
+template's copy. `createCompanyWorkflow` (`definitions.ts`), through `POST /api/admin/workflows/definition` with
+`create: { stage?, sort?, takesOver? }` and a name the company does not have: validated and drawn exactly as a save (D100, D111),
+made OFF, version 1, `template_id` null, origin `company`, triggers synced, audited `workflow.created`; `dryRun` makes nothing.
+`takesOver: "call-booked"` (new column `workflows.takes_over`) means the template's job is done by the company's own workflows:
+`installTemplates` never puts it back ("call-booked → not installed: the company's own “Sales call booked” and “Triage call booked”
+do its job"), and the create is refused (409) while the company still has the template's copy, which is removed first with the
+existing `DELETE /api/admin/workflows` (refused while on). So no booking can run Call booked and one of hers. Her Call booked is
+removed, not just off: off, a later toggle would double every booking. Production, read-only: it is off with 0 runs.
+
+**New from Typeform (Tyler's change), and what stays in the door.** The door keeps what only it can do: verify the signature,
+take a response once, find the person in GHL (email, then phone, then the ledger's id), write the answers and UTMs as the mode
+allows, keep the ledger's person, record `form.submitted` with the person (in scope by it, D117/D122) and dispatch it. Moved to a
+workflow, because they are decisions about what an applicant gets, which belong on a chart (D88, D111): the scope tag and New
+lead. Her own *New from Typeform* (built by the same script from `copies.json` `fromForm` and the install's `scopeTag`): on
+`form.submitted`, tag `dating`, then `record lead.created` with `start: true` **only if they are not a lead** (`contact.is_lead`,
+a new context fact: a `lead.created` exists for them), then done. Its rung is the door's write rung too (`handlerMode("form.submitted")`).
+The door no longer writes a tag or emits `lead.created` (the map's `tags` key is gone; install refuses it with the reason).
+Consequences, accepted: with New from Typeform off, a submission is recorded and starts nothing, and a real write leaves the GHL
+contact untagged (the person is still in scope by the submission); a person's first application decides the lead at the step,
+not at the door, so an applicant whose Calendly booking was polled first (a replica, no lead) still becomes a lead.
+
+*Scope stays right in shadow:* the submitter is in scope by `form.submitted` (`scopeSql`, `stillInScope`), recorded before the
+workflow runs, so the tag being only a would-have in shadow changes nothing.
+
+**New lead once a person, by every door.** (1) New from Typeform's check, at the step, in the run's own transaction (a retry finds
+the event its record step wrote, D87). (2) A replica the door made without a GHL id (shadow writes nothing to GHL) that GHL later
+shows, tagged by hand or created by anyone, used to be a new lead again (the D65 addendum's "a new CRM record is a new lead"):
+`newLeadOnUpsert` (`poll.ts`) makes that adoption no new lead when the person is already one, in the contacts poll, the booking
+path (G16) and the drift sweep. Only a form makes a lead of a replica with no GHL id, so a company with no form is unchanged
+(production read-only, 2026-10-17: Hair 2 and PMU 5 contacts without a GHL id, 0 of them leads).
+
+**The importer's `newLead`.** `applyImport({ newLead: true })`, `--new-lead`, `"newLead": true` on `POST /api/admin/typeform-import`;
+default off (history starts nothing, as D122). The importer's own write is unchanged (real whatever the mode, the scope tag
+included: history the workflow never saw, so GHL and the tagged poll know them). With it, each newly imported response the
+webhook never saw is recorded and dispatched as `form.submitted` exactly as the webhook dispatches one (`new_lead: true` in its
+data), so New from Typeform runs for it in its own mode and New lead starts once a person (someone who applied twice, imported
+twice, is one lead); a response the door already took is never run again; `runsStarted` is in the answer. Imported in shadow,
+New lead runs in shadow (would-be card and tag), while the GHL write is real: the import is a write, the automation follows its mode.
+
+**New lead only for someone in scope (Tyler's item 5).** Every `lead.created` today, with file:line:
+- the contacts poll, `poll.ts:115`: the search is tagged and each row held to the exact tag (`poll.ts:110`);
+- a GHL-calendar booking's new person (G16), `poll.ts:216`: the appointment row on a mapped calendar is inserted first
+  (`poll.ts:206`), so they are a booker; not reachable on Calendly (an invitee is no CRM record);
+- the drift sweep, `ledger-drift.ts:100`: only contacts GHL carries the tag on (`ledger-drift.ts:88`);
+- New from Typeform's record step (`executor.ts:785`, `record` with `start`): runs on `form.submitted`, whose person is a submitter.
+New lead triggers only on `lead.created`; nothing hands off to it (`start_workflow`: no template or copy names it). The old door
+dispatched `lead.created` before it recorded `form.submitted`, a moment when the replica's own rule would have said out of scope.
+Closed for any future door or step: `dispatchEvent` (`dispatch.ts:78`) starts nothing on a `lead.created` for a contact out of the
+company's scope (by `inScope`: tagged, a booker, or a submitter) and audits `scope.lead_refused`; with no scope tag (Hair, PMU) it
+reads nothing. **Not** a "has tag dating" condition step: in shadow the tag is only recorded, never on GHL or the replica, so an
+untagged booker or applicant, in scope by D117/D122, would be dropped from New lead in exactly the mode used to watch it.
+
+**What the first poll does with her bookings.** Read-only, 2026-10-17: in the poll window (2 days back, 60 ahead) 97 active
+bookings on the two types (89 Strategy Session, 8 Consultation; 87 of them still ahead, 10 in the last two days) and 2 cancelled
+Strategy Sessions; none beyond 60 days. Each mapped event type is a new poll entity with no cursor, so the first poll is a silent
+baseline: appointments and contact replicas only (by email; no GHL id for anyone not in GHL), no event, no run, no scope tag write,
+no setter alert. Only bookings made after it are news.
+
+**Hair and PMU unchanged.** No shipped template and no PMU copy changed. The charts (`chartOf`) and node words of all 30 templates
+and 9 PMU copies are byte-identical on the base commit and here (a first draft gave `appointment.term.name` the words "call type",
+which changed PMU's "Remember the call type · by the term name"; the words test caught it and it was dropped). New code reads
+nothing for them: the dispatch guard needs a scope tag; `newLeadOnUpsert` differs only for a replica with no GHL id that is a lead
+(0 on both); `takes_over` is null on every workflow they have; `contact.is_lead` is a new fact no template of theirs reads.
+
+**GHL.** `installs/dating/ghl-setup.json`: the Sales Call's `call_type` gains `strategy_session` "Strategy Session" (keeps `closing`,
+labelled "Strategy Call" since the GHL calendars; not renamed, provision only adds). Dry run on RapidCloser (2026-10-17,
+`dn-calltype-dryrun.txt`): exactly one change, `missing-on-ours options of custom_objects.dating_sales_call.call_type — adds
+strategy_session (keeps closing)`; the other 109 exist. Not applied.
+
+Tests: `dating-booked.test.ts` (made through the definition route: refused while Call booked is there, removed with DELETE, dry
+run, made OFF at version 1 with their triggers, audited, a re-install does not put Call booked back; a Strategy session runs only
+Triage call booked, with stat-triage-first and call type strategy_session, a Consultation only Sales call booked with closing and
+no triage tag; a reschedule runs the same one again and logs the slot left; a cancel runs Call cancelled; a filed outcome runs Call
+outcome filed on that call's record; a new booking's run takes c_new and k3 and never c_rs or k5, a reschedule's the opposite),
+`dating-copies.test.ts` (the three files are the build's; the booked ones are Call booked less s4 and b5, plus the fork and its
+edges, every other node the template's but the call type, the Sales Call's call type and Triage's tag; New from Typeform's steps; the build refuses an untaken closing calendar and a type
+no calendar books), `typeform.test.ts` (the door writes no tag and makes no lead; shadow: New from Typeform records the tag and
+makes one lead, New lead runs; live: the tag is the workflow's write; a second application skips the lead step; `newLead` import:
+one lead a person over two responses, a response the door saw not run again; a shadow-made lead turning up tagged in GHL is not a
+second lead; a `lead.created` out of scope starts nothing and is audited, tagged it starts New lead). Each fails without its
+change: the dispatch guard 1, the adoption guard 1, the door's tag 3, install putting Call booked back 3, the create not refusing 3,
+the import dispatch 1, `contact.is_lead` 6, booked workflows on the category instead of the type 2. The chart tests hold the three
+new files to D111 (tidy, exact).

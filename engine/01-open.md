@@ -560,8 +560,8 @@ Decisions:
 - Contact fields: appointment date, setter, cash collected, revenue generated, the UTMs and fbclid. Opportunity fields:
   setter owner, stage entered.
 - Custom objects: Dating Sales Call, Dating Payment, Dating Discovery. Sales Call closer options: Nelly, Mitch.
-- GHL calendars for now (Calendly later), assigned to Mitch until Nelly was a user, now Nelly's (D121), in the calendar
-  group "Dating – Nelly":
+- Bookings: Nelly's Calendly since D123 (2026-10-17; below). Before that, GHL calendars, assigned to Mitch until Nelly was a
+  user, now Nelly's (D121), in the calendar group "Dating – Nelly" (still built, unmapped since D123):
   - Strategy Call (Direct), 45 min, self-booked closer call;
   - Strategy Call (Setter), 45 min, setter-booked closer call;
   - Triage Call, 15 min, the setter's qualifying call (a downsell, or a lead not yet worth a full slot).
@@ -656,4 +656,31 @@ Tyler, 2026-10-16 (later):
 - An existing GHL contact who applies keeps its name, email and phone; only blanks are filled.
 - **TODO:** the form's "Not now" path ends on Typeform's own "create your own typeform" screen (153 of 275 responses).
   It should probably go to the Triage call link instead; do not change it until Tyler says.
-- Nelly's Calendly token: later.
+- Nelly's Calendly token: given (`DN_CALENDLY_TOKEN`); see D123 below.
+
+**Tyler, 2026-10-17 (D123, built, not applied):** bookings move to Nelly's Calendly, two event types mapped: the Complimentary
+Dating Strategy Session (call type "Strategy session", the Typeform's link and the self-book link) and the Private Dating
+Consultation (call type "Consultation", the closer call); nothing else (the 15-Min Discovery Call and the Private Dating Strategy
+Call wait for a setter triage). Her own workflows, built by `build-copies` from `installs/dating-nelly/copies.json`: *Triage call
+booked* (a Strategy session: Call booked's steps, `stat-triage-first`, the Sales Call's call type `strategy_session`) and *Sales
+call booked* (a Consultation: Call booked's steps, call type `closing`), both with one card fork, a new booking or a reschedule, as PMU's, take Call booked's place; *New from Typeform* tags an
+applicant `dating` and starts New lead once (the door no longer does either). The importer can run applicants through it
+(`newLead`). Apply, in order (every workflow stays off; Dating (Nelly) stays in shadow):
+  1. Deploy (the build migrates: `workflows.takes_over`).
+  2. GHL: `provision-ghl --setup installs/dating/ghl-setup.json --pit-env DATING2_GHL_PIT --location-env DATING2_GHL_LOCATION_ID
+     --out <file> --apply` (dry run 2026-10-17: only `call_type` gains `strategy_session`; 109 exist).
+  3. Remove her Call booked (off, 0 runs): `DELETE /api/admin/workflows { company: "dating-nelly", workflow: "call-booked" }`.
+  4. Make her three workflows, dry run first: `POST /api/admin/workflows/definition { company: "dating-nelly", workflow: <file's
+     name>, definition, note, create, dryRun: true }`, then without `dryRun`, for `triage-call-booked.json`,
+     `sales-call-booked.json`, `new-from-typeform.json` (made OFF). Before the re-install: from now on install skips Call booked.
+  5. Re-install: `POST /api/admin/install` with `installs/dating-nelly.json` plus `booking.token` = `DN_CALENDLY_TOKEN`. It binds
+     the Calendly token and organization, maps the two event types (their call types made), turns the GHL calendars inactive,
+     re-PUTs the Typeform webhook with the same tag and secret (no change at Typeform), and says "call-booked → not installed". The
+     first poll after it takes the ~99 bookings in the window (97 active, 2 cancelled; 87 ahead) as a silent baseline: replicas
+     only, no event, no run, no tag.
+  6. Import with New lead, last, when Tyler says: `POST /api/admin/typeform-import { company: "dating-nelly", form: "AjY7UfXZ",
+     apply: true, newLead: true }` until `remaining` is 0, with New from Typeform and New lead turned on (in shadow) first, or the
+     runs start nothing.
+  Open: a booker who is not in GHL (in shadow, every applicant until the import's real write) leaves Triage call booked paused at
+  "Wait for GHL to have the person" after an hour; the Sales Call option `closing` is still labelled "Strategy Call" in GHL (a
+  rename by hand, if wanted); Pre-call sequence takes both types (both closing): reminders for the 15-minute session too.

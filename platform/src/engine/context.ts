@@ -65,7 +65,8 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       ct.timezone, ct.tags, ct.attributes, ct.ghl_fields, ct.assigned_ghl_user_id,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='phone' and i.retired_at is null order by i.created_at limit 1) as phone,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='email' and i.retired_at is null order by i.created_at limit 1) as email,
-      ${leadSourceSql("ct", "$2")} as lead_source
+      ${leadSourceSql("ct", "$2")} as lead_source,
+      exists (select 1 from events le where le.company_id=ct.company_id and le.contact_id=ct.id and le.event_type='lead.created') as is_lead
     from contacts ct where ct.id=$1`, [run.contact_id, sourceFieldsParam(sourceFields(bindings))]);
   const contactZone = typeof contact?.timezone === "string" && DateTime.now().setZone(contact.timezone).isValid ? contact.timezone : undefined;   // G20: a zone Luxon cannot use never reaches the window math
   // D13: the reply the run is reacting to is whatever the contact last sent after this run started; what we last sent is the classifier's state.

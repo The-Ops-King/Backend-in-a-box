@@ -1,0 +1,69 @@
+{
+ "workflow": "new-from-typeform",
+ "name": "New from Typeform",
+ "create": {
+  "stage": "lead",
+  "sort": 9
+ },
+ "note": "dating-nelly: an application (form.submitted, D122) puts the person in the offer with the tag dating and starts New lead once, if they are not a lead yet (D123)",
+ "definition": {
+  "schema": 1,
+  "reentry": "always",
+  "premise": {
+   "check": "contact_exists"
+  },
+  "nodes": [
+   {
+    "id": "t1",
+    "type": "trigger",
+    "event": "form.submitted"
+   },
+   {
+    "id": "n1",
+    "type": "tags",
+    "title": "Into the offer: the tag dating",
+    "add": [
+     "dating"
+    ]
+   },
+   {
+    "id": "n2",
+    "type": "record",
+    "title": "Start New lead, once a person",
+    "event": "lead.created",
+    "start": true,
+    "only_if": {
+     "eq": [
+      "{{contact.is_lead}}",
+      false
+     ]
+    },
+    "data": {
+     "ghl_contact_id": "{{contact.ghl_contact_id | default:}}",
+     "form_id": "{{event.form_id}}",
+     "response_id": "{{event.response_id}}",
+     "by": "form"
+    }
+   },
+   {
+    "id": "x1",
+    "type": "exit",
+    "reason": "done"
+   }
+  ],
+  "edges": [
+   {
+    "from": "t1",
+    "to": "n1"
+   },
+   {
+    "from": "n1",
+    "to": "n2"
+   },
+   {
+    "from": "n2",
+    "to": "x1"
+   }
+  ]
+ }
+}
