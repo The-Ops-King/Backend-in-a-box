@@ -243,6 +243,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table onboarding add column if not exists connections jsonb not null default '{}'`);
     await c.query(`alter table onboarding add column if not exists research jsonb`);
     await c.query(`alter table onboarding add column if not exists slack jsonb not null default '{}'`);
+    await c.query(`alter table onboarding add column if not exists params jsonb`);
+    await c.query(`alter table onboarding add column if not exists crm jsonb not null default '{}'`);
     // simulation harness (D23): synthetic appointments and events carry source 'test'; dark-hours policy per company
     await c.query(`alter table companies add column if not exists quiet_allow_transactional boolean not null default false`);
     await c.query(`alter table calendars add column if not exists config jsonb not null default '{}'`);

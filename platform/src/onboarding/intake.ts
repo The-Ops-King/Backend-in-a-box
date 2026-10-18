@@ -126,6 +126,8 @@ export function fitReport(a: Intake, kind: "new" | "takeover" = "new", chosen?: 
     }
     if (s === "deal-closed" && a.agreement === "none") return w("tweak", "it closes a deal when it is paid and signed; with no agreement it must close on payment alone");
     if (s === "setter-call-logged" && a.setters === false) return w("off", "no setters");
+    // D147: Setter call logged moves the setter board's card; on one board there is none, and the playbook has no copy of it yet
+    if (s === "setter-call-logged" && pb.traits.boards === "one") { gaps.add("Setter call logged on one board: it moves a setter card, and one board has none (a one-board copy is to build)"); return w("build", "it moves the setter board's card, and one board has none: a one-board copy is to build"); }
     if (s === "new-lead" && Array.isArray(a.lead_paths) && a.lead_paths.includes("organic_dm")) { gaps.add("DM leads: nothing brings an Instagram DM lead into the CRM yet (problem 7)"); return w("tweak", "DM leads reach it only once they are in the CRM"); }
     if (s === "new-lead" && a.application === "other") return w("tweak", "the application's answers come in through a Zap");
     if (pb.changes.includes(s)) return w("fits", `the ${pb.name} playbook's own copy`);

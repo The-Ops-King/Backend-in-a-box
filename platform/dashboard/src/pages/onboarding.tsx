@@ -8,6 +8,7 @@ import type { StepId } from "@/onboarding/store";
 import type { ConnectionRow } from "@/onboarding/connections";
 import type { Research, ResearchAnswers, CalendarAnswer, Role } from "@/onboarding/research";
 import type { SlackState } from "@/onboarding/slack";
+import type { CrmRun } from "@/onboarding/crm";
 
 /** D143 (#49 P1): standing a client up, step by step. Every step saves; Tyler can stop for days and come back to the same place. */
 export function Onboarding() {
@@ -38,7 +39,8 @@ export function Onboarding() {
           : at === "offer" ? <OfferStep slug={slug} d={d} invalidate={key} />
           : at === "connections" ? <ConnectionsStep slug={slug} d={d} invalidate={key} />
           : at === "research" ? <ResearchStep slug={slug} d={d} invalidate={key} />
-          : at === "slack" ? <SlackStep slug={slug} invalidate={key} /> : null}
+          : at === "slack" ? <SlackStep slug={slug} invalidate={key} />
+          : at === "crm" ? <CrmStep slug={slug} d={d} invalidate={key} /> : null}
       </section>
     </div>
   </>;
@@ -239,5 +241,43 @@ function SlackStep({ slug, invalidate }: { slug: string; invalidate: string[] })
       <div><button className="btn" type="submit" disabled={post.isPending}>Save the channels</button></div>
     </form> : null}
     <p className="note">{s.ready ? "Done: the bot is connected and every channel is set." : "Done once the bot is connected and every slot with nothing to fall back on has a channel."}</p>
+  </>;
+}
+
+const ACTION_WORDS: Record<string, string> = { create: "Will be made", "change-on-ours": "Will be changed (ours only)", "missing-on-ours": "Missing from ours", blocked: "Blocked: needs a hand", "exists-differs": "There, but not as the playbook has it", exists: "Already there" };
+/** D147: what the playbook needs in their GHL, planned (reads only), then built (only what is missing). */
+function CrmStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
+  const [prefix, setPrefix] = useState(d.crm?.options.prefix ?? "");
+  const [err, setErr] = useState<string | null>(null);
+  const run = useAction<"plan" | "build", { crm: CrmRun }>((v) => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "crm", run: v } }), [invalidate]);
+  const opts = useAction<{ prefix: string }>((v) => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "crm", options: v } }), [invalidate]);
+  const need = d.steps.find((s) => s.id === "connections")!.done && d.steps.find((s) => s.id === "research")!.done;
+  if (!need) return <Empty>Finish Connections and Research first: the build uses the GHL token, and the closers and call types come from Research.</Empty>;
+  const last = d.crm?.last ?? null;
+  const go = async (v: "plan" | "build") => {
+    if (v === "build" && !confirm("Build in their GHL now? Only what is missing is made; nothing of theirs is renamed, changed or deleted.")) return;
+    setErr(null); try { const r = await run.mutateAsync(v); toast(v === "plan" ? `Planned: ${r.crm.summary}` : `Built: ${r.crm.summary}`); } catch (x) { setErr((x as Error).message); }
+  };
+  const lines = last ? (last.after ?? last.plan) : [];
+  const by = (a: string) => lines.filter((l) => l.action === a);
+  return <>
+    {err ? <div className="banner warn">{err}</div> : null}
+    <form className="call form" onSubmit={async (e) => { e.preventDefault(); try { await opts.mutateAsync({ prefix }); toast("Saved: plan again to see what it makes."); } catch (x) { setErr((x as Error).message); } }}>
+      <b>Names</b>
+      <label><span>Prefix<span className="note"> · only when their GHL account is shared with another business or offer: it goes in front of every board, field and record name we make, so nothing of ours meets theirs. Empty in an account of its own.</span></span><input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="none" /></label>
+      <div><button className="btn" type="submit" disabled={opts.isPending || prefix === (d.crm?.options.prefix ?? "")}>Save the prefix</button></div>
+    </form>
+    <div className="call">
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button className="btn" type="button" disabled={run.isPending} onClick={() => go("plan")}>{run.isPending ? "Reading their GHL…" : last ? "Plan again (reads only)" : "Plan (reads only)"}</button>
+        {last && !last.error && !last.applied && by("create").length ? <button className="btn warn" type="button" disabled={run.isPending} onClick={() => go("build")}>Build the {by("create").length} missing</button> : null}
+        {last && last.applied && !last.error ? <button className="btn" type="button" disabled={run.isPending} onClick={() => go("build")}>Build again (makes only what is missing)</button> : null}
+      </div>
+      {last ? <p className="note">{last.applied ? "built" : "planned"} {ago(last.at)} · {last.summary}{last.applied && last.missing.length ? ` · still missing after the build: ${last.missing.join(", ")}` : ""}</p> : <p className="note">The plan reads their GHL and lists, line by line, what is there and what would be made. Nothing is written until you build.</p>}
+      {last?.error ? <div className="banner warn" style={{ marginTop: 0 }}>GHL: {last.error}</div> : null}
+      {(["blocked", "exists-differs", "create", "change-on-ours", "missing-on-ours", "exists"] as const).map((a) => by(a).length ? <Fold key={a} open={a !== "exists"} title={<>{ACTION_WORDS[a]} · {by(a).length}</>}>
+        <div className="rows">{by(a).map((l, i) => <div key={i} className="row noicon"><span className="mid"><span className="nm" style={{ whiteSpace: "normal" }}>{l.what}</span>{l.detail ? <span className="sub">{l.detail}</span> : null}</span></div>)}</div></Fold> : null)}
+    </div>
+    <p className="note">{d.steps.find((s) => s.id === "crm")!.done ? "Done: everything the playbook needs is in their GHL." : "Done once a build leaves nothing to make."}</p>
   </>;
 }

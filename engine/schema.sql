@@ -108,11 +108,13 @@ create table onboarding (
   kind        text not null default 'new' check (kind in ('new','takeover')),   -- a brand-new offer, or a running system taken over
   intake      jsonb not null default '{}',     -- the offer as Tyler described it (src/onboarding/intake.ts)
   playbook    text,                            -- the playbook the intake picked or Tyler chose (D142)
+  params      jsonb,                           -- that playbook's params for this offer, from its defaults until Tyler edits them (D147)
   fit         jsonb,                           -- the fit report when the intake was saved: per workflow fits / tweak / build / off, the gaps
   steps       jsonb not null default '{}',     -- step → { done_at, by }
   connections jsonb not null default '{}',     -- connection → its last live test { ok, at, detail | error } (never a key)
   research    jsonb,                           -- what was read from their accounts, the AI's proposal, and Tyler's answers (D145)
   slack       jsonb not null default '{}',     -- the Slack app's name, face, and whether it carries the slash commands (D146)
+  crm         jsonb not null default '{}',     -- the CRM build: its options, the last plan or build and the ids it found or made (D147)
   started_at  timestamptz not null default now(),
   started_by  text,
   finished_at timestamptz

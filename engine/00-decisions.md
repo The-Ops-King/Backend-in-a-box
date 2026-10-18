@@ -4921,3 +4921,35 @@ posts fall back to reports, ops and bookings (D58). Done while the bot is connec
 slot has a channel; emptying one takes it back. Tried live with a made-up token: Slack refused it and nothing was kept.
 
 Tests: `slack.test.ts`.
+
+## D147. The wizard's CRM build: what the playbook needs in their GHL, planned, then built (2026-10-18)
+
+Each playbook now says what it needs in a client's GHL (`src/playbooks/ghl-setup.ts`), as the setup the additive provisioner
+reads (`src/adapters/ghl/provision.ts`: creates only what is missing; never renames, retypes or deletes; writes nothing the
+setup does not name). Two shapes:
+- **Two boards** (setter-closer, application-triage): the setter and closer pipelines, the core contact fields (appointment
+  date, setter, cash collected, revenue generated, the UTMs and fbclid), Setter Owner and Stage Entered on the opportunity,
+  the Sales Call, Payment and Discovery Call records and their five links, and the install block (what each option key
+  means). Built with Dating's params it is Dating's hand-written setup exactly (pipelines, fields, objects, links, install).
+- **One board** (one-board): one closer pipeline whose stages are the offer's (its params), the payment object it names.
+The client's names: each closer's Sales Call option is their first name (from Research's team), the call types are the
+offer's own (Research's named calendars), the objections are the offer's (one-board params) or a generic six. A GHL account
+shared with another business takes a prefix on every name and object key. Calendars are not in it (Research maps theirs), nor
+a Typeform's own answer fields (they follow the form).
+
+Each playbook now has defaults for a new offer (`defaults(offer)`), kept on the client when the offer is saved
+(`onboarding.params`) and kept while the playbook stays the same: one-board's stage names, card names and the rest;
+application-triage's words as placeholders, which send nothing until written (D118).
+
+The step: a plan reads their GHL and lists, line by line, what is there, what would be made, what differs; "Build" makes only
+what is missing (it asks first); a build that leaves nothing to make is done, and its ids (the `crm` map the workflows read) are
+kept for install. The GHL calls run outside any database transaction. A test builds each playbook's setup into an in-memory GHL
+(now shared with the provisioner's own tests, `fake-ghl.ts`) and checks that every GHL id the playbook's workflows require comes
+out, and that a second build writes nothing. Not yet: a takeover's differently-named boards mapped onto ours (P2); today a board
+of another name is made anew beside theirs.
+
+Found doing this: Setter call logged moves the setter board's card, and one board has none, so on the one-board playbook with
+setters it cannot run as shipped. The fit report now says so (build: a one-board copy), and PMU needs that copy before its setter
+starts.
+
+Tests: `crm.test.ts`, `provision.test.ts`, `intake.test.ts`.

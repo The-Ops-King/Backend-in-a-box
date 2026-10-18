@@ -8,6 +8,7 @@ import { z } from "zod";
 import { oneBoardCopies, type OneBoardParams } from "./one-board";
 import { datingCopies, datingPrompts, type DatingSetup, type DatingWords } from "./application-triage";
 import type { Copy } from "./kit";
+import { OBJECTIONS } from "./ghl-setup";
 
 export type { Copy } from "./kit";
 /** How an offer sells, as the wizard asks it; what tells one playbook from another. */
@@ -30,6 +31,8 @@ export type Playbook = {
   changes: string[];
   /** Pure: the company's copies from its params and install file. Throws, naming the param, when the params are not right. */
   build(company: string, params: unknown, install: InstallBits): Built;
+  /** D147: the params a new offer starts from (the offer's name in them); the wizard keeps them on the client, Tyler edits them. */
+  defaults(offer: string): unknown;
 };
 
 const words = z.object({ welcome: z.object({ subject: z.string(), email: z.string(), sms: z.string() }), setterDq: z.object({ result: z.string(), reasons: z.record(z.string()) }) });
@@ -55,6 +58,7 @@ export const playbooks: Playbook[] = [
     traits: { boards: "setter_and_closer", booking: ["self", "setter"], application: false, triage: false },
     changes: [],
     build: () => ({ copies: [] }),
+    defaults: () => undefined,
   },
   {
     slug: "one-board", name: "One board",
@@ -62,6 +66,13 @@ export const playbooks: Playbook[] = [
     traits: { boards: "one", booking: ["self", "setter"], application: false, triage: false },
     changes: ["new-lead", "call-booked", "call-cancelled", "call-outcome", "call-recorded", "deal-closed", "payment-recorded", "pre-call-sequence", "card-moved"],
     build: (_company, params) => ({ copies: oneBoardCopies(parse(oneBoard, params, "one-board") as OneBoardParams) }),
+    defaults: (offer): OneBoardParams => ({
+      name: offer, board: offer,
+      stages: { newLead: "New Lead", booked: "Booked Call", rescheduled: "Rescheduled", cancelled: "Cancelled", noShow: "No Show", confirmed: "Call Confirmed", unresponsive: "Unresponsive", purchase: "Purchase", won: "Closed Won" },
+      lead: { tags: [], label: "a lead tag" }, cardNames: { self: "Direct", setter: "Setter" }, appointmentDateFormat: "MM-dd-yyyy HH:mm",
+      callTypes: { pick: {}, otherwise: "closing", title: "Call type" }, objections: OBJECTIONS, recordedDispositions: ["closed_won", "follow_up", "lost", "dq"],
+      paymentObject: "custom_objects.payment", slackIcons: [":telephone_receiver:"],
+    }),
   },
   {
     slug: "application-triage", name: "Application and triage",
@@ -74,6 +85,12 @@ export const playbooks: Playbook[] = [
       return { copies: datingCopies(company, p.words as DatingWords, p.setup ? { setup: p.setup as DatingSetup, install } : undefined),
         install: { prompts: { ...(install.prompts ?? {}), ...datingPrompts(install.salesCall.objections) } } };
     },
+    // the words start as placeholders, which send nothing (D118) until Tyler writes them in the Messages step
+    defaults: (offer) => ({ words: {
+      welcome: { subject: `[placeholder — ${offer}'s welcome email subject]`, email: `<p>Hi {{contact.first_name | default:there}},</p><p>[placeholder — ${offer}'s welcome email]</p>`, sms: `[placeholder — ${offer}'s welcome text]` },
+      setterDq: { result: `[placeholder — ${offer}'s DQ wording] The lead does not qualify: the setter or the lead established they are not a fit for the offer, or it is a bad or wrong contact.`,
+        reasons: Object.fromEntries(["budget", "age", "geo", "medical", "timeline", "no_problem", "competitor", "bad_contact"].map((r) => [r, `[placeholder] ${r.replace("_", " ")}`]).concat([["other", "Any other reason, or the transcript does not say."]])) },
+    } }),
   },
 ];
 export const playbookOf = (slug: string): Playbook => { const p = playbooks.find((x) => x.slug === slug); if (!p) throw new Error(`no playbook "${slug}" (there are ${playbooks.map((x) => x.slug).join(", ")})`); return p; };

@@ -17,11 +17,12 @@ describe("the intake", () => {
     expect(emailsOf("Carly@x.com\n annabelle@x.com, nope")).toEqual(["carly@x.com", "annabelle@x.com"]);
   });
 
-  it("PMU's answers pick the one-board playbook exactly; every workflow fits, its copies named", () => {
+  it("PMU's answers pick the one-board playbook exactly; every workflow fits but Setter call logged (one board has no setter card), its copies named", () => {
     const r = fitReport(pmuLike);
-    expect(r).toMatchObject({ playbook: "one-board", gaps: [], notes: [] });
+    expect(r).toMatchObject({ playbook: "one-board", gaps: ["Setter call logged on one board: it moves a setter card, and one board has none (a one-board copy is to build)"], notes: [] });
     expect(r.workflows).toHaveLength(templates.length);
-    expect(r.workflows.every((w) => w.fit === "fits")).toBe(true);
+    expect(r.workflows.filter((w) => w.fit !== "fits").map((w) => [w.slug, w.fit])).toEqual([["setter-call-logged", "build"]]);
+    expect(fitReport({ ...pmuLike, setters: false }).workflows.every((w) => w.fit === "fits" || (w.slug === "setter-call-logged" && w.fit === "off"))).toBe(true);
     expect(fit(r, "call-booked").why).toBe("the One board playbook's own copy");
     expect(fit(r, "eod-reminder").why).toBe("as shipped");
   });
@@ -35,7 +36,7 @@ describe("the intake", () => {
     const r = fitReport({ ...pmuLike, boards: "one", application: "typeform", triage: true });
     expect(r.playbook).toBe("one-board");
     expect(r.notes[0]).toMatch(/^No playbook matches exactly: One board is the closest \(it has no application form; this offer has one; it has no triage call; this offer has one\)/);
-    expect(r.gaps).toEqual(["Playbook: it has no application form; this offer has one", "Playbook: it has no triage call; this offer has one"]);
+    expect(r.gaps).toEqual(["Playbook: it has no application form; this offer has one", "Playbook: it has no triage call; this offer has one", "Setter call logged on one board: it moves a setter card, and one board has none (a one-board copy is to build)"]);
   });
 
   it("software the engine does not read is a tweak (a Zap door exists) or a build (it does not); what is not used is off", () => {

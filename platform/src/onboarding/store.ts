@@ -10,6 +10,7 @@ import { playbooks } from "@/playbooks";
 import { fitReport, intakeProblems, INTAKE_FIELDS, type FitReport, type Intake, type IntakeField } from "./intake";
 import { connectionsState, type ConnectionRow } from "./connections";
 import type { Research } from "./research";
+import { crmState, type CrmState } from "./crm";
 
 /** The wizard's steps, in order. `built`: false until its slice of P1 is built, so the page says so instead of pretending. */
 export const STEPS = [
@@ -17,7 +18,7 @@ export const STEPS = [
   { id: "connections", label: "Connections", about: "the keys this client's software needs, each tested live", built: true },
   { id: "research", label: "Research", about: "their calendars, boards, fields and team, and which is which", built: true },
   { id: "slack", label: "Slack", about: "the app's manifest, its token and signing secret, which channel is for what", built: true },
-  { id: "crm", label: "CRM build", about: "what the playbook needs in GHL, shown first, then built", built: false },
+  { id: "crm", label: "CRM build", about: "what the playbook needs in GHL, shown first, then built", built: true },
   { id: "messages", label: "Messages", about: "every text and email a client gets, written and approved", built: false },
   { id: "install", label: "Install", about: "the playbook installed, every workflow off, the company running in ghost", built: false },
   { id: "test", label: "Test passes", about: "each workflow run end to end on a test contact, no errors", built: false },
@@ -38,6 +39,8 @@ export type OnboardingState = {
   connections: ConnectionRow[];
   /** D145: what was read from their accounts, the AI's suggestions, Tyler's answers */
   research: Research | null;
+  /** D147: the CRM build's options and its last plan or build */
+  crm: CrmState | null;
   playbooks: { slug: string; name: string; about: string }[];
 };
 
@@ -74,6 +77,7 @@ export async function onboardingState(c: PoolClient, slug: string): Promise<Onbo
     intake: r.intake, playbook: r.playbook, fit: r.fit, fields: INTAKE_FIELDS,
     connections: (await connectionsState(c, r.id)).rows,
     research: r.research,
+    crm: await crmState(c, r.id),
     playbooks: playbooks.map((p) => ({ slug: p.slug, name: p.name, about: p.about })),
   };
 }
@@ -94,7 +98,10 @@ export async function saveIntake(c: PoolClient, companyId: string, args: { intak
   const intake = args.intake as Intake;
   const fit = fitReport(intake, row.kind, chosen);
   const done: StepDone = { done_at: new Date().toISOString(), by: args.by ?? "dashboard" };
-  await c.query("update onboarding set intake=$2, playbook=$3, fit=$4, steps=steps || jsonb_build_object('offer', $5::jsonb) where company_id=$1", [companyId, intake, fit.playbook, fit, done]);
+  // D147: a playbook's params start from its defaults for this offer; a changed playbook starts again from the new one's
+  const was = await one<{ playbook: string | null; params: unknown; name: string }>(c, "select o.playbook, o.params, co.name from onboarding o join companies co on co.id=o.company_id where o.company_id=$1", [companyId]);
+  const params = was && was.playbook === fit.playbook && was.params != null ? was.params : playbooks.find((p) => p.slug === fit.playbook)!.defaults(was?.name ?? "");
+  await c.query("update onboarding set intake=$2, playbook=$3, fit=$4, params=$6, steps=steps || jsonb_build_object('offer', $5::jsonb) where company_id=$1", [companyId, intake, fit.playbook, fit, done, params === undefined ? null : JSON.stringify(params)]);
   await c.query("update companies set contract_value_default=$2 where id=$1", [companyId, Number(intake.price)]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'onboarding.offer','company',$2,$3)", [companyId, companyId, { playbook: fit.playbook, chosen: chosen ?? null, gaps: fit.gaps, by: done.by }]);
   return { ok: true, playbook: fit.playbook, fit };
