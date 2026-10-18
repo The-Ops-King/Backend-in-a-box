@@ -12,14 +12,17 @@ import { connectionsState, type ConnectionRow } from "./connections";
 
 /** The wizard's steps, in order. `built`: false until its slice of P1 is built, so the page says so instead of pretending. */
 export const STEPS = [
-  { id: "offer", label: "The offer", about: "how it sells, the software it runs on; picks the playbook and says what fits", built: true },
+  { id: "offer", label: "The offer", about: "the product, how it sells, the software it runs on; picks the playbook and says what fits", built: true },
   { id: "connections", label: "Connections", about: "the keys this client's software needs, each tested live", built: true },
   { id: "research", label: "Research", about: "their calendars, boards, fields and team, and which is which", built: false },
   { id: "slack", label: "Slack", about: "the app's manifest, its token and signing secret, which channel is for what", built: false },
   { id: "crm", label: "CRM build", about: "what the playbook needs in GHL, shown first, then built", built: false },
+  { id: "messages", label: "Messages", about: "every text and email a client gets, written and approved", built: false },
   { id: "install", label: "Install", about: "the playbook installed, every workflow off, the company running in ghost", built: false },
-  { id: "test", label: "Test passes", about: "each workflow run on a test contact and checked", built: false },
-  { id: "golive", label: "Go live", about: "each workflow up its own rung, one at a time", built: false },
+  { id: "test", label: "Test passes", about: "each workflow run end to end on a test contact, no errors", built: false },
+  { id: "filters", label: "GHL filters", about: "each of the client's GHL workflows replaced, filtered or off, so nothing runs twice", built: false },
+  { id: "golive", label: "Go live, per workflow", about: "each workflow up its own rung, one at a time", built: false },
+  { id: "live", label: "Fully live", about: "every workflow live and clean, messages, SMS and email checked, the filters done", built: false },
 ] as const;
 export type StepId = (typeof STEPS)[number]["id"];
 export type StepDone = { done_at: string; by: string };

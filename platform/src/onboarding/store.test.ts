@@ -30,7 +30,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D143: Add client and the offer step"
     expect(await asOperator((c) => createClient(c, { name: "Glow Co", timezone: "America/Phoenix" }))).toMatchObject({ ok: false, status: 409 });
     const s = (await asOperator((c) => onboardingState(c, "glow-co")))!;
     expect(s).toMatchObject({ kind: "takeover", playbook: null, fit: null, intake: {} });
-    expect(s.steps.map((x) => [x.id, x.done])).toEqual([["offer", null], ["connections", null], ["research", null], ["slack", null], ["crm", null], ["install", null], ["test", null], ["golive", null]]);
+    expect(s.steps.map((x) => [x.id, x.done])).toEqual([["offer", null], ["connections", null], ["research", null], ["slack", null], ["crm", null], ["messages", null], ["install", null], ["test", null], ["filters", null], ["golive", null], ["live", null]]);
     expect(await asOperator((c) => onboardingState(c, "no-such"))).toBeNull();
   });
 

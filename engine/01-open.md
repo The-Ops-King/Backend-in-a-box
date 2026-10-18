@@ -816,6 +816,27 @@ rung per workflow (closes #48's rule), putting a playbook on a company and dupli
 (`POST /api/admin/playbooks`). To do by Tyler: PMU's live copies are behind D141 and D118; `scripts/apply-playbook.ts pmu`
 (a dry run) says what saving them changes, `--apply` saves them.
 
+**The full walkthrough (Tyler, 2026-10-18), the wizard's steps in order:**
+1. **The offer**: the product, the sales process, the software (built, D143).
+2. **Connections**: every key, tested live (built, D144).
+3. **Research**: their calendars or event types, boards, team: which is the sales call, who closes, who sets.
+4. **Slack**: the manifest generated, the app installed, signing secret and token, which channel is for what.
+5. **CRM build**: a new offer gets what the playbook needs built (dry run first); a takeover is adapted to.
+6. **Messages**: every client-facing text and email written and approved (readiness already blocks placeholders).
+7. **Install**: the playbook installed, every workflow off, the company active in ghost.
+8. **Test passes**: end to end on test contacts, every workflow, no errors.
+9. **GHL filters**: the API lists the client's GHL workflows (names, on or off) but cannot read or change their triggers, so
+   this is a checklist the engine holds go-live on. Each existing GHL workflow is marked: replaced by an engine workflow (it
+   gets #40's filter, nobody new enters, at the moment ours goes live), kept (it gets a filter so the engine's tags and test
+   contacts never trigger it: the D90 double welcome), or turned off. Tyler, 1a: "add a filter on existing GHL workflows so
+   nothing has an issue."
+10. **Go live, per workflow**: each up its own rung (internal ones start in quiet, client-facing ones in test, D142).
+11. **Fully live**: every workflow live, tested, no errors; messages approved; SMS registration approved or SMS off; the
+    email domain verified; every GHL workflow on the checklist handled; and a reminder, every time, to check that test
+    contacts reach none of the client's own automations (Tyler, 1b). A takeover (a live offer) also needs 2 to 3 clean days
+    on the engine first; a new offer built from templates can go as soon as its test passes are green (Tyler, 2).
+A shared GHL account (1c) is rare; the scope tag (D117) covers it.
+
 **P1 slice 1 built 2026-10-18 (D143):** Add client, the wizard page, the offer step (intake → playbook → fit report).
 **Slice 2 built (D144):** connections, every key tested live before it is kept. Next: research, Slack, CRM build, install, test passes, go live.
 
