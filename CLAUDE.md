@@ -2,21 +2,32 @@
 
 Binding rules for every Claude session in this repo.
 
-## Live offers are locked (Tyler, 2026-10-18)
+## Every offer is its own offer (Tyler, 2026-10-18)
 
-Tyler: "If I click live it's locked in. Updating the default doesn't do anything to existing offers. Nothing does anything to
-existing offers unless I say so. I will only ever make changes to all from the chat window here. This is a super dangerous
-situation which needs protections."
+Tyler: "every offer is its own offer, and we only ever change one offer at a time on a set of workflows ... if we're talking
+about one workflow and I say, 'Change this, update that,' we do not, under any circumstances, update all of the workflows,
+unless I specifically say, 'Let's update all of the workflows that do this.' That's a bug in all of the workflows, in which case
+we'll have to make sure that we're not messing anything existing up." Earlier: "I will only ever make changes to all from the
+chat window here. This is a super dangerous situation which needs protections."
 
-- An offer's workflows and settings change only when Tyler asks for that change, for that offer, in this chat.
-- A change to a template or to a code default never reaches an offer that already exists. It applies to offers set up after it.
-  Bringing it to an existing offer is a separate change Tyler asks for by name.
-- "Every offer" changes happen only when Tyler says, in this chat, that it is for every offer. Even then: one offer at a time,
-  a dry run shown for each, then the real call.
+- A change Tyler asks for lands on the one offer and the workflows he is talking about. Nothing else.
+- A change to every offer happens only when Tyler says so in those terms. Then: one offer at a time, a dry run shown for each,
+  and a check that nothing already running there changes in a way he did not ask for.
+- A template change or a code default never reaches an offer that already exists. Bringing it to an offer is a separate change
+  Tyler asks for by name.
 - Never re-run `/api/admin/install` or `/api/admin/templates` on an existing offer to pick up a template change. Both upgrade an
   untouched copy to the newest template today (`installTemplates`, src/engine/install.ts) until open item 50 is built.
 - Engine code (how a step works) runs every offer. A change there must leave every existing offer's saved workflows doing what
   they did (hold them with frozen fixtures, as src/engine/fixtures/before-d141 does). If it cannot, tell Tyler before building it.
 - The dashboard never changes more than one offer at a time.
 
-Until open item 50 (engine/01-open.md) is built, this file is the only guard. Treat it as one.
+## The send lock (Tyler, 2026-10-18)
+
+"I want the SMS lock as well. I'm the only one who can unlock sends." Every workflow starts with its sends locked: a text, email
+or agreement reaches only Tyler's own addresses, whatever the mode says. Unlock a workflow's sends only when Tyler names that
+offer and that workflow in this chat and says to unlock it. Never on inference, never in bulk, never from the dashboard.
+
+## Configurable, not written in
+
+Tyler wants things like where an alert posts to be settings, not code ("I want you to remember that this should be
+configurable"). The first case: where the one-time "this person doesn't have a link" tag goes (Dating: #dating-calls-booked).

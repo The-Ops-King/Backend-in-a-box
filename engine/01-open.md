@@ -762,7 +762,7 @@ From the audit. Nelly's go-live first:
 - Quirks: notify_owner's task ignores crm.tasks; pause_runs ignores scope; branch.on unread; update_contact does not copy the
   phone locally; four events offered that nothing writes.
 
-## 50. A live offer is locked (Tyler, 2026-10-18; design open, rule in CLAUDE.md)
+## 50. Every offer is its own; every workflow's sends start locked (Tyler, 2026-10-18; rules in CLAUDE.md)
 
 Tyler: "If I click live it's locked in. Updating the default doesn't do anything to existing offers. Nothing does anything to
 existing offers unless I say so. I will only ever make changes to all from the chat window here. This is a super dangerous
@@ -771,9 +771,15 @@ situation which needs protections." What can change a live offer today without a
   copy to the template's name, on every run.
 - A setting the offer never set falls back to a default written in the code, so changing that default changes the offer.
 - Engine code is shared, so a change to how a step works changes every offer (held today only by tests and frozen fixtures).
-To build: the lock itself (where it sits and when it starts), every effective setting written onto the offer when it locks,
-install and templates refusing to upgrade or rename a locked offer's workflows, and a one-offer-at-a-time path for the changes
-Tyler does ask for.
+Tyler then: "There is no change lock. It's just that every offer is its own offer, and we only ever change one offer at a time
+on a set of workflows." So no lock on changes; the code paths above get fixed so they match it (an offer's settings its own,
+install never upgrading a copy nobody named).
+
+The send lock, Tyler: "Yes, I want the SMS lock as well. I'm the only one who can unlock sends." A second guard, separate from
+the mode: every workflow starts locked, and a locked workflow's text, email or agreement goes only to Tyler's own addresses.
+Checked against the contact in GHL at the moment of sending (GHL sends to the phone and email it holds, not ours). Unlocked one
+workflow at a time, only on Tyler's word in the chat. Where the one-time missing-link tag posts is a setting (Dating:
+#dating-calls-booked).
 
 ## 51. Hold a send that would go out with a blank in it (Tyler, 2026-10-18; design open)
 
