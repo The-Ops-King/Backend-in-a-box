@@ -199,8 +199,8 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
     expect(writes.slice(1).filter((w) => w.body === "dating")).toEqual([{ op: "tag", id: made.id, body: "dating" }]);   // New lead's own stat-new follows
     expect((await ledger(made.id))!.tags).toContain("dating");
     expect(await events("lead.created", p!.id)).toHaveLength(1);
-    // a real tag step records its step's list as written (applyTags), here New from Typeform's ["dating"]
-    expect((await events("tag.added", p!.id)).filter((e) => JSON.stringify(e.data.tag).includes("dating"))).toEqual([expect.objectContaining({ source: "engine", data: { tag: ["dating"] } })]);
+    // a real tag step records each tag it wrote (applyTags, D144), here New from Typeform's "dating"
+    expect((await events("tag.added", p!.id)).filter((e) => JSON.stringify(e.data.tag).includes("dating"))).toEqual([expect.objectContaining({ source: "engine", data: { tag: "dating" } })]);
     updated = [crm.get(made.id)!];
     await pollCompany(fake, companyId);
     updated = [];

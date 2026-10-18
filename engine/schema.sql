@@ -209,6 +209,7 @@ create table appointments (
   pending_read         jsonb,                                      -- D58: Jev's read of a reply the team was asked about and has not answered: { intent, confidence, at }; cleared when a person taps
   slot_key             text,                                       -- D76: the call slot a Sales Call record is keyed by: the booking's id, or id@start after a move that kept the id; null = external_id
   meeting_key          text,                                       -- D102: the booking's meeting link as a key (Zoom meeting id, Meet code, else the link without its query); a recording with the same key is this call's
+  meeting_url          text,                                       -- D144: the join link itself, as the source gives it, for a message to carry ({{appointment.meeting_url}})
   cancel_reason        text,
   booked_at            timestamptz not null,
   -- replica of the booking source's state (GHL vocabulary; Calendly active/canceled maps onto it)

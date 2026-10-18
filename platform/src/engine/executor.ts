@@ -240,7 +240,7 @@ async function slackPostOrFail(d: ExecDeps, sendId: string, post: () => Promise<
   }
 }
 
-/** The contact's tags: `add` goes on, then `remove` comes off, in the CRM and on our replica; one tag.added / tag.removed event per direction. */
+/** The contact's tags: `add` goes on, then `remove` comes off, in the CRM and on our replica; one tag.added / tag.removed event per tag, dispatched (D144). */
 async function applyTags(d: ExecDeps, type: Node["type"], next: string | null, want: { add?: string | string[]; remove?: string | string[]; keep?: string | string[] }): Promise<StepOutcome> {
   const ghlId = (d.ctx.contact as { ghl_contact_id?: string | null }).ghl_contact_id;
   // an entry that is one whole {{expr}} may name a list (a picked set of tags); the rest render as text
@@ -258,7 +258,12 @@ async function applyTags(d: ExecDeps, type: Node["type"], next: string | null, w
   for (const x of dirs) {
     for (const tag of x.tags) { if (x.add) await d.adapters.write.addTag(d.adapterCompany, ghlId, tag); else await d.adapters.write.removeTag(d.adapterCompany, ghlId, tag); }
     for (const tag of x.tags) await d.c.query(x.add ? "update contacts set tags = array(select distinct unnest(tags || $2::text[])) where id=$1" : "update contacts set tags = array_remove(tags, $2) where id=$1", [d.run.contact_id, x.add ? [tag] : tag]);
-    await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: x.event, source: "engine", data: { tag: x.raw } });
+    // D144: one event per tag, as the poll's diff would emit it; the replica already has the tag, so the poll will not, and a workflow
+    // started by that tag starts now (never this one: dispatch skips the workflow whose run wrote the event)
+    for (const tag of x.tags) {
+      const ev = await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: x.event, source: "engine", data: { tag } });
+      await dispatchEvent(d.c, ev, { contact: { id: d.run.contact_id } });
+    }
   }
   return { status: "ok", next };
 }

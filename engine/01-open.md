@@ -740,3 +740,21 @@ Tyler: "certain flows might go fully live while other flows are still in test mo
 of which goes where ... end of day flows like forms submitted, as long as they don't have any kind of an SMS or client facing
 feature, can basically always be strictly in silent mode ... I just want to make sure that we are not alerting everybody for
 everything while I'm testing." Per-workflow rungs exist (D92); open: the default rung by what a workflow does, set at onboarding.
+
+## 49. Everything a workflow or a setting (D144, Tyler 2026-10-18: "fix it all")
+
+From the audit. Nelly's go-live first:
+- One people roster, linked to companies with a role each: every identity (GHL user per location, every email: GHL, Slack,
+  Calendly, Fathom; Slack id per workspace; phone; Sales Call key). Every "who is this" goes through it (mentions, DMs, alert
+  buttons, Calendly hosts, Fathom recorders, EOD closers). Tyler once, linked to every company.
+- Settings live on the template with a company override; a template change asks "this offer only, or every offer still on the
+  default". First: the end-of-day form (both lists of answers, the questions, the wording), alert repeat hours and words,
+  prompts (the Slack bot's, now with Hair's glossary in code), the leaderboard's words and metrics.
+- The Typeform door records and emits only; New from Typeform does every GHL write (ensure_contact, update_contact).
+- The booking poll stops tagging into scope (the booked workflows' ensure_contact does it); the setter-missing alert becomes a
+  workflow step.
+- A payment's kind decided in Payment recorded (a branch: deposit criteria, else full), not in payments.ts.
+- Sending number per text step: the offer's automated number or the assigned person's own; copy by role ({closer.first_name}).
+- Hair's intake lines out of the engine (booking-card.ts) into Hair's settings.
+- Quirks: notify_owner's task ignores crm.tasks; pause_runs ignores scope; branch.on unread; update_contact does not copy the
+  phone locally; four events offered that nothing writes.

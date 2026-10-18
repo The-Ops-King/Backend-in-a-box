@@ -4862,3 +4862,24 @@ Open (asked): the setter pipeline's Cancelled stage renamed "Cancelled / No Show
 booked through the setting link vs the direct link (Tyler: a setter call even when booked direct) — what the setting link is.
 
 Tests: `dating-booked.test.ts` (D143), `eod.test.ts`.
+
+## D144. One engine, everything else a workflow or a setting; the three inventories (2026-10-18)
+
+Tyler: "Code engine should only run the workflows and execute what is built ... All wording rules, CRM writes ... are in the
+workflows or in the settings." Engine code is: running workflows, recording what vendors send as facts and events, operator
+tools, and capability steps whose words and rules come from the workflow or the company's settings. The audit (2026-10-18)
+listed what is not yet so; the programme that moves it is open item 49.
+
+Done now:
+- The inventories, made from the code: `engine/inventory/templates.md`, `triggers.md`, `steps.md` (`scripts/inventory.ts`;
+  `inventory.test.ts` fails when one is stale). Each step type's description and the settings it reads are in
+  `src/engine/step-docs.ts`, a Record over every step type, so a new step does not compile undescribed; each event's writer too.
+- A tag a step adds or takes off is one event per tag, dispatched: a workflow that starts on that tag starts (as a tag added in
+  GHL does); never the workflow whose run added it.
+- No-show recovery takes closing calls only (a triage no-show is Triage call filed's).
+- A booking keeps its join link (`appointments.meeting_url`, `{{appointment.meeting_url}}`), for the hour-before text.
+
+Found: four event types are offered as starts and nothing writes them (contact.created, contact.merged, intake.recorded,
+stage.changed).
+
+Tests: `inventory.test.ts`, `tag-dispatch.test.ts`, `dating-booked.test.ts` (D144).

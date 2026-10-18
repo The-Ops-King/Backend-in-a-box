@@ -204,8 +204,8 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
     }
   }
   if (!existing) {
-    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at, slot_key, meeting_key)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$4,$19) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.setBy ?? null, JSON.stringify(s.answers ?? {}), s.rescheduleUrl ?? null, s.cancelUrl ?? null, s.tracking ?? {}, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null, key]);
+    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at, slot_key, meeting_key, meeting_url)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$4,$19,$20) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.setBy ?? null, JSON.stringify(s.answers ?? {}), s.rescheduleUrl ?? null, s.cancelUrl ?? null, s.tracking ?? {}, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null, key, s.meetingUrl ?? null]);
     if (baseline) { if (rep) rep.baselined++; return; }   // replica only; an appointment that existed before install is not a new booking
     // D117: a booking on a mapped calendar puts the person in scope (the calendar is the offer's), tagged or not; GHL is told with the tag
     const tag = await companyScopeTag(c, co.id);
@@ -227,6 +227,7 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   }
   // D102: a booking from before the link was kept, or one whose link changed (a Calendly reschedule is a new meeting), gets it without an event
   if (key && key !== existing.meeting_key) await c.query("update appointments set meeting_key=$2 where id=$1", [existing.id, key]);
+  if (s.meetingUrl) await c.query("update appointments set meeting_url=$2 where id=$1 and meeting_url is distinct from $2", [existing.id, s.meetingUrl]);   // D144
   const changes: Record<string, unknown> = {};
   // D76: a cancel after the call's start never overwrites a show or a no-show the call already has: the outcome stands
   if (s.status === "cancelled" && existing.status !== "cancelled" && Math.min(Date.now(), Date.parse(s.dateUpdated ?? "") || Date.now()) >= new Date(s.startTime).getTime()) {

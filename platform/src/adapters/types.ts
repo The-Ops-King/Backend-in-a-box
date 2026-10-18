@@ -24,7 +24,7 @@ export type AppointmentSnapshot = {
   setBy?: string;             // the setter's name when the source carries it (Calendly question on the setter event type)
   answers?: Record<string, string>;   // booking-form answers keyed by the name the calendar config gave them
   rescheduleUrl?: string; cancelUrl?: string;   // per-booking self-service links when the source has them (Calendly)
-  meetingUrl?: string;        // the call's join link when the source carries one (Calendly location.join_url, GHL address); kept only as its meeting key (D102)
+  meetingUrl?: string;        // the call's join link when the source carries one (Calendly location.join_url, GHL address): its meeting key (D102) and the link itself (D144)
   cancellation?: { by?: string; reason?: string; byType?: string; at?: string };   // who cancelled, why and when, when the source says
   tracking?: Record<string, string>;            // utm_* and the like, as the source reports them
   rescheduledFrom?: string;   // this booking replaces that external id (same appointment, new time)

@@ -36,7 +36,7 @@ export function exampleContext(company: { name: string; timezone: string }, bind
     appointment: {
       id: "appointment-id", external_id: "appt123", source: "ghl", starts_at: call.toISO(), ends_at: call.plus({ minutes: 45 }).toISO(), status: "confirmed", self_booked: false, set_by: "Luis",
       term: { name: "Closing call", category: "closing" }, closer: { id: "u1", ...allan }, answers: { "Phone Number": "+1 602 555 0101" },
-      reschedule_url: link("https://example.com/reschedule"), cancel_url: link("https://example.com/cancel"), tracking: { utm_source: "instagram" }, cancelled_by: "contact", cancel_reason: "schedule conflict", outcome: "showed",
+      reschedule_url: link("https://example.com/reschedule"), cancel_url: link("https://example.com/cancel"), meeting_url: link("https://zoom.us/j/123456789"), tracking: { utm_source: "instagram" }, cancelled_by: "contact", cancel_reason: "schedule conflict", outcome: "showed",
     },
     opportunity: { id: "opp-id", status: "open", contract_value: 4000, opened_at: firstBooked.toISO() },
     cards: {

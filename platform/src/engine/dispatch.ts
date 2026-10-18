@@ -8,7 +8,7 @@ import { runModeSql } from "./mode";
 
 const SUPERSEDES: ReadonlySet<Definition["reentry"]> = new Set(["once_per_contact", "once_per_appointment", "once_per_contact_per_window"]);
 
-export type EventRow = { id: number; company_id: string; contact_id: string | null; opportunity_id: string | null; appointment_id: string | null; event_type: string; occurred_at: Date; source: string; data: Record<string, unknown> };
+export type EventRow = { id: number; company_id: string; contact_id: string | null; opportunity_id: string | null; appointment_id: string | null; event_type: string; occurred_at: Date; source: string; data: Record<string, unknown>; run_id?: string | null };
 
 export async function emitEvent(c: PoolClient, e: Omit<EventRow, "id" | "occurred_at"> & { occurred_at?: Date; run_id?: string | null }): Promise<EventRow> {
   const row = await one<EventRow>(c, `insert into events (company_id, contact_id, opportunity_id, appointment_id, run_id, event_type, occurred_at, source, data)
@@ -88,7 +88,11 @@ export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record
     where t.company_id=$1 and t.event_type=$2 and t.enabled and w.enabled`, [e.company_id, e.event_type]);
   const started: string[] = [];
   if (!triggers.length) return started;
+  // D144: a tag a run's step added or took off never starts that same workflow again (no loop on its own tag); a workflow that
+  // hands a record of its own on to itself on purpose (Sales call recorded's call.closing) still does
+  const own = e.run_id && (e.event_type === "tag.added" || e.event_type === "tag.removed") ? (await one<{ workflow_id: string }>(c, "select workflow_id from runs where id=$1", [e.run_id]))?.workflow_id : undefined;
   for (const t of triggers) {
+    if (own && t.workflow_id === own) continue;
     const ver = await one<{ definition: unknown }>(c, "select v.definition from workflow_versions v join workflows w on w.id=v.workflow_id and w.current_version=v.version where w.id=$1", [t.workflow_id]);
     let nodes: ReturnType<typeof indexDefinition>["nodes"];
     // one workflow whose stored definition no longer parses (an old template version, a bad edit) must not take the whole poll down with it

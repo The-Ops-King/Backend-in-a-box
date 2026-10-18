@@ -191,6 +191,15 @@ describe.skipIf(!process.env.DATABASE_URL)("D123: Dating (Nelly)'s two booked-ca
     expect(crm.get("DC-T1")!.properties).toMatchObject({ outcome: "showed", call_result: "set" });
   });
 
+  it("D144: a booking's join link is kept as the source gives it, and a reschedule's new link replaces it", async () => {
+    const zed = await person("Zed");
+    await poll(event(zed, "EV-Z1", CONSULT, AT.plus({ hours: 5 }), { meetingUrl: "https://zoom.us/j/111?pwd=a" }));
+    const url = () => asOperator(async (c) => (await one<{ meeting_url: string }>(c, "select meeting_url from appointments where company_id=$1 and contact_id=$2", [co, zed.ct]))!.meeting_url);
+    expect(await url()).toBe("https://zoom.us/j/111?pwd=a");
+    await poll(event(zed, "EV-Z1", CONSULT, AT.plus({ hours: 5 }), { meetingUrl: "https://zoom.us/j/222" }));
+    expect(await url()).toBe("https://zoom.us/j/222");
+  });
+
   it("D142: an install that gives a calendar its call type and owner moves the bookings it already holds: every one takes the type, an upcoming one the owner (a past call stays whoever took it)", async () => {
     const ids = await asOperator(async (c) => {
       const old = (await one<{ id: string }>(c, "insert into company_terms (company_id, domain, name, category, is_default, sort) values ($1,'appointment_type','Strategy session','closing',false,50) returning id", [co]))!.id;
