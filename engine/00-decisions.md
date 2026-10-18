@@ -4864,3 +4864,18 @@ another CRM are said once, above the list. Each playbook names the templates it 
 The other seven steps are on the page, marked not built yet, until their slices land.
 
 Tests: `intake.test.ts`, `store.test.ts`, `playbooks.test.ts`.
+
+## D144. The wizard's connections: every key tested live before it is kept (2026-10-18)
+
+The keys a client needs follow from the offer's answers: GoHighLevel (location id and Private Integration token) always,
+Calendly when it books there, Whop, Fathom and Typeform when it uses them, Anthropic and Jev always
+(`src/onboarding/connections.ts`). Each is tested against its service with the probes the hourly Health check uses (GHL's
+location, Calendly's /users/me, one Whop payment, one Fathom meeting page, Typeform's /me, Anthropic's model list, a Jev ping)
+**before anything is kept**: a key that fails is never stored, and the page says what the service answered. A key that works
+is kept encrypted under the name install reads (`secret.ghl_pit`, `secret.calendly_token`, …), and the page only ever shows
+"set · ends with 1234"; the answer never carries a key. A field left blank keeps what is stored. The Anthropic and Jev keys can
+be copied from a company that has them (D100: inside the engine, through no one's hands), and a copy that then fails its test is
+undone. Every test is recorded on the onboarding row, pass or fail; "Test again" re-checks what is kept. The step is done while
+every key the offer needs has passed, and a failed retest takes it back.
+
+Tests: `connections.test.ts`. Tried live with made-up keys: GHL and Anthropic refused them, the page said so, nothing was stored.

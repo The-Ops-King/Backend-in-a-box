@@ -817,7 +817,7 @@ rung per workflow (closes #48's rule), putting a playbook on a company and dupli
 (a dry run) says what saving them changes, `--apply` saves them.
 
 **P1 slice 1 built 2026-10-18 (D143):** Add client, the wizard page, the offer step (intake → playbook → fit report).
-Next slices: connections (keys, tested live), research, Slack, CRM build, install, test passes, go live.
+**Slice 2 built (D144):** connections, every key tested live before it is kept. Next: research, Slack, CRM build, install, test passes, go live.
 
 Tyler, 2026-10-18: the core set is what runs today (new lead, call booked and cancelled, forms, Fathom recordings,
 agreements, payment and close, EODs, Health check and the rest). What to sell and build next is `08-problem-map.md`, his

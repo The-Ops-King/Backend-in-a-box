@@ -240,6 +240,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D143: the onboarding wizard's record of a client being stood up
     await ownsOrAbsent(c, "onboarding", "intake");
     await c.query(`create table if not exists onboarding (company_id uuid primary key references companies(id) on delete cascade, kind text not null default 'new' check (kind in ('new','takeover')), intake jsonb not null default '{}', playbook text, fit jsonb, steps jsonb not null default '{}', started_at timestamptz not null default now(), started_by text, finished_at timestamptz)`);
+    await c.query(`alter table onboarding add column if not exists connections jsonb not null default '{}'`);
     // simulation harness (D23): synthetic appointments and events carry source 'test'; dark-hours policy per company
     await c.query(`alter table companies add column if not exists quiet_allow_transactional boolean not null default false`);
     await c.query(`alter table calendars add column if not exists config jsonb not null default '{}'`);

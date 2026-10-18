@@ -8,11 +8,12 @@ import { IANAZone } from "luxon";
 import { one } from "@/db/client";
 import { playbooks } from "@/playbooks";
 import { fitReport, intakeProblems, INTAKE_FIELDS, type FitReport, type Intake, type IntakeField } from "./intake";
+import { connectionsState, type ConnectionRow } from "./connections";
 
 /** The wizard's steps, in order. `built`: false until its slice of P1 is built, so the page says so instead of pretending. */
 export const STEPS = [
   { id: "offer", label: "The offer", about: "how it sells, the software it runs on; picks the playbook and says what fits", built: true },
-  { id: "connections", label: "Connections", about: "the keys this client's software needs, each tested live", built: false },
+  { id: "connections", label: "Connections", about: "the keys this client's software needs, each tested live", built: true },
   { id: "research", label: "Research", about: "their calendars, boards, fields and team, and which is which", built: false },
   { id: "slack", label: "Slack", about: "the app's manifest, its token and signing secret, which channel is for what", built: false },
   { id: "crm", label: "CRM build", about: "what the playbook needs in GHL, shown first, then built", built: false },
@@ -29,6 +30,8 @@ export type OnboardingState = {
   steps: { id: StepId; label: string; about: string; built: boolean; done: StepDone | null }[];
   intake: Intake; playbook: string | null; fit: FitReport | null;
   fields: IntakeField[];
+  /** D144: the keys the offer needs, what is kept (masked), each one's last live test */
+  connections: ConnectionRow[];
   playbooks: { slug: string; name: string; about: string }[];
 };
 
@@ -63,6 +66,7 @@ export async function onboardingState(c: PoolClient, slug: string): Promise<Onbo
     kind: r.kind, started_at: r.started_at.toISOString(), finished_at: r.finished_at?.toISOString() ?? null,
     steps: STEPS.map((s) => ({ ...s, done: r.steps[s.id] ?? null })),
     intake: r.intake, playbook: r.playbook, fit: r.fit, fields: INTAKE_FIELDS,
+    connections: (await connectionsState(c, r.id)).rows,
     playbooks: playbooks.map((p) => ({ slug: p.slug, name: p.name, about: p.about })),
   };
 }

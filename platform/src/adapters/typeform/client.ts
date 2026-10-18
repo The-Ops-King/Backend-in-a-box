@@ -64,3 +64,8 @@ export const typeformPutWebhook = (token: string, formId: string, tag: string, u
 
 export type TypeformApi = { getForm: typeof typeformGetForm; responses: typeof typeformResponses; getWebhook: typeof typeformGetWebhook; putWebhook: typeof typeformPutWebhook };
 export const liveTypeform: TypeformApi = { getForm: typeformGetForm, responses: typeformResponses, getWebhook: typeformGetWebhook, putWebhook: typeformPutWebhook };
+/** Is the token alive? GET /me answers with the account (D143). */
+export async function typeformPing(token: string): Promise<{ ok: true; alias?: string; email?: string } | { ok: false; error: string }> {
+  try { const me = await tf<{ alias?: string; email?: string }>(token, "GET", "/me"); return { ok: true, alias: me.alias, email: me.email }; }
+  catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 200) }; }
+}

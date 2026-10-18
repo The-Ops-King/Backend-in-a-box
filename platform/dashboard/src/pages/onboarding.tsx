@@ -5,6 +5,7 @@ import { Crumb, Empty, Fold, Ic, NameLine, Sec, Skeleton, Tag, toast } from "~/u
 import { ago } from "~/fmt";
 import type { FitReport, Intake, IntakeField } from "@/onboarding/intake";
 import type { StepId } from "@/onboarding/store";
+import type { ConnectionRow } from "@/onboarding/connections";
 
 /** D143 (#49 P1): standing a client up, step by step. Every step saves; Tyler can stop for days and come back to the same place. */
 export function Onboarding() {
@@ -32,7 +33,8 @@ export function Onboarding() {
       <section className="wiz-body">
         <Sec small={step.about}>{step.label}</Sec>
         {!step.built ? <Empty>This step is not built yet; it comes in the next slice of #49 P1. Until then it is done the way #43 and #44 did it, by hand.</Empty>
-          : at === "offer" ? <OfferStep slug={slug} d={d} invalidate={key} /> : null}
+          : at === "offer" ? <OfferStep slug={slug} d={d} invalidate={key} />
+          : at === "connections" ? <ConnectionsStep slug={slug} d={d} invalidate={key} /> : null}
       </section>
     </div>
   </>;
@@ -88,4 +90,42 @@ function FitView({ fit }: { fit: FitReport }) {
     <Fold title={<>{FIT_WORDS.fits} · {by("fits").length}</>}><div className="rows">{by("fits").map((w) => <div key={w.slug} className="row noicon"><span className="mid"><span className="nm">{w.name}</span><span className="sub">{w.why}</span></span><Tag kind="ok">fits</Tag></div>)}</div></Fold>
     {fit.others.length ? <p className="note">Other playbooks: {fit.others.map((o) => `${o.name} (${o.differs.length ? o.differs.join("; ") : "also matches"})`).join(" · ")}</p> : null}
   </div>;
+}
+
+/** D144: each key the offer needs, tested live before it is kept; a kept key is never shown again, only "ends with 1234". */
+function ConnectionsStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
+  if (!d.steps.find((s) => s.id === "offer")!.done) return <Empty>Answer The offer first: it says which tools this client runs on, and so which keys are needed.</Empty>;
+  const passed = d.connections.filter((r) => r.check?.ok).length;
+  return <>
+    <p className="note">{passed} of {d.connections.length} working. A key is tested against its service before it is kept; one that fails is not stored. Kept keys are encrypted and never shown again.</p>
+    <div style={{ display: "grid", gap: 12, marginTop: 12 }}>{d.connections.map((r) => <ConnectionCard key={r.id} slug={slug} r={r} invalidate={invalidate} />)}</div>
+  </>;
+}
+
+function ConnectionCard({ slug, r, invalidate }: { slug: string; r: ConnectionRow; invalidate: string[] }) {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [from, setFrom] = useState(""); const [error, setError] = useState<string | null>(null);
+  const send = useAction<Record<string, unknown>, { check: NonNullable<ConnectionRow["check"]> }>((v) => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "connection", id: r.id, ...v } }), [invalidate]);
+  const run = async (v: Record<string, unknown>) => {
+    setError(null);
+    try { const out = await send.mutateAsync(v); setValues({}); setFrom(""); toast(`${r.label}: ${out.check.detail}`); }
+    catch (x) { setError((x as Error).message); }
+  };
+  const allSet = r.fields.every((f) => f.set);
+  const typed = r.fields.some((f) => values[f.name]?.trim());
+  return <form className="form call" onSubmit={(e) => { e.preventDefault(); run({ values }); }} autoComplete="off">
+    <div className="hd"><b>{r.label}</b><span className="note">{r.why}</span>
+      {r.check ? <Tag kind={r.check.ok ? "ok" : "warn"}>{r.check.ok ? "works" : "failed"}</Tag> : <Tag>not connected</Tag>}</div>
+    {r.check && !error ? <p className="note">{r.check.ok ? r.check.detail : r.check.error} · tested {ago(r.check.at)}</p> : null}
+    {error ? <div className="banner warn" style={{ marginTop: 0 }}>{error}</div> : null}
+    <div className="g2">{r.fields.map((f) => <label key={f.name} className={r.fields.length === 1 ? "wide" : ""}><span>{f.label}<span className="note"> · {f.help}</span></span>
+      <input type={f.kind === "secret" ? "password" : "text"} autoComplete="new-password" spellCheck={false} value={values[f.name] ?? ""} placeholder={f.set ? `${f.shown}${f.kind === "secret" ? "; leave blank to keep it" : ""}` : ""}
+        onChange={(e) => setValues((x) => ({ ...x, [f.name]: e.target.value }))} /></label>)}</div>
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      <button className="btn" type="submit" disabled={send.isPending || !typed}>{send.isPending ? "Testing…" : allSet ? "Test and replace" : "Test and save"}</button>
+      {allSet ? <button className="btn" type="button" disabled={send.isPending} onClick={() => run({})}>Test again</button> : null}
+      {r.copyFrom.length ? <><select value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: "auto" }} aria-label={`copy ${r.label} key from`}><option value="">or copy the key from…</option>{r.copyFrom.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+        <button className="btn" type="button" disabled={send.isPending || !from} onClick={() => run({ copyFrom: from })}>Copy and test</button></> : null}
+    </div>
+  </form>;
 }
