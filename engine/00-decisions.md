@@ -4735,3 +4735,21 @@ dispatched again with the poll's context; a baseline booking only with `baseline
 `replay`. A call that has started, a cancelled booking, or one that already has a run is refused. Audited.
 
 Tests: `replay.test.ts`.
+
+## D139. An alert's first post, a quiet day's proof, and a DM to someone not in Slack (2026-10-18)
+
+Found in Dating's test channel. The Daily wrap-up's "couldn't post" alert was raised at 02:05, eight minutes before the alerts
+channel was bound, so its first post never went out and every "Still open" line after it landed in the channel with nothing to
+thread under. An alert is now said in full (headline and buttons) the first time it is due with no `alert:<id>` post in
+Slack; the repeats thread under that. Still subject to the repeat hours (D135), since it is not new.
+
+The same alert stayed open a day after the channel was bound: a blocked step clears only when a later run gets past it, and the
+wrap-up's next runs were quiet-when-empty skips (D124), checked before the channel. The channel is now checked first, so a quiet
+day proves the step can post and clears the alert; an unbound channel on a quiet-when-empty step is reported on the first empty
+day, not the first busy one.
+
+A DM to a person with no Slack account linked (`{{user.slack_user_id}}` empty; Nelly) read "slack channel not bound". Before
+live it now goes where any DM goes (the test channel, else ops, D133/D76), as "Would have sent to <name> (no Slack account
+linked yet)"; live it is blocked as "<name> has no Slack account linked".
+
+Tests: `alerts.test.ts`, `mode.test.ts`.

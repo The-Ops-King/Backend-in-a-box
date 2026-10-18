@@ -217,6 +217,50 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect((await asOperator((c) => openAlerts(c, companyId))).filter((x) => x.key.startsWith("blocked:"))).toHaveLength(0);
   });
 
+  it("an alert raised before the alerts channel was bound is said in full (headline, buttons) the next time it is due, and its repeats thread under that", async () => {
+    posts.length = 0;
+    const at = new Date();
+    await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='alerts.slack_channel'", [companyId]));
+    await asOperator((c) => raise(c, { companyId, key: "late:1", level: "warning", source: "engine", text: "Late channel" }, at));
+    await asOperator((c) => announceDue(c, fake, at, companyId)); await tick(fake, undefined, companyId);
+    expect(posts.filter((p) => /Late channel/.test(p.text))).toEqual([]);   // nowhere to say it
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'alerts.slack_channel','channel',$2)", [companyId, Buffer.from("CALERTS")]));
+    const due = async (mins: number) => { await asOperator((c) => announceDue(c, fake, new Date(at.getTime() + mins * 60e3), companyId)); await tick(fake, undefined, companyId); };
+    await due(61);
+    const first = posts.filter((p) => /Late channel/.test(p.text));
+    expect(first).toHaveLength(1); expect(first[0].threadTs).toBeUndefined(); expect(first[0].text).toMatch(/^🟡 \*Alert Co · Engine\*\nLate channel/);
+    const parent = (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts p join alerts a on p.tag='alert:'||a.id where a.company_id=$1 and a.key='late:1'", [companyId])))!.ts;
+    await due(122);
+    const repeat = posts.filter((p) => /Late channel/.test(p.text)).at(-1)!;
+    expect(repeat.threadTs).toBe(parent); expect(repeat.text).toMatch(/^🟡 Still open after/);
+    await asOperator((c) => resolve(c, companyId, "late:1", new Date(at.getTime() + 123 * 60e3)));
+  });
+
+  it("a step that could not post clears on a quiet day too: the channel is checked before the step decides it has nothing to say", async () => {
+    const def = { schema: 1, reentry: "always", premise: { check: "none" }, nodes: [{ id: "t1", type: "trigger", event: "intake.recorded" }, { id: "v1", type: "set_var", key: "empty", when: { exists: "event.nothing" }, value: true, else_value: false }, { id: "s1", type: "slack_post", channel: "{{slack.channel.wrap}}", quiet_when_empty: "vars.empty", template: "the day" }, { id: "x1", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "v1" }, { from: "v1", to: "s1" }, { from: "s1", to: "x1" }] };
+    const wfId = await asOperator(async (c) => {
+      const d = parseDefinition(def);
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Wrap it','always',true) returning id", [companyId]))!;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [wf.id, def, extractManifest(d)]);
+      for (const trig of indexDefinition(d).triggers) await c.query("insert into workflow_triggers (company_id, workflow_id, node_id, event_type, match) values ($1,$2,$3,$4,$5)", [companyId, wf.id, trig.id, trig.event, trig.match ?? {}]);
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'reports.quiet_when_empty','text',$2) on conflict (company_id,key) do update set value=excluded.value", [companyId, Buffer.from("true")]);
+      return wf.id;
+    });
+    const fireDue = (nothing: boolean) => asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "intake.recorded", source: "test", data: { nothing } }), {}));
+    const kind = async () => (await asOperator((c) => one<{ kind: string }>(c, "select s.result->>'kind' as kind from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_id='s1' order by s.started_at desc limit 1", [wfId])))!.kind;
+    await fireDue(true); await tick(fake, undefined, companyId);
+    expect(await kind()).toBe("blocked");   // nothing to say, but it could not have said it either: you hear about the channel now, not on the first busy day
+    await alertsThenSay();
+    const key = `blocked:${wfId}:s1`;
+    expect((await asOperator((c) => openAlerts(c, companyId))).map((x) => x.key)).toContain(key);
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.wrap','channel',$2)", [companyId, Buffer.from("CWRAP")]));
+    await fireDue(true); await tick(fake, undefined, companyId);
+    expect(await kind()).toBe("noop");
+    await alertsThenSay();
+    expect((await asOperator((c) => openAlerts(c, companyId))).map((x) => x.key)).not.toContain(key);
+    await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='reports.quiet_when_empty'", [companyId]));
+  });
+
   it("raise/resolve are idempotent per open key", async () => {
     const t = new Date();
     expect((await asOperator((c) => raise(c, { companyId, key: "x:1", level: "warning", source: "engine", text: "a" }, t))).isNew).toBe(true);

@@ -199,6 +199,19 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     await setMode("quiet");
   });
 
+  it("a DM to a team member with no Slack account linked: before live it shows in the test channel, saying who it was for; live it is blocked and says who is not in Slack", async () => {
+    await setMode("quiet");
+    const nelly = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id) values ($1,'nelly@ladder.test','Nelly Dater','closer','GN') returning id", [companyId]))!.id);
+    const filed = () => asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "eod.filed", source: "user", data: { user_id: nelly } }), { user: { id: nelly } }));
+    dms.length = 0; await filed(); await tick(fake, undefined, companyId);
+    expect(dms.map((m) => [m.channel, m.text.replace(/^🧪 \*\w+\* — /, "")])).toEqual([["CTEST", "Would have sent to Nelly Dater (no Slack account linked yet):\nYour end of day, Nelly"]]);
+    await setMode("live");
+    dms.length = 0; await filed(); await tick(fake, undefined, companyId);
+    expect(dms).toEqual([]);
+    expect(await asOperator((c) => one(c, "select s.result->>'kind' as kind, s.result->>'why' as why from run_steps s join runs r on r.id=s.run_id join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='DM the closer' and s.node_id='n1' order by s.started_at desc limit 1", [companyId]))).toEqual({ kind: "blocked", why: "Nelly Dater has no Slack account linked" });
+    await setMode("quiet");
+  });
+
   it("D132: moving up into quiet passes the readiness gate and clears the runs born in ghost or test (their first steps never wrote); moving down is the flag", async () => {
     await setMode("ghost");
     const ct = await contact("L7", "client3@gmail.com", []);

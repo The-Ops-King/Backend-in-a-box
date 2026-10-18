@@ -1,6 +1,7 @@
 import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
+import { QUIET_WHY } from "./quiet";
 import type { Adapters } from "@/adapters/types";
 import type { PollReport } from "./poll";
 import type { TickReport } from "./runner";
@@ -131,12 +132,12 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
     if (r.isNew) raised++;
   }
   await c.query("insert into engine_state (key, value, updated_at) values ($2, $1, now()) on conflict (key) do update set value=$1, updated_at=now()", [{ since: now.toISOString() }, cursorKey]);
-  // a step alert (failed or blocked) is over once a later run of that workflow gets past that step
+  // a step alert (failed or blocked) is over once a later run of that workflow gets past that step: it did its job, or it had nothing to say on a quiet day (checked after its channel, D124)
   const openSteps = await many<AlertRow>(c, "select * from alerts where source='step' and resolved_at is null and ($1::uuid is null or company_id=$1)", [only]);
   for (const a of openSteps) {
     if (!a.key.startsWith("step:") && !a.key.startsWith("blocked:")) continue;   // D66: `run:<id>:paused` closes on Retry/Skip (D77: or when its held step passes), `auth:<vendor>` when the token is replaced, D77's `skipped:` when that step is retried
     const [, wf, node] = a.key.split(":");
-    const passed = await one(c, "select 1 from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_id=$2 and s.status='ok' and s.started_at > $3 limit 1", [wf, node, a.last_seen]);
+    const passed = await one(c, "select 1 from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_id=$2 and (s.status='ok' or (s.status='skipped' and s.result->>'why'=$4)) and s.started_at > $3 limit 1", [wf, node, a.last_seen, QUIET_WHY]);
     if (passed && (await resolve(c, a.company_id, a.key, now))) resolved++;
   }
   return { raised, resolved };
@@ -196,9 +197,11 @@ export async function announceDue(c: PoolClient, _adapters: Adapters, now = new 
     return hours.get(k)!;
   };
   for (const a of due) {
-    const type = a.resolved_at ? "alert.resolved" : a.announce_count > 0 ? "alert.repeated" : "alert.raised";
+    // a still-open alert whose first post never reached Slack (its channel was bound after it was raised) is said in full, so the repeats after it have a thread
+    const said = a.announce_count > 0 && (aboutEngine(a) || !!(await one(c, "select 1 from slack_posts where company_id=$1 and tag=$2", [a.company_id, `alert:${a.id}`])));
+    const type = a.resolved_at ? "alert.resolved" : said ? "alert.repeated" : "alert.raised";
     // D135: a still-open alert waits for the repeat hours (once, when they open); a new alert and a resolved one go at once
-    if (type === "alert.repeated" && !(await repeatsNow(a.company_id))) continue;
+    if (a.announce_count > 0 && !a.resolved_at && !(await repeatsNow(a.company_id))) continue;
     let handed = false;
     if (aboutEngine(a)) handed = await sendWebhook(type, a.company ? { ...a, text: `${a.company}: ${a.text}` } : a, now);   // the engine itself: no company workflow to say it
     else if (a.company_id) {
