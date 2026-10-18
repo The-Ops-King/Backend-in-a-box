@@ -747,10 +747,13 @@ From the audit. Nelly's go-live first:
 - One people roster, linked to companies with a role each: every identity (GHL user per location, every email: GHL, Slack,
   Calendly, Fathom; Slack id per workspace; phone; Sales Call key). Every "who is this" goes through it (mentions, DMs, alert
   buttons, Calendly hosts, Fathom recorders, EOD closers). Tyler once, linked to every company.
-- Settings live on the template with a company override; a template change asks "this offer only, or every offer still on the
-  default". First: the end-of-day form (both lists of answers, the questions, the wording), alert repeat hours and words,
-  prompts (the Slack bot's, now with Hair's glossary in code), the leaderboard's words and metrics.
-- The Typeform door records and emits only; New from Typeform does every GHL write (ensure_contact, update_contact).
+- Settings are each offer's own, copied from the template's when the offer is set up; nothing follows a default after that
+  (Tyler 2026-10-18, item 50, CLAUDE.md). Move into settings first: the end-of-day form (both lists of answers, the
+  questions, the wording), alert repeat hours and words, prompts (the Slack bot's, now with Hair's glossary in code), the
+  leaderboard's words and metrics.
+- The Typeform door records and emits only; New from Typeform does every GHL write (ensure_contact, update_contact). Tyler
+  2026-10-18: "we should have a typeform automation that pulls data".
+- The people roster holds several emails and several Slack ids per person (Tyler has more than one of each).
 - The booking poll stops tagging into scope (the booked workflows' ensure_contact does it); the setter-missing alert becomes a
   workflow step.
 - A payment's kind decided in Payment recorded (a branch: deposit criteria, else full), not in payments.ts.
@@ -758,3 +761,40 @@ From the audit. Nelly's go-live first:
 - Hair's intake lines out of the engine (booking-card.ts) into Hair's settings.
 - Quirks: notify_owner's task ignores crm.tasks; pause_runs ignores scope; branch.on unread; update_contact does not copy the
   phone locally; four events offered that nothing writes.
+
+## 50. A live offer is locked (Tyler, 2026-10-18; design open, rule in CLAUDE.md)
+
+Tyler: "If I click live it's locked in. Updating the default doesn't do anything to existing offers. Nothing does anything to
+existing offers unless I say so. I will only ever make changes to all from the chat window here. This is a super dangerous
+situation which needs protections." What can change a live offer today without anyone asking for it:
+- `installTemplates` (the install and templates routes) upgrades an untouched copy to the newest template, and renames every
+  copy to the template's name, on every run.
+- A setting the offer never set falls back to a default written in the code, so changing that default changes the offer.
+- Engine code is shared, so a change to how a step works changes every offer (held today only by tests and frozen fixtures).
+To build: the lock itself (where it sits and when it starts), every effective setting written onto the offer when it locks,
+install and templates refusing to upgrade or rename a locked offer's workflows, and a one-offer-at-a-time path for the changes
+Tyler does ask for.
+
+## 51. Hold a send that would go out with a blank in it (Tyler, 2026-10-18; design open)
+
+Tyler, on the closer's first name in the pre-call texts: "Is there a way to add that to the instant health checklist if
+something comes through or is going to go through without [it]?" Today a path that does not exist fails the step (an alert),
+but a path that exists with no value (a closer with no first name, a booking with no meeting link) renders as nothing and the
+text goes out with the gap. To build: a send step holds and alerts at once on a blank, and the hourly check renders the sends
+due in the next day so a blank is caught before its time.
+
+Pre-call copy approved by Tyler 2026-10-18 (both flows: booking, 24 hours before, 1 hour before), with
+`{{appointment.closer.first_name}}`, the time in the contact's zone with its abbreviation, and `{{appointment.meeting_url}}` in
+the 1-hour text. They go into installs/dating-nelly/words.json when the two pre-call copies are built; the sending number
+waits on Tyler (TODO.md). Third person for now (Tyler: fine for now); first person can come back as "it's {{appointment.closer.first_name}}" once each text
+sends from the closer's own number.
+
+Triage (15 minutes):
+1. Booking: "Hi {{contact.first_name}}, you're booked for your free 15-minute dating strategy call with {{appointment.closer.first_name}} on {{appointment.starts_at | date:"cccc, LLL d 'at' h:mm a ZZZZ"}}. Reply YES to confirm, or reply here if you need a different time. Nelly's team"
+2. 24 hours before: "Hi {{contact.first_name}}, quick reminder that your strategy call with {{appointment.closer.first_name}} is tomorrow at {{appointment.starts_at | date:"h:mm a ZZZZ"}}. It's only 15 minutes, so pick a spot where you can talk freely."
+3. 1 hour before: "{{contact.first_name}}, your call with {{appointment.closer.first_name}} starts in an hour ({{appointment.starts_at | date:"h:mm a ZZZZ"}}). Here's your Zoom link: {{appointment.meeting_url}}"
+
+Closing (60 minutes):
+1. Booking: "Hi {{contact.first_name}}, you're booked for your private consultation with {{appointment.closer.first_name}} on {{appointment.starts_at | date:"cccc, LLL d 'at' h:mm a ZZZZ"}}. It runs about an hour, so block off the time. Reply YES to confirm, or let us know if you need to move it."
+2. 24 hours before: "Hi {{contact.first_name}}, your consultation with {{appointment.closer.first_name}} is tomorrow at {{appointment.starts_at | date:"h:mm a ZZZZ"}}. Come ready to talk about what you want in a partner and what hasn't worked so far."
+3. 1 hour before: "{{contact.first_name}}, you're on with {{appointment.closer.first_name}} in an hour ({{appointment.starts_at | date:"h:mm a ZZZZ"}}). Join here: {{appointment.meeting_url}}"
