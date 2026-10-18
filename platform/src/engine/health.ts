@@ -238,6 +238,14 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
           else fine++;
         }
         if (fine === seen.size) ok("slack", `Bot is alive and in all ${fine} channels it posts to.`);
+        // D140: a closer or setter the workflows DM who is not in Slack; looked up by their email first, so someone who has joined is linked here
+        const dms = await one(c, `select 1 from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 and w.enabled and (v.definition::text like '%slack_user_id}}%' or v.definition::text like '%"notify_owner"%') limit 1`, [company.id]);
+        const people = dms ? await many<{ id: string; name: string; email: string; role: string }>(c, "select id, name, email, role from users where company_id=$1 and active and role in ('closer','setter') and slack_user_id is null order by name", [company.id]) : [];
+        for (const u of people) {
+          const found = await adapters.notifier.lookupUserByEmail(token, u.email).catch(() => null);
+          if (found) { await c.query("update users set slack_user_id=$2 where id=$1", [u.id, found]); continue; }
+          bad("slack", "warning", `${u.name} (${u.role}) is not in Slack as ${u.email}: once live, the DMs meant for them come to you instead. Invite them, or map the email they use in Slack (slackUsers).`, `user:${u.id}`);
+        }
       }
     }
   }

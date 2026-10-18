@@ -118,8 +118,8 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
     if (r.isNew) raised++;
   }
   // a step that could not do its job (Slack not connected, no AI key) is not a failure of the run, but you want to know the minute it happens
-  const blocked = await many<{ run_id: string; company_id: string; slug: string; workflow_id: string; workflow: string; node_id: string; why: string | null; contact: string }>(c,
-    `select r.id as run_id, r.company_id, co.slug, r.workflow_id, w.name as workflow, s.node_id, s.result->>'why' as why, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact
+  const blocked = await many<{ run_id: string; company_id: string; slug: string; workflow_id: string; workflow: string; node_id: string; why: string | null; needs: Needs | null; contact: string }>(c,
+    `select r.id as run_id, r.company_id, co.slug, r.workflow_id, w.name as workflow, s.node_id, s.result->>'why' as why, s.result->'needs' as needs, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact
      from run_steps s join runs r on r.id=s.run_id join workflows w on w.id=r.workflow_id join companies co on co.id=r.company_id left join contacts ct on ct.id=r.contact_id
      where s.status='skipped' and s.result->>'kind'='blocked' and s.finished_at > $1 and s.finished_at <= $2 and ($3::uuid is null or r.company_id=$3) order by s.finished_at`, [since, now, only]);
   for (const b of blocked) {
@@ -128,7 +128,7 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
     const f = classifyError(b.why ?? "");
     const r = f.cls === "auth" && f.vendor
       ? await raise(c, { companyId: b.company_id, key: `auth:${f.vendor}`, level: "error", source: "step", text: `${f.vendor.toUpperCase()} rejected the company's token: its steps are recorded as blocked and runs go on without them until the token is replaced. First seen when ${b.workflow} couldn't ${step}${b.contact ? ` for ${b.contact}` : ""}: ${plainError(f)}.`, detail: { run_id: b.run_id, node: b.node_id, vendor: f.vendor, why: b.why }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now)
-      : await raise(c, { companyId: b.company_id, key: `blocked:${b.workflow_id}:${b.node_id}`, level: "warning", source: "step", text: `${b.workflow} couldn't ${step}${b.contact ? ` for ${b.contact}` : ""}: ${plainError(classifyError(b.why ?? "blocked"))}. The run went on without it.`, detail: { run_id: b.run_id, node: b.node_id, why: b.why }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now);
+      : await raise(c, { companyId: b.company_id, key: `blocked:${b.workflow_id}:${b.node_id}`, level: "warning", source: "step", text: `${b.workflow} couldn't ${step}${b.contact ? ` for ${b.contact}` : ""}: ${plainError(classifyError(b.why ?? "blocked"))}. The run went on without it.`, detail: { run_id: b.run_id, node: b.node_id, why: b.why, ...(b.needs ? { needs: b.needs } : {}) }, href: `/app/c/${b.slug}/r/${b.run_id}` }, now);
     if (r.isNew) raised++;
   }
   await c.query("insert into engine_state (key, value, updated_at) values ($2, $1, now()) on conflict (key) do update set value=$1, updated_at=now()", [{ since: now.toISOString() }, cursorKey]);
@@ -178,7 +178,7 @@ const aboutEngine = (a: Pick<AlertRow, "company_id" | "key">) => !a.company_id |
  * or an `engine:` key) goes to the operator's webhook. Returns how many of each were handed on (a workflow started for them).
  * `onlyCompanyId`: a company's own tick hears only its own alerts; `ENGINE_SCOPE`, the engine's minute, only the engine's.
  */
-export async function announceDue(c: PoolClient, _adapters: Adapters, now = new Date(), onlyCompanyId?: string): Promise<{ posted: number; repeated: number; resolved: number }> {
+export async function announceDue(c: PoolClient, adapters: Adapters, now = new Date(), onlyCompanyId?: string): Promise<{ posted: number; repeated: number; resolved: number }> {
   const out = { posted: 0, repeated: 0, resolved: 0 };
   const due = await many<AlertRow & { slug: string | null; company: string | null }>(c, `select a.*, co.slug, co.name as company from alerts a left join companies co on co.id=a.company_id
     left join bindings b on b.company_id=a.company_id and b.key='alerts.repeat_minutes'
@@ -197,6 +197,12 @@ export async function announceDue(c: PoolClient, _adapters: Adapters, now = new 
     return hours.get(k)!;
   };
   for (const a of due) {
+    // D140: an open alert is checked again before it is said again; one whose cause is gone closes (✅), one nothing can check is not repeated
+    if (a.announce_count > 0 && !a.resolved_at && !aboutEngine(a)) {
+      const now_ = await stillTrue(c, adapters, a);
+      if (now_ === "fixed") { if (await resolve(c, a.company_id, a.key, now)) a.resolved_at = now; }
+      else if (now_ === "unknown") { await c.query("update alerts set announced_at=$2 where id=$1", [a.id, now]); continue; }   // looked at again next hour, never said again
+    }
     // a still-open alert whose first post never reached Slack (its channel was bound after it was raised) is said in full, so the repeats after it have a thread
     const said = a.announce_count > 0 && (aboutEngine(a) || !!(await one(c, "select 1 from slack_posts where company_id=$1 and tag=$2", [a.company_id, `alert:${a.id}`])));
     const type = a.resolved_at ? "alert.resolved" : said ? "alert.repeated" : "alert.raised";
@@ -222,6 +228,36 @@ export async function announceDue(c: PoolClient, _adapters: Adapters, now = new 
   }
   return out;
 }
+
+/**
+ * D140 (Tyler: "it shouldn't just blindly fire, it needs to keep checking each time if it's actually true"): whether an open
+ * alert's cause is still there. "open": checked, still true (or kept true by the thing that checks it: the hourly sweep, the
+ * poll, a new token for `auth:`). "fixed": checked, gone. "unknown": only redoing the step could tell
+ * (a step that failed or was blocked for a reason the step did not name), so it is said once and stays open on the dashboard.
+ */
+export async function stillTrue(c: PoolClient, adapters: Adapters, a: Pick<AlertRow, "company_id" | "key" | "detail" | "source">): Promise<"open" | "fixed" | "unknown"> {
+  if (a.source !== "step") return "open";   // a live source (the sweep, the poll, the engine) is reconciled by what checks it: open means its last look still saw it
+  const [kind, id] = a.key.split(":");
+  if (kind === "auth") return "open";
+  if (kind === "run") return (await one(c, "select 1 from runs where id=$1 and status='paused'", [id])) ? "open" : "fixed";
+  const needs = (a.detail as { needs?: Needs }).needs;
+  if (kind !== "blocked" || !needs || !a.company_id) return "unknown";
+  if ("slack" in needs) return (await one(c, "select 1 from slack_connections where company_id=$1", [a.company_id])) ? "fixed" : "open";
+  if ("bindings" in needs) return (await one(c, "select 1 from bindings where company_id=$1 and key = any($2::text[])", [a.company_id, needs.bindings])) ? "fixed" : "open";
+  // a person not in Slack: asked of Slack itself, so someone who has joined since is linked now, not on the next post to them
+  const u = await one<{ email: string | null; slack_user_id: string | null }>(c, "select email, slack_user_id from users where id=$1 and company_id=$2", [needs.slack_user, a.company_id]);
+  if (!u) return "fixed";   // the person is gone, and so is the DM to them
+  if (u.slack_user_id) return "fixed";
+  const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [a.company_id]);
+  if (!conn || !u.email) return "open";
+  const { decrypt } = await import("./crypto");
+  const found = await adapters.notifier.lookupUserByEmail(decrypt(conn.bot_token), u.email).catch(() => null);
+  if (!found) return "open";
+  await c.query("update users set slack_user_id=$2 where id=$1", [needs.slack_user, found]);
+  return "fixed";
+}
+/** What a blocked step needed (its result's `needs`), so the alert can be checked again without redoing the step: Slack connected, one of these settings bound, or this person linked in Slack. */
+export type Needs = { slack: true } | { bindings: string[] } | { slack_user: string };
 
 async function sendWebhook(event: string, a: AlertRow, now: Date): Promise<boolean> {
   const url = process.env.OPERATOR_WEBHOOK_URL; if (!url) return false;

@@ -204,7 +204,9 @@ const isSlackUser = (id: string) => /^[UW][A-Z0-9]{2,}$/.test(id);
  * run is about a test contact and the operator is the recipient (D76). Null: deliver as addressed.
  */
 async function slackRoute(d: ExecDeps, target: string | undefined, unlinked?: string): Promise<null | { to: string; prefix: string } | { blocked: string }> {
-  if ((!target && unlinked === undefined) || d.mode === "live") return null;
+  if (!target && unlinked === undefined) return null;
+  // D140, live: a DM for someone not in Slack yet goes to the operator, marked who it was for (the health check flags the person until they are linked)
+  if (d.mode === "live") { const op = d.bindings["bot.escalate_to"]; return !target && op ? { to: op, prefix: `For ${unlinked} (not in Slack yet):\n` } : null; }
   const nameOf = async (u: string) => (await one<{ name: string }>(d.c, "select name from users where company_id=$1 and slack_user_id=$2 limit 1", [d.company.id, u]))?.name ?? u;
   const to = async () => target ? `Would have sent to ${await nameOf(target)}:\n` : `Would have sent to ${unlinked} (no Slack account linked yet):\n`;
   const test = d.bindings[TEST_CHANNEL_KEY];
@@ -216,12 +218,12 @@ async function slackRoute(d: ExecDeps, target: string | undefined, unlinked?: st
   return { to: ops, prefix: await to() };
 }
 
-/** A step whose channel is a person's Slack id ({{user.slack_user_id}}) that came out empty: that person's name, so the post can say who it was for. */
-function unlinkedPerson(d: ExecDeps, channel: string | undefined): string | undefined {
+/** A step whose channel is a person's Slack id ({{user.slack_user_id}}) that came out empty: who that person is, so the post can say who it was for. */
+function unlinkedPerson(d: ExecDeps, channel: string | undefined): { name: string; id?: string } | undefined {
   const of = channel ? /^\{\{\s*([a-zA-Z0-9_.]+)\.slack_user_id\s*\}\}$/.exec(channel)?.[1] : undefined;
   if (!of) return undefined;
-  const p = resolvePath(d.ctx, of) as { name?: string; first_name?: string } | undefined;
-  return p?.name || p?.first_name || "the person";
+  const p = resolvePath(d.ctx, of) as { id?: string; name?: string; first_name?: string } | undefined;
+  return { name: p?.name || p?.first_name || "the person", ...(p?.id ? { id: p.id } : {}) };
 }
 
 /** D56: Slack refusing a post (bad token, channel gone) fails that send and alerts; the run goes on (the CRM steps after a post are the point of the run). */
@@ -433,8 +435,14 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const text = render(node.template, d.ctx, env(d));
       // a DM to a person with no Slack account linked ({{user.slack_user_id}} empty): before live it is shown in the test channel; live, it is blocked and says who
       const unlinked = !channelId ? unlinkedPerson(d, node.channel) : undefined;
-      const route = channelId ? await slackRoute(d, channelId) : unlinked !== undefined ? await slackRoute(d, undefined, unlinked) : null;
-      if (!conn || (!channelId && !(route && "to" in route))) { await recordSend(d, node, "slack", text, "suppressed", !conn ? "unbound: slack" : unlinked !== undefined ? "unbound: person not in Slack" : "unbound: slack channel"); return { status: "skipped", next, result: { kind: "blocked", why: !conn ? "slack not connected" : unlinked !== undefined ? `${unlinked} has no Slack account linked` : "slack channel not bound", would_post: text.slice(0, 160) } }; }
+      const route = channelId ? await slackRoute(d, channelId) : unlinked ? await slackRoute(d, undefined, unlinked.name) : null;
+      if (!conn || (!channelId && !(route && "to" in route))) {
+        // D140: what it needed, so its alert can be checked again without redoing the step
+        const refs = [node.channel, ...fallbacksOf(node.fallback_channel)].map((x) => /^\{\{\s*(slack\.channel\.[a-z0-9_]+)\s*\}\}$/.exec(x ?? "")?.[1]);
+        const needs = !conn ? { slack: true } : unlinked ? (unlinked.id ? { slack_user: unlinked.id } : undefined) : refs.every(Boolean) ? { bindings: refs as string[] } : undefined;
+        await recordSend(d, node, "slack", text, "suppressed", !conn ? "unbound: slack" : unlinked ? "unbound: person not in Slack" : "unbound: slack channel");
+        return { status: "skipped", next, result: { kind: "blocked", why: !conn ? "slack not connected" : unlinked ? `${unlinked.name} has no Slack account linked` : "slack channel not bound", ...(needs ? { needs } : {}), would_post: text.slice(0, 160) } };
+      }
       // D124: quiet when empty: the step before found nothing (its own fact, from the data), so a scheduled run posts nothing; a run started by hand still posts.
       // Checked after the channel, so a quiet day still proves the step can post (it clears a "could not post" alert)
       if (node.quiet_when_empty && quietWhenEmpty(d.bindings) && (d.ctx.event as { manual?: boolean } | undefined)?.manual !== true && resolvePath(d.ctx, node.quiet_when_empty) === true) {

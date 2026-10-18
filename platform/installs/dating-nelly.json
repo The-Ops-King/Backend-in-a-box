@@ -221,19 +221,19 @@
     ]
   },
   "slack": {
-    "bookings": "C0C9UDURSGM",
-    "ops": "C0C9UDURSGM",
-    "alerts": "C0C9UDURSGM",
-    "calls": "C0C9UDURSGM",
-    "setter_calls": "C0C9UDURSGM",
-    "reports": "C0C9UDURSGM",
-    "attention": "C0C9UDURSGM",
-    "payments": "C0C9UDURSGM",
-    "deals": "C0C9UDURSGM",
-    "eod": "C0C9UDURSGM"
+    "bookings": "C0C9Q7MEANT",
+    "calls": "C0CA0A5BTC5",
+    "attention": "C0CA0A5BTC5",
+    "alerts": "C0CA0A5BTC5",
+    "deals": "C0CB00B0HC0",
+    "payments": "C0CB00B0HC0",
+    "reports": "C0C9ZC15Q59",
+    "eod": "C0C9ZC15Q59",
+    "ops": "C0C9ZC15Q59",
+    "setter_calls": "C0CB00CSDCG"
   },
   "alerts": {
-    "slackChannel": "C0C9UDURSGM"
+    "slackChannel": "C0C9ZC29FK5"
   },
   "quietWhenEmpty": true,
   "bot": {

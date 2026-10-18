@@ -677,7 +677,7 @@ applicant `dating` and starts New lead once (the door no longer does either). Th
      the Calendly token and organization, maps the two event types (their call types made), turns the GHL calendars inactive,
      re-PUTs the Typeform webhook with the same tag and secret (no change at Typeform), and says "call-booked → not installed". The
      first poll after it takes the ~99 bookings in the window (97 active, 2 cancelled; 87 ahead) as a silent baseline: replicas
-     only, no event, no run, no tag.
+     only, no event, no run, no tag. Tyler, 2026-10-18: hold off replaying them (D138 `baseline: true`) until he says.
   6. Import with New lead, last, when Tyler says: `POST /api/admin/typeform-import { company: "dating-nelly", form: "AjY7UfXZ",
      apply: true, newLead: true }` until `remaining` is 0, with New from Typeform and New lead turned on (in shadow) first, or the
      runs start nothing.

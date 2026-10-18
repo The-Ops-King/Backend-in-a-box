@@ -4753,3 +4753,27 @@ live it now goes where any DM goes (the test channel, else ops, D133/D76), as "W
 linked yet)"; live it is blocked as "<name> has no Slack account linked".
 
 Tests: `alerts.test.ts`, `mode.test.ts`.
+
+## D140. An alert is checked again before it is said again; a DM for someone not in Slack comes to the operator (2026-10-18)
+
+Tyler: "it shouldn't just blindly fire, it needs to keep checking each time if it's actually true." Before an open alert is
+repeated (or re-raised, D139) it is checked (`stillTrue`): fixed, it closes with a ✅ at once (any hour); still true, it repeats
+in the repeat hours (D135); uncheckable, it is said once and stays open on the dashboard with Retry, never repeated.
+
+- Checked by what owns them: the sweep (`health`), the poll, the engine: reconciled sources, so open means their last look saw it.
+  `auth:` closes when the token is replaced (D66).
+- `run:<id>:paused`: open while that run is paused. A run cleared any other way (moving up the ladder) used to leave it open.
+- `blocked:`: the step records what it needed (`needs`): Slack connected, one of its `slack.channel.*` settings bound, or a person
+  linked in Slack, asked of Slack by their email, so someone who joined since is linked by the check.
+- `step:` (a failed run), `skipped:`, a blocked step that named no need: only redoing the step could tell: said once.
+
+Live, a DM for someone with no Slack account goes to the operator (`bot.escalate_to`) as "For <name> (not in Slack yet):"
+(Tyler: "throw the error in the UI and just send it to me"); with no operator it is blocked as before. The Slack check flags each
+active closer or setter the workflows DM who is not in Slack, after looking them up by email (found: linked, no finding).
+
+Dating's channels (Tyler, 2026-10-18): bookings #dating-calls-booked; calls, attention and the template's `alerts` slot (a
+recording that matched nobody) #dating-call-recordings; deals and payments #dating-deal-status; reports, eod and ops (the
+leaderboard posts to ops) #dating-reports; setter_calls #dating-setters; the engine's alerts (`alerts.slack_channel`)
+#dating-alerts, Tyler only. #ops-test stays the test channel until live.
+
+Tests: `alerts.test.ts`, `mode.test.ts`, `health.slack-scope.test.ts`.

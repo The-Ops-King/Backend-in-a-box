@@ -221,19 +221,19 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     posts.length = 0;
     const at = new Date();
     await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='alerts.slack_channel'", [companyId]));
-    await asOperator((c) => raise(c, { companyId, key: "late:1", level: "warning", source: "engine", text: "Late channel" }, at));
+    await asOperator((c) => raise(c, { companyId, key: "poll:late", level: "warning", source: "poll", text: "Late channel" }, at));
     await asOperator((c) => announceDue(c, fake, at, companyId)); await tick(fake, undefined, companyId);
     expect(posts.filter((p) => /Late channel/.test(p.text))).toEqual([]);   // nowhere to say it
     await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'alerts.slack_channel','channel',$2)", [companyId, Buffer.from("CALERTS")]));
     const due = async (mins: number) => { await asOperator((c) => announceDue(c, fake, new Date(at.getTime() + mins * 60e3), companyId)); await tick(fake, undefined, companyId); };
     await due(61);
     const first = posts.filter((p) => /Late channel/.test(p.text));
-    expect(first).toHaveLength(1); expect(first[0].threadTs).toBeUndefined(); expect(first[0].text).toMatch(/^🟡 \*Alert Co · Engine\*\nLate channel/);
-    const parent = (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts p join alerts a on p.tag='alert:'||a.id where a.company_id=$1 and a.key='late:1'", [companyId])))!.ts;
+    expect(first).toHaveLength(1); expect(first[0].threadTs).toBeUndefined(); expect(first[0].text).toMatch(/^🟡 \*Alert Co · Polling\*\nLate channel/);
+    const parent = (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts p join alerts a on p.tag='alert:'||a.id where a.company_id=$1 and a.key='poll:late'", [companyId])))!.ts;
     await due(122);
     const repeat = posts.filter((p) => /Late channel/.test(p.text)).at(-1)!;
     expect(repeat.threadTs).toBe(parent); expect(repeat.text).toMatch(/^🟡 Still open after/);
-    await asOperator((c) => resolve(c, companyId, "late:1", new Date(at.getTime() + 123 * 60e3)));
+    await asOperator((c) => resolve(c, companyId, "poll:late", new Date(at.getTime() + 123 * 60e3)));
   });
 
   it("a step that could not post clears on a quiet day too: the channel is checked before the step decides it has nothing to say", async () => {
@@ -259,6 +259,28 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     await alertsThenSay();
     expect((await asOperator((c) => openAlerts(c, companyId))).map((x) => x.key)).not.toContain(key);
     await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='reports.quiet_when_empty'", [companyId]));
+  });
+
+  it("D140: an open alert is checked again before it is said again: fixed, it closes with a ✅ instead; a failure nothing can check is said once; a paused run no longer paused closes", async () => {
+    const at = new Date(); posts.length = 0;
+    const later = (mins: number) => new Date(at.getTime() + mins * 60e3);
+    const say = async (mins: number) => { await asOperator((c) => announceDue(c, fake, later(mins), companyId)); await tick(fake, undefined, companyId); };
+    await asOperator(async (c) => {
+      await raise(c, { companyId, key: "blocked:00000000-0000-0000-0000-00000000000a:n1", level: "warning", source: "step", text: "Bound later", detail: { needs: { bindings: ["slack.channel.later"] } } }, at);
+      await raise(c, { companyId, key: "step:00000000-0000-0000-0000-00000000000b:n1", level: "error", source: "step", text: "GHL said no" }, at);
+      await raise(c, { companyId, key: "run:00000000-0000-0000-0000-000000000000:paused", level: "error", source: "step", text: "Run gone" }, at);
+    });
+    await say(0);
+    expect(posts.map((p) => p.text).filter((t) => /Bound later|GHL said no|Run gone/.test(t))).toHaveLength(3);   // each said once
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.later','channel',$2)", [companyId, Buffer.from("CLATER")]));
+    posts.length = 0; await say(61);
+    const said = posts.map((p) => p.text);
+    expect(said.some((t) => /^✅ Resolved after .*Bound later/.test(t))).toBe(true);
+    expect(said.some((t) => /^✅ Resolved after .*Run gone/.test(t))).toBe(true);   // the run is not paused (it does not exist): nothing to repeat
+    expect(said.some((t) => /GHL said no/.test(t))).toBe(false);   // nothing can check it: not repeated
+    const open = (await asOperator((c) => openAlerts(c, companyId))).map((x) => x.key);
+    expect(open).toContain("step:00000000-0000-0000-0000-00000000000b:n1"); expect(open).not.toContain("blocked:00000000-0000-0000-0000-00000000000a:n1");
+    await asOperator((c) => resolve(c, companyId, "step:00000000-0000-0000-0000-00000000000b:n1", later(62), true));
   });
 
   it("raise/resolve are idempotent per open key", async () => {

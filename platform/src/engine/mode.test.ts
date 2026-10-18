@@ -209,6 +209,11 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     dms.length = 0; await filed(); await tick(fake, undefined, companyId);
     expect(dms).toEqual([]);
     expect(await asOperator((c) => one(c, "select s.result->>'kind' as kind, s.result->>'why' as why from run_steps s join runs r on r.id=s.run_id join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='DM the closer' and s.node_id='n1' order by s.started_at desc limit 1", [companyId]))).toEqual({ kind: "blocked", why: "Nelly Dater has no Slack account linked" });
+    // D140: with an operator set, live, it comes to them, marked who it was for
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'bot.escalate_to','id',$2) on conflict (company_id,key) do update set value=excluded.value", [companyId, Buffer.from("UOP")]));
+    dms.length = 0; await filed(); await tick(fake, undefined, companyId);
+    expect(dms.map((m) => [m.channel, m.text])).toEqual([["UOP", "For Nelly Dater (not in Slack yet):\nYour end of day, Nelly"]]);
+    await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='bot.escalate_to'", [companyId]));
     await setMode("quiet");
   });
 

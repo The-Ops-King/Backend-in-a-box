@@ -13,7 +13,7 @@ import type { Adapters } from "@/adapters/types";
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 let companyId: string;
 const base = fakeAdapters();
-const fake: Adapters = { ...base, notifier: { ...base.notifier, authTest: async () => ({ ok: true }),
+const fake: Adapters = { ...base, notifier: { ...base.notifier, authTest: async () => ({ ok: true }), lookupUserByEmail: async (_t, email) => (email === "joined@scope.test" ? "UJOINED" : null),
   channelInfo: async (_t, id) => (id === "CPRIV" ? { ok: false, error: "missing_scope", needed: "groups:read" } : id === "CGONE" ? { ok: false, error: "channel_not_found" } : { ok: true, name: id.toLowerCase(), member: true }) } };
 const posting = (channel: string) => ({ schema: 1, reentry: "always", premise: { check: "none" }, nodes: [{ id: "t1", type: "trigger", event: "tag.added" }, { id: "s1", type: "slack_post", channel, template: "x" }, { id: "x1", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "s1" }, { from: "s1", to: "x1" }] });
 
@@ -48,6 +48,21 @@ describe.skipIf(!process.env.DATABASE_URL)("health: an unreadable Slack channel 
     expect(bad.find((f) => f.item === "CPRIV")!.text).toBe("Channel CPRIV, used by 3 settings (alerts.slack_channel, slack.channel.deals, slack.channel.bookings), cannot be checked: the Slack app is missing the groups:read permission (the channel is private). Add it under OAuth & Permissions and reinstall the app. Posts there may still land.");
     expect(bad.find((f) => f.item === "CGONE")!.text).toBe("Channel for slack.channel.calls (CGONE) cannot be read: channel_not_found.");
     expect(r.findings.filter((f) => f.check === "steps" && f.ok && /dependencies verified/.test(f.text)).map((f) => f.text.split(":")[0]).sort()).toEqual(['"Bookings post"', '"Calls post"', '"Deals post"']);
+  });
+
+  it("D140: a closer the workflows DM who is not in Slack is a finding until they are; one who has joined is linked by the sweep", async () => {
+    const ids = await asOperator(async (c) => {
+      const def = posting("{{user.slack_user_id}}");
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'DM post','always',true) returning id", [companyId]))!;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [wf.id, def, extractManifest(parseDefinition(def))]);
+      const away = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role) values ($1,'away@scope.test','Ava Away','closer') returning id", [companyId]))!.id;
+      const joined = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role) values ($1,'joined@scope.test','Jo Joined','setter') returning id", [companyId]))!.id;
+      await c.query("insert into users (company_id, email, name, role) values ($1,'staff@scope.test','Sam Staff','staff')", [companyId]);
+      return { away, joined };
+    });
+    const r = await sweep();
+    expect(r.findings.filter((f) => !f.ok && f.item?.startsWith("user:")).map((f) => f.text)).toEqual(["Ava Away (closer) is not in Slack as away@scope.test: once live, the DMs meant for them come to you instead. Invite them, or map the email they use in Slack (slackUsers)."]);
+    expect(await asOperator((c) => one(c, "select slack_user_id from users where id=$1", [ids.joined]))).toEqual({ slack_user_id: "UJOINED" });
   });
 
   it("with the slack check off, the steps check still says each unreadable channel", async () => {
