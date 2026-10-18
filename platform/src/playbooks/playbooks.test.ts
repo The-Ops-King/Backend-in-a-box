@@ -20,6 +20,15 @@ describe("playbooks", () => {
     }
   });
 
+  it("a playbook's `changes` are exactly the templates its copies change or take over", () => {
+    for (const company of playbookCompanies()) {
+      const { playbook, files } = companyBuild(company);
+      const touched = files.filter((x) => !x.file.endsWith(`${company}.json`)).map((x) => JSON.parse(x.text) as { workflow: string; create?: { takesOver?: string } })
+        .map((c) => (c.create ? c.create.takesOver : c.workflow)).filter((x): x is string => !!x);
+      expect([...new Set(touched)].sort(), company).toEqual([...playbookOf(playbook).changes].sort());
+    }
+  });
+
   it("every copy a playbook builds is a workflow the engine reads", () => {
     for (const company of playbookCompanies())
       for (const f of companyBuild(company).files.filter((x) => !x.file.endsWith(`${company}.json`))) expect(() => parseDefinition(JSON.parse(f.text).definition), f.file).not.toThrow();

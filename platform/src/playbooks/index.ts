@@ -26,6 +26,8 @@ export type InstallBits = { scopeTag?: string; calendars?: Record<string, string
 export type Built = { copies: Copy[]; /** what the build writes into the install file, over what is there */ install?: Record<string, unknown> };
 export type Playbook = {
   slug: string; name: string; about: string; traits: Traits;
+  /** The shipped templates its copies change or take over (D123); the rest run as shipped. */
+  changes: string[];
   /** Pure: the company's copies from its params and install file. Throws, naming the param, when the params are not right. */
   build(company: string, params: unknown, install: InstallBits): Built;
 };
@@ -51,18 +53,21 @@ export const playbooks: Playbook[] = [
     slug: "setter-closer", name: "Setter and closer",
     about: "Hair's process: a setter board and a closer board, calls booked by the lead or a setter, the shipped templates as they are.",
     traits: { boards: "setter_and_closer", booking: ["self", "setter"], application: false, triage: false },
+    changes: [],
     build: () => ({ copies: [] }),
   },
   {
     slug: "one-board", name: "One board",
     about: "PMU's process: one closer board carries a person from New Lead to won, no setter board; who set a call comes from the booking.",
     traits: { boards: "one", booking: ["self", "setter"], application: false, triage: false },
+    changes: ["new-lead", "call-booked", "call-cancelled", "call-outcome", "call-recorded", "deal-closed", "payment-recorded", "pre-call-sequence", "card-moved"],
     build: (_company, params) => ({ copies: oneBoardCopies(parse(oneBoard, params, "one-board") as OneBoardParams) }),
   },
   {
     slug: "application-triage", name: "Application and triage",
     about: "Dating's process: an application form, a setter's triage call before the closing call, a setter board and a closer board, and a booked-call workflow per call type.",
     traits: { boards: "setter_and_closer", booking: ["self", "setter"], application: true, triage: true },
+    changes: ["deal-closed", "setter-call-logged", "call-booked"],
     build: (company, params, install) => {
       const p = parse(z.object({ words, setup: setup.optional() }), params, "application-triage");
       if (!install.salesCall?.objections?.length) throw new Error("application-triage: the install file's salesCall.objections is needed for the call prompts");

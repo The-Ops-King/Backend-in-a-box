@@ -4838,3 +4838,29 @@ company's own fields), closers' options (people), test scripts, deposit products
 allowlist (`OFFER_KEYS`), so a new setting is never copied until someone decides it is the offer's.
 
 Tests: `playbooks.test.ts`, `apply.test.ts`, `rung.test.ts`, `dating-copies.test.ts`.
+
+## D143. Add client and the onboarding wizard's first step: the offer picks the playbook and says what fits (2026-10-18)
+
+Tyler (#49): an Add client button on the Companies page; the wizard asks about the offer first. His choices: the draft
+question list, the closest playbook plus a gap list when none fits, and a page of its own per client.
+
+**Add client** (`POST /api/v1/companies`, behind the dashboard login) takes a name, a time zone and whether it is a new offer
+or a takeover, and makes the company in ghost with status `onboarding`. Nothing runs for it: the engine polls and ticks only
+active and hosted companies. It has an id, so the webhook and Slack URLs that carry it exist from the start; it becomes active,
+still in ghost, at the install step. The wizard is `/app/c/<slug>/onboarding` (the Companies list opens it while onboarding,
+and the company page says so). Its record is the `onboarding` table: the kind, the answers, the playbook, the fit report,
+each step's done time. Every step saves, so stopping for days loses nothing.
+
+**The offer** (`src/onboarding/intake.ts`): one list of questions drives the form and the check: the business, price,
+deposits, payment plans; how leads come in, application form, setters, triage, the pipeline's shape, the journey in Tyler's
+words; CRM, booking, payments, recording, agreements; closers' and setters' emails. Each problem is one line naming the
+question. Saving sets the program price and picks the playbook: the one whose traits differ least (a different board shape
+counts double), or the one Tyler chose. The fit report goes through every shipped template: fits (as shipped, or the
+playbook's own copy), tweak (a Zap door covers it: Stripe payments, other recorders, other forms; payment plans not tracked),
+build (the engine does not read it: iClosed bookings, agreements outside GHL, DM leads, another CRM), off (not used: no
+recording, no agreement, no setters). The builds and the playbook's differences are the client's build list. A takeover and
+another CRM are said once, above the list. Each playbook names the templates it changes (`changes`, held to what it builds).
+
+The other seven steps are on the page, marked not built yet, until their slices land.
+
+Tests: `intake.test.ts`, `store.test.ts`, `playbooks.test.ts`.

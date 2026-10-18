@@ -814,7 +814,10 @@ Open, to settle before P0 is built:
 **P0 built 2026-10-18 (D142):** playbooks (`setter-closer` Hair, `one-board` PMU, `application-triage` Dating), the starting
 rung per workflow (closes #48's rule), putting a playbook on a company and duplicating an offer's settings
 (`POST /api/admin/playbooks`). To do by Tyler: PMU's live copies are behind D141 and D118; `scripts/apply-playbook.ts pmu`
-(a dry run) says what saving them changes, `--apply` saves them. Next: P1, the Add client wizard on top of this.
+(a dry run) says what saving them changes, `--apply` saves them.
+
+**P1 slice 1 built 2026-10-18 (D143):** Add client, the wizard page, the offer step (intake → playbook → fit report).
+Next slices: connections (keys, tested live), research, Slack, CRM build, install, test passes, go live.
 
 Tyler, 2026-10-18: the core set is what runs today (new lead, call booked and cancelled, forms, Fathom recordings,
 agreements, payment and close, EODs, Health check and the rest). What to sell and build next is `08-problem-map.md`, his

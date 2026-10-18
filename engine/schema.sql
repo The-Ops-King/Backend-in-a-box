@@ -101,6 +101,20 @@ insert into core_categories (domain, value, label, sort) values
   ('reply_intent','unclear','Unclear',5);
 
 -- A company's own words. "Strategy session" is-a first_call. Free name, one-time category pick.
+-- D143 (#49): a client being stood up: the wizard's answers and progress, step by step. One row per company, kept after it is
+-- finished (the intake and the fit report are how the client was set up).
+create table onboarding (
+  company_id  uuid primary key references companies(id) on delete cascade,
+  kind        text not null default 'new' check (kind in ('new','takeover')),   -- a brand-new offer, or a running system taken over
+  intake      jsonb not null default '{}',     -- the offer as Tyler described it (src/onboarding/intake.ts)
+  playbook    text,                            -- the playbook the intake picked or Tyler chose (D142)
+  fit         jsonb,                           -- the fit report when the intake was saved: per workflow fits / tweak / build / off, the gaps
+  steps       jsonb not null default '{}',     -- step → { done_at, by }
+  started_at  timestamptz not null default now(),
+  started_by  text,
+  finished_at timestamptz
+);
+
 create table company_terms (
   id          uuid primary key default gen_random_uuid(),
   company_id  uuid not null references companies(id),
