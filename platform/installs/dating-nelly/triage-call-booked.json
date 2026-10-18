@@ -38,18 +38,46 @@
     "title": "Only a Strategy session moved"
    },
    {
+    "id": "c_via",
+    "type": "set_var",
+    "key": "booked_via",
+    "value": "{{appointment.source}}",
+    "pick": {
+     "calendly": "Calendly",
+     "ghl": "GHL calendar"
+    },
+    "else_value": "booking page",
+    "title": "Where the booking came from, in words"
+   },
+   {
     "id": "c0",
-    "type": "check",
-    "title": "Wait for GHL to have the person (a booking can land first)",
-    "when": {
-     "exists": "contact.ghl_contact_id"
+    "type": "ensure_contact",
+    "title": "Make sure the person is in GHL: found by id, email or phone, else created",
+    "source": "{{vars.booked_via}} booking",
+    "scope_tag": true
+   },
+   {
+    "id": "c_added",
+    "type": "set_var",
+    "key": "added_line",
+    "value": "{{vars.c0.action}}",
+    "pick": {
+     "created": "*New to GHL:* added from their {{vars.booked_via}} booking"
     },
-    "retry": {
-     "every": "2m",
-     "for": "1h"
+    "else_value": "",
+    "title": "A line on the card when the booking put them in GHL"
+   },
+   {
+    "id": "c_note",
+    "type": "note",
+    "only_if": {
+     "eq": [
+      "{{vars.c0.action}}",
+      "created"
+     ]
     },
-    "else_exit": "no_crm_id",
-    "else_pause": "contact has no CRM id yet: GHL did not have the person an hour after the booking"
+    "template": "Added to GHL by the booking engine from their {{vars.booked_via}} booking ({{appointment.starts_at | date_company}}): they were not in GHL by email or phone.",
+    "title": "Say on the contact that the booking added them"
    },
    {
     "id": "n1",
@@ -347,7 +375,7 @@
     "id": "n4",
     "type": "slack_post",
     "channel": "{{slack.channel.bookings}}",
-    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}{{contact.intake_lines | line}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}",
+    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}{{contact.intake_lines | line}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}{{vars.added_line | line}}",
     "as": {
      "name": "{{vars.card.name}}",
      "icon": "{{vars.card.icons}}"
@@ -370,14 +398,14 @@
   "edges": [
    {
     "from": "t1",
-    "to": "c0"
+    "to": "c_via"
    },
    {
     "from": "t2",
-    "to": "c0"
+    "to": "c_via"
    },
    {
-    "from": "c0",
+    "from": "c_note",
     "to": "n1"
    },
    {
@@ -452,6 +480,18 @@
    {
     "from": "b2b",
     "to": "b_suffix"
+   },
+   {
+    "from": "c_via",
+    "to": "c0"
+   },
+   {
+    "from": "c0",
+    "to": "c_added"
+   },
+   {
+    "from": "c_added",
+    "to": "c_note"
    },
    {
     "from": "s_suffix",

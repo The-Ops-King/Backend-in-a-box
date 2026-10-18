@@ -4,7 +4,7 @@ import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 import { loadCompany, type CompanyRow } from "./context";
 import { reconcile, type AlertInput, type Level } from "./alerts";
-import { companyReadiness } from "./readiness";
+import { companyReadiness, missingSources } from "./readiness";
 import { ghlCatalog, type Catalog } from "@/adapters/ghl/catalog";
 import { ghlCalendarTeam, ghlFreeSlots, ghlLocationOk } from "@/adapters/ghl/health";
 import { calendlyWhoAmI } from "@/adapters/calendly/read";
@@ -274,6 +274,9 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
     const unverifiable: string[] = [];
     for (const wf of wfs) {
       let def; try { def = parseDefinition(wf.definition); } catch (e) { bad("steps", "error", `"${wf.name}" no longer parses on this engine and is skipped: ${String((e as Error).message).slice(0, 120)}. Re-install upgrades it.`, wf.id); continue; }
+      // D141: on, but nothing can start it: a source its trigger needs is not connected
+      for (const s of missingSources(def.nodes.flatMap((n) => (n.type === "trigger" ? [n.event] : [])), new Set(Object.keys(bindings))))
+        bad("steps", "warning", `"${wf.name}" is on and starts when ${s.about}, but ${s.name} is not connected, so it never runs. Connect it, or turn the workflow off.`, `source:${wf.id}:${s.name}`);
       const before = out.length; let verified = 0;
       const miss = (text: string, level: Level = "error") => bad("steps", level, `"${wf.name}": ${text}`, wf.id);
       // a name Slack does not know shows as raw text (":fountain_pen:" for 🖋); a workspace's own custom emoji is the one exception, so this is a warning

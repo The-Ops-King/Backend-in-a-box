@@ -25,6 +25,7 @@ const TABLES = ["alerts", "slack_posts", "step_effects", "sends", "runs", "event
 let companyId: string;
 let events: AppointmentSnapshot[] = [];
 let ghlContacts: ContactSnapshot[] = [];
+const created: Record<string, unknown>[] = [], notes: { to: string; body: string }[] = [];
 let ghlSalesCalls: ObjectRecord[] = [];
 const records: { op: string; object: string; id?: string; props: Record<string, unknown> }[] = [];
 const slack: { op: string; channel: string; ts: string; text?: string; emoji?: string; thread?: string }[] = [];
@@ -35,9 +36,10 @@ const noBooking = { appointmentsInWindow: async () => [], getAppointment: async 
 const fake: Adapters = {
   read: { openCards: async () => [], contactsChangedSince: async (c) => (c.id === companyId ? ghlContacts : []), inboundSince: async () => [], messageBodies: async () => new Map(), callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [],
     objectRecords: async (_c, key) => (key === "custom_objects.sales_call" ? ghlSalesCalls : []), documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [],
-    getContact: async (_c, id) => ghlContacts.find((k) => k.id === id) ?? null, listUsers: async () => [] },
+    getContact: async (_c, id) => ghlContacts.find((k) => k.id === id) ?? null, listUsers: async () => [],
+    findDuplicate: async (_c, by) => ghlContacts.find((k) => ("email" in by ? k.email === by.email : k.phone === by.phone)) ?? null },
   booking: { ghl: noBooking, calendly: { listCalendars: async () => [], getAppointment: async (_c, id) => events.find((e) => e.id === id) ?? null, appointmentsInWindow: async (c, cal) => (c.id === companyId ? events.filter((e) => e.calendarId === cal) : []) } },
-  write: { createContact: async () => ({ id: "x" }), addTag: async (_c, to, tag) => { tagOps.push({ op: "add", to, tag }); }, removeTag: async (_c, to, tag) => { tagOps.push({ op: "remove", to, tag }); }, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }),
+  write: { createContact: async (_c, input) => { created.push(input as Record<string, unknown>); const id = `GC-NEW-${created.length}`; ghlContacts = [...ghlContacts, person(id, String(input.email), String(input.firstName ?? ""))]; return { id }; }, addTag: async (_c, to, tag) => { tagOps.push({ op: "add", to, tag }); }, removeTag: async (_c, to, tag) => { tagOps.push({ op: "remove", to, tag }); }, addNote: async (_c, to, body) => { notes.push({ to, body }); }, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }),
     createRecord: async (_c, object, props) => { records.push({ op: "create", object, props }); return { id: `rec-${records.length}` }; }, updateRecord: async (_c, object, id, props) => { records.push({ op: "update", object, id, props }); },
     relateRecords: async (_c, a, f, s) => { relations.push(`${a}:${f}>${s}`); }, createOpportunity: async () => ({ id: `opp-${++opps}` }), updateOpportunity: async (_c, id, w) => { cardOps.push({ id, stageId: w.stageId, status: w.status }); }, sendDocumentTemplate: async () => ({ id: "doc-x" }) },
   sender: { sendSms: async () => ({ externalId: "", accepted: true }), sendEmail: async () => ({ externalId: "", accepted: true }), deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },
@@ -179,27 +181,30 @@ describe.skipIf(!process.env.DATABASE_URL)("sweep 2026-10-10 on a Calendly compa
     await tick(fake, undefined, companyId);
   });
 
-  it("D-5: a booking that arrives before GHL has the person waits for its CRM id (Call booked and the pre-call receipts), goes on when the id arrives, and pauses with the reason when it never does", async () => {
+  it("D-5, D141: a booking whose person the poll has not joined yet is put in GHL at once: found there by email when GHL has them, else created (tagged, its source and a note saying the booking added them, a line on the card); the pre-call receipts wait for the id and then go", async () => {
     await asOperator((c) => installTemplateForTest(c, companyId, "pre-call-sequence"));
     events = [appt("EV-NORA", day(4, 13), { invitee: { email: "nora@x.com", firstName: "Nora", lastName: "New", timezone: TZ } }), appt("EV-OMAR", day(4, 15), { invitee: { email: "omar@x.com", firstName: "Omar", lastName: "Never", timezone: TZ } })];
-    await pollAll(fake); await tick(fake, undefined, companyId);
+    created.length = 0; notes.length = 0;
+    await pollAll(fake);
+    ghlContacts = [...ghlContacts, person("GC-NORA", "nora@x.com", "Nora")];   // GHL has Nora now; the contacts poll has not seen her yet
+    await tick(fake, undefined, companyId);
     const [nora, omar] = [await apptId("EV-NORA"), await apptId("EV-OMAR")];
     const booked = async (a: string) => (await runsOf("Call booked")).find((r) => r.appointment_id === a)!;
     const precall = async (a: string) => (await runsOf("Pre-call sequence")).find((r) => r.appointment_id === a)!;
-    expect(await booked(nora)).toMatchObject({ status: "waiting" });
-    expect(await precall(nora)).toMatchObject({ status: "waiting" });
-    const sends = async (runId: string) => Number((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from sends where run_id=$1 and channel in ('sms','email')", [runId])))!.n);
-    expect(await sends((await precall(nora)).id)).toBe(0);
-    // GHL's contact for Nora arrives (Calendly's sync); the contacts poll joins her by email
-    ghlContacts = [...ghlContacts, person("GC-NORA", "nora@x.com", "Nora")];
-    await pollAll(fake); await wakeAll(); await tick(fake, undefined, companyId);
-    expect(await booked(nora)).toMatchObject({ status: "completed" });
-    expect(await sends((await precall(nora)).id)).toBeGreaterThan(0);
-    // Omar never reaches GHL: once the wait runs out the run pauses and says why
-    await asOperator((c) => c.query("update runs set context = jsonb_set(context, '{vars,__check}', jsonb_build_object('c0', jsonb_build_object('deadline', $2::text)), true) where appointment_id=$1", [omar, new Date(Date.now() - 60e3).toISOString()]));
+    expect(await booked(nora)).toMatchObject({ status: "completed" }); expect(await booked(omar)).toMatchObject({ status: "completed" });
+    const ghlOf = async (a: string) => (await asOperator((c) => one<{ g: string }>(c, "select ct.ghl_contact_id as g from appointments a join contacts ct on ct.id=a.contact_id where a.id=$1", [a])))!.g;
+    expect(await ghlOf(nora)).toBe("GC-NORA");   // found by email: never made twice
+    expect(created).toEqual([expect.objectContaining({ email: "omar@x.com", firstName: "Omar", lastName: "Never", source: "Calendly booking" })]);
+    expect(await ghlOf(omar)).toBe("GC-NEW-1");
+    expect(notes).toEqual([{ to: "GC-NEW-1", body: expect.stringMatching(/^Added to GHL by the booking engine from their Calendly booking/) }]);
+    // the booking card (Slack is not connected here: the card it would have posted)
+    const card = async (a: string) => (await asOperator((c) => one<{ body: string }>(c, "select s.rendered_body as body from sends s join runs r on r.id=s.run_id join workflows w on w.id=r.workflow_id where w.name='Call booked' and r.appointment_id=$1 and s.channel='slack'", [a])))!.body;
+    expect(await card(omar)).toMatch(/\*New to GHL:\* added from their Calendly booking$/);
+    expect(await card(nora)).not.toMatch(/New to GHL/);
+    // the receipts waited for the id; on their next look they have it and go
     await wakeAll(); await tick(fake, undefined, companyId);
-    expect(await booked(omar)).toMatchObject({ status: "paused", exit_reason: expect.stringMatching(/no CRM id/) });
-    expect(await precall(omar)).toMatchObject({ status: "paused", exit_reason: expect.stringMatching(/no CRM id/) });
+    const sends = async (runId: string) => Number((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from sends where run_id=$1 and channel in ('sms','email')", [runId])))!.n);
+    expect(await sends((await precall(nora)).id)).toBeGreaterThan(0); expect(await sends((await precall(omar)).id)).toBeGreaterThan(0);
   });
 
   it("D-8: the wrap-up rollups leave test contacts out (tagged sys-test, or an email on a test domain), as every metric does", async () => {

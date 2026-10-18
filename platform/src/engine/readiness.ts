@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { parseDefinition } from "./definition";
-import { MODE_WORDS, runMode, TEST_CHANNEL_KEY, TEST_DOMAINS_KEY, testDomains, type Mode } from "./mode";
+import { MODE_WORDS, runMode, SLACK_LIVE_KEY, slackLiveSet, TEST_CHANNEL_KEY, TEST_DOMAINS_KEY, testDomains, type Mode } from "./mode";
 const bindingsOf = (rows: { key: string; value: Buffer }[]) => Object.fromEntries(rows.map((r) => [r.key, r.value.toString("utf8")]));
 
 /**
@@ -16,9 +16,11 @@ export type WorkflowReadiness = { id: string; name: string; slug: string | null;
 /** The steps that need Slack to do their job: a post, a DM, a wait for a tap on a post. */
 const SLACK_STEPS = new Set(["slack_post", "notify_owner", "wait_for_reaction"]);
 /** D128: where a trigger's events come from, when that is a vendor the company connects: payments only arrive from Whop (its webhook, made from the API key). */
-const SOURCES: { name: string; starts: (event: string) => boolean; connected: (bound: Set<string>) => boolean }[] = [
-  { name: "Whop", starts: (e) => e.startsWith("payment."), connected: (b) => b.has("secret.whop_api_key") || b.has("secret.whop_webhook") },
+const SOURCES: { name: string; about: string; starts: (event: string) => boolean; connected: (bound: Set<string>) => boolean }[] = [
+  { name: "Whop", about: "a payment comes in", starts: (e) => e.startsWith("payment."), connected: (b) => b.has("secret.whop_api_key") || b.has("secret.whop_webhook") },
 ];
+/** The sources a workflow starts from that the company has not connected: its triggers can never fire (D128; the health check says so hourly, D141). */
+export const missingSources = (events: string[], bound: Set<string>) => SOURCES.filter((s) => events.some(s.starts) && !s.connected(bound)).map(({ name, about }) => ({ name, about }));
 const SLACK_BLOCKER = "Slack is not connected: every Slack post (team alerts, booking cards, call reviews, unlinked payments) is recorded but never posted.";
 /** A message body nobody has written yet; the marker the templates ship with, not a reading of the words. */
 export const isPlaceholderCopy = (body: string | undefined) => /\[placeholder\b/i.test(body ?? "");
@@ -44,7 +46,9 @@ export async function companyReadiness(c: PoolClient, companyId: string, slugPre
   });
   const issues: Issue[] = [];
   if (co.mode !== "live") issues.push({ level: "warning", text: `Company is in ${co.mode}: ${MODE_WORDS[co.mode].about}.` });
-  if (slack && workflows.some((w) => w.enabled && w.runsIn !== "live" && w.postsToSlack) && !bound.has(TEST_CHANNEL_KEY))
+  const slackLive = slackLiveSet(bindingsOf(await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key=$2", [companyId, SLACK_LIVE_KEY])));
+  if (slackLive && co.mode !== "live") issues.push({ level: "warning", text: `Slack is live (slack.live) while the company is in ${co.mode}: every post and DM goes where its step points, unmarked; what reaches a contact is still held.` });
+  else if (slack && workflows.some((w) => w.enabled && w.runsIn !== "live" && w.postsToSlack) && !bound.has(TEST_CHANNEL_KEY))
     issues.push({ level: "warning", text: "No test Slack channel (test.slack_channel): before live, posts go to their own channels marked 🧪, and DMs to the ops channel. Set one and every pre-live post goes there instead.", href: `${slugPrefix}/setup` });
   if ((co.mode === "test" || co.mode === "quiet") && !testDomains(bindingsOf(await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key=$2", [companyId, TEST_DOMAINS_KEY]))).length)
     issues.push({ level: "warning", text: `No test email domain (test.domains): in ${co.mode} only contacts tagged sys-test get everything.`, href: `${slugPrefix}/setup` });

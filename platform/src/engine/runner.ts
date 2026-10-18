@@ -22,7 +22,7 @@ const LEASE_MIN = 5, MAX_STEPS = 50, BATCH = 100;
 export const RECOVERY_AFTER_MIN = 10;          // D5b: a gap longer than this means we were down
 export const PREMISE_RETRY_MIN = 5;            // D56: the booking source could not be read; look at the run again this much later
 const PREMISE_ALERT_KEY = "premise:booking-source-unreachable";
-const CONTACT_WRITES = new Set(["set_tag", "remove_tag", "tags", "note", "update_contact", "create_task", "notify_owner", "send_document", "send_sms", "send_email"]);   // D66: a 404 here is the person gone from the CRM; on a card or a record it is that card or record
+const CONTACT_WRITES = new Set(["set_tag", "remove_tag", "tags", "note", "update_contact", "create_task", "ensure_contact", "notify_owner", "send_document", "send_sms", "send_email"]);   // D66: a 404 here is the person gone from the CRM; on a card or a record it is that card or record
 const RECOVERY_SEND_CAP = 20;                  // per company per tick while catching up: never burst one client's inbox, never let one client's backlog starve another's
 
 type PendingTrigger = { event_id: number; trigger_id: string | null; trigger_node_id: string; contact_id: string; appointment_id: string | null; opportunity_id: string | null };

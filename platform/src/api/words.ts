@@ -45,7 +45,7 @@ export function kindOf(n: Node): ChartKind {
     case "slack_post": return "slack";
     case "classify": case "analyze": return "ai";
     case "exit": return "end";
-    case "update_contact": case "update_appointment": case "update_opportunity": case "pipeline_card": case "crm_record": case "create_task": case "record_outcome": case "note": return "crm";
+    case "update_contact": case "update_appointment": case "update_opportunity": case "pipeline_card": case "crm_record": case "create_task": case "record_outcome": case "note": case "ensure_contact": return "crm";
     case "record": return "other";
     default: return "other";
   }
@@ -237,6 +237,7 @@ function generic(def: Definition, n: Node, nm: Namer): { title: string; meta?: s
       const key = n.key && !n.record_id && /^\{\{\s*event\.slot\./.test(n.key) ? ` for ${withThe(pathWords(n.key))}` : "";
       return { title: `${n.record_id || n.if_missing !== "create" ? "Update" : "Write"} the ${obj.text} record${key}${mark([obj])}`, meta: list(...recordFacts(def, n.properties), n.clear.length > 0 && `empties ${n.clear.length} field${n.clear.length === 1 ? "" : "s"}`) };
     }
+    case "ensure_contact": { const tags = [...(n.tags === undefined ? [] : Array.isArray(n.tags) ? n.tags : [n.tags]), ...(n.scope_tag ? ["the company's scope tag"] : [])]; return { title: "Make sure the person is in GHL", meta: tags.length ? `tagged ${tags.join(", ")}` : undefined }; }
     case "create_task": { const t = taskWords(n.title); const who = n.assign_to ? pathWords(n.assign_to) : null; return { title: `Task${who ? ` for ${who}` : ""}: ${t[0].toLowerCase()}${t.slice(1)}`, meta: /\{\{/.test(n.due) ? `due ${templateWords(n.due).replace(/^\[|\]$/g, "")}` : `due in ${durationWords(n.due)}` }; }
     case "note": return { title: "Leave a note" };
     case "record_outcome": return { title: `Record the call as ${valueWords(n.outcome)}${n.call_outcome ? `, ${valueWords(n.call_outcome)}` : ""}`, meta: n.source === "disposition" ? "as if the closer filed it" : undefined };

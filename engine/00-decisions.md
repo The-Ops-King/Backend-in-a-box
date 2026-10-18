@@ -4777,3 +4777,25 @@ leaderboard posts to ops) #dating-reports; setter_calls #dating-setters; the eng
 #dating-alerts, Tyler only. #ops-test stays the test channel until live.
 
 Tests: `alerts.test.ts`, `mode.test.ts`, `health.slack-scope.test.ts`.
+
+## D141. A booking puts its person in GHL; Slack can go live ahead of contacts; tasks can be off (2026-10-18)
+
+Tyler: "across all clients it should be Update, and if they don't exist, then create", and for Dating the `dating` tag. Call
+booked's wait for GHL (an hour, then paused) is now `ensure_contact`: the person is looked up in GHL by their CRM id, else
+email, else phone (the same lookup and duplicate handling the Typeform door uses); found, they are linked and any standard field
+GHL has blank is filled (nothing it holds is overwritten); not found, they are created with the booking's name, email and
+phone, source "<Calendly> booking". `scope_tag: true` adds the company's scope tag. A person the booking created gets a GHL note
+saying so and a line on the booking card ("New to GHL: added from their Calendly booking"). A CRM write: real in quiet and live,
+recorded only in ghost. Pre-call keeps its wait for the id: Call booked gives it one. Reaches a company on its next install
+(Dating's two booked-call copies are rebuilt now).
+
+`slack.live` (Tyler: "transfer slack into live ... no sms right now"): every Slack post and DM goes where its step points,
+unmarked, while the company's rung still holds what reaches a contact. A run that writes nothing (ghost) is never Slack-live.
+
+`crm.tasks` off: a create_task step is skipped ("tasks are off for this company"). Dating: off.
+
+The Slack check's sibling, the steps check, now also says when an enabled workflow starts from a source that is not connected
+(a payment workflow with no processor): an alert, hourly, until it is connected or turned off (Tyler: Dating should show it).
+
+Tests: `sweep.test.ts` (D-5), `readiness.whop.test.ts`; Call booked as it was is frozen in `fixtures/before-d141` for D118's
+render comparisons.

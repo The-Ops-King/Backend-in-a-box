@@ -1,0 +1,456 @@
+{
+  "slug": "call-booked",
+  "name": "Call booked",
+  "category": "booking",
+  "stage": "booking",
+  "sort": 10,
+  "origin": "spec",
+  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the booking's UTMs (source, medium, campaign, content, term, fbclid) go on the contact's UTM fields where GHL has none yet (a first touch is never overwritten; an unbound field is skipped, D78), the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, a Sales Call record is created for the call slot (the recording and the filed outcome update it; a reschedule logs the old slot's record as rescheduled and makes the new slot its own, D76), and the team gets the Slack card with the company's own intake lines (the booking card setting, D104) and the person's lead source. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar and reacts 🔁 on the card it replaces; later reactions (confirmed, cancelled, outcome, payment) land on that newest card.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "appointment_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "appointment.booked",
+        "match": {
+          "eq": [
+            "{{appointment.term.category}}",
+            "closing"
+          ]
+        }
+      },
+      {
+        "id": "t2",
+        "type": "trigger",
+        "event": "appointment.rescheduled",
+        "match": {
+          "eq": [
+            "{{appointment.term.category}}",
+            "closing"
+          ]
+        }
+      },
+      {
+        "id": "c0",
+        "type": "check",
+        "title": "Wait for GHL to have the person (a booking can land first)",
+        "when": {
+          "exists": "contact.ghl_contact_id"
+        },
+        "retry": {
+          "every": "2m",
+          "for": "1h"
+        },
+        "else_exit": "no_crm_id",
+        "else_pause": "contact has no CRM id yet: GHL did not have the person an hour after the booking"
+      },
+      {
+        "id": "n1",
+        "type": "update_contact",
+        "set": {
+          "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
+        },
+        "fields": [
+          {
+            "id": "{{crm.field_contact_appointment_date}}",
+            "value": "{{appointment.starts_at | date_company:yyyy-MM-dd}}"
+          }
+        ]
+      },
+      {
+        "id": "u1",
+        "type": "update_contact",
+        "title": "Capture the booking's UTMs on the contact where GHL has none (D78)",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_utm_source | default:}}",
+            "value": "{{appointment.tracking.utm_source | default:}}",
+            "if_empty": true
+          },
+          {
+            "id": "{{crm.field_contact_utm_medium | default:}}",
+            "value": "{{appointment.tracking.utm_medium | default:}}",
+            "if_empty": true
+          },
+          {
+            "id": "{{crm.field_contact_utm_campaign | default:}}",
+            "value": "{{appointment.tracking.utm_campaign | default:}}",
+            "if_empty": true
+          },
+          {
+            "id": "{{crm.field_contact_utm_content | default:}}",
+            "value": "{{appointment.tracking.utm_content | default:}}",
+            "if_empty": true
+          },
+          {
+            "id": "{{crm.field_contact_utm_term | default:}}",
+            "value": "{{appointment.tracking.utm_term | default:}}",
+            "if_empty": true
+          },
+          {
+            "id": "{{crm.field_contact_fbclid | default:}}",
+            "value": "{{appointment.tracking.fbclid | default:}}",
+            "if_empty": true
+          }
+        ]
+      },
+      {
+        "id": "n2",
+        "type": "branch"
+      },
+      {
+        "id": "s1",
+        "type": "set_var",
+        "key": "setter_line",
+        "value": ""
+      },
+      {
+        "id": "s2",
+        "type": "set_var",
+        "key": "booking_kind",
+        "value": "self-booked"
+      },
+      {
+        "id": "s2b",
+        "type": "set_var",
+        "key": "booking_source",
+        "value": "{{picklist.sales_call_booking_source.self}}"
+      },
+      {
+        "id": "s3",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_direct_booked}}",
+        "name": "{{contact.name}} -- Direct",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
+      },
+      {
+        "id": "s4",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_scheduled}}",
+        "name": "{{contact.name}} -- Direct",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
+      },
+      {
+        "id": "s5",
+        "type": "tags",
+        "add": [
+          "stat-booked",
+          "stat-self-booked",
+          "meta booked call"
+        ],
+        "remove": [
+          "seq-no-show",
+          "seq-nurture",
+          "seq-winback",
+          "opt-in lead",
+          "stat-no-show",
+          "stat-cancelled",
+          "stat-possible-cancel",
+          "stat-needs-attention"
+        ]
+      },
+      {
+        "id": "b1",
+        "type": "set_var",
+        "key": "setter_line",
+        "value": "*Setter:* {{appointment.set_by | default:unknown}}"
+      },
+      {
+        "id": "b2",
+        "type": "set_var",
+        "key": "booking_kind",
+        "value": "setter booked"
+      },
+      {
+        "id": "b2b",
+        "type": "set_var",
+        "key": "booking_source",
+        "value": "{{picklist.sales_call_booking_source.setter}}"
+      },
+      {
+        "id": "b3",
+        "type": "update_contact",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_setter}}",
+            "value": "{{appointment.set_by | default:}}"
+          }
+        ]
+      },
+      {
+        "id": "b4",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_appointment_set}}",
+        "name": "{{contact.name}} -- Set",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+        "fields": [
+          {
+            "id": "{{crm.field_opportunity_setter_owner}}",
+            "value": "{{appointment.set_by | default:}}"
+          }
+        ]
+      },
+      {
+        "id": "b5",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_scheduled}}",
+        "name": "{{contact.name}} -- Setter Booked",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+        "fields": [
+          {
+            "id": "{{crm.field_opportunity_setter_owner}}",
+            "value": "{{appointment.set_by | default:}}"
+          }
+        ]
+      },
+      {
+        "id": "b6",
+        "type": "tags",
+        "add": [
+          "stat-booked",
+          "stat-set",
+          "meta booked call"
+        ],
+        "remove": [
+          "seq-no-show",
+          "seq-nurture",
+          "seq-winback",
+          "opt-in lead",
+          "stat-no-show",
+          "stat-cancelled",
+          "stat-possible-cancel",
+          "stat-needs-attention"
+        ]
+      },
+      {
+        "id": "k3",
+        "type": "create_task",
+        "title": "Send {{contact.first_name}} a personalized video",
+        "body": "Booked for {{appointment.starts_at | date_company}}. A quick personal video before the call.",
+        "due": "+1d",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+        "only_if": {
+          "neq": [
+            "{{event._type}}",
+            "appointment.rescheduled"
+          ]
+        }
+      },
+      {
+        "id": "k5",
+        "type": "crm_record",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+        "key": "{{event.slot.from | default:}}",
+        "if_missing": "skip",
+        "only_if": {
+          "exists": "event.slot.from"
+        },
+        "properties": {
+          "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
+        },
+        "title": "A reschedule: the slot the call left keeps its Sales Call, logged as rescheduled"
+      },
+      {
+        "id": "k4",
+        "type": "crm_record",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+        "key": "{{appointment.slot_key}}",
+        "properties": {
+          "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
+          "external_id": "{{appointment.slot_key}}",
+          "contact_id": "{{contact.ghl_contact_id | default:}}",
+          "opportunity_id": "{{cards.closer.id | default:}}",
+          "scheduled_at": "{{appointment.starts_at}}",
+          "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
+          "closer": "{{appointment.closer.name | default: | option:sales_call_closer}}",
+          "setter": "{{appointment.set_by | default:}}",
+          "outcome": "{{picklist.sales_call_outcome.scheduled}}",
+          "booking_source": "{{vars.booking_source | default:}}"
+        },
+        "relate": [
+          {
+            "association": "{{crm.assoc_sales_call_contact}}",
+            "first": "{{contact.ghl_contact_id | default:}}",
+            "second": "{{record.id}}"
+          },
+          {
+            "association": "{{crm.assoc_sales_call_opportunity}}",
+            "first": "{{record.id}}",
+            "second": "{{cards.closer.id | default:}}"
+          }
+        ]
+      },
+      {
+        "id": "v4",
+        "type": "set_var",
+        "key": "card",
+        "when": {
+          "eq": [
+            "{{event._type}}",
+            "appointment.rescheduled"
+          ]
+        },
+        "value": {
+          "name": "Call rescheduled",
+          "icons": [
+            ":repeat:"
+          ],
+          "reschedule_mark": "repeat"
+        },
+        "else_value": {
+          "name": "New call booked",
+          "icons": [
+            ":telephone_receiver:",
+            ":calendar:",
+            ":date:",
+            ":spiral_calendar_pad:"
+          ],
+          "reschedule_mark": ""
+        }
+      },
+      {
+        "id": "n4",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}{{contact.intake_lines | line}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}",
+        "as": {
+          "name": "{{vars.card.name}}",
+          "icon": "{{vars.card.icons}}"
+        },
+        "title": "Post the booking card in Slack (a reschedule: 🔁 face, 🔁 on the old card)",
+        "tag": "appointment:{{appointment.id}}",
+        "react_on": {
+          "of": "tag:appointment:{{appointment.id}}",
+          "emojis": [
+            "{{vars.card.reschedule_mark}}"
+          ]
+        }
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "booked"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "c0"
+      },
+      {
+        "from": "t2",
+        "to": "c0"
+      },
+      {
+        "from": "c0",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "u1"
+      },
+      {
+        "from": "u1",
+        "to": "n2"
+      },
+      {
+        "from": "n2",
+        "to": "b1",
+        "when": {
+          "eq": [
+            "{{appointment.self_booked}}",
+            false
+          ]
+        },
+        "label": "setter booked"
+      },
+      {
+        "from": "n2",
+        "to": "s1",
+        "else": true,
+        "label": "self-booked"
+      },
+      {
+        "from": "s1",
+        "to": "s2"
+      },
+      {
+        "from": "s2",
+        "to": "s2b"
+      },
+      {
+        "from": "s3",
+        "to": "s4"
+      },
+      {
+        "from": "s4",
+        "to": "s5"
+      },
+      {
+        "from": "b1",
+        "to": "b2"
+      },
+      {
+        "from": "b2",
+        "to": "b2b"
+      },
+      {
+        "from": "b3",
+        "to": "b4"
+      },
+      {
+        "from": "b4",
+        "to": "b5"
+      },
+      {
+        "from": "b5",
+        "to": "b6"
+      },
+      {
+        "from": "k3",
+        "to": "k5"
+      },
+      {
+        "from": "s5",
+        "to": "k3"
+      },
+      {
+        "from": "b6",
+        "to": "k3"
+      },
+      {
+        "from": "k4",
+        "to": "v4"
+      },
+      {
+        "from": "v4",
+        "to": "n4"
+      },
+      {
+        "from": "n4",
+        "to": "x1"
+      },
+      {
+        "from": "k5",
+        "to": "k4"
+      },
+      {
+        "from": "s2b",
+        "to": "s3"
+      },
+      {
+        "from": "b2b",
+        "to": "b3"
+      }
+    ]
+  }
+}

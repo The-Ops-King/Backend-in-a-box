@@ -136,6 +136,8 @@ export const Node = z.discriminatedUnion("type", [
   // `if_empty`: written only where the CRM's field is empty right now (read live): a first touch is never overwritten (D78).
   z.object({ ...base, type: z.literal("update_contact"), set: z.object({ first_name: z.string().optional(), last_name: z.string().optional(), phone: z.string().optional(), timezone: z.string().optional(), assign_to: z.string().optional() }).default({}), fields: z.array(z.object({ id: z.string(), value: z.string(), if_empty: z.boolean().optional() })).default([]), clear: z.array(z.string()).default([]) }),
   // A to-do on the CRM contact for a human (rebook this person, call them back). `due` is a duration from now.
+  // D141: the person in the CRM: found by their CRM id, else by email or phone, else created from what the booking knows; then given `tags` (and the company's scope tag, scope.tag, with `scope_tag`) and any standard field the CRM has blank (nothing it holds is overwritten). `vars.<id>.action` says created, updated or found
+  z.object({ ...base, type: z.literal("ensure_contact"), tags: TagList.optional(), scope_tag: z.boolean().optional(), source: z.string().optional() }),
   z.object({ ...base, type: z.literal("create_task"), title: z.string(), body: z.string().optional(), due: z.string().default("+1d"), assign_to: z.string().optional() }),
   z.object({ ...base, type: z.literal("note"), template: z.string() }),
   z.object({ ...base, type: z.literal("update_appointment"), set: z.record(z.unknown()) }),

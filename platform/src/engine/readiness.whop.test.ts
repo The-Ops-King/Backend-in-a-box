@@ -5,7 +5,9 @@ import { migrate } from "@/db/migrate";
 import { installCompany } from "@/engine/install";
 import { companyReadiness } from "@/engine/readiness";
 import { setBinding } from "@/engine/settings";
-import { fakeAdapters } from "@/engine/test-install";
+import { fakeAdapters, fakeProbes } from "@/engine/test-install";
+import { loadCompany } from "@/engine/context";
+import { runHealthStep, setProbeRetryMs } from "@/engine/health";
 import { POST as workflowsRoute } from "../../app/api/admin/workflows/route";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -34,6 +36,13 @@ describe.skipIf(!process.env.DATABASE_URL)("D128: payment workflows need Whop", 
     const res = await workflowsRoute(new Request("http://x/api/admin/workflows", { method: "POST", headers: { authorization: `Bearer ${KEY}`, "content-type": "application/json" }, body: JSON.stringify({ company: SLUG, workflow: "payment-failed", enabled: true }) }));
     expect(res.status, await res.clone().text()).toBe(200);
     expect((await ready()).issues.find((i) => i.text.startsWith("Payment failed"))!.text).toBe("Payment failed is on but never starts until Whop is connected: what starts it comes from there.");
+  });
+
+  it("D141: on with no Whop, the hourly check says so (an alert): it never runs", async () => {
+    setProbeRetryMs(0);
+    const sweep = () => asOperator(async (c) => { const { row } = await loadCompany(c, co); return runHealthStep(c, row, fakeAdapters(), fakeProbes, { checks: {}, min_slots: 0, slots_days: 7 } as never); });
+    const found = (await sweep()).findings.filter((f) => !f.ok && f.item?.startsWith("source:")).map((f) => f.text);
+    expect(found).toEqual(['"Payment failed" is on and starts when a payment comes in, but Whop is not connected, so it never runs. Connect it, or turn the workflow off.']);   // the others are off
   });
 
   it("a Whop webhook secret or an API key connects it", async () => {

@@ -98,6 +98,7 @@ export function doingWords(n: Node): string {
     case "tags": return [n.add ? `add the tag ${quoteList(n.add)}` : "", n.remove ? `take off ${quoteList(n.remove)}` : ""].filter(Boolean).join(" and ") || "change the tags";
     case "note": return "leave the note on the contact";
     case "update_contact": return "update the contact in the CRM";
+    case "ensure_contact": return "put the person in the CRM";
     case "create_task": return `create the task “${templateWords(n.title)}”`;
     case "notify_owner": return "nudge the contact's owner";
     case "send_sms": return "send the text";

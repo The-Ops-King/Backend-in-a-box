@@ -9,7 +9,7 @@ import { predicateWords, durationWords, skippedWords } from "./describe";
 import { syncCards, pickCard, latestCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow, timeParam } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
-import { TEST_CHANNEL_KEY, type Effective, type Mode } from "./mode";
+import { TEST_CHANNEL_KEY, slackLiveSet, type Effective, type Mode } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { raise } from "./alerts";
 import { applyOutcome, outcomeTermFor, recordDisposition } from "./disposition";
@@ -28,7 +28,9 @@ import { QUIET_SUPPRESSED, QUIET_WHY, quietWhenEmpty } from "./quiet";
 /** Ghost posts to the team are real posts, labelled; nothing else in ghost leaves the engine. */
 export const GHOST_PREFIX = "🧪 *ghost* — ";
 /** A post made before live says which rung it came from, so the team never reads a rehearsal as a real client; a run held as ghost in test says ghost. The rung is the run's (D92). */
-const modePrefix = (d: ExecDeps, label: "mode" | "ghost" | "none" = "mode") => (label === "none" || d.mode === "live" ? "" : label === "ghost" ? (d.mode === "ghost" ? GHOST_PREFIX : "") : d.effective === "ghost" ? GHOST_PREFIX : `🧪 *${d.mode}* — `);
+/** Slack as if live: the run is live, or the company put Slack live ahead of its contacts (D141); a run that writes nothing (ghost) never is. */
+const slackLive = (d: ExecDeps) => d.mode === "live" || (slackLiveSet(d.bindings) && d.effective !== "ghost");
+const modePrefix = (d: ExecDeps, label: "mode" | "ghost" | "none" = "mode") => (label === "none" || slackLive(d) ? "" : label === "ghost" ? (d.mode === "ghost" ? GHOST_PREFIX : "") : d.effective === "ghost" ? GHOST_PREFIX : `🧪 *${d.mode}* — `);
 /** The step's own name/icon, else the company's defaults (bindings slack.name / slack.icon), else the app. A list of icons is handed on whole; the notifier picks one per post.
  *  An icon that is one whole `{{expr}}` takes the value as it is, so a set_var can hand over a list of faces (a reschedule's 🔁 instead of the calendars). */
 const faces = (d: ExecDeps, icon: string): string[] => { const m = /^\s*\{\{([^}]+)\}\}\s*$/.exec(icon); const v = m ? resolveExpr(m[1], d.ctx, env(d)) : render(icon, d.ctx, env(d)); return (Array.isArray(v) ? v : [v]).map((x) => (x === undefined || x === null ? "" : String(x))).filter(Boolean); };
@@ -206,7 +208,7 @@ const isSlackUser = (id: string) => /^[UW][A-Z0-9]{2,}$/.test(id);
 async function slackRoute(d: ExecDeps, target: string | undefined, unlinked?: string): Promise<null | { to: string; prefix: string } | { blocked: string }> {
   if (!target && unlinked === undefined) return null;
   // D140, live: a DM for someone not in Slack yet goes to the operator, marked who it was for (the health check flags the person until they are linked)
-  if (d.mode === "live") { const op = d.bindings["bot.escalate_to"]; return !target && op ? { to: op, prefix: `For ${unlinked} (not in Slack yet):\n` } : null; }
+  if (slackLive(d)) { const op = d.bindings["bot.escalate_to"]; return !target && op ? { to: op, prefix: `For ${unlinked} (not in Slack yet):\n` } : null; }
   const nameOf = async (u: string) => (await one<{ name: string }>(d.c, "select name from users where company_id=$1 and slack_user_id=$2 limit 1", [d.company.id, u]))?.name ?? u;
   const to = async () => target ? `Would have sent to ${await nameOf(target)}:\n` : `Would have sent to ${unlinked} (no Slack account linked yet):\n`;
   const test = d.bindings[TEST_CHANNEL_KEY];
@@ -650,11 +652,40 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       await d.c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), ghl_fields = ghl_fields || $5::jsonb, updated_at=now() where id=$1", [d.run.contact_id, patch.firstName ?? null, patch.lastName ?? null, patch.timezone ?? null, JSON.stringify(fieldPatch)]);
       return { status: "ok", next, result: { ...patch, ...already } };
     }
+    case "ensure_contact": {
+      // D141 (Tyler: "Update, and if they don't exist, then create"): GHL is the truth, so it is asked first; nothing it holds is overwritten
+      const ct = d.ctx.contact as { id?: string; ghl_contact_id?: string | null; first_name?: string | null; last_name?: string | null; email?: string | null; phone?: string | null } | undefined;
+      if (!ct?.id) return { status: "failed", error: "ensure_contact: the run has no contact" };
+      const std = Object.fromEntries(Object.entries({ firstName: ct.first_name, lastName: ct.last_name, email: ct.email, phone: ct.phone }).filter(([, v]) => v)) as Record<string, string>;
+      const source = node.source ? render(node.source, d.ctx, env(d)) || undefined : undefined;
+      const { findInGhl, planWrite, applyWrite } = await import("./typeform");
+      const parsed = { responseId: "", std: { first_name: std.firstName, last_name: std.lastName, email: std.email, phone: std.phone }, fields: [], unbound: [], filled: [] } as unknown as Parameters<typeof planWrite>[0];
+      for (const k of Object.keys(parsed.std) as (keyof typeof parsed.std)[]) if (!parsed.std[k]) delete parsed.std[k];
+      const byId = ct.ghl_contact_id ? await d.adapters.read.getContact(d.adapterCompany, ct.ghl_contact_id) : null;
+      const found = byId ? { snap: byId, by: "id" } : await findInGhl(d.adapterCompany, d.adapters, std.email, std.phone);
+      const plan = planWrite(parsed, found?.snap ?? null, [], source);
+      const action = plan.action === "create" ? "created" : Object.keys(plan.standard).length ? "updated" : "found";
+      setPath(d.ctx, `vars.${node.id}`, { action: ghost(d) ? `would be ${action}` : action });
+      if (ghost(d)) return { status: "ok", next, result: { ghost: true, would: action, ...(found ? { ghl_contact_id: found.snap.id, matched: found.by } : {}), standard: plan.standard } };
+      const w = await applyWrite(d.adapterCompany, d.adapters, plan, parsed, () => []);
+      if (w.id !== ct.ghl_contact_id) {
+        const { attachIdentifier } = await import("./poll");
+        await d.c.query("update contacts set ghl_contact_id=$2, gone_at=null, updated_at=now() where id=$1", [ct.id, w.id]);
+        await attachIdentifier(d.c, d.company.id, ct.id, "ghl_contact", w.id);
+        setPath(d.ctx, "contact.ghl_contact_id", w.id);
+      }
+      const { scopeTag } = await import("./scope");
+      const add = [...(node.tags === undefined ? [] : Array.isArray(node.tags) ? node.tags : [node.tags]), ...(node.scope_tag && scopeTag(d.bindings) ? [scopeTag(d.bindings)!] : [])];
+      const tagged = add.length ? await applyTags(d, node.type, next, { add }) : null;
+      if (tagged && tagged.status === "failed") return tagged;
+      return { status: "ok", next, result: { action, ghl_contact_id: w.id, ...(found ? { matched: found.by } : {}), ...(Object.keys(plan.standard).length ? { filled: Object.keys(plan.standard) } : {}), ...(plan.kept.length ? { kept: plan.kept } : {}), ...(source && action === "created" ? { source } : {}) } };
+    }
     case "create_task": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
       const title = render(node.title, d.ctx, env(d)), body = node.body ? render(node.body, d.ctx, env(d)) : undefined;
       const dueAt = d.now.plus(parseDuration(render(node.due, d.ctx, env(d)) || "+1d")).toJSDate();
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
+      if (/^(off|false|no|0)$/i.test((d.bindings["crm.tasks"] ?? "").trim())) return { status: "skipped", next, result: { kind: "noop", why: "tasks are off for this company (crm.tasks)" } };   // D141
       if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_create_task: { title, body, due: dueAt.toISOString(), assignedUserId } } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "create_task: contact has no CRM id yet" };
       const cl = await claim(d, node, "task");
