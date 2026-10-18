@@ -4824,4 +4824,17 @@ document, outbound webhook: what quiet holds) → test, until its words are appr
 nothing that reaches a contact → quiet from the start. It is the plan the go-live board starts from; nothing moves a workflow by
 it alone, and every move still passes the readiness gate (D92).
 
-Tests: `playbooks.test.ts`, `rung.test.ts`, `dating-copies.test.ts`.
+**Putting a playbook on a company** (`src/playbooks/apply.ts`, `POST /api/admin/playbooks`, `scripts/apply-playbook.ts`):
+the copies are built from today's templates and saved, all or nothing (every copy is checked first; one that cannot be saved
+saves none and says which), a second run changes nothing, and nothing is ever removed (a template copy a playbook workflow
+takes over is removed by hand first, D123). The playbook and its params are kept on the company (`playbook`), so `GET
+/api/admin/playbooks?company=` can say which copies fell behind today's templates (`stale`) and every workflow's starting rung.
+
+**Duplicating an offer** (Tyler: copy everything that is not client-specific): `copySettingsFrom` copies how an offer sells
+(its call prompts, qualifying answers, what its Sales Call's answers mean, setter-call reading, call timing, alert and report
+manners, its own call types and outcome reasons) where the new company has none of its own; an untouched default prompt is not
+its own. Never copied: a secret, an id, a channel, the scope tag, Calendly's questions, the booking card (it names the
+company's own fields), closers' options (people), test scripts, deposit products, forms, the playbook, the price. The keys are an
+allowlist (`OFFER_KEYS`), so a new setting is never copied until someone decides it is the offer's.
+
+Tests: `playbooks.test.ts`, `apply.test.ts`, `rung.test.ts`, `dating-copies.test.ts`.

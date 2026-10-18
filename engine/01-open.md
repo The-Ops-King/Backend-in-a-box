@@ -811,6 +811,11 @@ Open, to settle before P0 is built:
 - Duplicating: does "duplicate PMU" copy PMU's settings that are not client-specific (call types, outcomes, alerts,
   prompts) as well as its workflow copies, or only the playbook? Secrets and ids never copy.
 
+**P0 built 2026-10-18 (D142):** playbooks (`setter-closer` Hair, `one-board` PMU, `application-triage` Dating), the starting
+rung per workflow (closes #48's rule), putting a playbook on a company and duplicating an offer's settings
+(`POST /api/admin/playbooks`). To do by Tyler: PMU's live copies are behind D141 and D118; `scripts/apply-playbook.ts pmu`
+(a dry run) says what saving them changes, `--apply` saves them. Next: P1, the Add client wizard on top of this.
+
 Tyler, 2026-10-18: the core set is what runs today (new lead, call booked and cancelled, forms, Fathom recordings,
 agreements, payment and close, EODs, Health check and the rest). What to sell and build next is `08-problem-map.md`, his
 43 problems mapped against the engine: the core gaps come before new modules, and the wizard's intake asks which
