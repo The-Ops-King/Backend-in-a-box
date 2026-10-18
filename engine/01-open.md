@@ -740,3 +740,73 @@ Tyler: "certain flows might go fully live while other flows are still in test mo
 of which goes where ... end of day flows like forms submitted, as long as they don't have any kind of an SMS or client facing
 feature, can basically always be strictly in silent mode ... I just want to make sure that we are not alerting everybody for
 everything while I'm testing." Per-workflow rungs exist (D92); open: the default rung by what a workflow does, set at onboarding.
+
+## 49. Onboarding: Add client, playbooks, launch a same-stack offer in under a day (Tyler, 2026-10-18; plan, nothing built)
+
+Tyler: an **Add client** button on the Companies page. It asks about the offer (sales process, sales journey, price),
+the software and its keys, and whether this is a brand-new offer or a takeover of a running one. Then a research pass
+("these Calendly event types / GHL calendars: which is the sales call, what does this one do"), the Slack app manifest,
+the signing secret, token and channels, test passes, then workflows turned up one at a time while the rest keep testing.
+The goal: "a full template library to handle 90% of every way we can do it", picked at onboarding, a simple install and
+swap over. Same-stack new offers (Hair, PMU, Dating are the role clients) launch in under a day by duplicating.
+
+What exists and is reused, not rebuilt: `installCompany` (idempotent, the whole `InstallInput`), `ghlCatalog` and
+`listCalendars` (discovery), `describe-config.ts` (an AI proposal that maps calendars and roles, no callers yet),
+`provision-ghl` (dry run, then apply), `companyReadiness` / `workflowLiveBlockers`, the per-workflow ladder (D92, D132),
+`simulate` (D23), the Health sweep, the backfills (dry-run plans), `binding-copy` (D100), and the hand runbooks in #43 and
+#44 that this productises. `companies.status = 'onboarding'` exists in the schema and is set by nothing yet.
+
+Decisions so far (Tyler, 2026-10-18):
+- **Playbooks.** A playbook is a sales process: the traits that pick it, its workflow set (the ~20 every offer needs plus
+  the ones its process adds), which copy of each workflow, a default rung per workflow (closes #48), and the connections
+  and keys it needs. What differs is mainly process: setter-led or direct-booked, application form or not, deposit / paid
+  in full / payment plan, agreement signing, recorded calls. A payment processor or a booking tool is a setting or a
+  trigger tweak inside a playbook, not a new playbook. The library grows over time; Hair, PMU and Dating are the first
+  ones, extracted from what runs today (`installs/pmu/`, `installs/dating-nelly/`).
+- **The wizard picks the playbook** from the intake: structured answers plus free text that the AI turns into
+  proposals (the D3 rule stands: the settings form is generated from the manifests, never hand-written). It reports per
+  workflow: fits, needs a tweak, needs building. That report is the per-offer work list.
+- **Keys go in on the dashboard**, behind the existing login (one operator; no new auth). Each key is encrypted on
+  arrival, never shown again, and checked against its API before the step completes. The operator key never reaches the
+  browser. Keys are not pasted into an agent chat (they stay in the transcript).
+- **Same-stack launch is built first** (GHL or Calendly, Whop, Fathom, Slack, its own GHL account). Takeover and the
+  library are built over time.
+- **Takeover = rebuild on the client's software**, not a snapshot and not a migration to GHL. Every step of their system
+  has to be captured; the API gives GHL workflow names and on/off only, never the steps, and Zaps are not visible
+  without the client's Zapier, so Tyler supplies the steps where they differ from the core flows. Swap-over per
+  workflow follows #40 (theirs filtered off and ours live at one moment). Backfill and import never change what exists.
+- **Copy:** playbooks ship placeholders, never a client's words (the #43 lesson: PMU inherited Hair's welcome text).
+  Basic copy is written at onboarding and finalised before live; readiness already blocks live on placeholder copy.
+- A2P and email deliverability are known and outside this: SMS stays off until a new account's number is approved.
+
+Not small, said plainly: HubSpot, Close and iClosed mean a CRM adapter each (`CrmRead`, `CrmWrite`, `Sender` in
+`src/adapters/types.ts`), not only new triggers. The interface is GHL-shaped (tags, notes, opportunities and stages,
+documents, sending texts through the CRM); HubSpot has no tags and no native SMS. Build one when a takeover needs it.
+
+Plan:
+- **P0, playbooks.** The playbook format (files in the repo beside the templates, versioned and reviewed like them), the
+  default-rung rule (no client-facing send → quiet; client-facing → test until its copy is approved), Hair / PMU / Dating
+  extracted as the first three, and an install that applies a playbook (its workflow copies, its rungs) on top of
+  `installCompany`.
+- **P1, same-stack launch (the under-a-day path).** Add client creates the company in ghost, every workflow off, status
+  `onboarding`, so the webhook URLs carrying its id exist from the start. Then, each step saved and resumable:
+  1. Offer intake (structured plus free text) → the playbook and its fit report.
+  2. Connections: the keys that playbook needs, each tested live.
+  3. Research: the GHL catalog, calendars or Calendly event types, Whop products, Fathom; the AI's proposal (which call
+     is the sales call, setter or self-booked, who closes) shown as questions to confirm or correct.
+  4. Slack: the manifest generated with this company's request URLs (from the two hand-written ones), Tyler creates the
+     app, pastes the signing secret and bot token, assigns channels, matches the team to Slack users.
+  5. GHL build: `provision-ghl` dry run shown, then applied (only what is missing).
+  6. Install the playbook, everything off.
+  7. Test passes: per workflow, the simulate actions it needs, run on a test contact, each result checked; then Health
+     and readiness green.
+  8. Go-live board: each workflow on its own rung, moved up one at a time; status `active` when the first goes live.
+- **P2, takeover.** The step audit, each of their steps mapped to a template (gaps flagged), backfill and import dry
+  runs, the swap-over checklist per workflow.
+- **P3, library growth.** A new process becomes a playbook (workflows through the `build-workflow` skill); a new tool
+  becomes an adapter when a client needs it.
+
+Open, to settle before P0 is built:
+- Which of today's ~30 templates are "the core every offer gets", and which belong to a process.
+- Duplicating: does "duplicate PMU" copy PMU's settings that are not client-specific (call types, outcomes, alerts,
+  prompts) as well as its workflow copies, or only the playbook? Secrets and ids never copy.
