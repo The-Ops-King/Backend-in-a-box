@@ -783,6 +783,11 @@ but a path that exists with no value (a closer with no first name, a booking wit
 text goes out with the gap. To build: a send step holds and alerts at once on a blank, and the hourly check renders the sends
 due in the next day so a blank is caught before its time.
 
+Tyler 2026-10-18, a missing meeting link: "hopefully we would have caught it beforehand ... If it's blank, say, 'Hey, I'll send
+you the link here shortly,' and then tag the person in Slack and say, 'This person doesn't have a link. Please send them the
+link.' That one doesn't get repeated." Locks are per workflow, each starting at a set level; the build order is the lock, the
+blank guard, the roster, the two pre-call copies, then the Typeform workflow.
+
 Pre-call copy approved by Tyler 2026-10-18 (both flows: booking, 24 hours before, 1 hour before), with
 `{{appointment.closer.first_name}}`, the time in the contact's zone with its abbreviation, and `{{appointment.meeting_url}}` in
 the 1-hour text. They go into installs/dating-nelly/words.json when the two pre-call copies are built; the sending number
