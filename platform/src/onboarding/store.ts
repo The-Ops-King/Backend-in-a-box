@@ -20,7 +20,7 @@ export const STEPS = [
   { id: "slack", label: "Slack", about: "the app's manifest, its token and signing secret, which channel is for what", built: true },
   { id: "crm", label: "CRM build", about: "what the playbook needs in GHL, shown first, then built", built: true },
   { id: "install", label: "Install", about: "the playbook installed, every workflow off, the company running in ghost", built: true },
-  { id: "messages", label: "Messages", about: "every text and email a client gets, written and approved", built: false },
+  { id: "messages", label: "Messages", about: "every text and email a client gets, written and approved", built: true },
   { id: "test", label: "Test passes", about: "each workflow run end to end on a test contact, no errors", built: false },
   { id: "filters", label: "GHL filters", about: "each of the client's GHL workflows replaced, filtered or off, so nothing runs twice", built: false },
   { id: "golive", label: "Go live, per workflow", about: "each workflow up its own rung, one at a time", built: false },

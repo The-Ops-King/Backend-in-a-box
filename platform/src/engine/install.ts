@@ -3,6 +3,7 @@ import { encrypt, decrypt } from "./crypto";
 import { vendorOfBinding, wakePausedOnAuth } from "./failures";
 import { randomBytes } from "node:crypto";
 import { extractManifest, parseDefinition, indexDefinition } from "./definition";
+import { applyWords, loadWords } from "./words";
 import { templates } from "@/templates";
 import { bookingFor, type Adapters, type BookingConfig, type Company } from "@/adapters/types";
 import { calendlyUserByEmail, calendlyWhoAmI } from "@/adapters/calendly/read";
@@ -106,6 +107,8 @@ export type InstallInput = {
 export async function installTemplates(c: import("pg").PoolClient, companyId: string, wanted: string[], opts: { enable?: boolean; existed: boolean }): Promise<string[]> {
   const installed: string[] = [];
   const replaced = new Map<string, { name: string; by: string[] }>();
+  // D149: the company's own words, laid over each template as it goes on or upgrades
+  const words = await loadWords(c, companyId);
   await backfillBookingCard(c, companyId);   // D104: before Call booked can upgrade to the card that reads it
   // D123: a template one of the company's own workflows does the job of is never put back on it
   const takenOver = new Map<string, string[]>();
@@ -114,6 +117,7 @@ export async function installTemplates(c: import("pg").PoolClient, companyId: st
     const by = takenOver.get(t.slug);
     if (by) { installed.push(`${t.slug} → not installed: the company's own ${by.map((n) => `“${n}”`).join(" and ")} ${by.length > 1 ? "do" : "does"} its job (D123)`); continue; }
     const def = parseDefinition(t.definition); const manifest = extractManifest(def);
+    const own = applyWords(t.definition, words[t.slug]).def, ownManifest = own === t.definition ? manifest : extractManifest(parseDefinition(own));
     // D111: a template whose chart no layout draws exactly is not put on a company (chart-layout.test holds every shipped one to it)
     const chart = await chartLayoutOf(def);
     if (chart.layout === "list") { installed.push(`${t.slug} → refused: ${notDrawable(chart.problems)}: ${chart.problems.join("; ")}`); continue; }
@@ -134,7 +138,7 @@ export async function installTemplates(c: import("pg").PoolClient, companyId: st
       if (existing.diverged) { installed.push(`${t.slug} (edited since install, left alone; template v${tpl!.version} available)`); continue; }
       if (existing.template_version === tpl!.version) { installed.push(`${t.slug} (already installed, current)`); continue; }
       const next = existing.current_version + 1;
-      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [existing.id, next, t.definition, manifest, `upgraded to template v${tpl!.version}`]);
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [existing.id, next, own, ownManifest, `upgraded to template v${tpl!.version}${own === t.definition ? "" : ", with the company's words"}`]);
       await c.query("update workflows set current_version=$2, template_version=$3, name=$4, reentry_policy=$5, reentry_window=$6 where id=$1", [existing.id, next, tpl!.version, t.name, def.reentry, def.reentry_window ?? null]);
       await syncTriggers(c, companyId, existing.id, def);
       await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.upgraded','workflow',$2,$3,$4)", [companyId, existing.id, { version: existing.current_version, template_version: existing.template_version }, { version: next, template_version: tpl!.version }]);
@@ -142,7 +146,7 @@ export async function installTemplates(c: import("pg").PoolClient, companyId: st
       continue;
     }
     const wf = await one<{ id: string }>(c, `insert into workflows (company_id, template_id, template_version, name, reentry_policy, reentry_window, stage, sort, origin) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, [companyId, tpl!.id, tpl!.version, t.name, def.reentry, def.reentry_window ?? null, t.stage, t.sort, t.origin]);
-    await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'installed from template')", [wf!.id, t.definition, manifest]);
+    await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,$4)", [wf!.id, own, ownManifest, own === t.definition ? "installed from template" : "installed from template, with the company's words"]);
     await syncTriggers(c, companyId, wf!.id, def);
     const carried = opts.existed && "engine_default" in t && t.engine_default === true;
     // D96: a template that takes over an older one (the three wrap-ups out of the one) starts the way the old copy stood: on or off, its mode.

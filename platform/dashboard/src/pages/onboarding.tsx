@@ -9,6 +9,7 @@ import type { ConnectionRow } from "@/onboarding/connections";
 import type { Research, ResearchAnswers, CalendarAnswer, Role } from "@/onboarding/research";
 import type { SlackState } from "@/onboarding/slack";
 import type { CrmRun } from "@/onboarding/crm";
+import type { Message } from "@/onboarding/messages";
 
 /** D143 (#49 P1): standing a client up, step by step. Every step saves; Tyler can stop for days and come back to the same place. */
 export function Onboarding() {
@@ -41,7 +42,8 @@ export function Onboarding() {
           : at === "research" ? <ResearchStep slug={slug} d={d} invalidate={key} />
           : at === "slack" ? <SlackStep slug={slug} invalidate={key} />
           : at === "crm" ? <CrmStep slug={slug} d={d} invalidate={key} />
-          : at === "install" ? <InstallStep slug={slug} d={d} invalidate={key} /> : null}
+          : at === "install" ? <InstallStep slug={slug} d={d} invalidate={key} />
+          : at === "messages" ? <MessagesStep slug={slug} d={d} invalidate={key} /> : null}
       </section>
     </div>
   </>;
@@ -315,4 +317,41 @@ function InstallStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage;
     </div>
     {out ? <div className="call"><b>What the install did</b><ul className="note">{[...out.calendars, ...out.installed].map((l) => <li key={l}>{l}</li>)}</ul></div> : null}
   </>;
+}
+
+/** D149: every text and email a contact can get, written and approved one by one; changed words need approving again. */
+function MessagesStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
+  const key = ["onboarding-messages", slug];
+  const q = usePage<{ messages: Message[]; ready: boolean }>(key, `/api/v1/companies/${slug}/onboarding/messages`, { every: 120_000 });
+  if (!d.steps.find((s) => s.id === "install")!.done) return <Empty>Install first: the messages are the words in the client's own workflows, which install puts on.</Empty>;
+  if (!q.data) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton lines={6} />;
+  const needed = q.data.messages.filter((m) => m.needed), done = needed.filter((m) => m.approved).length;
+  const byWf = [...new Set(needed.map((m) => m.workflow))];
+  return <>
+    <p className="note">{done} of {needed.length} approved. Each text and email is approved as written; changing its words takes the approval back. A placeholder or another client's words cannot be approved. Words saved here are this client's own and survive every template upgrade.</p>
+    {byWf.map((wf) => <div key={wf} className="call" style={{ marginTop: 12 }}><b>{wf}</b>{needed.filter((m) => m.workflow === wf).map((m) => <MessageCard key={m.workflowId + m.nodeId} slug={slug} m={m} invalidate={[...invalidate]} listKey={key} />)}</div>)}
+    {q.data.messages.some((m) => !m.needed) ? <Fold title={<>Not needed: workflows this offer does not use · {q.data.messages.filter((m) => !m.needed).length}</>}><ul className="note">{q.data.messages.filter((m) => !m.needed).map((m) => <li key={m.workflowId + m.nodeId}>{m.workflow}: {m.title}</li>)}</ul></Fold> : null}
+  </>;
+}
+
+function MessageCard({ slug, m, invalidate, listKey }: { slug: string; m: Message; invalidate: string[]; listKey: string[] }) {
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [err, setErr] = useState<string | null>(null);
+  const post = useAction<Record<string, unknown>>((v) => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "messages", workflowId: m.workflowId, nodeId: m.nodeId, ...v } }), [listKey, invalidate]);
+  const changed = m.fields.filter((f) => draft[f.field] !== undefined && draft[f.field] !== f.text);
+  const save = async () => { setErr(null); try { for (const f of changed) await post.mutateAsync({ field: f.field, text: draft[f.field] }); setDraft({}); toast("Words saved: approve them when they read right."); } catch (x) { setErr((x as Error).message); } };
+  const approve = async () => { setErr(null); try { await post.mutateAsync({ approve: true }); toast(`Approved: ${m.title}.`); } catch (x) { setErr((x as Error).message); } };
+  return <div className="cal-row">
+    <div className="hd"><b>{m.channel === "sms" ? "Text" : "Email"}{["Text", "Email"].includes(m.title) ? "" : `: ${m.title}`}</b>
+      {m.approved ? <Tag kind="ok">approved</Tag> : m.placeholder ? <Tag kind="warn">placeholder</Tag> : m.foreign.length ? <Tag kind="warn">another client's words</Tag> : <Tag>to approve</Tag>}</div>
+    {m.foreign.length ? <div className="banner warn" style={{ marginTop: 0 }}>Carries {m.foreign.join(", ")}: change them before it can be approved.</div> : null}
+    {err ? <div className="banner warn" style={{ marginTop: 0 }}>{err}</div> : null}
+    <div className="form">{m.fields.map((f) => <label key={f.field}><span>{f.label}</span>
+      {f.field === "subject" ? <input value={draft[f.field] ?? f.text} onChange={(e) => setDraft({ ...draft, [f.field]: e.target.value })} />
+        : <textarea rows={m.channel === "email" ? 8 : 3} value={draft[f.field] ?? f.text} onChange={(e) => setDraft({ ...draft, [f.field]: e.target.value })} />}</label>)}</div>
+    <div style={{ display: "flex", gap: 8 }}>
+      {changed.length ? <button className="btn" type="button" disabled={post.isPending} onClick={save}>Save the words</button> : null}
+      {!m.approved && !changed.length ? <button className="btn" type="button" disabled={post.isPending || m.placeholder || m.foreign.length > 0} onClick={approve}>Approve as written</button> : null}
+    </div>
+  </div>;
 }

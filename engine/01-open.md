@@ -838,7 +838,7 @@ rung per workflow (closes #48's rule), putting a playbook on a company and dupli
 A shared GHL account (1c) is rare; the scope tag (D117) covers it.
 
 **P1 slice 1 built 2026-10-18 (D143):** Add client, the wizard page, the offer step (intake → playbook → fit report).
-**Slice 2 built (D144):** connections, every key tested live before it is kept. **Slice 3 built (D145):** research. **Slice 4 built (D146):** Slack. **Slice 5 built (D147):** CRM build. **Slice 6 built (D148):** install (moved ahead of Messages). Next: messages, test passes, GHL filters, go live.
+**Slice 2 built (D144):** connections, every key tested live before it is kept. **Slice 3 built (D145):** research. **Slice 4 built (D146):** Slack. **Slice 5 built (D147):** CRM build. **Slice 6 built (D148):** install (moved ahead of Messages). **Slice 7 built (D149):** messages, and a company's words kept apart from the steps. Next: test passes, GHL filters, go live.
 
 Tyler, 2026-10-18: the core set is what runs today (new lead, call booked and cancelled, forms, Fathom recordings,
 agreements, payment and close, EODs, Health check and the rest). What to sell and build next is `08-problem-map.md`, his

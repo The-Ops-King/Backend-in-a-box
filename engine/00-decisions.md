@@ -4973,3 +4973,34 @@ an upgrade never drops it; Add client makes the company row first, so a brand-ne
 company still onboarding with no workflows is now new to install: everything starts off (Tyler's rule).
 
 Tests: `install.test.ts`.
+
+## D149. A company's words are kept apart from the steps; the wizard's messages step approves every one (2026-10-18)
+
+Tyler chose this over editing copies (2026-10-18): "words kept apart", and approval blocked while a message carries another
+client's words.
+
+**Words kept apart** (`src/engine/words.ts`). A message's words (a text, an email's subject and body, a Slack post, a note, a
+task) are the company's; the steps around them are the template's or the playbook's. The words are one setting, `copy.words`
+(workflow → step → field → text; a workflow is its template's slug, or `own:<name>`), laid over the workflow every time it is
+built: install putting a template on or upgrading it, a playbook's copies being built (D142), and a word being changed. So:
+- A word edit (`saveCopy`, now `setWord`) no longer freezes a copy. It stays untouched and keeps its template's fixes, the words
+  coming along (D141 is why this matters: a frozen copy is how PMU fell behind). Before, it marked the copy edited and every
+  template fix since passed it by.
+- A playbook rebuild never loses the words.
+- A copy changed beyond words (a step, a wait, a channel: `saveStepEdit`) is still the company's own and left alone, as before.
+- A word whose step a template drops is not applied and is named, never silently lost.
+
+**Moving earlier edits over** (`POST /api/admin/words { company, apply? }`, a dry run unless `apply`): a copy frozen by a
+pre-D149 word edit, still on its template's current version and different from it only in words, has those words moved into
+the company's words and is untouched again. A copy edited beyond words, or behind its template, stays as it is and is named. The
+words themselves do not change, so nothing a run sends does. **To run on Hair, PMU and Dating by Tyler** (dry run first).
+
+**The messages step** (`src/onboarding/messages.ts`): every text and email a contact can get, workflow by workflow, with its
+words as they stand. Each is approved by Tyler as written; changing the words takes the approval back. It cannot be approved
+while its words are a placeholder (D118) or carry another client's words (`FOREIGN`: Hair's "save your hair", "hair", "scalp",
+"follicle", "thinning", "Allan", "clinician", "burned before"; never flagged in Hair's own company). The shipped templates still
+hold Hair's welcome (#43), so a new client is stopped before saying it. A workflow the offer does not use (off in the fit
+report) needs nothing approved. Done when every needed message is approved. Words changed here are the client's own, so they
+survive every upgrade and rebuild. Install moved ahead of Messages (D148) because the messages are the installed workflows' words.
+
+Tests: `messages.test.ts`, `install.upgrade.test.ts` (the word edit's new rule), `chart-exact.test.ts`.

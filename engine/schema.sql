@@ -115,6 +115,7 @@ create table onboarding (
   research    jsonb,                           -- what was read from their accounts, the AI's proposal, and Tyler's answers (D145)
   slack       jsonb not null default '{}',     -- the Slack app's name, face, and whether it carries the slash commands (D146)
   crm         jsonb not null default '{}',     -- the CRM build: its options, the last plan or build and the ids it found or made (D147)
+  messages    jsonb not null default '{}',     -- each client-facing message Tyler approved: workflow:step → { hash of its words, at, by } (D149)
   started_at  timestamptz not null default now(),
   started_by  text,
   finished_at timestamptz

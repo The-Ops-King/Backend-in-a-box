@@ -7,6 +7,7 @@ import { gather, researchInput, saveResearch, saveResearchAnswers } from "@/onbo
 import { connectSlack, saveChannels, saveSlackOptions } from "@/onboarding/slack";
 import { crmInput, runCrm, saveCrm, saveCrmOptions } from "@/onboarding/crm";
 import { runInstall } from "@/onboarding/install";
+import { approveMessage, editMessage } from "@/onboarding/messages";
 import { liveAdapters } from "@/adapters";
 export const dynamic = "force-dynamic"; export const maxDuration = 180;   // research reads their accounts and asks the model
 
@@ -28,10 +29,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
  * { step: "crm", options } (D147) → the prefix; { step: "crm", run: "plan" | "build" } → their GHL read and what the playbook
  * needs planned (reads only), or built (only what is missing), outside any transaction while GHL is called.
  * { step: "install" } (D148) → everything the steps learned installed, the playbook's copies on, the company active in ghost.
+ * { step: "messages", workflowId, nodeId, approve: true } (D149) → those exact words approved; with field and text instead, the
+ * words changed (kept as the company's own). GET …/onboarding/messages lists every client-facing message.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const body = await readJson<{ step?: string; intake?: unknown; playbook?: unknown; id?: unknown; values?: unknown; copyFrom?: unknown; answers?: unknown; options?: unknown; token?: unknown; signingSecret?: unknown; channels?: unknown; run?: unknown }>(req);
+  const body = await readJson<{ step?: string; intake?: unknown; playbook?: unknown; id?: unknown; values?: unknown; copyFrom?: unknown; answers?: unknown; options?: unknown; token?: unknown; signingSecret?: unknown; channels?: unknown; run?: unknown; workflowId?: unknown; nodeId?: unknown; approve?: unknown; field?: unknown; text?: unknown }>(req);
   if (!body?.step) return fail(400, "step is required");
   if (body.step === "install") {
     const co = await asOperator((c) => companyBySlug(c, slug)); if (!co) return fail(404, "no such company");
@@ -70,6 +73,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         : body.channels !== undefined ? await saveChannels(c, co.id, body.channels, "dashboard")
         : { ok: false as const, status: 400, why: "options, token and signingSecret, or channels" };
       return r.ok ? ok({ ok: true, ...(r.detail ? { detail: r.detail } : {}) }) : fail(r.status, r.why, r.problems ? { problems: r.problems } : {});
+    }
+    if (body.step === "messages") {
+      const r = body.approve === true ? await approveMessage(c, co.id, { workflowId: body.workflowId, nodeId: body.nodeId, by: "dashboard" })
+        : await editMessage(c, co.id, { workflowId: body.workflowId, nodeId: body.nodeId, field: body.field, text: body.text, by: "dashboard" });
+      return r.ok ? ok({ ok: true }) : fail(r.status, r.why);
     }
     if (body.step === "crm") {
       const r = await saveCrmOptions(c, co.id, body.options);

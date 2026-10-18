@@ -18,6 +18,7 @@ import { canon } from "@/engine/install";
 import { parseDefinition } from "@/engine/definition";
 import { createCompanyWorkflow, findCompanyWorkflow, saveDefinition } from "@/engine/definitions";
 import { startRung, type StartRung } from "@/engine/rung";
+import { applyWords, loadWords, type Words } from "@/engine/words";
 import { playbookOf, type Copy, type InstallBits } from "./index";
 
 export const PLAYBOOK_KEY = "playbook";
@@ -63,7 +64,11 @@ export async function applyPlaybook(c: PoolClient, args: { company: string; play
   return { ok: true, dryRun: false, playbook: pb.slug, copies, prompts, rungs: await rungPlan(c, co.id) };
 }
 
-async function putCopy(c: PoolClient, companyId: string, copy: Copy, by: string, dryRun: boolean): Promise<CopyOutcome> {
+/** D149: a copy is saved with the company's words laid over it, so a rebuild never loses them. */
+const withWords = (copy: Copy, words: Words): Copy => ({ ...copy, definition: applyWords(copy.definition as { nodes: unknown[] }, words[copy.create ? `own:${copy.name}` : copy.workflow]).def as Record<string, unknown> });
+
+async function putCopy(c: PoolClient, companyId: string, bare: Copy, by: string, dryRun: boolean): Promise<CopyOutcome> {
+  const copy = withWords(bare, await loadWords(c, companyId));
   const ref = copy.create ? copy.name! : copy.workflow;
   const found = await findCompanyWorkflow(c, companyId, ref);
   const name = copy.name ?? (found.ok ? found.name : copy.workflow);
@@ -100,8 +105,9 @@ export async function playbookState(c: PoolClient, companyId: string, slug: stri
   if (!b) return { playbook: null, stale: [] };
   const kept = JSON.parse(b.value.toString("utf8")) as { slug: string; params: unknown };
   let built; try { built = playbookOf(kept.slug).build(slug, kept.params ?? undefined, await installBitsOf(c, companyId)); } catch (e) { return { playbook: kept.slug, stale: [], why: (e as Error).message }; }
-  const stale: string[] = [];
-  for (const copy of built.copies) {
+  const stale: string[] = [], words = await loadWords(c, companyId);
+  for (const bare of built.copies) {
+    const copy = withWords(bare, words);
     const found = await findCompanyWorkflow(c, companyId, copy.create ? copy.name! : copy.workflow);
     if (!found.ok) { stale.push(copy.workflow); continue; }
     const cur = await one<{ definition: unknown }>(c, "select v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.id=$1", [found.id]);
