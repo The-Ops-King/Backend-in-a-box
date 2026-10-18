@@ -8,7 +8,7 @@ import { loadCompany, type CompanyRow } from "./context";
 import { callTime, dispositionMeaning, dispositionValues, filedMeaning, closerNameOf, closerOptions, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
-import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, choiceOf, valueFor, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
+import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, choiceOf, valueFor, TRIAGE_RESULT, type CallEntry, type CallKind, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
 
 /**
  * D34. The closer's end-of-day report: one link per closer, no login. Opening it shows their day prefilled from what the
@@ -97,22 +97,54 @@ export async function closerSalesCalls(c: PoolClient, adapters: Adapters, adapte
   });
 }
 
+/**
+ * D143: the triage calls' answers as GHL holds them: each call's Discovery Call record (the one the engine made for that booking),
+ * its outcome (showed, no_show) as the attendance and its call_result (set, follow_up, dq, not_interested) as the call's meaning.
+ */
+export async function triageRecords(c: PoolClient, adapters: Adapters, adapterCompany: Company, companyId: string, bindings: Record<string, string>, appointmentIds: string[]): Promise<Map<string, { attendance: string | null; call: string | null }>> {
+  const object = bindings["crm.object_discovery_call"], out = new Map<string, { attendance: string | null; call: string | null }>();
+  if (!object || !appointmentIds.length) return out;
+  const ours = await many<{ appt: string; rec: string }>(c, `select a.id::text as appt, cr.ghl_record_id as rec from appointments a join crm_records cr on cr.company_id=a.company_id and cr.object_key=$2 and cr.record_key=coalesce(a.slot_key, a.external_id)
+    where a.company_id=$1 and a.id = any($3::uuid[]) and cr.ghl_record_id is not null`, [companyId, object, appointmentIds]);
+  if (!ours.length) return out;
+  const byId = new Map((await adapters.read.objectRecords(adapterCompany, object)).map((r) => [r.id, r.properties]));
+  const meaning = Object.fromEntries(Object.entries(TRIAGE_RESULT).map(([m, v]) => [v, m]));
+  for (const o of ours) {
+    const p = byId.get(o.rec); if (!p) continue;
+    const seen = String(p.outcome ?? "").trim();
+    out.set(o.appt, { attendance: seen === "showed" ? "showed" : seen === "no_show" ? "noshow" : null, call: meaning[String(p.call_result ?? "").trim()] ?? null });
+  }
+  return out;
+}
+
 /** Their day as the engine saw it: the closer's bookings that day (D110: the only rows). Every value here is a prefill the closer may correct. */
 export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: string; name: string; email: string }, day: string, now: DateTime = DateTime.now()): Promise<EodPrefill> {
   const tz = company.timezone;
   const from = DateTime.fromFormat(day, DAY_FMT, { zone: tz }).startOf("day"), to = from.endOf("day");
   const fields = await loadEodForm(c, company.id), v = (m: Parameters<typeof valueFor>[1]) => valueFor(fields, m);
-  const appts = await many<{ id: string; contact_id: string; contact: string; ghl_contact_id: string | null; starts_at: Date; ends_at: Date | null; status: string; outcome_cat: string | null; call_outcome_cat: string | null; notes: string | null; via: string | null }>(c, `
-    select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.ghl_contact_id, a.starts_at, a.ends_at, a.status,
+  const appts = await many<{ id: string; contact_id: string; contact: string; ghl_contact_id: string | null; starts_at: Date; ends_at: Date | null; status: string; term_cat: string | null; set_since: boolean; outcome_cat: string | null; call_outcome_cat: string | null; notes: string | null; via: string | null }>(c, `
+    select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.ghl_contact_id, a.starts_at, a.ends_at, a.status, tt.category as term_cat,
+           exists (select 1 from appointments b join company_terms bt on bt.id=b.appointment_term where b.contact_id=a.contact_id and bt.category='closing' and b.booked_at > a.starts_at and b.status<>'cancelled') as set_since,
            ot.category as outcome_cat, cot.category as call_outcome_cat,
            (select fs.answers->>'notes' from form_submissions fs where fs.appointment_id=a.id order by fs.submitted_at desc limit 1) as notes,
            (select fs.answers->>'via' from form_submissions fs where fs.appointment_id=a.id order by fs.submitted_at desc limit 1) as via
-    from appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
+    from appointments a join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term left join company_terms tt on tt.id=a.appointment_term
     where a.company_id=$1 and a.assigned_user_id=$2 and a.starts_at >= $3 and a.starts_at <= $4 and ${HELD_CALL} order by a.starts_at`, [company.id, closer.id, from.toJSDate(), to.toJSDate()]);
   const calls: CallEntry[] = [];
   const loc = (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='crm.location_id'", [company.id]))?.v.toString("utf8");
   const price = num(company.contract_value_default);
   for (const a of appts) {
+    // D143: a triage call (a first call) asks its own questions; "set" pre-fills when they have booked a closing call since
+    if (a.term_cat === "first_call") {
+      const t = (m: Parameters<typeof valueFor>[1]) => valueFor(fields, m, "triage");
+      const outcome = a.outcome_cat === "noshow" || a.status === "noshow" ? t({ attendance: "noshow" }) : a.outcome_cat === "rescheduled" ? t({ attendance: "rescheduled" })
+        : a.call_outcome_cat ? t({ call_outcome: a.call_outcome_cat as CallMeaning }) : a.set_since ? t({ call_outcome: "qualified" }) : "";
+      const over = DateTime.fromJSDate(a.ends_at ?? a.starts_at) < now;
+      calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null, recording_url: null,
+        kind: "triage", outcome, ...(over && !outcome ? { hint: "Nothing recorded for this triage call yet." } : {}), ...(a.set_since && !a.call_outcome_cat ? { hint: "They booked a closing call since: set." } : {}),
+        revenue: null, cash: null, next_date: null, next_steps: "", dq_reason: "", dq_note: "", lost_reason: "", about: "", notes: a.notes ?? "", extra: {} });
+      continue;
+    }
     const rec = await one<{ share_url: string | null; analysis: Record<string, unknown> }>(c, "select share_url, analysis from recordings where company_id=$1 and (appointment_id=$2 or (contact_id=$3 and started_at between $4 and $5)) order by started_at desc limit 1", [company.id, a.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
     const notes = (rec?.analysis?.notes ?? {}) as Record<string, unknown>;
     // D119: a day whose payments were all deposits pre-fills Deposit; the amount says nothing about it
@@ -134,7 +166,7 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     const moved = a.via === "card_moved" && (a.call_outcome_cat === "lost" || a.call_outcome_cat === "unqualified") ? `${a.notes ?? "Moved in the CRM"}. Say why.` : "";
     const aboutParts = [str(notes.summary), str(notes.pain) && `Pains: ${str(notes.pain)}`, str(notes.desire) && `Goals: ${str(notes.desire)}`, str(notes.objections) && `Objections: ${str(notes.objections)}`].filter(Boolean);
     calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null, recording_url: rec?.share_url ?? null,
-      outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: contracted ? contract || paid || null : null, cash: money ? paid || null : null,
+      kind: "closing", outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: contracted ? contract || paid || null : null, cash: money ? paid || null : null,
       next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", lost_reason: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {} });
   }
   return { day, closer, company: { id: company.id, name: company.name, slug: company.slug, timezone: tz }, ...totalsOf(calls, fields), calls };
@@ -180,7 +212,7 @@ export function diffAnswers(pre: EodPrefill, ans: EodAnswers, fields?: EodField[
   for (const k of ["calls_count", "closes", "deposits", "cash", "revenue"] as const) if (num(pre[k]) !== num(ans[k])) out.push({ field: TOTAL_WORDS[k], from: k === "cash" || k === "revenue" ? money(pre[k]) : num(pre[k]), to: k === "cash" || k === "revenue" ? money(ans[k]) : num(ans[k]) });
   for (const call of ans.calls) {
     const p = pre.calls.find((x) => x.appointment_id === call.appointment_id); if (!p) continue;
-    if (p.outcome && p.outcome !== call.outcome) out.push({ field: "", from: outcomeLabel(p.outcome, fields), to: outcomeLabel(call.outcome, fields), contact: p.contact });
+    if (p.outcome && p.outcome !== call.outcome) out.push({ field: "", from: outcomeLabel(p.outcome, fields, p.kind), to: outcomeLabel(call.outcome, fields, p.kind), contact: p.contact });
     for (const k of ["cash", "revenue", "next_date"] as const) {
       const a = p[k] ?? "", b = call[k] ?? "";
       if (a === "" || String(a) === String(b)) continue;
@@ -194,15 +226,15 @@ export const changeLine = (ch: Change) => `${ch.contact ? `${ch.contact}: ` : ""
 
 /** The disposition note for one call: everything the closer said about it, one line per thing. */
 function dispositionNotes(call: CallEntry, fields: EodField[]): string {
-  const meaning = choiceOf(call.outcome, fields)?.call_outcome;
+  const meaning = choiceOf(call.outcome, fields, call.kind)?.call_outcome;
   const lines = [
     call.about && `About: ${call.about}`,
     call.notes,
     meaning === "unqualified" && (call.dq_reason || call.dq_note) ? `DQ: ${[call.dq_reason, call.dq_note].filter(Boolean).join(" - ")}` : "",
     meaning === "lost" && call.lost_reason ? `Lost: ${call.lost_reason}` : "",
     meaning === "follow_up" && (call.next_steps || call.next_date) ? `Next: ${call.next_steps}${call.next_date ? ` by ${call.next_date}` : ""}` : "",
-    isMoney(call.outcome, fields) ? `${outcomeLabel(call.outcome, fields)}: ${call.cash == null ? "?" : money(call.cash)} collected${isRevenueOutcome(call.outcome, fields) ? `, ${call.revenue == null ? "?" : money(call.revenue)} revenue generated` : ""}` : "",
-    ...fields.filter((f) => f.scope === "call" && !f.builtin && call.extra?.[f.key]).map((f) => `${f.label}: ${call.extra[f.key]}`),
+    isMoney(call.outcome, fields, call.kind) ? `${outcomeLabel(call.outcome, fields)}: ${call.cash == null ? "?" : money(call.cash)} collected${isRevenueOutcome(call.outcome, fields) ? `, ${call.revenue == null ? "?" : money(call.revenue)} revenue generated` : ""}` : "",
+    ...fields.filter((f) => f.scope === "call" && !f.builtin && call.kind !== "triage" && call.extra?.[f.key]).map((f) => `${f.label}: ${call.extra[f.key]}`),
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -220,7 +252,7 @@ export async function fileCall(c: PoolClient, companyId: string, fields: EodFiel
   const skipped = { status: "skipped" as const, runs: 0 };
   if (!call.outcome) return skipped;
   // B6: what the company's answer means decides what is filed, whatever the answer is called
-  const choice = choiceOf(call.outcome, fields); if (!choice) return skipped;
+  const choice = choiceOf(call.outcome, fields, call.kind); if (!choice) return skipped;
   const outcomeCat = choice.attendance;
   const outcomeTermId = await outcomeTermFor(c, companyId, outcomeCat); if (!outcomeTermId) return skipped;
   const callTerm = async (cat: string) => (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2 and active order by is_default desc, sort limit 1", [companyId, cat]))?.id ?? null;
@@ -228,8 +260,9 @@ export async function fileCall(c: PoolClient, companyId: string, fields: EodFiel
   const callOutcomeTermId = callCat ? (await callTerm(callCat)) ?? (callCat === "deposit" ? await callTerm("closed") : null) : null;
   const held = await one<{ outcome_term: string | null; call_outcome_term: string | null; status: string }>(c, "select outcome_term, call_outcome_term, status from appointments where id=$1 and company_id=$2", [call.appointment_id, companyId]);
   // what GHL shows for this answer: a company with no deposit disposition writes a deposit as a close (as its call outcome term does)
-  const dispositions = ghl && callCat ? dispositionValues(Object.fromEntries((await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key='sales_call.dispositions'", [companyId])).map((b) => [b.key, b.value.toString("utf8")]))) : {};
-  const shownAs = callCat && !dispositions[callCat] && callCat === "deposit" ? "closed" : callCat;
+  // a triage call's record (D143) holds the meaning itself (triageRecords); a Sales Call holds the company's disposition
+  const dispositions = ghl && callCat && call.kind !== "triage" ? dispositionValues(Object.fromEntries((await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key='sales_call.dispositions'", [companyId])).map((b) => [b.key, b.value.toString("utf8")]))) : {};
+  const shownAs = call.kind !== "triage" && callCat && !dispositions[callCat] && callCat === "deposit" ? "closed" : callCat;
   const ghlShows = ghl ? ghl.attendance === outcomeCat && (outcomeCat !== "showed" || !shownAs || ghl.call === shownAs) : null;
   if (ghlShows === true) return { status: "held", runs: 0 };
   if (ghlShows === null && held && (held.outcome_term === outcomeTermId ? outcomeCat !== "showed" || held.call_outcome_term === callOutcomeTermId : outcomeCat === "noshow" && !held.outcome_term && held.status === "noshow")) return { status: "held", runs: 0 };
@@ -248,10 +281,14 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   const pre = await prefill(c, company, closer, args.day, DateTime.now());
   // a row that is not a booking (a "ghl:<record>" row from a form opened before D110) is dropped before anything is stored
   args = { ...args, answers: { ...args.answers, calls: args.answers.calls.filter((x) => BOOKING_ID.test(x.appointment_id)) } };
+  // D143: what a call is comes from the booking, never from the browser
+  args = { ...args, answers: { ...args.answers, calls: args.answers.calls.map((x) => ({ ...x, kind: pre.calls.find((p) => p.appointment_id === x.appointment_id)?.kind ?? x.kind })) } };
   const changes = diffAnswers(pre, args.answers, fields);
   // D134/D136: each call's Sales Call as GHL has it decides whether the answer is still to be filed; GHL not read: the ledger decides
   let inGhl = new Map<string, { attendance: string | null; call: string | null }>();
   if (args.adapters) { try { inGhl = new Map((await closerSalesCalls(c, args.adapters, adapterCompany, company.id, bindings, closer.name, company.timezone, DateTime.now())).map((r) => [r.appointment_id, { attendance: r.attendance, call: r.call }])); } catch { /* GHL did not answer */ } }
+  const triage = args.answers.calls.filter((x) => x.kind === "triage").map((x) => x.appointment_id);
+  if (args.adapters && triage.length) { try { for (const [k, v] of await triageRecords(c, args.adapters, adapterCompany, company.id, bindings, triage)) inGhl.set(k, v); } catch { /* GHL did not answer */ } }
   let recorded = 0;
   for (const call of args.answers.calls) if ((await fileCall(c, company.id, fields, call, closer.id, inGhl.get(call.appointment_id))).status !== "skipped") recorded++;
   const wasFiled = (await one<{ submitted_at: Date | null }>(c, "select submitted_at from eod_reports where company_id=$1 and user_id=$2 and day=$3", [company.id, closer.id, args.day]))?.submitted_at ?? null;
@@ -262,10 +299,10 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   const dayAnswers = fields.filter((f) => f.scope === "day" && args.answers.day_answers?.[f.key]).map((f) => ({ key: f.key, label: f.label, answer: args.answers.day_answers[f.key] }));
   const ev = await emitEvent(c, { company_id: company.id, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "eod.filed", source: "user",
     data: { user_id: closer.id, report_id: row?.id, day: args.day, day_label: DateTime.fromFormat(args.day, DAY_FMT).toFormat("ccc LLL d"), totals_line: totalsLine(args.answers), calls_count: args.answers.calls_count, closes: args.answers.closes, deposits: args.answers.deposits, cash: args.answers.cash, revenue: args.answers.revenue,
-      calls: args.answers.calls.map((x) => ({ contact: x.contact, contact_id: x.contact_id, appointment_id: x.appointment_id, outcome: x.outcome, outcome_label: outcomeLabel(x.outcome, fields), meaning: choiceOf(x.outcome, fields)?.call_outcome ?? choiceOf(x.outcome, fields)?.attendance ?? null, revenue: x.revenue, cash: x.cash, next_date: x.next_date, next_steps: x.next_steps, dq_reason: x.dq_reason, dq_note: x.dq_note, lost_reason: x.lost_reason ?? "", about: x.about, notes: x.notes, ...x.extra })),
+      calls: args.answers.calls.map((x) => ({ contact: x.contact, contact_id: x.contact_id, appointment_id: x.appointment_id, kind: x.kind ?? "closing", outcome: x.outcome, outcome_label: outcomeLabel(x.outcome, fields, x.kind), meaning: choiceOf(x.outcome, fields, x.kind)?.call_outcome ?? choiceOf(x.outcome, fields, x.kind)?.attendance ?? null, revenue: x.revenue, cash: x.cash, next_date: x.next_date, next_steps: x.next_steps, dq_reason: x.dq_reason, dq_note: x.dq_note, lost_reason: x.lost_reason ?? "", about: x.about, notes: x.notes, ...x.extra })),
       // A1 (D88): why each lost or DQ call went that way, for the summary
-      reasons: args.answers.calls.map((x) => ({ x, m: choiceOf(x.outcome, fields)?.call_outcome })).filter(({ x, m }) => (m === "lost" && x.lost_reason) || (m === "unqualified" && (x.dq_reason || x.dq_note)))
-        .map(({ x, m }) => ({ contact: x.contact, outcome_label: outcomeLabel(x.outcome, fields), reason: m === "lost" ? x.lost_reason : [x.dq_reason, x.dq_note].filter(Boolean).join(" - ") })),
+      reasons: args.answers.calls.map((x) => ({ x, m: choiceOf(x.outcome, fields, x.kind)?.call_outcome })).filter(({ x, m }) => (m === "lost" && x.lost_reason) || (m === "unqualified" && (x.dq_reason || x.dq_note)))
+        .map(({ x, m }) => ({ contact: x.contact, outcome_label: outcomeLabel(x.outcome, fields, x.kind), reason: m === "lost" ? x.lost_reason : [x.dq_reason, x.dq_note].filter(Boolean).join(" - ") })),
       corrections, corrections_lines: corrections.map((x) => `• ${x}`).join("\n"), corrections_block: corrections.length ? `*Corrected from what the engine had:*\n${corrections.map((x) => `• ${x}`).join("\n")}` : "", corrections_count: corrections.length, corrected: corrections.length > 0, day_answers: dayAnswers, day_answers_lines: dayAnswers.map((d) => `*${d.label}* ${d.answer}`).join("\n"), refiled: !!wasFiled } });
   await dispatchEvent(c, ev, { user: { id: closer.id } });
   return { ok: true, changes, recorded };

@@ -11,8 +11,8 @@ type OutcomeSource = "disposition" | "engine";
  * does to the opportunity is Call outcome filed's (D88).
  */
 export async function applyOutcome(c: PoolClient, args: { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; userId?: string | null; dispositionId?: string | null; source: OutcomeSource; runId?: string | null; by?: string }): Promise<{ events: number; runs: number; outcome: string }> {
-  const a = await one<{ id: string; contact_id: string; opportunity_id: string | null; appointment_term: string; term_category: string }>(c,
-    "select a.id, a.contact_id, a.opportunity_id, a.appointment_term, t.category as term_category from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1 and a.company_id=$2", [args.appointmentId, args.companyId]);
+  const a = await one<{ id: string; contact_id: string; opportunity_id: string | null; appointment_term: string; term_category: string; term_name: string }>(c,
+    "select a.id, a.contact_id, a.opportunity_id, a.appointment_term, t.category as term_category, t.name as term_name from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1 and a.company_id=$2", [args.appointmentId, args.companyId]);
   if (!a) throw new Error("appointment not found");
   const outcome = await one<{ category: string; name: string }>(c, "select category, name from company_terms where id=$1 and company_id=$2 and domain='appointment_outcome'", [args.outcomeTermId, args.companyId]);
   if (!outcome) throw new Error("outcome term not found");
@@ -24,7 +24,7 @@ export async function applyOutcome(c: PoolClient, args: { companyId: string; app
   await c.query(`update appointments set outcome_term=$2, call_outcome_term=${exact ? "$3" : "coalesce($3, call_outcome_term)"}, disposition_id=coalesce($4, disposition_id), dispositioned_at=now(), dispositioned_by=coalesce($5, dispositioned_by) where id=$1`,
     [a.id, args.outcomeTermId, args.callOutcomeTermId ?? null, args.dispositionId ?? null, args.userId ?? null]);
   const base = { company_id: args.companyId, contact_id: a.contact_id, opportunity_id: a.opportunity_id, appointment_id: a.id, source: args.source, run_id: args.runId ?? null };
-  const ctx = { contact: { id: a.contact_id }, appointment: { id: a.id, term: { category: a.term_category } } };
+  const ctx = { contact: { id: a.contact_id }, appointment: { id: a.id, term: { category: a.term_category, name: a.term_name } } };
   let events = 0, runs = 0;
   const ev1 = await emitEvent(c, { ...base, event_type: "appointment.outcome", data: { outcome: outcome.category, label: outcome.name, by: args.by ?? args.source, previous_outcome: before?.outcome ?? null, previous_call_outcome: before?.call_outcome ?? null } }); events++;
   runs += (await dispatchEvent(c, ev1, ctx)).length;

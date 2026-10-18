@@ -17,6 +17,7 @@ import { installCompany, type InstallInput } from "./install";
 import { loadCompany } from "./context";
 import { applyAppointment } from "./poll";
 import { tick } from "./runner";
+import { prefill, submitEod, tokenFor } from "./eod";
 import { fakeAdapters } from "./test-install";
 import type { Adapters, AppointmentSnapshot } from "@/adapters/types";
 import { POST as definitionRoute } from "../../app/api/admin/workflows/definition/route";
@@ -48,7 +49,7 @@ const fake: Adapters = { ...f,
     createRecord: async (_c, object, properties) => { const id = `SC-${++seq}`; crm.set(id, { object, properties: { ...properties } }); return { id }; },
     updateRecord: async (_c, _object, id, properties) => { const r = crm.get(id); if (!r) throw new Error(`no record ${id}`); Object.assign(r.properties, properties); } },
 };
-const CRM = { pipeline_setter: "P-S", pipeline_closer: "P-C", stage_closer_scheduled: "ST-SCHED", stage_closer_cancelled: "ST-CXL", stage_closer_follow_up: "ST-FU", stage_setter_direct_booked: "ST-DB", stage_setter_appointment_set: "ST-AS", stage_setter_cancelled: "ST-S-CXL", stage_setter_showed: "ST-S-SHOWED",
+const CRM = { pipeline_setter: "P-S", pipeline_closer: "P-C", stage_closer_scheduled: "ST-SCHED", stage_closer_cancelled: "ST-CXL", stage_closer_follow_up: "ST-FU", stage_setter_direct_booked: "ST-DB", stage_setter_appointment_set: "ST-AS", stage_setter_cancelled: "ST-S-CXL", stage_setter_showed: "ST-S-SHOWED", stage_setter_dq: "ST-S-DQ", stage_setter_not_interested: "ST-S-NI",
   field_contact_appointment_date: "F-AD", field_contact_setter: "F-SE", field_opportunity_setter_owner: "F-SO", object_sales_call: OBJECT, assoc_sales_call_contact: "A-SC", assoc_sales_call_opportunity: "A-SO", object_discovery_call: DISCOVERY, assoc_discovery_call_contact: "A-DC" };
 const input = (over: Partial<InstallInput> = {}): InstallInput => ({ name: "Dating (Nelly) D123", slug: SLUG, timezone: TZ, locationId: "LOC-D123", pit: "fake", scopeTag: "dating", closers: ["nellysudri@d123.test"], crm: CRM,
   salesCall: { object: OBJECT, outcomes: { scheduled: "scheduled", showed: "showed", no_show: "noshow", cancelled: "cancelled", rescheduled: "rescheduled" } },
@@ -160,6 +161,34 @@ describe.skipIf(!process.env.DATABASE_URL)("D123: Dating (Nelly)'s two booked-ca
     await run();
     expect(await runs(cleo)).toEqual(["Closing call booked", "Call cancelled"]);
     expect(records(cleo)).toEqual([expect.objectContaining({ external_id: "EV-C1", outcome: "cancelled" })]);
+  });
+
+  it("D143: a triage call is on its setter's end of day with its own answers (set pre-filled once they booked a closing call); filing it runs Triage call filed (the Discovery Call record showed and set), never Call outcome filed", async () => {
+    const made = await definitionRoute(req("/api/admin/workflows/definition", "POST", { company: SLUG, workflow: own("triage-call-filed").name, definition: own("triage-call-filed").definition, note: own("triage-call-filed").note, create: own("triage-call-filed").create }));
+    expect(await made.json()).toMatchObject({ ok: true, created: true, missing: [] });
+    await asOperator((c) => c.query("update workflows set enabled=true where company_id=$1 and name='Triage call filed'", [co]));
+    const tia = await person("Tia");
+    const yesterday = DateTime.now().setZone(TZ).minus({ days: 1 }).set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
+    const mitch = await asOperator(async (c) => {
+      const m = (await one<{ id: string; name: string; email: string }>(c, "select id, name, email from users where company_id=$1 and email='mitch@d123.test'", [co]))!;
+      const term = async (name: string) => (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and name=$2", [co, name]))!.id;
+      const cal = async (ext: string) => (await one<{ id: string }>(c, "select id from calendars where company_id=$1 and external_id=$2", [co, ext]))!.id;
+      await c.query("insert into appointments (company_id, contact_id, calendar_id, external_id, slot_key, appointment_term, assigned_user_id, starts_at, ends_at, booked_at, status, source) values ($1,$2,$3,'EV-T1','EV-T1',$4,$5,$6::timestamptz,$7,$6::timestamptz - interval '3 days','confirmed','calendly')",
+        [co, tia.ct, await cal(STRATEGY), await term("Triage call"), m.id, yesterday.toJSDate(), yesterday.plus({ minutes: 15 }).toJSDate()]);
+      await c.query("insert into appointments (company_id, contact_id, calendar_id, external_id, appointment_term, starts_at, ends_at, booked_at, status, source) values ($1,$2,$3,'EV-T2',$4,now() + interval '2 days', now() + interval '2 days 1 hour', now(),'confirmed','calendly')",
+        [co, tia.ct, await cal(CONSULT), await term("Closing call")]);
+      crm.set("DC-T1", { object: DISCOVERY, properties: { external_id: "EV-T1", contact_id: tia.ghl, outcome: "scheduled" } });
+      await c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id) values ($1,$2,'EV-T1','DC-T1',$3)", [co, DISCOVERY, tia.ct]);
+      return m;
+    });
+    const day = yesterday.toFormat("yyyy-MM-dd");
+    const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, co)).row, mitch, day));
+    expect(pre.calls.map((x) => [x.contact, x.kind, x.outcome])).toEqual([["Tia Lee", "triage", "set"]]);
+    const token = await asOperator((c) => tokenFor(c, mitch.id));
+    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, day_answers: {} }, adapters: fake }))).toMatchObject({ ok: true, recorded: 1 });
+    await run();
+    expect(await runs(tia)).toEqual(["Triage call filed"]);
+    expect(crm.get("DC-T1")!.properties).toMatchObject({ outcome: "showed", call_result: "set" });
   });
 
   it("D142: an install that gives a calendar its call type and owner moves the bookings it already holds: every one takes the type, an upcoming one the owner (a past call stays whoever took it)", async () => {

@@ -4837,3 +4837,28 @@ outcome filed); a Fathom recording of a triage call goes to Sales call recorded.
 
 Tests: `dating-booked.test.ts`, `dating-copies.test.ts`, `simulate-form.test.ts`, `undo.test.ts`, `replay.test.ts`,
 `alerts.test.ts` (D142).
+
+## D143. One end of day per person, triage and closing calls each with their own answers (2026-10-18)
+
+Tyler: "EOD should have whatever is assigned to that person. Sometimes someone will have setter and closer calls." Mitch is a
+setter now; the triage calls are his (D142).
+
+- The end of day lists every call assigned to the person. A call is a triage call when its call type is a first call; a
+  closing call otherwise. A triage call asks Set (booked a closing call) / Follow up / DQ / Not interested / Rescheduled /
+  No-show, then only why a DQ, about them when they came, and notes: no money, no follow-up date (Tyler: no). A day of triage
+  calls only shows no closes, cash or revenue. The call's kind comes from its booking, never from the browser.
+- "Set" pre-fills once the person has booked a closing call since the triage call (evidence, like a recording's read); the
+  setter confirms.
+- Filing records the call's outcome (showed or no-show) and its meaning (set → qualified, follow up, DQ → unqualified, not
+  interested → lost) through the disposition path. GHL decides what is still to file (D134): a triage call's Discovery Call
+  record as GHL holds it (outcome, call_result).
+- Call outcome filed (the template) takes closing calls only. Dating's Triage call filed writes the Discovery Call record
+  (outcome showed / no_show, call_result set / follow_up / dq / not_interested), moves the setter card (Showed won; DQ, Not
+  Interested, Cancelled / No Show lost) and puts a line in the booking thread. The disposition's context now carries the call
+  type's name as well as its category.
+- The end-of-day reminders go to setters as well as closers (only anyone with calls owed is reminded).
+
+Open (asked): the setter pipeline's Cancelled stage renamed "Cancelled / No Show" by hand (GHL's API cannot); a closing call
+booked through the setting link vs the direct link (Tyler: a setter call even when booked direct) — what the setting link is.
+
+Tests: `dating-booked.test.ts` (D143), `eod.test.ts`.

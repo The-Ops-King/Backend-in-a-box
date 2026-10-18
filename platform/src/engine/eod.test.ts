@@ -211,7 +211,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect((await asOperator((c) => many<{ reason: string }>(c, "select exit_reason as reason from runs where id = any($1)", [runs.map((r) => r.id)]))).map((r) => r.reason)).toEqual(["noted", "noted"]);
     // the CRM marks Theo a no-show: the same workflow, straight to the 👻
     const theo = (await asOperator((c) => one<{ contact_id: string }>(c, "select contact_id from appointments where id=$1", [apptTheo])))!.contact_id;
-    await asOperator(async (c) => { await c.query("update appointments set status='noshow' where id=$1", [apptTheo]); const ev = await emitEvent(c, { company_id: companyId, contact_id: theo, opportunity_id: null, appointment_id: apptTheo, event_type: "appointment.status_changed", source: "ghl_poll", data: { source: "ghl", status: { from: "confirmed", to: "noshow" } } }); return dispatchEvent(c, ev, { contact: { id: theo }, appointment: { id: apptTheo } }); });
+    await asOperator(async (c) => { await c.query("update appointments set status='noshow' where id=$1", [apptTheo]); const ev = await emitEvent(c, { company_id: companyId, contact_id: theo, opportunity_id: null, appointment_id: apptTheo, event_type: "appointment.status_changed", source: "ghl_poll", data: { source: "ghl", status: { from: "confirmed", to: "noshow" } } }); return dispatchEvent(c, ev, { contact: { id: theo }, appointment: { id: apptTheo, term: { name: "Closing", category: "closing" } } }); });
     expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
     expect(reactions.at(-1)).toEqual({ channel: "CBOOK", ts: "bk-theo", emoji: "ghost" });
     expect(await tagsOf("GT")).toEqual(["stat-no-show"]);

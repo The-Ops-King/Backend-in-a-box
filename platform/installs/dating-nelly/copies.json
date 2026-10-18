@@ -27,5 +27,10 @@
     "workflow": "triage-call-cancelled",
     "name": "Triage call cancelled",
     "callType": "Triage call"
+  },
+  "triageFiled": {
+    "workflow": "triage-call-filed",
+    "name": "Triage call filed",
+    "callType": "Triage call"
   }
 }

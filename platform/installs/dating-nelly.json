@@ -62,9 +62,11 @@
     }
   },
   "closers": [
-    "nellysudri@gmail.com",
-    "mitch@revsignals.io"
+    "nellysudri@gmail.com"
   ],
+  "roles": {
+    "mitch@revsignals.io": "setter"
+  },
   "testDomains": [
     "jtylerray.com"
   ],
