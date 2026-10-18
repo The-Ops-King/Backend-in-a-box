@@ -10,7 +10,7 @@
       { "binding": "direct_booked", "name": "Direct Booked" },
       { "binding": "appointment_set", "name": "Appointment Set" },
       { "binding": "showed", "name": "Showed" },
-      { "binding": "cancelled", "name": "Cancelled" },
+      { "binding": "cancelled", "name": "Cancelled / No Show", "was": "Cancelled" },
       { "binding": "dq", "name": "DQ" },
       { "binding": "not_interested", "name": "Not Interested" } ] },
     { "binding": "closer", "name": "Closer Pipeline", "stages": [
