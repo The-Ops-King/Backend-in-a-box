@@ -112,6 +112,7 @@ create table onboarding (
   steps       jsonb not null default '{}',     -- step → { done_at, by }
   connections jsonb not null default '{}',     -- connection → its last live test { ok, at, detail | error } (never a key)
   research    jsonb,                           -- what was read from their accounts, the AI's proposal, and Tyler's answers (D145)
+  slack       jsonb not null default '{}',     -- the Slack app's name, face, and whether it carries the slash commands (D146)
   started_at  timestamptz not null default now(),
   started_by  text,
   finished_at timestamptz

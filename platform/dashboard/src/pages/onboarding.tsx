@@ -7,6 +7,7 @@ import type { FitReport, Intake, IntakeField } from "@/onboarding/intake";
 import type { StepId } from "@/onboarding/store";
 import type { ConnectionRow } from "@/onboarding/connections";
 import type { Research, ResearchAnswers, CalendarAnswer, Role } from "@/onboarding/research";
+import type { SlackState } from "@/onboarding/slack";
 
 /** D143 (#49 P1): standing a client up, step by step. Every step saves; Tyler can stop for days and come back to the same place. */
 export function Onboarding() {
@@ -36,7 +37,8 @@ export function Onboarding() {
         {!step.built ? <Empty>This step is not built yet; it comes in the next slice of #49 P1. Until then it is done the way #43 and #44 did it, by hand.</Empty>
           : at === "offer" ? <OfferStep slug={slug} d={d} invalidate={key} />
           : at === "connections" ? <ConnectionsStep slug={slug} d={d} invalidate={key} />
-          : at === "research" ? <ResearchStep slug={slug} d={d} invalidate={key} /> : null}
+          : at === "research" ? <ResearchStep slug={slug} d={d} invalidate={key} />
+          : at === "slack" ? <SlackStep slug={slug} invalidate={key} /> : null}
       </section>
     </div>
   </>;
@@ -187,5 +189,55 @@ function ResearchStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage
       </Fold>
       <button className="submit" type="submit" disabled={save.isPending}>{save.isPending ? "Saving…" : "Save the answers"}</button>
     </form>
+  </>;
+}
+
+/** D146: the app made from a generated manifest, its token tested, then a channel for each slot. */
+function SlackStep({ slug, invalidate }: { slug: string; invalidate: string[] }) {
+  const key = ["onboarding-slack", slug];
+  const q = usePage<SlackState>(key, `/api/v1/companies/${slug}/onboarding/slack`, { every: 120_000 });
+  const post = useAction<Record<string, unknown>, { detail?: string }>((v) => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "slack", ...v } }), [key, invalidate]);
+  const [opts, setOpts] = useState<SlackState["options"] | null>(null);
+  const [token, setToken] = useState(""); const [secret, setSecret] = useState("");
+  const [picks, setPicks] = useState<Record<string, string>>({});
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { if (q.data) { setOpts(q.data.options); setPicks(Object.fromEntries(q.data.channels.map((c) => [c.key, c.value ?? ""]))); } }, [q.data]);
+  if (!q.data || !opts) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton lines={6} />;
+  const s = q.data;
+  const run = async (v: Record<string, unknown>, done: string) => { setErr(null); try { const r = await post.mutateAsync(v); toast(r.detail ?? done); return true; } catch (x) { const p = x instanceof ApiError ? (x.body?.problems as string[] | undefined) : undefined; setErr(p ? p.join("; ") : (x as Error).message); return false; } };
+  const copy = async () => { try { await navigator.clipboard.writeText(s.manifest ?? ""); toast("Manifest copied."); } catch { toast("Select the manifest and copy it.", true); } };
+  const name = (id: string | null) => s.visible?.find((c) => c.id === id)?.name;
+  return <>
+    {err ? <div className="banner warn">{err}</div> : null}
+    <div className="call form"><b>1. Make the app</b>
+      <div className="g2">
+        <label><span>App name</span><input value={opts.appName} onChange={(e) => setOpts({ ...opts, appName: e.target.value })} /></label>
+        <label><span>The bot's name in Slack</span><input value={opts.botName} onChange={(e) => setOpts({ ...opts, botName: e.target.value })} /></label>
+        <label className="wide" style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" style={{ width: "auto" }} checked={opts.commands} onChange={(e) => setOpts({ ...opts, commands: e.target.checked })} />
+          <span>No other engine app is in this workspace (adds the slash commands: Slack gives a command to the app installed last)</span></label>
+      </div>
+      <div style={{ display: "flex", gap: 8 }}><button className="btn" type="button" disabled={post.isPending} onClick={() => run({ options: opts }, "Manifest updated.")}>Update the manifest</button>
+        {s.manifest ? <button className="btn" type="button" onClick={copy}>Copy the manifest</button> : null}</div>
+      {s.manifest ? <pre className="manifest">{s.manifest}</pre> : <div className="banner warn" style={{ marginTop: 0 }}>{s.manifestError}</div>}
+      <p className="note">api.slack.com/apps → Create New App → From an app manifest → pick the workspace → YAML → paste → Create → Install to Workspace.</p>
+    </div>
+    <form className="call form" autoComplete="off" onSubmit={async (e) => { e.preventDefault(); if (await run({ token, signingSecret: secret }, "Slack connected.")) { setToken(""); setSecret(""); } }}>
+      <div className="hd"><b>2. Connect it</b>{s.connected ? <Tag kind="ok">connected to {s.connected.team}</Tag> : <Tag>not connected</Tag>}</div>
+      <div className="g2">
+        <label><span>Bot User OAuth Token<span className="note"> · OAuth &amp; Permissions, starts xoxb-</span></span><input type="password" autoComplete="new-password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={s.connected ? "set; paste a new one to replace it" : ""} /></label>
+        <label><span>Signing Secret<span className="note"> · Basic Information → App Credentials</span></span><input type="password" autoComplete="new-password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={s.signingSet ? "set; paste a new one to replace it" : ""} /></label>
+      </div>
+      <div><button className="btn" type="submit" disabled={post.isPending || !token || !secret}>{post.isPending ? "Testing…" : "Test and save"}</button></div>
+      <p className="note">The token is tested with Slack before it is kept. Slack has no check for a signing secret: its shape is checked here, and Slack's first event proves it.</p>
+    </form>
+    {s.connected ? <form className="call form" onSubmit={(e) => { e.preventDefault(); run({ channels: picks }, "Channels saved."); }}>
+      <b>3. Which channel is for what</b>
+      {s.visible === null ? <div className="banner warn" style={{ marginTop: 0 }}>Slack would not list the channels: the app needs channels:read and groups:read (reinstall it from the manifest).</div> : null}
+      {s.channels.map((c) => { const picked = s.visible?.find((v) => v.id === picks[c.key]);
+        return <label key={c.key} className="team-row"><span>{c.label}<span className="note"> · {c.about}{c.instead ? `; empty, it posts to ${c.instead}` : ""}{picked && !picked.is_member ? " · invite the bot to it" : ""}</span></span>
+          <select value={picks[c.key] ?? ""} onChange={(e) => setPicks({ ...picks, [c.key]: e.target.value })}><option value="">{c.instead ? `— (${c.instead})` : "—"}</option>{(s.visible ?? []).map((v) => <option key={v.id} value={v.id}>{v.is_private ? "🔒 " : "#"}{v.name}</option>)}{picks[c.key] && !name(picks[c.key]) ? <option value={picks[c.key]}>{picks[c.key]}</option> : null}</select></label>; })}
+      <div><button className="btn" type="submit" disabled={post.isPending}>Save the channels</button></div>
+    </form> : null}
+    <p className="note">{s.ready ? "Done: the bot is connected and every channel is set." : "Done once the bot is connected and every slot with nothing to fall back on has a channel."}</p>
   </>;
 }

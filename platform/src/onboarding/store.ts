@@ -16,7 +16,7 @@ export const STEPS = [
   { id: "offer", label: "The offer", about: "the product, how it sells, the software it runs on; picks the playbook and says what fits", built: true },
   { id: "connections", label: "Connections", about: "the keys this client's software needs, each tested live", built: true },
   { id: "research", label: "Research", about: "their calendars, boards, fields and team, and which is which", built: true },
-  { id: "slack", label: "Slack", about: "the app's manifest, its token and signing secret, which channel is for what", built: false },
+  { id: "slack", label: "Slack", about: "the app's manifest, its token and signing secret, which channel is for what", built: true },
   { id: "crm", label: "CRM build", about: "what the playbook needs in GHL, shown first, then built", built: false },
   { id: "messages", label: "Messages", about: "every text and email a client gets, written and approved", built: false },
   { id: "install", label: "Install", about: "the playbook installed, every workflow off, the company running in ghost", built: false },

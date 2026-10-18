@@ -330,3 +330,5 @@ pre.pre,pre.raw{font-size:12px;color:var(--fg-2);background:var(--panel-2);borde
 .cal-row:first-of-type{border-top:0}
 .cal-row .tag{margin-left:8px}
 .team-row{display:grid !important;grid-template-columns:minmax(0,1fr) minmax(0,220px);gap:10px;align-items:center}
+.manifest{background:var(--panel-3);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.45;max-height:320px;overflow:auto;white-space:pre;margin:0}
+.wiz-body .call + .call,.wiz-body .banner + .call{margin-top:12px}

@@ -252,17 +252,18 @@ export function formatCombined(results: MetricResult[], o: Foot = {}): string {
   return L.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
-export const SHORTCUTS: { command: string; about: string; example: string }[] = [
+/** `hint`: what Slack shows after the command as it is typed (D146: the Slack app manifest is made from this list). */
+export const SHORTCUTS: { command: string; about: string; example: string; hint?: string }[] = [
   { command: "/mtd", about: "month to date: leads, MQLs, booked, show rate, close rate, deposits, cash, top source, vs the same days last month", example: "/mtd" },
-  { command: "/weekly", about: "last full week (or `this week`), the same numbers, vs the week before", example: "/weekly this week" },
-  { command: "/monthly", about: "last full month (or `this month`), the same numbers, vs the month before", example: "/monthly" },
-  { command: "/show-rate", about: "show rate by closer and by source, and whose calls have no EOD outcome (default this month)", example: "/show-rate last month" },
-  { command: "/close-rate", about: "close rate by closer and by source (default this month)", example: "/close-rate last 30 days" },
-  { command: "/cash", about: "cash collected, payments and refunds, by closer (default this month)", example: "/cash last week" },
-  { command: "/availability", about: "open slots for the next 7 days (or fewer), per day and per closer", example: "/availability 3" },
-  { command: "/leads", about: "leads, MQLs and marketing DQs by source (default this month)", example: "/leads yesterday" },
-  { command: "/closes", about: "every close by closer: who, cash collected / revenue, the day it was won (default this month)", example: "/closes last month" },
-  { command: "/leaderboard", about: "closers ranked by cash (closes and close rate beside), setters ranked by sets (show rate of their sets beside) (default this week)", example: "/leaderboard last week" },
+  { command: "/weekly", about: "last full week (or `this week`), the same numbers, vs the week before", example: "/weekly this week", hint: "[this week]" },
+  { command: "/monthly", about: "last full month (or `this month`), the same numbers, vs the month before", example: "/monthly", hint: "[this month]" },
+  { command: "/show-rate", about: "show rate by closer and by source, and whose calls have no EOD outcome (default this month)", example: "/show-rate last month", hint: "[last month]" },
+  { command: "/close-rate", about: "close rate by closer and by source (default this month)", example: "/close-rate last 30 days", hint: "[last month]" },
+  { command: "/cash", about: "cash collected, payments and refunds, by closer (default this month)", example: "/cash last week", hint: "[last week]" },
+  { command: "/availability", about: "open slots for the next 7 days (or fewer), per day and per closer", example: "/availability 3", hint: "[days, up to 7]" },
+  { command: "/leads", about: "leads, MQLs and marketing DQs by source (default this month)", example: "/leads yesterday", hint: "[yesterday]" },
+  { command: "/closes", about: "every close by closer: who, cash collected / revenue, the day it was won (default this month)", example: "/closes last month", hint: "[last month]" },
+  { command: "/leaderboard", about: "closers ranked by cash (closes and close rate beside), setters ranked by sets (show rate of their sets beside) (default this week)", example: "/leaderboard last week", hint: "[last week]" },
 ];
 export function helpText(botMention = "@bot"): string {
   return [

@@ -4899,3 +4899,25 @@ answered, a closing calendar is the closer call, and someone closes. Nothing is 
 here: install does that from these answers. The reading and the model's call run outside any database transaction.
 
 Tests: `research.test.ts`.
+
+## D146. The wizard's Slack step: a generated manifest, the token tested, a channel per slot (2026-10-18)
+
+The Slack app's manifest was written by hand per client (`installs/*-slack-manifest.yaml`). The wizard now makes it
+(`src/onboarding/slack.ts`): this company's id in every request URL (events, interactions, commands), the bot scopes, and the
+slash commands from the bot's own list (`SHORTCUTS`, which now carries each command's usage hint), so the manifest cannot drift
+from what the bot answers. Generated for Dating's id, its commands, hints, scopes and URLs are the hand-written manifest's.
+The app name and the bot's name default to the offer's ("<offer> Ops Engine", "<offer> Ops"). A workspace that already has
+another engine app gets no slash commands: Slack gives a command to the app installed last (#43). The manifest needs
+`PUBLIC_URL`; without it the step says so.
+
+Tyler creates the app from it and pastes the Bot User OAuth Token and the Signing Secret. The token is tested with Slack
+(auth.test) and kept only when Slack accepts it: encrypted in `slack_connections` with the bot's user id, as install keeps it,
+and the workspace's name (`slack.team_name`). Slack has no call that checks a signing secret: its shape (32 hex) is checked and
+it is kept encrypted (`secret.slack_signing`); the first event Slack sends proves it. Then each slot gets a channel from the
+ones the bot can see (private ones marked, and a note when the bot is not in the channel): bookings, calls, setter calls (only
+with setters), payments, deals, end of day, reports, ops, needs attention, team alerts, the engine's alerts channel and the
+test channel every post goes to before its workflow is live (D133). Ops, needs attention and team alerts may stay empty: their
+posts fall back to reports, ops and bookings (D58). Done while the bot is connected, the signing secret kept, and every other
+slot has a channel; emptying one takes it back. Tried live with a made-up token: Slack refused it and nothing was kept.
+
+Tests: `slack.test.ts`.
