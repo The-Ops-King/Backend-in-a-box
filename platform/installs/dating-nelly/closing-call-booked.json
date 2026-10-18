@@ -1,6 +1,6 @@
 {
- "workflow": "sales-call-booked",
- "name": "Sales call booked",
+ "workflow": "closing-call-booked",
+ "name": "Closing call booked",
  "create": {
   "stage": "booking",
   "sort": 10,
@@ -20,10 +20,10 @@
     "match": {
      "eq": [
       "{{appointment.term.name}}",
-      "Consultation"
+      "Closing call"
      ]
     },
-    "title": "Only a Consultation booking (its calendar's call type)"
+    "title": "Only a Closing call booking (its calendar's call type)"
    },
    {
     "id": "t2",
@@ -32,10 +32,10 @@
     "match": {
      "eq": [
       "{{appointment.term.name}}",
-      "Consultation"
+      "Closing call"
      ]
     },
-    "title": "Only a Consultation moved"
+    "title": "Only a Closing call moved"
    },
    {
     "id": "c_via",
@@ -352,14 +352,14 @@
      ]
     },
     "value": {
-     "name": "Call rescheduled",
+     "name": "Closing call rescheduled",
      "icons": [
       ":repeat:"
      ],
      "reschedule_mark": "repeat"
     },
     "else_value": {
-     "name": "New call booked",
+     "name": "New closing call booked",
      "icons": [
       ":telephone_receiver:",
       ":calendar:",
@@ -542,5 +542,5 @@
    }
   ]
  },
- "note": "dating-nelly: Call booked for a Consultation booking only (its calendar's call type), the Sales Call's call type closing; one card fork after the booking paths, a new booking (closer card to Scheduled, the video task) or a reschedule (the card to Scheduled only before the call, its name kept; the old slot's Sales Call logged rescheduled), as PMU's (D105, D107, D123)"
+ "note": "dating-nelly: Call booked for a Closing call booking only (its calendar's call type), the Sales Call's call type closing; one card fork after the booking paths, a new booking (closer card to Scheduled, the video task) or a reschedule (the card to Scheduled only before the call, its name kept; the old slot's Sales Call logged rescheduled), as PMU's (D105, D107, D123)"
 }

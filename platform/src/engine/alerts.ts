@@ -199,6 +199,8 @@ export async function announceDue(c: PoolClient, adapters: Adapters, now = new D
   for (const a of due) {
     // D140: an open alert is checked again before it is said again; one whose cause is gone closes (✅), one nothing can check is not repeated
     if (a.announce_count > 0 && !a.resolved_at && !aboutEngine(a)) {
+      // D142: a finding that says it once (a calendar with no open times: Tyler, "we don't need an alert every hour") stays open, unrepeated, until it clears
+      if ((a.detail as { repeat?: boolean }).repeat === false) { await c.query("update alerts set announced_at=$2 where id=$1", [a.id, now]); continue; }
       const now_ = await stillTrue(c, adapters, a);
       if (now_ === "fixed") { if (await resolve(c, a.company_id, a.key, now)) a.resolved_at = now; }
       else if (now_ === "unknown") { await c.query("update alerts set announced_at=$2 where id=$1", [a.id, now]); continue; }   // looked at again next hour, never said again

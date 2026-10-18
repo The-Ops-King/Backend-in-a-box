@@ -171,7 +171,7 @@ export function decideSelfBooked(rule: string | undefined, calendarSelfBooked: b
 
 export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot, rep?: PollReport, baseline = false): Promise<void> {
   const source = ac.booking.source;
-  const calRow = await one<{ id: string; appointment_term: string; self_booked: boolean | null; config: { booking?: "self" | "setter" | "question" } }>(c, "select id, appointment_term, self_booked, config from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
+  const calRow = await one<{ id: string; appointment_term: string; self_booked: boolean | null; config: { booking?: "self" | "setter" | "question"; owner?: string } }>(c, "select id, appointment_term, self_booked, config from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
   if (!calRow) return;
   const rule = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='booking.setter_rule'", [co.id]))?.value.toString("utf8");
   const cal = { ...calRow, self_booked: decideSelfBooked(rule, calRow.self_booked, s.setBy, calRow.config?.booking) };
@@ -179,7 +179,8 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (s.rescheduledTo) return;
   const contact = await resolveContactForBooking(c, co, ac, adapters, s);
   if (!contact) return;
-  const userId = s.assignedUserId ? await ensureUser(c, adapters, ac, s.assignedUserId) : await userIdByEmail(c, co.id, s.assignedUserEmail);
+  // D142: a calendar with an owner (triage taken by Mitch on Nelly's calendar) gives its bookings to them, whoever hosts
+  const userId = cal.config?.owner ?? (s.assignedUserId ? await ensureUser(c, adapters, ac, s.assignedUserId) : await userIdByEmail(c, co.id, s.assignedUserEmail));
   const find = (ext: string) => one<{ id: string; status: string; starts_at: Date; external_id: string; slot_key: string | null; meeting_key: string | null; repointed_from?: string }>(c, "select id, status, starts_at, external_id, slot_key, meeting_key from appointments where company_id=$1 and source=$2 and external_id=$3", [co.id, source, ext]);
   const key = meetingKey(s.meetingUrl) ?? null;
   let existing = await find(s.id);

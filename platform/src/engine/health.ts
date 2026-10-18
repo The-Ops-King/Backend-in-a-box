@@ -479,7 +479,7 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
       const r = await probes.ghlFreeSlots(ac.pit, cal.external_id, from, to, company.timezone);
       if (r.ok) known.set(cal.external_id, r.times);
       if (!r.ok) bad("ghl_calendars", "error", `Calendar "${cal.name}" cannot be read: ${r.error}`, cal.external_id, undefined, link(cal));
-      else if (r.slots === 0) bad("ghl_calendars", "warning", `Calendar "${cal.name}" has no bookable slot in the next ${days} days. A closer's connected calendar may have dropped, or availability is off.`, cal.external_id, undefined, link(cal));
+      else if (r.slots === 0) bad("ghl_calendars", "warning", `Calendar "${cal.name}" has no bookable slot in the next ${days} days. A closer's connected calendar may have dropped, or availability is off.`, cal.external_id, { repeat: false }, link(cal));   // D142: said once, closed with a ✅, never hourly
       else { ok("ghl_calendars", `"${cal.name}": ${r.slots} bookable slots in the next ${days} days.`, cal.external_id, { slots: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots, href: link(cal), times: r.times }); }
     }
     if (!cals.length && !only) ok("ghl_calendars", "No GHL calendars mapped.");
@@ -496,7 +496,7 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
       const r = await probes.calendlyAvailableTimes(token, `https://api.calendly.com/event_types/${cal.external_id}`, now.plus({ minutes: 1 }).toJSDate(), now.plus({ days: days - 1, hours: 23 }).toJSDate());
       if (r.ok) known.set(cal.external_id, r.times);
       if (!r.ok) bad("calendly_calendars", "error", `Event type "${cal.name}": availability cannot be read: ${r.error}`, cal.external_id, undefined, link(cal));
-      else if (r.slots === 0) bad("calendly_calendars", "warning", `Event type "${cal.name}" has no available time in the next ${days} days. A host's connected calendar may have dropped, or availability is off.`, cal.external_id, undefined, link(cal));
+      else if (r.slots === 0) bad("calendly_calendars", "warning", `Event type "${cal.name}" has no available time in the next ${days} days. A host's connected calendar may have dropped, or availability is off.`, cal.external_id, { repeat: false }, link(cal));
       else { ok("calendly_calendars", `"${cal.name}": ${r.slots} available times in the next ${days} days.`, cal.external_id, { slots: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots, href: link(cal), times: r.times }); }
     }
     if (live && !cals.length && !only) ok("calendly_calendars", "No Calendly event types mapped.");
@@ -505,7 +505,7 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
   // The thread under it is the same per-closer table /availability answers with (D72), so the two never disagree.
   if (on("availability") && slotReads.length) {
     const low = slotReads.filter((s) => s.slots < row.min_slots);
-    for (const s of low) bad("availability", "warning", `"${s.name}" has only ${s.slots} bookable ${s.slots === 1 ? "slot" : "slots"} in the next ${days} days (alert below ${row.min_slots}).`, s.id, { slots: s.slots, min: row.min_slots }, s.href);
+    for (const s of low) bad("availability", "warning", `"${s.name}" has only ${s.slots} bookable ${s.slots === 1 ? "slot" : "slots"} in the next ${days} days (alert below ${row.min_slots}).`, s.id, { slots: s.slots, min: row.min_slots, repeat: false }, s.href);
     if (!low.length && !only) ok("availability", `${slotReads.length} calendar${slotReads.length === 1 ? "" : "s"} at or above ${row.min_slots} bookable slots over ${days} days.`);
     for (const s of slotReads) if (s.slots >= row.min_slots && only) ok("availability", `"${s.name}": ${s.slots} bookable slots, at or above ${row.min_slots}.`, s.id, { slots: s.slots }, s.href);
     const items = out.filter((x) => x.check === "availability" && x.item);

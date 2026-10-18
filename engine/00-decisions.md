@@ -4799,3 +4799,41 @@ The Slack check's sibling, the steps check, now also says when an enabled workfl
 
 Tests: `sweep.test.ts` (D-5), `readiness.whop.test.ts`; Call booked as it was is frozen in `fixtures/before-d141` for D118's
 render comparisons.
+
+## D142. Triage and closing calls; a calendar's owner; taking back what a run made (2026-10-18)
+
+Tyler: calls are triage or closing (VOICE.md). Dating's 15-minute Complimentary Strategy Session is the triage call, taken by
+Mitch; the Private Dating Consultation is the closing call, Nelly's. "They should not be in the sales call deal, it should be
+in the discovery call section."
+
+- A calendar mapping takes `owner` (a roster email or GHL user id): its bookings are that person's whoever hosts them, so
+  `appointment.closer` (the card's owner, the contact's owner, the record's owner, the card's "Booked with") is Mitch on the
+  triage calendar. Install moves what it already holds: every booking of a calendar takes its call type, an upcoming one its
+  owner (a past call stays whoever took it).
+- Dating's calendars: Strategy Session → "Triage call" (first_call; not a closing call, so close and show rates leave it out),
+  owner Mitch; Consultation → "Closing call" (closing).
+- Triage call booked: Call booked's booking paths (the person in GHL, the contact's owner and date, the setter card, the tags
+  with stat-triage-first), then a Discovery Call record (custom_objects.dating_discovery: the slot key, the time, the setter,
+  outcome scheduled; a reschedule logs the old slot's record rescheduled). No closer card, no task, no Sales Call.
+- Closing call booked (was Sales call booked): the closer card and the Sales Call, call type closing.
+- Triage call cancelled: Call cancelled takes closing calls only, so a triage cancel has its own: the setter card to Cancelled,
+  the Discovery Call record cancelled, the tags, ❌ in the booking thread.
+- Slack cards: "New triage call booked" / "New closing call booked" (and "… rescheduled").
+
+Operator tools:
+- `POST /api/admin/runs/undo { company, runs, nodes?, why, dryRun }`: takes back what runs made in GHL, from the engine's
+  ledger of creates (step_effects): cards, tasks, custom object records it made; never a note, a sent document or a record
+  taken over from GHL. Audited.
+- `replay-bookings` `again: true` (named appointments): a booking whose runs are over is handed on again, as a new engine event.
+- `POST /api/admin/contact/remove-test`: a test contact (sys-test or a test-domain email; anyone else refused) removed from GHL
+  (its engine-made records, then the contact) and from the engine's runs, bookings and records; the row stays, gone.
+- `POST /api/admin/contact/tags`: one contact's tags on or off, in GHL and the replica. Audited.
+
+A calendar with no open times (or too few) is said once and closed with a ✅, never repeated hourly (Tyler: "we don't need an
+alert every hour for no times open").
+
+Open: a triage call's outcome (showed, no-show; set, DQ) has no path yet (the closing call's are the end of day and Call
+outcome filed); a Fathom recording of a triage call goes to Sales call recorded.
+
+Tests: `dating-booked.test.ts`, `dating-copies.test.ts`, `simulate-form.test.ts`, `undo.test.ts`, `replay.test.ts`,
+`alerts.test.ts` (D142).

@@ -53,38 +53,40 @@ describe("D118: Dating Nelly's copies", () => {
     expect(JSON.stringify(file("setter-call-logged").definition)).not.toMatch(/medical condition|medical, timeline/);
   });
 
-  it("D123: her booked-call workflows are Call booked held to one call type each, with one card fork after the booking paths as PMU's (D105, D107); New from Typeform tags and starts New lead once", () => {
+  it("D123, D142: her booked-call workflows are Call booked held to one call type each: the closing call with one card fork after the booking paths as PMU's (D105, D107); the triage call with a Discovery Call record and no closer card, task or Sales Call; New from Typeform tags and starts New lead once", () => {
     type N = { id: string } & Record<string, unknown>; type E = { from: string; to: string; label?: string; when?: unknown; else?: boolean };
     const t = new Map(template("call-booked").nodes.map((n) => [n.id, n as N]));
     const def = (slug: string) => file(slug).definition as unknown as { nodes: N[]; edges: E[] };
-    for (const slug of ["triage-call-booked", "sales-call-booked"]) {
-      const d = def(slug), ids = d.nodes.map((n) => n.id);
-      // every step of the template but the closer card in each path (s4, b5), which the fork's two card steps replace; nothing else dropped
-      expect([...t.keys()].filter((id) => !ids.includes(id)), slug).toEqual(["s4", "b5"]);
-      expect(ids.filter((id) => !t.has(id)).sort(), slug).toEqual(["b_suffix", "c_new", "c_rs", "f_card", "s_suffix"]);
-      const ways = (from: string) => d.edges.filter((e) => e.from === from).map((e) => `${e.to}${e.label ? ` (${e.label})` : ""}`).sort();
-      expect(ways("s5")).toEqual(["f_card"]); expect(ways("b6")).toEqual(["f_card"]);
-      expect(ways("f_card")).toEqual(["c_new (a new booking)", "c_rs (a reschedule)"]);
-      expect(d.edges.find((e) => e.from === "f_card" && e.to === "c_rs")!.when).toEqual({ eq: ["{{event._type}}", "appointment.rescheduled"] });
-      expect(ways("c_new")).toEqual(["k3"]); expect(ways("k3")).toEqual(["k4"]);   // the video task under a new booking
-      expect(ways("c_rs")).toEqual(["k5"]); expect(ways("k5")).toEqual(["k4"]);   // the old slot's Sales Call under a reschedule
-      const n = (id: string) => d.nodes.find((x) => x.id === id)!;
-      expect(n("k3").only_if).toBeUndefined(); expect(n("k5").only_if).toBeUndefined();
-      expect(n("c_rs")).toMatchObject({ type: "pipeline_card", pipeline: "{{crm.pipeline_closer}}", stage: "{{crm.stage_closer_scheduled}}", keep_name: true, from_stages: ["{{crm.stage_closer_scheduled}}", "{{crm.stage_closer_cancelled}}"] });
-      expect(n("c_new")).toMatchObject({ type: "pipeline_card", stage: "{{crm.stage_closer_scheduled}}", name: "{{contact.name}} -- {{vars.card_suffix}}" });
-      expect(n("c_new")).not.toHaveProperty("keep_name");
-      // the steps they keep are the template's own, but for the call type, the Sales Call's call type and the triage tag
-      for (const id of ids.filter((id) => t.has(id) && !["t1", "t2", "k3", "k5", "k4", "s5", "b6"].includes(id))) expect(n(id), `${slug} ${id}`).toEqual(t.get(id));
-    }
-    const triage = def("triage-call-booked"), sales = def("sales-call-booked");
+    const triage = def("triage-call-booked"), closing = def("closing-call-booked");
     const at = (d: typeof triage, id: string) => d.nodes.find((n) => n.id === id)!;
-    for (const [d, type] of [[triage, "Strategy session"], [sales, "Consultation"]] as const) for (const id of ["t1", "t2"]) expect(at(d, id).match).toEqual({ eq: ["{{appointment.term.name}}", type] });
-    expect((at(triage, "k4").properties as Record<string, string>).call_type).toBe("strategy_session");
-    expect((at(sales, "k4").properties as Record<string, string>).call_type).toBe("closing");
-    for (const id of ["s5", "b6"]) expect(at(triage, id).add).toEqual([...(t.get(id) as unknown as { add: string[] }).add, "stat-triage-first"]);
-    for (const id of ["s5", "b6"]) expect(at(sales, id)).toEqual(t.get(id));
-    expect(JSON.stringify(sales)).not.toContain("stat-triage-first");
-    for (const slug of ["triage-call-booked", "sales-call-booked"]) expect(file(slug)).toMatchObject({ create: { takesOver: "call-booked", stage: "booking" } });
+    const ways = (d: typeof triage, from: string) => d.edges.filter((e) => e.from === from).map((e) => `${e.to}${e.label ? ` (${e.label})` : ""}`).sort();
+    // closing: every step of the template but the closer card in each path (s4, b5), which the fork's two card steps replace
+    { const ids = closing.nodes.map((n) => n.id);
+      expect([...t.keys()].filter((id) => !ids.includes(id))).toEqual(["s4", "b5"]);
+      expect(ids.filter((id) => !t.has(id)).sort()).toEqual(["b_suffix", "c_new", "c_rs", "f_card", "s_suffix"]);
+      expect(ways(closing, "s5")).toEqual(["f_card"]); expect(ways(closing, "b6")).toEqual(["f_card"]);
+      expect(ways(closing, "f_card")).toEqual(["c_new (a new booking)", "c_rs (a reschedule)"]);
+      expect(ways(closing, "c_new")).toEqual(["k3"]); expect(ways(closing, "k3")).toEqual(["k4"]); expect(ways(closing, "c_rs")).toEqual(["k5"]); expect(ways(closing, "k5")).toEqual(["k4"]);
+      expect(at(closing, "c_rs")).toMatchObject({ type: "pipeline_card", pipeline: "{{crm.pipeline_closer}}", stage: "{{crm.stage_closer_scheduled}}", keep_name: true });
+      expect((at(closing, "k4").properties as Record<string, string>).call_type).toBe("closing");
+      for (const id of ids.filter((id) => t.has(id) && !["t1", "t2", "k3", "k5", "k4", "v4"].includes(id))) expect(at(closing, id), `closing ${id}`).toEqual(t.get(id)); }
+    // triage: the booking paths and the setter card; its record a Discovery Call, owned by whoever takes the call; nothing of the closing call
+    { const ids = triage.nodes.map((n) => n.id);
+      expect([...t.keys()].filter((id) => !ids.includes(id))).toEqual(["s4", "b5", "k3", "k5", "k4"]);
+      expect(ids.filter((id) => !t.has(id)).sort()).toEqual(["d1", "d_rs"]);
+      expect(ways(triage, "s5")).toEqual(["d_rs"]); expect(ways(triage, "b6")).toEqual(["d_rs"]); expect(ways(triage, "d_rs")).toEqual(["d1"]); expect(ways(triage, "d1")).toEqual(["v4"]);
+      expect(at(triage, "d1")).toMatchObject({ type: "crm_record", object: "{{crm.object_discovery_call | default:custom_objects.discovery_call}}", key: "{{appointment.slot_key}}", owner: "{{appointment.closer.ghl_user_id | default:}}",
+        properties: expect.objectContaining({ setter: "{{appointment.closer.name | default:}}", outcome: "scheduled" }) });
+      expect(at(triage, "d_rs")).toMatchObject({ key: "{{event.slot.from | default:}}", if_missing: "skip", only_if: { eq: ["{{event._type}}", "appointment.rescheduled"] }, properties: { outcome: "rescheduled" } });
+      expect(JSON.stringify(triage)).not.toMatch(/pipeline_closer|object_sales_call|create_task/);
+      for (const id of ["s5", "b6"]) expect(at(triage, id).add).toEqual([...(t.get(id) as unknown as { add: string[] }).add, "stat-triage-first"]); }
+    for (const [d, type, card] of [[triage, "Triage call", "triage call"], [closing, "Closing call", "closing call"]] as const) {
+      for (const id of ["t1", "t2"]) expect(at(d, id).match).toEqual({ eq: ["{{appointment.term.name}}", type] });
+      expect(at(d, "v4")).toMatchObject({ value: { name: `${card.charAt(0).toUpperCase()}${card.slice(1)} rescheduled` }, else_value: { name: `New ${card} booked` } });
+    }
+    for (const id of ["s5", "b6"]) expect(at(closing, id)).toEqual(t.get(id));
+    expect(JSON.stringify(closing)).not.toContain("stat-triage-first");
+    for (const slug of ["triage-call-booked", "closing-call-booked"]) expect(file(slug)).toMatchObject({ create: { takesOver: "call-booked", stage: "booking" } });
     const nf = file("new-from-typeform") as unknown as { name: string; create: Record<string, unknown>; definition: { nodes: Record<string, unknown>[] } };
     expect(nf.name).toBe("New from Typeform");
     expect(nf.create).not.toHaveProperty("takesOver");

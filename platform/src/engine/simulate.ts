@@ -32,7 +32,7 @@ export const simTag = (tag: string): SimAction | null => { const m = /^sys-test-
  * `closer`: the roster name or email to book with (else the calendar's host, the bound default, the first closer); `startsAt`: an
  * exact start (book, or the new start of a reschedule), e.g. earlier today so the call is already due for the end-of-day form.
  * D125: `calendar` (book, book-self, reschedule, cancel, record): which mapped calendar, by its external id, its call type's name
- * ("Strategy session") or its own name; without it, book takes the closer call's calendar as before and the others the latest
+ * ("Triage call") or its own name; without it, book takes the closer call's calendar as before and the others the latest
  * open staged booking. `deposit` (pay): the payment is for a deposit (D119: by its product, or a name saying deposit).
  * D126: `outcome` (outcome): one of the company's end-of-day answers, by its value or its label ("deposit", "Closed", "no_show"), filed
  * for the latest open staged call that has started, by its closer, through the end-of-day form's own per-call path; `amount` is the

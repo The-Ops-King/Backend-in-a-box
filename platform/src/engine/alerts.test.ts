@@ -283,6 +283,17 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     await asOperator((c) => resolve(c, companyId, "step:00000000-0000-0000-0000-00000000000b:n1", later(62), true));
   });
 
+  it("D142: a calendar with no open times is said once, never hourly, and still closes with a ✅", async () => {
+    const at = new Date(); posts.length = 0;
+    const say = async (mins: number) => { await asOperator((c) => announceDue(c, fake, new Date(at.getTime() + mins * 60e3), companyId)); await tick(fake, undefined, companyId); };
+    await asOperator((c) => raise(c, { companyId, key: "health:calendly_calendars:ET-FULL", level: "warning", source: "health", text: "Event type \"Full\" has no available time", detail: { repeat: false } }, at));
+    await say(0); await say(61); await say(122);
+    expect(posts.filter((p) => /Full/.test(p.text)).map((p) => p.text.split("\n")[0])).toEqual(["🟡 *Alert Co · Health check*"]);
+    await asOperator((c) => resolve(c, companyId, "health:calendly_calendars:ET-FULL", new Date(at.getTime() + 130 * 60e3)));
+    await say(131);
+    expect(posts.at(-1)!.text).toMatch(/^✅ Resolved after .*Full/);
+  });
+
   it("raise/resolve are idempotent per open key", async () => {
     const t = new Date();
     expect((await asOperator((c) => raise(c, { companyId, key: "x:1", level: "warning", source: "engine", text: "a" }, t))).isNew).toBe(true);

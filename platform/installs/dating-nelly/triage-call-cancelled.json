@@ -1,0 +1,131 @@
+{
+ "workflow": "triage-call-cancelled",
+ "name": "Triage call cancelled",
+ "create": {
+  "stage": "booking",
+  "sort": 21
+ },
+ "definition": {
+  "schema": 1,
+  "reentry": "once_per_appointment",
+  "premise": {
+   "check": "appointment_exists"
+  },
+  "nodes": [
+   {
+    "id": "t1",
+    "type": "trigger",
+    "event": "appointment.status_changed",
+    "match": {
+     "and": [
+      {
+       "eq": [
+        "{{event.status.to}}",
+        "cancelled"
+       ]
+      },
+      {
+       "eq": [
+        "{{appointment.term.name}}",
+        "Triage call"
+       ]
+      },
+      {
+       "neq": [
+        "{{event.before_start}}",
+        false
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "n1",
+    "type": "pipeline_card",
+    "pipeline": "{{crm.pipeline_setter}}",
+    "stage": "{{crm.stage_setter_cancelled}}",
+    "name": "{{contact.name}} -- Cancelled"
+   },
+   {
+    "id": "n3",
+    "type": "update_contact",
+    "clear": [
+     "{{crm.field_contact_appointment_date}}"
+    ]
+   },
+   {
+    "id": "n5",
+    "type": "tags",
+    "add": [
+     "stat-cancelled"
+    ],
+    "remove": [
+     "stat-booked",
+     "stat-self-booked",
+     "stat-set",
+     "stat-confirmed"
+    ]
+   },
+   {
+    "id": "n6",
+    "type": "crm_record",
+    "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
+    "key": "{{appointment.slot_key}}",
+    "if_missing": "skip",
+    "properties": {
+     "outcome": "cancelled"
+    },
+    "title": "The Discovery Call record: cancelled"
+   },
+   {
+    "id": "n7",
+    "type": "slack_post",
+    "channel": "{{slack.channel.bookings}}",
+    "template": "*Cancelled:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Was booked with:* {{appointment.closer.name | default:unassigned}} · {{appointment.starts_at | date_company}}\n*Cancelled by:* {{appointment.cancelled_by | default:the invitee}}\n*Reason:* {{appointment.cancel_reason | default:none given}}\n*Phone:* {{contact.phone | default:—}}\n*Rebook task:* due in 1 day for {{appointment.closer.name | default:the team}}",
+    "as": {
+     "name": "Triage call cancelled",
+     "icon": [
+      ":x:",
+      ":calendar:",
+      ":no_entry_sign:"
+     ]
+    },
+    "title": "React ❌, reply in the booking thread",
+    "thread_of": "tag:appointment:{{appointment.id}}",
+    "react": "x"
+   },
+   {
+    "id": "x1",
+    "type": "exit",
+    "reason": "cancelled_recorded"
+   }
+  ],
+  "edges": [
+   {
+    "from": "t1",
+    "to": "n1"
+   },
+   {
+    "from": "n1",
+    "to": "n3"
+   },
+   {
+    "from": "n3",
+    "to": "n5"
+   },
+   {
+    "from": "n7",
+    "to": "x1"
+   },
+   {
+    "from": "n5",
+    "to": "n6"
+   },
+   {
+    "from": "n6",
+    "to": "n7"
+   }
+  ]
+ },
+ "note": "dating-nelly: Call cancelled for a Triage call (a triage call, which Call cancelled leaves to it): the setter card to Cancelled, the Discovery Call record cancelled, the tags, ❌ in the booking thread; no closer card, no task, no Sales Call (D142)"
+}
