@@ -67,3 +67,8 @@ Naming the exact mechanism locks the build in writing and makes it harder to cha
 
 Watch for "that's the difference between X and Y." It is one of the clearest AI tells
 in this document family.
+
+## Words for calls (Tyler, 2026-10-18)
+
+Calls are **triage** or **closing**. Never "demo": "I've used demo in the past but the new phrasing is triage or closing,
+we don't do demos." Applies to copy, Slack cards, workflow names and anything said to a client or a team.
