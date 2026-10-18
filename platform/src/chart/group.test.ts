@@ -131,7 +131,7 @@ describe("D114: a run of value-keeping steps is one box", () => {
   });
 
   it("every shipped template and PMU copy with a box is exact in the plain graph too, at both widths", async () => {
-    const all = [...templates.map((t) => ({ name: t.slug, d: parseDefinition(t.definition) })), ...fs.readdirSync(PMU).filter((f) => f.endsWith(".json")).map((f) => ({ name: `pmu/${f}`, d: pmu(f.replace(/\.json$/, "")) }))];
+    const all = [...templates.map((t) => ({ name: t.slug, d: parseDefinition(t.definition) })), ...fs.readdirSync(PMU).filter((f) => f.endsWith(".json") && f !== "playbook.json").map((f) => ({ name: `pmu/${f}`, d: pmu(f.replace(/\.json$/, "")) }))];
     let boxes = 0;
     for (const { name, d } of all) {
       const chart = chartOf(d, company); if (!helperRuns(chart).length) continue; boxes++;

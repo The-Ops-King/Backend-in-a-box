@@ -10,7 +10,7 @@ import { DateTime } from "luxon";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { templates } from "@/templates";
-import { datingCopies, datingPrompts, type DatingSetup, type DatingWords } from "../../installs/dating/copies";
+import { datingCopies, datingPrompts, type DatingSetup, type DatingWords } from "@/playbooks/application-triage";
 import { installCompany } from "./install";
 import { findCompanyWorkflow, saveDefinition, validateDefinition } from "./definitions";
 import { loadCompany } from "./context";
@@ -34,7 +34,7 @@ const HAIR_WORDS = /hair|scalp|follicle|thinning|saveyourhair|allan|telegram|cli
 describe("D118: Dating Nelly's copies", () => {
   it("are exactly what the build makes from the templates and her words (pnpm exec tsx scripts/build-copies.ts dating-nelly --check)", () => {
     const built = datingCopies("dating-nelly", words, { setup, install: installBits() });
-    expect(built.map((c) => c.workflow).sort()).toEqual(fs.readdirSync(DIR).filter((f) => f.endsWith(".json") && f !== "words.json" && f !== "copies.json").map((f) => f.replace(/\.json$/, "")).sort());
+    expect(built.map((c) => c.workflow).sort()).toEqual(fs.readdirSync(DIR).filter((f) => f.endsWith(".json") && f !== "words.json" && f !== "copies.json" && f !== "playbook.json").map((f) => f.replace(/\.json$/, "")).sort());
     for (const c of built) expect(file(c.workflow), c.workflow).toEqual(JSON.parse(JSON.stringify(c)));
     const install = JSON.parse(fs.readFileSync(INSTALL, "utf8")) as { prompts: Record<string, string>; salesCall: { objections: string[] } };
     expect(install.prompts).toEqual(datingPrompts(install.salesCall.objections));

@@ -1,6 +1,6 @@
 {
  "workflow": "call-outcome",
- "note": "PMU: one board. No setter card; a no-show moves the card to No Show; a deposit is its own disposition (Deposit, from PMU's sales_call.dispositions) and its card goes to Deposit once the board has that stage (D119)",
+ "note": "PMU: one board. No setter card; a no-show moves the card to No Show; a deposit is its own disposition (from PMU's sales_call.dispositions) and its card goes to Deposit once the board has that stage (D119)",
  "definition": {
   "schema": 1,
   "reentry": "always",
@@ -188,8 +188,8 @@
      "name": "No-show",
      "icon": ":ghost:"
     },
-    "template": "\ud83d\udc7b No-show for the call {{appointment.starts_at | date_company}} with {{appointment.closer.name | default:the closer}}.",
-    "title": "React \ud83d\udc7b on the booking post",
+    "template": "👻 No-show for the call {{appointment.starts_at | date_company}} with {{appointment.closer.name | default:the closer}}.",
+    "title": "React 👻 on the booking post",
     "tag": "outcome:{{appointment.id}}",
     "edit": true,
     "unreact": {
@@ -212,7 +212,7 @@
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_no_show}}",
     "if_missing": "skip",
-    "title": "Card \u2192 No Show (move only: they can rebook)",
+    "title": "Card → No Show (move only: they can rebook)",
     "pick": "latest",
     "status": "open"
    },
@@ -265,8 +265,8 @@
      "name": "Showed",
      "icon": ":white_check_mark:"
     },
-    "template": "\u2705 Showed, per {{appointment.closer.name | default:the closer}}: {{appointment.call_outcome | words | default:no call outcome given}}.",
-    "title": "React \u2705 on the booking post",
+    "template": "✅ Showed, per {{appointment.closer.name | default:the closer}}: {{appointment.call_outcome | words | default:no call outcome given}}.",
+    "title": "React ✅ on the booking post",
     "tag": "outcome:{{appointment.id}}",
     "edit": true,
     "unreact": {
@@ -344,7 +344,7 @@
     "only_if": {
      "exists": "crm.stage_closer_deposit"
     },
-    "title": "Closer card \u2192 Deposit (a deposit is not a close: the card waits there for the rest of the payment; skipped when the board has no Deposit stage bound)"
+    "title": "Closer card → Deposit (a deposit is not a close: the card waits there for the rest of the payment; skipped when the board has no Deposit stage bound)"
    },
    {
     "id": "c2",
@@ -359,7 +359,7 @@
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_follow_up}}",
     "if_missing": "skip",
-    "title": "Closer card \u2192 Follow Up",
+    "title": "Closer card → Follow Up",
     "pick": "latest",
     "status": "open"
    },
@@ -377,7 +377,7 @@
     "stage": "{{crm.stage_closer_lost}}",
     "if_missing": "skip",
     "status": "lost",
-    "title": "Closer card \u2192 Lost, marked lost",
+    "title": "Closer card → Lost, marked lost",
     "pick": "latest"
    },
    {
@@ -403,7 +403,7 @@
     "stage": "{{crm.stage_closer_disqualified}}",
     "if_missing": "skip",
     "status": "lost",
-    "title": "Closer card \u2192 Disqualified, marked lost",
+    "title": "Closer card → Disqualified, marked lost",
     "pick": "latest"
    },
    {
@@ -469,7 +469,7 @@
      "name": "Rescheduled",
      "icon": ":repeat:"
     },
-    "template": "\ud83d\udd01 Rescheduled or cancelled on the call, per {{appointment.closer.name | default:the closer}}.",
+    "template": "🔁 Rescheduled or cancelled on the call, per {{appointment.closer.name | default:the closer}}.",
     "title": "A changed answer: the thread line says rescheduled and the earlier reaction comes off",
     "tag": "outcome:{{appointment.id}}",
     "edit": true,

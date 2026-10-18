@@ -154,7 +154,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D118: the templates write the compan
 
   it("PMU: its own copies render the same on the new context; of the changed templates only Payment recorded's object differs, and PMU's copy already writes that object", async () => {
     await asOperator(async (c) => {
-      const copies = fs.readdirSync(PMU).filter((f) => f.endsWith(".json"));
+      const copies = fs.readdirSync(PMU).filter((f) => f.endsWith(".json") && f !== "playbook.json");
       expect(copies.length).toBeGreaterThan(5);
       const diffs = new Set<string>();
       for (const closer of [true, false]) {

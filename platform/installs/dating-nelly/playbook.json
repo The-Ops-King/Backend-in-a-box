@@ -1,0 +1,5 @@
+{
+  "_note": "D142: Dating Nelly runs the application-and-triage playbook (src/playbooks/application-triage.ts). Its params are kept in their own files: her words (words.json, D118) and her booked-call workflows (copies.json, D123). Build: pnpm exec tsx scripts/build-copies.ts dating-nelly (--check).",
+  "playbook": "application-triage",
+  "files": { "words": "words.json", "setup": "copies.json" }
+}

@@ -4799,3 +4799,29 @@ The Slack check's sibling, the steps check, now also says when an enabled workfl
 
 Tests: `sweep.test.ts` (D-5), `readiness.whop.test.ts`; Call booked as it was is frozen in `fixtures/before-d141` for D118's
 render comparisons.
+
+## D142. Playbooks: a company's copies are built from its process and today's templates; each workflow has a starting rung (2026-10-18)
+
+Tyler (#49): onboarding picks from a library of templates by how an offer sells, so we know what to tweak or rebuild per
+offer; Hair, PMU and Dating are the role clients. A **playbook** is a sales process (`src/playbooks/`): its traits (one board or
+a setter and a closer board, who books, an application form, a triage call) and a pure build that turns the shipped templates
+and an offer's params into the copies its process changes. Everything it does not change stays the template's and keeps its
+upgrades (D118). The three today:
+- `setter-closer` (Hair): the templates as shipped, no copies.
+- `one-board` (PMU): was `installs/pmu/build.py`, ported line for line; the nine definitions it builds are the Python's
+  exactly. What is PMU's own (board and stage names, what makes a lead, card names, call types, objections, the payment object,
+  the Slack faces) is its params in `installs/pmu/playbook.json`, checked when built (a bad one is refused, naming it).
+- `application-triage` (Dating): was `installs/dating/copies.ts`; its params stay in `words.json` and `copies.json`.
+
+A company's `installs/<company>/playbook.json` names its playbook; `scripts/build-copies.ts <company>` builds for any of them
+(`--check`), and `playbooks.test.ts` fails when a committed copy is not what its playbook builds from today's templates. Found
+doing this: PMU's committed Call booked, Call cancelled and Call recorded had fallen behind D141 (Call booked finding or making
+the person in GHL) and D118 (the Sales Call object from the company's setting). They are rebuilt here; **PMU's live copies
+are not saved yet** (POST /api/admin/workflows/definition, dryRun first, one per file).
+
+#48: a workflow's starting rung follows what it does (`src/engine/rung.ts`): a step that reaches a contact (text, email,
+document, outbound webhook: what quiet holds) → test, until its words are approved and it is proven on test contacts;
+nothing that reaches a contact → quiet from the start. It is the plan the go-live board starts from; nothing moves a workflow by
+it alone, and every move still passes the readiness gate (D92).
+
+Tests: `playbooks.test.ts`, `rung.test.ts`, `dating-copies.test.ts`.

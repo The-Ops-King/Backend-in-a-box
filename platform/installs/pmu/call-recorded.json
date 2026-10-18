@@ -156,8 +156,8 @@
      "name": "Showed",
      "icon": ":white_check_mark:"
     },
-    "template": "\u2705 Showed \u00b7 {{vars.convo.total_min | default:?}} min{{vars.parts_line}} with {{recording.closer.name | default:the closer}}. The review is in the calls channel.",
-    "title": "React \u2705 on the booking post",
+    "template": "✅ Showed · {{vars.convo.total_min | default:?}} min{{vars.parts_line}} with {{recording.closer.name | default:the closer}}. The review is in the calls channel.",
+    "title": "React ✅ on the booking post",
     "tag": "showed:{{appointment.id}}",
     "edit": true
    },
@@ -171,7 +171,7 @@
     "id": "k3",
     "type": "set_var",
     "key": "appt_line",
-    "value": "*Appointment:* {{appointment.starts_at | date_company}} \u00b7 marked showed"
+    "value": "*Appointment:* {{appointment.starts_at | date_company}} · marked showed"
    },
    {
     "id": "k2",
@@ -183,21 +183,21 @@
     "id": "k4",
     "type": "set_var",
     "key": "appt_line",
-    "value": "\u26a0\ufe0f No appointment matched this recording \u2014 nothing marked showed. Check the contact's bookings."
+    "value": "⚠️ No appointment matched this recording — nothing marked showed. Check the contact's bookings."
    },
    {
     "id": "k5",
     "type": "set_var",
     "key": "appt_line",
-    "value": "\u26a0\ufe0f A closing call by phone that lines up with none of their bookings \u2014 nothing marked showed. The team is asked which booking it was."
+    "value": "⚠️ A closing call by phone that lines up with none of their bookings — nothing marked showed. The team is asked which booking it was."
    },
    {
     "id": "r1",
     "type": "crm_record",
-    "object": "custom_objects.sales_call",
+    "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
     "key": "{{vars.call_key}}",
     "properties": {
-     "display_label": "{{contact.name | default:Unknown}} \u2014 {{recording.started_at | date_company:yyyy-MM-dd}}",
+     "display_label": "{{contact.name | default:Unknown}} — {{recording.started_at | date_company:yyyy-MM-dd}}",
      "external_id": "{{vars.call_key}}",
      "contact_id": "{{contact.ghl_contact_id | default:}}",
      "opportunity_id": "{{cards.closer.id | default:}}",
@@ -227,7 +227,7 @@
       "second": "{{cards.closer.id | default:}}"
      }
     ],
-    "template": "CALL SUMMARY \u2014 {{recording.started_at | date_company:yyyy-MM-dd}} \u00b7 {{recording.closer.name | default:closer unknown}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:\u2014}}",
+    "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}} · {{recording.closer.name | default:closer unknown}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}",
     "only_if": {
      "exists": "vars.call_key"
     }
@@ -235,13 +235,13 @@
    {
     "id": "n1",
     "type": "note",
-    "template": "CURRENT SITUATION: {{vars.notes.prospect_situation | default:\u2014}}\n\nPAINS: {{vars.notes.pain | join:\" \" | default:\u2014}}\n\nGOALS: {{vars.notes.desire | join:\" \" | default:\u2014}}\n\nOBJECTIONS: {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n\nFathom recording: {{recording.share_url | default:\u2014}}"
+    "template": "CURRENT SITUATION: {{vars.notes.prospect_situation | default:—}}\n\nPAINS: {{vars.notes.pain | join:\" \" | default:—}}\n\nGOALS: {{vars.notes.desire | join:\" \" | default:—}}\n\nOBJECTIONS: {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n\nFathom recording: {{recording.share_url | default:—}}"
    },
    {
     "id": "s1",
     "type": "slack_post",
     "channel": "{{slack.channel.calls}}",
-    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} \u00b7 {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n*Outcome:* {{vars.outcome.disposition | words | default:unclear}}\n\n*Current situation:* {{vars.notes.prospect_situation | default:\u2014}}\n*Pains:* {{vars.notes.pain | join:\" \" | default:\u2014}}\n*Goals:* {{vars.notes.desire | join:\" \" | default:\u2014}}\n*Objections:* {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n*Next step:* {{vars.notes.next_step | default:\u2014}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
+    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n*Outcome:* {{vars.outcome.disposition | words | default:unclear}}\n\n*Current situation:* {{vars.notes.prospect_situation | default:—}}\n*Pains:* {{vars.notes.pain | join:\" \" | default:—}}\n*Goals:* {{vars.notes.desire | join:\" \" | default:—}}\n*Objections:* {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n*Next step:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
     "as": {
      "name": "Sales call recorded",
      "icon": [
@@ -327,7 +327,7 @@
      "three",
      "x"
     ],
-    "template": "{{recording.closer.name | default:A closer}} had a {{vars.convo.total_min | default:?}}-minute closing call{{vars.parts_line}} by phone with <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> ({{recording.started_at | date_company}}) that lines up with none of their bookings. Which booking was it?\n{{vars.options.items | each:\"{{number}}. {{item.starts_at | date_company}} with {{item.closer | default:no closer}} ({{item.status}})\" | join:\"\\n\" | default:They have no closing call booked in the two weeks around it.}}\nTap 1\ufe0f\u20e3 2\ufe0f\u20e3 or 3\ufe0f\u20e3 for that booking (the first three), or \u274c if it was none of them. Nothing is marked until someone does; the question closes in two days.",
+    "template": "{{recording.closer.name | default:A closer}} had a {{vars.convo.total_min | default:?}}-minute closing call{{vars.parts_line}} by phone with <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> ({{recording.started_at | date_company}}) that lines up with none of their bookings. Which booking was it?\n{{vars.options.items | each:\"{{number}}. {{item.starts_at | date_company}} with {{item.closer | default:no closer}} ({{item.status}})\" | join:\"\\n\" | default:They have no closing call booked in the two weeks around it.}}\nTap 1️⃣ 2️⃣ or 3️⃣ for that booking (the first three), or ❌ if it was none of them. Nothing is marked until someone does; the question closes in two days.",
     "title": "Ask which booking the call was"
    },
    {
