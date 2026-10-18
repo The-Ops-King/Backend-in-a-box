@@ -810,3 +810,8 @@ Open, to settle before P0 is built:
 - Which of today's ~30 templates are "the core every offer gets", and which belong to a process.
 - Duplicating: does "duplicate PMU" copy PMU's settings that are not client-specific (call types, outcomes, alerts,
   prompts) as well as its workflow copies, or only the playbook? Secrets and ids never copy.
+
+Tyler, 2026-10-18: the core set is what runs today (new lead, call booked and cancelled, forms, Fathom recordings,
+agreements, payment and close, EODs, Health check and the rest). What to sell and build next is `08-problem-map.md`, his
+43 problems mapped against the engine: the core gaps come before new modules, and the wizard's intake asks which
+problems an offer has, to pick its modules.
