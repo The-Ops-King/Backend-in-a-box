@@ -9,12 +9,13 @@ import { one } from "@/db/client";
 import { playbooks } from "@/playbooks";
 import { fitReport, intakeProblems, INTAKE_FIELDS, type FitReport, type Intake, type IntakeField } from "./intake";
 import { connectionsState, type ConnectionRow } from "./connections";
+import type { Research } from "./research";
 
 /** The wizard's steps, in order. `built`: false until its slice of P1 is built, so the page says so instead of pretending. */
 export const STEPS = [
   { id: "offer", label: "The offer", about: "the product, how it sells, the software it runs on; picks the playbook and says what fits", built: true },
   { id: "connections", label: "Connections", about: "the keys this client's software needs, each tested live", built: true },
-  { id: "research", label: "Research", about: "their calendars, boards, fields and team, and which is which", built: false },
+  { id: "research", label: "Research", about: "their calendars, boards, fields and team, and which is which", built: true },
   { id: "slack", label: "Slack", about: "the app's manifest, its token and signing secret, which channel is for what", built: false },
   { id: "crm", label: "CRM build", about: "what the playbook needs in GHL, shown first, then built", built: false },
   { id: "messages", label: "Messages", about: "every text and email a client gets, written and approved", built: false },
@@ -35,6 +36,8 @@ export type OnboardingState = {
   fields: IntakeField[];
   /** D144: the keys the offer needs, what is kept (masked), each one's last live test */
   connections: ConnectionRow[];
+  /** D145: what was read from their accounts, the AI's suggestions, Tyler's answers */
+  research: Research | null;
   playbooks: { slug: string; name: string; about: string }[];
 };
 
@@ -60,8 +63,8 @@ export async function createClient(c: PoolClient, args: { name?: unknown; slug?:
 }
 
 export async function onboardingState(c: PoolClient, slug: string): Promise<OnboardingState | null> {
-  const r = await one<{ id: string; name: string; slug: string; timezone: string; mode: string; status: string; kind: "new" | "takeover"; intake: Intake; playbook: string | null; fit: FitReport | null; steps: Record<string, StepDone>; started_at: Date; finished_at: Date | null }>(c,
-    `select co.id, co.name, co.slug, co.timezone, co.mode, co.status, o.kind, o.intake, o.playbook, o.fit, o.steps, o.started_at, o.finished_at
+  const r = await one<{ id: string; name: string; slug: string; timezone: string; mode: string; status: string; kind: "new" | "takeover"; intake: Intake; playbook: string | null; fit: FitReport | null; steps: Record<string, StepDone>; research: Research | null; started_at: Date; finished_at: Date | null }>(c,
+    `select co.id, co.name, co.slug, co.timezone, co.mode, co.status, o.kind, o.intake, o.playbook, o.fit, o.steps, o.research, o.started_at, o.finished_at
      from companies co join onboarding o on o.company_id=co.id where co.slug=$1`, [slug]);
   if (!r) return null;
   return {
@@ -70,6 +73,7 @@ export async function onboardingState(c: PoolClient, slug: string): Promise<Onbo
     steps: STEPS.map((s) => ({ ...s, done: r.steps[s.id] ?? null })),
     intake: r.intake, playbook: r.playbook, fit: r.fit, fields: INTAKE_FIELDS,
     connections: (await connectionsState(c, r.id)).rows,
+    research: r.research,
     playbooks: playbooks.map((p) => ({ slug: p.slug, name: p.name, about: p.about })),
   };
 }

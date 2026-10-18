@@ -4879,3 +4879,23 @@ undone. Every test is recorded on the onboarding row, pass or fail; "Test again"
 every key the offer needs has passed, and a failed retest takes it back.
 
 Tests: `connections.test.ts`. Tried live with made-up keys: GHL and Anthropic refused them, the page said so, nothing was stored.
+
+## D145. The wizard's research: read what the client has, the AI guesses, Tyler confirms (2026-10-18)
+
+With the keys that passed (D144), "Read their accounts" reads their calendars (GHL) or event types (Calendly, every member's,
+with hosts and booking questions), their GHL team, boards, custom objects, and their own GHL workflows by name and status
+(`ghlWorkflows`: the API gives no triggers or steps; the GHL filters step goes through each). The AI, describe-config's
+proposer, reads that with the offer in Tyler's words and the answers that settle it (setters, triage, application, the
+closers' and setters' emails) and suggests what each calendar books, who books it, which is the closer call. Its guesses
+pre-fill the answers, each with its reason, and its open questions are shown above. The Anthropic key is the client's
+(Connections), else the engine's. A part that cannot be read is named and the rest still counts; the model failing leaves the
+reading, and every calendar is answered by hand.
+
+Tyler answers per calendar (closing, first call, qualifying, follow-up, or ignore; booked by the lead, a setter, the setter
+question or the company rule; their own name for the call), the closer call and the booking link, and per GHL user the role
+(closer, setter, manager, owner, staff, not on this offer; pre-filled from the offer's emails). The answers are saved even when
+something is left (each problem one line) and kept across a re-read for whatever is still there. Done when every calendar is
+answered, a closing calendar is the closer call, and someone closes. Nothing is written to the engine's calendars or roster
+here: install does that from these answers. The reading and the model's call run outside any database transaction.
+
+Tests: `research.test.ts`.

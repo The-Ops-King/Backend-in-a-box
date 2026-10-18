@@ -111,6 +111,7 @@ create table onboarding (
   fit         jsonb,                           -- the fit report when the intake was saved: per workflow fits / tweak / build / off, the gaps
   steps       jsonb not null default '{}',     -- step → { done_at, by }
   connections jsonb not null default '{}',     -- connection → its last live test { ok, at, detail | error } (never a key)
+  research    jsonb,                           -- what was read from their accounts, the AI's proposal, and Tyler's answers (D145)
   started_at  timestamptz not null default now(),
   started_by  text,
   finished_at timestamptz

@@ -326,3 +326,7 @@ pre.pre,pre.raw{font-size:12px;color:var(--fg-2);background:var(--panel-2);borde
 .form .checks input{width:auto}
 .banner ul{margin:6px 0 0;padding-left:18px}
 .addclient{margin-top:12px}
+.cal-row{display:grid;gap:8px;padding:12px 0;border-top:1px solid var(--line)}
+.cal-row:first-of-type{border-top:0}
+.cal-row .tag{margin-left:8px}
+.team-row{display:grid !important;grid-template-columns:minmax(0,1fr) minmax(0,220px);gap:10px;align-items:center}
