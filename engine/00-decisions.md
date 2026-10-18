@@ -4953,3 +4953,23 @@ setters it cannot run as shipped. The fit report now says so (build: a one-board
 starts.
 
 Tests: `crm.test.ts`, `provision.test.ts`, `intake.test.ts`.
+
+## D148. The wizard's install step; an onboarding company installs as new (2026-10-18)
+
+Install moved ahead of Messages: a client's messages are the words in its own copies of the workflows (copy edits, D118), which
+exist only once installed, and installing is safe (every workflow off, the company in ghost). The step puts together what the
+earlier steps learned into one `installCompany` (`src/onboarding/install.ts`): the location; the booking source (Calendly's kept
+token, or GHL's calendars); Research's calendars (ignored ones left out) with the closer call and the booking link; the CRM
+build's ids and what each Sales Call and Discovery Call option means; the team's roles; Whop's and Fathom's kept keys, so the
+engine registers its own webhooks. The GHL token is not passed: install reads the stored one. The templates a playbook workflow
+takes over (D123) are left out, so nothing has to be removed. A new offer's SMS starts off (its own GHL account has no approved
+number yet); a takeover's is left as it is. Then the playbook's copies go on (D142, all or nothing) and the company turns
+active, still in ghost. Refused until The offer, Connections, Research, Slack and the CRM build are done, naming the ones left.
+Installing again changes nothing.
+
+Found doing this: install turned four internal workflows on (Unlinked payment, Unmatched recording, Ledger drift, Card moved
+by hand). D88 starts a template that "carries what the engine used to do by itself" ON for a company that already existed, so
+an upgrade never drops it; Add client makes the company row first, so a brand-new client looked like an existing one. A
+company still onboarding with no workflows is now new to install: everything starts off (Tyler's rule).
+
+Tests: `install.test.ts`.

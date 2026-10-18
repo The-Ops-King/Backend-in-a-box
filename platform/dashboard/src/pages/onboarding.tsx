@@ -40,7 +40,8 @@ export function Onboarding() {
           : at === "connections" ? <ConnectionsStep slug={slug} d={d} invalidate={key} />
           : at === "research" ? <ResearchStep slug={slug} d={d} invalidate={key} />
           : at === "slack" ? <SlackStep slug={slug} invalidate={key} />
-          : at === "crm" ? <CrmStep slug={slug} d={d} invalidate={key} /> : null}
+          : at === "crm" ? <CrmStep slug={slug} d={d} invalidate={key} />
+          : at === "install" ? <InstallStep slug={slug} d={d} invalidate={key} /> : null}
       </section>
     </div>
   </>;
@@ -279,5 +280,39 @@ function CrmStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; inv
         <div className="rows">{by(a).map((l, i) => <div key={i} className="row noicon"><span className="mid"><span className="nm" style={{ whiteSpace: "normal" }}>{l.what}</span>{l.detail ? <span className="sub">{l.detail}</span> : null}</span></div>)}</div></Fold> : null)}
     </div>
     <p className="note">{d.steps.find((s) => s.id === "crm")!.done ? "Done: everything the playbook needs is in their GHL." : "Done once a build leaves nothing to make."}</p>
+  </>;
+}
+
+/** D148: everything the steps learned, installed in one go: every workflow off, the playbook's copies on, the company in ghost. */
+function InstallStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
+  const [out, setOut] = useState<{ installed: string[]; calendars: string[] } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const run = useAction<void, { installed: string[]; calendars: string[] }>(() => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "install" } }), [invalidate]);
+  const todo = d.steps.filter((s) => ["offer", "connections", "research", "slack", "crm"].includes(s.id) && !s.done);
+  if (todo.length) return <Empty>Finish {todo.map((s) => s.label).join(", ")} first: install puts together what they learned.</Empty>;
+  const done = d.steps.find((s) => s.id === "install")!.done;
+  const r = d.research!;
+  const mapped = r.calendars.filter((k) => r.answers.calendars[k.id] && r.answers.calendars[k.id].call_type !== "ignore");
+  const go = async () => {
+    if (!confirm("Install now? Every workflow goes in OFF and the company runs in ghost: the engine reads their accounts and writes and sends nothing.")) return;
+    setErr(null); try { setOut(await run.mutateAsync()); toast("Installed: everything off, running in ghost."); } catch (x) { setErr((x as Error).message); }
+  };
+  return <>
+    {err ? <div className="banner warn">{err}</div> : null}
+    <div className="call">
+      <b>What goes in</b>
+      <ul className="note">
+        <li>The {d.playbooks.find((p) => p.slug === d.playbook)?.name ?? d.playbook} playbook: every shipped workflow, its own copies where it changes them, every one OFF.</li>
+        <li>{mapped.length} calendar{mapped.length === 1 ? "" : "s"}: {mapped.map((k) => k.name).join(", ")}; the closer call is {r.calendars.find((k) => k.id === r.answers.closerCall)?.name ?? "not set"}.</li>
+        <li>The team: {r.users.filter((u) => r.answers.team[u.id] && r.answers.team[u.id] !== "staff" && r.answers.team[u.id] !== "none").map((u) => `${u.name} (${r.answers.team[u.id]})`).join(", ") || "nobody but staff"}.</li>
+        <li>The GHL ids the CRM build found or made, and what each Sales Call option means.</li>
+        {d.kind === "new" ? <li>SMS off: a new account has no approved number yet. Turn it on once A2P is through.</li> : null}
+        <li>Whop and Fathom get the engine's own webhooks, when their keys are connected.</li>
+      </ul>
+      <p className="note">Then the company turns active in <b>ghost</b>: the engine reads their accounts, runs nothing (every workflow is off), writes nothing, sends nothing. Installing again changes nothing.</p>
+      <div><button className="btn warn" type="button" onClick={go} disabled={run.isPending}>{run.isPending ? "Installing…" : done ? "Install again" : "Install"}</button></div>
+      {done ? <p className="note">Installed {ago(done.done_at)}.</p> : null}
+    </div>
+    {out ? <div className="call"><b>What the install did</b><ul className="note">{[...out.calendars, ...out.installed].map((l) => <li key={l}>{l}</li>)}</ul></div> : null}
   </>;
 }

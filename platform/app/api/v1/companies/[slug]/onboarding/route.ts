@@ -6,6 +6,8 @@ import { connect } from "@/onboarding/connections";
 import { gather, researchInput, saveResearch, saveResearchAnswers } from "@/onboarding/research";
 import { connectSlack, saveChannels, saveSlackOptions } from "@/onboarding/slack";
 import { crmInput, runCrm, saveCrm, saveCrmOptions } from "@/onboarding/crm";
+import { runInstall } from "@/onboarding/install";
+import { liveAdapters } from "@/adapters";
 export const dynamic = "force-dynamic"; export const maxDuration = 180;   // research reads their accounts and asks the model
 
 /** D143: the onboarding wizard of a client being stood up: its steps, what each saved, the intake's questions. */
@@ -25,11 +27,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
  * and kept with the signing secret; each channel slot's channel. GET …/onboarding/slack says where it stands.
  * { step: "crm", options } (D147) → the prefix; { step: "crm", run: "plan" | "build" } → their GHL read and what the playbook
  * needs planned (reads only), or built (only what is missing), outside any transaction while GHL is called.
+ * { step: "install" } (D148) → everything the steps learned installed, the playbook's copies on, the company active in ghost.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const body = await readJson<{ step?: string; intake?: unknown; playbook?: unknown; id?: unknown; values?: unknown; copyFrom?: unknown; answers?: unknown; options?: unknown; token?: unknown; signingSecret?: unknown; channels?: unknown; run?: unknown }>(req);
   if (!body?.step) return fail(400, "step is required");
+  if (body.step === "install") {
+    const co = await asOperator((c) => companyBySlug(c, slug)); if (!co) return fail(404, "no such company");
+    const r = await runInstall(asOperator, co.id, slug, liveAdapters, "dashboard");
+    return r.ok ? ok({ ok: true, installed: r.installed, calendars: r.calendars, playbook: r.playbook }) : fail(r.status, r.why, { ...(r.installed ? { installed: r.installed } : {}), ...(r.playbook ? { playbook: r.playbook } : {}) });
+  }
   if (body.step === "crm" && (body.run === "plan" || body.run === "build")) {
     const co = await asOperator((c) => companyBySlug(c, slug)); if (!co) return fail(404, "no such company");
     const input = await asOperator((c) => crmInput(c, co.id));
