@@ -328,6 +328,40 @@
     }
    },
    {
+    "id": "v_textoff",
+    "type": "set_var",
+    "key": "texts_off",
+    "value": "{{contact.sms_dnd}}",
+    "pick": {
+     "true": "has texts turned off (Do Not Disturb)"
+    },
+    "else_value": "",
+    "title": "Why no text can reach them: Do Not Disturb, or no phone"
+   },
+   {
+    "id": "v_nophone",
+    "type": "set_var",
+    "key": "texts_off",
+    "when": {
+     "and": [
+      {
+       "eq": [
+        "{{vars.texts_off}}",
+        ""
+       ]
+      },
+      {
+       "not": {
+        "exists": "contact.phone"
+       }
+      }
+     ]
+    },
+    "value": "has no phone number on file",
+    "else_value": "{{vars.texts_off}}",
+    "title": "…or no phone number on file"
+   },
+   {
     "id": "n_dnd",
     "type": "slack_post",
     "channel": "{{slack.channel.bookings}}",
@@ -337,9 +371,9 @@
     "only_if": {
      "and": [
       {
-       "eq": [
-        "{{contact.sms_dnd}}",
-        true
+       "neq": [
+        "{{vars.texts_off}}",
+        ""
        ]
       },
       {
@@ -354,8 +388,8 @@
      "name": "Texts off",
      "icon": ":warning:"
     },
-    "template": "⚠️ {{contact.first_name | default:They}} has texts turned off (Do Not Disturb), so no texts will reach them. Call or email instead.",
-    "title": "Texts off (Do Not Disturb): ⚠️ on the card and a note under it, once per booking"
+    "template": "⚠️ {{contact.first_name | default:They}} {{vars.texts_off}}, so no texts will reach them. Call or email instead.",
+    "title": "Texts can't reach them (Do Not Disturb or no phone): ⚠️ on the card and a note under it, once per booking"
    },
    {
     "id": "x1",
@@ -435,7 +469,7 @@
    },
    {
     "from": "n4",
-    "to": "n_dnd"
+    "to": "v_textoff"
    },
    {
     "from": "s2b",
@@ -460,6 +494,14 @@
    {
     "from": "n_dnd",
     "to": "x1"
+   },
+   {
+    "from": "v_textoff",
+    "to": "v_nophone"
+   },
+   {
+    "from": "v_nophone",
+    "to": "n_dnd"
    },
    {
     "from": "s5",

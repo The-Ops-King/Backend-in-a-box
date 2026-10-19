@@ -466,14 +466,16 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     expect(await blocked(stl.id)).toEqual([]);
   });
 
-  it("D188: a booking for someone with texts off gets ⚠️ on its card and a note under it, once: not for someone who can be texted, not again on a reschedule", async () => {
-    const dnd = (await contactByGhl("DND1"))!, ok = (await contactByGhl("TM1"))!;
-    await book(snap("A-DND1", { contactId: "DND1" })); await book(snap("A-TM1", { contactId: "TM1" }));
+  it("D188: a booking no text can reach (texts off, or no phone) gets ⚠️ on its card and a note under it saying why, once: not for someone who can be texted, not again on a reschedule", async () => {
+    const dnd = (await contactByGhl("DND1"))!, ok = (await contactByGhl("TM1"))!, mail = (await contactByGhl("EO1"))!;
+    await book(snap("A-DND1", { contactId: "DND1" })); await book(snap("A-TM1", { contactId: "TM1" })); await book(snap("A-EO1", { contactId: "EO1" }));
     await tick(fake, undefined, companyId);
     const step = async (contactId: string) => (await steps((await runOf("call-booked", contactId)).id)).find((x) => x.node_id === "n_dnd")!;
     // no Slack in this harness: the note is written and stops at the door, where the other's step never gets past its condition
     expect((await step(dnd.id)).result).toMatchObject({ why: "slack not connected", would_post: expect.stringMatching(/^⚠️ Quiet has texts turned off \(Do Not Disturb\)/) });
     expect((await step(ok.id)).result).toMatchObject({ kind: "noop" });
+    // no phone on file: the same note, saying why
+    expect((await step(mail.id)).result).toMatchObject({ would_post: "⚠️ Mail has no phone number on file, so no texts will reach them. Call or email instead." });
     const moved = daysOut(4);
     await book(snap("A-DND1", { contactId: "DND1", startTime: moved.toISO()!, endTime: moved.plus({ minutes: 45 }).toISO()!, dateUpdated: new Date(Date.now() + 1000).toISOString() }));
     await tick(fake, undefined, companyId);
