@@ -73,5 +73,7 @@ in this document family.
 Calls are **triage** or **closing**. Never "demo": "I've used demo in the past but the new phrasing is triage or closing,
 we don't do demos." Applies to copy, Slack cards, workflow names and anything said to a client or a team.
 
-PMU's exception (Tyler, 2026-10-19): "Demo for pmu is triage / discovery. I hate the phrase but that's what they chose." PMU's
-own team-facing words (its Calendly event, its Sales Call "demo" type) keep "demo"; it means a triage call.
+PMU (Tyler, 2026-10-19): "Demo for pmu is triage / discovery. I hate the phrase but that's what they chose ... Internal
+language is never demo for a call type. If that's the name of the call that's fine." So a calendar or event may be named
+"Demo Call" (PMU's Calendly "Beauty Moguls Demo Call"), but the call type is triage everywhere the engine names it: the
+calendar mapping, Slack cards, records, picklists and workflow words.
