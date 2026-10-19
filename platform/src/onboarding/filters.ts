@@ -1,5 +1,5 @@
 /**
- * D158 (#53 P1, step 8): the client's own GHL workflows, and the check before every rung up. Tyler: "add a filter on existing
+ * D180 (#53 P1, step 8): the client's own GHL workflows, and the check before every rung up. Tyler: "add a filter on existing
  * GHL workflows so nothing has an issue", reminded "every time as part of the go-live", and (2026-10-19) checked at every rung up.
  *
  * GHL's API lists a location's workflows (id, name, status) but not their triggers or actions, so the engine cannot tell what
@@ -11,7 +11,7 @@
  * The step is done when the list has been read and every workflow on it is marked. Their list can change any day, so before every
  * rung up (the company's or one workflow's, every door: setCompanyMode and setWorkflowMode) the engine needs a fresh check: the list
  * read again live, nothing new or unmarked, nothing marked off that is on. The check is used by the one move it was made for and
- * lasts 30 minutes. Companies not onboarded through the wizard (no onboarding row) and template businesses (D161) are not gated.
+ * lasts 30 minutes. Companies not onboarded through the wizard (no onboarding row) and template businesses (D183) are not gated.
  */
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
@@ -105,7 +105,7 @@ export async function confirmCheck(c: PoolClient, companyId: string, list: Their
  */
 export async function useCheck(c: PoolClient, companyId: string, what: string): Promise<string | null> {
   const row = await one<{ filters: Filters; template: boolean }>(c, "select o.filters, co.status='template' as template from onboarding o join companies co on co.id=o.company_id where o.company_id=$1 for update of o", [companyId]);
-  // D161: a template business is tested in Tyler's own sandbox account, not a client's: its record is the tests' store, not a wizard
+  // D183: a template business is tested in Tyler's own sandbox account, not a client's: its record is the tests' store, not a wizard
   if (!row || row.template) return null;
   const chk = row.filters.check;
   if (!chk || chk.used_at || Date.now() - Date.parse(chk.at) > CHECK_MINUTES * 60e3)

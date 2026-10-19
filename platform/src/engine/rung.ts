@@ -2,7 +2,7 @@ import type { Definition, Node } from "./definition";
 import type { Mode } from "./mode";
 
 /**
- * #48 (D148): the rung a workflow is meant to stand on while its company is still being proven, from what it does. A workflow
+ * #48 (D170): the rung a workflow is meant to stand on while its company is still being proven, from what it does. A workflow
  * with a step that reaches a contact (a text, an email, a document to sign, an outbound webhook: everything quiet holds) waits
  * in test until its words are approved and it is proven on test contacts; one that only does the team's work (the CRM, Slack,
  * reports, end of day) can stand in quiet from the start, real for everyone, nothing reaching a contact. This is the plan the

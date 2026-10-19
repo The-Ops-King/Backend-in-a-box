@@ -1,4 +1,4 @@
-/** #48 (D148): a workflow's starting rung follows what it does: anything that reaches a contact starts in test, the rest in quiet. */
+/** #48 (D170): a workflow's starting rung follows what it does: anything that reaches a contact starts in test, the rest in quiet. */
 import { describe, it, expect } from "vitest";
 import { templates } from "@/templates";
 import { parseDefinition } from "@/engine/definition";

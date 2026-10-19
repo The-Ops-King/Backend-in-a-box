@@ -1,5 +1,5 @@
 {
-  "_note": "D148: PMU runs the one-board playbook (src/playbooks/one-board.ts). These are PMU's own params; its copies in this folder are what the build makes from the shipped templates and them: pnpm exec tsx scripts/build-copies.ts pmu (--check: say whether they are current). Save each with POST /api/admin/workflows/definition (dryRun first).",
+  "_note": "D170: PMU runs the one-board playbook (src/playbooks/one-board.ts). These are PMU's own params; its copies in this folder are what the build makes from the shipped templates and them: pnpm exec tsx scripts/build-copies.ts pmu (--check: say whether they are current). Save each with POST /api/admin/workflows/definition (dryRun first).",
   "playbook": "one-board",
   "params": {
     "name": "PMU",
@@ -12,6 +12,7 @@
     "objections": ["price", "think_about_it", "spouse_partner", "timing", "finances", "already_working_with_someone", "tried_similar_before", "no_time_to_implement", "skeptical_it_works", "needs_more_info", "shopping_around", "financing_declined", "too_early_in_business", "went_dark", "not_qualified", "none"],
     "recordedDispositions": ["closed_won", "follow_up", "lost", "dq"],
     "paymentObject": "custom_objects.cash",
-    "slackIcons": [":bomb:", ":clapper:", ":fire:", ":snowman:", ":airplane:", ":fire_engine:", ":tent:", ":volcano:", ":beach_with_umbrella:", ":dragon_face:", ":eagle:", ":panda_face:", ":wolf:", ":lion_face:", ":brain:", ":dizzy:", ":boom:", ":mirror_ball:", ":ninja:", ":gorilla:"]
+    "slackIcons": [":bomb:", ":clapper:", ":fire:", ":snowman:", ":airplane:", ":fire_engine:", ":tent:", ":volcano:", ":beach_with_umbrella:", ":dragon_face:", ":eagle:", ":panda_face:", ":wolf:", ":lion_face:", ":brain:", ":dizzy:", ":boom:", ":mirror_ball:", ":ninja:", ":gorilla:"],
+    "noPreCall": ["Follow-up call"]
   }
 }

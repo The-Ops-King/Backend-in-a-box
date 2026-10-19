@@ -1,5 +1,5 @@
 /**
- * D150 (#53 P1): the wizard's second step, the keys a client's software needs. Which ones follows from the offer's answers
+ * D172 (#53 P1): the wizard's second step, the keys a client's software needs. Which ones follows from the offer's answers
  * (GHL always; Calendly when it books there; Whop, Fathom, Typeform when it uses them; the AI keys always). Each key is tested
  * against its service before anything is kept: a key that does not work is never stored. Kept keys are encrypted (bindings,
  * D100's crypto) under the same names install reads, never shown again (the page shows "ends with 1234"), never logged. The AI

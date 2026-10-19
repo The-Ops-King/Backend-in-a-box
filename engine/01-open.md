@@ -903,14 +903,14 @@ Open, to settle before P0 is built:
 - Duplicating: does "duplicate PMU" copy PMU's settings that are not client-specific (call types, outcomes, alerts,
   prompts) as well as its workflow copies, or only the playbook? Secrets and ids never copy.
 
-**P0 built 2026-10-18 (D148):** playbooks (`setter-closer` Hair, `one-board` PMU, `application-triage` Dating), the starting
+**P0 built 2026-10-18 (D170):** playbooks (`setter-closer` Hair, `one-board` PMU, `application-triage` Dating), the starting
 rung per workflow (closes #48's rule), putting a playbook on a company and duplicating an offer's settings
 (`POST /api/admin/playbooks`). To do by Tyler: PMU's live copies are behind D141 and D118; `scripts/apply-playbook.ts pmu`
 (a dry run) says what saving them changes, `--apply` saves them.
 
 **The full walkthrough (Tyler, 2026-10-18), the wizard's steps in order:**
-1. **The offer**: the product, the sales process, the software (built, D149).
-2. **Connections**: every key, tested live (built, D150).
+1. **The offer**: the product, the sales process, the software (built, D171).
+2. **Connections**: every key, tested live (built, D172).
 3. **Research**: their calendars or event types, boards, team: which is the sales call, who closes, who sets.
 4. **Slack**: the manifest generated, the app installed, signing secret and token, which channel is for what.
 5. **CRM build**: a new offer gets what the playbook needs built (dry run first); a takeover is adapted to.
@@ -922,15 +922,15 @@ rung per workflow (closes #48's rule), putting a playbook on a company and dupli
    gets #40's filter, nobody new enters, at the moment ours goes live), kept (it gets a filter so the engine's tags and test
    contacts never trigger it: the D90 double welcome), or turned off. Tyler, 1a: "add a filter on existing GHL workflows so
    nothing has an issue."
-10. **Go live, per workflow**: each up its own rung (internal ones start in quiet, client-facing ones in test, D148).
+10. **Go live, per workflow**: each up its own rung (internal ones start in quiet, client-facing ones in test, D170).
 11. **Fully live**: every workflow live, tested, no errors; messages approved; SMS registration approved or SMS off; the
     email domain verified; every GHL workflow on the checklist handled; and a reminder, every time, to check that test
     contacts reach none of the client's own automations (Tyler, 1b). A takeover (a live offer) also needs 2 to 3 clean days
     on the engine first; a new offer built from templates can go as soon as its test passes are green (Tyler, 2).
 A shared GHL account (1c) is rare; the scope tag (D117) covers it.
 
-**P1 slice 1 built 2026-10-18 (D149):** Add client, the wizard page, the offer step (intake → playbook → fit report).
-**Slice 2 built (D150):** connections, every key tested live before it is kept. **Slice 3 built (D151):** research. **Slice 4 built (D152):** Slack. **Slice 5 built (D153):** CRM build. **Slice 6 built (D154):** install (moved ahead of Messages). **Slice 7 built (D155):** messages, and a company's words kept apart from the steps. **Template businesses (D156).** **Slice 8 built (D157):** test passes. **D158:** their GHL workflows (now step 8, ahead of the tests), checked again before every rung up. **D159:** the wizard makes the test contact. **D160/D161:** template businesses tested by Claude in the snapshot sub-account (admin API, not the wizard), publish gated on a current pass. **09-possibilities** waits on Tyler's marks. Next: go live per workflow, fully live.
+**P1 slice 1 built 2026-10-18 (D171):** Add client, the wizard page, the offer step (intake → playbook → fit report).
+**Slice 2 built (D172):** connections, every key tested live before it is kept. **Slice 3 built (D173):** research. **Slice 4 built (D174):** Slack. **Slice 5 built (D175):** CRM build. **Slice 6 built (D176):** install (moved ahead of Messages). **Slice 7 built (D177):** messages, and a company's words kept apart from the steps. **Template businesses (D178).** **Slice 8 built (D179):** test passes. **D180:** their GHL workflows (now step 8, ahead of the tests), checked again before every rung up. **D181:** the wizard makes the test contact. **D182/D183:** template businesses tested by Claude in the snapshot sub-account (admin API, not the wizard), publish gated on a current pass. **09-possibilities** waits on Tyler's marks. Next: go live per workflow, fully live.
 
 Tyler, 2026-10-18: the core set is what runs today (new lead, call booked and cancelled, forms, Fathom recordings,
 agreements, payment and close, EODs, Health check and the rest). What to sell and build next is `08-problem-map.md`, his

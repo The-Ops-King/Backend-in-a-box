@@ -662,7 +662,7 @@ keys with one meaning, the one with no reason), unbound the engine's own keys (`
 deposit key gets the field emptied on a deposit until it adds the option in GHL and declares it (`"deposit": "deposit"`).
 A call filed as a deposit moves the closer card to `crm.stage_closer_deposit` (the board's Deposit stage, after Follow Up);
 unbound, that step skips and says the board has no Deposit stage.
-A company's own words (a welcome, DQ reasons) are company copies. A company runs one playbook (D148, `src/playbooks/`):
+A company's own words (a welcome, DQ reasons) are company copies. A company runs one playbook (D170, `src/playbooks/`):
 `installs/<company>/playbook.json` names it and holds its params, and `scripts/build-copies.ts <company>` builds its copies
 from the current templates (`--check` says which fell behind; `playbooks.test.ts` fails on one).
 

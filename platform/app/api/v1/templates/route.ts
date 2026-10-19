@@ -5,7 +5,7 @@ import { PLAYBOOK_KEY } from "@/playbooks/apply";
 import { ensureTemplateBusiness, latestRelease, publish, setTemplateParams, templateSlug } from "@/playbooks/template-business";
 export const dynamic = "force-dynamic";
 
-/** D156: each playbook, its template business (when made) with its params, and its latest release. */
+/** D178: each playbook, its template business (when made) with its params, and its latest release. */
 export async function GET() {
   // one connection, one query at a time
   return ok(await asOperator(async (c) => {

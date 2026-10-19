@@ -1,5 +1,5 @@
 /**
- * D158: their own GHL workflows, marked one by one, and the check before every move up: the list read again live, nothing new,
+ * D180: their own GHL workflows, marked one by one, and the check before every move up: the list read again live, nothing new,
  * unmarked or marked off while on; a clean check is used by one move and lasts 30 minutes; a company not onboarded through the
  * wizard is not gated.
  */
@@ -15,7 +15,7 @@ import { confirmCheck, filtersState, markWorkflow, problemsOf, readTheirWorkflow
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const theirs: TheirWorkflow[] = [{ id: "w1", name: "Old booking confirmation", status: "published" }, { id: "w2", name: "Birthday text", status: "draft" }];
 
-describe("D158: problemsOf", () => {
+describe("D180: problemsOf", () => {
   it("names each workflow not marked, and one marked off that GHL says is on", () => {
     expect(problemsOf(theirs, {})).toEqual(["Old booking confirmation (published): not marked yet", "Birthday text (draft): not marked yet"]);
     const m = (mark: "off" | "filtered") => ({ mark, name: "x", status: "draft", at: "", by: "t" });
@@ -24,7 +24,7 @@ describe("D158: problemsOf", () => {
   });
 });
 
-describe.skipIf(!process.env.DATABASE_URL)("D158: their GHL workflows and the check before every move up", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D180: their GHL workflows and the check before every move up", () => {
   let id: string, wf: string;
   const wipe = async (slug: string) => asOperator(async (c) => {
     const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [slug]); if (!co) return;

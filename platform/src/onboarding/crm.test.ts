@@ -1,5 +1,5 @@
 /**
- * D153: the CRM build. The setup is made from the client's playbook, params and research; built into an empty GHL it yields
+ * D175: the CRM build. The setup is made from the client's playbook, params and research; built into an empty GHL it yields
  * every GHL id the playbook's workflows require (the agreement template and sender are the client's own documents, picked by
  * hand); a plan reads only; a build makes only what is missing and a second build makes nothing; the step is done after a
  * build that left nothing to make.
@@ -26,7 +26,7 @@ function required(slug: string): string[] {
   const pb = playbookOf(slug), copies = pb.build("x", pb.defaults("X Offer") ?? undefined, { salesCall: { objections: ["price"] }, scopeTag: "x", calendars: {} }).copies;
   const replaced = new Set(copies.map((c) => c.create?.takesOver ?? c.workflow));
   const defs = [...templates.filter((t) => !replaced.has(t.slug)).map((t) => ({ slug: t.slug, def: t.definition as unknown })), ...copies.map((c) => ({ slug: c.workflow, def: c.definition as unknown }))]
-    // D153: Setter call logged on one board is on the build list (it needs a one-board copy), not the setup's to satisfy
+    // D175: Setter call logged on one board is on the build list (it needs a one-board copy), not the setup's to satisfy
     .filter((d) => !(pb.traits.boards === "one" && d.slug === "setter-call-logged"));
   return [...new Set(defs.flatMap((d) => extractManifest(parseDefinition(d.def)).bindings.filter((b) => b.required && b.key.startsWith("crm.")).map((b) => b.key.slice(4))))]
     .filter((k) => !["location_id", "agreement_template", "agreement_sender"].includes(k)).sort();
@@ -67,7 +67,7 @@ describe("the setup a client's GHL gets", () => {
   });
 });
 
-describe.skipIf(!process.env.DATABASE_URL)("D153: the CRM step", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D175: the CRM step", () => {
   let id: string;
   const intake: Intake = { business: "Crm Co", price: "5000", deposits: true, payment_plans: false, lead_paths: ["ads_direct_book"], application: "none", setters: true, triage: false, boards: "setter_and_closer",
     journey: "Setters book, closers close.", crm: "ghl", booking: "ghl", payments: "whop", recording: "fathom", agreement: "ghl_documents" };

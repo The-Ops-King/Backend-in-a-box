@@ -13,7 +13,7 @@ import type { Message } from "@/onboarding/messages";
 import type { TestsState, ScenarioResult } from "@/onboarding/tests";
 import type { FiltersState, Mark } from "@/onboarding/filters";
 
-/** D149 (#53 P1): standing a client up, step by step. Every step saves; Tyler can stop for days and come back to the same place. */
+/** D171 (#53 P1): standing a client up, step by step. Every step saves; Tyler can stop for days and come back to the same place. */
 export function Onboarding() {
   const { slug = "" } = useParams();
   const key = ["onboarding", slug];
@@ -105,7 +105,7 @@ function FitView({ fit }: { fit: FitReport }) {
   </div>;
 }
 
-/** D150: each key the offer needs, tested live before it is kept; a kept key is never shown again, only "ends with 1234". */
+/** D172: each key the offer needs, tested live before it is kept; a kept key is never shown again, only "ends with 1234". */
 function ConnectionsStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
   if (!d.steps.find((s) => s.id === "offer")!.done) return <Empty>Answer The offer first: it says which tools this client runs on, and so which keys are needed.</Empty>;
   const passed = d.connections.filter((r) => r.check?.ok).length;
@@ -148,7 +148,7 @@ const CALL_WORDS: Record<CalendarAnswer["call_type"], string> = { closing: "Clos
 const BOOKED_WORDS = { self: "the lead books it", setter: "a setter books it", question: "a booking question names the setter", company: "the company rule" } as const;
 const ROLE_WORDS: Record<Role, string> = { closer: "Closer", setter: "Setter", manager: "Manager", owner: "Owner", staff: "Staff", none: "Not on this offer" };
 
-/** D151: what their accounts have, the AI's guesses filled in, Tyler confirms each calendar and each person. */
+/** D173: what their accounts have, the AI's guesses filled in, Tyler confirms each calendar and each person. */
 function ResearchStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
   const r = d.research;
   const [ans, setAns] = useState<ResearchAnswers | null>(r?.answers ?? null);
@@ -201,7 +201,7 @@ function ResearchStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage
   </>;
 }
 
-/** D152: the app made from a generated manifest, its token tested, then a channel for each slot. */
+/** D174: the app made from a generated manifest, its token tested, then a channel for each slot. */
 function SlackStep({ slug, invalidate }: { slug: string; invalidate: string[] }) {
   const key = ["onboarding-slack", slug];
   const q = usePage<SlackState>(key, `/api/v1/companies/${slug}/onboarding/slack`, { every: 120_000 });
@@ -252,7 +252,7 @@ function SlackStep({ slug, invalidate }: { slug: string; invalidate: string[] })
 }
 
 const ACTION_WORDS: Record<string, string> = { create: "Will be made", "change-on-ours": "Will be changed (ours only)", "missing-on-ours": "Missing from ours", blocked: "Blocked: needs a hand", "exists-differs": "There, but not as the playbook has it", exists: "Already there" };
-/** D153: what the playbook needs in their GHL, planned (reads only), then built (only what is missing). */
+/** D175: what the playbook needs in their GHL, planned (reads only), then built (only what is missing). */
 function CrmStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
   const [prefix, setPrefix] = useState(d.crm?.options.prefix ?? "");
   const [err, setErr] = useState<string | null>(null);
@@ -289,7 +289,7 @@ function CrmStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; inv
   </>;
 }
 
-/** D154: everything the steps learned, installed in one go: every workflow off, the playbook's copies on, the company in ghost. */
+/** D176: everything the steps learned, installed in one go: every workflow off, the playbook's copies on, the company in ghost. */
 function InstallStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
   const [out, setOut] = useState<{ installed: string[]; calendars: string[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -323,7 +323,7 @@ function InstallStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage;
   </>;
 }
 
-/** D155: every text and email a contact can get, written and approved one by one; changed words need approving again. */
+/** D177: every text and email a contact can get, written and approved one by one; changed words need approving again. */
 function MessagesStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
   const key = ["onboarding-messages", slug];
   const q = usePage<{ messages: Message[]; ready: boolean }>(key, `/api/v1/companies/${slug}/onboarding/messages`, { every: 120_000 });
@@ -345,7 +345,7 @@ const FIRES_ON = ["Contact tag added or removed (every tag step)", "Pipeline sta
   "Appointment status: real bookings only, once live (staged bookings never reach GHL)", "Their Zaps listening to any of the above"];
 
 /**
- * D158: their own GHL workflows, read live, each marked by Tyler after opening it in GHL (the API gives names, not triggers),
+ * D180: their own GHL workflows, read live, each marked by Tyler after opening it in GHL (the API gives names, not triggers),
  * and the check every move up needs: the list read again, nothing new or unmarked.
  */
 function FiltersStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
@@ -376,7 +376,7 @@ function FiltersStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage;
   </>;
 }
 
-/** D158: the check a move up needs: their list read again live; refused, naming each, while anything is new or unmarked. Used by the next move up, for 30 minutes. */
+/** D180: the check a move up needs: their list read again live; refused, naming each, while anything is new or unmarked. Used by the next move up, for 30 minutes. */
 function AutomationsCheck({ slug, invalidate }: { slug: string; invalidate: string[][] }) {
   const key = ["onboarding-filters", slug];
   const q = usePage<FiltersState>(key, `/api/v1/companies/${slug}/onboarding/filters`, { every: 60_000 });
@@ -397,7 +397,7 @@ function AutomationsCheck({ slug, invalidate }: { slug: string; invalidate: stri
   </div>;
 }
 
-/** D159: the test contact made in their GHL: your own email (the send lock knows it), tagged sys-test, read back at once. */
+/** D181: the test contact made in their GHL: your own email (the send lock knows it), tagged sys-test, read back at once. */
 function MakeTestContact({ slug, suggested, first, invalidate, onMade }: { slug: string; suggested: string | null; first: boolean; invalidate: string[][]; onMade: (id: string) => void }) {
   const [open, setOpen] = useState(first), [email, setEmail] = useState(suggested ?? ""), [phone, setPhone] = useState(""), [err, setErr] = useState<string | null>(null);
   const post = useAction<void, { id: string; email: string; created: boolean }>(() => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "test", makeContact: true, email, phone } }), invalidate);
@@ -413,7 +413,7 @@ function MakeTestContact({ slug, suggested, first, invalidate, onMade }: { slug:
 }
 
 /**
- * D157: the test passes. Choose the test contact and the rung, turn the offer's workflows on, then run each journey on that
+ * D179: the test passes. Choose the test contact and the rung, turn the offer's workflows on, then run each journey on that
  * contact (one request each: a journey ticks the company between its steps). Every run a journey started is listed with how it
  * ended; a workflow no journey reaches is checked by hand and accepted with a note.
  */
@@ -486,7 +486,7 @@ function TestStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; in
   </>;
 }
 
-/** One text or email, its words editable; `approvable` adds the onboarding approval (D155). Also the template business's words page (D156). */
+/** One text or email, its words editable; `approvable` adds the onboarding approval (D177). Also the template business's words page (D178). */
 export function MessageCard({ url, extra = {}, approvable, m, invalidate }: { url: string; extra?: Record<string, unknown>; approvable?: boolean; m: Message; invalidate: string[][] }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);

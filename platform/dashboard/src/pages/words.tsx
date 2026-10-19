@@ -6,7 +6,7 @@ import { MessageCard } from "./onboarding";
 import type { Message } from "@/onboarding/messages";
 import type { TemplatesPage } from "./templates";
 
-/** D156: a company's texts and emails, their words editable (kept as its own, D155); for a template business, its playbook's params too. */
+/** D178: a company's texts and emails, their words editable (kept as its own, D177); for a template business, its playbook's params too. */
 export function Words() {
   const { slug = "" } = useParams();
   const key = ["words", slug];

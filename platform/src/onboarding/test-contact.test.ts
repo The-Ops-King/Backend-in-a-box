@@ -1,5 +1,5 @@
 /**
- * D159: the wizard makes the test contact in their GHL: the email as given (the send lock matches it exactly), tagged sys-test, its domain a test
+ * D181: the wizard makes the test contact in their GHL: the email as given (the send lock matches it exactly), tagged sys-test, its domain a test
  * domain, read back at once; one already there is tagged, not made twice; refused until their GHL workflows are marked.
  */
 import { describe, it, expect, beforeAll } from "vitest";
@@ -14,7 +14,7 @@ import { testContacts } from "@/onboarding/tests";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 
-describe.skipIf(!process.env.DATABASE_URL)("D159: the test contact, made by the wizard", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D181: the test contact, made by the wizard", () => {
   let id: string;
   const ghl = new Map<string, ContactSnapshot>(), made: unknown[] = [], tagged: string[] = [];
   const adapters = fakeAdapters();

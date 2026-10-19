@@ -12,7 +12,7 @@
  * Words still marked [placeholder] keep their sends from going out: each such send is skipped ("only if there is a welcome
  * copy written", which nothing sets) until the words are the company's and the copies are built again.
  * Build: pnpm exec tsx scripts/build-copies.ts dating-nelly (--check: say whether the files are current, write nothing).
- * D148: this is the application-and-triage playbook (two boards, an application form, a triage call, a booked-call workflow per
+ * D170: this is the application-and-triage playbook (two boards, an application form, a triage call, a booked-call workflow per
  * call type); it was installs/dating/copies.ts.
  */
 import { after, drop, load, node, RESCHEDULE, template, type Copy, type Def, type Edge } from "./kit";

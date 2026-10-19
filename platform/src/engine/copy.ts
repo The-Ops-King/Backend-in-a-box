@@ -4,7 +4,7 @@ import type { Layout } from "@/api/chart-verdict";
 
 /**
  * Editing the words of a message in a company's copy of a workflow: a new workflow version with only that text changed,
- * validated the way a save from the editor would be (every {{placeholder}} must be a root the engine knows). D155: the words are
+ * validated the way a save from the editor would be (every {{placeholder}} must be a root the engine knows). D177: the words are
  * kept apart and laid over every build, so the copy stays untouched and keeps its template's upgrades. Runs already in flight
  * keep the version they started on.
  */
@@ -20,7 +20,7 @@ export function validateCopy(text: string): { ok: true } | { ok: false; why: str
   return { ok: true };
 }
 
-/** D155: a word edit is kept in the company's words (src/engine/words.ts) and laid on the workflow; it no longer freezes the copy. */
+/** D177: a word edit is kept in the company's words (src/engine/words.ts) and laid on the workflow; it no longer freezes the copy. */
 export async function saveCopy(c: PoolClient, args: { workflowId: string; nodeId: string; field: CopyField; text: string; by?: string }): Promise<{ ok: true; version: number; layout?: Layout } | { ok: false; why: string }> {
   const { setWord } = await import("./words");
   return setWord(c, args);

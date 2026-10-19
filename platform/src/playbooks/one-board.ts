@@ -1,5 +1,5 @@
 /**
- * D148: the one-board playbook (PMU's process): one closer board carries a person through the whole journey (New Lead → Booked
+ * D170: the one-board playbook (PMU's process): one closer board carries a person through the whole journey (New Lead → Booked
  * Call → Confirmed / Unresponsive → Rescheduled / Cancelled / No Show → Follow Up / Lost / DQ → Purchase → won); there is no
  * setter board. Who set a call comes from the booking. Calls are recorded, payments go on the company's own payment object,
  * and the agreement goes out on the first payment. What is the offer's own (the board's and stages' names, what makes a lead, the
@@ -29,6 +29,8 @@ export type OneBoardParams = {
   paymentObject: string;
   /** the faces the recording's Slack post rotates through */
   slackIcons: string[];
+  /** D170 (main): closing call types that get no pre-call reminders, by name (PMU: "Follow-up call", a follow-up or a reschedule) */
+  noPreCall?: string[];
 };
 
 const CLOSER = "{{crm.pipeline_closer}}";
@@ -126,6 +128,7 @@ export function oneBoardCopies(p: OneBoardParams): Copy[] {
 
   // Pre-call sequence: the card follows the confirmation
   d = load("pre-call-sequence");
+  if (p.noPreCall?.length) for (const t of ["t1", "t2"]) (node(d, t) as Node & { match?: unknown }).match = { and: [{ eq: ["{{appointment.term.category}}", "closing"] }, ...p.noPreCall.map((n) => ({ neq: ["{{appointment.term.name}}", n] }))] };
   const follow = (id: string, title: string, stage: string): Node => ({ id, type: "pipeline_card", title, pipeline: CLOSER, stage, if_missing: "skip", pick: "latest" });
   after(d, "n_conf", follow("k_conf", `Card → ${S.confirmed}`, "{{crm.stage_closer_confirmed}}"));
   after(d, "n_unc", follow("k_unc", `No reply in 4 hours: card → ${S.unresponsive}`, "{{crm.stage_closer_unresponsive}}"));

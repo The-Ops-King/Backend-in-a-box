@@ -252,7 +252,7 @@ export function formatCombined(results: MetricResult[], o: Foot = {}): string {
   return L.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
-/** `hint`: what Slack shows after the command as it is typed (D152: the Slack app manifest is made from this list). */
+/** `hint`: what Slack shows after the command as it is typed (D174: the Slack app manifest is made from this list). */
 export const SHORTCUTS: { command: string; about: string; example: string; hint?: string }[] = [
   { command: "/mtd", about: "month to date: leads, MQLs, booked, show rate, close rate, deposits, cash, top source, vs the same days last month", example: "/mtd" },
   { command: "/weekly", about: "last full week (or `this week`), the same numbers, vs the week before", example: "/weekly this week", hint: "[this week]" },
