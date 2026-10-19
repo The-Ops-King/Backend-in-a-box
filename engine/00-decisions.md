@@ -5410,3 +5410,79 @@ Tests: `tickets.test.ts`.
 
 GHL never runs a draft, and Dating's account (RapidCloser's) has 72 of its 83 workflows in draft. Only a published (or active)
 workflow needs a mark before a clean check; one published since the last read shows up unmarked, so the next move up waits for it.
+
+## D153. A setter's booking link: the calendar's own link with UTMs (2026-10-19)
+
+Tyler: "we want to have a setter booking link for nelly's calendar, probably UTM ... I'll have setter equal the setter's name, and
+then the booking needs to attract that and measure that." Everything else is a direct booking from the Typeform.
+
+- A calendar mapping takes `booking: "utm"`: a booking through it is setter-booked when its tracking says `utm_medium=setter`, and
+  the setter is the person `utm_content` names (first name, full name or email, without case; exactly one active person of the
+  company). Calendly hands over only the utm_* keys, so the link carries no `setter=` parameter of its own.
+- A setter's link naming nobody (or more than one) is still setter-booked, with no setter: the setter-missing alert (D121). Any
+  other UTMs (an applicant's ad UTMs carried from the Typeform) are a direct booking.
+- The setter so found is `appointments.set_by`, so the booked workflows' setter path does the rest as for any setter booking: the
+  contact's Setter field, the setter owner on the cards, the setter card to Appointment Set, the Sales Call's booking source.
+- Dating (Nelly): the Private Dating Consultation (the closing call) is `utm`; Mitch's link is
+  `https://calendly.com/nellysudri/private-dating-consultation-with-nelly?utm_medium=setter&utm_content=mitch`. The Strategy
+  Session (triage) stays `self`. Every other calendar of every offer is as it was (the rule applies only to a calendar set to it).
+- Calendly's "Dating Consultation" (30 minutes) is shawnee's event type in Nelly's organization, not Nelly's: not mapped.
+
+Tests: `poll.calendly.test.ts` (D153).
+
+## D154. Dating's Setter call logged reads and posts; the end of day writes (2026-10-19)
+
+Tyler: "I don't think the setter call log should change things at HighLevel. I think the setter end of day should change things at
+HighLevel." And Jev's setting call: "if they get set on a call, it is a setting call, or if it's a triage call, it could be a
+setting call as well." Triage calls are assessed from GHL calls (transcription is on in RapidCloser).
+
+- The application-triage playbook's `setterCallReadOnly` (Nelly's copies.json): her Setter call logged keeps the reads (call type,
+  result, DQ reason, notes), the post in the setter channel and the Set by a setter-link booking, and logs the read
+  (`setter_call.result`, now with its call type, the DQ reason's list and the write-up) for the end of day. Gone: the Discovery Call
+  record and the note, the question to the team and its answer, the task, tag and card actions. The build refuses a copy that still
+  has a CRM write.
+- Her setting-call meaning (words.json `setterCall.setting`) counts a booked triage or strategy call.
+- Why a dating lead is a DQ (Tyler: "those are good DQ reasons"): its own list, `dating_dq_reason` (Can't afford it right now, Not
+  ready for a relationship, Already in a relationship, Looking for something casual, Wrong or fake contact, Other), which Jev reads
+  into and the end of day asks. The template's `setter_dq_reason` stays for everyone else; a playbook build picks the list its
+  words name.
+- Found on the way: the playbook's params check dropped `triageCancelled` and `triageFiled` (the onboarding merge), so a build left
+  those two out; restored (the committed files were already right).
+
+Tests: `dating-copies.test.ts` (D154), `eod.setter-calls.test.ts` (run on her copy: nothing written to the CRM).
+
+## D155. Dating's pre-call texts, all from Nelly (2026-10-19)
+
+Tyler: one number in RapidCloser's GHL, Nelly's; "let's say all from Nelly". The texts (approved 2026-10-18, rewritten in Nelly's
+voice and approved 2026-10-19) are in words.json `preCall`. The engine never picks a sending number: GHL sends from the location's.
+
+- Two copies of the Pre-call sequence, each held to its call type (a triage call is not a closing call, so the template would never
+  take it): Triage pre-call and Closing pre-call. Each: the booking text with its reply handling (confirm, cancel, reschedule, the
+  closer asked when Jev is unsure), the text a day before, the one an hour before. No emails, no 3-day, 2-day, morning-of or
+  10-minute texts. They take over pre-call-sequence for her.
+- The triage hour-before text has no link (Mitch calls through GHL); the closing one carries `{{appointment.meeting_url}}`.
+- No rebooking text (Tyler: "we'll do it manually, and the emoji in Slack is just a confirmation of what happened"): 🔁 on a reply
+  notes in the booking thread who is moving the call, and the call is moved by hand.
+
+Tests: `dating-copies.test.ts` (D155).
+
+## D156. A setter's calls on the end of day (2026-10-19)
+
+Tyler: "Mitch's end-of-day form is going to be the source of truth, but we use Jev to fill it out with what we think happened on
+that call. Mitch is also going to be doing some outbound setting as well, so it won't be on the phone call. Let's make sure we add
+those to his end of day as well." Outbound answers: set, follow up, DQ, not interested ("Yes that works").
+
+- A company setting, `eod.setter_calls` (install `eod.setterCalls`; Dating on, every other offer off): a setter's GHL calls Jev read
+  as setting calls are on their end of day, by the caller (GHL user id, else email), the latest read of each conversation.
+  - A person who had a triage call with them that day: that call's row is pre-filled from the read (after what the ledger holds and
+    a closing call booked since), with its recording and Jev's write-up, "Jev's read of the call: check it."
+  - Anyone else: an outbound call, a row of its own (kind `dial`), answered set / follow up / DQ / not interested.
+  - Unanswered outbound calls are owed in the end-of-day reminder like calls.
+- `eod.dq_reasons` (install `eod.dqReasons`): the list "why a DQ" asks from; Dating `dating_dq_reason`, so Jev's reason pre-fills it.
+- Filing an outbound call emits `setter_call.filed` (the conversation, the answer, Jev's read, the DQ reason and notes); Dating's
+  own Setter call filed workflow writes the conversation's Discovery Call record (showed, the result), moves the setter card
+  (set: Appointment Set; DQ, not interested: lost at their stages; follow up: stays) and puts a line under the call's post. The
+  same answer filed again is held. A row the engine did not put on the day is dropped.
+- A triage call's row files as before, through its booking (Triage call filed).
+
+Tests: `eod.setter-calls.test.ts`.

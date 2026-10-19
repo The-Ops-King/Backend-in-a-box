@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import { extractManifest, parseDefinition, indexDefinition } from "./definition";
 import { applyWords, loadWords } from "./words";
 import { templates } from "@/templates";
-import { bookingFor, type Adapters, type BookingConfig, type Company } from "@/adapters/types";
+import { bookingFor, type Adapters, type BookingConfig, type BookingMode, type Company } from "@/adapters/types";
 import { calendlyUserByEmail, calendlyWhoAmI } from "@/adapters/calendly/read";
 import { loadCompany } from "./context";
 import { defaultPrompts } from "@/prompts";
@@ -28,7 +28,7 @@ import { liveTypeform, type TypeformApi } from "@/adapters/typeform/client";
  */
 /** `name`: the company's own call type for this calendar ("Demo call"), counted under `term`'s core category; made once, kept by name (D101). Without it the calendar takes the category's default type. */
 /** `owner` (D142): the team member who takes this calendar's calls whoever hosts them (their GHL email or user id): its bookings are theirs, the card, the record and the contact too. */
-export type CalendarMapping = string | { term: string; name?: string; selfBooked?: boolean; booking?: "self" | "setter" | "question"; questions?: Record<string, string>; owner?: string };
+export type CalendarMapping = string | { term: string; name?: string; selfBooked?: boolean; booking?: BookingMode; questions?: Record<string, string>; owner?: string };
 export type InstallInput = {
   name: string; slug: string; timezone: string; locationId: string;
   /** The CRM private integration token. Required the first time; a re-install may omit it and keeps the one already stored (tokens rotate; template upgrades should not need the secret again). */
@@ -96,6 +96,12 @@ export type InstallInput = {
   typeform?: { token?: string; forms?: TypeformForms };
   /** D124: nothing is posted when nothing happened: a scheduled wrap-up or leaderboard with nothing in it posts nothing (bound as reports.quiet_when_empty). Omitted: left as it is; false turns it off. */
   quietWhenEmpty?: boolean;
+  /**
+   * D156: the end of day. `setterCalls`: a setter's GHL calls Jev read as setting calls are on their day (a triage call's row is
+   * pre-filled from Jev's read; an outbound call with no triage call is a row of its own), bound as eod.setter_calls. `dqReasons`: the
+   * list "why a DQ" asks from, a core category domain (Dating: dating_dq_reason), bound as eod.dq_reasons. Omitted: left as it is.
+   */
+  eod?: { setterCalls?: boolean; dqReasons?: string };
   /** Dark hours. Sends wait for the window; `allowTransactional` lets automated receipts ("you're booked") through at any hour. */
   quietHours?: { start?: string; end?: string; allowTransactional?: boolean };
 };
@@ -189,7 +195,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   // D148: "ignore" is a calendar the company keeps at its source but the engine does not watch (no polling, no health check)
   const ignored = new Set(Object.entries(input.calendars ?? {}).filter(([, v]) => v === "ignore").map(([k]) => k));
-  const calMap: Record<string, { term: string; name?: string; selfBooked?: boolean; booking?: "self" | "setter" | "question"; questions?: Record<string, string>; owner?: string }> = Object.fromEntries(Object.entries(input.calendars ?? {}).filter(([k]) => !ignored.has(k)).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
+  const calMap: Record<string, { term: string; name?: string; selfBooked?: boolean; booking?: BookingMode; questions?: Record<string, string>; owner?: string }> = Object.fromEntries(Object.entries(input.calendars ?? {}).filter(([k]) => !ignored.has(k)).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
   // resolve the booking source outside the transaction: it talks to Calendly.
   // Omitting `booking` on a re-install keeps whatever the company already uses; it never silently flips it back to GHL.
   let booking: BookingConfig = { source: "ghl" };
@@ -330,6 +336,12 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     if (input.alerts?.asName) await bind("alerts.as_name", "text", input.alerts.asName);
     if (input.alerts?.asIcon) await bind("alerts.as_icon", "text", input.alerts.asIcon);
     if (input.quietWhenEmpty !== undefined) await bind("reports.quiet_when_empty", "text", String(input.quietWhenEmpty));
+    if (input.eod?.setterCalls !== undefined) await bind("eod.setter_calls", "text", input.eod.setterCalls ? "on" : "off");
+    if (input.eod?.dqReasons !== undefined) {
+      const domain = input.eod.dqReasons.trim();
+      if (domain && !(await one(c, "select 1 from core_categories where domain=$1 limit 1", [domain]))) throw new Error(`eod.dqReasons: no list "${domain}"`);
+      await bind("eod.dq_reasons", "text", domain);
+    }
     // prompts: the company's own text wins; a default fills any prompt a template needs that nobody wrote yet
     const boundKeys = new Set((await many<{ key: string }>(c, "select key from bindings where company_id=$1", [companyId])).map((b) => b.key));
     for (const [k, v] of Object.entries(input.prompts ?? {})) await bind(`prompt.${k}`, "text", v);
@@ -386,7 +398,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
       const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 and source=$2 and external_id=$3", [companyId, booking.source, k.id]))!;
       await c.query("update appointments set appointment_term=$2 where calendar_id=$1 and appointment_term<>$2", [cal.id, term]);
       if (owner) await c.query("update appointments set assigned_user_id=$2 where calendar_id=$1 and starts_at > now() and assigned_user_id is distinct from $2", [cal.id, owner.id]);
-      const how = m.booking === "question" ? " (setter decided by the booking question)" : selfBooked === null ? "" : selfBooked ? " (self-booked)" : " (setter-booked)";
+      const how = m.booking === "question" ? " (setter decided by the booking question)" : m.booking === "utm" ? " (setter-booked through a setter's link: utm_medium=setter, utm_content=<their name>)" : selfBooked === null ? "" : selfBooked ? " (self-booked)" : " (setter-booked)";
       calendarsOut.push(`"${k.name}" → ${m.name?.trim() ? `${m.name.trim()} (${m.term})` : m.term}${how}${m.questions ? `; questions: ${Object.keys(m.questions).join(", ")}` : ""}`);
     }
     for (const unknownId of Object.keys(calMap).filter((id) => !listed.some((k) => k.id === id))) calendarsOut.push(`mapping for ${unknownId} matches no calendar at the booking source`);

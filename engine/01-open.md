@@ -940,3 +940,28 @@ Tyler, 2026-10-18: the core set is what runs today (new lead, call booked and ca
 agreements, payment and close, EODs, Health check and the rest). What to sell and build next is `08-problem-map.md`, his
 43 problems mapped against the engine: the core gaps come before new modules, and the wizard's intake asks which
 problems an offer has, to pick its modules.
+
+## 54. Dating (Nelly) to live (Tyler, 2026-10-19: "once we're ready, let's go live here ASAP")
+
+Built 2026-10-19 (D153–D156): the setter link, her Setter call logged reading only, the two pre-call copies, the setter's calls on
+the end of day, her DQ reasons. Payments are out of scope (Commas). Apply, in order, with the operator key; every step a dry run
+first, shown to Tyler; nothing to any other offer:
+
+1. Merge the branch to main (the deploy runs the migration: the dating_dq_reason list, the setter_call.filed event type; every
+   change of engine code is held behind a setting only Nelly has, or a calendar set to `utm`).
+2. Re-install Dating (Nelly) with `installs/dating-nelly.json` less its `booking` block (the engine keeps her Calendly token; a re-install
+   without one stays on Calendly): the Consultation becomes `utm`; `eod.setter_calls` on, `eod.dq_reasons` dating_dq_reason. Install
+   changes none of her workflows (D147).
+3. Save her Setter call logged: `POST /api/admin/workflows/definition { company: "dating-nelly", workflow: "setter-call-logged",
+   definition, note }` from `installs/dating-nelly/setter-call-logged.json`, dry run first.
+4. Remove her Pre-call sequence copy (off; check it has no runs): `DELETE /api/admin/workflows { company: "dating-nelly", workflow:
+   "pre-call-sequence" }`. Then make Triage pre-call, Closing pre-call and Setter call filed from their files (with `create`), dry
+   run first. Each is made off, its sends locked.
+5. Turn the new ones on in quiet; walk one triage booking, one setter-link consultation booking and one outbound call through with
+   a test contact (the harness), then Mitch's end of day.
+6. Before live: RapidCloser's own GHL workflows marked in the engine (D151; Tyler audited them 2026-10-19: "we're good"); Health check on; the test contacts removed; the Slack
+   scope, manifest and channel invites; what each New lead run of the 290 imported leads is waiting on, since going live clears
+   every run not born live.
+7. Live, then Tyler unlocks sends one workflow at a time, in the chat (D145).
+
+Open: a triage call Jev reads as a confirmation call (not a setting call) logs no read, so its row opens blank.

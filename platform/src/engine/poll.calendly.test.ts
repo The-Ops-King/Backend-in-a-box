@@ -104,6 +104,34 @@ describe.skipIf(!process.env.DATABASE_URL)("Calendly as the booking source", () 
     expect(await asOperator((c) => one(c, "select 1 from bindings where company_id=$1 and key='secret.calendly_token'", [companyId]))).toBeTruthy();
   });
 
+  it("D153: on a calendar set to utm, a setter's link (utm_medium=setter, utm_content=their first name) is setter-booked by that person; ad UTMs are a direct booking; a link naming no one is setter-booked, unnamed", async () => {
+    await asOperator(async (c) => {
+      await c.query("insert into users (company_id, email, name, role) values ($1,'mitch@x.com','Mitch Sapoff','setter')", [companyId]);
+      await c.query("update calendars set config=config || '{\"booking\":\"utm\"}'::jsonb, self_booked=null where company_id=$1 and external_id='ET1'", [companyId]);
+    });
+    const inv = (email: string) => ({ email, firstName: "P", lastName: "Q", timezone: "America/Denver" });
+    events = [
+      appt("EVS1", { invitee: inv("set1@x.com"), tracking: { utm_medium: "setter", utm_content: "MITCH" } }),
+      appt("EVS2", { invitee: inv("ad1@x.com"), tracking: { utm_source: "facebook", utm_medium: "paid", utm_content: "mitch" } }),
+      appt("EVS3", { invitee: inv("set2@x.com"), tracking: { utm_medium: "setter", utm_content: "somebody" } }),
+      appt("EVS4", { invitee: inv("plain@x.com") }),
+    ];
+    await pollAll(fake);
+    const rows = await asOperator((c) => many<{ external_id: string; self_booked: boolean | null; set_by: string | null }>(c, "select external_id, self_booked, set_by from appointments where company_id=$1 and external_id like 'EVS%' order by external_id", [companyId]));
+    expect(rows).toEqual([
+      { external_id: "EVS1", self_booked: false, set_by: "Mitch Sapoff" },
+      { external_id: "EVS2", self_booked: true, set_by: null },
+      { external_id: "EVS3", self_booked: false, set_by: null },
+      { external_id: "EVS4", self_booked: true, set_by: null },
+    ]);
+    const booked = await asOperator((c) => many<{ data: Record<string, unknown> }>(c, "select e.data from events e join appointments a on a.id=e.appointment_id where e.company_id=$1 and e.event_type='appointment.booked' and a.external_id='EVS1'", [companyId]));
+    expect(booked[0].data.self_booked).toBe(false);
+    // the unnamed setter link is the setter-missing alert (D121), the named one is not
+    const missing = await asOperator((c) => many<{ ext: string }>(c, "select a.external_id as ext from alerts al join appointments a on a.id::text = al.detail->>'appointment_id' where al.company_id=$1 and al.resolved_at is null", [companyId]));
+    expect(missing.map((m) => m.ext)).toEqual(["EVS3"]);
+    events = [];
+  });
+
   it("a booking with no usable identity is skipped rather than inventing a contact", async () => {
     events = [appt("EV3", { invitee: { firstName: "Nobody" } })];
     const r = await pollAll(fake);
@@ -125,5 +153,8 @@ describe("setter rule (D24)", () => {
     expect(decideSelfBooked("calendar", true, "Luis", "question")).toBe(false);
     expect(decideSelfBooked("question", null, "Luis", "self")).toBe(true);
     expect(decideSelfBooked("question", null, undefined, "setter")).toBe(false);
+    // D153: utm, a setter's link or not, whatever the question or the company rule
+    expect(decideSelfBooked("question", true, "Luis", "utm", false)).toBe(true);
+    expect(decideSelfBooked("calendar", true, undefined, "utm", true)).toBe(false);
   });
 });

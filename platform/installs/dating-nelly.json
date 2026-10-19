@@ -1,5 +1,5 @@
 {
-  "_note": "Dating Nelly, the pilot dating offer, inside the RapidCloser GHL location (D117 scope tag \"dating\"). Built by scripts/provision-ghl.ts from installs/dating/ghl-setup.json. No secrets: the PIT comes from the environment at install. Deposits run $100-$500 (Tyler, 2026-10-16); a deposit is told apart by its product, never its amount (D119): her deposit product or plan ids go in depositProducts once her processor is set up, and crm.stage_closer_deposit binds the closer pipeline's Deposit stage once provision-ghl has added it. D122: her Typeform application (AjY7UfXZ) is mapped by question ref under typeform; the token is given at install (DN_TYPEFORM_TOKEN), and the field_contact_app_* ids come from provision-ghl --apply. D123 (2026-10-17): bookings are Nelly's Calendly (nellysudri@gmail.com): booking.token is added from the environment at install (DN_CALENDLY_TOKEN), never kept here. Exactly two event types are mapped: the Complimentary Dating Strategy Session (the Typeform's link, call type \"Triage call\", Mitch's calls (owner, D142), the self-book link the templates send) and the Private Dating Consultation (call type \"Closing call\", Nelly's); every other event type is unmapped, the 15-Min Discovery Call and the Private Dating Strategy Call kept for a later setter triage. The three GHL calendars stay built in RapidCloser, unmapped. Her own workflows Triage call booked, Closing call booked and New from Typeform are built by scripts/build-copies.ts from installs/dating-nelly/copies.json.",
+  "_note": "Dating Nelly, the pilot dating offer, inside the RapidCloser GHL location (D117 scope tag \"dating\"). Built by scripts/provision-ghl.ts from installs/dating/ghl-setup.json. No secrets: the PIT comes from the environment at install. Deposits run $100-$500 (Tyler, 2026-10-16); a deposit is told apart by its product, never its amount (D119): her deposit product or plan ids go in depositProducts once her processor is set up, and crm.stage_closer_deposit binds the closer pipeline's Deposit stage once provision-ghl has added it. D122: her Typeform application (AjY7UfXZ) is mapped by question ref under typeform; the token is given at install (DN_TYPEFORM_TOKEN), and the field_contact_app_* ids come from provision-ghl --apply. D123 (2026-10-17): bookings are Nelly's Calendly (nellysudri@gmail.com): booking.token is added from the environment at install (DN_CALENDLY_TOKEN), never kept here. Exactly two event types are mapped: the Complimentary Dating Strategy Session (the Typeform's link, call type \"Triage call\", Mitch's calls (owner, D142), the self-book link the templates send) and the Private Dating Consultation (call type \"Closing call\", Nelly's); every other event type is unmapped, the 15-Min Discovery Call and the Private Dating Strategy Call kept for a later setter triage. The three GHL calendars stay built in RapidCloser, unmapped. D153 (2026-10-19): the Consultation is booked direct or through a setter's link, the same link with utm_medium=setter&utm_content=<the setter's first name> (Mitch: ?utm_medium=setter&utm_content=mitch); the Strategy Session is always direct (the Typeform). Her own workflows Triage call booked, Closing call booked and New from Typeform are built by scripts/build-copies.ts from installs/dating-nelly/copies.json.",
   "name": "Dating (Nelly)",
   "slug": "dating-nelly",
   "booking": {
@@ -83,7 +83,7 @@
     "80955126-29fe-48ea-a85e-ba4bcd145790": {
       "term": "closing",
       "name": "Closing call",
-      "booking": "self"
+      "booking": "utm"
     }
   },
   "closerCall": "80955126-29fe-48ea-a85e-ba4bcd145790",
@@ -311,5 +311,9 @@
   "slackUsers": {
     "mitch@revsignals.io": "mitch@salesagency.ai"
   },
-  "testSlackChannel": "C0C9UDURSGM"
+  "testSlackChannel": "C0C9UDURSGM",
+  "eod": {
+    "setterCalls": true,
+    "dqReasons": "dating_dq_reason"
+  }
 }
