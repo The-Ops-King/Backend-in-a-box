@@ -29,6 +29,7 @@ import { testContactSql, TEST_DOMAINS_KEY, TEST_TAG, testDomains } from "@/engin
 import { loadEodForm } from "@/engine/eod";
 import { valueFor } from "@/engine/eod-form";
 import type { FitReport, Intake } from "./intake";
+import { suggestedEmail } from "./test-contact";
 
 type Op = <T>(fn: (c: PoolClient) => Promise<T>) => Promise<T>;
 export type TestRung = "ghost" | "test";
@@ -210,7 +211,7 @@ export function workflowStates(t: Tests): WorkflowState[] {
   });
 }
 
-export type TestsState = { tests: Tests; scenarios: Scenario[]; workflows: WorkflowState[]; contacts: { id: string; name: string; email: string | null }[]; done: boolean; todo: string[] };
+export type TestsState = { tests: Tests; scenarios: Scenario[]; workflows: WorkflowState[]; contacts: { id: string; name: string; email: string | null }[]; suggestedEmail: string | null; done: boolean; todo: string[] };
 
 /** What is left before the step is done, one line each; none means done. */
 export function testsTodo(t: Tests, scenarios: Scenario[]): string[] {
@@ -225,7 +226,7 @@ export async function testsState(c: PoolClient, companyId: string): Promise<Test
   const o = await loadTests(c, companyId);
   if (!o) return null;
   const scenarios = await scenariosFor(c, companyId, o.intake), todo = testsTodo(o.tests, scenarios);
-  return { tests: o.tests, scenarios, workflows: workflowStates(o.tests), contacts: await testContacts(c, companyId), done: !todo.length, todo };
+  return { tests: o.tests, scenarios, workflows: workflowStates(o.tests), contacts: await testContacts(c, companyId), suggestedEmail: await suggestedEmail(c, companyId), done: !todo.length, todo };
 }
 
 /** The step's done mark follows the results: set when nothing is left, taken off when a re-run fails. */

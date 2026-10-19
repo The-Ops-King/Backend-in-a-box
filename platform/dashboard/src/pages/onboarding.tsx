@@ -397,6 +397,21 @@ function AutomationsCheck({ slug, invalidate }: { slug: string; invalidate: stri
   </div>;
 }
 
+/** D153: the test contact made in their GHL: your email plus-addressed for this business, tagged sys-test, read back at once. */
+function MakeTestContact({ slug, suggested, first, invalidate, onMade }: { slug: string; suggested: string | null; first: boolean; invalidate: string[][]; onMade: (id: string) => void }) {
+  const [open, setOpen] = useState(first), [email, setEmail] = useState(suggested ?? ""), [phone, setPhone] = useState(""), [err, setErr] = useState<string | null>(null);
+  const post = useAction<void, { id: string; email: string; created: boolean }>(() => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "test", makeContact: true, email, phone } }), invalidate);
+  if (!open) return <div><button className="btn" type="button" onClick={() => setOpen(true)}>Make another test contact</button></div>;
+  const go = async () => { setErr(null); try { const r = await post.mutateAsync(); onMade(r.id); toast(`${r.created ? "Made" : "Found and tagged"} ${r.email} in their GHL.`); setOpen(false); } catch (x) { setErr((x as Error).message); } };
+  return <div className="form">
+    {err ? <div className="banner warn">{err}</div> : null}
+    <label><span>Your email</span><input type="email" placeholder="jt@jtylerray.com" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+    <label><span>Your phone (optional: texts on the test rung reach it)</span><input type="tel" placeholder="+1…" value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
+    <p className="note">Made in their GHL as "Test {"<business>"}" on {email.includes("@") ? email.replace(/^([^@+]+)@/, `$1+test-${slug}@`) : "your email, plus-addressed for this business"}, tagged <code>sys-test</code> (so a workflow filtered on that tag never sees it); its domain becomes a test domain here.</p>
+    <div><button className="btn" type="button" disabled={post.isPending || !email.includes("@")} onClick={go}>{post.isPending ? "Making…" : "Make the test contact"}</button></div>
+  </div>;
+}
+
 /**
  * D151: the test passes. Choose the test contact and the rung, turn the offer's workflows on, then run each journey on that
  * contact (one request each: a journey ticks the company between its steps). Every run a journey started is listed with how it
@@ -437,7 +452,8 @@ function TestStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; in
         <label><span>Rung</span><select value={rung} onChange={(e) => setRung(e.target.value as "ghost" | "test")}>
           <option value="ghost">Ghost: nothing written or sent anywhere; each run says what it would do</option>
           <option value="test">Test: the test contact's runs really write and send; everyone else stays ghost</option></select></label>
-      </div> : <p className="note">No test contact yet. Make one in their GHL tagged <code>sys-test</code> (your own phone and email); the engine reads it within a minute.</p>}
+      </div> : <p className="note">No test contact yet.</p>}
+      <MakeTestContact slug={slug} suggested={t.suggestedEmail} first={!t.contacts.length} invalidate={[invalidate, key]} onMade={setContact} />
       {rung === "test" && d.company.mode === "ghost" ? <AutomationsCheck slug={slug} invalidate={[invalidate, key]} /> : null}
       <div><button className="btn" type="button" disabled={!chosen || busy !== null} onClick={prepare}>{busy === "prepare" ? "Turning on…" : prepared ? "Turn the workflows on again" : "Turn the offer's workflows on"}</button></div>
       {prepared ? <p className="note">{prepared.on.length} workflow{prepared.on.length === 1 ? "" : "s"} on, the company in <b>{d.company.mode}</b>, on {t.tests.contact?.name}; {ago(prepared.at)}.</p> : null}

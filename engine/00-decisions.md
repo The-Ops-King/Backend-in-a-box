@@ -5086,3 +5086,16 @@ The test passes' takeover-only confirm (D151) is gone: the check covers the test
 
 Tests: `filters.test.ts`.
 
+## D153: the test contact, made by the wizard
+
+Tyler (2026-10-19): use his own email, and have the wizard make the contact. One button on the test passes makes it in the
+company's GHL: "Test <business>", his email **plus-addressed per business** (`jt+test-pmu@jtylerray.com`: one inbox, a distinct
+person in each GHL), an optional phone (texts on the test rung reach it), **created tagged `sys-test`** so a GHL workflow filtered
+on that tag never sees it, not even its Contact Created trigger. Its domain joins the company's test domains. One already there
+(same email) is tagged, not made twice. It is read back from GHL at once, so the passes need not wait for the poll. The email
+typed is kept per company and offered to the next company.
+
+Making a contact fires their own Contact Created workflows, so a wizard company needs its GHL workflows marked first (D152).
+
+Tests: `test-contact.test.ts`.
+

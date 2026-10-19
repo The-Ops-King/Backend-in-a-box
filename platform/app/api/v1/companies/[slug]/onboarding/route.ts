@@ -9,6 +9,7 @@ import { crmInput, runCrm, saveCrm, saveCrmOptions } from "@/onboarding/crm";
 import { runInstall } from "@/onboarding/install";
 import { approveMessage, editMessage } from "@/onboarding/messages";
 import { acceptWorkflow, prepareTests, runScenario } from "@/onboarding/tests";
+import { createTestContact } from "@/onboarding/test-contact";
 import { confirmCheck, markWorkflow, readTheirWorkflows, saveList } from "@/onboarding/filters";
 import { liveAdapters } from "@/adapters";
 export const dynamic = "force-dynamic"; export const maxDuration = 180;   // research reads their accounts and asks the model
@@ -36,6 +37,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
  * { step: "filters", read: true } (D152) → their GHL workflows read live and kept with the marks made; { step: "filters", id, mark,
  * note? } → one marked; { step: "filters", check: true } → read again live and, when nothing is new, unmarked or wrongly on, a check
  * kept for the next move up (every move up needs one). GET …/onboarding/filters says where the list stands.
+ * { step: "test", makeContact: true, email, phone? } (D153) → the test contact made in their GHL (tagged sys-test, the email
+ * plus-addressed per business) and read back at once.
  * { step: "test", prepare: true, contactId, rung: "ghost" | "test" } (D151) → the test contact chosen, the offer's workflows
  * turned on, the company on that rung; { step: "test", scenario } → that journey run on the test contact (outside any transaction,
  * the company ticked between its steps); { step: "test", accept: workflow, note } → a workflow no scenario reaches, accepted with a
@@ -43,7 +46,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
  */
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const body = await readJson<{ step?: string; intake?: unknown; playbook?: unknown; id?: unknown; values?: unknown; copyFrom?: unknown; answers?: unknown; options?: unknown; token?: unknown; signingSecret?: unknown; channels?: unknown; run?: unknown; workflowId?: unknown; nodeId?: unknown; approve?: unknown; field?: unknown; text?: unknown; prepare?: unknown; contactId?: unknown; rung?: unknown; scenario?: unknown; accept?: unknown; note?: unknown; read?: unknown; check?: unknown; mark?: unknown }>(req);
+  const body = await readJson<{ step?: string; intake?: unknown; playbook?: unknown; id?: unknown; values?: unknown; copyFrom?: unknown; answers?: unknown; options?: unknown; token?: unknown; signingSecret?: unknown; channels?: unknown; run?: unknown; workflowId?: unknown; nodeId?: unknown; approve?: unknown; field?: unknown; text?: unknown; prepare?: unknown; contactId?: unknown; rung?: unknown; scenario?: unknown; accept?: unknown; note?: unknown; read?: unknown; check?: unknown; mark?: unknown; makeContact?: unknown; email?: unknown; phone?: unknown }>(req);
   if (!body?.step) return fail(400, "step is required");
   if (body.step === "install") {
     const co = await asOperator((c) => companyBySlug(c, slug)); if (!co) return fail(404, "no such company");
@@ -58,8 +61,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const chk = await asOperator((c) => confirmCheck(c, co.id, r.list, "dashboard"));
     return chk.ok ? ok(chk) : fail(chk.status, chk.why, chk.problems ? { problems: chk.problems } : {});
   }
-  if (body.step === "test" && (body.prepare === true || typeof body.scenario === "string")) {
+  if (body.step === "test" && (body.prepare === true || body.makeContact === true || typeof body.scenario === "string")) {
     const co = await asOperator((c) => companyBySlug(c, slug)); if (!co) return fail(404, "no such company");
+    if (body.makeContact === true) {
+      const r = await createTestContact(asOperator, liveAdapters, co.id, { email: body.email, phone: body.phone, by: "dashboard" });
+      return r.ok ? ok(r) : fail(r.status, r.why);
+    }
     if (body.prepare === true) {
       const r = await prepareTests(asOperator, co.id, { contactId: body.contactId, rung: body.rung, by: "dashboard" });
       return r.ok ? ok({ ok: true, on: r.on, left_off: r.left_off }) : fail(r.status, r.why);
