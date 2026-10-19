@@ -778,7 +778,8 @@ install never upgrading a copy nobody named).
 The send lock, Tyler: "Yes, I want the SMS lock as well. I'm the only one who can unlock sends." A second guard, separate from
 the mode: every workflow starts locked, and a locked workflow's text, email or agreement goes only to Tyler's own addresses.
 Checked against the contact in GHL at the moment of sending (GHL sends to the phone and email it holds, not ours). Unlocked one
-workflow at a time, only on Tyler's word in the chat. Where the one-time missing-link tag posts is a setting (Dating:
+workflow at a time, only on Tyler's word in the chat. Built: D145 (webhooks locked too, Tyler: "even though I don't think we
+have any right now"). Where the one-time missing-link tag posts is a setting (Dating:
 #dating-calls-booked).
 
 ## 51. Hold a send that would go out with a blank in it (Tyler, 2026-10-18; design open)

@@ -12,7 +12,7 @@
  * The four bad bugs Tyler named — 20 runs, 20 cards, 20 messages, 20 charges — each have a test that asserts
  * "exactly one" (or zero) under a 503-twice-then-ok and under a crash after the vendor call.
  */
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -24,7 +24,10 @@ import { collectThisTick } from "@/engine/alerts";
 import { applyPayment } from "@/engine/lifecycle";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { encrypt } from "@/engine/crypto";
-import { fakeAdapters } from "@/engine/test-install";
+import { fakeAdapters, unlockSendsForTest } from "@/engine/test-install";
+import { setOperatorAddresses, setSendLock } from "@/engine/send-lock";
+import { checkQuery } from "@/engine/query";
+import { companyReadiness } from "@/engine/readiness";
 import type { PollReport } from "@/engine/poll";
 import { GhlError } from "@/adapters/ghl/client";
 import type { Adapters, AppointmentSnapshot, Classification, ContactSnapshot, LiveCard, SendResult } from "@/adapters/types";
@@ -121,7 +124,7 @@ async function probe(name: string, middle: Record<string, unknown>[], opts: { ed
   const edges = opts.edges ?? nodes.slice(0, -1).map((n, i) => ({ from: n.id, to: nodes[i + 1].id }));
   const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: opts.premise ?? "contact_exists" }, nodes, edges });
   return asOperator(async (c) => {
-    const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,$2,'always',true) returning id", [companyId, name]))!;
+    const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, sends_unlocked_at) values ($1,$2,'always',true,now()) returning id", [companyId, name]))!;
     await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'stepf probe')", [wf.id, def, extractManifest(def)]);
     return wf.id;
   });
@@ -174,6 +177,7 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
     await wipe("stepf");
     const r = await installCompany({ name: "Step Failures", slug: "stepf", timezone: TZ, locationId: "LOC-STEPF", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, templates: ["new-lead", "speed-to-lead"], crm: CRM, anthropicKey: "sk-fake", jevKey: "jev-fake", slack: { bookings: "C-BOOK" }, contractValueDefault: 2999 }, fake);
     companyId = r.companyId;
+    await unlockSendsForTest(companyId);   // D145: these assert what the workflows send
     await asOperator(async (c) => {
       await c.query("update companies set mode='live', send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]);
       await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id, channels) values ($1,'T1',$2,'UBOT','{}')", [companyId, encrypt("xoxb-fake")]);
@@ -567,7 +571,8 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       await spin(id, 3);
       expect((await runRow(id)).status).toBe("completed");
       expect(callsTo("updateOpportunity")).toBe(1); expect(callsTo("createOpportunity")).toBe(1);
-      expect((await replicaCards(ct)).map((k) => [k.ghl_opportunity_id === hand.id ? "hand" : "fresh", k.status])).toEqual([["hand", "gone"], ["fresh", "open"]]);
+      // both replica rows are written in one transaction, so created_at ties: compare them as a set
+      expect((await replicaCards(ct)).map((k) => [k.ghl_opportunity_id === hand.id ? "hand" : "fresh", k.status]).sort()).toEqual([["fresh", "open"], ["hand", "gone"]]);
       // the next run moves the fresh card; the gone one is never asked about again
       calls.clear(); plans.clear();
       const again = await start(wfCard, ct); await spin(again, 2);
@@ -960,6 +965,110 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect((await runRow(id)).status).toBe("completed");
       const ev = await asOperator((c) => one<{ data: Record<string, unknown> }>(c, "select data from events where company_id=$1 and contact_id=$2 and event_type='call.logged'", [companyId, ct]));
       expect(ev!.data).toEqual({ nothing: null, name: nameOf("RECORD1") });
+    });
+  });
+
+  // ================================================================================================================
+  describe("D145: the send lock (every workflow starts locked; only the operator's own addresses get anything)", () => {
+    const OP = { emails: ["Op@Lock.Test"], phones: ["602-555-0199", "602-555-0198", "602-555-0197"] };   // one each: a shared phone is one person to the replica
+    const locked = async <T>(fn: () => Promise<T>): Promise<T> => {
+      await asOperator(async (c) => { await c.query("update workflows set sends_unlocked_at=null, sends_unlocked_by=null where id=$1", [wfS2L]); await setOperatorAddresses(c, { name: "Op", add: OP }); });
+      try { return await fn(); }
+      finally { await asOperator(async (c) => { await c.query("update workflows set sends_unlocked_at=now(), sends_unlocked_by='test' where id=$1", [wfS2L]); await setOperatorAddresses(c, { remove: OP }); }); }
+    };
+
+    it("a real person: the text and the email are held with the lock's reason, the CRM is never asked to send, the run goes on", () => locked(async () => {
+      const ct = await person("LOCKREAL");
+      const id = await start(wfS2L, ct);
+      await tickOnce();
+      expect(await runRow(id)).toMatchObject({ status: "waiting", current_node: "n3" });
+      expect(callsTo("sendSms")).toBe(0); expect(callsTo("sendEmail")).toBe(0);
+      const sends = await sendsOf(id);
+      expect(sends.map((x) => x.status).sort()).toEqual(["suppressed", "suppressed"]);
+      expect(sends.every((x) => /sends locked \(D145\)/.test(x.suppressed_reason ?? ""))).toBe(true);
+      expect((await steps(id)).find((x) => x.node_id === "n2")).toMatchObject({ status: "skipped", result: { kind: "noop" } });
+    }));
+
+    it("the operator, by the CRM's phone written any way: the text goes; his email is not on the contact, so the email is held", () => locked(async () => {
+      const ct = await person("LOCKOP", { phone: "(602) 555-0199" });
+      const id = await start(wfS2L, ct);
+      await tickOnce();
+      expect(callsTo("sendSms")).toBe(1); expect(callsTo("sendEmail")).toBe(0);
+      const sends = await sendsOf(id);
+      expect(sends.find((x) => x.channel === "sms")).toMatchObject({ status: "sent" });
+      expect(sends.find((x) => x.channel === "email")).toMatchObject({ status: "suppressed", suppressed_reason: expect.stringMatching(/email for this contact is not his/) });
+    }));
+
+    it("the CRM is the truth: the replica says the operator's phone and email, the CRM says someone else's, so nothing goes", () => locked(async () => {
+      const ct = await person("LOCKDRIFT", { phone: "+16025550198", email: "op@lock.test" });
+      crm.set("LOCKDRIFT", { ...crm.get("LOCKDRIFT")!, phone: "+16025550123", email: "someone@else.com" });
+      const id = await start(wfS2L, ct);
+      await tickOnce();
+      expect(callsTo("sendSms")).toBe(0); expect(callsTo("sendEmail")).toBe(0);
+      expect((await sendsOf(id)).map((x) => x.status)).toEqual(["suppressed", "suppressed"]);
+    }));
+
+    it("the CRM cannot be asked who it is (503): nothing is sent, the step is retried in place, the send row is reclaimable", () => locked(async () => {
+      const ct = await person("LOCK503", { phone: "+16025550197" });
+      fail("getContact", { status: 503, times: 5 });
+      const id = await start(wfS2L, ct);
+      await tickOnce();
+      expect(callsTo("sendSms")).toBe(0); expect(callsTo("sendEmail")).toBe(0);
+      expect(await sendsOf(id)).toEqual([expect.objectContaining({ channel: "email", status: "failed", error: expect.stringMatching(/could not be asked/) })]);
+      expect((await steps(id)).find((x) => x.node_id === "n1")).toMatchObject({ status: "failed", result: { class: "transient" } });
+      expect(await runRow(id)).toMatchObject({ status: "waiting", current_node: "n1" });
+    }));
+
+    it("an unlock is one workflow at a time, says which back, and is audited; the operator's addresses are kept normalized", async () => {
+      await asOperator(async (c) => {
+        const name = (await one<{ name: string }>(c, "select name from workflows where id=$1", [wfS2L]))!.name;
+        await c.query("update workflows set sends_unlocked_at=null where company_id=$1", [companyId]);
+        expect(await setSendLock(c, { company: "stepf", workflow: name, unlock: true, confirm: "stepf/everything", by: "Tyler" })).toMatchObject({ ok: false, status: 400 });
+        expect(await setSendLock(c, { company: "stepf", workflow: name, unlock: true, confirm: `stepf/${name}`, by: "" })).toMatchObject({ ok: false, status: 400 });
+        expect(await setSendLock(c, { company: "stepf", workflow: name, unlock: true, confirm: `stepf/${name}`, by: "Tyler in the chat" })).toEqual({ ok: true, workflow: name, unlocked: true, changed: true });
+        expect((await many<{ id: string }>(c, "select id from workflows where company_id=$1 and sends_unlocked_at is not null", [companyId])).map((r) => r.id)).toEqual([wfS2L]);
+        expect(await one(c, "select after from audit_log where action='workflow.sends_unlocked' and target_id=$1 order by id desc limit 1", [wfS2L])).toEqual({ after: { unlocked: true, by: "Tyler in the chat" } });
+        const after = await setOperatorAddresses(c, { name: "Op", add: OP });
+        expect(after.emails).toContain("op@lock.test"); expect(after.phones).toContain("+16025550199");
+        await expect(setOperatorAddresses(c, { add: { phones: ["12"] } })).rejects.toThrow(/not a phone number/);
+        await setOperatorAddresses(c, { remove: OP });
+      });
+      await unlockSendsForTest(companyId);
+    });
+
+    it("a webhook step while locked is never called for a real person, and is called for the operator", async () => {
+      const wf = await probe("Probe: webhook", [{ id: "n1", type: "webhook", method: "POST", url: "https://hooks.example/zap", body: { who: "{{contact.name}}" } }]);
+      await asOperator(async (c) => { await c.query("update workflows set sends_unlocked_at=null where id=$1", [wf]); await setOperatorAddresses(c, { name: "Op", add: OP }); });
+      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+      try {
+        const real = await start(wf, await person("HOOKREAL"));
+        await tickOnce();
+        expect(spy).not.toHaveBeenCalled();
+        expect((await sendsOf(real))[0]).toMatchObject({ channel: "webhook", status: "suppressed", suppressed_reason: expect.stringMatching(/this contact is not him/) });
+        await start(wf, await person("HOOKOP", { email: "op@lock.test" }));
+        await tickOnce();
+        expect(spy).toHaveBeenCalledTimes(1);
+      } finally { spy.mockRestore(); await asOperator((c) => setOperatorAddresses(c, { remove: OP })); }
+    });
+
+    it("a workflow that runs live with its sends locked is said on the setup page, once, as a warning", () => locked(async () => {
+      await asOperator(async (c) => {
+        const mode = (await one<{ mode: string }>(c, "select mode from companies where id=$1", [companyId]))!.mode;
+        await c.query("update companies set mode='live' where id=$1", [companyId]);
+        try {
+          const r = await companyReadiness(c, companyId, "/app/c/stepf");
+          const name = r.workflows.find((w) => w.id === wfS2L)!.name;
+          const said = r.issues.filter((i) => /sends are locked/.test(i.text) && i.text.startsWith(name));
+          expect(said).toHaveLength(1);
+          expect(r.issues.filter((i) => /sends are locked/.test(i.text))).toHaveLength(r.workflows.filter((w) => w.enabled && w.runsIn === "live" && w.sendsLocked).length); expect(said[0]).toMatchObject({ level: "warning", text: expect.stringMatching(/reach only Tyler until he unlocks it/) });
+          expect(r.workflows.find((w) => w.id === wfS2L)).toMatchObject({ sendsLocked: true });
+        } finally { await c.query("update companies set mode=$2 where id=$1", [companyId, mode]); }
+      });
+    }));
+
+    it("the roster spans companies, so the query door will not read it", () => {
+      expect(checkQuery("select value from person_identities")).toMatchObject({ ok: false, error: expect.stringMatching(/person_identities/) });
+      expect(checkQuery("select * from people")).toMatchObject({ ok: false });
     });
   });
 });

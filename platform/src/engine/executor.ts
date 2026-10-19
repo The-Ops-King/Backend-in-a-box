@@ -5,6 +5,7 @@ import type { Adapters, Company } from "@/adapters/types";
 import { fallbacksOf, labelledEdge, onwardEdge, type Edge, type Node } from "./definition";
 import { evaluate } from "./predicate";
 import { render, resolveExpr, resolvePath, parseDuration, StaleTemplateError, UnknownPathError } from "./template";
+import { checkSendLock, type LockChannel } from "./send-lock";
 import { predicateWords, durationWords, skippedWords } from "./describe";
 import { syncCards, pickCard, latestCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow, timeParam } from "./waitrule";
@@ -97,6 +98,9 @@ const ghost = (d: ExecDeps) => d.effective === "ghost";
 const held = (d: ExecDeps) => d.effective !== "real";
 const heldFlag = (d: ExecDeps) => (ghost(d) ? { ghost: true } : { quiet: true });
 const QUIET_HELD = "quiet mode: nothing reaches a contact";
+/** D145: the send lock, after the mode let the send through and before anything reaches the vendor. */
+const sendLock = (d: ExecDeps, channel: LockChannel) =>
+  checkSendLock(d.c, { adapters: d.adapters, company: d.adapterCompany, workflowId: d.run.workflow_id, ghlContactId: (d.ctx.contact as { ghl_contact_id?: string | null } | undefined)?.ghl_contact_id, channel });
 
 const single = (d: ExecDeps, id: string): string | null => onwardEdge(d.edgesFrom(id))?.to ?? null;
 const env = (d: ExecDeps) => ({ now: d.now, tz: contactTz(d), companyTz: d.company.timezone });
@@ -160,6 +164,13 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
     await d.c.query("update sends set status=$2, suppressed_reason=$3, sent_at=now() where id=$1", [send.id, ghost(d) ? "ghost" : "quiet", ghost(d) ? null : QUIET_HELD]);
     await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "message.sent", source: "engine", data: { channel, node: node.id, ...heldFlag(d), substituted } });
     return { status: "ok", next, result: { ...heldFlag(d), would_send: body.slice(0, 120), substituted } };
+  }
+  const lock = await sendLock(d, channel);
+  if (!lock.ok) {
+    if (lock.retry) { await d.c.query("update sends set status='failed', error=$2 where id=$1", [send.id, lock.why]); return { status: "failed", error: lock.why }; }
+    await d.c.query("update sends set status='suppressed', suppressed_reason=$2 where id=$1", [send.id, lock.why]);
+    await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "send.suppressed", source: "engine", data: { channel, node: node.id, why: lock.why } });
+    return { status: "skipped", next, result: { kind: "noop", why: lock.why, would_send: body.slice(0, 120) } };
   }
   const ghlContactId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
   const r = node.type === "send_sms"
@@ -326,6 +337,8 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (!templateId) return { status: "failed", error: `send_document ${node.id}: template rendered empty (bind crm.agreement_template)` };
       if (held(d)) return { status: "ok", next, result: { ...heldFlag(d), would_send_document: { template: templateId, sender, to: contact?.ghl_contact_id } } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "send_document: contact has no CRM id yet" };
+      const lock = await sendLock(d, "document");
+      if (!lock.ok) return lock.retry ? { status: "failed", error: lock.why } : { status: "skipped", next, result: { kind: "noop", why: lock.why, would_send_document: { template: templateId, sender, to: contact.ghl_contact_id } } };
       const cl = await claim(d, node, "document");
       if (!cl.fresh) return cl.done ? { status: "ok", next, result: { document: cl.external_id, template: templateId, sender, reused: true } } : { status: "skipped", next, result: { kind: "blocked", why: `document not sent twice: ${PENDING_WHY}` } };
       const sent = await d.adapters.write.sendDocumentTemplate(d.adapterCompany, { templateId, contactId: contact.ghl_contact_id, userId: sender });
@@ -753,6 +766,12 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (bodyText !== undefined && typeof node.body !== "string" && !Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) headers["Content-Type"] = "application/json";
       const safeUrl = url.replace(/([?&](?:key|token|api_key|apikey|secret)=)[^&]+/gi, "$1…");
       if (held(d)) { await recordSend(d, node, "webhook", bodyText ?? "", ghost(d) ? "ghost" : "quiet", ghost(d) ? null : QUIET_HELD); return { status: "ok", next, result: { ...heldFlag(d), would_call: `${node.method} ${safeUrl}`, would_send: bodyText?.slice(0, 300) } }; }
+      const lock = await sendLock(d, "webhook");
+      if (!lock.ok) {
+        if (lock.retry) return { status: "failed", error: lock.why };
+        await recordSend(d, node, "webhook", bodyText ?? "", "suppressed", lock.why);
+        return { status: "skipped", next, result: { kind: "noop", why: lock.why, would_call: `${node.method} ${safeUrl}`, would_send: bodyText?.slice(0, 300) } };
+      }
       const send = await recordSend(d, node, "webhook", bodyText ?? "", "queued"); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already called (idempotency)" } };
       try {
         const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 20_000);

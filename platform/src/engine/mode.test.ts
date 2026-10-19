@@ -8,7 +8,7 @@ import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
 import { contactPasses, effectiveMode } from "@/engine/mode";
 import { setCompanyMode } from "@/engine/golive";
-import { fakeAdapters } from "@/engine/test-install";
+import { fakeAdapters, unlockSendsForTest } from "@/engine/test-install";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { syncTriggers } from "@/engine/install";
 import { encrypt } from "@/engine/crypto";
@@ -45,6 +45,7 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
         for (const t of ["sends", "runs", "events", "pipeline_cards", "opportunities", "contact_identifiers", "contacts", "slack_posts", "slack_connections", "workflow_triggers", "workflows", "users", "calendars", "company_terms", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
     });
     companyId = (await installCompany({ name: "Ladder", slug: "ladder", timezone: "America/Phoenix", locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, bookingCalendar: "CAL", templates: ["new-lead", "speed-to-lead"], crm: { pipeline_setter: "P", stage_setter_new_lead: "S", field_opportunity_stage_entered: "F" }, testDomains: ["@JTylerRay.com"], enable: true }, fake)).companyId;
+    await unlockSendsForTest(companyId);   // D145: these assert what the workflows send
     await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));   // the texts here are about the mode, not the hour
   });
 
@@ -130,7 +131,7 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     const probe = async (name: string, event: string, middle: Record<string, unknown>[]) => asOperator(async (c) => {
       const nodes = [{ id: "t1", type: "trigger", event }, ...middle, { id: "x1", type: "exit", reason: "done" }];
       const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "none" }, nodes, edges: nodes.slice(0, -1).map((n, i) => ({ from: n.id, to: nodes[i + 1].id })) });
-      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,$2,'always',true) returning id", [companyId, name]))!;
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, sends_unlocked_at) values ($1,$2,'always',true,now()) returning id", [companyId, name]))!;
       await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'d76')", [wf.id, def, extractManifest(def)]);
       await syncTriggers(c, companyId, wf.id, def);
     });
@@ -171,7 +172,7 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.bookings','channel',$2),($1,'slack.channel.deals','channel',$3),($1,'test.slack_channel','channel',$2) on conflict (company_id,key) do update set value=excluded.value", [companyId, Buffer.from("CTEST"), Buffer.from("CREAL")]);
       const nodes = [{ id: "t1", type: "trigger", event: "lead.created" }, { id: "p1", type: "slack_post", channel: "{{slack.channel.bookings}}", template: "booked {{contact.first_name}}" }, { id: "p2", type: "slack_post", channel: "{{slack.channel.deals}}", template: "deal {{contact.first_name}}" }, { id: "x1", type: "exit", reason: "done" }];
       const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "none" }, nodes, edges: nodes.slice(0, -1).map((n, i) => ({ from: n.id, to: nodes[i + 1].id })) });
-      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Quiet posts','always',true) returning id", [companyId]))!;
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, sends_unlocked_at) values ($1,'Quiet posts','always',true,now()) returning id", [companyId]))!;
       await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'d132')", [wf.id, def, extractManifest(def)]);
       await syncTriggers(c, companyId, wf.id, def);
     });
@@ -224,7 +225,7 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     await asOperator(async (c) => {
       const nodes = [{ id: "t1", type: "trigger", event: "form.submitted" }, { id: "r1", type: "record", event: "lead.created", start: true, data: {} }, { id: "x1", type: "exit", reason: "done" }];
       const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "none" }, nodes, edges: nodes.slice(0, -1).map((n, i) => ({ from: n.id, to: nodes[i + 1].id })) });
-      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Form starts lead','always',true) returning id", [companyId]))!;
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, sends_unlocked_at) values ($1,'Form starts lead','always',true,now()) returning id", [companyId]))!;
       await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'d132')", [wf.id, def, extractManifest(def)]);
       await syncTriggers(c, companyId, wf.id, def);
       await dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: ct, opportunity_id: null, appointment_id: null, event_type: "form.submitted", source: "test", data: {} }), { contact: { id: ct } });

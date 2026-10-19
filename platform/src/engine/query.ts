@@ -11,10 +11,10 @@ import { ownTables } from "@/db/migrate";
 export const QUERY_LIMIT_DEFAULT = 200;
 export const QUERY_LIMIT_MAX = 2000;
 export const QUERY_TIMEOUT_MS = 5000;
-/** The role the statement runs as: no login, no RLS bypass, SELECT on our tables except the two below. Created on first use. */
+/** The role the statement runs as: no login, no RLS bypass, SELECT on our tables except the ones below. Created on first use. */
 export const QUERY_ROLE = "query_door";
-/** Tables that hold ciphertext or Slack credentials: no grant for the role, and refused by name before that. */
-export const QUERY_DENY_TABLES = ["bindings", "slack_connections"];
+/** Tables that hold ciphertext or Slack credentials, or span companies: no grant for the role, and refused by name before that. */
+export const QUERY_DENY_TABLES = ["bindings", "slack_connections", "people", "person_identities"];   // D145: the roster spans companies
 /** Functions that could read files, flip the scope or reach out. */
 export const QUERY_DENY = [...QUERY_DENY_TABLES, "set_config", "pg_read_file", "pg_read_binary_file", "pg_ls_dir", "pg_stat_file", "lo_import", "lo_export", "dblink", "pg_terminate_backend", "pg_cancel_backend"];
 /** Columns dropped from every result: a value that is a standing capability, not a fact about the business. */

@@ -18,7 +18,7 @@ import { recordPayment } from "@/engine/payments";
 import { contactPasses } from "@/engine/mode";
 import { render } from "@/engine/template";
 import { tick } from "@/engine/runner";
-import { fakeAdapters, ghlMessages } from "@/engine/test-install";
+import { fakeAdapters, ghlMessages, unlockSendsForTest } from "@/engine/test-install";
 import type { Adapters, AppointmentSnapshot, ContactSnapshot, MessageSnapshot } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -105,6 +105,7 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     const r = await installCompany({ name: "Edges Contacts", slug: "edgesc", timezone: TZ, locationId: "LOC-EDGESC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, templates: TEMPLATES, crm: CRM, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [r.companyId]));   // D56: install cannot reach live without Slack
     companyId = r.companyId;
+    await unlockSendsForTest(companyId);   // D145: these assert what the workflows send
     expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(TEMPLATES.length);
     await asOperator(async (c) => {
       await c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]);

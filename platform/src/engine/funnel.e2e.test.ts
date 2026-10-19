@@ -13,7 +13,7 @@ import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { applyAppointment } from "@/engine/poll";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { fakeProbes, replicaSnapshot } from "@/engine/test-install";
+import { fakeProbes, replicaSnapshot, unlockSendsForTest } from "@/engine/test-install";
 import type { Adapters, AppointmentSnapshot, BookingRead, Classification } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -57,6 +57,7 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
     const r = await installCompany({ name: "Funnel", slug: "fnl", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true,
       crm: { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-DATE" } }, fake);
     companyId = r.companyId;
+    await unlockSendsForTest(companyId);   // D145: these assert what the workflows send
     // the fixture sets the flag itself: the only real way to live is goLive (D56), which wants Slack connected, and these scenarios assert what happens while it is not
     await asOperator((c) => c.query("update companies set mode='live', send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
     contactId = await asOperator(async (c) => {

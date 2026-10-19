@@ -19,7 +19,7 @@ import { applyPayment } from "@/engine/lifecycle";
 import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { fakeAdapters, fakeProbes, inboundForTest } from "@/engine/test-install";
+import { fakeAdapters, fakeProbes, inboundForTest, unlockSendsForTest } from "@/engine/test-install";
 import { recordRecording, recordPhoneCall, settlePhoneCall, phoneFacts, type RecordingInput } from "@/engine/recordings";
 import { simulate } from "@/engine/simulate";
 import { reactionArrived } from "@/engine/webhooks/slack";
@@ -120,6 +120,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     const r = await installCompany({ name: "Journey", slug: "journey", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, setterRule: "question", closers: ["sam@x.com"], enable: true, crm: CRM, slack: SLACK, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [r.companyId]));   // D56: install cannot reach live without Slack; this journey asserts behaviour with Slack unbound
     companyId = r.companyId;
+    await unlockSendsForTest(companyId);   // D145: these assert what the workflows send
     expect(r.installed.filter((s) => !s.endsWith("enabled")).sort()).toEqual(["ledger-drift → OFF, missing: crm.object_sales_call"]);   // D88 A6: it needs the Sales Call object, which this fixture does not bind
     await asOperator(async (c) => {
       await c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]);

@@ -4883,3 +4883,23 @@ Found: four event types are offered as starts and nothing writes them (contact.c
 stage.changed).
 
 Tests: `inventory.test.ts`, `tag-dispatch.test.ts`, `dating-booked.test.ts` (D144).
+
+## D145. The send lock: every workflow starts locked to Tyler's own addresses (2026-10-18)
+
+Tyler: "Yes, I want the SMS lock as well. I'm the only one who can unlock sends ... All of the rest, I just want redundancy, so
+we don't accidentally send something to people." A second guard, apart from the mode: a workflow whose sends are locked texts,
+emails, sends an agreement or calls a webhook only for Tyler, whatever mode it runs in.
+- `workflows.sends_unlocked_at` null is locked: every workflow there was, and every one made after. Only
+  `POST /api/admin/workflows/sends` unlocks, one workflow, with `confirm` repeating "<company>/<workflow name>" and `by`; audited.
+  CLAUDE.md: only on Tyler's word in the chat; the dashboard has no way to.
+- Checked at the moment of sending, after the mode lets a send through, against the contact as GHL holds it (GHL sends to its
+  own phone and email, not the replica's): a text needs his phone, an email or agreement his email, a webhook either. A contact
+  GHL cannot be asked about is not sent to: the step fails and is retried (the send row reclaimable); one GHL does not have, or
+  that is not him, is held with the reason and the run goes on.
+- His addresses are the roster's first rows (`people` with `operator`, `person_identities`: email lower-cased, phone E.164),
+  set by `POST /api/admin/people/operator`. The query door does not read the roster (it spans companies).
+- A workflow that runs live with its sends locked is one warning on the setup page (Tyler: "that's fine. Just let me know").
+
+Tests: `step-failures.test.ts` (D145); the tests about what workflows send unlock their company (`unlockSendsForTest`). Two clock
+flakes fixed on the way: `moves.test.ts` fell outside the alert repeat hours after 5 PM in Arizona; `step-failures.test.ts`
+ordered two cards written in one transaction by a tied `created_at`.

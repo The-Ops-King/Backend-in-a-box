@@ -386,6 +386,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: alerts are said by the Health c
 
   it("alerts.repeat_minutes decides when an open alert is said again; alerts.poll_failures how many failed polls make one", async () => {
     await install("health-check");
+    // D135's repeat hours (7 AM to 5 PM in Arizona) are not what this asserts; all day, so the test does not depend on the clock
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'alerts.repeat_hours','text','00:00-24:00') on conflict (company_id,key) do update set value=excluded.value", [companyId]));
     await raiseOne("x:open", "Still broken");
     await say();
     expect(posts.map((p) => p.text)).toEqual([expect.stringMatching(/^🔴 \*Moves Co · Engine\*\nStill broken\n<https:\/\/engine\.test\/app\/c\/mvs-a7\|Open>$/)]);

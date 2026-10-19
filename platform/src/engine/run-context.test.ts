@@ -15,7 +15,7 @@ import { buildContext, loadCompany, persistedContext, type RunRow } from "@/engi
 import { slimRunContexts } from "@/engine/retention";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { encrypt } from "@/engine/crypto";
-import { fakeAdapters, inboundForTest } from "@/engine/test-install";
+import { fakeAdapters, inboundForTest, unlockSendsForTest } from "@/engine/test-install";
 import { GhlError } from "@/adapters/ghl/client";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
 
@@ -69,6 +69,7 @@ describe.skipIf(!HAS_DB)("D84: a run keeps its own state, not a copy of the cont
     await migrate().catch((e: Error) => { if (!/events_source_check/.test(e.message)) throw e; });
     await wipe();
     companyId = (await installCompany({ name: "Slim Context", slug: SLUG, timezone: TZ, locationId: "LOC-SLIM", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, templates: ["new-lead"], slack: { bookings: CHANNEL } }, fake)).companyId;
+    await unlockSendsForTest(companyId);   // D145
     await asOperator(async (c) => {
       await c.query("update companies set mode='live', send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]);
       await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id, channels) values ($1,'T1',$2,'UBOT','{}')", [companyId, encrypt("xoxb-fake")]);
@@ -93,7 +94,7 @@ describe.skipIf(!HAS_DB)("D84: a run keeps its own state, not a copy of the cont
       const edges = [{ from: "t1", to: "v1" }, { from: "v1", to: "p1" }, { from: "p1", to: "l1" }, { from: "l1", to: "w1" }, { from: "l1", to: "k1", label: "tap" }, { from: "k1", to: "rs1" }, { from: "rs1", to: "x1" },
         { from: "w1", to: "r1" }, { from: "r1", to: "b1" }, { from: "b1", to: "h1" }, { from: "h1", to: "s1" }, { from: "s1", to: "x1" }];
       const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "contact_exists" }, nodes, edges });
-      workflowId = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Slim probe','always',true) returning id", [companyId]))!.id;
+      workflowId = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, sends_unlocked_at) values ($1,'Slim probe','always',true,now()) returning id", [companyId]))!.id;
       await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'slim probe')", [workflowId, def, extractManifest(def)]);
     });
     await tickOnce();   // the scheduler's clock is shared with the other suites: one tick so the next is never "recovery"

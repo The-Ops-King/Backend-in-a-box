@@ -27,9 +27,9 @@ Every step also takes `title`, `only_if` (skipped when false) and `blocking`.
 | `remove_tag` | `tag` | Takes contact tags off (the older one-direction form of tags). | none |
 | `report` | `kind`, `breakdowns`, `sections`, `into`, `metrics`, `period`, `layout` | Builds a daily, weekly or monthly wrap-up from the company's numbers. | test.domains |
 | `resume` | none | Sends the run back to the step it was handed back to. | none |
-| `send_document` | `template`, `sender`, `name` | Sends a GHL Documents & Contracts template (held in ghost and quiet; never twice). | none |
-| `send_email` | `subject`, `template`, `ghl_template`, `kind`, `validity`, `on_stale`, `substitute_template` | Emails the contact through GHL (held in ghost and quiet; inside the send window). | send window |
-| `send_sms` | `template`, `ghl_template`, `kind`, `validity`, `on_stale`, `substitute_template` | Texts the contact through GHL (held in ghost and quiet; inside the send window). | send window, sms enabled |
+| `send_document` | `template`, `sender`, `name` | Sends a GHL Documents & Contracts template (held in ghost and quiet; never twice; while its sends are locked, only to Tyler, D145). | the send lock |
+| `send_email` | `subject`, `template`, `ghl_template`, `kind`, `validity`, `on_stale`, `substitute_template` | Emails the contact through GHL (held in ghost and quiet; inside the send window; while its sends are locked, only to Tyler's own emails, D145). | send window, the send lock |
+| `send_sms` | `template`, `ghl_template`, `kind`, `validity`, `on_stale`, `substitute_template` | Texts the contact through GHL (held in ghost and quiet; inside the send window; while its sends are locked, only to Tyler's own phone, D145). | send window, sms enabled, the send lock |
 | `set_tag` | `tag` | Adds contact tags (the older one-direction form of tags). | none |
 | `set_var` | `key`, `value`, `when`, `pick`, `else_value` | Remembers a value for later steps, picked by a condition or a fact. | none |
 | `slack_post` | `channel`, `fallback_channel`, `template`, `as`, `thread_of`, `thread_only`, `tag`, `edit`, `react`, `offer`, `buttons`, `label`, `unreact`, `react_on`, `quiet_when_empty` | Posts, replies in a thread, edits, reacts or offers buttons in Slack. | test.slack_channel, slack.live, slack.channel.ops, bot.escalate_to, reports.quiet_when_empty, slack.name, slack.icon |
@@ -43,4 +43,4 @@ Every step also takes `title`, `only_if` (skipped when false) and `blocking`.
 | `wait_for_event` | `event`, `match`, `about`, `since`, `until`, `into`, `respect_send_window` | Waits for an event about this person or booking, or a deadline. | send window |
 | `wait_for_reaction` | `of`, `emojis`, `timeout`, `into`, `until` | Waits for an emoji tap on one Slack post. | none |
 | `wait_for_reply` | `timeout`, `channel`, `settle`, `until` | Waits for a text or email reply after the run's last send. | none |
-| `webhook` | `url`, `method`, `headers`, `body`, `into`, `on_error` | Calls an outside URL (held in ghost and quiet; the only step that reads secret.* values). | none |
+| `webhook` | `url`, `method`, `headers`, `body`, `into`, `on_error` | Calls an outside URL (held in ghost and quiet; while its sends are locked, only for a run about Tyler, D145; the only step that reads secret.* values). | the send lock |

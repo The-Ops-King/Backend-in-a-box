@@ -29,6 +29,11 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D102: the booking's meeting link as a key, so a recording with no attendee to match on finds its call
     await c.query(`alter table appointments add column if not exists meeting_key text`);
     await c.query(`alter table appointments add column if not exists meeting_url text`);   // D144
+    // D145: the send lock (null = locked, every workflow so far included) and the roster's first two tables
+    await c.query(`alter table workflows add column if not exists sends_unlocked_at timestamptz`);
+    await c.query(`alter table workflows add column if not exists sends_unlocked_by text`);
+    await c.query(`create table if not exists people (id uuid primary key default gen_random_uuid(), name text not null, operator boolean not null default false, created_at timestamptz not null default now())`);
+    await c.query(`create table if not exists person_identities (id uuid primary key default gen_random_uuid(), person_id uuid not null references people(id) on delete cascade, kind text not null check (kind in ('email','phone','slack')), value text not null, workspace text not null default '', created_at timestamptz not null default now(), unique (kind, value, workspace))`);
     await c.query(`create index if not exists appointments_company_id_meeting_key_idx on appointments (company_id, meeting_key) where meeting_key is not null`);
     // D51: which mode a run was born in; the column arriving on a database that already has runs stamps them with their company's mode today (every run so far was shadow-born where the company is still in shadow)
     const bornIn = await c.query("select 1 from information_schema.columns where table_name='runs' and column_name='born_in'");
