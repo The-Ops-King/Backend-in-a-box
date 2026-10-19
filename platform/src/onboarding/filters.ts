@@ -29,12 +29,15 @@ export const CHECK_MINUTES = 30;
 /** A workflow GHL reports as running: published (or active); a draft or inactive one fires on nothing. */
 export const isOn = (status: string) => /^(published|active)$/i.test(status.trim());
 
-/** What stands between the live list and a clean check, one line each. */
+/**
+ * What stands between the live list and a clean check, one line each. A draft needs no mark: GHL never runs one (Dating's
+ * account has 72 of them). One published since its last read shows up unmarked, so the next move up waits for it.
+ */
 export function problemsOf(list: TheirWorkflow[], marks: Record<string, Marked>): string[] {
   const out: string[] = [];
   for (const w of list) {
     const m = marks[w.id];
-    if (!m) out.push(`${w.name} (${w.status}): not marked yet`);
+    if (!m) { if (isOn(w.status)) out.push(`${w.name} (${w.status}): not marked yet`); }
     else if (m.mark === "off" && isOn(w.status)) out.push(`${w.name}: marked off, but GHL says it is ${w.status}`);
   }
   return out;

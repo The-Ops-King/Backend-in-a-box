@@ -552,8 +552,7 @@ the bot is not in, only the asker sees it, with a note to invite the bot.
 | `/closes` | every close, newest first: the person, their closer, the day won, with the count on top | this month |
 | `/leaderboard` | closers ranked by cash collected (closes and close rate beside), setters ranked by sets (the show rate of their sets beside); only people with something in the period; narrow monospace blocks that fit a phone (D94) | this week |
 | `/help` | every shortcut with a one-line description, and example questions (privately) | — |
-| `/issue` | logs something that broke, numbered per offer: posted where it was typed (add a Loom or screenshot in its thread), the operator told, a GitHub issue opened; closing it answers in the thread with a ✅ (D152) | — |
-| `/request` | the same for something new or a change (D152) | — |
+| `/support` | logs something that broke or something they need, numbered per offer: posted where it was typed (add a Loom or screenshot in its thread), the operator told, a GitHub issue opened; closing it answers in the thread with a ✅ (D152) | — |
 
 **Any GHL field, joined across a person's records** (D74, D75): a question about something no metric covers, or one that
 crosses records ("show rate by hair-loss answer", "close rate by objection", "show rate for setter-booked vs direct",
@@ -698,8 +697,7 @@ features:
     - { command: /closes, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Every close in the period: who, closer, day won", usage_hint: "[last month]", should_escape: false }
     - { command: /leaderboard, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Closers by cash, setters by sets", usage_hint: "[last week]", should_escape: false }
     - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "What the bot can answer", should_escape: false }   # no usage_hint: Slack refuses an empty one
-    - { command: /issue, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Something broke or looks wrong: logs it for Tyler with a number", usage_hint: "[what went wrong]", should_escape: false }
-    - { command: /request, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Ask for something new or a change: logs it for Tyler with a number", usage_hint: "[what you need]", should_escape: false }
+    - { command: /support, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/<companyId>/commands", description: "Something broke, or you need something: logs it for Tyler with a number", usage_hint: "[what's wrong or what you need]", should_escape: false }
 oauth_config:
   scopes:
     bot:

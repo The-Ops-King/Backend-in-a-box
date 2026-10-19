@@ -5,7 +5,7 @@ import { migrate } from "@/db/migrate";
 import { installCompany } from "@/engine/install";
 import { encrypt } from "@/engine/crypto";
 import { fakeAdapters } from "@/engine/test-install";
-import { closeTicket, listTickets, openTicket } from "@/engine/tickets";
+import { closeTicket, githubCheck, listTickets, openTicket } from "@/engine/tickets";
 import type { Adapters } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -36,13 +36,13 @@ describe.skipIf(!process.env.DATABASE_URL)("D152: /issue and /request", () => {
   });
 
   it("opens numbered tickets per offer, posts them where typed with the thread ask, tells the operator, and records why there is no GitHub issue", async () => {
-    const a = await openTicket(fake, companyId, { kind: "issue", text: "the EOD form won't load", slackUser: "U-MIA", channel: "C-SALES" });
-    const b = await openTicket(fake, companyId, { kind: "request", text: "a no-show text for closing calls", slackUser: "U-MIA", channel: "C-SALES" });
+    const a = await openTicket(fake, companyId, { text: "the EOD form won't load", slackUser: "U-MIA", channel: "C-SALES" });
+    const b = await openTicket(fake, companyId, { text: "a no-show text for closing calls", slackUser: "U-MIA", channel: "C-SALES" });
     expect([a.number, b.number]).toEqual([1, 2]);
-    expect(posts[0]).toMatchObject({ channel: "C-SALES", text: expect.stringMatching(/^🎫 \*Issue #1\* from <@U-MIA>\nthe EOD form won't load\n_Add a Loom or a screenshot in this thread/) });
-    expect(posts[1]).toMatchObject({ channel: "U-OP", text: expect.stringMatching(/^🎫 New issue #1 at Ticket Co from Mia: the EOD form won't load\n_No GitHub issue: GITHUB_TOKEN/) });
+    expect(posts[0]).toMatchObject({ channel: "C-SALES", text: expect.stringMatching(/^🎫 \*Support #1\* from <@U-MIA>\nthe EOD form won't load\n_Add a Loom or a screenshot in this thread/) });
+    expect(posts[1]).toMatchObject({ channel: "U-OP", text: expect.stringMatching(/^🎫 New support #1 at Ticket Co from Mia: the EOD form won't load\n_No GitHub issue: GITHUB_TOKEN/) });
     const rows = await asOperator((c) => listTickets(c, companyId));
-    expect(rows.map((t) => [t.number, t.kind, t.status, t.slack_ts !== null, t.by_name])).toEqual([[2, "request", "open", true, "Mia"], [1, "issue", "open", true, "Mia"]]);
+    expect(rows.map((t) => [t.number, t.status, t.slack_ts !== null, t.by_name])).toEqual([[2, "open", true, "Mia"], [1, "open", true, "Mia"]]);
   });
 
   it("closing answers in the ticket's thread and puts a ✅ on its post; a second close is refused", async () => {
@@ -52,5 +52,21 @@ describe.skipIf(!process.env.DATABASE_URL)("D152: /issue and /request", () => {
     expect(reacts.at(-1)).toEqual({ channel: "C-SALES", ts: t.slack_ts, emoji: "white_check_mark" });
     expect(await closeTicket(fake, companyId, 1, "again", "Tyler")).toMatchObject({ ok: false, status: 404 });
     expect((await asOperator((c) => listTickets(c, companyId, "closed"))).map((x) => x.number)).toEqual([1]);
+  });
+
+  it("the GitHub check says what is missing, and reads GitHub's 422 on an empty create as permission to open issues", async () => {
+    expect(await githubCheck()).toMatchObject({ ok: false, why: expect.stringContaining("GITHUB_TOKEN") });
+    const was = { t: process.env.GITHUB_TOKEN, r: process.env.GITHUB_REPO, f: globalThis.fetch };
+    process.env.GITHUB_TOKEN = "t"; process.env.GITHUB_REPO = "o/r";
+    try {
+      globalThis.fetch = (async () => new Response('{"message":"Invalid request"}', { status: 422 })) as typeof fetch;
+      expect(await githubCheck()).toMatchObject({ ok: true, repo: "o/r" });
+      globalThis.fetch = (async () => new Response('{"message":"Resource not accessible by personal access token"}', { status: 403 })) as typeof fetch;
+      expect(await githubCheck()).toMatchObject({ ok: false, why: expect.stringContaining("403") });
+    } finally {
+      globalThis.fetch = was.f;
+      if (was.t === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = was.t;
+      if (was.r === undefined) delete process.env.GITHUB_REPO; else process.env.GITHUB_REPO = was.r;
+    }
   });
 });
