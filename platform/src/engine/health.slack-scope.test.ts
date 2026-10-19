@@ -14,7 +14,7 @@ process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 let companyId: string;
 const base = fakeAdapters();
 const fake: Adapters = { ...base, notifier: { ...base.notifier, authTest: async () => ({ ok: true }), lookupUserByEmail: async (_t, email) => (email === "joined@scope.test" ? "UJOINED" : null),
-  channelInfo: async (_t, id) => (id === "CPRIV" ? { ok: false, error: "missing_scope", needed: "groups:read" } : id === "CGONE" ? { ok: false, error: "channel_not_found" } : { ok: true, name: id.toLowerCase(), member: true }) } };
+  channelInfo: async (_t, id) => (id === "CPRIV" ? { ok: false, error: "missing_scope", needed: "groups:read" } : id === "CGONE" ? { ok: false, error: "channel_not_found" } : id === "CNOTIN" ? { ok: true, name: "signed-contract", member: false } : { ok: true, name: id.toLowerCase(), member: true }) } };
 const posting = (channel: string) => ({ schema: 1, reentry: "always", premise: { check: "none" }, nodes: [{ id: "t1", type: "trigger", event: "tag.added" }, { id: "s1", type: "slack_post", channel, template: "x" }, { id: "x1", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "s1" }, { from: "s1", to: "x1" }] });
 
 describe.skipIf(!process.env.DATABASE_URL)("health: an unreadable Slack channel is one finding", () => {
@@ -69,5 +69,27 @@ describe.skipIf(!process.env.DATABASE_URL)("health: an unreadable Slack channel 
     const r = await sweep({ slack: false });
     expect(r.findings.filter((f) => !f.ok && f.check === "steps").map((f) => f.text).sort()).toEqual([
       '"Bookings post": step s1: channel slack.channel.bookings (CPRIV) cannot be read: missing_scope.', '"Calls post": step s1: channel slack.channel.calls (CGONE) cannot be read: channel_not_found.', '"Deals post": step s1: channel slack.channel.deals (CPRIV) cannot be read: missing_scope.']);
+  });
+
+  it("D146: before go-live every post goes to the test channel, so a real channel the bot is not in yet is a go-live note, not an alert; once anything posts live it is a finding", async () => {
+    await asOperator(async (c) => {
+      await c.query("update bindings set value=$2 where company_id=$1 and key='slack.channel.calls'", [companyId, Buffer.from("CNOTIN")]);
+      await c.query("insert into bindings (company_id, key, kind, value) values ($1,'test.slack_channel','channel',$2)", [companyId, Buffer.from("CTEST")]);
+    });
+    try {
+      const r = await sweep();
+      expect(r.findings.filter((f) => !f.ok && f.check === "slack" && !f.item?.startsWith("user:"))).toEqual([]);   // people not in Slack (D140) are another matter
+      expect(r.findings.find((f) => f.ok && f.item === "go-live-channels")?.text).toBe("Before go-live, invite the bot to #signed-contract; until then every post goes to the test channel.");
+      expect(r.findings.some((f) => f.ok && f.text === "Bot is alive and in the test channel, where every post goes before go-live.")).toBe(true);
+      await asOperator((c) => c.query("update workflows set mode='live' where company_id=$1 and name='Calls post'", [companyId]));
+      const live = await sweep();
+      expect(live.findings.filter((f) => !f.ok && f.check === "slack").map((f) => f.text)).toContain("The bot is not in #signed-contract (slack.channel.calls); posts there will fail. Invite it.");
+    } finally {
+      await asOperator(async (c) => {
+        await c.query("update workflows set mode=null where company_id=$1", [companyId]);
+        await c.query("delete from bindings where company_id=$1 and key='test.slack_channel'", [companyId]);
+        await c.query("update bindings set value=$2 where company_id=$1 and key='slack.channel.calls'", [companyId, Buffer.from("CGONE")]);
+      });
+    }
   });
 });

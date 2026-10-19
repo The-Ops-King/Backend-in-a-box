@@ -4903,3 +4903,14 @@ emails, sends an agreement or calls a webhook only for Tyler, whatever mode it r
 Tests: `step-failures.test.ts` (D145); the tests about what workflows send unlock their company (`unlockSendsForTest`). Two clock
 flakes fixed on the way: `moves.test.ts` fell outside the alert repeat hours after 5 PM in Arizona; `step-failures.test.ts`
 ordered two cards written in one transaction by a tied `created_at`.
+
+## D146. Before go-live the Slack check asks for the test channel only (2026-10-19)
+
+Tyler, on PMU's #ops-test filling with "The bot is not in #signed-contract … Invite it": "You should have set it to have them
+all going to this channel by default remember? Until I say go live." The posts were already going there (D133); the health
+check was wrong to ask for the real channels. While a company has a test channel and nothing posts live (the company is not
+live, `slack.live` is off or it is in ghost, and no workflow on runs live), the Slack check asks only that the bot is in the
+test channel; the real channels it is not in yet are one go-live note ("Before go-live, invite the bot to …"), never an alert.
+Once anything posts live, every bound channel is checked as before. People not in Slack (D140) are unchanged.
+
+Tests: `health.slack-scope.test.ts` (D146).

@@ -4,6 +4,7 @@ import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 import { loadCompany, type CompanyRow } from "./context";
 import { reconcile, type AlertInput, type Level } from "./alerts";
+import { slackLiveSet, TEST_CHANNEL_KEY } from "./mode";
 import { companyReadiness, missingSources } from "./readiness";
 import { ghlCatalog, type Catalog } from "@/adapters/ghl/catalog";
 import { ghlCalendarTeam, ghlFreeSlots, ghlLocationOk } from "@/adapters/ghl/health";
@@ -223,8 +224,20 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
       const auth: { ok: boolean; error?: string } = await adapters.notifier.authTest(token).catch((e) => ({ ok: false, error: String((e as Error).message) }));
       if (!auth.ok) bad("slack", "error", `Slack bot token rejected: ${auth.error ?? "unknown"}.`, "token");
       else {
-        const channels = Object.entries(bindings).filter(([k]) => k.startsWith("slack.channel.") || k === "alerts.slack_channel").map(([k, v]) => [k, v] as const);
-        if (row.channel) channels.push(["health.channel", row.channel]);
+        const bound = Object.entries(bindings).filter(([k]) => k.startsWith("slack.channel.") || k === "alerts.slack_channel").map(([k, v]) => [k, v] as const);
+        if (row.channel) bound.push(["health.channel", row.channel]);
+        // D146: before go-live every post goes to the test channel (D133), so that is the one channel the bot must be in now; the
+        // rest are checked and listed for go-live, never raised (Tyler: "have them all going to this channel by default ... Until I say go live")
+        const testChannel = bindings[TEST_CHANNEL_KEY];
+        const postsLive = company.mode === "live" || (slackLiveSet(bindings) && company.mode !== "ghost")
+          || !!(await one(c, "select 1 from workflows w join companies co on co.id=w.company_id where w.company_id=$1 and w.enabled and coalesce(w.mode, co.mode)='live' limit 1", [company.id]));
+        const preLive = !!testChannel && !postsLive;
+        const channels = preLive ? [[TEST_CHANNEL_KEY, testChannel] as const] : bound;
+        if (preLive) {
+          const later: string[] = [];
+          for (const id of new Set(bound.map(([, v]) => v).filter((v) => v && v !== testChannel))) { const info = await channelInfo(token, id); if (info.ok && info.member === false) later.push(`#${info.name ?? id}`); }
+          if (later.length) ok("slack", `Before go-live, invite the bot to ${later.join(", ")}; until then every post goes to the test channel.`, "go-live-channels");
+        }
         const seen = new Set<string>(); let fine = 0;
         for (const [k, id] of channels) {
           if (!id || seen.has(id)) continue; seen.add(id);
@@ -237,7 +250,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
           else if (info.member === false) bad("slack", "warning", `The bot is not in #${info.name ?? id} (${k}); posts there will fail. Invite it.`, id);
           else fine++;
         }
-        if (fine === seen.size) ok("slack", `Bot is alive and in all ${fine} channels it posts to.`);
+        if (fine === seen.size) ok("slack", preLive ? "Bot is alive and in the test channel, where every post goes before go-live." : `Bot is alive and in all ${fine} channels it posts to.`);
         // D140: a closer or setter the workflows DM who is not in Slack; looked up by their email first, so someone who has joined is linked here
         const dms = await one(c, `select 1 from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 and w.enabled and (v.definition::text like '%slack_user_id}}%' or v.definition::text like '%"notify_owner"%') limit 1`, [company.id]);
         const people = dms ? await many<{ id: string; name: string; email: string; role: string }>(c, "select id, name, email, role from users where company_id=$1 and active and role in ('closer','setter') and slack_user_id is null order by name", [company.id]) : [];
