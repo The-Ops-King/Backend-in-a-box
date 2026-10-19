@@ -248,7 +248,7 @@ a refund; a run started on a contact with no phone; a vendor outage mid-sequence
 1. Write the template; `pnpm exec vitest run src/engine/templates.test.ts` proves it parses and every path is known.
 2. Add a scenario in `templates.scenarios.test.ts` (fire the trigger, tick, assert the ledger) and a describe check
    (`describe.test` refuses raw paths or ids in the outline words).
-3. `coverage.test` passes when every dependency kind is verifiable; `mermaid.test` when the chart draws it.
+3. `coverage.test` passes when every dependency kind is verifiable. (The mermaid chart was removed in the 2026-10-19 audit.)
 4. Install on the company (`POST /api/admin/install` with `templates: [slug]`, no token needed on a re-install),
    leave it OFF, stage it with the harness (`/api/admin/simulate` actions: create, book, book-self, reschedule,
    cancel, pay, record, call, agreement, sign, reset), read the run page, then turn it on.

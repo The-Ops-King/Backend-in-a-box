@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { paymentOf, signed as signedCash } from "@/engine/ghl-metrics";
 import { DateTime } from "luxon";
-import { asOperator, db, one, many } from "@/db/client";
+import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { installCompany } from "@/engine/install";
@@ -12,8 +12,7 @@ import { applyPayment } from "@/engine/lifecycle";
 import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { fakeMessageBodies, ghlMessages, inboundForTest, replicaSnapshot, unlockSendsForTest } from "@/engine/test-install";
-import { templates } from "@/templates";
+import { fakeMessageBodies, inboundForTest, replicaSnapshot, unlockSendsForTest } from "@/engine/test-install";
 import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from "@/adapters/types";
 import { recordRecording, linkRecording, recordPhoneCall, settlePhoneCall, phoneFacts, type RecordingInput } from "@/engine/recordings";
 import { simulate } from "@/engine/simulate";
@@ -643,7 +642,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const id = await newContact("CLATE", "late@x.com");
     await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.ops','channel',$2) on conflict (company_id,key) do update set value=excluded.value", [companyId, Buffer.from("COPS")]));
     try {
-      const n = sent.length, p = slackPosts.length;
+      const n = sent.length;
       await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { by: "health", minutes_late: 95 } }), { contact: { id } }));
       await tick(fake, undefined, companyId);
       expect(sent.slice(n).filter((x) => x.to.includes("late@x.com"))).toEqual([]);

@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { many, one } from "@/db/client";
+import { one } from "@/db/client";
 import type { Adapters, Company, LiveCard } from "@/adapters/types";
 import { handMoved, type HandMove } from "./card-moves";
 
@@ -57,8 +57,6 @@ export async function syncCards(c: PoolClient, company: { id: string }, adapterC
 export async function pickCard(c: PoolClient, companyId: string, contactId: string, pipelineId: string): Promise<CardRow | null> {
   return (await one<CardRow>(c, "select id, ghl_opportunity_id, opportunity_id, ghl_stage_id, name, status from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id=$3 and status='open' order by (ghl_opportunity_id is not null) desc, updated_at desc, created_at desc limit 1", [companyId, contactId, pipelineId])) ?? null;
 }
-
-export const openCardRows = (c: PoolClient, companyId: string, contactId: string) => many<CardRow & { ghl_pipeline_id: string }>(c, "select id, ghl_opportunity_id, opportunity_id, ghl_pipeline_id, ghl_stage_id, name, status from pipeline_cards where company_id=$1 and contact_id=$2 and status='open'", [companyId, contactId]);
 
 /** The contact's most recent card on a board, open or closed (never one the CRM said is gone): what a changed answer moves back. */
 export async function latestCard(c: PoolClient, companyId: string, contactId: string, pipelineId: string): Promise<CardRow | null> {

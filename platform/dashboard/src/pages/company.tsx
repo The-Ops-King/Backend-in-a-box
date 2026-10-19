@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, usePage, useAction, modeLabel, MODES, MODE_ABOUT, type Mode, type CompanyPage, type WorkflowRow } from "~/api";
-import { Counts, Crumb, Empty, NameLine, Sec, Skeleton, Switch, Tag, toast } from "~/ui/pieces";
+import { Counts, Crumb, Empty, NameLine, Skeleton, Switch, Tag, toast } from "~/ui/pieces";
 import { ago } from "~/fmt";
 
 type Filter = "all" | "on" | "off" | "look";

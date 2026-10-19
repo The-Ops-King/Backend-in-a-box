@@ -27,7 +27,7 @@ const fake: Adapters = {
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 const TZ = "America/Phoenix";
-let companyId: string, allan: string, bea: string, sarah: string, leo: string, apptSarah: string, apptLeo: string, apptMia: string, apptNoah: string, apptTheo: string;
+let companyId: string, allan: string, bea: string, sarah: string, leo: string, apptSarah: string, apptMia: string, apptNoah: string, apptTheo: string;
 
 describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
   beforeAll(async () => {
@@ -51,7 +51,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       const today = DateTime.now().setZone(TZ);
       const at = (h: number) => today.set({ hour: h, minute: 0, second: 0, millisecond: 0 }).toJSDate();
       apptSarah = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id) values ($1,$2,$3,'A1',$4,$5,now(),'confirmed',$6,$7) returning id", [companyId, sarah, cal, at(10), at(11), term, allan]))!.id;
-      apptLeo = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id) values ($1,$2,$3,'A2',$4,$5,now(),'confirmed',$6,$7) returning id", [companyId, leo, cal, at(14), at(15), term, allan]))!.id;
+      await one(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id) values ($1,$2,$3,'A2',$4,$5,now(),'confirmed',$6,$7) returning id", [companyId, leo, cal, at(14), at(15), term, allan]);
       // Bea is on the roster and has a calendar slot today, but she is staff, not a closer: no link, no DM
       await c.query("insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id) values ($1,$2,$3,'A3',$4,$5,now(),'confirmed',$6,$7)", [companyId, sarah, cal, at(16), at(17), term, bea]);
       // Sarah's call was recorded and read: a follow-up with pains and a next step

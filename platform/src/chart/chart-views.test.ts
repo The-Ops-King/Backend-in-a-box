@@ -16,7 +16,6 @@ import type { St } from "./draw";
  * saw the four triggers and nothing under them: a drawing whose layout was "fully placed" still left steps off the page.
  */
 const company = { name: "Acme", timezone: "America/Chicago" };
-const PMU = path.resolve(__dirname, "../../installs/pmu");
 const shipped = () => [
   ...templates.map((t) => ({ name: t.slug, def: parseDefinition(t.definition) })),
   ...companyCopies(),   // PMU's and Dating Nelly's own copies (D118)

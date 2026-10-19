@@ -34,8 +34,6 @@ export const TRIAGE_OUTCOMES: OutcomeChoice[] = [
 ];
 /** What the Discovery Call record says for each triage meaning (its call_result options), and for each attendance (its outcome). */
 export const TRIAGE_RESULT: Partial<Record<CallMeaning, string>> = { qualified: "set", follow_up: "follow_up", unqualified: "dq", lost: "not_interested" };
-/** @deprecated the defaults; a company's list is `outcomesOf(fields)` */
-export const OUTCOMES = DEFAULT_OUTCOMES;
 /** The company's list: the choices on its outcome field, else the defaults. */
 export const outcomesOf = (fields?: EodField[] | null): OutcomeChoice[] => fields?.find((f) => f.key === "outcome")?.choices?.length ? fields.find((f) => f.key === "outcome")!.choices! : DEFAULT_OUTCOMES;
 /** The answers a call of this kind takes (D143). */
@@ -53,9 +51,8 @@ export function valueFor(fields: EodField[] | null | undefined, m: { attendance?
   if (m.call_outcome) return list.find((o) => o.call_outcome === m.call_outcome)?.value ?? "";
   return (list.find((o) => o.attendance === m.attendance && !o.call_outcome) ?? list.find((o) => o.attendance === m.attendance))?.value ?? "";
 }
-/** @deprecated by meaning: kept for callers that read the default values */
-export const HELD: CallOutcome[] = DEFAULT_OUTCOMES.filter((o) => o.attendance === "showed").map((o) => o.value);
-export const MONEY: CallOutcome[] = ["closed", "deposit"];
+/** The default "showed" answers: when the built-in "about" field is asked. */
+const HELD: CallOutcome[] = DEFAULT_OUTCOMES.filter((o) => o.attendance === "showed").map((o) => o.value);
 
 export type FieldType = "select" | "text" | "textarea" | "money" | "number" | "date";
 export type EodField = {

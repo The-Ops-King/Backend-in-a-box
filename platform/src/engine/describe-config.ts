@@ -1,11 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { jsonSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/json-schema";
 import { z } from "zod";
-import type { PoolClient } from "pg";
-import { many, one } from "@/db/client";
 import type { CalendarSnapshot } from "@/adapters/types";
 import type { Catalog } from "@/adapters/ghl/catalog";
-import { setBinding } from "./settings";
 import { DEFAULT_MODEL } from "@/adapters/anthropic/analyst";
 
 /**
@@ -78,34 +75,3 @@ export async function proposeConfig(apiKey: string, facts: ConfigFacts, text: st
   if (!res.parsed_output) throw new Error(res.stop_reason === "refusal" ? "the model declined" : "the model's answer could not be read");
   return Proposal.parse(res.parsed_output);
 }
-
-/** Apply an approved proposal with the same code paths the settings forms use. */
-export async function applyProposal(c: PoolClient, companyId: string, source: string, ops: Operation[], liveCalendars: CalendarSnapshot[]): Promise<string[]> {
-  const done: string[] = [];
-  for (const op of ops) {
-    if (op.op === "map_calendar") {
-      const live = liveCalendars.find((x) => x.id === op.calendar_id);
-      let term = await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category=$2 and active order by (lower(name)=lower($3)) desc, is_default desc, sort limit 1", [companyId, op.call_type, op.call_type_name ?? ""]);
-      if (op.call_type_name && !(await one(c, "select 1 from company_terms where company_id=$1 and domain='appointment_type' and lower(name)=lower($2)", [companyId, op.call_type_name]))) {
-        term = await one<{ id: string }>(c, "insert into company_terms (company_id, domain, name, category, sort) values ($1,'appointment_type',$2,$3,(select coalesce(max(sort),0)+1 from company_terms where company_id=$1 and domain='appointment_type')) returning id", [companyId, op.call_type_name, op.call_type]);
-      }
-      if (!term) continue;
-      const config = { ...(op.booking !== "company" ? { booking: op.booking } : {}), ...(op.questions && Object.keys(op.questions).length ? { questions: op.questions } : {}) };
-      const selfBooked = op.booking === "self" ? true : op.booking === "setter" ? false : null;
-      await c.query(`insert into calendars (company_id, source, external_id, name, appointment_term, self_booked, booking_url, config, active) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-        on conflict (company_id, source, external_id) do update set name=excluded.name, appointment_term=excluded.appointment_term, self_booked=excluded.self_booked, booking_url=coalesce(excluded.booking_url, calendars.booking_url), config=excluded.config, active=excluded.active`,
-        [companyId, source, op.calendar_id, live?.name ?? op.calendar_id, term.id, selfBooked, live?.bookingUrl ?? null, JSON.stringify(config), op.active]);
-      done.push(`mapped "${live?.name ?? op.calendar_id}" → ${op.call_type_name ?? op.call_type} (${op.booking})`);
-    } else if (op.op === "set_setter_rule") { await setBinding(c, companyId, "booking.setter_rule", "text", op.rule, "proposal"); done.push(`setter rule → ${op.rule}`); }
-    else if (op.op === "set_default_closer") { await setBinding(c, companyId, "crm.default_closer", "id", op.user_id, "proposal"); done.push(`default closer → ${op.user_id}`); }
-    else if (op.op === "set_calendar_role") { await setBinding(c, companyId, `calendar.${op.role}`, "id", op.calendar_id, "proposal"); done.push(`calendar.${op.role} → ${op.calendar_id}`); }
-    else if (op.op === "add_call_type") { await c.query("insert into company_terms (company_id, domain, name, category, sort) values ($1,'appointment_type',$2,$3,(select coalesce(max(sort),0)+1 from company_terms where company_id=$1 and domain='appointment_type')) on conflict (company_id, domain, name) do nothing", [companyId, op.name, op.category]); done.push(`call type "${op.name}" (${op.category})`); }
-  }
-  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'config.proposal_applied','company',$1,$2)", [companyId, { done }]);
-  return done;
-}
-
-export const loadProposal = (c: PoolClient, companyId: string) => one<{ value: { text: string; proposal: Proposal; at: string } }>(c, "select value from engine_state where key=$1", [`proposal:${companyId}`]);
-export const storeProposal = (c: PoolClient, companyId: string, text: string, proposal: Proposal) => c.query("insert into engine_state (key, value, updated_at) values ($1,$2,now()) on conflict (key) do update set value=$2, updated_at=now()", [`proposal:${companyId}`, JSON.stringify({ text, proposal, at: new Date().toISOString() })]);
-export const clearProposal = (c: PoolClient, companyId: string) => c.query("delete from engine_state where key=$1", [`proposal:${companyId}`]);
-export const termsFor = (c: PoolClient, companyId: string) => many<{ name: string; category: string }>(c, "select name, category from company_terms where company_id=$1 and domain='appointment_type' and active order by sort", [companyId]);

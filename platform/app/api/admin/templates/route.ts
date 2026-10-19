@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { asOperator, many, one } from "@/db/client";
+import { asOperator, one } from "@/db/client";
 import { installTemplates } from "@/engine/install";
 import { templates } from "@/templates";
 import { operatorAuthorized } from "@/engine/admin-auth";

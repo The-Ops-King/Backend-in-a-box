@@ -91,7 +91,7 @@ CF = sends to the contact (text or email); everything else is internal (Slack, C
 | 40 | Forcing a tool past what it was built for | Built in principle | Logic lives in the engine, the CRM holds records | — | Core |
 | 41 | Over-customised CRM nobody can maintain | Partial | Templates and playbooks (#53), versions, audit log | Playbooks not built yet | Core |
 | 42 | The team does not use the system | Partial | Slack-first cards, EOD links | Adoption measured per rep (EOD filed, outcomes filed, cards moved on time) | Core |
-| 43 | No SOPs, one person knows it | Partial | describe.ts plain English, mermaid charts | Drillable explanations (#46); an SOP per playbook generated from it | Core |
+| 43 | No SOPs, one person knows it | Partial | describe.ts plain English | Drillable explanations (#46); an SOP per playbook generated from it | Core |
 
 ## What this says
 

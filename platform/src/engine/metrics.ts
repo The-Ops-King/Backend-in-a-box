@@ -15,14 +15,6 @@ export type MetricRow = { dimension: "total" | "setter" | "closer"; dimension_id
 export type Totals = Record<string, number>;
 export type Breakdown = { id: string; name: string; values: Totals };
 
-export const METRIC_LABELS: Record<string, string> = {
-  leads_new: "new leads", leads_booked_same_day: "booked the same day", leads_called: "leads called", stl_sum: "seconds to first dial (sum)", leads_reached: "leads reached",
-  dials: "dials", connects: "connected", talk_sec: "talk seconds", calls_set: "set from a call", calls_setting: "setting calls", calls_confirmation: "confirmation calls",
-  booked: "calls booked", booked_self: "self-booked", booked_set: "setter-booked",
-  scheduled: "on the calendar", showed: "showed", noshow: "no-show", cancelled: "cancelled",
-  payments: "payments", cash: "cash collected", refunds: "refunds", refunded: "refunded", deals_won: "deals won", revenue: "revenue contracted",
-};
-
 export function dayBounds(day: string, tz: string): { start: Date; end: Date } {
   const start = DateTime.fromISO(day, { zone: tz }).startOf("day");
   return { start: start.toJSDate(), end: start.plus({ days: 1 }).toJSDate() };

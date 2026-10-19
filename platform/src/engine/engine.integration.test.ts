@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { DateTime } from "luxon";
-import { asOperator, db, one, many } from "@/db/client";
+import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { parseDefinition, extractManifest, indexDefinition } from "@/engine/definition";

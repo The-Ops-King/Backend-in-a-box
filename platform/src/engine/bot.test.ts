@@ -12,7 +12,7 @@ import type { HealthProbes } from "./health";
 import { getAvailability, getCloses, getMetric, parsePeriod, previousPeriod } from "./metric-registry";
 import { answerList, classifyCall, qualify, salesCallsFor, type QualifyConfig } from "./ghl-metrics";
 import { loadCompany } from "./context";
-import { formatAnswer, formatCombined, formatSummary, formatAvailability, availabilityBody, table, MAX_ROWS, PHONE_WIDTH, helpText } from "./bot-format";
+import { formatAnswer, formatCombined, formatSummary, formatAvailability, table, MAX_ROWS, PHONE_WIDTH, helpText } from "./bot-format";
 import { handleMessage, planCommand, preview, runCommand, type SlackMessage } from "./bot";
 import { NO_ANSWER, analyze, type Analysis } from "./ghl-graph";
 

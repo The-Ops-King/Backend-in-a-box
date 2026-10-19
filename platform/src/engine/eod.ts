@@ -3,12 +3,11 @@ import { randomBytes } from "node:crypto";
 import { DateTime } from "luxon";
 import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
-import { decrypt } from "./crypto";
 import { loadCompany, type CompanyRow } from "./context";
 import { callTime, dispositionMeaning, dispositionValues, filedMeaning, closerNameOf, closerOptions, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
-import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, choiceOf, valueFor, TRIAGE_RESULT, type CallEntry, type CallKind, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
+import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, choiceOf, valueFor, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
 
 /**
  * D34. The closer's end-of-day report: one link per closer, no login. Opening it shows their day prefilled from what the
@@ -314,4 +313,3 @@ export const totalsLine = (t: DayTotals) => [plural(t.calls_count, "call"), plur
 
 export const reportFor = (c: PoolClient, companyId: string, userId: string, day: string) => one<{ id: string; submitted_at: Date | null; answers: EodAnswers | null; changes: Change[]; reminded_at: Date | null }>(c, "select id, submitted_at, answers, changes, reminded_at from eod_reports where company_id=$1 and user_id=$2 and day=$3", [companyId, userId, day]);
 export const companyReports = (c: PoolClient, companyId: string, limit = 60) => many<{ id: string; day: string; closer: string; submitted_at: Date | null; reminded_at: Date | null; answers: EodAnswers | null; changes: Change[] }>(c, "select r.id, r.day::text as day, u.name as closer, r.submitted_at, r.reminded_at, r.answers, r.changes from eod_reports r join users u on u.id=r.user_id where r.company_id=$1 order by r.day desc, u.name limit $2", [companyId, limit]);
-export const slackTokenFor = async (c: PoolClient, companyId: string) => { const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [companyId]); return conn ? decrypt(conn.bot_token) : null; };

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { migrate } from "@/db/migrate";
-import { db } from "@/db/client";
 import { operatorAuthorized } from "@/engine/admin-auth";
 export const dynamic = "force-dynamic"; export const maxDuration = 120;
 /** POST with Authorization: Bearer $CRON_SECRET. Applies engine/schema.sql if absent, forces RLS, creates engine_state. Idempotent. */

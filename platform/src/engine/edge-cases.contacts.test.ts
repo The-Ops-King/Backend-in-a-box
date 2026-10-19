@@ -11,8 +11,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { installCompany } from "@/engine/install";
-import { emitEvent, dispatchEvent } from "@/engine/dispatch";
-import { applyAppointment, pollAll, upsertContact } from "@/engine/poll";
+import { dispatchEvent } from "@/engine/dispatch";
+import { applyAppointment, pollAll } from "@/engine/poll";
 import { loadCompany } from "@/engine/context";
 import { recordPayment } from "@/engine/payments";
 import { contactPasses } from "@/engine/mode";
@@ -75,11 +75,9 @@ const sends = (runId: string) => asOperator((c) => many<{ channel: string; statu
 const cardNames = (contactId: string) => asOperator((c) => many<{ name: string }>(c, "select name from pipeline_cards where company_id=$1 and contact_id=$2 order by created_at", [companyId, contactId]));
 const inCrm = (id: string, over: Partial<ContactSnapshot> = {}): ContactSnapshot => { const s: ContactSnapshot = { id, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString(), ...over }; crm.set(id, s); changed.push(s); return s; };
 const poll = () => pollAll(fake);
-const lead = (contactId: string) => asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: {} }), { contact: { id: contactId } }));
 const daysOut = (d: number, hour = 14) => DateTime.now().setZone(TZ).plus({ days: d }).set({ hour, minute: 0, second: 0, millisecond: 0 });
 const snap = (id: string, over: Partial<AppointmentSnapshot> = {}): AppointmentSnapshot => { const start = daysOut(3); return { id, calendarId: "CAL", assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 45 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {}, ...over }; };
 const book = async (s: AppointmentSnapshot) => { apptStore.set(s.id, s); await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, s); }); };
-const upsert = (s: ContactSnapshot) => asOperator(async (c) => { crm.set(s.id, s); return upsertContact(c, companyId, TZ, s); });
 const reply = (ghlContactId: string, body: string) => { const id = `m-${ghlContactId}-${Math.random().toString(36).slice(2, 8)}`; ghlMessages.texts.set(id, body); inbox.push({ id, conversationId: `cv-${ghlContactId}`, contactId: ghlContactId, channel: "sms", direction: "inbound", body, dateAdded: new Date().toISOString() }); return poll(); };
 
 describe("contacts (pure)", () => {

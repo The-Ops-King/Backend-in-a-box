@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import { ghl, GhlError } from "./client";
-import type { AppointmentSnapshot, Attribution, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, LiveCard, MessageSnapshot, MessageText, ObjectRecord, OppSnapshot, Touch, UserSnapshot, WonOpportunity } from "../types";
+import type { AppointmentSnapshot, Attribution, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, LiveCard, MessageSnapshot, MessageText, ObjectRecord, Touch, UserSnapshot, WonOpportunity } from "../types";
 
 type RawTouch = Record<string, unknown> & { isFirst?: boolean; isLast?: boolean };
 export type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string | null; tags?: string[]; source?: string; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string;
