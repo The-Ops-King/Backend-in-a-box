@@ -11,6 +11,7 @@ import type { SlackState } from "@/onboarding/slack";
 import type { CrmRun } from "@/onboarding/crm";
 import type { Message } from "@/onboarding/messages";
 import type { TestsState, ScenarioResult } from "@/onboarding/tests";
+import type { FiltersState, Mark } from "@/onboarding/filters";
 
 /** D143 (#49 P1): standing a client up, step by step. Every step saves; Tyler can stop for days and come back to the same place. */
 export function Onboarding() {
@@ -45,6 +46,7 @@ export function Onboarding() {
           : at === "crm" ? <CrmStep slug={slug} d={d} invalidate={key} />
           : at === "install" ? <InstallStep slug={slug} d={d} invalidate={key} />
           : at === "messages" ? <MessagesStep slug={slug} d={d} invalidate={key} />
+          : at === "filters" ? <FiltersStep slug={slug} d={d} invalidate={key} />
           : at === "test" ? <TestStep slug={slug} d={d} invalidate={key} /> : null}
       </section>
     </div>
@@ -336,6 +338,65 @@ function MessagesStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage
   </>;
 }
 
+const MARK_LABEL: Record<Mark, string> = { replaced: "Replaced: ours does it, it goes off at go-live", filtered: "Kept, with the sys-test filter added in GHL", harmless: "Harmless if it fires", off: "Off" };
+/** What the engine does that a GHL workflow can fire on (09-possibilities, part B): the guide for marking each one. */
+const FIRES_ON = ["Contact tag added or removed (every tag step)", "Pipeline stage changed, opportunity created, won or lost (every card move)", "Contact changed: a custom field (closer, call date, objection, source)",
+  "Custom object record (Sales Call)", "Note or task added", "Document sent or signed (the agreement)", "Date reminder on a date field the engine writes", "Customer replied (the test contact replying to our texts)",
+  "Appointment status: real bookings only, once live (staged bookings never reach GHL)", "Their Zaps listening to any of the above"];
+
+/**
+ * D152: their own GHL workflows, read live, each marked by Tyler after opening it in GHL (the API gives names, not triggers),
+ * and the check every move up needs: the list read again, nothing new or unmarked.
+ */
+function FiltersStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
+  const key = ["onboarding-filters", slug];
+  const q = usePage<FiltersState>(key, `/api/v1/companies/${slug}/onboarding/filters`, { every: 120_000 });
+  const post = useAction<Record<string, unknown>>((v) => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "filters", ...v } }), [invalidate, key]);
+  const [err, setErr] = useState<string | null>(null), [notes, setNotes] = useState<Record<string, string>>({});
+  if (!d.connections.some((x) => x.id === "ghl" && x.check?.ok)) return <Empty>Connect their GHL first: the list is read from it.</Empty>;
+  if (!q.data) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton lines={6} />;
+  const f = q.data;
+  const read = async () => { setErr(null); try { await post.mutateAsync({ read: true }); toast("Read their workflows from GHL."); } catch (x) { setErr((x as Error).message); } };
+  const mark = async (id: string, m: Mark) => { setErr(null); try { await post.mutateAsync({ id, mark: m, note: notes[id] ?? "" }); } catch (x) { setErr((x as Error).message); } };
+  return <>
+    {err ? <div className="banner warn">{err}</div> : null}
+    <p className="note">GHL lists their workflows but not what they fire on, so open each one in GHL and mark it. Anything that fires on what the engine does either goes (replaced, off), gets the <code>sys-test</code> filter, or is harmless. The engine checks this list again before every move up a rung.</p>
+    <Fold title={<>What the engine does that their workflows can fire on</>}><ul className="note">{FIRES_ON.map((l) => <li key={l}>{l}</li>)}</ul></Fold>
+    <div style={{ display: "flex", gap: 8, margin: "12px 0" }}><button className="btn" type="button" disabled={post.isPending} onClick={read}>{f.filters.read_at ? "Read the list again" : "Read their workflows"}</button>
+      {f.filters.read_at ? <span className="note">Read {ago(f.filters.read_at)}: {f.rows.length} workflow{f.rows.length === 1 ? "" : "s"}{f.problems.length ? `, ${f.problems.length} to see to` : ", all marked"}.</span> : null}</div>
+    {f.rows.map((w) => <div key={w.id} className="cal-row">
+      <div className="hd"><b>{w.name}</b><Tag kind={/^(published|active)$/i.test(w.status) ? "warn" : undefined}>{w.status}</Tag>{w.marked ? <Tag kind={w.problem ? "warn" : "ok"}>{w.marked.mark}</Tag> : <Tag>to mark</Tag>}</div>
+      {w.problem && w.marked ? <div className="banner warn" style={{ marginTop: 0 }}>{w.problem}</div> : null}
+      {w.marked?.note ? <p className="note">{w.marked.note}</p> : null}
+      <div className="form"><label><span>Note (optional)</span><input placeholder="what it does, the filter added" value={notes[w.id] ?? ""} onChange={(e) => setNotes({ ...notes, [w.id]: e.target.value })} /></label></div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{(Object.keys(MARK_LABEL) as Mark[]).map((m) => <button key={m} className="btn" type="button" disabled={post.isPending || w.marked?.mark === m} onClick={() => mark(w.id, m)} title={MARK_LABEL[m]}>{MARK_LABEL[m]}</button>)}</div>
+    </div>)}
+    {f.filters.read_at && !f.rows.length ? <Empty>No workflows in their GHL: nothing of theirs can fire on what the engine does.</Empty> : null}
+    <div className="call" style={{ marginTop: 12 }}><b>Before every move up</b><AutomationsCheck slug={slug} invalidate={[invalidate, key]} /></div>
+  </>;
+}
+
+/** D152: the check a move up needs: their list read again live; refused, naming each, while anything is new or unmarked. Used by the next move up, for 30 minutes. */
+function AutomationsCheck({ slug, invalidate }: { slug: string; invalidate: string[][] }) {
+  const key = ["onboarding-filters", slug];
+  const q = usePage<FiltersState>(key, `/api/v1/companies/${slug}/onboarding/filters`, { every: 60_000 });
+  const post = useAction<void>(() => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "filters", check: true } }), [...invalidate, key]);
+  const [problems, setProblems] = useState<string[] | null>(null), [err, setErr] = useState<string | null>(null);
+  const go = async () => {
+    if (!confirm("Have you looked at their GHL workflows since anything changed? The engine reads the list again now; anything new or not marked stops the move.")) return;
+    setErr(null); setProblems(null);
+    try { await post.mutateAsync(); toast("Checked: the next move up can go."); }
+    catch (x) { setErr((x as Error).message); const p = (x as ApiError).body as { problems?: string[] } | undefined; if (p?.problems) setProblems(p.problems); }
+  };
+  const fresh = q.data?.check.fresh;
+  return <div>
+    <p className="note">{fresh ? <>Checked {ago(q.data!.check.at!)}: the next move up (a workflow's or the company's) can go within 30 minutes.</> : <>Every move up a rung needs a fresh check that nothing of theirs fires on what the engine does.</>}</p>
+    {err ? <div className="banner warn">{err}</div> : null}
+    {problems ? <ul className="note">{problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
+    {!fresh ? <button className="btn" type="button" disabled={post.isPending} onClick={go}>{post.isPending ? "Reading GHL…" : "Check now"}</button> : null}
+  </div>;
+}
+
 /**
  * D151: the test passes. Choose the test contact and the rung, turn the offer's workflows on, then run each journey on that
  * contact (one request each: a journey ticks the company between its steps). Every run a journey started is listed with how it
@@ -354,10 +415,8 @@ function TestStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; in
   const t = q.data, prepared = t.tests.prepared;
   const chosen = contact || t.tests.contact?.id || t.contacts[0]?.id || "";
   const prepare = async () => {
-    const takeoverTest = rung === "test" && d.kind === "takeover";
-    if (takeoverTest && !confirm("On the test rung the test contact's tags and stage moves are real, and their own GHL workflows see them. Is the test contact filtered out of their automations, or is what reaches it harmless?")) return;
     setErr(null); setBusy("prepare");
-    try { await post.mutateAsync({ prepare: true, contactId: chosen, rung, ...(takeoverTest ? { confirm: true } : {}) }); toast(`Workflows on, company in ${rung}.`); } catch (x) { setErr((x as Error).message); } finally { setBusy(null); }
+    try { await post.mutateAsync({ prepare: true, contactId: chosen, rung }); toast(`Workflows on, company in ${rung}.`); } catch (x) { setErr((x as Error).message); } finally { setBusy(null); }
   };
   const run = async (ids: string[]) => {
     setErr(null);
@@ -379,7 +438,7 @@ function TestStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; in
           <option value="ghost">Ghost: nothing written or sent anywhere; each run says what it would do</option>
           <option value="test">Test: the test contact's runs really write and send; everyone else stays ghost</option></select></label>
       </div> : <p className="note">No test contact yet. Make one in their GHL tagged <code>sys-test</code> (your own phone and email); the engine reads it within a minute.</p>}
-      {d.kind === "takeover" ? <p className="note">A takeover: their own GHL workflows see whatever the engine writes on the test contact. Check the test contact is filtered out of their automations before the test rung (step 9 does this for every workflow).</p> : null}
+      {rung === "test" && d.company.mode === "ghost" ? <AutomationsCheck slug={slug} invalidate={[invalidate, key]} /> : null}
       <div><button className="btn" type="button" disabled={!chosen || busy !== null} onClick={prepare}>{busy === "prepare" ? "Turning on…" : prepared ? "Turn the workflows on again" : "Turn the offer's workflows on"}</button></div>
       {prepared ? <p className="note">{prepared.on.length} workflow{prepared.on.length === 1 ? "" : "s"} on, the company in <b>{d.company.mode}</b>, on {t.tests.contact?.name}; {ago(prepared.at)}.</p> : null}
       {prepared?.left_off.length ? <ul className="note">{prepared.left_off.map((w) => <li key={w.name}>{w.blocking ? <Tag kind="warn">blocks</Tag> : <Tag>off</Tag>} {w.name}: {w.why}</li>)}</ul> : null}

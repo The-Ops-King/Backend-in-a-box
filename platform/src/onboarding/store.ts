@@ -22,8 +22,8 @@ export const STEPS = [
   { id: "crm", label: "CRM build", about: "what the playbook needs in GHL, shown first, then built", built: true },
   { id: "install", label: "Install", about: "the playbook installed, every workflow off, the company running in ghost", built: true },
   { id: "messages", label: "Messages", about: "every text and email a client gets, written and approved", built: true },
+  { id: "filters", label: "GHL workflows", about: "each of their own GHL workflows marked replaced, filtered, harmless or off, so nothing fires on what the engine does", built: true },
   { id: "test", label: "Test passes", about: "each workflow run end to end on a test contact, no errors", built: true },
-  { id: "filters", label: "GHL filters", about: "each of the client's GHL workflows replaced, filtered or off, so nothing runs twice", built: false },
   { id: "golive", label: "Go live, per workflow", about: "each workflow up its own rung, one at a time", built: false },
   { id: "live", label: "Fully live", about: "every workflow live and clean, messages, SMS and email checked, the filters done", built: false },
 ] as const;

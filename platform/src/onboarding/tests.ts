@@ -7,8 +7,8 @@
  *
  * Before the passes, the workflows the offer uses are turned on (the fit report's off and build ones stay off, as does any
  * missing a required setting), and the company stands on the rung Tyler picks: ghost (nothing written anywhere, every run says
- * what it would do) or test (the test contact's runs really write and send; anyone else's stay ghost). A takeover's test rung is
- * confirmed first: their own GHL workflows see the test contact's tags and stage moves (step 9 filters them).
+ * what it would do) or test (the test contact's runs really write and send; anyone else's stay ghost). The test rung is a move
+ * up, so it needs a fresh check of their own GHL workflows (D152: their workflows see the test contact's tags and stage moves).
  *
  * The step is done when every workflow turned on has a clean run (completed, exited or waiting, no failed or paused step) and none
  * failed, or Tyler has accepted it with a note (a workflow no scenario reaches: a payment that fails, a recording with no match).
@@ -84,9 +84,9 @@ export type PrepareResult = { ok: true; on: string[]; left_off: LeftOff[] } | { 
 
 /**
  * The test contact chosen, the offer's workflows turned on (in one transaction), then the company onto the rung (its own, as the
- * mode route does). Refused before install, for a contact that is not a test contact, and for a takeover's test rung unconfirmed.
+ * mode route does, with its check of their GHL workflows, D152). Refused before install and for a contact that is not a test contact.
  */
-export async function prepareTests(op: Op, companyId: string, args: { contactId?: unknown; rung?: unknown; confirm?: unknown; by?: string }): Promise<PrepareResult> {
+export async function prepareTests(op: Op, companyId: string, args: { contactId?: unknown; rung?: unknown; by?: string }): Promise<PrepareResult> {
   const rung: TestRung | null = args.rung === "test" ? "test" : args.rung === undefined || args.rung === "ghost" ? "ghost" : null;
   if (!rung) return { ok: false, status: 400, why: "rung is ghost or test" };
   const first = await op(async (c) => {
@@ -96,7 +96,6 @@ export async function prepareTests(op: Op, companyId: string, args: { contactId?
     if (rung === "test" && !o.steps.messages) return { ok: false as const, status: 409, why: "approve the messages first: on the test rung they are really sent to the test contact" };
     const co = (await one<{ mode: string }>(c, "select mode from companies where id=$1", [companyId]))!;
     if (co.mode !== "ghost" && co.mode !== "test") return { ok: false as const, status: 409, why: `the company is ${co.mode}: test passes run in ghost or test, before go-live` };
-    if (rung === "test" && o.kind === "takeover" && args.confirm !== true) return { ok: false as const, status: 409, why: `on the test rung the test contact's tags and stage moves are real, and their own GHL workflows see them: confirm the test contact is filtered out of their automations (step 9), or that what reaches it is harmless` };
     const pick = typeof args.contactId === "string" ? args.contactId : o.tests.contact?.id;
     const contact = pick ? (await testContacts(c, companyId)).find((x) => x.id === pick) : undefined;
     if (!contact) return { ok: false as const, status: 422, why: pick ? "that contact is not a test contact: tag them sys-test in GHL, or give them an email on a test domain" : `choose a test contact: make one in their GHL tagged ${TEST_TAG} (the engine reads it within a minute)` };

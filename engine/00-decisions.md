@@ -5066,3 +5066,23 @@ wrap-ups read GHL over HTTP, which the fake adapters do not stand in for.
 
 Tests: `tests.test.ts`. Walked in the browser: the step on an installed company, the Cancels journey run from its button.
 
+## D152: their GHL workflows (step 8), checked again before every rung up
+
+Tyler: "add a filter on existing GHL workflows so nothing has an issue", "I'll have to be reminded to check that every time as
+part of the go-live", and (2026-10-19) the check at **every rung up**, with this step moved **ahead of the test passes**.
+
+GHL's API lists a location's workflows (id, name, status) but **not their triggers, filters or actions**, so the engine cannot
+know what one fires on. Step 8 reads their list live and Tyler marks each after opening it in GHL: **replaced** (ours does it; off
+at go-live), **filtered** (stays, with the `sys-test` filter added in GHL), **harmless**, or **off** (refused while GHL says it is
+on). The guide is the list of what the engine does that a GHL workflow can fire on (09-possibilities, part B). Done when the list
+has been read and every workflow on it is marked; a new workflow of theirs takes the done mark off.
+
+**Every move up the ladder** (the company's or one workflow's; `setCompanyMode` and `setWorkflowMode`, so every door: the
+dashboard, the admin API, the test passes' test rung) needs a fresh check: the list read again live, nothing new, unmarked or
+marked off while on. A clean check lasts 30 minutes and is used by the one move it was made for. Moving down is never gated.
+Only companies onboarded through the wizard (an onboarding row) are gated; Hair, PMU and Dating are not.
+
+The test passes' takeover-only confirm (D151) is gone: the check covers the test rung for every company.
+
+Tests: `filters.test.ts`.
+
