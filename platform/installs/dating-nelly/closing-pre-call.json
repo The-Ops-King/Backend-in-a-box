@@ -66,7 +66,23 @@
      "icon": ":link:"
     },
     "template": "{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s consultation {{appointment.starts_at | date_company}} has no meeting link in Calendly. Please send them the link.",
-    "title": "No meeting link: tell the closer now"
+    "title": "No meeting link: tell the closer in the booking channel"
+   },
+   {
+    "id": "n_nolink_alert",
+    "type": "slack_post",
+    "channel": "{{slack.channel.no_link_alerts}}",
+    "only_if": {
+     "not": {
+      "exists": "appointment.meeting_url"
+     }
+    },
+    "as": {
+     "name": "No meeting link",
+     "icon": ":link:"
+    },
+    "template": "{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s consultation {{appointment.starts_at | date_company}} has no meeting link in Calendly. Please send them the link.",
+    "title": "No meeting link: and in the alerts channel"
    },
    {
     "id": "s1",
@@ -637,6 +653,10 @@
    },
    {
     "from": "n_nolink",
+    "to": "n_nolink_alert"
+   },
+   {
+    "from": "n_nolink_alert",
     "to": "s1"
    },
    {

@@ -101,9 +101,10 @@ describe("D118: Dating Nelly's copies", () => {
     const at = (id: string) => c.nodes.find((n) => n.id === id)!;
     const ways = (from: string) => c.edges.filter((e) => e.from === from).map((e) => e.to);
     const noLink = { not: { exists: "appointment.meeting_url" } };
-    expect(ways("c0")).toEqual(["n_nolink"]); expect(ways("n_nolink")).toEqual(["s1"]);
+    expect(ways("c0")).toEqual(["n_nolink"]); expect(ways("n_nolink")).toEqual(["n_nolink_alert"]); expect(ways("n_nolink_alert")).toEqual(["s1"]);
     expect(at("n_nolink")).toMatchObject({ type: "slack_post", channel: "{{slack.channel.no_link}}", only_if: noLink });
     expect(String(at("n_nolink").template)).toMatch(/^\{\{appointment\.closer\.mention/);
+    expect(at("n_nolink_alert")).toMatchObject({ type: "slack_post", channel: "{{slack.channel.no_link_alerts}}", only_if: noLink, template: at("n_nolink").template });
     expect(at("m1").only_if).toEqual({ exists: "appointment.meeting_url" });
     expect(ways("m1")).toEqual(["m1_nolink"]); expect(ways("m1_nolink")).toEqual(["x_done"]);
     expect(at("m1_nolink")).toMatchObject({ type: "send_sms", only_if: noLink, validity: at("m1").validity, on_stale: "skip" });
@@ -112,6 +113,7 @@ describe("D118: Dating Nelly's copies", () => {
     // the channel is a setting (CLAUDE.md "configurable, not written in"): Dating's is #dating-calls-booked, as its bookings
     const slack = (JSON.parse(fs.readFileSync(INSTALL, "utf8")) as { slack: Record<string, string> }).slack;
     expect(slack.no_link).toBe(slack.bookings);
+    expect(slack.no_link_alerts).toBe((JSON.parse(fs.readFileSync(INSTALL, "utf8")) as { alerts: { slackChannel: string } }).alerts.slackChannel);
   });
 
   it("D186: the end of day's notes and why a DQ reach the Discovery Call record, from a triage call's row and an outbound call's; a DQ reason a later answer drops is emptied", () => {
