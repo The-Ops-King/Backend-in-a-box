@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Analyst, AnalysisRequest, AnalysisResult } from "../types";
+import type { Analyst, AnalysisResult } from "../types";
 
 /**
  * Reads a transcript against a company's prompt. The prompt is the system block and is cached: the same rubric is

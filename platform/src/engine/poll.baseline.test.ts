@@ -1,6 +1,6 @@
 /** The first poll of a company must not dispatch events for everything that already exists (480 lead.created → speed-to-lead = 480 texts). */
 import { describe, it, expect, beforeAll } from "vitest";
-import { asOperator, db, one, many } from "@/db/client";
+import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { pollAll } from "@/engine/poll";

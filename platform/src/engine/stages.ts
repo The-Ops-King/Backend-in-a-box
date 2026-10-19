@@ -11,5 +11,4 @@ export const STAGES: { id: string; label: string; about: string }[] = [
   { id: "team", label: "Team", about: "the team's own reports, on a schedule" },
   { id: "engine", label: "Engine", about: "the engine watching the connections, on a schedule" },
 ];
-export const stageLabel = (id: string | null | undefined) => STAGES.find((s) => s.id === id)?.label ?? "Other";
 export const stageIndex = (id: string | null | undefined) => { const i = STAGES.findIndex((s) => s.id === id); return i < 0 ? STAGES.length : i; };

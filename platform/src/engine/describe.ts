@@ -26,8 +26,6 @@ export function kindOf(n: Node): NodeKind {
   }
 }
 
-export const KIND_LABEL: Record<NodeKind, string> = { trigger: "Starts when", message: "Message out", crm: "CRM change", decision: "Decision", wait: "Wait", ai: "AI reads", control: "Flow control", exit: "Stops" };
-
 /** D110: event types nothing emits any more; their row stays only while old events point at it, and nothing offers them as a start. */
 export const RETIRED_EVENTS: ReadonlySet<string> = new Set(["eod.call_filed"]);
 

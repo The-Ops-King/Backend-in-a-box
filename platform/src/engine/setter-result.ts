@@ -53,7 +53,6 @@ export type SetterRead = {
   recording_id: string; contact_id: string; at: Date; setter: string | null; predicted: string; confidence: number | null; result: string; decided_by: string;
   truth: SetterResult | "not_set" | null; truth_by: TruthBy | null; agreed: boolean | null;
 };
-export const TRUTH_WORDS: Record<TruthBy, string> = { crm: "changed on the Discovery Call record", human: "a team member's tap", booking_30m: "booked through a setter link during the call or soon after (the company's Set window)", booking_7d: `booked within ${TRUTH_DAYS} days`, dq_tag: "a dq tag added in the CRM", card_lost: "the setter card marked lost in the CRM", no_booking_7d: `no booking within ${TRUTH_DAYS} days` };
 
 type Row = { recording_id: string; contact_id: string; end_at: Date; setter: string | null; predicted: string | null; confidence: string | null; result: string | null; decided_by: string | null; booked_30: boolean;
   human: string | null; booked_7d: boolean; dq_tag: boolean; card_lost: boolean; ghl_record_id: string | null; written: string | null };

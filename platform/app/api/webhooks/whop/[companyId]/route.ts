@@ -14,7 +14,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
   const { companyId } = await params;
   const raw = await req.text();
   return asOperator(async (c) => {
-    const { row: company, bindings } = await loadCompany(c, companyId);
+    const { bindings } = await loadCompany(c, companyId);
     const secret = bindings["secret.whop_webhook"];
     if (!secret) return NextResponse.json({ error: "webhook secret not bound for this company" }, { status: 401 });
     const v = verifyWhopSignature(secret, { id: req.headers.get("webhook-id"), timestamp: req.headers.get("webhook-timestamp"), signature: req.headers.get("webhook-signature") }, raw);

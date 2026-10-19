@@ -16,10 +16,6 @@ export async function fathomCreateWebhook(apiKey: string, destinationUrl: string
   if (!res.ok) throw new Error(`fathom: create webhook ${res.status} ${(await res.text()).slice(0, 200)}`);
   return (await res.json()) as FathomWebhook;
 }
-export async function fathomDeleteWebhook(apiKey: string, id: string): Promise<void> {
-  const res = await fetch(`${BASE}/webhooks/${encodeURIComponent(id)}`, { method: "DELETE", headers: headers(apiKey) });
-  if (!res.ok && res.status !== 404) throw new Error(`fathom: delete webhook ${res.status}`);
-}
 /** The webhooks registered on this key (D33 sweep). `null` when the API has no listing (then the sweep falls back to delivery age). */
 export async function fathomListWebhooks(apiKey: string): Promise<{ id: string; url?: string; destination_url?: string }[] | null> {
   const res = await fetch(`${BASE}/webhooks`, { headers: headers(apiKey) });

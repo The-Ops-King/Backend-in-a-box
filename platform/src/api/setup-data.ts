@@ -5,7 +5,6 @@ import { companyReadiness, type Readiness } from "@/engine/readiness";
 import { liveAdapters } from "@/adapters";
 import { bookingFor, type CalendarSnapshot } from "@/adapters/types";
 import { ghlCatalog, type Catalog } from "@/adapters/ghl/catalog";
-import { loadProposal, type Proposal } from "@/engine/describe-config";
 import { decrypt } from "@/engine/crypto";
 import { loadEodForm, type EodField } from "@/engine/eod";
 import { parseDefinition } from "@/engine/definition";
@@ -52,7 +51,6 @@ export type SettingsData = {
   catalog: Catalog | null;
   slack: { team_id: string; connected_at: Date } | null;
   readiness: Readiness;
-  proposal: { text: string; proposal: Proposal; at: string } | null;
   inbound: { secret: string | null; whop: string; fathom: string; zapierPayment: string; zapierRecording: string; fathomWebhookId: string | null; typeform: string; typeformTag: string | null; typeformForms: string[] };
 };
 
@@ -89,36 +87,14 @@ export async function loadSettings(slug: string): Promise<SettingsData | null> {
     let slackChannels: SlackChannel[] | null = null;
     if (slack) { const tok = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [co.id]); slackChannels = await listSlackChannels(decrypt(tok!.bot_token)); }
     const readiness = await companyReadiness(c, co.id, `/app/c/${slug}`);
-    const proposal = (await loadProposal(c, co.id))?.value ?? null;
     let liveCalendars: CalendarSnapshot[] = [], liveCalendarsError: string | null = null, catalog: Catalog | null = null;
     const connected = !!adapterCompany.pit && !!adapterCompany.locationId;
     const canListCalendars = adapterCompany.booking.source === "calendly" ? !!bindings["secret.calendly_token"] : connected;
     if (canListCalendars) { try { liveCalendars = await bookingFor(liveAdapters, adapterCompany).listCalendars(adapterCompany); } catch (e) { liveCalendarsError = String((e as Error).message).slice(0, 200); } }
     if (connected) catalog = await ghlCatalog(adapterCompany.pit, adapterCompany.locationId);
     const base = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
-    return { company: co, rows, byKey: new Map(rows.map((r) => [r.key, r])), bookingSource: adapterCompany.booking.source, calendars, liveCalendars, liveCalendarsError, terms, users, eodForm, scheduled, tagUse, tagCounts, catalog, slack, slackChannels, readiness, proposal,
+    return { company: co, rows, byKey: new Map(rows.map((r) => [r.key, r])), bookingSource: adapterCompany.booking.source, calendars, liveCalendars, liveCalendarsError, terms, users, eodForm, scheduled, tagUse, tagCounts, catalog, slack, slackChannels, readiness,
       inbound: { secret: bindings["secret.zapier_inbound"] ?? null, whop: `${base}/api/webhooks/whop/${co.id}`, fathom: `${base}/api/webhooks/fathom/${co.id}`, zapierPayment: `${base}/api/webhooks/zapier/${co.id}/payment`, zapierRecording: `${base}/api/webhooks/zapier/${co.id}/recording`, fathomWebhookId: bindings["fathom.webhook_id"] ?? null,
         typeform: `${base}/api/webhooks/typeform/${co.id}`, typeformTag: bindings["typeform.webhook_tag"] ?? null, typeformForms: Object.keys((() => { try { return JSON.parse(bindings["typeform.forms"] ?? "{}") as Record<string, unknown>; } catch { return {}; } })()) } };
-  });
-}
-
-/** What the step pickers on a workflow page need: names for ids, lists to pick from. Cheap when GHL is not connected. */
-export type PickerCalendar = { external_id: string; name: string; category: string; term_name: string; self_booked: boolean | null; booking_url: string | null; active: boolean };
-export type Pickers = { catalog: Catalog | null; users: { ghl_user_id: string; name: string }[]; slackChannels: SlackChannel[] | null; bindings: Record<string, string>; calendars: PickerCalendar[]; pipelineName: (id: string) => string; stageName: (id: string) => string; userName: (id: string) => string; channelName: (id: string) => string; resolve: (v: string | undefined) => string };
-export async function loadPickers(companyId: string): Promise<Pickers> {
-  return asOperator(async (c) => {
-    const { adapterCompany, bindings } = await loadCompany(c, companyId);
-    const users = await many<{ ghl_user_id: string; name: string }>(c, "select ghl_user_id, name from users where company_id=$1 and active and ghl_user_id is not null order by name", [companyId]);
-    const calendars = await many<PickerCalendar>(c, "select cal.external_id, cal.name, t.category, t.name as term_name, cal.self_booked, cal.booking_url, cal.active from calendars cal join company_terms t on t.id=cal.appointment_term where cal.company_id=$1 and cal.source=$2 order by cal.name", [companyId, adapterCompany.booking.source]);
-    const catalog = adapterCompany.pit && adapterCompany.locationId ? await ghlCatalog(adapterCompany.pit, adapterCompany.locationId) : null;
-    const tok = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [companyId]);
-    const slackChannels = tok ? await listSlackChannels(decrypt(tok.bot_token)) : null;
-    const safe = Object.fromEntries(Object.entries(bindings).filter(([k]) => !k.startsWith("secret.")));
-    const resolve = (v: string | undefined) => { if (!v) return ""; const m = /^\{\{\s*([a-zA-Z0-9_.]+)/.exec(v); return m ? safe[m[1]] ?? "" : v; };
-    const pipelineName = (id: string) => catalog?.pipelines.find((p) => p.id === id)?.name ?? id;
-    const stageName = (id: string) => { for (const p of catalog?.pipelines ?? []) { const st = p.stages.find((x) => x.id === id); if (st) return `${p.name} › ${st.name}`; } return id; };
-    const userName = (id: string) => users.find((u) => u.ghl_user_id === id)?.name ?? catalog?.users.find((u) => u.id === id)?.name ?? id;
-    const channelName = (id: string) => slackChannels?.find((ch) => ch.id === id)?.name ?? id;
-    return { catalog, users, slackChannels, bindings: safe, calendars, pipelineName, stageName, userName, channelName, resolve };
   });
 }

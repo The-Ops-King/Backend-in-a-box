@@ -5,7 +5,7 @@ import { chartOf, type Chart } from "@/api/words";
 import { parseDefinition, type Definition } from "@/engine/definition";
 import { templates } from "@/templates";
 import { arrange, placedIds } from "./arrange";
-import { exactness, graphGeometry, svgDrawing } from "./exact";
+import { exactness, svgDrawing } from "./exact";
 import { tidyOf } from "./pick";
 import { draw, drawGraph } from "./draw";
 

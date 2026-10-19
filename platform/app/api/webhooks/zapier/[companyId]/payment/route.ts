@@ -16,7 +16,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
   let body: Record<string, unknown>;
   try { body = (await req.json()) as Record<string, unknown>; } catch { return NextResponse.json({ error: "body is not JSON" }, { status: 400 }); }
   return asOperator(async (c) => {
-    const { row: company, bindings } = await loadCompany(c, companyId);
+    const { bindings } = await loadCompany(c, companyId);
     if (!zapierAuthorized(req, bindings)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     const parsed = parseZapierPayment(body);
     if (!parsed.ok) return NextResponse.json({ error: parsed.why }, { status: 400 });

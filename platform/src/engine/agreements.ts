@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { many, one } from "@/db/client";
+import { one } from "@/db/client";
 import type { DocumentSnapshot } from "@/adapters/types";
 import { emitEvent, type EventRow } from "./dispatch";
 
@@ -39,4 +39,3 @@ export async function recordSentByEngine(c: PoolClient, companyId: string, conta
 
 export const facts = (r: AgreementRow) => ({ agreement_id: r.id, external_id: r.external_id, name: r.name, status: r.status, sent_at: r.sent_at.toISOString(), signed_at: r.signed_at?.toISOString() ?? null, signed: !!r.signed_at, sent_by: r.sent_by });
 export const latestAgreement = (c: PoolClient, companyId: string, contactId: string) => one<AgreementRow>(c, "select * from agreements where company_id=$1 and contact_id=$2 order by (signed_at is not null) desc, sent_at desc limit 1", [companyId, contactId]);
-export const companyAgreements = (c: PoolClient, companyId: string, limit = 50) => many<AgreementRow & { contact: string | null }>(c, "select a.*, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as contact from agreements a left join contacts ct on ct.id=a.contact_id where a.company_id=$1 order by a.sent_at desc limit $2", [companyId, limit]);

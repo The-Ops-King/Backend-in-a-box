@@ -16,7 +16,7 @@ import { groupState, grouped, leaves } from "./group";
 export type St = StepState;
 
 const T = (k: string) => `var(--${k})`;
-const TEXT_W = 7.6, PAD = 28, LINE = 16, VPAD = 9, H = 34, GAP = 18, IF_W = 6.2, IF_H = 19, IF_PAD = 16, DASH = "5 4";
+const TEXT_W = 7.6, PAD = 28, LINE = 16, VPAD = 9, GAP = 18, IF_W = 6.2, IF_H = 19, IF_PAD = 16, DASH = "5 4";
 /** Width of a title in px at the node font (13px, 600): per-glyph so "Appointment matched?" is not measured like "little if". */
 function tw(s: string, per = TEXT_W): number {
   let w = 0;

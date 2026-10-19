@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import type { Definition, Node, Edge } from "@/engine/definition";
+import type { Definition, Node } from "@/engine/definition";
 import { EVENT_LABELS, branchTitle, eventWords, untilWords, collapsePlumbing, constsOf, describeNode, durationWords, edgeWords, exitWords, humanWords, onlyIfWords, pathWords, predicateWords, skippedWords, waitWords, templateWords, walkOrder } from "@/engine/describe";
 import { exampleContext, nodeExamples } from "@/engine/example";
 import { UNREAD, UNREAD_MANY, namer, type Named, type Namer } from "./crm-names";
@@ -494,4 +494,3 @@ export function runState(run: RunLike, path: PathItem[], tz: string): { state: "
   const here = path.find((x) => x.state === "here");
   return { state: "here", at: here ? `${here.title}${here.meta ? ` · ${here.meta}` : ""}` : "in flight", done: false };
 }
-export { stamp as stampWords };

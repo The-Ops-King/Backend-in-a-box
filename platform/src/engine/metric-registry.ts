@@ -7,7 +7,7 @@ import { AvailabilityUnreadable, readAvailability, type Availability, type Healt
 import { loadCompany } from "./context";
 import { testContactSql, testDomains } from "./mode";
 import { leadSourceSql, sourceFields, sourceFieldsParam } from "./lead-source";
-import { accuracyOf, accuracyWords, setterReads, type SetterAccuracy } from "./setter-result";
+import { accuracyOf, setterReads, type SetterAccuracy } from "./setter-result";
 import { GHL_SOURCE, closesFor, ghlRows, showBreakdown, type GhlCtx, type GhlEntity, type QualificationSummary, type ShowBreakdown } from "./ghl-metrics";
 
 /**

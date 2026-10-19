@@ -40,7 +40,3 @@ export async function setBinding(c: PoolClient, companyId: string, key: string, 
   const vendor = vendorOfBinding(key);
   if (vendor && prior && (prior.kind === "secret" ? decrypt(prior.value) : prior.value.toString("utf8")) !== value) await wakePausedOnAuth(c, companyId, vendor);
 }
-export async function clearBinding(c: PoolClient, companyId: string, key: string): Promise<void> {
-  const r = await c.query("delete from bindings where company_id=$1 and key=$2", [companyId, key]);
-  if (r.rowCount) await c.query("insert into audit_log (company_id, action, target_type, target_id) values ($1,'binding.cleared','binding',$2)", [companyId, key]);
-}

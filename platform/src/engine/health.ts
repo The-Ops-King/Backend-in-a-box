@@ -5,7 +5,7 @@ import type { Adapters, Company } from "@/adapters/types";
 import { loadCompany, type CompanyRow } from "./context";
 import { reconcile, type AlertInput, type Level } from "./alerts";
 import { slackLiveSet, TEST_CHANNEL_KEY } from "./mode";
-import { companyReadiness, missingSources } from "./readiness";
+import { missingSources } from "./readiness";
 import { ghlCatalog, type Catalog } from "@/adapters/ghl/catalog";
 import { ghlCalendarTeam, ghlFreeSlots, ghlLocationOk } from "@/adapters/ghl/health";
 import { calendlyWhoAmI } from "@/adapters/calendly/read";
