@@ -75,5 +75,6 @@ we don't do demos." Applies to copy, Slack cards, workflow names and anything sa
 
 PMU (Tyler, 2026-10-19): "Demo for pmu is triage / discovery. I hate the phrase but that's what they chose ... Internal
 language is never demo for a call type. If that's the name of the call that's fine." So a calendar or event may be named
-"Demo Call" (PMU's Calendly "Beauty Moguls Demo Call"), but the call type is triage everywhere the engine names it: the
-calendar mapping, Slack cards, records, picklists and workflow words.
+"Demo Call" (PMU's Calendly "Beauty Moguls Demo Call"). Then, on whether PMU's demo calls become triage calls: "Keep PMU demo
+as a sales call type demo." PMU's demo calls stay Sales Calls of type `demo`, handled as closing calls (they can sell); the
+engine's own words for call kinds stay triage and closing.
