@@ -642,12 +642,11 @@ create table person_identities (
   unique (kind, value, workspace)
 );
 
--- D152: /issue and /request from a client's Slack: one ticket each, numbered per company, mirrored to a GitHub issue
+-- D152: /support from a client's Slack: one ticket each, numbered per company, mirrored to a GitHub issue
 create table tickets (
   id            uuid primary key default gen_random_uuid(),
   company_id    uuid not null references companies(id) on delete cascade,
   number        int not null,
-  kind          text not null check (kind in ('issue','request')),
   text          text not null,
   by_slack_user text,
   by_name       text,

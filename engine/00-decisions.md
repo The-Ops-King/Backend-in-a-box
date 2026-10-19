@@ -5387,20 +5387,26 @@ From `10-audit-2026-10-19.md` §1, Tyler: "Do all those 5 recommendations."
 
 Tests: `client.test.ts` (checkpoint), `migrate.shared.test.ts` (preview skip, migrator), `step-failures.test.ts` (timeout → unknown, relock), `contact-truth.test.ts`, `query.test.ts`, `bot.test.ts`, `filters.test.ts`; `freshGhlCheckForTest` (test-install) gives a test its check before a move up.
 
-## D152. /issue and /request (2026-10-19)
+## D152. /support (2026-10-19)
 
 Tyler: "a /issue command for all of them which opens a tech issue. or /request so that way they can ask for things, or report an
 issue and it tracks for me." Answers: tracked in GitHub and in the engine; anyone in the client's Slack; one line, with a Loom
-or screenshot asked for in the thread; closed with a ✅; added to every manifest.
+or screenshot asked for in the thread; closed with a ✅; added to every manifest. Then one command, not two: "if they don't know
+if it's an issue or request, they'll use the wrong one" → `/support`.
 
-- `/issue <one line>` and `/request <one line>` on every offer's Slack app (the same door as the other shortcuts). Empty text
-  gets the usage, privately. Otherwise the asker gets "Got it" privately at once and the rest runs after the 3-second ack.
-- A ticket is numbered per offer (`tickets`, under an advisory lock), posted where it was typed ("🎫 *Issue #N* from @who", the
-  line, and a note that a Loom or screenshot goes in the thread), DMed to the operator (`bot.escalate_to`), and opened as a
-  GitHub issue in `GITHUB_REPO` with `GITHUB_TOKEN`, labelled with its kind and `offer:<slug>`. No token: the ticket is kept
-  with `github_error` and the operator's DM says so.
+- `/support <one line>` on every offer's Slack app (the same door as the other shortcuts). Empty text gets the usage, privately.
+  Otherwise the asker gets "Got it" privately at once and the rest runs after the 3-second ack.
+- A ticket is numbered per offer (`tickets`, under an advisory lock), posted where it was typed ("🎫 *Support #N* from @who",
+  the line, and a note that a Loom or screenshot goes in the thread), DMed to the operator (`bot.escalate_to`), and opened as a
+  GitHub issue in `GITHUB_REPO` with `GITHUB_TOKEN`, labelled `support` and `offer:<slug>`. No token: the ticket is kept with
+  `github_error` and the operator's DM says so.
 - Closing (`POST /api/admin/tickets/close { company, number, note, by }`) answers "✅ Done: note" in the ticket's thread, puts
-  ✅ on its post, and comments on and closes the GitHub issue. `GET /api/admin/tickets?company=` lists them.
-- Two commands, one system: the kind is only a label, so a request typed as an issue loses nothing.
+  ✅ on its post, and comments on and closes the GitHub issue. `GET /api/admin/tickets?company=` lists them;
+  `GET /api/admin/tickets?github=check` says whether the token can open issues in the repo, without opening one.
 
 Tests: `tickets.test.ts`.
+
+## D180 addendum (2026-10-19): a draft needs no mark
+
+GHL never runs a draft, and Dating's account (RapidCloser's) has 72 of its 83 workflows in draft. Only a published (or active)
+workflow needs a mark before a clean check; one published since the last read shows up unmarked, so the next move up waits for it.

@@ -108,8 +108,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D102: the booking's meeting link as a key, so a recording with no attendee to match on finds its call
     await c.query(`alter table appointments add column if not exists meeting_key text`);
     await c.query(`alter table appointments add column if not exists meeting_url text`);   // D144
-    // D152: /issue and /request tickets
-    await c.query(`create table if not exists tickets (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, number int not null, kind text not null check (kind in ('issue','request')), text text not null, by_slack_user text, by_name text, slack_channel text, slack_ts text, status text not null default 'open' check (status in ('open','closed')), github_number int, github_url text, github_error text, created_at timestamptz not null default now(), closed_at timestamptz, closed_by text, close_note text, unique (company_id, number))`);
+    // D152: /support tickets
+    await c.query(`create table if not exists tickets (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, number int not null, text text not null, by_slack_user text, by_name text, slack_channel text, slack_ts text, status text not null default 'open' check (status in ('open','closed')), github_number int, github_url text, github_error text, created_at timestamptz not null default now(), closed_at timestamptz, closed_by text, close_note text, unique (company_id, number))`);
+    await c.query(`alter table tickets drop column if exists kind`);   // D152: /issue and /request became one /support
     // D150: an alert can be paused (no reminders until it clears)
     await c.query(`alter table alerts add column if not exists paused_at timestamptz`);
     await c.query(`alter table alerts add column if not exists paused_by text`);

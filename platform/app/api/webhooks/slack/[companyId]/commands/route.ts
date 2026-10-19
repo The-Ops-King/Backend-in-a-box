@@ -5,7 +5,7 @@ import { liveAdapters } from "@/adapters";
 import { loadCompany } from "@/engine/context";
 import { helpText, planCommand, runCommand, type SlashCommand } from "@/engine/bot";
 import { respondToSlack, verifySlackSignature } from "@/engine/webhooks/slack";
-import { openTicket, TICKET_COMMANDS, ticketUsage } from "@/engine/tickets";
+import { openTicket, TICKET_COMMAND, TICKET_USAGE } from "@/engine/tickets";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
@@ -27,9 +27,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     const cmd: SlashCommand = { command: f.get("command") ?? "", text: f.get("text") ?? "", userId: f.get("user_id") ?? "", channelId: f.get("channel_id") ?? "", channelName: f.get("channel_name") ?? undefined, teamId: f.get("team_id") ?? undefined, responseUrl: f.get("response_url") ?? undefined };
     const conn = await one<{ team_id: string; bot_user_id: string | null }>(c, "select team_id, bot_user_id from slack_connections where company_id=$1", [companyId]);
     if (!conn || (cmd.teamId && cmd.teamId !== conn.team_id)) return NextResponse.json({ response_type: "ephemeral", text: "This workspace is not connected to this company." });
-    // D152: /issue and /request open a ticket (the reply says its number; the post and the operator's note follow)
-    const kind = TICKET_COMMANDS[cmd.command.replace(/^\//, "").toLowerCase()];
-    if (kind) return cmd.text.trim() ? { ticket: { kind, cmd } } : NextResponse.json({ response_type: "ephemeral", text: ticketUsage(kind) });
+    // D152: /support opens a ticket (the reply says it is in; the post and the operator's note follow)
+    if (cmd.command.replace(/^\//, "").toLowerCase() === TICKET_COMMAND) return cmd.text.trim() ? { ticket: { cmd } } : NextResponse.json({ response_type: "ephemeral", text: TICKET_USAGE });
     const p = planCommand(cmd, row.timezone, DateTime.now());
     if ("help" in p) return NextResponse.json({ response_type: "ephemeral", text: helpText(conn.bot_user_id ? `<@${conn.bot_user_id}>` : "@bot") });
     if ("error" in p) return NextResponse.json({ response_type: "ephemeral", text: p.error });
@@ -37,9 +36,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
   });
   if (res instanceof Response) return res;
   if ("ticket" in res && res.ticket) {
-    const { kind, cmd } = res.ticket;
-    after(() => openTicket(liveAdapters, companyId, { kind, text: cmd.text, slackUser: cmd.userId, channel: cmd.channelId }).catch((e) => console.error("ticket:", e)));
-    return NextResponse.json({ response_type: "ephemeral", text: `Got it. Your ${kind} is being logged; it'll show here with its number in a moment.` });
+    const { cmd } = res.ticket;
+    after(() => openTicket(liveAdapters, companyId, { text: cmd.text, slackUser: cmd.userId, channel: cmd.channelId }).catch((e) => console.error("ticket:", e)));
+    return NextResponse.json({ response_type: "ephemeral", text: "Got it. It's being logged; it'll show here with its number in a moment." });
   }
   if (!("plan" in res) || !res.plan) return new Response(null, { status: 200 });
   after(() => runCommand({ adapters: liveAdapters, respond: respondToSlack }, companyId, res.cmd, res.plan).catch((e) => console.error("slack command:", e)));

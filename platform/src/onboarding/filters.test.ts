@@ -16,8 +16,8 @@ process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const theirs: TheirWorkflow[] = [{ id: "w1", name: "Old booking confirmation", status: "published" }, { id: "w2", name: "Birthday text", status: "draft" }];
 
 describe("D180: problemsOf", () => {
-  it("names each workflow not marked, and one marked off that GHL says is on", () => {
-    expect(problemsOf(theirs, {})).toEqual(["Old booking confirmation (published): not marked yet", "Birthday text (draft): not marked yet"]);
+  it("names each published workflow not marked (a draft never runs, so it needs none), and one marked off that GHL says is on", () => {
+    expect(problemsOf(theirs, {})).toEqual(["Old booking confirmation (published): not marked yet"]);
     const m = (mark: "off" | "filtered") => ({ mark, name: "x", status: "draft", at: "", by: "t" });
     expect(problemsOf(theirs, { w1: m("off"), w2: m("off") })).toEqual(["Old booking confirmation: marked off, but GHL says it is published"]);
     expect(problemsOf(theirs, { w1: m("filtered"), w2: m("off") })).toEqual([]);
