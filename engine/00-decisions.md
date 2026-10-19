@@ -4929,6 +4929,19 @@ copy to the template's name (PMU had six upgraded on 2026-10-17 that way, none n
 
 Tests: `install.upgrade.test.ts`, `definitions.test.ts` (D147), `booking-card.test.ts`, `flowmode.test.ts`, `dating-booked.test.ts`.
 
+## D148. A calendar the engine does not watch; PMU's follow-up calls get no pre-call reminders (2026-10-19)
+
+Tyler, on the PMU alert "availability cannot be read" (Mary's old personal "Beauty Moguls Demo Call", no active host in
+Calendly, never booked): "Marys link you don't watch, but don't remove it from calendly." And: "Carly's strat call is follow up
+and reschedule so they don't get all the automation reminders."
+- An install file may map a calendar `"ignore"`: the engine sets it inactive (no polling, no health check) and touches nothing
+  at the source. Mapped again, it is watched again.
+- PMU: Mary's link is `"ignore"`. Carly's "Beauty Moguls Strategy Call" is its own call type, "Follow-up call", still a closing
+  call (its card, its Sales Call, the end of day); PMU's Pre-call sequence starts on closing calls that are not Follow-up calls
+  (saved on PMU as version 3; `installs/pmu/build.py` and the repo copy carry the same triggers).
+
+Tests: `install.upgrade.test.ts` (D148).
+
 ## D170. Playbooks: a company's copies are built from its process and today's templates; each workflow has a starting rung (2026-10-18)
 
 Tyler (#53): onboarding picks from a library of templates by how an offer sells, so we know what to tweak or rebuild per
@@ -5311,7 +5324,7 @@ PMU's committed copies were rebuilt from main's templates (call-outcome); nothin
 ## D185: merged again, onto main's D147
 
 Main took D147 while this branch was being merged ("install never changes a workflow an offer has; a template reaches an offer
-one named workflow at a time"), so this branch's decisions moved up one, to D170–D184. Install keeps main's rule: an offer's
+one named workflow at a time"), so this branch's decisions moved to D170–D184 (and then on, past main's D148, to leave room while main keeps adding). Install keeps main's rule: an offer's
 workflow is left exactly as it is; only a new one gets the company's words laid on (D177). D177's "words laid over an upgrade" is
 moot until main's one-named-workflow path does it: `saveFromTemplate` (D147) saves the template's own words, so bringing a
 template fix to a workflow whose messages the offer edited puts the template's words back. The dry run shows it; whether that

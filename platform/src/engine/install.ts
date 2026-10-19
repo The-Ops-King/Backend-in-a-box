@@ -35,7 +35,7 @@ export type InstallInput = {
   pit?: string;
   /** Where appointments live. Default: the CRM's own calendars. Calendly: a read token (its user's organization is bound as calendly.organization); `userEmail` must be a member of that organization and is bound as calendly.user (the Setup page's "Calendly host"), but narrows nothing: every member's event types are listed and only the mapped ones are polled (D26). */
   booking?: { source: "ghl" } | { source: "calendly"; token: string; userEmail?: string; phoneQuestion?: string; setterQuestion?: string };
-  calendars?: Record<string, CalendarMapping>;   // calendar / event type external id → closing | first_call | qualifying | follow_up
+  calendars?: Record<string, CalendarMapping>;   // calendar / event type external id → closing | first_call | qualifying | follow_up, or "ignore" (D148: not watched; nothing changes at the source)
   /** How setter-booked vs self-booked is decided (D24): by the calendar (default), by the setter question on the booking, or either. */
   setterRule?: "calendar" | "question" | "either";
   closerCall?: string;                   // external id bound as calendar.closer_call
@@ -187,7 +187,9 @@ export type Inbound = { secret: string; zapierPaymentUrl: string; zapierRecordin
 /** `wentLive` / `wentQuiet`: what the move cleared, when `mode` moved the company up into live or quiet (D56, D132). */
 export async function installCompany(input: InstallInput, adapters: Adapters, typeformApi: TypeformApi = liveTypeform): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: Inbound; wentLive?: Cleared; wentQuiet?: Cleared; typeform?: string[] }> {
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
-  const calMap: Record<string, { term: string; name?: string; selfBooked?: boolean; booking?: "self" | "setter" | "question"; questions?: Record<string, string>; owner?: string }> = Object.fromEntries(Object.entries(input.calendars ?? {}).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
+  // D148: "ignore" is a calendar the company keeps at its source but the engine does not watch (no polling, no health check)
+  const ignored = new Set(Object.entries(input.calendars ?? {}).filter(([, v]) => v === "ignore").map(([k]) => k));
+  const calMap: Record<string, { term: string; name?: string; selfBooked?: boolean; booking?: "self" | "setter" | "question"; questions?: Record<string, string>; owner?: string }> = Object.fromEntries(Object.entries(input.calendars ?? {}).filter(([k]) => !ignored.has(k)).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
   // resolve the booking source outside the transaction: it talks to Calendly.
   // Omitting `booking` on a re-install keeps whatever the company already uses; it never silently flips it back to GHL.
   let booking: BookingConfig = { source: "ghl" };
@@ -362,6 +364,10 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     const calendarsOut: string[] = [];
     const listed = await bookingFor(adapters, ac).listCalendars(ac);
     for (const k of listed) {
+      if (ignored.has(k.id)) {
+        const was = await c.query("update calendars set active=false where company_id=$1 and source=$2 and external_id=$3 and active", [companyId, booking.source, k.id]);
+        calendarsOut.push(`"${k.name}" → not watched (ignore)${was.rowCount ? "; the engine stopped watching it" : ""}`); continue;
+      }
       const m = calMap[k.id]; if (!m) { calendarsOut.push(`skip "${k.name}" (${k.id}) — no mapping${k.note ? ` [${k.note}]` : ""}`); continue; }
       if (!terms.some((t) => t.category === m.term)) { calendarsOut.push(`unknown category ${m.term} for ${k.id}`); continue; }
       const term = m.name?.trim()

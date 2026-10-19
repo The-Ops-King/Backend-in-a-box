@@ -14,9 +14,19 @@
     "type": "trigger",
     "event": "appointment.booked",
     "match": {
-     "eq": [
-      "{{appointment.term.category}}",
-      "closing"
+     "and": [
+      {
+       "eq": [
+        "{{appointment.term.category}}",
+        "closing"
+       ]
+      },
+      {
+       "neq": [
+        "{{appointment.term.name}}",
+        "Follow-up call"
+       ]
+      }
      ]
     }
    },
@@ -25,9 +35,19 @@
     "type": "trigger",
     "event": "appointment.rescheduled",
     "match": {
-     "eq": [
-      "{{appointment.term.category}}",
-      "closing"
+     "and": [
+      {
+       "eq": [
+        "{{appointment.term.category}}",
+        "closing"
+       ]
+      },
+      {
+       "neq": [
+        "{{appointment.term.name}}",
+        "Follow-up call"
+       ]
+      }
      ]
     }
    },

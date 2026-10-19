@@ -184,6 +184,15 @@ describe.skipIf(!process.env.DATABASE_URL)("editing copy", () => {
     expect(await asOperator((c) => many<{ enabled: boolean }>(c, "select w.enabled from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug = any($2::text[]) order by t.slug", [companyId, [...wraps, "wrap-ups"]]))).toEqual([{ enabled: false }, { enabled: false }, { enabled: false }, { enabled: true }]);
   });
 
+  it("D148: a calendar mapped \"ignore\" stops being watched (inactive, so neither polled nor health-checked); mapped again, it is watched again", async () => {
+    const r = await installCompany({ ...base, templates: undefined, calendars: { CAL: "ignore" } }, fake);
+    expect(r.calendars).toEqual(['"Closer" → not watched (ignore); the engine stopped watching it']);
+    expect(await asOperator((c) => one(c, "select active from calendars where company_id=$1 and external_id='CAL'", [companyId]))).toEqual({ active: false });
+    expect((await installCompany({ ...base, templates: undefined, calendars: { CAL: "ignore" } }, fake)).calendars).toEqual(['"Closer" → not watched (ignore)']);
+    await installCompany({ ...base, templates: undefined }, fake);
+    expect(await asOperator((c) => one(c, "select active from calendars where company_id=$1 and external_id='CAL'", [companyId]))).toEqual({ active: true });
+  });
+
   it("D101: a calendar can be the company's own call type (\"Demo call\") under a core category; made once, the default type untouched", async () => {
     for (let i = 0; i < 2; i++) await installCompany({ ...base, calendars: { CAL: { term: "closing", name: "Demo call" } } }, fake);
     const terms = await asOperator((c) => many<{ name: string; category: string; is_default: boolean }>(c, "select name, category, is_default from company_terms where company_id=$1 and domain='appointment_type' and category='closing' order by is_default desc, name", [companyId]));
