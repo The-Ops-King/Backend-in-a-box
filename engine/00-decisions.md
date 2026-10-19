@@ -5509,3 +5509,27 @@ was DQ." Dating only (the application-triage playbook is hers alone).
 
 Tests: `dating-copies.test.ts` (D186); the full suite against a local database (one ordering failure in
 `health.slack-scope.test.ts` that fails the same without this change).
+
+
+## D187. Rename one workflow of one company (2026-10-19)
+
+Tyler: "We need to rename a workflow." `POST /api/admin/workflows { company, workflow, name }` renames that one workflow of that one
+offer and audits it (`workflow.renamed`); a name another of its workflows has is refused. Template, steps and runs are untouched.
+
+
+## D188. Do Not Disturb: no alert, a ⚠️ on the booking (2026-10-19)
+
+Tyler, after GHL refused his test texts for DND: "if they have DND enabled, instead of an error/alert let's have it be a ⚠️ on the
+booking, and a note in the thread"; "Build it for all"; "on the call booking, it should immediately say ⚠️ with a note ... only one
+per booking." And: "some contacts will have DND turned on. it shouldn't ruin a call."
+
+- GHL's Do Not Disturb is read with every contact (`dnd`, or `dndSettings.SMS.status` active or permanent, a STOP being permanent)
+  onto the replica (`contacts.sms_dnd`) and into a run's context (`contact.sms_dnd`).
+- A text to them is suppressed ("texts are turned off for this contact (Do Not Disturb)"): the CRM is not asked, no alert. A text GHL
+  refuses for DND the replica did not know of is suppressed the same way and the contact learns it. Everything else in the run goes
+  on; any other refusal alerts as before (D56).
+- Call booked (the shipped template, so every offer's booking workflow as it is brought over) posts ⚠️ on the booking card and a note
+  under it when the person has texts off: once per booking, never on a reschedule. Hair's card itself is unchanged.
+- The pre-call ask quotes "nothing yet: our booking text didn't go out" when a reply comes and no text of ours went out.
+
+Tests: `edge-cases.contacts.test.ts` (D188), `dating-copies.test.ts`.
