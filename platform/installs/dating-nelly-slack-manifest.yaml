@@ -24,6 +24,8 @@ features:
     - { command: /closes, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Every close in the period: who, closer, day won", usage_hint: "[last month]", should_escape: false }
     - { command: /leaderboard, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Closers by cash, setters by sets", usage_hint: "[last week]", should_escape: false }
     - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "What the bot can answer", should_escape: false }
+    - { command: /issue, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Something broke or looks wrong: logs it for Tyler with a number", usage_hint: "[what went wrong]", should_escape: false }
+    - { command: /request, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Ask for something new or a change: logs it for Tyler with a number", usage_hint: "[what you need]", should_escape: false }
 oauth_config:
   scopes:
     bot:

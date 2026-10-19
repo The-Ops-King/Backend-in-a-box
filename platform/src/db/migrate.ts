@@ -7,9 +7,17 @@ const APPOINTMENT_SOURCES = ["ghl", "calendly", "test"].map((s) => `'${s}'`).joi
 const EVENT_SOURCES = ["form", "ghl_poll", "whop", "fathom", "zapier", "slack", "engine", "disposition", "command_center", "user", "test"].map((s) => `'${s}'`).join(",");
 
 /** Applies engine/schema.sql (idempotently: skips if `companies` exists) then forces RLS on every tenant table. */
-export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[]; bookingCard: string[] }> {
+export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[]; bookingCard: string[]; skipped?: string }> {
+  // D151 (audit 2026-10-19): a preview build shares the production database, so only a production deployment migrates it; a
+  // preview runs against the schema production has
+  const env = process.env.VERCEL_ENV;
+  if (env && env !== "production") return { applied: false, rlsTables: [], repaired: [], bookingCard: [], skipped: `${env} deployment: the database is production's, migrated only by a production deployment` };
   const c = await db().connect();
+  let open = false;
   try {
+    // one migration at a time (two deploys can build at once), and all of it or none: a failure leaves no constraint dropped
+    await c.query("select pg_advisory_lock(7351151)");
+    await c.query("begin"); open = true;
     const exists = await c.query("select 1 from information_schema.tables where table_name='companies' and table_schema='public'");
     let applied = false;
     if (exists.rowCount === 0) { await c.query(SCHEMA); applied = true; }   // embedded: works inside a serverless bundle, no filesystem path
@@ -29,6 +37,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D102: the booking's meeting link as a key, so a recording with no attendee to match on finds its call
     await c.query(`alter table appointments add column if not exists meeting_key text`);
     await c.query(`alter table appointments add column if not exists meeting_url text`);   // D144
+    // D152: /issue and /request tickets
+    await c.query(`create table if not exists tickets (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, number int not null, kind text not null check (kind in ('issue','request')), text text not null, by_slack_user text, by_name text, slack_channel text, slack_ts text, status text not null default 'open' check (status in ('open','closed')), github_number int, github_url text, github_error text, created_at timestamptz not null default now(), closed_at timestamptz, closed_by text, close_note text, unique (company_id, number))`);
     // D150: an alert can be paused (no reminders until it clears)
     await c.query(`alter table alerts add column if not exists paused_at timestamptz`);
     await c.query(`alter table alerts add column if not exists paused_by text`);
@@ -75,7 +85,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D133: one test channel (the first of D132's list); every pre-live post goes there
     await c.query(`update bindings set key='test.slack_channel', kind='channel', value=convert_to(split_part(convert_from(value,'utf8'),',',1),'utf8') where key='test.slack_channels' and not exists (select 1 from bindings b where b.company_id=bindings.company_id and b.key='test.slack_channel')`);
     await c.query(`delete from bindings where key='test.slack_channels'`);
-    await c.query(`alter table sends add constraint sends_status_check check (status in ('queued','sent','failed','suppressed','ghost','quiet'))`);
+    await c.query(`alter table sends add constraint sends_status_check check (status in ('queued','sent','failed','suppressed','ghost','quiet','unknown'))`);   // unknown: D151
     // booking source generalisation (2026-10-06): columns lose their GHL prefix, calendars/appointments carry a source.
     // Renames are guarded so a database created from the current schema.sql passes straight through.
     await c.query(`do $$ begin
@@ -300,9 +310,14 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     }
     // D104: Call booked's card no longer carries Hair's intake questions; a company that bound them keeps them as its own setting.
     // As the operator: bindings are under FORCE RLS, where this unscoped connection would see no rows.
+    await c.query("commit"); open = false;
     const bookingCard = await asOperator((o) => backfillBookingCard(o));
     return { applied, rlsTables: tenantTables, repaired, bookingCard };
+  } catch (e) {
+    if (open) await c.query("rollback").catch(() => {});
+    throw e;
   } finally {
+    await c.query("select pg_advisory_unlock(7351151)").catch(() => {});
     c.release();
   }
 }

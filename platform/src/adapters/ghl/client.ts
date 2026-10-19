@@ -9,16 +9,21 @@ export class GhlError extends VendorError {
 
 /** Version header differs by endpoint family (verified in ghl/02-api-facts.md). */
 export type GhlVersion = "2021-07-28" | "2021-04-15";
+export const GHL_TIMEOUT_MS = 25_000;
 
 export async function ghl<T = unknown>(pit: string, method: string, path: string, opts: { version?: GhlVersion; body?: unknown; retries?: number } = {}): Promise<T> {
   const version = opts.version ?? "2021-07-28";
   const retries = opts.retries ?? 2;
   for (let attempt = 0; ; attempt++) {
+    // D151: a call that hangs is cut off, so one slow answer cannot hold a tick until the platform kills it mid-run
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), GHL_TIMEOUT_MS);
     const res = await fetch(BASE + path, {
       method,
       headers: { Authorization: `Bearer ${pit}`, Version: version, Accept: "application/json", ...(opts.body ? { "Content-Type": "application/json" } : {}) },
       body: opts.body ? JSON.stringify(opts.body) : undefined,
-    });
+      signal: ctl.signal,
+    }).catch((e) => { throw (e as Error).name === "AbortError" ? new Error(`GHL timeout after ${GHL_TIMEOUT_MS / 1000}s on ${method} ${path} (no answer: it may have been done)`) : e; })
+      .finally(() => clearTimeout(timer));
     if (res.status === 429 && attempt < retries) { await new Promise((r) => setTimeout(r, 1500 * (attempt + 1))); continue; }
     const text = await res.text();
     if (!res.ok) throw new GhlError(res.status, text, path);

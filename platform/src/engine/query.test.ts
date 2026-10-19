@@ -57,6 +57,11 @@ describe.skipIf(!process.env.DATABASE_URL)("query door", () => {
     expect(r.rows).toEqual([[1], [2]]); expect(r.row_count).toBe(2); expect(r.truncated).toBe(true);
     await expect(q("select pg_sleep(7)")).rejects.toThrow(/statement timeout/);
   });
+  it("D151: a table without a company_id is not granted (it spans companies), but the shared reference lists are", async () => {
+    const can = async (t: string) => (await q(`select has_table_privilege('query_door', '${t}', 'select') as ok`)).rows[0][0];
+    for (const t of ["companies", "run_steps", "workflow_versions", "workflow_templates", "engine_state"]) expect(await can(t)).toBe(false);
+    for (const t of ["event_types", "core_categories", "runs"]) expect(await can(t)).toBe(true);
+  });
   it("hides capability columns, renders bytes and dates as text", async () => {
     const r = await q("select 'x' as report_token, 'y'::bytea as b, now() as at, 1 as a");
     expect(r.columns).toEqual(["b", "at", "a"]); expect(r.rows[0][0]).toBe("<1 bytes>"); expect(String(r.rows[0][1])).toMatch(/^\d{4}-\d{2}-\d{2}T/);

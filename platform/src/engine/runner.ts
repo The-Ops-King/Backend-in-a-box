@@ -169,7 +169,7 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
           }
           const retryable = f.cls === "transient" || (f.cls === "unknown" && attempt === 0);
           // the vendor answered (a status, a refusal): nothing was written, so a pending create claim comes off and the next try starts clean
-          if (f.answered || !thrown) await releasePending(c, run.id, node.id);
+          if (f.answered || !thrown) await asOperator((o) => releasePending(o, run.id, node.id));   // D151: the claim was committed apart from the run
           if (retryable && attempt < RETRY_SCHEDULE.length) {
             const at = now.plus({ minutes: RETRY_SCHEDULE[attempt] });
             await c.query("update run_steps set status='failed', result=$2, error=$3, finished_at=now() where id=$1", [stepId, { attempt: attempt + 1, of: RETRY_SCHEDULE.length + 1, class: f.cls, vendor: f.vendor, retry_at: at.toISO() }, f.message]);
@@ -326,7 +326,7 @@ export async function rerunStep(c: import("pg").PoolClient, adapters: Adapters, 
   try { out = await executeNode({ c, adapters, company, adapterCompany, bindings, run: { ...run, step_attempt: 0 }, ctx, edgesFrom, now, mode, effective }, node); } catch (e) { thrown = e; out = { status: "failed", error: String((e as Error).message).slice(0, 500) }; }
   if (out.status === "failed" || out.status === "waiting" || out.status === "paused") {
     const error = out.status === "failed" ? out.error : `the step asked to ${out.status === "waiting" ? "wait" : "pause"}, which a retry on its own cannot do`;
-    if (out.status === "failed" && (thrown === undefined || classifyError(thrown).answered)) await releasePending(c, run.id, node.id);
+    if (out.status === "failed" && (thrown === undefined || classifyError(thrown).answered)) await asOperator((o) => releasePending(o, run.id, node.id));
     await c.query("update run_steps set status='skipped', result=$2, error=$3, finished_at=now() where id=$1", [step!.id, { kind: "gave_up", tries: 1, retried_by: by, why: `retried by ${by}: still couldn't ${doingWords(node)}` }, error]);
     await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'run.step_retried','run',$2,$3)", [run.company_id, run.id, { node: node.id, by, ok: false, error }]);
     return { ok: false, status: 502, error };

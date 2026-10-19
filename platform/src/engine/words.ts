@@ -12,6 +12,7 @@ import { many, one } from "@/db/client";
 import { parseDefinition, type Definition, type Node } from "./definition";
 import { EDITABLE, validateCopy, type CopyField } from "./copy";
 import { chartLayoutOf, notDrawable, type Layout } from "@/api/chart-verdict";
+import { relockIfOutboundChanged } from "./send-lock";
 
 export const WORDS_KEY = "copy.words";
 export type Words = Record<string, Record<string, Partial<Record<CopyField, string>>>>;
@@ -72,6 +73,7 @@ export async function setWord(c: PoolClient, args: { workflowId: string; nodeId:
   const next = w.current_version + 1;
   await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [w.id, next, def, cur.manifest, `words: ${args.nodeId}.${args.field}`]);
   await c.query("update workflows set current_version=$2, diverged=true, diverged_at=coalesce(diverged_at, now()) where id=$1", [w.id, next]);
+  await relockIfOutboundChanged(c, w.id, cur.definition, def, `words edited: ${args.nodeId}.${args.field}`);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.copy_edited','workflow',$2,$3,$4)", [w.company_id, w.id, { node: args.nodeId, field: args.field, text: before }, { node: args.nodeId, field: args.field, text: args.text, version: next, by: args.by ?? "dashboard", kept: "words" }]);
   return { ok: true, version: next, layout: chart.layout };
 }

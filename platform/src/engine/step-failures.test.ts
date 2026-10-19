@@ -28,6 +28,7 @@ import { fakeAdapters, unlockSendsForTest } from "@/engine/test-install";
 import { setOperatorAddresses, setSendLock } from "@/engine/send-lock";
 import { checkQuery } from "@/engine/query";
 import { companyReadiness } from "@/engine/readiness";
+import { saveDefinition } from "@/engine/definitions";
 import type { PollReport } from "@/engine/poll";
 import { GhlError } from "@/adapters/ghl/client";
 import type { Adapters, AppointmentSnapshot, Classification, ContactSnapshot, LiveCard, SendResult } from "@/adapters/types";
@@ -302,6 +303,16 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       expect(await runRow(id)).toMatchObject({ status: "waiting", current_node: "n3" });
       expect(messages.filter((m) => m.to === "SMSRESUME" && m.kind === "sms")).toHaveLength(1);
       expect(callsTo("sendSms")).toBe(1);
+    });
+
+    it("D151: the CRM times out on a text (it may have gone): the send is unknown, never asked again, and the run goes on", async () => {
+      fail("sendSms", { message: "GHL timeout after 25s on POST /conversations/messages (no answer: it may have been done)" });
+      const ct = await person("SMSTIMEOUT");
+      const id = await start(wfS2L, ct);
+      await spin(id, 3);
+      expect(callsTo("sendSms")).toBe(1);
+      expect((await sendsOf(id)).filter((s) => s.channel === "sms")).toEqual([expect.objectContaining({ status: "unknown" })]);
+      expect(await runRow(id)).toMatchObject({ status: "waiting", current_node: "n3" });
     });
 
     it("20 runs: the same lead.created delivered twice starts Speed to lead once (once_per_contact); a failing step never starts a second run of the same workflow", async () => {
@@ -1065,6 +1076,22 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
         } finally { await c.query("update companies set mode=$2 where id=$1", [companyId, mode]); }
       });
     }));
+
+    it("D151: an unlocked workflow locks again when a save changes a text, email, agreement or webhook step; other changes keep the unlock", async () => {
+      await asOperator(async (c) => {
+        const wf = await probe("Probe: relock", [{ id: "n1", type: "set_tag", tag: "stat-relock" }, { id: "n2", type: "send_sms", template: "Hi {{contact.first_name}}" }]);
+        const cur = async () => (await one<{ definition: { nodes: Record<string, unknown>[] } }>(c, "select v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.id=$1", [wf]))!.definition;
+        const unlocked = async () => !!(await one<{ at: Date | null }>(c, "select sends_unlocked_at as at from workflows where id=$1", [wf]))!.at;
+        expect(await unlocked()).toBe(true);
+        const d1 = await cur(); (d1.nodes.find((n) => n.id === "n1") as { tag: string }).tag = "stat-other";
+        expect(await saveDefinition(c, { workflowId: wf, definition: d1, note: "a tag" })).toMatchObject({ ok: true, saved: true });
+        expect(await unlocked()).toBe(true);
+        const d2 = await cur(); (d2.nodes.find((n) => n.id === "n2") as { template: string }).template = "Hey {{contact.first_name}}";
+        expect(await saveDefinition(c, { workflowId: wf, definition: d2, note: "new words" })).toMatchObject({ ok: true, saved: true });
+        expect(await unlocked()).toBe(false);
+        expect(await one(c, "select after->>'why' as why from audit_log where action='workflow.sends_locked' and target_id=$1 order by id desc limit 1", [wf])).toEqual({ why: "saved: new words" });
+      });
+    });
 
     it("the roster spans companies, so the query door will not read it", () => {
       expect(checkQuery("select value from person_identities")).toMatchObject({ ok: false, error: expect.stringMatching(/person_identities/) });

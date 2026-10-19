@@ -2,6 +2,16 @@
 
 Things only Tyler can do or decide, that are holding up work. Claude adds to it; Tyler ticks things off.
 
+## Every offer
+
+- [ ] /issue and /request (D152): in Vercel (Production), `GITHUB_TOKEN` (a fine-grained token with Issues read and write on
+      The-Ops-King/Backend-in-a-box) and `GITHUB_REPO` = `The-Ops-King/Backend-in-a-box`. Without them tickets still post in
+      Slack and DM you, but no GitHub issue opens.
+- [ ] Add the two commands to each Slack app, then reinstall it: Dating and PMU, paste `platform/installs/<offer>-slack-manifest.yaml`
+      under App Manifest (PMU also gains the `commands` scope, so it asks to reinstall); Hair, add `/issue` and `/request` under
+      Slash Commands with the same request URL as Hair's other commands.
+- [ ] Before any offer moves up a rung (D151): read and mark its own GHL workflows with Claude. Hair first, before the switch-over.
+
 ## Dating (Nelly)
 
 - [ ] Sending numbers: once Nelly is in the system, assign the automated number and Nelly's own number, then say which texts

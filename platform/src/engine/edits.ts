@@ -3,6 +3,7 @@ import { one } from "@/db/client";
 import { parseDefinition, type Definition, type Node } from "./definition";
 import { validateCopy } from "./copy";
 import { chartLayoutOf, notDrawable, type Layout } from "@/api/chart-verdict";
+import { relockIfOutboundChanged } from "./send-lock";
 
 /**
  * GHL-style "set it on the automation": a company's copy of a workflow can carry literal ids on its steps (this pipeline,
@@ -59,6 +60,7 @@ export async function saveStepEdit(c: PoolClient, args: { workflowId: string; no
   const next = w.current_version + 1;
   await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [w.id, next, def, cur.manifest, `step edited: ${args.nodeId} (${changed.join(", ")})`]);
   await c.query("update workflows set current_version=$2, diverged=true, diverged_at=coalesce(diverged_at, now()) where id=$1", [w.id, next]);
+  await relockIfOutboundChanged(c, w.id, cur.definition, def, `step edited: ${args.nodeId}`);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'workflow.step_edited','workflow',$2,$3)", [w.company_id, w.id, { node: args.nodeId, changed, version: next, by: args.by ?? "dashboard" }]);
   return { ok: true, version: next, changed, layout: chart.layout };
 }

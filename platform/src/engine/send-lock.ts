@@ -84,3 +84,23 @@ export async function setSendLock(c: PoolClient, x: { company: string; workflow:
   }
   return { ok: true, workflow: w.name, unlocked: x.unlock, changed };
 }
+
+const OUTBOUND = new Set(["send_sms", "send_email", "send_document", "webhook"]);
+const stable = (v: unknown): string => (Array.isArray(v) ? `[${v.map(stable).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v as object).sort().map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v));
+/** What an unlock vouched for: every outbound step (its words, its conditions, where it sends) and the edges into and out of them. */
+function outboundOf(def: unknown): string {
+  const d = (def ?? {}) as { nodes?: { id: string; type: string }[]; edges?: { from: string; to: string }[] };
+  const nodes = (d.nodes ?? []).filter((n) => OUTBOUND.has(n.type)), ids = new Set(nodes.map((n) => n.id));
+  return stable({ nodes: [...nodes].sort((a, b) => a.id.localeCompare(b.id)), edges: (d.edges ?? []).filter((e) => ids.has(e.from) || ids.has(e.to)).map(stable).sort() });
+}
+/**
+ * D151 (audit 2026-10-19): an unlock is for what Tyler saw. A new version of an unlocked workflow that changes any text, email,
+ * agreement or webhook step (or what leads to one) locks its sends again, audited; anything else keeps the unlock.
+ */
+export async function relockIfOutboundChanged(c: PoolClient, workflowId: string, before: unknown, after: unknown, why: string): Promise<boolean> {
+  if (outboundOf(before) === outboundOf(after)) return false;
+  const r = await one<{ company_id: string; by: string | null }>(c, "update workflows w set sends_unlocked_at=null, sends_unlocked_by=null from workflows o where w.id=o.id and w.id=$1 and w.sends_unlocked_at is not null returning w.company_id, o.sends_unlocked_by as by", [workflowId]);
+  if (!r) return false;
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.sends_locked','workflow',$2,$3,$4)", [r.company_id, workflowId, { unlocked: true, by: r.by }, { unlocked: false, by: "engine", why }]);
+  return true;
+}

@@ -8,7 +8,7 @@ import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
 import { contactPasses, effectiveMode } from "@/engine/mode";
 import { setCompanyMode } from "@/engine/golive";
-import { fakeAdapters, unlockSendsForTest } from "@/engine/test-install";
+import { fakeAdapters, freshGhlCheckForTest, unlockSendsForTest } from "@/engine/test-install";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { syncTriggers } from "@/engine/install";
 import { encrypt } from "@/engine/crypto";
@@ -233,7 +233,7 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     await tick(fake, undefined, companyId); await tick(fake, undefined, companyId);
     expect(await asOperator((c) => many(c, "select 1 from runs r join events e on e.id=r.triggered_by_event where r.company_id=$1 and e.run_id is not null", [companyId]))).not.toEqual([]);
     expect((await runsOf(ct)).length).toBeGreaterThan(0); expect((await runsOf(ct)).every((r) => r.born_in === "ghost")).toBe(true);
-    const up = await asOperator((c) => setCompanyMode(c, companyId, "quiet", "/c/ladder", "test"));
+    const up = await asOperator(async (c) => { await freshGhlCheckForTest(c, companyId); return setCompanyMode(c, companyId, "quiet", "/c/ladder", "test"); });
     expect(up).toMatchObject({ ok: true, changed: true, mode: "quiet" });
     expect(await runsOf(ct)).toEqual([]);
     expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and born_in in ('ghost','test')", [companyId]))).toEqual([]);

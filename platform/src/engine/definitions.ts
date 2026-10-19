@@ -10,6 +10,7 @@ import { canon, syncTemplateRow, syncTriggers } from "./install";
 import { chartLayoutOf, notDrawable, type Layout } from "@/api/chart-verdict";
 import { RETIRED_EVENTS } from "./describe";
 import { templates } from "@/templates";
+import { relockIfOutboundChanged } from "./send-lock";
 
 /**
  * D100: a company's whole copy of a workflow saved at once (steps added and removed, edges rewired), for onboarding a client
@@ -144,6 +145,7 @@ export async function saveDefinition(c: PoolClient, args: { workflowId: string; 
   if (args.asTemplate !== undefined) await c.query("update workflows set current_version=$2, template_version=$5, diverged=false, diverged_at=null, reentry_policy=$3, reentry_window=$4 where id=$1", [w.id, next, v.def.reentry, v.def.reentry_window ?? null, args.asTemplate]);
   else await c.query("update workflows set current_version=$2, diverged=true, diverged_at=coalesce(diverged_at, now()), reentry_policy=$3, reentry_window=$4 where id=$1", [w.id, next, v.def.reentry, v.def.reentry_window ?? null]);
   await syncTriggers(c, w.company_id, w.id, v.def);
+  await relockIfOutboundChanged(c, w.id, cur.definition, v.def, `saved: ${args.note.trim().slice(0, 120)}`);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.definition_saved','workflow',$2,$3,$4)",
     [w.company_id, w.id, { version: w.current_version }, { version: next, note: args.note.trim(), by: args.by ?? "operator", diff, ...(args.asTemplate !== undefined ? { template_version: args.asTemplate } : {}), ...(v.missing.length ? { missing: v.missing } : {}) }]);
   return { ok: true, saved: true, dryRun: false, version: next, ...base };

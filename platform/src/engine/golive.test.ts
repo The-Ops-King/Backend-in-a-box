@@ -6,7 +6,7 @@ import { installCompany } from "@/engine/install";
 import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
 import { clearStrayHarnessBookings, setCompanyMode } from "@/engine/golive";
-import { fakeAdapters } from "@/engine/test-install";
+import { fakeAdapters, freshGhlCheckForTest } from "@/engine/test-install";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 let companyId: string;
@@ -37,7 +37,7 @@ describe.skipIf(!process.env.DATABASE_URL)("go live", () => {
     // a synthetic booking from the test harness is rehearsal too
     const term = await asOperator((c) => one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' limit 1", [companyId]));
     await asOperator((c) => c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'test','test-1',$3,now(),now()+interval '45 minutes',now(),'confirmed')", [companyId, ct, term!.id]));
-    const live = await asOperator((c) => setCompanyMode(c, companyId, "live", "/c/golive", "test"));
+    const live = await asOperator(async (c) => { await freshGhlCheckForTest(c, companyId); return setCompanyMode(c, companyId, "live", "/c/golive", "test"); });
     expect(live.ok).toBe(true); if (live.ok) { expect(live.cleared!.runs).toBe(1); expect(live.cleared!.steps).toBeGreaterThan(0); expect(live.cleared!.appointments).toBe(1); }
     expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from appointments where company_id=$1 and source='test'", [companyId])))?.n).toBe("0");
     expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [companyId])))?.mode).toBe("live");

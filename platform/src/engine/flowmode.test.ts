@@ -10,7 +10,7 @@ import { setWorkflowMode } from "@/engine/golive";
 import { handlerMode, workflowMode, type Mode } from "@/engine/mode";
 import { harnessRefusal } from "@/engine/simulate";
 import { companyReadiness } from "@/engine/readiness";
-import { fakeAdapters } from "@/engine/test-install";
+import { fakeAdapters, freshGhlCheckForTest } from "@/engine/test-install";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { encrypt } from "@/engine/crypto";
 
@@ -27,7 +27,7 @@ fake.sender.sendEmail = async (_c, to) => { sent.push({ kind: "email", to }); re
 const input = { name: "Flow mode", slug: "flowmode", timezone: "America/Phoenix", locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, bookingCalendar: "CAL", templates: ["new-lead", "speed-to-lead"], crm: { pipeline_setter: "P", stage_setter_new_lead: "S", field_opportunity_stage_entered: "F" }, testDomains: ["jtylerray.com"], enable: true, mode: "test" as const };
 const lead = (ct: string) => asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: ct, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "test", data: {} }), { contact: { id: ct } }));
 const setCompany = (m: Mode) => asOperator((c) => c.query("update companies set mode=$2 where id=$1", [companyId, m]));
-const setFlow = (id: string, m: Mode | null) => asOperator((c) => setWorkflowMode(c, id, m, "Tyler", "test"));
+const setFlow = (id: string, m: Mode | null) => asOperator(async (c) => { await freshGhlCheckForTest(c, companyId); return setWorkflowMode(c, id, m, "Tyler", "test"); });
 const contact = (ghl: string, email: string, tags: string[] = []) => asOperator(async (c) => {
   const id = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, tags) values ($1,$2,'Pat',$3) returning id", [companyId, ghl, tags]))!.id;
   await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'phone',$3),($1,$2,'email',$4)", [companyId, id, `+1602555${ghl.slice(-4).padStart(4, "0")}`, email]);

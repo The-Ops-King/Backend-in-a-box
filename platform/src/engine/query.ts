@@ -14,7 +14,11 @@ export const QUERY_TIMEOUT_MS = 5000;
 /** The role the statement runs as: no login, no RLS bypass, SELECT on our tables except the ones below. Created on first use. */
 export const QUERY_ROLE = "query_door";
 /** Tables that hold ciphertext or Slack credentials, or span companies: no grant for the role, and refused by name before that. */
-export const QUERY_DENY_TABLES = ["bindings", "slack_connections", "people", "person_identities"];   // D145: the roster spans companies
+// D145: the roster spans companies. D151 (audit): so does every table without a company_id (no tenant policy covers it), but
+// the global reference lists every company shares; `companyFree` in ensureQueryRole keeps the grant off any such table added later
+export const QUERY_DENY_TABLES = ["bindings", "slack_connections", "people", "person_identities", "companies", "run_steps", "workflow_versions", "workflow_templates", "engine_state", "playbook_releases"];
+/** Global reference lists with nothing of any one company in them: readable although they have no company_id. */
+export const QUERY_SHARED_TABLES = ["event_types", "core_categories"];
 /** Functions that could read files, flip the scope or reach out. */
 export const QUERY_DENY = [...QUERY_DENY_TABLES, "set_config", "pg_read_file", "pg_read_binary_file", "pg_ls_dir", "pg_stat_file", "lo_import", "lo_export", "dblink", "pg_terminate_backend", "pg_cancel_backend"];
 /** Columns dropped from every result: a value that is a standing capability, not a fact about the business. */
@@ -54,9 +58,12 @@ export function ensureQueryRole(): Promise<string | null> {
       const me = (await one<{ u: string }>(c, "select current_user as u"))!.u;
       await c.query(`grant ${QUERY_ROLE} to "${me}"`).catch((e) => { if (!/already a member|cannot be granted to itself/i.test(String((e as Error).message))) throw e; });
       const present = new Set((await c.query<{ table_name: string }>("select table_name from information_schema.tables where table_schema='public'")).rows.map((r) => r.table_name));
-      const tables = ownTables().filter((t) => present.has(t) && !QUERY_DENY_TABLES.includes(t));
+      const scoped = new Set((await c.query<{ table_name: string }>("select table_name from information_schema.columns where table_schema='public' and column_name='company_id'")).rows.map((r) => r.table_name));
+      const companyFree = ownTables().filter((t) => present.has(t) && !scoped.has(t) && !QUERY_SHARED_TABLES.includes(t));
+      const deny = [...new Set([...QUERY_DENY_TABLES.filter((t) => present.has(t)), ...companyFree])];
+      const tables = ownTables().filter((t) => present.has(t) && !deny.includes(t));
       if (tables.length) await c.query(`grant select on ${tables.join(", ")} to ${QUERY_ROLE}`);
-      await c.query(`revoke all on ${QUERY_DENY_TABLES.filter((t) => present.has(t)).join(", ")} from ${QUERY_ROLE}`);
+      await c.query(`revoke all on ${deny.join(", ")} from ${QUERY_ROLE}`);
       return null;
     } catch (e) { roleReady = undefined; return `the ${QUERY_ROLE} role could not be set up: ${String((e as Error).message)}`; }
   }));

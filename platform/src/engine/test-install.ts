@@ -79,4 +79,8 @@ export const fakeAdapters = (opts: { crm?: Map<string, ContactSnapshot> } = {}):
 });
 
 /** Tests (D145): a test about what workflows send runs with its company's sends unlocked; send-lock.test.ts covers the lock. Workflows made later in the test need it again. */
+/** Tests: a fresh check of the company's own GHL workflows (D180, D151), as Tyler's "Check now" leaves it; one move up uses it. */
+export const freshGhlCheckForTest = (c: PoolClient, companyId: string) => c.query(
+  "insert into onboarding (company_id, kind, filters) values ($1,'takeover',$2) on conflict (company_id) do update set filters = onboarding.filters || $2::jsonb",
+  [companyId, JSON.stringify({ read_at: new Date().toISOString(), list: [], check: { at: new Date().toISOString(), by: "test" } })]);
 export const unlockSendsForTest = (companyId: string) => asOperator((c) => c.query("update workflows set sends_unlocked_at=now(), sends_unlocked_by='test' where company_id=$1", [companyId]));

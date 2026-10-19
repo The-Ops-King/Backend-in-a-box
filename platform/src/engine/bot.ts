@@ -244,7 +244,7 @@ export async function converse(deps0: BotDeps, ctx: Ctx, q: { question: string; 
       const results: unknown[] = [];
       // data first, so a reply in the same turn can name what was just computed
       for (const call of r.calls.filter((x) => !["ask_clarification", "cannot_answer", "reply"].includes(x.name))) {
-        const res = await runTool(deps, ctx, q.asker, call.name, call.input, held, now);
+        const res = await runTool(deps, ctx, q.asker, call.name, call.input, held, now, q.slackUser);
         if (res.error && (call.name === "get_availability" || /^GHL /.test(res.content))) failed.push(res.content);
         results.push({ type: "tool_result", tool_use_id: call.id, content: res.content, ...(res.error ? { is_error: true } : {}) });
       }
@@ -275,7 +275,7 @@ export async function converse(deps0: BotDeps, ctx: Ctx, q: { question: string; 
   }
 }
 
-async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, input: Record<string, unknown>, held: Held[], now: DateTime): Promise<{ content: string; error?: boolean }> {
+async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, input: Record<string, unknown>, held: Held[], now: DateTime, slackUser?: string): Promise<{ content: string; error?: boolean }> {
   const id = `r${held.length + 1}`;
   const err = (m: string) => ({ content: m, error: true });
   try {
@@ -323,6 +323,9 @@ async function runTool(deps: BotDeps, ctx: Ctx, asker: Asker, name: string, inpu
       return { content: JSON.stringify({ id, total: a.total, definition: a.definition, days: a.days, closers: a.closers.map((x) => ({ name: x.name, total: x.total, per_day: x.per_day })), split_error: a.split_error, unreadable: a.unreadable }) };
     }
     if (name === "run_readonly_query") {
+      // D151 (audit): a raw query is for the people who run the business, not everyone in its Slack
+      const may = asker?.role === "owner" || asker?.role === "manager" || (!!ctx.escalateTo && slackUser === ctx.escalateTo);
+      if (!may) return err("a custom query is only for owners, managers and the operator; answer from the metrics, or call cannot_answer");
       const chk = checkQuery(input.sql, 200);
       if (!chk.ok) return err(chk.error);
       const r = await runQuery(ctx.companyId, chk);

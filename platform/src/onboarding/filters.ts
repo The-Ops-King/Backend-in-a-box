@@ -11,7 +11,8 @@
  * The step is done when the list has been read and every workflow on it is marked. Their list can change any day, so before every
  * rung up (the company's or one workflow's, every door: setCompanyMode and setWorkflowMode) the engine needs a fresh check: the list
  * read again live, nothing new or unmarked, nothing marked off that is on. The check is used by the one move it was made for and
- * lasts 30 minutes. Companies not onboarded through the wizard (no onboarding row) and template businesses (D183) are not gated.
+ * lasts 30 minutes. Template businesses (D183) are not gated. D151 (audit 2026-10-19): neither is any other company exempt: one
+ * set up before the wizard (no onboarding row) gets a 'takeover' row the first time its list is read, and is gated like the rest.
  */
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
@@ -52,6 +53,8 @@ export async function readTheirWorkflows(op: <T>(fn: (c: PoolClient) => Promise<
   catch (e) { return { ok: false, status: 502, why: `GHL would not list the workflows: ${String((e as Error).message).slice(0, 200)}` }; }
 }
 
+/** D151: an offer set up before the wizard keeps its list and marks on a 'takeover' row, made when its list is first read. */
+const ensureRow = (c: PoolClient, companyId: string) => c.query("insert into onboarding (company_id, kind) values ($1,'takeover') on conflict (company_id) do nothing", [companyId]);
 const load = async (c: PoolClient, companyId: string) => (await one<{ filters: Filters }>(c, "select filters from onboarding where company_id=$1", [companyId]))?.filters ?? null;
 const save = (c: PoolClient, companyId: string, f: Filters) => c.query("update onboarding set filters=$2 where company_id=$1", [companyId, JSON.stringify(f)]);
 
@@ -64,6 +67,7 @@ async function syncDone(c: PoolClient, companyId: string, f: Filters) {
 
 /** The list as read now, kept with the marks already made (a workflow gone from GHL drops out of the list; its mark stays in history). */
 export async function saveList(c: PoolClient, companyId: string, list: TheirWorkflow[]): Promise<Filters | null> {
+  await ensureRow(c, companyId);
   const f = await load(c, companyId); if (!f) return null;
   const next: Filters = { ...f, read_at: new Date().toISOString(), list };
   await save(c, companyId, next); await syncDone(c, companyId, next);
@@ -104,20 +108,22 @@ export async function confirmCheck(c: PoolClient, companyId: string, list: Their
  * clean check made in the last 30 minutes and not yet used; this move uses it. Inside the mover's transaction.
  */
 export async function useCheck(c: PoolClient, companyId: string, what: string): Promise<string | null> {
-  const row = await one<{ filters: Filters; template: boolean }>(c, "select o.filters, co.status='template' as template from onboarding o join companies co on co.id=o.company_id where o.company_id=$1 for update of o", [companyId]);
+  const co = await one<{ template: boolean }>(c, "select status='template' as template from companies where id=$1", [companyId]);
   // D183: a template business is tested in Tyler's own sandbox account, not a client's: its record is the tests' store, not a wizard
-  if (!row || row.template) return null;
-  const chk = row.filters.check;
+  if (!co || co.template) return null;
+  const row = await one<{ filters: Filters }>(c, "select filters from onboarding where company_id=$1 for update", [companyId]);
+  const chk = row?.filters.check;
   if (!chk || chk.used_at || Date.now() - Date.parse(chk.at) > CHECK_MINUTES * 60e3)
     return "check their GHL workflows first: every move up needs a fresh check that nothing of theirs fires on what the engine does (GHL workflows step, \"Check now\")";
-  await save(c, companyId, { ...row.filters, check: { ...chk, used_at: new Date().toISOString(), used_for: what } });
+  await save(c, companyId, { ...row!.filters, check: { ...chk, used_at: new Date().toISOString(), used_for: what } });
   return null;
 }
 
 export type FiltersState = { filters: Filters; rows: (TheirWorkflow & { marked: Marked | null; problem: string | null })[]; problems: string[]; done: boolean; check: { fresh: boolean; at: string | null } };
 
 export async function filtersState(c: PoolClient, companyId: string): Promise<FiltersState | null> {
-  const f = await load(c, companyId); if (!f) return null;
+  // D151: an offer with no row yet has an empty list to read, not a 404
+  const f = (await load(c, companyId)) ?? {};
   const list = f.list ?? [], marks = f.marks ?? {}, problems = problemsOf(list, marks);
   const chk = f.check;
   return {

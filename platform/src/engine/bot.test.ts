@@ -624,10 +624,16 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       await handleMessage(down, companyId, msg({ text: "<@UBOT> what does our availability look like?" }));
       expect(posts[0].text).toMatch(/^I couldn't get a live read \(GHL did not answer for any calendar: .*503 down\)\. I'm not sure how to get that information\. Let me ping Tyler real quick\.$/);
     });
-    it("a list no metric covers goes through the read-only door and is labelled ad hoc", async () => {
+    it("a list no metric covers goes through the read-only door (owners, managers, the operator) and is labelled ad hoc", async () => {
       script = [() => call("run_readonly_query", { sql: "select first_name from contacts where merged_into is null and ghl_added_at >= '2026-10-01' and not ('sys-test' = any(tags)) and first_name <> 'CT2' order by first_name", why: "leads who arrived this month, by name" }), () => call("reply", { result_ids: ["r1"], note: "" })];
-      await handleMessage(deps(), companyId, msg({ text: "<@UBOT> list this month's leads" }));
+      await handleMessage(deps(), companyId, msg({ user: "U-TYLER", text: "<@UBOT> list this month's leads" }));
       expect(posts[0].text).toBe("_leads who arrived this month, by name (from the engine's own records)_\n```\nfirst_name\nC1\nC2\nC3\nC4\n```\n\n_Read 12:00 PM MST_");
+    });
+    it("D151: a closer's question never reaches the read-only door: the tool refuses, and the bot answers without it", async () => {
+      let refused = "";
+      script = [() => call("run_readonly_query", { sql: "select first_name from contacts", why: "names" }), (r) => { refused = JSON.stringify(r.messages.at(-1)); return call("cannot_answer", { reason: "no metric covers it" }); }];
+      await handleMessage(deps(), companyId, msg({ text: "<@UBOT> list this month's leads" }));
+      expect(refused).toMatch(/only for owners, managers and the operator/);
     });
     it("ignores its own messages, other bots, edits, and channel chatter outside its threads", async () => {
       expect(await handleMessage(deps(), companyId, msg({ user: "UBOT" }))).toEqual({ ignored: "own message" });

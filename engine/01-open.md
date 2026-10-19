@@ -187,7 +187,7 @@ Go live / Switch to shadow, Turn on / Turn off, and Save disposition are server 
 authorization of their own; the only wall is Vercel's deployment protection. Fine for the test
 period. Before any client logs in, these need the same gate as `/api/admin/*` at minimum.
 
-## 23. One transaction per run per tick across external side effects
+## 23. One transaction per run per tick across external side effects (sends and webhooks closed 2026-10-19, D151)
 A tick processes a run's nodes inside one database transaction while calling GHL/Slack. A node
 that throws no longer rolls back the ledger (the runner catches and fails the run inside the
 transaction), but the design still couples external calls to a transaction. The clean version
@@ -204,6 +204,10 @@ see `platform/src/engine/lock.ts`; the engine's own minute holds `tick_lock:engi
 finds its lease held returns `{ busy: true }`.
 The minute scheduler is pg_cron + pg_net inside the Supabase database (`platform/src/engine/schedule.ts`);
 GitHub's five-minute schedule fired once in four hours and is kept only as a backup.
+
+Status 2026-10-19 (D151): texts, emails and webhook steps commit their `sends` row before the vendor call and its outcome
+after (`sent`, `failed`, or `unknown` when the call timed out); the run's claim and done marks commit the same way. Still
+open: the other CRM writes run inside the run's transaction, and the daily sweep has no time budget per company.
 
 ## 24. Show / no-show for companies whose booking source has no outcome (closed 2026-10-08: `no-recording-no-show` template, D36; that template retired 2026-10-09, D54: the end-of-day form presumes it from the call time alone)
 Calendly carries an invitee `no_show` mark (mapped to `noshow` when present) but Hair does not

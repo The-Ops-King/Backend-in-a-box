@@ -1,7 +1,7 @@
 /**
  * D180: their own GHL workflows, marked one by one, and the check before every move up: the list read again live, nothing new,
- * unmarked or marked off while on; a clean check is used by one move and lasts 30 minutes; a company not onboarded through the
- * wizard is not gated.
+ * unmarked or marked off while on; a clean check is used by one move and lasts 30 minutes; every company is gated (D151) but a
+ * template business.
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one } from "@/db/client";
@@ -34,7 +34,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D180: their GHL workflows and the ch
   });
   beforeAll(async () => {
     await migrate();
-    await wipe("filters-co"); await wipe("filters-plain");
+    await wipe("filters-co"); await wipe("filters-plain"); await wipe("filters-tpl");
     id = (await asOperator((c) => createClient(c, { name: "Filters Co", timezone: "America/Phoenix", kind: "takeover" })) as { id: string }).id;
     wf = await asOperator((c) => installTemplateForTest(c, id, "card-moved"));
   });
@@ -92,9 +92,20 @@ describe.skipIf(!process.env.DATABASE_URL)("D180: their GHL workflows and the ch
     expect(await asOperator((c) => useCheck(c, id, "x"))).toContain("check their GHL workflows first");
   });
 
-  it("a company not onboarded through the wizard is not gated", async () => {
+  it("D151: a company set up before the wizard is gated too; its first read gives it a takeover row with the list", async () => {
     const plain = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode, status) values ('Plain','filters-plain','America/Phoenix','ghost','active') returning id"))!.id);
-    expect(await asOperator((c) => useCheck(c, plain, "x"))).toBeNull();
+    expect(await asOperator((c) => filtersState(c, plain))).toMatchObject({ rows: [], done: false, check: { fresh: false } });
+    expect(await asOperator((c) => useCheck(c, plain, "x"))).toContain("check their GHL workflows first");
+    expect(await asOperator((c) => setCompanyMode(c, plain, "test", "/app/c/filters-plain", "t"))).toMatchObject({ ok: false });
+    await asOperator((c) => saveList(c, plain, theirs));
+    expect(await asOperator((c) => one(c, "select kind from onboarding where company_id=$1", [plain]))).toEqual({ kind: "takeover" });
+    for (const w of theirs) await asOperator((c) => markWorkflow(c, plain, { id: w.id, mark: "harmless" }));
+    expect(await asOperator((c) => confirmCheck(c, plain, theirs))).toMatchObject({ ok: true, count: 2 });
     expect(await asOperator((c) => setCompanyMode(c, plain, "test", "/app/c/filters-plain", "t"))).toMatchObject({ ok: true, changed: true });
+  });
+
+  it("a template business is not gated (D183)", async () => {
+    const tpl = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode, status) values ('Tpl','filters-tpl','America/Phoenix','ghost','template') returning id"))!.id);
+    expect(await asOperator((c) => useCheck(c, tpl, "x"))).toBeNull();
   });
 });

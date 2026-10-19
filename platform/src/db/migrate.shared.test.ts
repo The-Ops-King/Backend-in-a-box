@@ -24,4 +24,10 @@ describe("migrate on a shared database", () => {
     const again = await migrate();
     expect(again.repaired).toEqual([]);
   });
+  it("D151: a preview deployment does not migrate the database it shares with production", async () => {
+    const was = process.env.VERCEL_ENV;
+    process.env.VERCEL_ENV = "preview";
+    try { expect(await migrate()).toMatchObject({ applied: false, rlsTables: [], skipped: expect.stringContaining("preview") }); }
+    finally { if (was === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = was; }
+  });
 });

@@ -577,7 +577,7 @@ create table sends (
   rendered_body      text not null,                        -- what actually went out, after send-time render
   scheduled_for      timestamptz,
   sent_at            timestamptz,
-  status             text not null check (status in ('queued','sent','failed','suppressed','ghost','quiet')),   -- ghost = would have sent; quiet = held back in quiet (D132)
+  status             text not null check (status in ('queued','sent','failed','suppressed','ghost','quiet','unknown')),   -- ghost = would have sent; quiet = held back in quiet (D132); unknown = the vendor never answered (D151)
   suppressed_reason  text,                                 -- stale, quiet_hours_deferred, premise_dead, unbound
   external_id        text,                                 -- GHL message id, Slack ts
   error              text
@@ -640,6 +640,28 @@ create table person_identities (
   workspace  text not null default '',                     -- the Slack team a Slack id belongs to; '' for email and phone
   created_at timestamptz not null default now(),
   unique (kind, value, workspace)
+);
+
+-- D152: /issue and /request from a client's Slack: one ticket each, numbered per company, mirrored to a GitHub issue
+create table tickets (
+  id            uuid primary key default gen_random_uuid(),
+  company_id    uuid not null references companies(id) on delete cascade,
+  number        int not null,
+  kind          text not null check (kind in ('issue','request')),
+  text          text not null,
+  by_slack_user text,
+  by_name       text,
+  slack_channel text,
+  slack_ts      text,                                      -- the ticket's post: the screenshots go in its thread, the ✅ on it
+  status        text not null default 'open' check (status in ('open','closed')),
+  github_number int,
+  github_url    text,
+  github_error  text,
+  created_at    timestamptz not null default now(),
+  closed_at     timestamptz,
+  closed_by     text,
+  close_note    text,
+  unique (company_id, number)
 );
 
 create table audit_log (

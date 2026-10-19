@@ -5350,3 +5350,49 @@ again). `alerts.paused_at` / `paused_by`; audited (`alert.paused`). The button i
 Health check gets it when that workflow is saved from the template (D147).
 
 Tests: `alerts.test.ts`, `slack-actions.test.ts` (D150).
+
+## D151. The audit's five risks, closed (2026-10-19)
+
+From `10-audit-2026-10-19.md` §1, Tyler: "Do all those 5 recommendations."
+
+1. **Only production migrates.** `migrate()` returns `skipped` when `VERCEL_ENV` is set and is not `production`: previews
+   share the production database, so an unreviewed branch's DDL never runs against it. A production migration takes
+   `pg_advisory_lock(7351151)` (two deploys can build at once) and runs in one transaction up to the backfill, so a failure
+   leaves no constraint dropped. Numbered migrations are still to come (the ~300 lines re-run on every deploy stay for now).
+2. **A text is never sent twice on a retry.** The `sends` row is committed as `queued` before the vendor call, in its own
+   transaction (`asOperator`), and its outcome is committed after: `sent`, `failed`, or `unknown` when the call timed out or
+   the connection dropped after it may have been taken (`ambiguousSendError`). A retry finds the key with any status but
+   `failed` and does not send again; an `unknown` send skips the step and raises a blocked alert for a person to look at the
+   contact in GHL. The run's claim and done marks are committed the same way, and webhook steps follow the same pattern.
+   `ghl()` gives up after 25 seconds (`GHL_TIMEOUT_MS`), saying it may have been done.
+3. **The Slack bot's raw query reads only the asker's company.** Every table without a `company_id` is denied to the query
+   role (named: `companies`, `run_steps`, `workflow_versions`, `workflow_templates`, `engine_state`, `playbook_releases`; and
+   any such table added later), except the shared reference lists `event_types` and `core_categories`. The tool itself is
+   for owners, managers and the operator only.
+4. **Every offer's own GHL workflows are checked before every move up** (D180, which exempted Hair, PMU and Dating). An offer
+   set up before the wizard gets a `takeover` onboarding row the first time its list is read; the row carries only the list,
+   the marks and the check (the dashboard opens the wizard by `companies.status`, not by the row). Read and marked from the
+   chat through `GET/POST /api/admin/ghl/workflows` (`{read}`, `{id, mark, note, by}`, `{check, by}`).
+5. **An unlocked workflow relocks when what it sends changes.** Every new version (words, edits, definitions) is compared with
+   the one before on its outbound steps (`send_sms`, `send_email`, `send_document`, `webhook`) and their edges; a change clears
+   `sends_unlocked_at` and audits `workflow.sends_locked` by `engine`. Tyler unlocks again (D145).
+
+Tests: `migrate.shared.test.ts`, `step-failures.test.ts` (timeout → unknown, relock), `query.test.ts`, `bot.test.ts`, `filters.test.ts`; `freshGhlCheckForTest` (test-install) gives a test its check before a move up.
+
+## D152. /issue and /request (2026-10-19)
+
+Tyler: "a /issue command for all of them which opens a tech issue. or /request so that way they can ask for things, or report an
+issue and it tracks for me." Answers: tracked in GitHub and in the engine; anyone in the client's Slack; one line, with a Loom
+or screenshot asked for in the thread; closed with a ✅; added to every manifest.
+
+- `/issue <one line>` and `/request <one line>` on every offer's Slack app (the same door as the other shortcuts). Empty text
+  gets the usage, privately. Otherwise the asker gets "Got it" privately at once and the rest runs after the 3-second ack.
+- A ticket is numbered per offer (`tickets`, under an advisory lock), posted where it was typed ("🎫 *Issue #N* from @who", the
+  line, and a note that a Loom or screenshot goes in the thread), DMed to the operator (`bot.escalate_to`), and opened as a
+  GitHub issue in `GITHUB_REPO` with `GITHUB_TOKEN`, labelled with its kind and `offer:<slug>`. No token: the ticket is kept
+  with `github_error` and the operator's DM says so.
+- Closing (`POST /api/admin/tickets/close { company, number, note, by }`) answers "✅ Done: note" in the ticket's thread, puts
+  ✅ on its post, and comments on and closes the GitHub issue. `GET /api/admin/tickets?company=` lists them.
+- Two commands, one system: the kind is only a label, so a request typed as an issue loses nothing.
+
+Tests: `tickets.test.ts`.

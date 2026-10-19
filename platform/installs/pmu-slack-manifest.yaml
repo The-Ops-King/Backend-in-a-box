@@ -1,6 +1,7 @@
 # PMU Ops Engine: paste at api.slack.com/apps → Create New App → From an app manifest → (Tyler's workspace) → YAML.
-# No slash commands while PMU shares a workspace with Hair: Slack gives a command to the app installed last, so a PMU /mtd
-# would take Hair's. Add the commands (the same list as platform/README.md, this company's URL) once PMU has its own workspace.
+# PMU has its own workspace (The Beauty Moguls), so the slash commands are on. Slack gives a command to the app installed
+# last, so don't install a second Ops Engine app into this workspace. After changing this file: paste it under App Manifest,
+# then Reinstall to Workspace (the commands scope is new).
 display_information:
   name: PMU Ops Engine
   description: The Beauty Moguls sales ops engine (PMU)
@@ -11,6 +12,20 @@ features:
   bot_user:
     display_name: PMU Ops
     always_online: true
+  slash_commands:
+    - { command: /mtd, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Month to date: leads, shows, closes, cash vs last month", should_escape: false }
+    - { command: /weekly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Last week's numbers (or: this week)", usage_hint: "[this week]", should_escape: false }
+    - { command: /monthly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Last month's numbers (or: this month)", usage_hint: "[this month]", should_escape: false }
+    - { command: /show-rate, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Show rate by closer and source", usage_hint: "[last month]", should_escape: false }
+    - { command: /close-rate, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Close rate by closer and source", usage_hint: "[last month]", should_escape: false }
+    - { command: /cash, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Cash collected, refunds and net by closer", usage_hint: "[last week]", should_escape: false }
+    - { command: /availability, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Open calendar slots per day and per closer", usage_hint: "[days, up to 7]", should_escape: false }
+    - { command: /leads, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Leads, MQLs and marketing DQs by source", usage_hint: "[yesterday]", should_escape: false }
+    - { command: /closes, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Every close in the period: who, closer, day won", usage_hint: "[last month]", should_escape: false }
+    - { command: /leaderboard, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Closers by cash, setters by sets", usage_hint: "[last week]", should_escape: false }
+    - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "What the bot can answer", should_escape: false }
+    - { command: /issue, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Something broke or looks wrong: logs it for Tyler with a number", usage_hint: "[what went wrong]", should_escape: false }
+    - { command: /request, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Ask for something new or a change: logs it for Tyler with a number", usage_hint: "[what you need]", should_escape: false }
 oauth_config:
   scopes:
     bot:
@@ -22,6 +37,7 @@ oauth_config:
       - reactions:write
       - users:read.email
       - users:read
+      - commands
       - app_mentions:read
       - im:history
       - channels:history
