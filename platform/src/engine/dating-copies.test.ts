@@ -88,6 +88,7 @@ describe("D118: Dating Nelly's copies", () => {
       expect(at("n_ask")).toMatchObject({ channel: "{{slack.channel.bookings}}" });
       expect(String(at("n_ask").template)).not.toMatch(/rebooking link/);
       expect(String(at("n_ask").template)).toMatch(/move it by hand; no text goes out/);
+      expect(String(at("n_ask").template)).toContain("{{reply.last_outbound.body | default:");
       expect(c.definition.edges.filter((e) => e.from === "m24s").map((e) => e.to)).toEqual(["r1"]);
       expect(JSON.stringify(c.definition)).not.toContain("[placeholder");
     }

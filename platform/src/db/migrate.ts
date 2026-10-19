@@ -388,6 +388,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table companies add column if not exists quiet_allow_transactional boolean not null default false`);
     await c.query(`alter table calendars add column if not exists config jsonb not null default '{}'`);
     await c.query(`alter table appointments add column if not exists answers jsonb not null default '{}'`);
+    // D188: the CRM will not text them (Do Not Disturb); the poll and every contact read keep it, a text refused for it sets it
+    await c.query(`alter table contacts add column if not exists sms_dnd boolean not null default false`);
     // appointments ↔ form_submissions reference each other; the disposition pointer must not block deleting a submission
     await c.tx(async (c) => {
       await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);

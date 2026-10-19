@@ -388,6 +388,36 @@
     }
    },
    {
+    "id": "n_dnd",
+    "type": "slack_post",
+    "channel": "{{slack.channel.bookings}}",
+    "thread_of": "tag:appointment:{{appointment.id}}",
+    "thread_only": true,
+    "react": "warning",
+    "only_if": {
+     "and": [
+      {
+       "eq": [
+        "{{contact.sms_dnd}}",
+        true
+       ]
+      },
+      {
+       "neq": [
+        "{{event._type}}",
+        "appointment.rescheduled"
+       ]
+      }
+     ]
+    },
+    "as": {
+     "name": "Texts off",
+     "icon": ":warning:"
+    },
+    "template": "⚠️ {{contact.first_name | default:They}} has texts turned off (Do Not Disturb), so no texts will reach them. Call or email instead.",
+    "title": "Texts off (Do Not Disturb): ⚠️ on the card and a note under it, once per booking"
+   },
+   {
     "id": "x1",
     "type": "exit",
     "reason": "booked"
@@ -469,7 +499,7 @@
    },
    {
     "from": "n4",
-    "to": "x1"
+    "to": "n_dnd"
    },
    {
     "from": "s2b",
@@ -490,6 +520,10 @@
    {
     "from": "c_added",
     "to": "c_note"
+   },
+   {
+    "from": "n_dnd",
+    "to": "x1"
    },
    {
     "from": "s_suffix",

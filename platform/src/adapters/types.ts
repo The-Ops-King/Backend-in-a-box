@@ -13,7 +13,9 @@ export type Company = { id: string; locationId: string; pit: string; timezone: s
 export type Touch = { utmSource?: string; utmMedium?: string; utmCampaign?: string; utmContent?: string; utmTerm?: string; fbclid?: string; medium?: string; sessionSource?: string; url?: string; referrer?: string };
 /** The CRM's first and latest touch for a contact. */
 export type Attribution = { first?: Touch; last?: Touch };
-export type ContactSnapshot = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string; tags: string[]; source?: string; customFields: Record<string, unknown>; dateUpdated: string; dateAdded: string; attribution?: Attribution };
+export type ContactSnapshot = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string; tags: string[]; source?: string; customFields: Record<string, unknown>; dateUpdated: string; dateAdded: string; attribution?: Attribution;
+  /** D188: the CRM will not text them (Do Not Disturb on texts, or on everything); undefined when the CRM did not say */
+  smsDnd?: boolean };
 /** A Documents & Contracts document as the CRM lists it (D30). `contactId` is the primary signer. */
 export type DocumentSnapshot = { id: string; name?: string; status: string; contactId?: string; createdAt: string; updatedAt?: string; signedAt?: string; raw?: Record<string, unknown> };
 /** One booking as the source reports it. `contactId` when the source is the CRM; `invitee` identity when it is not. */

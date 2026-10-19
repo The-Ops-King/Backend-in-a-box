@@ -5,7 +5,7 @@
   "stage": "booking",
   "sort": 10,
   "origin": "spec",
-  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the booking's UTMs (source, medium, campaign, content, term, fbclid) go on the contact's UTM fields where GHL has none yet (a first touch is never overwritten; an unbound field is skipped, D78), the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, a Sales Call record is created for the call slot (the recording and the filed outcome update it; a reschedule logs the old slot's record as rescheduled and makes the new slot its own, D76), and the team gets the Slack card with the company's own intake lines (the booking card setting, D104) and the person's lead source. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar and reacts 🔁 on the card it replaces; later reactions (confirmed, cancelled, outcome, payment) land on that newest card.",
+  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner, the booking's UTMs (source, medium, campaign, content, term, fbclid) go on the contact's UTM fields where GHL has none yet (a first touch is never overwritten; an unbound field is skipped, D78), the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, a Sales Call record is created for the call slot (the recording and the filed outcome update it; a reschedule logs the old slot's record as rescheduled and makes the new slot its own, D76), and the team gets the Slack card with the company's own intake lines (the booking card setting, D104) and the person's lead source. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar and reacts 🔁 on the card it replaces; later reactions (confirmed, cancelled, outcome, payment) land on that newest card. A booking for someone with texts turned off (Do Not Disturb) gets ⚠️ on its card and a note under it, once (D188).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -364,6 +364,36 @@
         }
       },
       {
+        "id": "n_dnd",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "react": "warning",
+        "only_if": {
+          "and": [
+            {
+              "eq": [
+                "{{contact.sms_dnd}}",
+                true
+              ]
+            },
+            {
+              "neq": [
+                "{{event._type}}",
+                "appointment.rescheduled"
+              ]
+            }
+          ]
+        },
+        "as": {
+          "name": "Texts off",
+          "icon": ":warning:"
+        },
+        "template": "⚠️ {{contact.first_name | default:They}} has texts turned off (Do Not Disturb), so no texts will reach them. Call or email instead.",
+        "title": "Texts off (Do Not Disturb): ⚠️ on the card and a note under it, once per booking"
+      },
+      {
         "id": "x1",
         "type": "exit",
         "reason": "booked"
@@ -465,7 +495,7 @@
       },
       {
         "from": "n4",
-        "to": "x1"
+        "to": "n_dnd"
       },
       {
         "from": "k5",
@@ -490,6 +520,10 @@
       {
         "from": "c_added",
         "to": "c_note"
+      },
+      {
+        "from": "n_dnd",
+        "to": "x1"
       }
     ]
   }

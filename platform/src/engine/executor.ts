@@ -174,6 +174,8 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
     return { status: "ok", next, result: { ...heldFlag(d), would_send: body.slice(0, 120), substituted } };
   }
   if (await one(d.c, "select 1 from sends where idempotency_key=$1 and status<>'failed'", [`${d.run.id}:${node.id}`])) return { status: "skipped", next, result: { kind: "noop", why: "already sent (idempotency)" } };
+  // D188: the CRM will not text them (Do Not Disturb): nothing is asked of it and nobody is alerted; the booking card says it once
+  if (channel === "sms" && (d.ctx.contact as { sms_dnd?: boolean } | undefined)?.sms_dnd === true) { await recordSend(d, node, channel, body, "suppressed", DND_WHY); return { status: "skipped", next, result: { kind: "noop", why: DND_WHY } }; }
   const lock = await sendLock(d, channel);
   if (!lock.ok) {
     const held_ = await recordSend(d, node, channel, body, "queued");
@@ -193,6 +195,11 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   if (unknown) return { status: "skipped", next, result: { kind: "blocked", why: `the CRM did not answer, so the ${channel} may or may not have gone out; it is not sent again (check the conversation in the CRM): ${r.error}`, would_send: body.slice(0, 120) } };
   await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: r.accepted ? "message.sent" : "send.suppressed", source: "engine", data: { channel, node: node.id, external_id: r.externalId, error: r.error, substituted } });
   if (r.accepted) return { status: "ok", next, result: { external_id: r.externalId, substituted } };
+  // D188: refused for Do Not Disturb (the replica did not know yet): the contact learns it, the send is suppressed, no alert
+  if (channel === "sms" && dndRefusal(r.error)) {
+    await committed(d, async (o) => { await o.query("update sends set status='suppressed', suppressed_reason=$2 where id=$1", [send.id, DND_WHY]); await o.query("update contacts set sms_dnd=true, updated_at=now() where id=$1", [d.run.contact_id]); });
+    return { status: "skipped", next, result: { kind: "noop", why: DND_WHY } };
+  }
   // G21: the CRM has no such contact (deleted or merged there): the replica learns it, one alert says so, and the run is looked at again at once so the premise exits it `moot: contact gone`
   if (contactGone(r.error)) { await markContactGone(d, r.error!); return { status: "waiting", until: d.now, stay: true, result: { why: "the CRM has no such contact; the run exits at its next look" } }; }
   // D66: an outage or a dead token is the failure policy's (retried in place, or paused until the token is replaced); the send row is `failed` and the retry reclaims it
@@ -201,6 +208,10 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
   // D56: the refusal is on the send row and raises a "step could not run" alert; the rest of the sequence still runs
   return { status: "skipped", next, result: { kind: "blocked", why: `the CRM refused the ${channel}: ${r.error ?? "send rejected"}`, would_send: body.slice(0, 120) } };
 }
+
+const DND_WHY = "texts are turned off for this contact (Do Not Disturb)";
+/** D188: GHL's refusal of a text for Do Not Disturb ("Cannot send message as DND is active for SMS", CONVERSATIONS_MSG_DND_ACTIVE_SMS). */
+export const dndRefusal = (error?: string) => !!error && /DND_ACTIVE|\bDND is active\b/i.test(error);
 
 /** A card the CRM itself said is not there: it answered 404, or "not found" with no other status. An outage or no answer is never "gone" (D69). */
 const cardGone = (e: unknown) => { const f = classifyError(e); return f.answered && (f.status === 404 || (f.status === null && /\bnot found\b/i.test(f.message))); };
