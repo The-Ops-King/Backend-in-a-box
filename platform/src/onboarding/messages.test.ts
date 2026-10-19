@@ -80,6 +80,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D149: the messages step", () => {
     await asOperator((c) => wordsFromEdits(c, id, false));
     expect((await asOperator((c) => one<{ diverged: boolean }>(c, "select diverged from workflows where id=$1", [wf.id])))!.diverged).toBe(false);
     expect((await asOperator((c) => loadWords(c, id))).reactivation).toEqual({ [sms.id]: { template: "Hi {{contact.first_name}}, the old way." } });
+    // the deploy's migration does the same for every company (here: nothing left to move, so nothing changes)
+    expect((await migrate()).words.filter((w) => w.startsWith("words-co"))).toEqual([]);
     // a step changed by hand: not words only, so it stays
     def.nodes.find((n: { type: string }) => n.type === "send_sms").ghl_template = "snip";
     await asOperator(async (c) => { await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,'{\"bindings\":[]}','step edited')", [wf.id, wf.current_version + 2, def]); await c.query("update workflows set current_version=$2, diverged=true where id=$1", [wf.id, wf.current_version + 2]); });

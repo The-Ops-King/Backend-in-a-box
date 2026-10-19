@@ -7,7 +7,7 @@ const APPOINTMENT_SOURCES = ["ghl", "calendly", "test"].map((s) => `'${s}'`).joi
 const EVENT_SOURCES = ["form", "ghl_poll", "whop", "fathom", "zapier", "slack", "engine", "disposition", "command_center", "user", "test"].map((s) => `'${s}'`).join(",");
 
 /** Applies engine/schema.sql (idempotently: skips if `companies` exists) then forces RLS on every tenant table. */
-export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[]; bookingCard: string[] }> {
+export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[]; bookingCard: string[]; words: string[] }> {
   const c = await db().connect();
   try {
     const exists = await c.query("select 1 from information_schema.tables where table_name='companies' and table_schema='public'");
@@ -285,7 +285,19 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D104: Call booked's card no longer carries Hair's intake questions; a company that bound them keeps them as its own setting.
     // As the operator: bindings are under FORCE RLS, where this unscoped connection would see no rows.
     const bookingCard = await asOperator((o) => backfillBookingCard(o));
-    return { applied, rlsTables: tenantTables, repaired, bookingCard };
+    // D149: every company's earlier word edits move into its words, so those copies follow their templates again. Idempotent: only a
+    // copy still marked edited, on its template's current version and different from it in words only, moves; the words are the same
+    // words, so nothing a run sends changes. Each move is in the company's audit log.
+    const words = await asOperator(async (o) => {
+      const { wordsFromEdits } = await import("@/engine/words");
+      const out: string[] = [];
+      for (const co of (await o.query<{ id: string; slug: string }>("select distinct co.id, co.slug from companies co join workflows w on w.company_id=co.id where w.diverged")).rows) {
+        const r = await wordsFromEdits(o, co.id, false);
+        if (r.moved.length) out.push(`${co.slug}: ${r.moved.map((m) => m.workflow).join(", ")}`);
+      }
+      return out;
+    });
+    return { applied, rlsTables: tenantTables, repaired, bookingCard, words };
   } finally {
     c.release();
   }

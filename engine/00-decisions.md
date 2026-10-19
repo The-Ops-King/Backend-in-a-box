@@ -4993,7 +4993,9 @@ built: install putting a template on or upgrading it, a playbook's copies being 
 **Moving earlier edits over** (`POST /api/admin/words { company, apply? }`, a dry run unless `apply`): a copy frozen by a
 pre-D149 word edit, still on its template's current version and different from it only in words, has those words moved into
 the company's words and is untouched again. A copy edited beyond words, or behind its template, stays as it is and is named. The
-words themselves do not change, so nothing a run sends does. **To run on Hair, PMU and Dating by Tyler** (dry run first).
+words themselves do not change, so nothing a run sends does. Tyler (2026-10-19): "I can't move the edits, you do that": the
+deploy's migration does it for every company, once, idempotently (`migrate()`, logged as `words.moved` in each company's audit
+log and printed by `pnpm db:migrate`); the route stays for a dry run.
 
 **The messages step** (`src/onboarding/messages.ts`): every text and email a contact can get, workflow by workflow, with its
 words as they stand. Each is approved by Tyler as written; changing the words takes the approval back. It cannot be approved
