@@ -5355,10 +5355,14 @@ Tests: `alerts.test.ts`, `slack-actions.test.ts` (D150).
 
 From `10-audit-2026-10-19.md` §1, Tyler: "Do all those 5 recommendations."
 
-1. **Only production migrates.** `migrate()` returns `skipped` when `VERCEL_ENV` is set and is not `production`: previews
-   share the production database, so an unreviewed branch's DDL never runs against it. A production migration takes
-   `pg_advisory_lock(7351151)` (two deploys can build at once) and runs in one transaction up to the backfill, so a failure
-   leaves no constraint dropped. Numbered migrations are still to come (the ~300 lines re-run on every deploy stay for now).
+1. **Only production migrates, and never holds a lock for long.** `migrate()` returns `skipped` when `VERCEL_ENV` is set and is
+   not `production`: previews share the production database, so an unreviewed branch's DDL never runs against it. One
+   migration at a time, by a lease row (`engine_state.migrate_lock`, as the ticks', pooler-safe, freed by expiry). Each
+   statement is its own transaction with a 3-second lock timeout, tried again after a pause (up to 8 times) rather than
+   queued ahead of the live engine; each constraint or policy that is dropped and added again is one transaction on one table
+   (`tx`), so a failure never leaves it dropped. (A first version ran the whole migration as one transaction under a session
+   advisory lock: the production build deadlocked with a tick, rolled back cleanly, and the session lock would not have been
+   safe on the transaction pooler.) Numbered migrations are still to come (the ~300 lines re-run on every deploy stay for now).
 2. **A text is never sent twice on a retry.** The `sends` row is committed as `queued` before the vendor call and its outcome
    is committed after, each by `checkpoint` (db/client.ts): the run's transaction is committed so far, the ledger write gets its
    own, and a new one opens under the same scope, all on the run's own connection. (A second connection was tried first and
@@ -5379,7 +5383,7 @@ From `10-audit-2026-10-19.md` §1, Tyler: "Do all those 5 recommendations."
    the one before on its outbound steps (`send_sms`, `send_email`, `send_document`, `webhook`) and their edges; a change clears
    `sends_unlocked_at` and audits `workflow.sends_locked` by `engine`. Tyler unlocks again (D145).
 
-Tests: `client.test.ts` (checkpoint), `migrate.shared.test.ts`, `step-failures.test.ts` (timeout → unknown, relock), `contact-truth.test.ts`, `query.test.ts`, `bot.test.ts`, `filters.test.ts`; `freshGhlCheckForTest` (test-install) gives a test its check before a move up.
+Tests: `client.test.ts` (checkpoint), `migrate.shared.test.ts` (preview skip, migrator), `step-failures.test.ts` (timeout → unknown, relock), `contact-truth.test.ts`, `query.test.ts`, `bot.test.ts`, `filters.test.ts`; `freshGhlCheckForTest` (test-install) gives a test its check before a move up.
 
 ## D152. /issue and /request (2026-10-19)
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { db } from "./client";
-import { migrate } from "./migrate";
+import { migrate, migrator } from "./migrate";
 /** The production database is a shared Supabase project: migrate must never touch another app's tables. */
 describe("migrate on a shared database", () => {
   beforeAll(async () => {
@@ -29,5 +29,34 @@ describe("migrate on a shared database", () => {
     process.env.VERCEL_ENV = "preview";
     try { expect(await migrate()).toMatchObject({ applied: false, rlsTables: [], skipped: expect.stringContaining("preview") }); }
     finally { if (was === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = was; }
+  });
+});
+
+describe("migrator (D151): short transactions that give way to the live engine", () => {
+  const T = "migrator_probe";
+  beforeAll(async () => { await db().query(`drop table if exists ${T}`); await db().query(`create table ${T} (id int, v text, constraint ${T}_v_check check (v in ('a','b')))`); });
+  afterAll(async () => { await db().query(`drop table if exists ${T}`); });
+
+  it("a statement that cannot get its lock gives up after a few seconds and is tried again, not queued ahead of everyone", async () => {
+    const holder = await db().connect(), conn = await db().connect();
+    const pauses: number[] = [];
+    try {
+      await holder.query("begin"); await holder.query(`lock table ${T} in access exclusive mode`);
+      setTimeout(() => { void holder.query("commit"); }, 4_500);
+      await migrator(conn, async (ms) => { pauses.push(ms); }).query(`alter table ${T} add column if not exists w text`);
+      expect(pauses.length).toBeGreaterThanOrEqual(1);
+      expect((await db().query("select 1 from information_schema.columns where table_name=$1 and column_name='w'", [T])).rowCount).toBe(1);
+    } finally { holder.release(); conn.release(); }
+  }, 30_000);
+
+  it("a group is all or nothing: a constraint is never left dropped", async () => {
+    const conn = await db().connect();
+    try {
+      await expect(migrator(conn).tx(async (c) => {
+        await c.query(`alter table ${T} drop constraint if exists ${T}_v_check`);
+        await c.query(`alter table ${T} add constraint ${T}_v_check check (nope in ('a'))`);
+      })).rejects.toThrow(/nope/);
+      expect((await db().query("select 1 from pg_constraint where conname=$1", [`${T}_v_check`])).rowCount).toBe(1);
+    } finally { conn.release(); }
   });
 });

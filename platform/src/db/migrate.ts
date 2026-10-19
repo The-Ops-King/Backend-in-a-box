@@ -1,4 +1,6 @@
+import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import { asOperator, db } from "./client";
+import { acquireTickLock, releaseTickLock } from "@/engine/lock";
 import { SCHEMA } from "./schema.sql";
 import { backfillBookingCard } from "@/engine/booking-card";
 
@@ -6,23 +8,75 @@ import { backfillBookingCard } from "@/engine/booking-card";
 const APPOINTMENT_SOURCES = ["ghl", "calendly", "test"].map((s) => `'${s}'`).join(",");
 const EVENT_SOURCES = ["form", "ghl_poll", "whop", "fathom", "zapier", "slack", "engine", "disposition", "command_center", "user", "test"].map((s) => `'${s}'`).join(",");
 
+/**
+ * D151: the migration runs against a database the live engine is using every minute, so it never holds a lock for long. Each
+ * statement is its own transaction that gives up on a lock after a few seconds (and is tried again after a pause) rather than
+ * queueing ahead of the engine's own queries; `tx` keeps a group on one table together (a constraint dropped and added again,
+ * a once-only marker and its update), re-run whole on a retry. One big transaction deadlocked with a tick (2026-10-19).
+ */
+export type Migrator = {
+  query<R extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]): Promise<QueryResult<R>>;
+  tx<T>(fn: (c: Migrator) => Promise<T>): Promise<T>;
+};
+const LOCK_TIMEOUT = "3s", LOCK_TRIES = 8;
+const lockedOut = (e: unknown) => ["55P03", "40P01"].includes((e as { code?: string }).code ?? "");   // lock_not_available, deadlock_detected
+export function migrator(conn: PoolClient, pause = (ms: number) => new Promise((r) => setTimeout(r, ms))): Migrator {
+  let inTx = false;
+  const attempt = async <T>(fn: () => Promise<T>): Promise<T> => {
+    for (let i = 1; ; i++) {
+      await conn.query("begin");
+      try {
+        await conn.query("select set_config('lock_timeout', $1, true)", [LOCK_TIMEOUT]);
+        const out = await fn();
+        await conn.query("commit");
+        return out;
+      } catch (e) {
+        await conn.query("rollback").catch(() => {});
+        if (!lockedOut(e) || i >= LOCK_TRIES) throw e;
+        await pause(Math.min(500 * 2 ** (i - 1), 8_000));
+      }
+    }
+  };
+  const m: Migrator = {
+    query: (sql, params) => (inTx ? conn.query(sql, params) : attempt(() => conn.query(sql, params))),
+    tx: async (fn) => {
+      if (inTx) return fn(m);
+      inTx = true;
+      try { return await attempt(() => fn(m)); } finally { inTx = false; }
+    },
+  };
+  return m;
+}
+
+/** One migration at a time: a lease row like the ticks' (lock.ts), waited for while another build migrates. */
+const MIGRATE_LOCK = "migrate_lock", MIGRATE_LEASE_SECONDS = 900, MIGRATE_WAIT_MS = 10 * 60_000;
+async function takeMigrateLease(): Promise<string> {
+  const until = Date.now() + MIGRATE_WAIT_MS;
+  for (;;) {
+    const owner = await acquireTickLock(MIGRATE_LEASE_SECONDS, MIGRATE_LOCK);
+    if (owner) return owner;
+    if (Date.now() > until) throw new Error("another migration has held the migrate lease for over 10 minutes");
+    await new Promise((r) => setTimeout(r, 5_000));
+  }
+}
+
 /** Applies engine/schema.sql (idempotently: skips if `companies` exists) then forces RLS on every tenant table. */
 export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[]; bookingCard: string[]; skipped?: string }> {
   // D151 (audit 2026-10-19): a preview build shares the production database, so only a production deployment migrates it; a
   // preview runs against the schema production has
   const env = process.env.VERCEL_ENV;
   if (env && env !== "production") return { applied: false, rlsTables: [], repaired: [], bookingCard: [], skipped: `${env} deployment: the database is production's, migrated only by a production deployment` };
-  const c = await db().connect();
-  let open = false;
+  const conn = await db().connect();
+  const c = migrator(conn);
+  let lease: string | null = null;
   try {
-    // one migration at a time (two deploys can build at once), and all of it or none: a failure leaves no constraint dropped
-    await c.query("select pg_advisory_lock(7351151)");
-    await c.query("begin"); open = true;
+    // one migration at a time (two deploys can build at once): a lease row, pooler-safe, freed by expiry if a build dies
+    await c.query(`create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())`);
+    lease = await takeMigrateLease();
     const exists = await c.query("select 1 from information_schema.tables where table_name='companies' and table_schema='public'");
     let applied = false;
     if (exists.rowCount === 0) { await c.query(SCHEMA); applied = true; }   // embedded: works inside a serverless bundle, no filesystem path
     // engine-internal additions beyond schema.sql; idempotent so an already-migrated database picks them up
-    await c.query(`create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())`);
     await c.query(`alter table companies add column if not exists sms_enabled boolean not null default true`);
     await c.query(`alter table companies add column if not exists mode text not null default 'ghost'`);
     await c.query(`alter table runs add column if not exists wake_on_reply boolean not null default false`);
@@ -56,36 +110,44 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     }
     // D52: the mode ladder; the check constraints follow the list in one place
     await c.query(`update companies set mode='test' where mode='rehearsal'`); await c.query(`update runs set born_in='test' where born_in='rehearsal'`);   // the rung existed for an hour (D52 addendum)
-    await c.query(`alter table companies drop constraint if exists companies_mode_check`);
-    // D132: shadow is ghost, and quiet (the CRM written for everyone, nothing reaching a contact) sits between test and live
-    await c.query(`update companies set mode='ghost' where mode='shadow'`);
-    await c.query(`alter table companies alter column mode set default 'ghost'`);
-    await c.query(`alter table companies add constraint companies_mode_check check (mode in ('ghost','test','quiet','live'))`);
+    await c.tx(async (c) => {
+      await c.query(`alter table companies drop constraint if exists companies_mode_check`);
+      // D132: shadow is ghost, and quiet (the CRM written for everyone, nothing reaching a contact) sits between test and live
+      await c.query(`update companies set mode='ghost' where mode='shadow'`);
+      await c.query(`alter table companies alter column mode set default 'ghost'`);
+      await c.query(`alter table companies add constraint companies_mode_check check (mode in ('ghost','test','quiet','live'))`);
+    });
     await c.query(`alter table workflows add column if not exists mode text`);   // D92: the workflow's own rung; null follows the company
-    await c.query(`alter table workflows drop constraint if exists workflows_mode_check`);
-    await c.query(`update workflows set mode='ghost' where mode='shadow'`);
-    await c.query(`alter table workflows add constraint workflows_mode_check check (mode in ('ghost','test','quiet','live'))`);
+    await c.tx(async (c) => {
+      await c.query(`alter table workflows drop constraint if exists workflows_mode_check`);
+      await c.query(`update workflows set mode='ghost' where mode='shadow'`);
+      await c.query(`alter table workflows add constraint workflows_mode_check check (mode in ('ghost','test','quiet','live'))`);
+    });
     // D123: a company's own workflow (no template) that does a shipped template's job for that company: install never puts that template back
     await c.query(`alter table workflows add column if not exists takes_over text`);
-    await c.query(`alter table runs drop constraint if exists runs_born_in_check`);
-    await c.query(`update runs set born_in='ghost' where born_in='shadow'`);
-    await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('ghost','test','quiet','live'))`);
+    await c.tx(async (c) => {
+      await c.query(`alter table runs drop constraint if exists runs_born_in_check`);
+      await c.query(`update runs set born_in='ghost' where born_in='shadow'`);
+      await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('ghost','test','quiet','live'))`);
+    });
     // D88: alerts are Slack only, said by the Health check workflow; the email and webhook destinations are gone with their paths
     await c.query(`delete from bindings where key in ('alerts.email','alerts.email_from','alerts.webhook','secret.resend_key')`);
     // D88: settings nothing read (purge_after_months, opp_lost_on, opp_inactive_days) or that half worked (opp_opens_on, opp_won_on) are gone; won and lost are workflow steps
     for (const col of ["purge_after_months", "opp_opens_on", "opp_won_on", "opp_lost_on", "opp_inactive_days"]) await c.query(`alter table companies drop column if exists ${col}`);
     await c.query(`alter table companies add column if not exists reply_retention_days int not null default 7`);
     await c.query(`alter table companies add column if not exists sends_retention_days int not null default 30`);
-    await c.query(`alter table sends drop constraint if exists sends_status_check`);
-    // D132: a would-have send in ghost is 'ghost'; one held back in quiet is 'quiet'
-    await c.query(`update sends set status='ghost' where status='shadow'`);
+    await c.tx(async (c) => {
+      await c.query(`alter table sends drop constraint if exists sends_status_check`);
+      // D132: a would-have send in ghost is 'ghost'; one held back in quiet is 'quiet'
+      await c.query(`update sends set status='ghost' where status='shadow'`);
+      await c.query(`alter table sends add constraint sends_status_check check (status in ('queued','sent','failed','suppressed','ghost','quiet','unknown'))`);   // unknown: D151
+    });
     // D137: a record the engine took over (made by GHL or a person) is adopted, never one the engine made: the repair route never deletes it
     await c.query(`alter table crm_records add column if not exists adopted boolean not null default false`);
     await c.query(`update crm_records cr set adopted=true from audit_log a where a.action='crm_record.repair' and a.after ? 'key' and a.before->>'record' = cr.ghl_record_id and not cr.adopted`);
     // D133: one test channel (the first of D132's list); every pre-live post goes there
     await c.query(`update bindings set key='test.slack_channel', kind='channel', value=convert_to(split_part(convert_from(value,'utf8'),',',1),'utf8') where key='test.slack_channels' and not exists (select 1 from bindings b where b.company_id=bindings.company_id and b.key='test.slack_channel')`);
     await c.query(`delete from bindings where key='test.slack_channels'`);
-    await c.query(`alter table sends add constraint sends_status_check check (status in ('queued','sent','failed','suppressed','ghost','quiet','unknown'))`);   // unknown: D151
     // booking source generalisation (2026-10-06): columns lose their GHL prefix, calendars/appointments carry a source.
     // Renames are guarded so a database created from the current schema.sql passes straight through.
     await c.query(`do $$ begin
@@ -96,11 +158,15 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     end $$`);
     for (const t of ["calendars", "appointments"]) {
       await c.query(`alter table ${t} add column if not exists source text not null default 'ghl'`);
-      await c.query(`alter table ${t} drop constraint if exists ${t}_source_check`);
-      await c.query(`alter table ${t} add constraint ${t}_source_check check (source in (${t === "appointments" ? APPOINTMENT_SOURCES : "'ghl','calendly'"}))`);   // calendars are only ever real; appointments may be staged by the harness
-      await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_${t === "calendars" ? "ghl_calendar_id" : "ghl_appointment_id"}_key`);
-      await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_source_external_id_key`);
-      await c.query(`alter table ${t} add constraint ${t}_company_id_source_external_id_key unique (company_id, source, external_id)`);
+      await c.tx(async (c) => {
+        await c.query(`alter table ${t} drop constraint if exists ${t}_source_check`);
+        await c.query(`alter table ${t} add constraint ${t}_source_check check (source in (${t === "appointments" ? APPOINTMENT_SOURCES : "'ghl','calendly'"}))`);   // calendars are only ever real; appointments may be staged by the harness
+      });
+      await c.tx(async (c) => {
+        await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_${t === "calendars" ? "ghl_calendar_id" : "ghl_appointment_id"}_key`);
+        await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_source_external_id_key`);
+        await c.query(`alter table ${t} add constraint ${t}_company_id_source_external_id_key unique (company_id, source, external_id)`);
+      });
     }
     for (const col of ["name", "ghl_pipeline_id", "ghl_stage_id"]) await c.query(`alter table opportunities drop column if exists ${col}`);   // short-lived 1:1 mirror, replaced by pipeline_cards
     await c.query(`create table if not exists pipeline_cards (
@@ -117,25 +183,35 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table appointments add column if not exists cancelled_by text`);
     await c.query(`alter table appointments add column if not exists cancel_reason text`);
     await c.query(`alter table calendars add column if not exists booking_url text`);
-    await c.query(`alter table contacts drop constraint if exists contacts_timezone_source_check`);
-    await c.query(`alter table contacts add constraint contacts_timezone_source_check check (timezone_source in ('ghl','booking','phone','company_default'))`);
+    await c.tx(async (c) => {
+      await c.query(`alter table contacts drop constraint if exists contacts_timezone_source_check`);
+      await c.query(`alter table contacts add constraint contacts_timezone_source_check check (timezone_source in ('ghl','booking','phone','company_default'))`);
+    });
     // payments ledger (D21): unlinked payments, identity columns, derived kind, provider; webhook idempotency; CRM record map
     await c.query(`alter table payments alter column contact_id drop not null`);
     await c.query(`alter table sends alter column contact_id drop not null`);   // team alerts have no contact
     for (const col of ["provider text not null default 'whop'", "kind text", "customer_email text", "customer_phone text", "whop_member_id text", "link_status text not null default 'linked'", "linked_by text"]) await c.query(`alter table payments add column if not exists ${col}`);
-    await c.query(`alter table payments drop constraint if exists payments_kind_check`);
-    await c.query(`alter table payments add constraint payments_kind_check check (kind in ('deposit','installment','balance','paid_in_full','refund','chargeback','failed'))`);
+    await c.tx(async (c) => {
+      await c.query(`alter table payments drop constraint if exists payments_kind_check`);
+      await c.query(`alter table payments add constraint payments_kind_check check (kind in ('deposit','installment','balance','paid_in_full','refund','chargeback','failed'))`);
+    });
     // D119: a deposit was guessed from the amount (a first payment short of the price); now it is only a payment for one of the
     // company's declared deposit products. Once: the guessed ones are what they were, a first installment (no company declared any yet)
-    if ((await c.query("insert into engine_state (key, value) values ('d119_deposit_kinds', '{}') on conflict (key) do nothing returning key")).rowCount) {
-      const r = await c.query(`update payments p set kind='installment' where kind='deposit' and not exists (select 1 from bindings b where b.company_id=p.company_id and b.key='payments.deposit_products')`);
-      await c.query("update engine_state set value=$1, updated_at=now() where key='d119_deposit_kinds'", [{ reclassified: r.rowCount ?? 0 }]);
-    }
-    await c.query(`alter table payments drop constraint if exists payments_link_status_check`);
-    await c.query(`alter table payments add constraint payments_link_status_check check (link_status in ('linked','unlinked'))`);
-    await c.query(`alter table payments drop constraint if exists payments_company_id_whop_payment_id_key`);
-    await c.query(`alter table payments drop constraint if exists payments_company_id_provider_whop_payment_id_key`);
-    await c.query(`alter table payments add constraint payments_company_id_provider_whop_payment_id_key unique (company_id, provider, whop_payment_id)`);
+    await c.tx(async (c) => {
+      if ((await c.query("insert into engine_state (key, value) values ('d119_deposit_kinds', '{}') on conflict (key) do nothing returning key")).rowCount) {
+        const r = await c.query(`update payments p set kind='installment' where kind='deposit' and not exists (select 1 from bindings b where b.company_id=p.company_id and b.key='payments.deposit_products')`);
+        await c.query("update engine_state set value=$1, updated_at=now() where key='d119_deposit_kinds'", [{ reclassified: r.rowCount ?? 0 }]);
+      }
+    });
+    await c.tx(async (c) => {
+      await c.query(`alter table payments drop constraint if exists payments_link_status_check`);
+      await c.query(`alter table payments add constraint payments_link_status_check check (link_status in ('linked','unlinked'))`);
+    });
+    await c.tx(async (c) => {
+      await c.query(`alter table payments drop constraint if exists payments_company_id_whop_payment_id_key`);
+      await c.query(`alter table payments drop constraint if exists payments_company_id_provider_whop_payment_id_key`);
+      await c.query(`alter table payments add constraint payments_company_id_provider_whop_payment_id_key unique (company_id, provider, whop_payment_id)`);
+    });
     await c.query(`create index if not exists payments_company_id_link_status_idx on payments (company_id, link_status)`);
     await c.query(`alter table companies add column if not exists contract_value_default numeric(12,2)`);
     await c.query(`alter table companies add column if not exists reached_seconds int not null default 60`);   // D29: speed-to-lead "reached" threshold
@@ -158,13 +234,17 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table runs add column if not exists step_error text`);
     await c.query(`alter table runs add column if not exists step_held boolean not null default false`);   // D77: held on a blocking step that is down, re-checked alone
     await c.query(`alter table pipeline_cards add column if not exists created_by_run uuid references runs(id) on delete set null`);
-    await c.query(`alter table run_steps drop constraint if exists run_steps_status_check`);
-    await c.query(`alter table run_steps add constraint run_steps_status_check check (status in ('ok','skipped','stale','failed','waiting','paused'))`);
+    await c.tx(async (c) => {
+      await c.query(`alter table run_steps drop constraint if exists run_steps_status_check`);
+      await c.query(`alter table run_steps add constraint run_steps_status_check check (status in ('ok','skipped','stale','failed','waiting','paused'))`);
+    });
     await ownsOrAbsent(c, "step_effects", "done_at");
     await c.query(`create table if not exists step_effects (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, run_id uuid not null references runs(id) on delete cascade, node_id text not null, kind text not null, external_id text, created_at timestamptz not null default now(), done_at timestamptz, unique (run_id, node_id, kind))`);
     // runs.trigger_id is history: a template upgrade that drops a trigger node must not be blocked by the runs it once started
-    await c.query(`alter table runs drop constraint if exists runs_trigger_id_fkey`);
-    await c.query(`alter table runs add constraint runs_trigger_id_fkey foreign key (trigger_id) references workflow_triggers(id) on delete set null`);
+    await c.tx(async (c) => {
+      await c.query(`alter table runs drop constraint if exists runs_trigger_id_fkey`);
+      await c.query(`alter table runs add constraint runs_trigger_id_fkey foreign key (trigger_id) references workflow_triggers(id) on delete set null`);
+    });
     await ownsOrAbsent(c, "agreements", "signed_at");
     await c.query(`create table if not exists agreements (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, contact_id uuid references contacts(id), external_id text not null, name text, status text not null, sent_at timestamptz not null, signed_at timestamptz, sent_by text, raw jsonb not null default '{}', updated_at timestamptz not null default now(), unique (company_id, external_id))`);
     await c.query(`create index if not exists agreements_company_id_contact_id_idx on agreements (company_id, contact_id)`);
@@ -186,8 +266,10 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`create table if not exists health_checks (company_id uuid primary key references companies(id) on delete cascade, enabled boolean not null default true, every_minutes int not null default 60 check (every_minutes between 5 and 1440), channel text, as_name text, as_icon text, checks jsonb not null default '{}', last_run_at timestamptz, last_result jsonb not null default '[]')`);
     // D34: the closer's end-of-day report
     await c.query(`alter table users add column if not exists report_token text unique`);
-    await c.query(`alter table users drop constraint if exists users_role_check`);
-    await c.query(`alter table users add constraint users_role_check check (role in ('operator','owner','manager','closer','setter','staff'))`);
+    await c.tx(async (c) => {
+      await c.query(`alter table users drop constraint if exists users_role_check`);
+      await c.query(`alter table users add constraint users_role_check check (role in ('operator','owner','manager','closer','setter','staff'))`);
+    });
     await c.query(`insert into core_categories (domain, value, label, sort) values ('call_outcome','deposit','Deposit',4) on conflict (domain, value) do nothing`);
     // D83: a close that has not gone through yet (agreement or the rest of the money outstanding); not a close
     await c.query(`insert into core_categories (domain, value, label, sort) values ('call_outcome','pending','Close pending',7) on conflict (domain, value) do nothing`);
@@ -231,8 +313,10 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`insert into event_types values ('call.closing','call') on conflict do nothing`);
     await c.query(`insert into event_types values ('scope.left','crm') on conflict do nothing`);   // D117: a person the scope tag no longer covers (recorded, never a start)
     await c.query(`insert into event_types values ('form.submitted','lead') on conflict do nothing`);   // D122: a Typeform submission (the webhook door or the importer)
-    await c.query(`alter table sends drop constraint if exists sends_channel_check`);
-    await c.query(`alter table sends add constraint sends_channel_check check (channel in ('sms','email','slack','webhook'))`);
+    await c.tx(async (c) => {
+      await c.query(`alter table sends drop constraint if exists sends_channel_check`);
+      await c.query(`alter table sends add constraint sends_channel_check check (channel in ('sms','email','slack','webhook'))`);
+    });
     await ownsOrAbsent(c, "slack_posts", "tag");
     await c.query(`create table if not exists slack_posts (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, tag text not null, channel text not null, ts text not null, run_id uuid references runs(id) on delete set null, posted_at timestamptz not null default now(), unique (company_id, tag))`);
     await c.query(`drop table if exists wrapup_schedules`);
@@ -243,8 +327,10 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     for (const t of ["workflow_templates", "workflows"]) { await c.query(`alter table ${t} add column if not exists stage text`); await c.query(`alter table ${t} add column if not exists sort int not null default 0`); await c.query(`alter table ${t} add column if not exists origin text`); }
 
     await c.query(`create table if not exists eod_reports (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, user_id uuid not null references users(id) on delete cascade, day date not null, prefill jsonb, answers jsonb, changes jsonb not null default '[]', reminded_at timestamptz, dm_channel text, dm_ts text, submitted_at timestamptz, unique (company_id, user_id, day))`);
-    await c.query(`alter table events drop constraint if exists events_source_check`);
-    await c.query(`alter table events add constraint events_source_check check (source in (${EVENT_SOURCES}))`);
+    await c.tx(async (c) => {
+      await c.query(`alter table events drop constraint if exists events_source_check`);
+      await c.query(`alter table events add constraint events_source_check check (source in (${EVENT_SOURCES}))`);
+    });
     await c.query(`create table if not exists recordings (
       id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id), contact_id uuid references contacts(id), appointment_id uuid references appointments(id),
       provider text not null default 'fathom', external_id text not null, title text, started_at timestamptz not null, ended_at timestamptz, duration_min int, url text, share_url text,
@@ -268,8 +354,10 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table onboarding add column if not exists tests jsonb not null default '{}'`);
     await c.query(`alter table onboarding add column if not exists filters jsonb not null default '{}'`);
     // D178: a playbook's template business, and what it publishes
-    await c.query(`alter table companies drop constraint if exists companies_status_check`);
-    await c.query(`alter table companies add constraint companies_status_check check (status in ('onboarding','active','hosted','archived','template'))`);
+    await c.tx(async (c) => {
+      await c.query(`alter table companies drop constraint if exists companies_status_check`);
+      await c.query(`alter table companies add constraint companies_status_check check (status in ('onboarding','active','hosted','archived','template'))`);
+    });
     await ownsOrAbsent(c, "playbook_releases", "params");
     await c.query(`create table if not exists playbook_releases (id uuid primary key default gen_random_uuid(), playbook text not null, version int not null, words jsonb not null default '{}', params jsonb, settings jsonb not null default '{}', notes jsonb not null default '[]', published_at timestamptz not null default now(), published_by text, unique (playbook, version))`);
     // simulation harness (D23): synthetic appointments and events carry source 'test'; dark-hours policy per company
@@ -277,8 +365,10 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table calendars add column if not exists config jsonb not null default '{}'`);
     await c.query(`alter table appointments add column if not exists answers jsonb not null default '{}'`);
     // appointments ↔ form_submissions reference each other; the disposition pointer must not block deleting a submission
-    await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);
-    await c.query(`alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id) on delete set null`);
+    await c.tx(async (c) => {
+      await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);
+      await c.query(`alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id) on delete set null`);
+    });
     // Only OUR tables get the tenant policy. The database may be shared with other apps (a Supabase project is one
     // schema for everything), so "every table with a company_id column" is the wrong set.
     const ours = new Set(ownTables());
@@ -287,14 +377,16 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     );
     const tenantTables = withCompanyId.rows.map((r) => r.table_name).filter((t) => ours.has(t));
     for (const table_name of tenantTables) {
-      await c.query(`alter table ${table_name} enable row level security`);
-      await c.query(`alter table ${table_name} force row level security`);
-      await c.query(`drop policy if exists tenant_isolation on ${table_name}`);
-      await c.query(`create policy tenant_isolation on ${table_name} for all
-        using (company_id = nullif(current_setting('app.company_id', true), '')::uuid
-               or current_setting('app.role', true) = 'operator')
-        with check (company_id = nullif(current_setting('app.company_id', true), '')::uuid
-               or current_setting('app.role', true) = 'operator')`);
+      await c.tx(async (c) => {
+        await c.query(`alter table ${table_name} enable row level security`);
+        await c.query(`alter table ${table_name} force row level security`);
+        await c.query(`drop policy if exists tenant_isolation on ${table_name}`);
+        await c.query(`create policy tenant_isolation on ${table_name} for all
+          using (company_id = nullif(current_setting('app.company_id', true), '')::uuid
+                 or current_setting('app.role', true) = 'operator')
+          with check (company_id = nullif(current_setting('app.company_id', true), '')::uuid
+                 or current_setting('app.role', true) = 'operator')`);
+      });
     }
     // Repair: an earlier version applied the policy + FORCE to foreign tables. Remove exactly what we added and leave
     // the table's own RLS setting alone (we cannot know whether it was enabled before us; disabling could expose data).
@@ -304,26 +396,24 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     const repaired: string[] = [];
     for (const { tablename } of strayPolicies.rows) {
       if (ours.has(tablename)) continue;
-      await c.query(`drop policy if exists tenant_isolation on ${tablename}`);
-      await c.query(`alter table ${tablename} no force row level security`);
+      await c.tx(async (c) => {
+        await c.query(`drop policy if exists tenant_isolation on ${tablename}`);
+        await c.query(`alter table ${tablename} no force row level security`);
+      });
       repaired.push(tablename);
     }
     // D104: Call booked's card no longer carries Hair's intake questions; a company that bound them keeps them as its own setting.
     // As the operator: bindings are under FORCE RLS, where this unscoped connection would see no rows.
-    await c.query("commit"); open = false;
     const bookingCard = await asOperator((o) => backfillBookingCard(o));
     return { applied, rlsTables: tenantTables, repaired, bookingCard };
-  } catch (e) {
-    if (open) await c.query("rollback").catch(() => {});
-    throw e;
   } finally {
-    await c.query("select pg_advisory_unlock(7351151)").catch(() => {});
-    c.release();
+    if (lease) await releaseTickLock(lease, MIGRATE_LOCK).catch(() => {});
+    conn.release();
   }
 }
 
 /** A table we are about to `create if not exists` must be ours (has our sentinel column) or absent; anything else belongs to another app. */
-async function ownsOrAbsent(c: import("pg").PoolClient, table: string, sentinelColumn: string): Promise<void> {
+async function ownsOrAbsent(c: Migrator, table: string, sentinelColumn: string): Promise<void> {
   const t = await c.query("select 1 from information_schema.tables where table_schema='public' and table_name=$1", [table]);
   if (t.rowCount === 0) return;
   const col = await c.query("select 1 from information_schema.columns where table_schema='public' and table_name=$1 and column_name=$2", [table, sentinelColumn]);
