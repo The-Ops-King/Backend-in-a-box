@@ -11,14 +11,16 @@ const EVENT_SOURCES = ["form", "ghl_poll", "whop", "fathom", "zapier", "slack", 
 /**
  * D151: the migration runs against a database the live engine is using every minute, so it never holds a lock for long. Each
  * statement is its own transaction that gives up on a lock after a few seconds (and is tried again after a pause) rather than
- * queueing ahead of the engine's own queries; `tx` keeps a group on one table together (a constraint dropped and added again,
+ * queueing ahead of the engine's own queries, and on its last try waits for it; `tx` keeps a group on one table together (a constraint dropped and added again,
  * a once-only marker and its update), re-run whole on a retry. One big transaction deadlocked with a tick (2026-10-19).
  */
 export type Migrator = {
   query<R extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]): Promise<QueryResult<R>>;
   tx<T>(fn: (c: Migrator) => Promise<T>): Promise<T>;
 };
-const LOCK_TIMEOUT = "3s", LOCK_TRIES = 8;
+// a few short tries that step aside for the engine, then one that waits as long as it takes (the way every deploy used to): a busy
+// engine can slow a migration down but never fail it
+const LOCK_TRIES = 5, lockTimeout = (i: number) => (i < LOCK_TRIES ? "3s" : "0");
 const lockedOut = (e: unknown) => ["55P03", "40P01"].includes((e as { code?: string }).code ?? "");   // lock_not_available, deadlock_detected
 export function migrator(conn: PoolClient, pause = (ms: number) => new Promise((r) => setTimeout(r, ms))): Migrator {
   let inTx = false;
@@ -26,13 +28,13 @@ export function migrator(conn: PoolClient, pause = (ms: number) => new Promise((
     for (let i = 1; ; i++) {
       await conn.query("begin");
       try {
-        await conn.query("select set_config('lock_timeout', $1, true)", [LOCK_TIMEOUT]);
+        await conn.query("select set_config('lock_timeout', $1, true)", [lockTimeout(i)]);
         const out = await fn();
         await conn.query("commit");
         return out;
       } catch (e) {
         await conn.query("rollback").catch(() => {});
-        if (!lockedOut(e) || i >= LOCK_TRIES) throw e;
+        if (!lockedOut(e) || i >= LOCK_TRIES + 3) throw e;   // past the short tries only a deadlock comes back here
         await pause(Math.min(500 * 2 ** (i - 1), 8_000));
       }
     }
@@ -42,12 +44,12 @@ export function migrator(conn: PoolClient, pause = (ms: number) => new Promise((
   const single = async <R extends QueryResultRow>(sql: string): Promise<QueryResult<R>> => {
     for (let i = 1; ; i++) {
       try {
-        const res = (await conn.query(`begin; select set_config('lock_timeout', '${LOCK_TIMEOUT}', true); ${sql}; commit`)) as unknown as QueryResult<R>[];
+        const res = (await conn.query(`begin; select set_config('lock_timeout', '${lockTimeout(i)}', true); ${sql}; commit`)) as unknown as QueryResult<R>[];
         if (res[res.length - 1].command === "ROLLBACK") throw new Error(`migration statement rolled back: ${sql.slice(0, 120)}`);
         return res[2];
       } catch (e) {
         await conn.query("rollback").catch(() => {});
-        if (!lockedOut(e) || i >= LOCK_TRIES) throw e;
+        if (!lockedOut(e) || i >= LOCK_TRIES + 3) throw e;   // past the short tries only a deadlock comes back here
         await pause(Math.min(500 * 2 ** (i - 1), 8_000));
       }
     }

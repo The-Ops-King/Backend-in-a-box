@@ -49,6 +49,16 @@ describe("migrator (D151): short transactions that give way to the live engine",
     } finally { holder.release(); conn.release(); }
   }, 30_000);
 
+  it("a lock held past every short try: the last try waits for it, so a busy engine never fails a migration", async () => {
+    const holder = await db().connect(), conn = await db().connect();
+    try {
+      await holder.query("begin"); await holder.query(`lock table ${T} in access exclusive mode`);
+      setTimeout(() => { void holder.query("commit"); }, 14_000);
+      await migrator(conn, async () => {}).query(`alter table ${T} add column if not exists x text`);
+      expect((await db().query("select 1 from information_schema.columns where table_name=$1 and column_name='x'", [T])).rowCount).toBe(1);
+    } finally { holder.release(); conn.release(); }
+  }, 40_000);
+
   it("a statement without parameters is one round trip and answers with its own result; one with parameters works too", async () => {
     const conn = await db().connect(), sent: string[] = [];
     const spy = new Proxy(conn, { get: (t, k) => k === "query" ? (sql: string, p?: unknown[]) => { sent.push(sql); return t.query(sql, p); } : Reflect.get(t, k) });

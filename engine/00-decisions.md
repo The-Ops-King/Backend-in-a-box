@@ -5358,8 +5358,9 @@ From `10-audit-2026-10-19.md` §1, Tyler: "Do all those 5 recommendations."
 1. **Only production migrates, and never holds a lock for long.** `migrate()` returns `skipped` when `VERCEL_ENV` is set and is
    not `production`: previews share the production database, so an unreviewed branch's DDL never runs against it. One
    migration at a time, by a lease row (`engine_state.migrate_lock`, as the ticks', pooler-safe, freed by expiry). Each
-   statement is its own transaction with a 3-second lock timeout, tried again after a pause (up to 8 times) rather than
-   queued ahead of the live engine; each constraint or policy that is dropped and added again is one transaction on one table
+   statement is its own transaction with a 3-second lock timeout, tried again after a pause rather than queued ahead of the
+   live engine; the fifth try waits as long as it takes (a tick can hold a table for ~25 s on a GHL call), so a busy engine
+   slows a migration down but never fails it; each constraint or policy that is dropped and added again is one transaction on one table
    (`tx`), so a failure never leaves it dropped. (A first version ran the whole migration as one transaction under a session
    advisory lock: the production build deadlocked with a tick, rolled back cleanly, and the session lock would not have been
    safe on the transaction pooler. A second version wrapped each statement in four round trips and took 170 s on a build; a
