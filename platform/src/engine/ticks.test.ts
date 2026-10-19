@@ -9,6 +9,7 @@ import { acquireTickLock, companyLock, LEGACY_LOCK, releaseTickLock } from "./lo
 import { companyClock, STALE_KEY, tickCompany, tickEngine, tickEveryone, type CompanyClock } from "./ticks";
 import { tickCommand } from "./schedule";
 import type { Adapters } from "@/adapters/types";
+import { runningSql } from "./running";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const SLUGS = ["tka", "tkb", "tkz"];
@@ -181,7 +182,7 @@ describe.skipIf(!process.env.DATABASE_URL)("each company ticks on its own (D98)"
       await c.query("create function net.http_get(url text, headers jsonb, timeout_milliseconds int) returns bigint language sql as $$ insert into net.calls values (url, headers, timeout_milliseconds) returning 1::bigint $$");
       await c.query(cmd);
       const calls = (await c.query<{ url: string; headers: { Authorization: string }; timeout_ms: number }>("select * from net.calls")).rows;
-      const ticking = Number((await c.query("select count(*) from companies where status in ('active','hosted')")).rows[0].count);
+      const ticking = Number((await c.query(`select count(*) from companies co where ${runningSql()}`)).rows[0].count);
       expect(calls).toHaveLength(ticking + 1);
       const urls = calls.map((r) => r.url);
       expect(urls.filter((u) => u === "https://x.test/api/tick?scope=engine")).toHaveLength(1);

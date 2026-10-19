@@ -5099,3 +5099,27 @@ Making a contact fires their own Contact Created workflows, so a wizard company 
 
 Tests: `test-contact.test.ts`.
 
+## D154: template businesses tested in the sandbox; publish needs a current pass
+
+Tyler (2026-10-19): the template businesses test in his **snapshot sub-account** (no real leads, no phone number: SMS is not tested
+there), and a release **requires a clean test pass**.
+
+A template business now has a wizard record (`ensureTemplateOnboarding`): its offer is its playbook at its fullest
+(`templateIntake`: setters, application, deposits, plans and agreement where the playbook has them) on software needing no key
+beyond GHL and Slack (payments and recordings through the Zap doors the harness stages, GHL calendars, a GHL document), and its
+messages need no approval (its words are checked at publish). So it is set up like a client: Connections (the snapshot
+sub-account's key; the next template copies it), Research, Slack, CRM build (each playbook's pipelines with its own prefix),
+Install, its GHL workflows, Test passes. A param change follows into the record, so an install from the wizard builds the same
+copies. An install never turns on what a template business carries (D88's carry is for companies that ran).
+
+**One at a time in the sandbox.** The template businesses share one GHL location; two running there would see each other's test
+contacts and fire on each other's writes. A template business runs (polled, ticked, scheduled, alerted: `runningSql`, now the one
+rule every engine loop uses) only while it holds the sandbox. Turning its workflows on for the test passes takes it and stops any
+other template business on the same location; "Stop" gives it back.
+
+**Publish** is refused, naming each (`untested`), until every journey has passed **on the test rung** (real writes to the test
+contact; ghost proves less) **on exactly what is published**: each result carries a fingerprint of every workflow's version and the
+words, and a word or step changed since makes it stale.
+
+Tests: `running.test.ts`, `template-business.test.ts` (the gate).
+

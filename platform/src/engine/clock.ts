@@ -5,6 +5,7 @@ import { parseDefinition, indexDefinition, type Schedule } from "./definition";
 import { periodOf } from "./when";
 export { periodOf, everyMinutes, scheduleWords } from "./when";
 import { emitEvent, startRun } from "./dispatch";
+import { runningSql } from "./running";
 
 /**
  * D35: the clock is a trigger like any other. A trigger node with event "schedule" starts a run when its time comes,
@@ -19,7 +20,7 @@ export async function dispatchSchedules(c: PoolClient, now = DateTime.now(), onl
   const out: ClockReport = { started: [], errors: [] };
   const trigs = await many<{ id: string; workflow_id: string; node_id: string; company_id: string; slug: string; timezone: string; name: string }>(c, `
     select t.id, t.workflow_id, t.node_id, co.id as company_id, co.slug, co.timezone, w.name from workflow_triggers t join workflows w on w.id=t.workflow_id join companies co on co.id=t.company_id
-    where t.event_type='schedule' and t.enabled and w.enabled and co.status in ('active','hosted') and ($1::uuid is null or co.id=$1) order by co.slug, w.name`, [onlyCompanyId ?? null]);
+    where t.event_type='schedule' and t.enabled and w.enabled and ${runningSql()} and ($1::uuid is null or co.id=$1) order by co.slug, w.name`, [onlyCompanyId ?? null]);
   for (const t of trigs) {
     try {
       const ver = await one<{ definition: unknown }>(c, "select v.definition from workflow_versions v join workflows w on w.id=v.workflow_id and w.current_version=v.version where w.id=$1", [t.workflow_id]);

@@ -27,8 +27,40 @@ import { foreignWords } from "@/onboarding/messages";
 import { applyPlaybook, OFFER_KEYS, PLAYBOOK_KEY } from "./apply";
 import { playbookOf } from "./index";
 import { OBJECTIONS } from "./ghl-setup";
+import { fitReport, type Intake } from "@/onboarding/intake";
+import { scenariosFor, testedFingerprint, testsTodo, type Tests } from "@/onboarding/tests";
 
 export const templateSlug = (playbook: string) => `template-${playbook}`;
+
+/**
+ * D154: the offer a template business tests: its playbook at its fullest (setters where it has them, an application where it has
+ * one, deposits, plans, an agreement), on software that needs no key beyond GHL and Slack: payments and recordings come through
+ * the doors a Zap would use (the harness stages them), bookings are GHL calendars, the agreement a GHL document.
+ */
+export function templateIntake(playbook: string): Intake {
+  const pb = playbookOf(playbook), t = pb.traits;
+  return {
+    business: `Template – ${pb.name}`, price: "5000", deposits: true, payment_plans: true,
+    lead_paths: t.application ? ["ads_vsl_application"] : ["ads_direct_book"], application: t.application ? "ghl_form" : "none",
+    setters: t.booking.includes("setter"), triage: t.triage, boards: t.boards,
+    journey: `The ${pb.name} playbook as shipped, tested in the sandbox before a release.`,
+    crm: "ghl", booking: "ghl", payments: "other", recording: "other", agreement: "ghl_documents",
+  };
+}
+
+/**
+ * D154: the template business's wizard record, so it is set up and tested like a client (Connections to the sandbox, Research,
+ * Slack, CRM build, Install, its GHL workflows, Test passes). The offer is its playbook's (templateIntake) and its messages need
+ * no approval: they are the template's own words, checked at publish. Made once; an existing record is left alone.
+ */
+export async function ensureTemplateOnboarding(c: PoolClient, playbook: string, companyId: string, by = "dashboard") {
+  if (await one(c, "select 1 from onboarding where company_id=$1", [companyId])) return;
+  const intake = templateIntake(playbook), kept = await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [companyId, PLAYBOOK_KEY]);
+  const params = kept ? (JSON.parse(kept.value.toString("utf8")) as { params: unknown }).params ?? null : null;
+  const done = { done_at: new Date().toISOString(), by: "template" };
+  await c.query("insert into onboarding (company_id, kind, intake, playbook, params, fit, steps, started_by) values ($1,'new',$2,$3,$4,$5,$6,$7)",
+    [companyId, intake, playbook, params === null ? null : JSON.stringify(params), fitReport(intake, "new", playbook), { offer: done, messages: done }, by]);
+}
 export type Release = { playbook: string; version: number; words: Words; params: unknown; settings: Record<string, string>; notes: string[]; published_at: string; published_by: string | null };
 
 export async function latestRelease(c: PoolClient, playbook: string): Promise<Release | null> {
@@ -41,7 +73,7 @@ export async function ensureTemplateBusiness(c: PoolClient, playbook: string, by
   let pb; try { pb = playbookOf(playbook); } catch (e) { return { ok: false, status: 404, why: (e as Error).message }; }
   const slug = templateSlug(playbook);
   const had = await one<{ id: string }>(c, "select id from companies where slug=$1", [slug]);
-  if (had) return { ok: true, id: had.id, slug, created: false };
+  if (had) { await ensureTemplateOnboarding(c, playbook, had.id, by); return { ok: true, id: had.id, slug, created: false }; }
   const co = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode, status, sms_enabled) values ($1,$2,'America/New_York','ghost','template',false) returning id", [`Template – ${pb.name}`, slug]))!;
   await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories on conflict (company_id, domain, name) do nothing", [co.id]);
   const release = await latestRelease(c, playbook);
@@ -59,13 +91,17 @@ export async function ensureTemplateBusiness(c: PoolClient, playbook: string, by
   await installTemplates(c, co.id, templates.map((t) => t.slug).filter((s) => !takenOver.has(s)), { existed: false });
   const r = await applyPlaybook(c, { company: slug, playbook, params, by });
   if (!r.ok) throw new Error(`the ${pb.name} template business could not take its playbook: ${r.why}`);
+  await ensureTemplateOnboarding(c, playbook, co.id, by);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'template.created','company',$2,$3)", [co.id, co.id, { playbook, from_release: release?.version ?? null, by }]);
   return { ok: true, id: co.id, slug, created: true };
 }
 
 /** New params for the template business: checked by its playbook, its copies rebuilt with them (its words kept). */
 export async function setTemplateParams(c: PoolClient, playbook: string, params: unknown, by = "dashboard") {
-  return applyPlaybook(c, { company: templateSlug(playbook), playbook, params, by });
+  const r = await applyPlaybook(c, { company: templateSlug(playbook), playbook, params, by });
+  // D154: its wizard record follows, so an install from the wizard builds the same copies
+  if (r.ok && !("dryRun" in r && r.dryRun)) await c.query("update onboarding set params=$2 where company_id=(select id from companies where slug=$1)", [templateSlug(playbook), params === undefined ? null : JSON.stringify(params)]);
+  return r;
 }
 
 export type PublishResult = { ok: true; release: Release } | { ok: false; status: number; why: string; problems?: string[] };
@@ -73,7 +109,8 @@ export type PublishResult = { ok: true; release: Release } | { ok: false; status
 /**
  * The template business checked and published. Refused, naming each: a workflow changed beyond words (a code change), a word
  * that is not valid copy, another client's words, a workflow the engine cannot read or draw exactly. Placeholders left in are
- * allowed and noted: each client writes those in its own Messages step.
+ * allowed and noted: each client writes those in its own Messages step. D154: refused too until it is tested: every journey
+ * passed on the test rung in the sandbox, on exactly the workflow versions and words being published (`untested`).
  */
 export async function publish(c: PoolClient, playbook: string, by = "dashboard"): Promise<PublishResult> {
   const slug = templateSlug(playbook);
@@ -88,7 +125,7 @@ export async function publish(c: PoolClient, playbook: string, by = "dashboard")
   const expected = new Map<string, unknown>([...templates.map((t) => [t.slug, t.definition] as [string, unknown]), ...copies.map((x) => [x.create ? `own:${x.name}` : x.workflow, x.definition] as [string, unknown])]);
   const rows = await many<{ name: string; slug: string | null; definition: unknown }>(c, `select w.name, t.slug, v.definition from workflows w left join workflow_templates t on t.id=w.template_id
     join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 order by w.name`, [co.id]);
-  const problems: string[] = [], notes: string[] = [];
+  const problems: string[] = [...(await untested(c, co.id))], notes: string[] = [];
   const bare = (d: unknown) => canon({ ...(d as object), nodes: ((d as { nodes: (Node & Record<string, unknown>)[] }).nodes).map((n) => Object.fromEntries(Object.entries(n).filter(([k]) => !(EDITABLE[n.type] ?? []).includes(k as CopyField)))) });
   for (const r of rows) {
     const key = r.slug ?? `own:${r.name}`, want = expected.get(key);
@@ -110,6 +147,22 @@ export async function publish(c: PoolClient, playbook: string, by = "dashboard")
   await c.query("insert into playbook_releases (playbook, version, words, params, settings, notes, published_by) values ($1,$2,$3,$4,$5,$6,$7)", [playbook, version, JSON.stringify(words), params === undefined ? null : JSON.stringify(params), JSON.stringify(settings), JSON.stringify(notes), by]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'template.published','company',$2,$3)", [co.id, co.id, { playbook, version, by, notes }]);
   return { ok: true, release: (await latestRelease(c, playbook))! };
+}
+
+/**
+ * D154: what stands between the template business's test passes and a publish: every journey run on the test rung in the
+ * sandbox (real writes to the test contact), on exactly what is being published (the same workflow versions and words), nothing
+ * left to do. One line each; none means tested.
+ */
+export async function untested(c: PoolClient, companyId: string): Promise<string[]> {
+  const o = await one<{ tests: Tests; intake: Intake }>(c, "select tests, intake from onboarding where company_id=$1", [companyId]);
+  if (!o?.tests.prepared) return ["not tested: set it up in the sandbox (its onboarding page) and run the test passes on the test rung"];
+  const fp = await testedFingerprint(c, companyId), out: string[] = [];
+  for (const [id, r] of Object.entries(o.tests.results ?? {})) {
+    if (r.rung !== "test") out.push(`test pass "${id}" ran in ${r.rung}: run it again on the test rung, where its writes are real`);
+    else if (r.fp !== fp) out.push(`test pass "${id}" tested an earlier version (a word or a step changed since): run it again`);
+  }
+  return [...testsTodo(o.tests, await scenariosFor(c, companyId, o.intake)).map((t) => `test passes: ${t}`), ...out];
 }
 
 /**

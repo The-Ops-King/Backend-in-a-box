@@ -30,13 +30,35 @@ import { loadEodForm } from "@/engine/eod";
 import { valueFor } from "@/engine/eod-form";
 import type { FitReport, Intake } from "./intake";
 import { suggestedEmail } from "./test-contact";
+import { createHash } from "node:crypto";
+import { SANDBOX_KEY } from "@/engine/running";
+import { WORDS_KEY } from "@/engine/words";
 
 type Op = <T>(fn: (c: PoolClient) => Promise<T>) => Promise<T>;
 export type TestRung = "ghost" | "test";
 type Act = { action: SimAction; startsAt?: "past" | "future"; outcome?: string; deposit?: boolean; calendar?: string };
 export type Scenario = { id: string; label: string; about: string; acts: Act[] };
 export type RunSeen = { workflow: string; status: string; exit_reason: string | null; steps: number; problem: string | null };
-export type ScenarioResult = { at: string; by: string; rung: string; acts: { action: SimAction; ok: boolean; why?: string; runs: number }[]; runs: RunSeen[]; passed: boolean };
+/** `fp`: what was tested (testedFingerprint), so a template's publish can tell a pass on what it publishes from a stale one (D154). */
+export type ScenarioResult = { at: string; by: string; rung: string; acts: { action: SimAction; ok: boolean; why?: string; runs: number }[]; runs: RunSeen[]; passed: boolean; fp?: string };
+
+/** D154: what a pass tested: every workflow at its current version, and the company's words. Any edit to a step or a word changes it. */
+export async function testedFingerprint(c: PoolClient, companyId: string): Promise<string> {
+  const wf = await many<{ id: string; v: number; enabled: boolean }>(c, "select id, current_version as v, enabled from workflows where company_id=$1 order by id", [companyId]);
+  const words = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [companyId, WORDS_KEY]))?.value.toString("utf8") ?? "";
+  return createHash("sha256").update(JSON.stringify([wf.map((w) => `${w.id}:${w.v}:${w.enabled}`), words])).digest("hex").slice(0, 16);
+}
+
+/**
+ * D154: a template business takes the sandbox: it runs there (polled, ticked) and every other template business on the same GHL
+ * location stops, so no two see each other's test contacts.
+ */
+export async function takeSandbox(c: PoolClient, companyId: string) {
+  await c.query(`delete from bindings where key=$2 and company_id<>$1 and company_id in (select company_id from bindings where key='crm.location_id'
+    and value=(select value from bindings where company_id=$1 and key='crm.location_id'))`, [companyId, SANDBOX_KEY]);
+  await c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,'text',$3) on conflict (company_id, key) do nothing", [companyId, SANDBOX_KEY, Buffer.from("true")]);
+}
+export const leaveSandbox = (c: PoolClient, companyId: string) => c.query("delete from bindings where company_id=$1 and key=$2", [companyId, SANDBOX_KEY]);
 export type Tests = { contact?: { id: string; name: string }; prepared?: { at: string; by: string; rung: TestRung; on: string[]; left_off: LeftOff[] }; results?: Record<string, ScenarioResult>; accepted?: Record<string, { note: string; at: string; by: string }> };
 /** A workflow not turned on: `blocking` when the offer uses it but it cannot run yet (a missing setting), not when the fit report has it off. */
 export type LeftOff = { name: string; why: string; blocking: boolean };
@@ -113,6 +135,7 @@ export async function prepareTests(op: Op, companyId: string, args: { contactId?
       }
       on.push(w.name);
     }
+    if ((await one<{ status: string }>(c, "select status from companies where id=$1", [companyId]))!.status === "template") await takeSandbox(c, companyId);
     const tests: Tests = { ...o.tests, contact: { id: contact.id, name: contact.name }, prepared: { at: new Date().toISOString(), by: args.by ?? "dashboard", rung, on, left_off } };
     await saveTests(c, companyId, tests);
     return { ok: true as const, on, left_off, slug: o.slug };
@@ -178,7 +201,7 @@ export async function runScenario(op: Op, adapters: Adapters, companyId: string,
     const runs = await runsSince(c, companyId, { contactId: pre.s.id === "scheduled" ? undefined : pre.contactId, ids: fired }, since);
     const o = (await loadTests(c, companyId))!;
     const mode = (await one<{ mode: string }>(c, "select mode from companies where id=$1", [companyId]))!.mode;
-    const result: ScenarioResult = { at: new Date().toISOString(), by, rung: mode, acts, runs, passed: acts.every((a) => a.ok) && runs.every((r) => !r.problem) };
+    const result: ScenarioResult = { at: new Date().toISOString(), by, rung: mode, acts, runs, passed: acts.every((a) => a.ok) && runs.every((r) => !r.problem), fp: await testedFingerprint(c, companyId) };
     await saveTests(c, companyId, { ...o.tests, results: { ...(o.tests.results ?? {}), [scenarioId]: result } });
     await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'onboarding.test','company',$2,$3)", [companyId, companyId, { scenario: scenarioId, passed: result.passed, runs: runs.length, problems: runs.filter((r) => r.problem).length, by }]);
     await syncDone(c, companyId);
@@ -211,7 +234,9 @@ export function workflowStates(t: Tests): WorkflowState[] {
   });
 }
 
-export type TestsState = { tests: Tests; scenarios: Scenario[]; workflows: WorkflowState[]; contacts: { id: string; name: string; email: string | null }[]; suggestedEmail: string | null; done: boolean; todo: string[] };
+export type TestsState = { tests: Tests; scenarios: Scenario[]; workflows: WorkflowState[]; contacts: { id: string; name: string; email: string | null }[]; suggestedEmail: string | null; done: boolean; todo: string[];
+  /** D154: a template business is tested in the sandbox; `running`: it holds it now */
+  sandbox: { template: boolean; running: boolean } };
 
 /** What is left before the step is done, one line each; none means done. */
 export function testsTodo(t: Tests, scenarios: Scenario[]): string[] {
@@ -226,7 +251,8 @@ export async function testsState(c: PoolClient, companyId: string): Promise<Test
   const o = await loadTests(c, companyId);
   if (!o) return null;
   const scenarios = await scenariosFor(c, companyId, o.intake), todo = testsTodo(o.tests, scenarios);
-  return { tests: o.tests, scenarios, workflows: workflowStates(o.tests), contacts: await testContacts(c, companyId), suggestedEmail: await suggestedEmail(c, companyId), done: !todo.length, todo };
+  return { tests: o.tests, scenarios, workflows: workflowStates(o.tests), contacts: await testContacts(c, companyId), suggestedEmail: await suggestedEmail(c, companyId), done: !todo.length, todo,
+    sandbox: { template: (await one<{ status: string }>(c, "select status from companies where id=$1", [companyId]))!.status === "template", running: !!(await one(c, "select 1 from bindings where company_id=$1 and key=$2", [companyId, SANDBOX_KEY])) } };
 }
 
 /** The step's done mark follows the results: set when nothing is left, taken off when a re-run fails. */

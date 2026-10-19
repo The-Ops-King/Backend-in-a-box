@@ -445,6 +445,9 @@ function TestStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; in
   const accept = async (workflow: string, note: string) => { setErr(null); try { await post.mutateAsync({ accept: workflow, note }); setNotes({ ...notes, [workflow]: "" }); } catch (x) { setErr((x as Error).message); } };
   return <>
     {err ? <div className="banner warn">{err}</div> : null}
+    {t.sandbox.template ? <div className="banner">A template business: tested in the sandbox (your snapshot sub-account), one template business at a time.
+      {t.sandbox.running ? <> It runs there now. <button className="btn" type="button" disabled={post.isPending} onClick={async () => { try { await post.mutateAsync({ leaveSandbox: true }); toast("Stopped: it no longer runs in the sandbox."); } catch (x) { setErr((x as Error).message); } }}>Stop</button></>
+        : " Turning the workflows on takes the sandbox; any other template business there stops."} Publishing needs every journey passed on the test rung, on exactly what is published.</div> : null}
     <div className="call">
       <b>Test contact and rung</b>
       {t.contacts.length ? <div className="form">

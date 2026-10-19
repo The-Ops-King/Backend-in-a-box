@@ -8,7 +8,7 @@ import { connectSlack, saveChannels, saveSlackOptions } from "@/onboarding/slack
 import { crmInput, runCrm, saveCrm, saveCrmOptions } from "@/onboarding/crm";
 import { runInstall } from "@/onboarding/install";
 import { approveMessage, editMessage } from "@/onboarding/messages";
-import { acceptWorkflow, prepareTests, runScenario } from "@/onboarding/tests";
+import { acceptWorkflow, leaveSandbox, prepareTests, runScenario } from "@/onboarding/tests";
 import { createTestContact } from "@/onboarding/test-contact";
 import { confirmCheck, markWorkflow, readTheirWorkflows, saveList } from "@/onboarding/filters";
 import { liveAdapters } from "@/adapters";
@@ -37,6 +37,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
  * { step: "filters", read: true } (D152) → their GHL workflows read live and kept with the marks made; { step: "filters", id, mark,
  * note? } → one marked; { step: "filters", check: true } → read again live and, when nothing is new, unmarked or wrongly on, a check
  * kept for the next move up (every move up needs one). GET …/onboarding/filters says where the list stands.
+ * { step: "test", leaveSandbox: true } (D154) → a template business stops running in the sandbox.
  * { step: "test", makeContact: true, email, phone? } (D153) → the test contact made in their GHL (tagged sys-test, the email
  * plus-addressed per business) and read back at once.
  * { step: "test", prepare: true, contactId, rung: "ghost" | "test" } (D151) → the test contact chosen, the offer's workflows
@@ -46,7 +47,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
  */
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const body = await readJson<{ step?: string; intake?: unknown; playbook?: unknown; id?: unknown; values?: unknown; copyFrom?: unknown; answers?: unknown; options?: unknown; token?: unknown; signingSecret?: unknown; channels?: unknown; run?: unknown; workflowId?: unknown; nodeId?: unknown; approve?: unknown; field?: unknown; text?: unknown; prepare?: unknown; contactId?: unknown; rung?: unknown; scenario?: unknown; accept?: unknown; note?: unknown; read?: unknown; check?: unknown; mark?: unknown; makeContact?: unknown; email?: unknown; phone?: unknown }>(req);
+  const body = await readJson<{ step?: string; intake?: unknown; playbook?: unknown; id?: unknown; values?: unknown; copyFrom?: unknown; answers?: unknown; options?: unknown; token?: unknown; signingSecret?: unknown; channels?: unknown; run?: unknown; workflowId?: unknown; nodeId?: unknown; approve?: unknown; field?: unknown; text?: unknown; prepare?: unknown; contactId?: unknown; rung?: unknown; scenario?: unknown; accept?: unknown; note?: unknown; read?: unknown; check?: unknown; mark?: unknown; makeContact?: unknown; email?: unknown; phone?: unknown; leaveSandbox?: unknown }>(req);
   if (!body?.step) return fail(400, "step is required");
   if (body.step === "install") {
     const co = await asOperator((c) => companyBySlug(c, slug)); if (!co) return fail(404, "no such company");
@@ -115,6 +116,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     if (body.step === "filters") {
       const r = await markWorkflow(c, co.id, { id: body.id, mark: body.mark, note: body.note, by: "dashboard" });
       return r.ok ? ok({ ok: true }) : fail(r.status, r.why);
+    }
+    if (body.step === "test" && body.leaveSandbox === true) {
+      await leaveSandbox(c, co.id);
+      await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'sandbox.left','company',$2,$3)", [co.id, co.id, { by: "dashboard" }]);
+      return ok({ ok: true });
     }
     if (body.step === "test") {
       const r = await acceptWorkflow(c, co.id, { workflow: body.accept, note: body.note, by: "dashboard" });

@@ -259,7 +259,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
   const out = await asOperator(async (c) => {
     // D88: a company that already existed gets a template that carries what the engine used to do by itself ON, so an upgrade never lets that go quiet
     // D148: a company the onboarding wizard made (status onboarding, no workflows yet) never ran: it is new here, so it starts all off
-    const existed = !!(await one(c, "select 1 from companies co where co.slug=$1 and (co.status<>'onboarding' or exists (select 1 from workflows w where w.company_id=co.id))", [input.slug]));
+    // D154: nor did a template business: it never runs for real, so nothing it carries is ever turned on by an install
+    const existed = !!(await one(c, "select 1 from companies co where co.slug=$1 and (co.status not in ('onboarding','template') or (co.status='onboarding' and exists (select 1 from workflows w where w.company_id=co.id)))", [input.slug]));
     const storedPit = input.pit ? null : await one<{ value: Buffer }>(c, "select b.value from bindings b join companies co on co.id=b.company_id where co.slug=$1 and b.key='secret.ghl_pit'", [input.slug]);
     const pit = input.pit ?? (storedPit ? decrypt(storedPit.value) : null);
     if (!pit) throw new Error("pit is required: this company has no CRM token stored yet");

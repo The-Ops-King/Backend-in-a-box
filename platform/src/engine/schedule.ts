@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import { asOperator, many, one } from "@/db/client";
+import { runningSql } from "./running";
 
 export const TICK_JOB = "bb-tick";
 export const WATCHDOG_JOB = "bb-watchdog";
@@ -16,7 +17,7 @@ export const TICK_TIMEOUT_MS = 310_000;
 export function tickCommand(tickUrl: string, secret: string, timeoutMs = TICK_TIMEOUT_MS): string {
   const headers = JSON.stringify({ Authorization: `Bearer ${secret}` });
   return `select net.http_get(url := $bbq$${tickUrl}/api/tick?$bbq$ || t.q, headers := $bbq$${headers}$bbq$::jsonb, timeout_milliseconds := ${Math.max(300_000, Math.floor(timeoutMs))}) `
-    + `from (select 'scope=engine' as q union all select 'company=' || id::text from companies where status in ('active','hosted')) t`;
+    + `from (select 'scope=engine' as q union all select 'company=' || id::text from companies co where ${runningSql()}) t`;
 }
 
 /**

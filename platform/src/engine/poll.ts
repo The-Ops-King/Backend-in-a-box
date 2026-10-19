@@ -13,6 +13,7 @@ import { foldCard } from "./cards";
 import { handMoved } from "./card-moves";
 import { carriesTag, companyScopeTag, inScope, scopeTag, stillInScope, tagIntoScope } from "./scope";
 import { raiseSetterMissing, settleSetterAlerts } from "./setter-missing";
+import { runningSql } from "./running";
 
 export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; agreements: number; cardsMoved: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
@@ -403,7 +404,7 @@ export const emptyPollReport = (): PollReport => ({ companies: 0, contacts: 0, a
 
 export async function pollAll(adapters: Adapters): Promise<PollReport> {
   const rep = emptyPollReport();
-  const companies = await asOperator((c) => many<{ id: string }>(c, "select id from companies where status in ('active','hosted')"));
+  const companies = await asOperator((c) => many<{ id: string }>(c, `select co.id from companies co where ${runningSql()}`));
   for (const { id } of companies) await pollCompany(adapters, id, rep);
   return rep;
 }
