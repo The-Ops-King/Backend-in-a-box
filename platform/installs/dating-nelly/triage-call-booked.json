@@ -330,7 +330,7 @@
    {
     "id": "v_textoff",
     "type": "set_var",
-    "key": "texts_off",
+    "key": "no_text_reason",
     "value": "{{contact.sms_dnd}}",
     "pick": {
      "true": "has texts turned off (Do Not Disturb)"
@@ -341,12 +341,12 @@
    {
     "id": "v_nophone",
     "type": "set_var",
-    "key": "texts_off",
+    "key": "no_text_reason",
     "when": {
      "and": [
       {
        "eq": [
-        "{{vars.texts_off}}",
+        "{{vars.no_text_reason}}",
         ""
        ]
       },
@@ -358,7 +358,7 @@
      ]
     },
     "value": "has no phone number on file",
-    "else_value": "{{vars.texts_off}}",
+    "else_value": "{{vars.no_text_reason}}",
     "title": "…or no phone number on file"
    },
    {
@@ -372,7 +372,7 @@
      "and": [
       {
        "neq": [
-        "{{vars.texts_off}}",
+        "{{vars.no_text_reason}}",
         ""
        ]
       },
@@ -388,7 +388,7 @@
      "name": "Texts off",
      "icon": ":warning:"
     },
-    "template": "⚠️ {{contact.first_name | default:They}} {{vars.texts_off}}, so no texts will reach them. Call or email instead.",
+    "template": "⚠️ {{contact.first_name | default:They}} {{vars.no_text_reason}}, so no texts will reach them. Call or email instead.",
     "title": "Texts can't reach them (Do Not Disturb or no phone): ⚠️ on the card and a note under it, once per booking"
    },
    {

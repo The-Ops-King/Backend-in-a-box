@@ -5533,3 +5533,19 @@ per booking." And: "some contacts will have DND turned on. it shouldn't ruin a c
 - The pre-call ask quotes "nothing yet: our booking text didn't go out" when a reply comes and no text of ours went out.
 
 Tests: `edge-cases.contacts.test.ts` (D188), `dating-copies.test.ts`.
+
+
+## D189. Calendar availability says its own alerts (2026-10-19)
+
+Tyler: "I understand the slack step is built in, that's not how we agreed it would function. we should have it one thing per step.
+i need to be able to see and adjust the slack notification and such."
+
+- An alert about a calendar's open times (keys `health:calendly_calendars…`, `health:ghl_calendars…`, `health:availability…`)
+  is handed on with `topic: "availability"`.
+- Calendar availability takes those (`alert.raised`, `alert.repeated`, `alert.resolved` where the topic is availability) and says
+  them in its own steps: the alert in the alerts channel with Resolve and Pause, the day-by-day under it, a still-open line, ✅ when
+  it clears. Headed "Calendar availability". Health check takes every other alert and skips these. Said once, never hourly (D142).
+- Both are template changes: an offer gets them when its Health check and Calendar availability are saved from the template
+  together (Health check first, so nothing is said twice), one offer at a time, dry run first.
+
+Tests: `alerts.test.ts`, `group.test.ts` (D189).

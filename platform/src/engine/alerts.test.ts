@@ -153,7 +153,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(ann.posted).toBe(3);
     await tick(fake, undefined, companyId, probes);   // D88: the workflow says them
     expect(posts.every((p) => p.channel === "CHEALTH" && p.as?.name === "Health check" && p.as?.icon === ":stethoscope:")).toBe(true);
-    expect(posts.find((p) => /Closer B/.test(p.text))!.text).toMatch(/🟡 \*Alert Co · Health check\*/);
+    expect(posts.find((p) => /Closer B/.test(p.text))!.text).toMatch(/🟡 \*Alert Co · Calendar availability\*/);   // D189: Calendar availability says its own, same channel and face
     expect(posts.find((p) => /stage that no longer exists/.test(p.text))!.text).toMatch(/^🔴/);
     // next hour: the calendar is bookable again and the stage was rebound; Slack membership still wrong
     slotsB = 9; await asOperator((c) => c.query("update bindings set value=$2 where company_id=$1 and key='crm.stage_closer_won'", [companyId, Buffer.from("STAGE_OK")]));
@@ -288,7 +288,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     const say = async (mins: number) => { await asOperator((c) => announceDue(c, fake, new Date(at.getTime() + mins * 60e3), companyId)); await tick(fake, undefined, companyId); };
     await asOperator((c) => raise(c, { companyId, key: "health:calendly_calendars:ET-FULL", level: "warning", source: "health", text: "Event type \"Full\" has no available time", detail: { repeat: false } }, at));
     await say(0); await say(61); await say(122);
-    expect(posts.filter((p) => /Full/.test(p.text)).map((p) => p.text.split("\n")[0])).toEqual(["🟡 *Alert Co · Health check*"]);
+    expect(posts.filter((p) => /Full/.test(p.text)).map((p) => p.text.split("\n")[0])).toEqual(["🟡 *Alert Co · Calendar availability*"]);
     await asOperator((c) => resolve(c, companyId, "health:calendly_calendars:ET-FULL", new Date(at.getTime() + 130 * 60e3)));
     await say(131);
     expect(posts.at(-1)!.text).toMatch(/^✅ Resolved after .*Full/);
