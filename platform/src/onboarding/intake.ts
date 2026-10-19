@@ -1,6 +1,6 @@
 /**
- * #49 P1 (D143): the wizard's first step, the offer as Tyler describes it. One list of fields drives the form and the check, and
- * the answers pick the playbook (D142) and say, workflow by workflow, what fits as shipped, what needs a tweak, what has to be
+ * #53 P1 (D148): the wizard's first step, the offer as Tyler describes it. One list of fields drives the form and the check, and
+ * the answers pick the playbook (D147) and say, workflow by workflow, what fits as shipped, what needs a tweak, what has to be
  * built and what stays off. The gaps are that client's build list. No playbook fits exactly? The closest is picked and the
  * differences are in the report (Tyler, 2026-10-18).
  */
@@ -99,8 +99,8 @@ export function fitReport(a: Intake, kind: "new" | "takeover" = "new", chosen?: 
   const best = scored.find((x) => x.p.slug === chosen) ?? [...scored].sort((x, y) => x.cost - y.cost)[0];
   const pb = best.p;
   const notes: string[] = [];
-  if (kind === "takeover") notes.push("A takeover: every step of their current system is mapped to a workflow before anything swaps over (#49 P2); the report below is for the engine's side.");
-  if (a.crm && a.crm !== "ghl") notes.push(`The engine reads and writes GoHighLevel. ${label("crm", a.crm)} needs its own CRM connector before any workflow can run (#49).`);
+  if (kind === "takeover") notes.push("A takeover: every step of their current system is mapped to a workflow before anything swaps over (#53 P2); the report below is for the engine's side.");
+  if (a.crm && a.crm !== "ghl") notes.push(`The engine reads and writes GoHighLevel. ${label("crm", a.crm)} needs its own CRM connector before any workflow can run (#53).`);
   if (best.differs.length) notes.push(chosen === pb.slug
     ? `${pb.name}, as chosen, differs from this offer (${best.differs.join("; ")}). Those differences are on the build list.`
     : `No playbook matches exactly: ${pb.name} is the closest (${best.differs.join("; ")}). Those differences are on the build list.`);
@@ -126,7 +126,7 @@ export function fitReport(a: Intake, kind: "new" | "takeover" = "new", chosen?: 
     }
     if (s === "deal-closed" && a.agreement === "none") return w("tweak", "it closes a deal when it is paid and signed; with no agreement it must close on payment alone");
     if (s === "setter-call-logged" && a.setters === false) return w("off", "no setters");
-    // D147: Setter call logged moves the setter board's card; on one board there is none, and the playbook has no copy of it yet
+    // D152: Setter call logged moves the setter board's card; on one board there is none, and the playbook has no copy of it yet
     if (s === "setter-call-logged" && pb.traits.boards === "one") { gaps.add("Setter call logged on one board: it moves a setter card, and one board has none (a one-board copy is to build)"); return w("build", "it moves the setter board's card, and one board has none: a one-board copy is to build"); }
     if (s === "new-lead" && Array.isArray(a.lead_paths) && a.lead_paths.includes("organic_dm")) { gaps.add("DM leads: nothing brings an Instagram DM lead into the CRM yet (problem 7)"); return w("tweak", "DM leads reach it only once they are in the CRM"); }
     if (s === "new-lead" && a.application === "other") return w("tweak", "the application's answers come in through a Zap");

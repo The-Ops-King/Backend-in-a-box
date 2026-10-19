@@ -1,5 +1,5 @@
 /**
- * D148: the install step puts together everything the earlier steps learned: refused until they are done, then the company
+ * D153: the install step puts together everything the earlier steps learned: refused until they are done, then the company
  * installed with the mapped calendars, the CRM build's ids, the team's roles, every workflow off, the playbook's copies on, SMS
  * off for a new offer, and the company active in ghost. Re-running changes nothing.
  */
@@ -23,7 +23,7 @@ const research: Research = { at: "2026-10-18T00:00:00Z", source: "ghl", calendar
   answers: { calendars: { CAL: { call_type: "closing", booking: "self" }, OLD: { call_type: "ignore" } }, closerCall: "CAL", team: { u1: "closer", u2: "manager" } }, done: { at: "2026-10-18T00:00:00Z", by: "t" } };
 const done = (steps: string[]) => JSON.stringify(Object.fromEntries(steps.map((s) => [s, { done_at: "2026-10-18T00:00:00Z", by: "t" }])));
 
-describe.skipIf(!process.env.DATABASE_URL)("D148: the install step", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D153: the install step", () => {
   let id: string;
   const adapters = fakeAdapters();
   adapters.read.listUsers = async () => [{ id: "u1", name: "Carly Vu", email: "carly@install.co" }, { id: "u2", name: "Ops", email: "ops@install.co" }];

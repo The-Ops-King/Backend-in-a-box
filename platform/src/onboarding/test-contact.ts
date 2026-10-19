@@ -1,5 +1,5 @@
 /**
- * D153: the test contact, made by the wizard. Tyler (2026-10-19): one button makes it in the company's GHL, on his own email
+ * D158: the test contact, made by the wizard. Tyler (2026-10-19): one button makes it in the company's GHL, on his own email
  * (jt@jtylerray.com), so every business gets one the same way. The email is plus-addressed per business (jt+test-pmu@jtylerray.com):
  * one inbox, a distinct person in each GHL. It is created tagged `sys-test`, so a GHL workflow filtered on that tag never sees it,
  * even its Contact Created trigger; its domain joins the company's test domains (anyone on it is a test contact). One that is
@@ -7,7 +7,7 @@
  * passes can use it without waiting for the poll.
  *
  * Creating a contact fires their own "Contact Created" workflows, so a company onboarded through the wizard needs its GHL
- * workflows marked first (D152, step 8); a template business, in Tyler's own sandbox, does not (D155). The email typed is kept per company and offered to the next one.
+ * workflows marked first (D157, step 8); a template business, in Tyler's own sandbox, does not (D160). The email typed is kept per company and offered to the next one.
  */
 import type { PoolClient } from "pg";
 import { one } from "@/db/client";

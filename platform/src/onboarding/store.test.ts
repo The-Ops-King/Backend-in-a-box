@@ -1,4 +1,4 @@
-/** D143: Add client makes an inert company (ghost, onboarding: nothing polls or ticks it) and its wizard; the offer step saves the answers, the playbook and the fit report. */
+/** D148: Add client makes an inert company (ghost, onboarding: nothing polls or ticks it) and its wizard; the offer step saves the answers, the playbook and the fit report. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -16,7 +16,7 @@ async function wipe(slug: string) {
   });
 }
 
-describe.skipIf(!process.env.DATABASE_URL)("D143: Add client and the offer step", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D148: Add client and the offer step", () => {
   beforeAll(async () => { await migrate(); await wipe("glow-co"); });
 
   it("Add client: checked, made inert (ghost, onboarding), refused twice", async () => {

@@ -1,9 +1,9 @@
 /**
- * D149 (#49 P1): the wizard's messages step. Every text and email a client's contacts can get, workflow by workflow, with its
+ * D154 (#53 P1): the wizard's messages step. Every text and email a client's contacts can get, workflow by workflow, with its
  * words as they stand. Each one is approved by Tyler, explicitly: a message whose words are a placeholder cannot be (D118: it
  * sends nothing), nor one carrying another client's words (Tyler: block it; the shipped templates still hold Hair's welcome, so
  * a new client would otherwise go live saying "save your hair"). An approval is of these exact words: changing them takes it
- * back. Words are changed here through the company's own words (D149), so they survive every upgrade and rebuild. A workflow the
+ * back. Words are changed here through the company's own words (D154), so they survive every upgrade and rebuild. A workflow the
  * offer does not use (off in the fit report) needs nothing approved. Done when every message that needs it is approved.
  */
 import { createHash } from "node:crypto";
@@ -32,7 +32,7 @@ const hashOf = (fields: Message["fields"]) => createHash("sha256").update(JSON.s
 const FIELD_LABEL: Record<string, string> = { subject: "Subject", template: "Message", substitute_template: "Instead, when the first is out of date" };
 
 export async function listMessages(c: PoolClient, companyId: string): Promise<{ messages: Message[]; ready: boolean }> {
-  // D150: a company with no onboarding row (a template business) lists its messages too, with nothing approved and all needed
+  // D155: a company with no onboarding row (a template business) lists its messages too, with nothing approved and all needed
   const o = await one<{ slug: string; fit: FitReport | null; messages: Record<string, { hash: string; at: string; by: string }> | null }>(c, "select co.slug, o.fit, o.messages from companies co left join onboarding o on o.company_id=co.id where co.id=$1", [companyId]);
   if (!o) return { messages: [], ready: false };
   o.messages ??= {};
@@ -69,7 +69,7 @@ export async function approveMessage(c: PoolClient, companyId: string, args: { w
   return { ok: true };
 }
 
-/** A message's words changed (kept as the company's own words, D149); the approval of the old words no longer counts. */
+/** A message's words changed (kept as the company's own words, D154); the approval of the old words no longer counts. */
 export async function editMessage(c: PoolClient, companyId: string, args: { workflowId?: unknown; nodeId?: unknown; field?: unknown; text?: unknown; by?: string }): Promise<MessageResult> {
   const w = await one(c, "select 1 from workflows where id=$1 and company_id=$2", [String(args.workflowId), companyId]);
   if (!w) return { ok: false, status: 404, why: "no such workflow on this company" };

@@ -1,7 +1,7 @@
 /**
- * D149: the messages step and the company's own words. Hair's welcome on a new client is caught and cannot be approved; new
+ * D154: the messages step and the company's own words. Hair's welcome on a new client is caught and cannot be approved; new
  * words are kept as the company's own and approved; changing approved words takes the approval back; a workflow the offer does
- * not use needs nothing; done once every needed message is approved. And a pre-D149 word edit moves into the company's words,
+ * not use needs nothing; done once every needed message is approved. And a pre-D154 word edit moves into the company's words,
  * un-freezing its copy; one edited beyond words stays as it is.
  */
 import { describe, it, expect, beforeAll } from "vitest";
@@ -24,7 +24,7 @@ describe("another client's words", () => {
   });
 });
 
-describe.skipIf(!process.env.DATABASE_URL)("D149: the messages step", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D154: the messages step", () => {
   let id: string;
   const msgs = () => asOperator((c) => listMessages(c, id));
   beforeAll(async () => {

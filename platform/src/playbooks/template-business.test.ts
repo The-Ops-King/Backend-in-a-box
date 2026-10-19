@@ -1,5 +1,5 @@
 /**
- * D150: a playbook's template business. Made with its playbook installed, every workflow off, status template (never run);
+ * D155: a playbook's template business. Made with its playbook installed, every workflow off, status template (never run);
  * publish is refused while another client's words are in it or a workflow is changed beyond words, and names each; once clean it
  * keeps a release (words, params, settings), noting placeholders left for each client; a new client on that playbook starts from
  * it: the params made the offer's, the words and settings where it has none of its own.
@@ -38,7 +38,7 @@ async function passTests(companyId: string, rung = "test") {
   });
 }
 
-describe.skipIf(!process.env.DATABASE_URL)("D150: a playbook's template business", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D155: a playbook's template business", () => {
   let id: string;
   beforeAll(async () => { await migrate(); await wipe(SLUG); await wipe("tpl-client"); await asOperator((c) => c.query("delete from playbook_releases where playbook=$1", [PB])); });
 
@@ -50,7 +50,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D150: a playbook's template business
     expect(await asOperator((c) => many(c, "select 1 from workflows where company_id=$1 and enabled", [id]))).toEqual([]);
     expect((await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from workflows where company_id=$1 and diverged", [id])))!.n).toBe(playbookOf(PB).changes.length);
     expect(await asOperator((c) => ensureTemplateBusiness(c, PB))).toMatchObject({ ok: true, created: false });
-    // D154: set up and tested through the wizard like a client: its offer is its playbook's, its messages need no approval
+    // D159: set up and tested through the wizard like a client: its offer is its playbook's, its messages need no approval
     const o = await asOperator((c) => one<{ playbook: string; intake: Intake; steps: Record<string, unknown> }>(c, "select playbook, intake, steps from onboarding where company_id=$1", [id]));
     expect(o).toMatchObject({ playbook: PB, intake: { boards: "one", setters: true, payments: "other", recording: "other", agreement: "ghl_documents", booking: "ghl" } });
     expect(Object.keys(o!.steps).sort()).toEqual(["messages", "offer"]);
@@ -78,7 +78,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D150: a playbook's template business
     expect(Object.keys(r.release.settings).some((k) => k.startsWith("prompt."))).toBe(true);
   });
 
-  it("D154: publish needs every journey passed on the test rung, on exactly what is published", async () => {
+  it("D159: publish needs every journey passed on the test rung, on exactly what is published", async () => {
     await passTests(id, "ghost");
     expect((await asOperator((c) => untested(c, id)))[0]).toMatch(/ran in ghost: run it again on the test rung/);
     await passTests(id);

@@ -1,5 +1,5 @@
 /**
- * D142: a playbook put on a company, and an offer's settings copied onto a new one ("duplicate PMU").
+ * D147: a playbook put on a company, and an offer's settings copied onto a new one ("duplicate PMU").
  *
  * `applyPlaybook` builds the company's copies from its playbook and params against today's templates and saves them: a copy of a
  * template the company has is saved over it (a new version; one already the same is left), a workflow of its own (D123) is
@@ -66,7 +66,7 @@ export async function applyPlaybook(c: PoolClient, args: { company: string; play
   return { ok: true, dryRun: false, playbook: pb.slug, copies, prompts, rungs: await rungPlan(c, co.id) };
 }
 
-/** D149: a copy is saved with the company's words laid over it, so a rebuild never loses them. */
+/** D154: a copy is saved with the company's words laid over it, so a rebuild never loses them. */
 const withWords = (copy: Copy, words: Words): Copy => ({ ...copy, definition: applyWords(copy.definition as { nodes: unknown[] }, words[copy.create ? `own:${copy.name}` : copy.workflow]).def as Record<string, unknown> });
 
 async function putCopy(c: PoolClient, companyId: string, bare: Copy, by: string, dryRun: boolean): Promise<CopyOutcome> {
@@ -74,7 +74,7 @@ async function putCopy(c: PoolClient, companyId: string, bare: Copy, by: string,
   const ref = copy.create ? copy.name! : copy.workflow;
   const found = await findCompanyWorkflow(c, companyId, ref);
   const name = copy.name ?? (found.ok ? found.name : copy.workflow);
-  const note = `${copy.note} (playbook, D142)`;
+  const note = `${copy.note} (playbook, D147)`;
   if (!found.ok) {
     if (!copy.create) return { workflow: copy.workflow, name, did: "refused", why: `the company does not have ${copy.workflow}: install its template first` };
     const r = await createCompanyWorkflow(c, { companyId, name: copy.name!, definition: copy.definition, note, by, stage: copy.create.stage, sort: copy.create.sort, takesOver: copy.create.takesOver, dryRun });

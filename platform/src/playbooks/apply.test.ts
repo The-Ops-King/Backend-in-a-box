@@ -1,5 +1,5 @@
 /**
- * D142: a playbook put on a company saves exactly its copies, all or nothing, never removing anything; a second run changes
+ * D147: a playbook put on a company saves exactly its copies, all or nothing, never removing anything; a second run changes
  * nothing; a copy changed by hand afterwards shows as stale. An offer's settings copy onto a new company only where the new one
  * has none of its own, and never a secret, an id, a channel or the scope tag. Every workflow gets its starting rung (#48).
  */
@@ -33,7 +33,7 @@ const binding = (companyId: string, key: string) => asOperator(async (c) => (awa
 const versions = (companyId: string) => asOperator((c) => many<{ name: string; current_version: number }>(c, "select name, current_version from workflows where company_id=$1 order by name", [companyId]));
 const base = { timezone: "America/New_York", locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" } };
 
-describe.skipIf(!process.env.DATABASE_URL)("D142: putting a playbook on a company", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D147: putting a playbook on a company", () => {
   let src: string, dst: string, partial: string;
   beforeAll(async () => {
     await migrate();

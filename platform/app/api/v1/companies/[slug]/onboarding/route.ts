@@ -13,11 +13,11 @@ import { createTestContact } from "@/onboarding/test-contact";
 import { confirmCheck, markWorkflow, readTheirWorkflows, saveList } from "@/onboarding/filters";
 import { liveAdapters } from "@/adapters";
 export const dynamic = "force-dynamic"; export const maxDuration = 180;
-/** D155: the wizard is for onboarding clients only; a template business is set up and tested by Claude in the sandbox. */
+/** D160: the wizard is for onboarding clients only; a template business is set up and tested by Claude in the sandbox. */
 const TEMPLATE = "a template business is not onboarded: Claude tests it in the sandbox (/api/admin/templates/test)";
 const isTemplate = async (c: import("pg").PoolClient, slug: string) => !!(await one(c, "select 1 from companies where slug=$1 and status='template'", [slug]));   // research reads their accounts and asks the model
 
-/** D143: the onboarding wizard of a client being stood up: its steps, what each saved, the intake's questions. */
+/** D148: the onboarding wizard of a client being stood up: its steps, what each saved, the intake's questions. */
 export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   if (await asOperator((c) => isTemplate(c, slug))) return fail(409, TEMPLATE);
@@ -27,24 +27,24 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
 
 /**
  * { step: "offer", intake, playbook? } → the answers saved, the playbook and its fit report.
- * { step: "connection", id, values? | copyFrom? } (D144) → the key tested live; kept, encrypted, only when it works. With
+ * { step: "connection", id, values? | copyFrom? } (D149) → the key tested live; kept, encrypted, only when it works. With
  * neither, the kept key is tested again. The answer never carries a key.
- * { step: "research" } (D145) → their accounts read and the AI's suggestions, saved (outside any transaction while it reads);
+ * { step: "research" } (D150) → their accounts read and the AI's suggestions, saved (outside any transaction while it reads);
  * { step: "research", answers } → Tyler's answers checked and saved; done when nothing is left to answer.
- * { step: "slack", options | token + signingSecret | channels } (D146) → the manifest's options; the bot token tested with Slack
+ * { step: "slack", options | token + signingSecret | channels } (D151) → the manifest's options; the bot token tested with Slack
  * and kept with the signing secret; each channel slot's channel. GET …/onboarding/slack says where it stands.
- * { step: "crm", options } (D147) → the prefix; { step: "crm", run: "plan" | "build" } → their GHL read and what the playbook
+ * { step: "crm", options } (D152) → the prefix; { step: "crm", run: "plan" | "build" } → their GHL read and what the playbook
  * needs planned (reads only), or built (only what is missing), outside any transaction while GHL is called.
- * { step: "install" } (D148) → everything the steps learned installed, the playbook's copies on, the company active in ghost.
- * { step: "messages", workflowId, nodeId, approve: true } (D149) → those exact words approved; with field and text instead, the
+ * { step: "install" } (D153) → everything the steps learned installed, the playbook's copies on, the company active in ghost.
+ * { step: "messages", workflowId, nodeId, approve: true } (D154) → those exact words approved; with field and text instead, the
  * words changed (kept as the company's own). GET …/onboarding/messages lists every client-facing message.
- * { step: "filters", read: true } (D152) → their GHL workflows read live and kept with the marks made; { step: "filters", id, mark,
+ * { step: "filters", read: true } (D157) → their GHL workflows read live and kept with the marks made; { step: "filters", id, mark,
  * note? } → one marked; { step: "filters", check: true } → read again live and, when nothing is new, unmarked or wrongly on, a check
  * kept for the next move up (every move up needs one). GET …/onboarding/filters says where the list stands.
- * { step: "test", leaveSandbox: true } (D154) → a template business stops running in the sandbox.
- * { step: "test", makeContact: true, email, phone? } (D153) → the test contact made in their GHL (tagged sys-test, the email
+ * { step: "test", leaveSandbox: true } (D159) → a template business stops running in the sandbox.
+ * { step: "test", makeContact: true, email, phone? } (D158) → the test contact made in their GHL (tagged sys-test, the email
  * plus-addressed per business) and read back at once.
- * { step: "test", prepare: true, contactId, rung: "ghost" | "test" } (D151) → the test contact chosen, the offer's workflows
+ * { step: "test", prepare: true, contactId, rung: "ghost" | "test" } (D156) → the test contact chosen, the offer's workflows
  * turned on, the company on that rung; { step: "test", scenario } → that journey run on the test contact (outside any transaction,
  * the company ticked between its steps); { step: "test", accept: workflow, note } → a workflow no scenario reaches, accepted with a
  * note (an empty note takes it back). GET …/onboarding/tests says where the passes stand.

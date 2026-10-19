@@ -1,4 +1,4 @@
-/** D143: the wizard's intake: what is asked, what is refused, and how the answers pick a playbook and say what fits. */
+/** D148: the wizard's intake: what is asked, what is refused, and how the answers pick a playbook and say what fits. */
 import { describe, it, expect } from "vitest";
 import { fitReport, intakeProblems, emailsOf, type Intake } from "@/onboarding/intake";
 import { templates } from "@/templates";
@@ -54,6 +54,6 @@ describe("the intake", () => {
   it("another CRM: every workflow waits on its connector, said once; a takeover says how it differs", () => {
     const r = fitReport({ ...pmuLike, crm: "hubspot" }, "takeover");
     expect(r.workflows.every((w) => w.fit === "build" && w.why === "needs a HubSpot connector")).toBe(true);
-    expect(r.notes).toEqual([expect.stringMatching(/^A takeover/), "The engine reads and writes GoHighLevel. HubSpot needs its own CRM connector before any workflow can run (#49)."]);
+    expect(r.notes).toEqual([expect.stringMatching(/^A takeover/), "The engine reads and writes GoHighLevel. HubSpot needs its own CRM connector before any workflow can run (#53)."]);
   });
 });

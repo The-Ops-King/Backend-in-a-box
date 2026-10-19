@@ -1,5 +1,5 @@
 /**
- * D144: the connections step. The offer's answers say which keys are needed; a key is tested before it is kept, kept
+ * D149: the connections step. The offer's answers say which keys are needed; a key is tested before it is kept, kept
  * encrypted, never given back; a shareable AI key can be copied from another company and the copy is undone when it fails; the
  * step is done only while every needed key has passed.
  */
@@ -29,7 +29,7 @@ async function wipe() {
     for (const t of ["onboarding", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); } });
 }
 
-describe.skipIf(!process.env.DATABASE_URL)("D144: the connections step", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D149: the connections step", () => {
   let id: string;
   beforeAll(async () => {
     await migrate(); await wipe();

@@ -1,5 +1,5 @@
 /**
- * D151: the test passes. Refused before install and without a test contact; then the offer's workflows go on (the fit report's off
+ * D156: the test passes. Refused before install and without a test contact; then the offer's workflows go on (the fit report's off
  * ones stay off), the company stands in ghost, each scenario runs on the test contact and its runs are read back; the step is done
  * once every workflow turned on has a clean run or is accepted with a note, and undone when a re-run fails.
  */
@@ -24,7 +24,7 @@ const research: Research = { at: "2026-10-18T00:00:00Z", source: "ghl", calendar
   answers: { calendars: { CAL: { call_type: "closing", booking: "self" }, OLD: { call_type: "ignore" } }, closerCall: "CAL", team: { u1: "closer", u2: "manager" } }, done: { at: "2026-10-18T00:00:00Z", by: "t" } };
 const done = (steps: string[]) => JSON.stringify(Object.fromEntries(steps.map((s) => [s, { done_at: "2026-10-18T00:00:00Z", by: "t" }])));
 
-describe.skipIf(!process.env.DATABASE_URL)("D151: the test passes", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D156: the test passes", () => {
   let id: string;
   const adapters = fakeAdapters();
   adapters.read.listUsers = async () => [{ id: "u1", name: "Carly Vu", email: "carly@tests.co" }, { id: "u2", name: "Ops", email: "ops@tests.co" }];

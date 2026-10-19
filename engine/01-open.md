@@ -741,7 +741,7 @@ of which goes where ... end of day flows like forms submitted, as long as they d
 feature, can basically always be strictly in silent mode ... I just want to make sure that we are not alerting everybody for
 everything while I'm testing." Per-workflow rungs exist (D92); open: the default rung by what a workflow does, set at onboarding.
 
-## 49. Onboarding: Add client, playbooks, launch a same-stack offer in under a day (Tyler, 2026-10-18; plan, nothing built)
+## 53. Onboarding: Add client, playbooks, launch a same-stack offer in under a day (Tyler, 2026-10-18; plan, nothing built)
 
 Tyler: an **Add client** button on the Companies page. It asks about the offer (sales process, sales journey, price),
 the software and its keys, and whether this is a brand-new offer or a takeover of a running one. Then a research pass
@@ -811,14 +811,14 @@ Open, to settle before P0 is built:
 - Duplicating: does "duplicate PMU" copy PMU's settings that are not client-specific (call types, outcomes, alerts,
   prompts) as well as its workflow copies, or only the playbook? Secrets and ids never copy.
 
-**P0 built 2026-10-18 (D142):** playbooks (`setter-closer` Hair, `one-board` PMU, `application-triage` Dating), the starting
+**P0 built 2026-10-18 (D147):** playbooks (`setter-closer` Hair, `one-board` PMU, `application-triage` Dating), the starting
 rung per workflow (closes #48's rule), putting a playbook on a company and duplicating an offer's settings
 (`POST /api/admin/playbooks`). To do by Tyler: PMU's live copies are behind D141 and D118; `scripts/apply-playbook.ts pmu`
 (a dry run) says what saving them changes, `--apply` saves them.
 
 **The full walkthrough (Tyler, 2026-10-18), the wizard's steps in order:**
-1. **The offer**: the product, the sales process, the software (built, D143).
-2. **Connections**: every key, tested live (built, D144).
+1. **The offer**: the product, the sales process, the software (built, D148).
+2. **Connections**: every key, tested live (built, D149).
 3. **Research**: their calendars or event types, boards, team: which is the sales call, who closes, who sets.
 4. **Slack**: the manifest generated, the app installed, signing secret and token, which channel is for what.
 5. **CRM build**: a new offer gets what the playbook needs built (dry run first); a takeover is adapted to.
@@ -830,15 +830,15 @@ rung per workflow (closes #48's rule), putting a playbook on a company and dupli
    gets #40's filter, nobody new enters, at the moment ours goes live), kept (it gets a filter so the engine's tags and test
    contacts never trigger it: the D90 double welcome), or turned off. Tyler, 1a: "add a filter on existing GHL workflows so
    nothing has an issue."
-10. **Go live, per workflow**: each up its own rung (internal ones start in quiet, client-facing ones in test, D142).
+10. **Go live, per workflow**: each up its own rung (internal ones start in quiet, client-facing ones in test, D147).
 11. **Fully live**: every workflow live, tested, no errors; messages approved; SMS registration approved or SMS off; the
     email domain verified; every GHL workflow on the checklist handled; and a reminder, every time, to check that test
     contacts reach none of the client's own automations (Tyler, 1b). A takeover (a live offer) also needs 2 to 3 clean days
     on the engine first; a new offer built from templates can go as soon as its test passes are green (Tyler, 2).
 A shared GHL account (1c) is rare; the scope tag (D117) covers it.
 
-**P1 slice 1 built 2026-10-18 (D143):** Add client, the wizard page, the offer step (intake → playbook → fit report).
-**Slice 2 built (D144):** connections, every key tested live before it is kept. **Slice 3 built (D145):** research. **Slice 4 built (D146):** Slack. **Slice 5 built (D147):** CRM build. **Slice 6 built (D148):** install (moved ahead of Messages). **Slice 7 built (D149):** messages, and a company's words kept apart from the steps. **Template businesses (D150).** **Slice 8 built (D151):** test passes. **D152:** their GHL workflows (now step 8, ahead of the tests), checked again before every rung up. **D153:** the wizard makes the test contact. **D154/D155:** template businesses tested by Claude in the snapshot sub-account (admin API, not the wizard), publish gated on a current pass. **09-possibilities** waits on Tyler's marks. Next: go live per workflow, fully live.
+**P1 slice 1 built 2026-10-18 (D148):** Add client, the wizard page, the offer step (intake → playbook → fit report).
+**Slice 2 built (D149):** connections, every key tested live before it is kept. **Slice 3 built (D150):** research. **Slice 4 built (D151):** Slack. **Slice 5 built (D152):** CRM build. **Slice 6 built (D153):** install (moved ahead of Messages). **Slice 7 built (D154):** messages, and a company's words kept apart from the steps. **Template businesses (D155).** **Slice 8 built (D156):** test passes. **D157:** their GHL workflows (now step 8, ahead of the tests), checked again before every rung up. **D158:** the wizard makes the test contact. **D159/D160:** template businesses tested by Claude in the snapshot sub-account (admin API, not the wizard), publish gated on a current pass. **09-possibilities** waits on Tyler's marks. Next: go live per workflow, fully live.
 
 Tyler, 2026-10-18: the core set is what runs today (new lead, call booked and cancelled, forms, Fathom recordings,
 agreements, payment and close, EODs, Health check and the rest). What to sell and build next is `08-problem-map.md`, his

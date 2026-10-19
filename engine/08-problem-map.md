@@ -89,7 +89,7 @@ CF = sends to the contact (text or email); everything else is internal (Slack, C
 |---|---|---|---|---|---|
 | 39 | Duct-tape stack (Sheets as CRM, breaking Zaps) | Built in principle | The engine replaces the chains; Health check finds what breaks | Proven by each takeover (#40) | Core |
 | 40 | Forcing a tool past what it was built for | Built in principle | Logic lives in the engine, the CRM holds records | — | Core |
-| 41 | Over-customised CRM nobody can maintain | Partial | Templates and playbooks (#49), versions, audit log | Playbooks not built yet | Core |
+| 41 | Over-customised CRM nobody can maintain | Partial | Templates and playbooks (#53), versions, audit log | Playbooks not built yet | Core |
 | 42 | The team does not use the system | Partial | Slack-first cards, EOD links | Adoption measured per rep (EOD filed, outcomes filed, cards moved on time) | Core |
 | 43 | No SOPs, one person knows it | Partial | describe.ts plain English, mermaid charts | Drillable explanations (#46); an SOP per playbook generated from it | Core |
 
@@ -104,6 +104,6 @@ CF = sends to the contact (text or email); everything else is internal (Slack, C
 - **13 carries a risk.** Overbooking unconfirmed slots means two people can show for one slot. It needs a rule for that
   before it is built.
 - **The wizard's intake asks which of these problems the offer has.** The answers pick the playbook's modules, and the
-  gaps found become that offer's build list (#49).
+  gaps found become that offer's build list (#53).
 - "Instant data" is already the design: every event lands in the ledger the moment it happens. The dashboard is a view on
   it, built later.

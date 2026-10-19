@@ -13,7 +13,7 @@ create table companies (
   sms_enabled       boolean not null default true,      -- false when the sub-account has no number; SMS nodes skip
   mode              text not null default 'ghost' check (mode in ('ghost','test','quiet','live')),  -- the ladder (D52, D132): ghost runs everyone and writes nothing; test = sys-test contacts and test-domain emails only, everything real for them; quiet = the CRM written for everyone, nothing reaching a contact, Slack only to test channels; live = everyone
   status            text not null default 'active'
-                    check (status in ('onboarding','active','hosted','archived','template')),   -- template: a playbook's template business (D150), never run
+                    check (status in ('onboarding','active','hosted','archived','template')),   -- template: a playbook's template business (D155), never run
   archived_at       timestamptz,
   -- D88: an opportunity is won and lost by workflow steps (update_opportunity in Payment recorded and Call outcome filed), not by settings here
   reached_seconds   int not null default 60,            -- a connected dial at least this long counts as the lead being reached (speed to lead)
@@ -101,7 +101,7 @@ insert into core_categories (domain, value, label, sort) values
   ('reply_intent','unclear','Unclear',5);
 
 -- A company's own words. "Strategy session" is-a first_call. Free name, one-time category pick.
--- D150: what a playbook's template business published: the words, the playbook's params and the offer settings a new client of that
+-- D155: what a playbook's template business published: the words, the playbook's params and the offer settings a new client of that
 -- playbook starts from. Steps are not here: they are the code's (src/templates, src/playbooks), tested and reviewed.
 create table playbook_releases (
   id            uuid primary key default gen_random_uuid(),
@@ -116,23 +116,23 @@ create table playbook_releases (
   unique (playbook, version)
 );
 
--- D143 (#49): a client being stood up: the wizard's answers and progress, step by step. One row per company, kept after it is
+-- D148 (#53): a client being stood up: the wizard's answers and progress, step by step. One row per company, kept after it is
 -- finished (the intake and the fit report are how the client was set up).
 create table onboarding (
   company_id  uuid primary key references companies(id) on delete cascade,
   kind        text not null default 'new' check (kind in ('new','takeover')),   -- a brand-new offer, or a running system taken over
   intake      jsonb not null default '{}',     -- the offer as Tyler described it (src/onboarding/intake.ts)
-  playbook    text,                            -- the playbook the intake picked or Tyler chose (D142)
-  params      jsonb,                           -- that playbook's params for this offer, from its defaults until Tyler edits them (D147)
+  playbook    text,                            -- the playbook the intake picked or Tyler chose (D147)
+  params      jsonb,                           -- that playbook's params for this offer, from its defaults until Tyler edits them (D152)
   fit         jsonb,                           -- the fit report when the intake was saved: per workflow fits / tweak / build / off, the gaps
   steps       jsonb not null default '{}',     -- step → { done_at, by }
   connections jsonb not null default '{}',     -- connection → its last live test { ok, at, detail | error } (never a key)
-  research    jsonb,                           -- what was read from their accounts, the AI's proposal, and Tyler's answers (D145)
-  slack       jsonb not null default '{}',     -- the Slack app's name, face, and whether it carries the slash commands (D146)
-  crm         jsonb not null default '{}',     -- the CRM build: its options, the last plan or build and the ids it found or made (D147)
-  messages    jsonb not null default '{}',     -- each client-facing message Tyler approved: workflow:step → { hash of its words, at, by } (D149)
+  research    jsonb,                           -- what was read from their accounts, the AI's proposal, and Tyler's answers (D150)
+  slack       jsonb not null default '{}',     -- the Slack app's name, face, and whether it carries the slash commands (D151)
+  crm         jsonb not null default '{}',     -- the CRM build: its options, the last plan or build and the ids it found or made (D152)
+  messages    jsonb not null default '{}',     -- each client-facing message Tyler approved: workflow:step → { hash of its words, at, by } (D154)
   tests       jsonb not null default '{}',
-  filters     jsonb not null default '{}',     -- their own GHL workflows as last read, Tyler's mark on each, and the last check before a rung up (D152)     -- the test passes: the test contact, the workflows turned on and the rung, each scenario's latest result, workflows accepted by hand (D151)
+  filters     jsonb not null default '{}',     -- their own GHL workflows as last read, Tyler's mark on each, and the last check before a rung up (D157)     -- the test passes: the test contact, the workflows turned on and the rung, each scenario's latest result, workflows accepted by hand (D156)
   started_at  timestamptz not null default now(),
   started_by  text,
   finished_at timestamptz

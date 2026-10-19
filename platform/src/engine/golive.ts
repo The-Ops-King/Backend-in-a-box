@@ -89,7 +89,7 @@ export async function setCompanyMode(c: PoolClient, companyId: string, to: Mode,
   }
   await c.query("begin");
   try {
-    // D152: any move up, for a company onboarded through the wizard, uses a fresh check of their own GHL workflows
+    // D157: any move up, for a company onboarded through the wizard, uses a fresh check of their own GHL workflows
     const unchecked = rank(to) > rank(co.mode) ? await useCheck(c, companyId, `company → ${to}`) : null;
     if (unchecked) { await c.query("rollback"); return { ok: false, blockers: [{ level: "blocker", text: unchecked }] }; }
     const cleared = up ? await clearRehearsalRuns(c, companyId, undefined, to) : undefined;

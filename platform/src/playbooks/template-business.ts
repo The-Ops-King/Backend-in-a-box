@@ -1,11 +1,11 @@
 /**
- * D150: a playbook's template business. Tyler (2026-10-19): "create a business with no API keys called template, and we'll have
+ * D155: a playbook's template business. Tyler (2026-10-19): "create a business with no API keys called template, and we'll have
  * all the options there; if we want to make adjustments to all future ones we change the templates" — one per playbook, edited
  * there and published.
  *
  * A template business is a company with status `template`: the engine never polls or ticks it (only active and hosted run), it
  * has no keys, and it holds its playbook installed as a client would have it (every shipped template, the playbook's copies),
- * every workflow off, in ghost. Tyler edits its words (D149) and its playbook's params there. **Publish** checks it and keeps a
+ * every workflow off, in ghost. Tyler edits its words (D154) and its playbook's params there. **Publish** checks it and keeps a
  * release: its words, its params and its offer settings (the same allowlist duplicating uses, OFFER_KEYS). A new client on that
  * playbook starts from the latest release: the wizard's params (made the offer's), and at install its words and settings, where
  * the client has none of its own. Existing clients are not touched (Tyler: future ones).
@@ -33,7 +33,7 @@ import { scenariosFor, testedFingerprint, testsTodo, type Tests } from "@/onboar
 export const templateSlug = (playbook: string) => `template-${playbook}`;
 
 /**
- * D154: the offer a template business tests: its playbook at its fullest (setters where it has them, an application where it has
+ * D159: the offer a template business tests: its playbook at its fullest (setters where it has them, an application where it has
  * one, deposits, plans, an agreement), on software that needs no key beyond GHL and Slack: payments and recordings come through
  * the doors a Zap would use (the harness stages them), bookings are GHL calendars, the agreement a GHL document.
  */
@@ -49,7 +49,7 @@ export function templateIntake(playbook: string): Intake {
 }
 
 /**
- * D154/D155: the template business's record of its setup and tests (the same record a client's wizard keeps, so the same steps
+ * D159/D160: the template business's record of its setup and tests (the same record a client's wizard keeps, so the same steps
  * and passes serve both), driven by Claude in the sandbox (sandbox.ts), never shown as a wizard. The offer is its playbook's
  * (templateIntake) and its messages need no approval: they are the template's own words, checked at publish. Made once.
  */
@@ -81,7 +81,7 @@ export async function ensureTemplateBusiness(c: PoolClient, playbook: string, by
     await c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,'text',$3)", [co.id, WORDS_KEY, Buffer.from(JSON.stringify(release.words))]);
     for (const [k, v] of Object.entries(release.settings)) await c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,'text',$3) on conflict (company_id, key) do nothing", [co.id, k, Buffer.from(v)]);
   }
-  // what a client's CRM build gives it (D147): the Sales Call's objections, which a playbook's call prompts read
+  // what a client's CRM build gives it (D152): the Sales Call's objections, which a playbook's call prompts read
   await c.query("insert into bindings (company_id, key, kind, value) values ($1,'sales_call.objections','text',$2) on conflict (company_id, key) do nothing", [co.id, Buffer.from(JSON.stringify(OBJECTIONS))]);
   // the call prompts every client gets at install (defaultPrompts), here to be edited and published with the rest
   for (const [k, v] of Object.entries(defaultPrompts)) await c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,'text',$3) on conflict (company_id, key) do nothing", [co.id, `prompt.${k}`, Buffer.from(v)]);
@@ -99,7 +99,7 @@ export async function ensureTemplateBusiness(c: PoolClient, playbook: string, by
 /** New params for the template business: checked by its playbook, its copies rebuilt with them (its words kept). */
 export async function setTemplateParams(c: PoolClient, playbook: string, params: unknown, by = "dashboard") {
   const r = await applyPlaybook(c, { company: templateSlug(playbook), playbook, params, by });
-  // D154: its wizard record follows, so an install from the wizard builds the same copies
+  // D159: its wizard record follows, so an install from the wizard builds the same copies
   if (r.ok && !("dryRun" in r && r.dryRun)) await c.query("update onboarding set params=$2 where company_id=(select id from companies where slug=$1)", [templateSlug(playbook), params === undefined ? null : JSON.stringify(params)]);
   return r;
 }
@@ -109,7 +109,7 @@ export type PublishResult = { ok: true; release: Release } | { ok: false; status
 /**
  * The template business checked and published. Refused, naming each: a workflow changed beyond words (a code change), a word
  * that is not valid copy, another client's words, a workflow the engine cannot read or draw exactly. Placeholders left in are
- * allowed and noted: each client writes those in its own Messages step. D154: refused too until it is tested: every journey
+ * allowed and noted: each client writes those in its own Messages step. D159: refused too until it is tested: every journey
  * passed on the test rung in the sandbox, on exactly the workflow versions and words being published (`untested`).
  */
 export async function publish(c: PoolClient, playbook: string, by = "dashboard"): Promise<PublishResult> {
@@ -150,7 +150,7 @@ export async function publish(c: PoolClient, playbook: string, by = "dashboard")
 }
 
 /**
- * D154: what stands between the template business's test passes and a publish: every journey run on the test rung in the
+ * D159: what stands between the template business's test passes and a publish: every journey run on the test rung in the
  * sandbox (real writes to the test contact), on exactly what is being published (the same workflow versions and words), nothing
  * left to do. One line each; none means tested.
  */
@@ -166,7 +166,7 @@ export async function untested(c: PoolClient, companyId: string): Promise<string
 }
 
 /**
- * D150: a new client starts from its playbook's latest release: its words and settings, where the client has none of its own
+ * D155: a new client starts from its playbook's latest release: its words and settings, where the client has none of its own
  * (before install, so install and the playbook lay them on). Returns the release's version, or null when there is none.
  */
 export async function seedFromRelease(c: PoolClient, companyId: string, playbook: string): Promise<number | null> {

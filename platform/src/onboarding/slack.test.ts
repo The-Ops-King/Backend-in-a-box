@@ -1,5 +1,5 @@
 /**
- * D146: the Slack step. The manifest carries this company's id in every request URL and the bot's own command list (Dating's
+ * D151: the Slack step. The manifest carries this company's id in every request URL and the bot's own command list (Dating's
  * hand-written manifest is the check), none when the workspace is shared; the token is kept only when Slack accepts it, with a
  * signing secret of the right shape; the step is done once every slot with nothing to fall back on has a channel.
  */
@@ -34,7 +34,7 @@ describe("the Slack manifest", () => {
   });
 });
 
-describe.skipIf(!process.env.DATABASE_URL)("D146: the Slack step", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D151: the Slack step", () => {
   let id: string;
   const intake: Intake = { business: "Slack Co", price: "5000", deposits: false, payment_plans: false, lead_paths: ["ads_direct_book"], application: "none", setters: false, triage: false, boards: "one",
     journey: "They book, the closer closes.", crm: "ghl", booking: "calendly", payments: "whop", recording: "fathom", agreement: "ghl_documents" };

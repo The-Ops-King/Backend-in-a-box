@@ -237,7 +237,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D70: the Slack bot's conversations
     await ownsOrAbsent(c, "bot_threads", "thread_ts");
     await c.query(`create table if not exists bot_threads (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, channel text not null, thread_ts text not null, asked_by text, messages jsonb not null default '[]', created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (company_id, channel, thread_ts))`);
-    // D143: the onboarding wizard's record of a client being stood up
+    // D148: the onboarding wizard's record of a client being stood up
     await ownsOrAbsent(c, "onboarding", "intake");
     await c.query(`create table if not exists onboarding (company_id uuid primary key references companies(id) on delete cascade, kind text not null default 'new' check (kind in ('new','takeover')), intake jsonb not null default '{}', playbook text, fit jsonb, steps jsonb not null default '{}', started_at timestamptz not null default now(), started_by text, finished_at timestamptz)`);
     await c.query(`alter table onboarding add column if not exists connections jsonb not null default '{}'`);
@@ -248,7 +248,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table onboarding add column if not exists messages jsonb not null default '{}'`);
     await c.query(`alter table onboarding add column if not exists tests jsonb not null default '{}'`);
     await c.query(`alter table onboarding add column if not exists filters jsonb not null default '{}'`);
-    // D150: a playbook's template business, and what it publishes
+    // D155: a playbook's template business, and what it publishes
     await c.query(`alter table companies drop constraint if exists companies_status_check`);
     await c.query(`alter table companies add constraint companies_status_check check (status in ('onboarding','active','hosted','archived','template'))`);
     await ownsOrAbsent(c, "playbook_releases", "params");
@@ -292,7 +292,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D104: Call booked's card no longer carries Hair's intake questions; a company that bound them keeps them as its own setting.
     // As the operator: bindings are under FORCE RLS, where this unscoped connection would see no rows.
     const bookingCard = await asOperator((o) => backfillBookingCard(o));
-    // D149: every company's earlier word edits move into its words, so those copies follow their templates again. Idempotent: only a
+    // D154: every company's earlier word edits move into its words, so those copies follow their templates again. Idempotent: only a
     // copy still marked edited, on its template's current version and different from it in words only, moves; the words are the same
     // words, so nothing a run sends changes. Each move is in the company's audit log.
     const words = await asOperator(async (o) => {

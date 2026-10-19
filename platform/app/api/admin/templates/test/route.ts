@@ -7,7 +7,7 @@ import { runSandboxJourney, sandboxStatus, setupSandbox } from "@/playbooks/sand
 export const dynamic = "force-dynamic"; export const maxDuration = 300;   // setup reads and builds in GHL; a journey ticks between its steps
 
 /**
- * D155, with Authorization: Bearer $CRON_SECRET: a playbook's template business tested in the sandbox (the snapshot sub-account,
+ * D160, with Authorization: Bearer $CRON_SECRET: a playbook's template business tested in the sandbox (the snapshot sub-account,
  * from the deployment's SANDBOX_* settings), driven by Claude; not the onboarding wizard's.
  * GET  ?playbook=<slug> → each journey's latest result, each workflow's state, what publish still needs.
  * POST { playbook, action: "setup", answers? } → every step up to the test rung, stopping at the first that fails; `answers`

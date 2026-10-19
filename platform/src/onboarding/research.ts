@@ -1,5 +1,5 @@
 /**
- * D145 (#49 P1): the wizard's research step. With the keys that passed (D144), the engine reads what the client has: their
+ * D150 (#53 P1): the wizard's research step. With the keys that passed (D149), the engine reads what the client has: their
  * calendars (GHL) or event types (Calendly) with hosts and booking questions, their GHL team, boards, custom objects and their
  * own GHL workflows (names only: the filters step lists them). The AI (describe-config's proposer, D-describe) reads that and
  * the offer as Tyler described it and suggests which calendar is the sales call, which a setter books, who closes; its guesses

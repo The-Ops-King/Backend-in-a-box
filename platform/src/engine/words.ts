@@ -1,8 +1,8 @@
 /**
- * D149: a company's own words, kept apart from the steps. A message's words (an SMS, an email's subject and body, a Slack
+ * D154: a company's own words, kept apart from the steps. A message's words (an SMS, an email's subject and body, a Slack
  * post, a note, a task) are the company's; the steps around them are the template's or the playbook's. The words are kept as
  * one setting (`copy.words`: workflow → step → field → text) and laid over the workflow every time it is built: when install
- * puts a template on or upgrades it, when a playbook's copies are built (D142), and when a word is changed. So a word edit no
+ * puts a template on or upgrades it, when a playbook's copies are built (D147), and when a word is changed. So a word edit no
  * longer freezes a copy (it stays "untouched" and keeps getting its template's fixes, D141 is why that matters), and a rebuild
  * never loses the words. A copy edited beyond words (a step changed, D-edits) is still the company's own and left alone.
  * A workflow is named by its template's slug, or `own:<name>` for a company's own workflow (D123).
@@ -76,7 +76,7 @@ export async function setWord(c: PoolClient, args: { workflowId: string; nodeId:
 }
 
 /**
- * D149: a company's earlier word edits moved into its words. A copy edited by `saveCopy` before D149 was marked edited
+ * D154: a company's earlier word edits moved into its words. A copy edited by `saveCopy` before D154 was marked edited
  * (diverged) and left behind by every template fix since. Where such a copy differs from its template only in words, those words
  * go into the company's words and the copy is untouched again (it then follows its template, words and all). A copy edited
  * beyond words, or behind its template, stays as it is and is named. `dryRun` writes nothing.

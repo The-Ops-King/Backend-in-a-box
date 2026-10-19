@@ -4,7 +4,7 @@ import { fail, ok } from "@/api/http";
 import { listMessages } from "@/onboarding/messages";
 export const dynamic = "force-dynamic";
 
-/** D149: every text and email this client's contacts can get, its words, whether it is a placeholder or carries another client's words, and whether it is approved. */
+/** D154: every text and email this client's contacts can get, its words, whether it is a placeholder or carries another client's words, and whether it is approved. */
 export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   return asOperator(async (c) => {

@@ -1,6 +1,6 @@
 import "./_env";
 /**
- * pnpm exec tsx scripts/apply-playbook.ts <company> [--apply] [--copy-settings-from <slug>] — D142: puts the company's playbook
+ * pnpm exec tsx scripts/apply-playbook.ts <company> [--apply] [--copy-settings-from <slug>] — D147: puts the company's playbook
  * (installs/<company>/playbook.json, its params) on the company in the engine through POST /api/admin/playbooks: each copy built
  * from today's templates and saved, all or nothing, nothing removed. A dry run unless --apply. `--copy-settings-from`: first copy
  * that company's offer settings where this one has none of its own ("duplicate PMU"). Needs CRON_SECRET; the engine is BIAB_URL

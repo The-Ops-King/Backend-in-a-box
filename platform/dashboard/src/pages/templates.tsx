@@ -7,7 +7,7 @@ import type { Release } from "@/playbooks/template-business";
 
 export type TemplatesPage = { templates: { playbook: string; name: string; about: string; business: string | null; params: unknown; release: Release | null }[] };
 
-/** D150: on the Companies page: each playbook's template business, made, edited and published from here. */
+/** D155: on the Companies page: each playbook's template business, made, edited and published from here. */
 export function Templates() {
   const q = usePage<TemplatesPage>(["templates"], "/api/v1/templates", { every: 120_000 });
   const [problems, setProblems] = useState<Record<string, string[]>>({});

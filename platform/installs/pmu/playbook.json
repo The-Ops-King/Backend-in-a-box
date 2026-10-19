@@ -1,5 +1,5 @@
 {
-  "_note": "D142: PMU runs the one-board playbook (src/playbooks/one-board.ts). These are PMU's own params; its copies in this folder are what the build makes from the shipped templates and them: pnpm exec tsx scripts/build-copies.ts pmu (--check: say whether they are current). Save each with POST /api/admin/workflows/definition (dryRun first).",
+  "_note": "D147: PMU runs the one-board playbook (src/playbooks/one-board.ts). These are PMU's own params; its copies in this folder are what the build makes from the shipped templates and them: pnpm exec tsx scripts/build-copies.ts pmu (--check: say whether they are current). Save each with POST /api/admin/workflows/definition (dryRun first).",
   "playbook": "one-board",
   "params": {
     "name": "PMU",

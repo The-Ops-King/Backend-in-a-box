@@ -1,5 +1,5 @@
 /**
- * D142: a company's playbook as the repo keeps it: installs/<company>/playbook.json (which playbook, its params) and
+ * D147: a company's playbook as the repo keeps it: installs/<company>/playbook.json (which playbook, its params) and
  * installs/<company>.json (its install file). `companyBuild` says every file the build makes, with its text, so the build script
  * writes them and a test holds the committed ones to it (a copy that fell behind its template fails the test).
  */

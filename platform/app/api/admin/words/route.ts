@@ -5,8 +5,8 @@ import { wordsFromEdits } from "@/engine/words";
 export const dynamic = "force-dynamic";
 
 /**
- * D149, with Authorization: Bearer $CRON_SECRET. POST { company, apply? } → the company's earlier word edits (copies frozen by
- * a pre-D149 copy edit) that differ from their template only in words: moved into the company's words, the copy untouched again so
+ * D154, with Authorization: Bearer $CRON_SECRET. POST { company, apply? } → the company's earlier word edits (copies frozen by
+ * a pre-D154 copy edit) that differ from their template only in words: moved into the company's words, the copy untouched again so
  * it follows its template from then on. A copy edited beyond words, or behind its template, stays as it is and is named. A dry run
  * unless `apply: true`; nothing a run sends changes either way (the words are the same words).
  */

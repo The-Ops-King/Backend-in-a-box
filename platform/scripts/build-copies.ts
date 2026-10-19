@@ -1,5 +1,5 @@
 /**
- * pnpm exec tsx scripts/build-copies.ts <company> [--check] — D142: builds a company's own workflow copies from the shipped
+ * pnpm exec tsx scripts/build-copies.ts <company> [--check] — D147: builds a company's own workflow copies from the shipped
  * templates and its playbook (installs/<company>/playbook.json: which playbook, its params) into installs/<company>/<workflow>.json,
  * and anything the playbook writes into installs/<company>.json (D118: a dating company's call prompts). Each copy is saved with
  * POST /api/admin/workflows/definition { company, workflow, definition, note } (dryRun: true first); D123: a file with `name` and
