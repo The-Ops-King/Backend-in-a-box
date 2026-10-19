@@ -5036,3 +5036,33 @@ is going away; it now checks them one at a time.
 
 Tests: `template-business.test.ts`. Walked in the browser: the Setter and closer template business made, publish refused over Hair's
 welcome text, the words rewritten on its Words page, published as v1.
+
+## D151: the wizard's test passes (#49 P1, step 8)
+
+Tyler's walkthrough, step 6: "test end to end". Each **journey** the offer has is staged on one test contact through the harness
+(D23: the fact is ours, source `test`; D97: only a test contact), the company ticked between steps, and every run it started read
+back: its workflow, how it ended, the failed or paused step and its error. The journeys come from the intake and the end-of-day
+form (`scenariosFor`): a new lead; an application (Typeform); books, shows, closes (recorded, paid, signed where the offer does
+those); a deposit; a no-show (a setter's booking when there are setters); a cancel; a reschedule; a setter's dial; and every
+scheduled workflow fired now. Each journey starts with `reset`, so it is the contact's first time through, and runs as its own
+request (a journey can take a while; no request times out on the whole set).
+
+First, **the test contact and the rung**: a contact tagged `sys-test` (or on a test domain), made in their GHL and read in by the
+poll; ghost (nothing written or sent anywhere) or test (the test contact's runs really write and send; everyone else stays ghost).
+The test rung waits for the messages to be approved, and on a takeover is confirmed first: their own GHL workflows see the test
+contact's tags and stage moves (step 9 filters them; Tyler's reminder, asked for every time). Then **the offer's workflows are
+turned on**: all of them but the fit report's off and build ones. One the offer uses that cannot run (a missing setting, a
+definition that does not parse) is left off and **blocks the step**, naming what it misses: a core workflow quietly off would pass
+a test that never ran it.
+
+**Done** when every workflow turned on has a clean run (completed, exited or waiting, no failed or paused step, no step retrying)
+and none failing, or is accepted by hand with a note (a workflow no journey reaches: a failed payment, an unmatched recording, the
+health sweep). A journey run again replaces its result, so a fix clears what it fixed; the done mark follows the results both
+ways. Saved on `onboarding.tests`.
+
+Found doing this, in the browser with live adapters: in ghost, runs still read GHL, so a bad key shows on the first journey as a
+paused run naming the 401, before anything goes live. The test suite leaves the scheduled journey out: the leaderboard and
+wrap-ups read GHL over HTTP, which the fake adapters do not stand in for.
+
+Tests: `tests.test.ts`. Walked in the browser: the step on an installed company, the Cancels journey run from its button.
+

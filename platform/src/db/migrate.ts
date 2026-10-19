@@ -246,6 +246,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table onboarding add column if not exists params jsonb`);
     await c.query(`alter table onboarding add column if not exists crm jsonb not null default '{}'`);
     await c.query(`alter table onboarding add column if not exists messages jsonb not null default '{}'`);
+    await c.query(`alter table onboarding add column if not exists tests jsonb not null default '{}'`);
     // D150: a playbook's template business, and what it publishes
     await c.query(`alter table companies drop constraint if exists companies_status_check`);
     await c.query(`alter table companies add constraint companies_status_check check (status in ('onboarding','active','hosted','archived','template'))`);

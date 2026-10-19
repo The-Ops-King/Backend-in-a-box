@@ -10,6 +10,7 @@ import type { Research, ResearchAnswers, CalendarAnswer, Role } from "@/onboardi
 import type { SlackState } from "@/onboarding/slack";
 import type { CrmRun } from "@/onboarding/crm";
 import type { Message } from "@/onboarding/messages";
+import type { TestsState, ScenarioResult } from "@/onboarding/tests";
 
 /** D143 (#49 P1): standing a client up, step by step. Every step saves; Tyler can stop for days and come back to the same place. */
 export function Onboarding() {
@@ -43,7 +44,8 @@ export function Onboarding() {
           : at === "slack" ? <SlackStep slug={slug} invalidate={key} />
           : at === "crm" ? <CrmStep slug={slug} d={d} invalidate={key} />
           : at === "install" ? <InstallStep slug={slug} d={d} invalidate={key} />
-          : at === "messages" ? <MessagesStep slug={slug} d={d} invalidate={key} /> : null}
+          : at === "messages" ? <MessagesStep slug={slug} d={d} invalidate={key} />
+          : at === "test" ? <TestStep slug={slug} d={d} invalidate={key} /> : null}
       </section>
     </div>
   </>;
@@ -331,6 +333,81 @@ function MessagesStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage
     <p className="note">{done} of {needed.length} approved. Each text and email is approved as written; changing its words takes the approval back. A placeholder or another client's words cannot be approved. Words saved here are this client's own and survive every template upgrade.</p>
     {byWf.map((wf) => <div key={wf} className="call" style={{ marginTop: 12 }}><b>{wf}</b>{needed.filter((m) => m.workflow === wf).map((m) => <MessageCard key={m.workflowId + m.nodeId} url={`/api/v1/companies/${slug}/onboarding`} extra={{ step: "messages" }} approvable m={m} invalidate={[[...invalidate], key]} />)}</div>)}
     {q.data.messages.some((m) => !m.needed) ? <Fold title={<>Not needed: workflows this offer does not use · {q.data.messages.filter((m) => !m.needed).length}</>}><ul className="note">{q.data.messages.filter((m) => !m.needed).map((m) => <li key={m.workflowId + m.nodeId}>{m.workflow}: {m.title}</li>)}</ul></Fold> : null}
+  </>;
+}
+
+/**
+ * D151: the test passes. Choose the test contact and the rung, turn the offer's workflows on, then run each journey on that
+ * contact (one request each: a journey ticks the company between its steps). Every run a journey started is listed with how it
+ * ended; a workflow no journey reaches is checked by hand and accepted with a note.
+ */
+function TestStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage; invalidate: string[] }) {
+  const key = ["onboarding-tests", slug];
+  const q = usePage<TestsState>(key, `/api/v1/companies/${slug}/onboarding/tests`, { every: 120_000 });
+  const url = `/api/v1/companies/${slug}/onboarding`;
+  const post = useAction<Record<string, unknown>, { result?: ScenarioResult }>((v) => api(url, { method: "POST", json: { step: "test", ...v } }), [invalidate, key]);
+  const [contact, setContact] = useState<string>(""), [rung, setRung] = useState<"ghost" | "test">("ghost");
+  const [busy, setBusy] = useState<string | null>(null), [err, setErr] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  if (!d.steps.find((s) => s.id === "install")!.done) return <Empty>Install first: the test passes run the client's own workflows, which install puts on.</Empty>;
+  if (!q.data) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton lines={8} />;
+  const t = q.data, prepared = t.tests.prepared;
+  const chosen = contact || t.tests.contact?.id || t.contacts[0]?.id || "";
+  const prepare = async () => {
+    const takeoverTest = rung === "test" && d.kind === "takeover";
+    if (takeoverTest && !confirm("On the test rung the test contact's tags and stage moves are real, and their own GHL workflows see them. Is the test contact filtered out of their automations, or is what reaches it harmless?")) return;
+    setErr(null); setBusy("prepare");
+    try { await post.mutateAsync({ prepare: true, contactId: chosen, rung, ...(takeoverTest ? { confirm: true } : {}) }); toast(`Workflows on, company in ${rung}.`); } catch (x) { setErr((x as Error).message); } finally { setBusy(null); }
+  };
+  const run = async (ids: string[]) => {
+    setErr(null);
+    for (const id of ids) {
+      setBusy(id);
+      try { const r = await post.mutateAsync({ scenario: id }); if (r.result && !r.result.passed) { toast(`${t.scenarios.find((s) => s.id === id)?.label}: problems found.`); } }
+      catch (x) { setErr((x as Error).message); break; }
+    }
+    setBusy(null);
+  };
+  const accept = async (workflow: string, note: string) => { setErr(null); try { await post.mutateAsync({ accept: workflow, note }); setNotes({ ...notes, [workflow]: "" }); } catch (x) { setErr((x as Error).message); } };
+  return <>
+    {err ? <div className="banner warn">{err}</div> : null}
+    <div className="call">
+      <b>Test contact and rung</b>
+      {t.contacts.length ? <div className="form">
+        <label><span>Test contact</span><select value={chosen} onChange={(e) => setContact(e.target.value)}>{t.contacts.map((x) => <option key={x.id} value={x.id}>{x.name}{x.email ? ` (${x.email})` : ""}</option>)}</select></label>
+        <label><span>Rung</span><select value={rung} onChange={(e) => setRung(e.target.value as "ghost" | "test")}>
+          <option value="ghost">Ghost: nothing written or sent anywhere; each run says what it would do</option>
+          <option value="test">Test: the test contact's runs really write and send; everyone else stays ghost</option></select></label>
+      </div> : <p className="note">No test contact yet. Make one in their GHL tagged <code>sys-test</code> (your own phone and email); the engine reads it within a minute.</p>}
+      {d.kind === "takeover" ? <p className="note">A takeover: their own GHL workflows see whatever the engine writes on the test contact. Check the test contact is filtered out of their automations before the test rung (step 9 does this for every workflow).</p> : null}
+      <div><button className="btn" type="button" disabled={!chosen || busy !== null} onClick={prepare}>{busy === "prepare" ? "Turning on…" : prepared ? "Turn the workflows on again" : "Turn the offer's workflows on"}</button></div>
+      {prepared ? <p className="note">{prepared.on.length} workflow{prepared.on.length === 1 ? "" : "s"} on, the company in <b>{d.company.mode}</b>, on {t.tests.contact?.name}; {ago(prepared.at)}.</p> : null}
+      {prepared?.left_off.length ? <ul className="note">{prepared.left_off.map((w) => <li key={w.name}>{w.blocking ? <Tag kind="warn">blocks</Tag> : <Tag>off</Tag>} {w.name}: {w.why}</li>)}</ul> : null}
+    </div>
+    {prepared ? <div className="call" style={{ marginTop: 12 }}>
+      <div className="hd"><b>Journeys</b><button className="btn" type="button" disabled={busy !== null} onClick={() => run(t.scenarios.map((s) => s.id))}>{busy && busy !== "prepare" ? "Running…" : "Run all"}</button></div>
+      {t.scenarios.map((s) => { const r = t.tests.results?.[s.id]; return <div key={s.id} className="cal-row">
+        <div className="hd"><b>{s.label}</b>{busy === s.id ? <Tag>running</Tag> : !r ? <Tag>not run</Tag> : r.passed ? <Tag kind="ok">clean</Tag> : <Tag kind="warn">problems</Tag>}
+          <button className="btn" type="button" disabled={busy !== null} onClick={() => run([s.id])}>{r ? "Run again" : "Run"}</button></div>
+        <p className="note">{s.about}{r ? ` · ${ago(r.at)} in ${r.rung}` : ""}</p>
+        {r?.acts.filter((a) => !a.ok).map((a) => <div key={a.action} className="banner warn" style={{ marginTop: 0 }}>{a.action}: {a.why}</div>)}
+        {r?.runs.length ? <ul className="note">{r.runs.map((x, i) => <li key={i}>{x.problem ? <Tag kind="warn">{x.status}</Tag> : <Tag kind="ok">{x.status}</Tag>} {x.workflow}{x.exit_reason ? ` (${x.exit_reason})` : ""}{x.problem ? `: ${x.problem}` : ""}</li>)}</ul>
+          : r ? <p className="note">No run started.</p> : null}
+      </div>; })}
+    </div> : null}
+    {prepared ? <div className="call" style={{ marginTop: 12 }}>
+      <b>Workflows</b>
+      {t.workflows.map((w) => <div key={w.name} className="cal-row">
+        <div className="hd"><b>{w.name}</b><Tag kind={w.state === "clean" || w.state === "accepted" ? "ok" : "warn"}>{w.state}</Tag></div>
+        {w.problems.length ? <ul className="note">{w.problems.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
+        {w.state === "clean" ? <p className="note">{w.clean} clean run{w.clean === 1 ? "" : "s"}.</p> : null}
+        {w.state === "accepted" ? <p className="note">Accepted: {w.note} <button className="btn" type="button" onClick={() => accept(w.name, "")}>Take back</button></p> : null}
+        {w.state === "not reached" ? <div style={{ display: "flex", gap: 8 }}><input placeholder="How it was checked, or why it waits" value={notes[w.name] ?? ""} onChange={(e) => setNotes({ ...notes, [w.name]: e.target.value })} />
+          <button className="btn" type="button" disabled={!(notes[w.name] ?? "").trim()} onClick={() => accept(w.name, notes[w.name])}>Accept</button></div> : null}
+      </div>)}
+    </div> : null}
+    {prepared ? t.done ? <p className="note">Every workflow on is clean or accepted: the step is done.</p>
+      : <Fold title={<>Left before this step is done · {t.todo.length}</>}><ul className="note">{t.todo.map((l) => <li key={l}>{l}</li>)}</ul></Fold> : null}
   </>;
 }
 
