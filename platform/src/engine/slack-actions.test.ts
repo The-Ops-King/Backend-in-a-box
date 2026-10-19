@@ -120,7 +120,7 @@ describe.skipIf(!HAS_DB)("D93: Retry and Resolve in Slack", () => {
     expect(post.channel).toBe("CALERTS");
     expect(post.text).toMatch(/^🟡 \*Button Co · Step skipped\*\nCouldn't add the tag “stat-x” for Ben Press after 3 tries \(GHL says upstream connect error\); everything else in Tag then note ran\.\n<.*\|Open>/);   // the text stays the fallback
     expect(post.blocks!.filter((b) => b.type === "section").map((b) => (b.text as { text: string }).text).join("\n")).toBe(post.text);
-    expect(buttonsOf(post.blocks)).toEqual([{ action: "alert_retry", value: alert.id, text: "Retry" }, { action: "alert_resolve", value: alert.id, text: "Resolve" }]);
+    expect(buttonsOf(post.blocks)).toEqual([{ action: "alert_retry", value: alert.id, text: "Retry" }, { action: "alert_resolve", value: alert.id, text: "Resolve" }, { action: "alert_pause", value: alert.id, text: "Pause" }]);
 
     // a closer is not a manager: told so privately, nothing moves
     expect(await alertPressed(deps, companyId, press("alert_retry", alert.id, CLOSER, post, ts))).toEqual({ done: "denied" });
@@ -157,12 +157,25 @@ describe.skipIf(!HAS_DB)("D93: Retry and Resolve in Slack", () => {
     expect(posts.at(-1)).toMatchObject({ threadTs: ts, text: expect.stringMatching(/^✅ Resolved after/) });
   });
 
+  it("D150 Pause: a manager's press stops the reminders, keeps the alert open and settles the post; a second press says it already is; a closer is told no", async () => {
+    const a = await asOperator((c) => raise(c, { companyId, key: "health:steps:pause-me", level: "warning", source: "health", text: "Deal closed never starts until payments are connected." }));
+    await alertsThenSay();
+    const pa = alertPost(a.id);
+    expect(await alertPressed(deps, companyId, press("alert_pause", a.id, "U-STRANGER", pa.post, pa.ts))).toEqual({ done: "denied" });
+    expect(await alertPressed(deps, companyId, press("alert_pause", a.id, MANAGER, pa.post, pa.ts))).toEqual({ done: "paused" });
+    const row = (await asOperator((c) => one<{ resolved_at: Date | null; paused_at: Date | null; paused_by: string | null }>(c, "select resolved_at, paused_at, paused_by from alerts where id=$1", [a.id])))!;
+    expect(row.resolved_at).toBeNull(); expect(row.paused_at).not.toBeNull(); expect(row.paused_by).toBe("Mia in Slack");
+    expect(updates.at(-1)).toMatchObject({ channel: "CALERTS", ts: pa.ts, text: `${pa.post.text}\n⏸️ Paused by <@${MANAGER}>: no more reminders. It still closes here once it's fixed.` });
+    expect(buttonsOf(updates.at(-1)!.blocks)).toEqual([]);
+    expect(await alertPressed(deps, companyId, press("alert_pause", a.id, MANAGER, pa.post, pa.ts))).toEqual({ done: "already" });
+  });
+
   it("Resolve: a manager's press closes the alert with who and why in the audit log and settles the post; the operator may too; two presses at once resolve it once; an alert with no step to retry has no Retry button", async () => {
     const a = await asOperator((c) => raise(c, { companyId, key: "health:calendar:CAL9", level: "error", source: "health", text: "Closer C has no free slots in the next 7 days.", href: "/app/c/slkbtn/health" }));
     const b = await asOperator((c) => raise(c, { companyId, key: "health:calendar:CAL8", level: "warning", source: "health", text: "Closer D has two free slots in the next 7 days.", href: "/app/c/slkbtn/health" }));
     await alertsThenSay();
     const pa = alertPost(a.id), pb = alertPost(b.id);
-    expect(buttonsOf(pa.post.blocks)).toEqual([{ action: "alert_resolve", value: a.id, text: "Resolve" }]);   // not a skipped step: nothing to retry
+    expect(buttonsOf(pa.post.blocks)).toEqual([{ action: "alert_resolve", value: a.id, text: "Resolve" }, { action: "alert_pause", value: a.id, text: "Pause" }]);   // not a skipped step: nothing to retry
     // Retry pressed on it anyway (an old post, a hand-made payload): refused in words, nothing changes
     expect(await alertPressed(deps, companyId, press("alert_retry", a.id, MANAGER, pa.post, pa.ts))).toMatchObject({ done: "refused" });
     expect((await alertOf(a.id))!.resolved_at).toBeNull();

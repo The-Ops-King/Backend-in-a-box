@@ -182,6 +182,11 @@
             "text": "Resolve",
             "action": "alert_resolve",
             "value": "{{event.alert_id}}"
+          },
+          {
+            "text": "Pause",
+            "action": "alert_pause",
+            "value": "{{event.alert_id}}"
           }
         ],
         "template": "{{vars.mark}} *{{event.company}} · {{vars.head}}*\n{{vars.body}}{{event.link | link:Open | line}}{{event.fix_link | each:\" · <{{item}}|{{event.fix_label}}>\"}}{{event.extra_link | each:\"{{event.link | then:\\\" · \\\" | default:\\\"\\\\n\\\"}}<{{item}}|{{event.extra_label | default:Open}}>\"}}",

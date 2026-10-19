@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { asOperator, many, one } from "@/db/client";
 import type { Adapters, SlackBlock } from "@/adapters/types";
-import { alertKind, destinationsFor, resolveByPerson, type AlertRow } from "../alerts";
+import { alertKind, destinationsFor, pauseAlert, resolveByPerson, type AlertRow } from "../alerts";
 import { retryStep } from "../hand";
 import { classifyError, plainError } from "../failures";
 import { decrypt } from "../crypto";
@@ -34,7 +34,7 @@ export function parseSlackInteraction(raw: string): SlackPress | { kind: "ignore
 }
 
 export type PressDeps = { adapters: Adapters; respond: (url: string, body: Record<string, unknown>) => Promise<void> };
-export type PressOutcome = { done: "retried" | "resolved" | "already" | "denied" | "failed" | "refused" | "ignored"; why?: string };
+export type PressOutcome = { done: "retried" | "resolved" | "paused" | "already" | "denied" | "failed" | "refused" | "ignored"; why?: string };
 type Decision = { out: PressOutcome; say?: string; settle?: string; thread?: string; token?: string; at?: { channel: string; ts: string } | null; as?: { name: string; icon?: string } };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -64,6 +64,11 @@ async function decide(c: PoolClient, deps: PressDeps, companyId: string, p: Slac
   if (p.action === "alert_resolve") {
     const done = await resolveByPerson(c, companyId, a, `resolved in Slack by ${who.name}`, { slack_user_id: p.user, name: who.name });
     return done ? { out: { done: "resolved" }, settle: `✅ Resolved by ${mention}`, token, at } : { out: { done: "already" }, say: "Already done: this alert is resolved." };
+  }
+  if (p.action === "alert_pause") {
+    // D150: no reminders until it clears; the post keeps no buttons (Resolve stays on the dashboard and the admin route)
+    const done = await pauseAlert(c, companyId, a, `${who.name} in Slack`);
+    return done ? { out: { done: "paused" }, settle: `⏸️ Paused by ${mention}: no more reminders. It still closes here once it's fixed.`, token, at } : { out: { done: "already" }, say: "Already paused." };
   }
   const d = a.detail as { run_id?: string; node?: string };
   if (alertKind(a) !== "skipped" || !d.run_id || !d.node) return { out: { done: "refused", why: "not a skipped step" }, say: "This alert has no single step to retry. Open it on the dashboard, or press Resolve once it's fixed." };

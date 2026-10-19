@@ -723,7 +723,9 @@ create table alerts (
   slack_channel      text,
   slack_ts           text,                                              -- the first post; repeats and the resolution go in its thread
   resolved_at        timestamptz,
-  resolved_announced boolean not null default false
+  resolved_announced boolean not null default false,
+  paused_at          timestamptz,                                       -- D150: paused: still open and checked, never said again; its ✅ still goes out
+  paused_by          text
 );
 create unique index alerts_open_one on alerts (coalesce(company_id, '00000000-0000-0000-0000-000000000000'::uuid), key) where resolved_at is null;
 create index on alerts (company_id, resolved_at, last_seen);

@@ -29,6 +29,9 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D102: the booking's meeting link as a key, so a recording with no attendee to match on finds its call
     await c.query(`alter table appointments add column if not exists meeting_key text`);
     await c.query(`alter table appointments add column if not exists meeting_url text`);   // D144
+    // D150: an alert can be paused (no reminders until it clears)
+    await c.query(`alter table alerts add column if not exists paused_at timestamptz`);
+    await c.query(`alter table alerts add column if not exists paused_by text`);
     // D145: the send lock (null = locked, every workflow so far included) and the roster's first two tables
     await c.query(`alter table workflows add column if not exists sends_unlocked_at timestamptz`);
     await c.query(`alter table workflows add column if not exists sends_unlocked_by text`);

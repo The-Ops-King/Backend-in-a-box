@@ -5338,3 +5338,15 @@ moot until main's one-named-workflow path does it: `saveFromTemplate` (D147) sav
 template fix to a workflow whose messages the offer edited puts the template's words back. The dry run shows it; whether that
 path should keep the offer's words (they are kept apart, in `copy.words`) is Tyler's call.
 
+
+## D150. Pause an alert (2026-10-19)
+
+Tyler, on Dating's Payment recorded and Deal closed alerts (both on, no payment source until Commas): "keep reminding me all
+the time. I need a way to pause the alert." A paused alert is never said again while it is open; it stays open, is still checked
+before each would-be reminder, and still closes with its ✅ once the cause is gone. A cause that comes back after that is a new
+alert, said in full. Paused by the Pause button on the alert's Slack post (owners, managers, the operator, as Resolve; the post
+settles to "⏸️ Paused by …") or `POST /api/admin/alerts/pause { company, id | key, by, pause? }` (`pause: false` lets it remind
+again). `alerts.paused_at` / `paused_by`; audited (`alert.paused`). The button is in the Health check template; an offer's own
+Health check gets it when that workflow is saved from the template (D147).
+
+Tests: `alerts.test.ts`, `slack-actions.test.ts` (D150).

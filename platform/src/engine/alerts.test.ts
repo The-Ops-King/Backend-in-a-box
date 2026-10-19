@@ -7,7 +7,7 @@ import { encrypt } from "@/engine/crypto";
 import { parseDefinition, extractManifest, indexDefinition } from "@/engine/definition";
 import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
-import { tickAlerts, openAlerts, raise, resolve, announceDue, inRepeatHours } from "@/engine/alerts";
+import { tickAlerts, openAlerts, raise, resolve, announceDue, inRepeatHours, pauseAlert } from "@/engine/alerts";
 import { type HealthProbes, CHECKS, type Finding } from "@/engine/health";
 import { fireNow } from "@/engine/clock";
 import { installTemplateForTest, replicaSnapshot } from "@/engine/test-install";
@@ -292,6 +292,22 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     await asOperator((c) => resolve(c, companyId, "health:calendly_calendars:ET-FULL", new Date(at.getTime() + 130 * 60e3)));
     await say(131);
     expect(posts.at(-1)!.text).toMatch(/^✅ Resolved after .*Full/);
+  });
+
+  it("D150: a paused alert is never said again while open, is still checked, and still closes with a ✅; a manager or the operator pauses it", async () => {
+    const at = new Date(); posts.length = 0;
+    const say = async (mins: number) => { await asOperator((c) => announceDue(c, fake, new Date(at.getTime() + mins * 60e3), companyId)); await tick(fake, undefined, companyId); };
+    await asOperator((c) => raise(c, { companyId, key: "health:steps:paused-probe", level: "warning", source: "health", text: "Paused probe never runs" }, at));
+    await say(0);
+    const a = (await asOperator((c) => one<{ id: string; text: string }>(c, "select id, text from alerts where company_id=$1 and key='health:steps:paused-probe' and resolved_at is null", [companyId])))!;
+    expect(await asOperator((c) => pauseAlert(c, companyId, a, "Tyler"))).toBe(true);
+    expect(await asOperator((c) => pauseAlert(c, companyId, a, "Tyler"))).toBe(false);   // already paused
+    await say(61); await say(122); await say(183);
+    expect(posts.filter((p) => /Paused probe/.test(p.text)).map((p) => p.text.split("\n")[0])).toEqual(["🟡 *Alert Co · Health check*"]);
+    expect(await asOperator((c) => one(c, "select after->>'by' as by from audit_log where action='alert.paused' and target_id=$1", [a.id]))).toEqual({ by: "Tyler" });
+    await asOperator((c) => resolve(c, companyId, "health:steps:paused-probe", new Date(at.getTime() + 190 * 60e3)));
+    await say(191);
+    expect(posts.at(-1)!.text).toMatch(/^✅ Resolved after .*Paused probe/);
   });
 
   it("raise/resolve are idempotent per open key", async () => {

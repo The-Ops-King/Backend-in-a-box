@@ -22,7 +22,7 @@ import { runningSql } from "./running";
 export type Level = "error" | "warning";
 export type Source = "step" | "poll" | "health" | "engine";
 export type AlertInput = { companyId: string | null; key: string; level: Level; source: Source; text: string; detail?: Record<string, unknown>; href?: string | null };
-export type AlertRow = { id: string; company_id: string | null; key: string; level: Level; source: Source; text: string; detail: Record<string, unknown>; href: string | null; first_seen: Date; last_seen: Date; announced_at: Date | null; announce_count: number; slack_channel: string | null; slack_ts: string | null; resolved_at: Date | null; resolved_announced: boolean };
+export type AlertRow = { id: string; company_id: string | null; key: string; level: Level; source: Source; text: string; detail: Record<string, unknown>; href: string | null; first_seen: Date; last_seen: Date; announced_at: Date | null; announce_count: number; slack_channel: string | null; slack_ts: string | null; resolved_at: Date | null; resolved_announced: boolean; paused_at?: Date | null; paused_by?: string | null };
 
 /** The defaults of the two alert settings (bindings, D88): `alerts.repeat_minutes` and `alerts.poll_failures`. */
 export const REPEAT_AFTER_MIN = 60;
@@ -61,6 +61,18 @@ export async function resolve(c: PoolClient, companyId: string | null, key: stri
 export async function resolveByPerson(c: PoolClient, companyId: string, alert: { id: string; key: string; text: string }, why: string, by?: Record<string, unknown>, now = new Date()): Promise<boolean> {
   if (!(await resolve(c, companyId, alert.key, now))) return false;
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'alert.resolved_by_operator','alert',$2,$3,$4)", [companyId, alert.id, JSON.stringify({ text: alert.text }), JSON.stringify({ why, ...(by ? { by } : {}) })]);
+  return true;
+}
+
+/**
+ * D150 (Tyler: "keep reminding me all the time. I need a way to pause the alert"): an open alert stops being said again. It
+ * stays open, is still checked, and still closes with its ✅ once the cause is gone; a cause that comes back after that is a new
+ * alert. `pause: false` lets it remind again.
+ */
+export async function pauseAlert(c: PoolClient, companyId: string, alert: { id: string; text: string }, by: string, pause = true): Promise<boolean> {
+  const r = await c.query(`update alerts set paused_at=${pause ? "now()" : "null"}, paused_by=$3 where id=$1 and company_id=$2 and resolved_at is null and (paused_at is null) = $4`, [alert.id, companyId, pause ? by : null, pause]);
+  if (!r.rowCount) return false;
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,$2,'alert',$3,$4,$5)", [companyId, pause ? "alert.paused" : "alert.unpaused", alert.id, JSON.stringify({ text: alert.text }), JSON.stringify({ by })]);
   return true;
 }
 
@@ -198,6 +210,11 @@ export async function announceDue(c: PoolClient, adapters: Adapters, now = new D
     return hours.get(k)!;
   };
   for (const a of due) {
+    // D150: a paused alert is still checked, and its ✅ still goes out once it clears; it is never said again while open
+    if (a.announce_count > 0 && !a.resolved_at && a.paused_at) {
+      if (!aboutEngine(a) && (await stillTrue(c, adapters, a)) === "fixed" && (await resolve(c, a.company_id, a.key, now))) a.resolved_at = now;
+      else { await c.query("update alerts set announced_at=$2 where id=$1", [a.id, now]); continue; }
+    }
     // D140: an open alert is checked again before it is said again; one whose cause is gone closes (✅), one nothing can check is not repeated
     if (a.announce_count > 0 && !a.resolved_at && !aboutEngine(a)) {
       // D142: a finding that says it once (a calendar with no open times: Tyler, "we don't need an alert every hour") stays open, unrepeated, until it clears
