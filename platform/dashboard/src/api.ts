@@ -2,6 +2,7 @@ import { keepPreviousData, useQuery, useMutation, useQueryClient, type QueryKey 
 import type { Chart, PathItem } from "@/api/words";
 import type { SetupPage } from "@/api/setup";
 import type { WorkflowSlack } from "@/api/slack-steps";
+import type { OnboardingState } from "@/onboarding/store";
 import { noteServerBuild } from "./build";
 
 export class ApiError extends Error { constructor(public status: number, message: string, public body?: Record<string, unknown>) { super(message); } }
@@ -46,5 +47,7 @@ export type WrapUpsPage = { company: CompanyHead; reports: { id: string; kind: s
 export type SetterStats = { id: string; name: string; leads_assigned: number; never_dialled: number; dials: number; answered: number; connected: number; talk_sec: number; contacts_reached: number; leads_dialled_first: number; stl_median_min: number | null; stl_avg_min: number | null; bookings: number };
 export type MetricsPage = { company: CompanyHead; from: string; to: string; timezone: string; reached_seconds: number; totals: SetterStats; setters: SetterStats[] };
 export type { SetupPage, WorkflowSlack };
+/** D171: the onboarding wizard of a client being stood up. */
+export type OnboardingPage = OnboardingState;
 export type EodListPage = { company: CompanyHead; reports: { id: string; day: string; closer: string; submitted_at: string | null; reminded_at: string | null; totals: string | null; changes: { field: string; from: unknown; to: unknown; contact?: string }[] }[]; closers: { id: string; name: string; email: string; url: string }[] };
 export type { Chart, PathItem };

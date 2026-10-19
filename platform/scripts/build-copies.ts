@@ -1,37 +1,30 @@
 /**
- * pnpm exec tsx scripts/build-copies.ts <company> [--check] — D118: builds a dating company's own workflow copies from the
- * shipped templates and its words file (installs/<company>/words.json) into installs/<company>/<workflow>.json, and its call
- * prompts (from its salesCall.objections) into installs/<company>.json. Each copy is saved with
- * POST /api/admin/workflows/definition { company, workflow, definition, note } (dryRun: true first). D123: with
- * installs/<company>/copies.json, also the company's own workflows (a file with `name` and `create`), made with
- * POST /api/admin/workflows/definition { company, workflow: <name>, definition, note, create } (dryRun first). --check writes nothing
- * and exits 1 when a file is not what the build makes. Nothing touches a database or the CRM.
+ * pnpm exec tsx scripts/build-copies.ts <company> [--check] — D170: builds a company's own workflow copies from the shipped
+ * templates and its playbook (installs/<company>/playbook.json: which playbook, its params) into installs/<company>/<workflow>.json,
+ * and anything the playbook writes into installs/<company>.json (D118: a dating company's call prompts). Each copy is saved with
+ * POST /api/admin/workflows/definition { company, workflow, definition, note } (dryRun: true first); D123: a file with `name` and
+ * `create` is the company's own workflow, made with the same call and its `create`. --check writes nothing and exits 1 when a file
+ * is not what the build makes (a template changed since the copies were built: build, then save them). Nothing touches a
+ * database or the CRM.
  */
 import fs from "node:fs";
 import path from "node:path";
-import { datingCopies, datingPrompts, type DatingSetup, type DatingWords } from "../installs/dating/copies";
+import { companyBuild, INSTALLS } from "../src/playbooks/files";
 
 const args = process.argv.slice(2);
 const company = args.find((a) => !a.startsWith("--"));
 const check = args.includes("--check");
 if (!company) { console.error("usage: build-copies.ts <company> [--check]"); process.exit(2); }
-const ROOT = path.resolve(__dirname, "..");
-const dir = path.join(ROOT, "installs", company);
-const installFile = path.join(ROOT, "installs", `${company}.json`);
-const words = JSON.parse(fs.readFileSync(path.join(dir, "words.json"), "utf8")) as DatingWords;
-const install = JSON.parse(fs.readFileSync(installFile, "utf8")) as { salesCall?: { objections?: string[] }; prompts?: Record<string, string>; scopeTag?: string; calendars?: Record<string, string | { term: string; name?: string }> };
-const setupFile = path.join(dir, "copies.json");
-const setup = fs.existsSync(setupFile) ? JSON.parse(fs.readFileSync(setupFile, "utf8")) as DatingSetup : undefined;
-if (!install.salesCall?.objections?.length) throw new Error(`${installFile}: salesCall.objections is needed for the call prompts`);
+if (!fs.existsSync(path.join(INSTALLS, company, "playbook.json"))) { console.error(`installs/${company}/playbook.json: no playbook for ${company}`); process.exit(2); }
 
-const files: [string, string][] = datingCopies(company, words, setup ? { setup, install } : undefined).map((c) => [path.join(dir, `${c.workflow}.json`), JSON.stringify(c, null, 1) + "\n"]);
-files.push([installFile, JSON.stringify({ ...install, prompts: { ...(install.prompts ?? {}), ...datingPrompts(install.salesCall.objections) } }, null, 2) + "\n"]);
-
+const { playbook, files } = companyBuild(company);
+console.log(`${company}: the ${playbook} playbook`);
 let stale = 0;
-for (const [file, text] of files) {
+for (const { file, text } of files) {
   const same = fs.existsSync(file) && fs.readFileSync(file, "utf8") === text;
-  if (check) { if (!same) { stale++; console.log(`stale: ${path.relative(ROOT, file)}`); } continue; }
+  const rel = path.relative(path.dirname(INSTALLS), file);
+  if (check) { if (!same) { stale++; console.log(`stale: ${rel}`); } continue; }
   if (!same) fs.writeFileSync(file, text);
-  console.log(`${same ? "current" : "written"}: ${path.relative(ROOT, file)}`);
+  console.log(`${same ? "current" : "written"}: ${rel}`);
 }
 if (check) { console.log(stale ? `${stale} file(s) are not what the build makes` : "all current"); process.exit(stale ? 1 : 0); }

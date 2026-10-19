@@ -29,3 +29,12 @@ export async function ghlCatalog(pit: string, locationId: string): Promise<Catal
   ]);
   return out;
 }
+
+/**
+ * D173: the location's own GHL workflows, names and status only (GET /workflows/?locationId=; ghl/02-api-facts.md: read-only,
+ * the API gives no triggers or steps). What the onboarding wizard lists for the GHL filters step, so nothing runs twice.
+ */
+export async function ghlWorkflows(pit: string, locationId: string): Promise<{ id: string; name: string; status: string }[]> {
+  const r = await ghl<{ workflows?: { id: string; name?: string; status?: string }[] }>(pit, "GET", `/workflows/?locationId=${locationId}`);
+  return (r.workflows ?? []).map((w) => ({ id: w.id, name: w.name?.trim() || w.id, status: w.status ?? "unknown" })).sort((a, b) => a.name.localeCompare(b.name));
+}

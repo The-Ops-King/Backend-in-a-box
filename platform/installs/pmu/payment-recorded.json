@@ -1,6 +1,6 @@
 {
  "workflow": "payment-recorded",
- "note": "PMU: payments go on PMU's Cash object; the card moves to Purchase when the agreement goes out",
+ "note": "PMU: payments go on PMU's cash object; the card moves to Purchase when the agreement goes out",
  "definition": {
   "schema": 1,
   "reentry": "always",
@@ -26,10 +26,10 @@
     "pick": {
      "refund": {
       "head": "Refund",
-      "sign": "\u2212",
+      "sign": "−",
       "status": "refunded",
       "note": "REFUND",
-      "line": "\ud83d\udcb8 Refunded",
+      "line": "💸 Refunded",
       "react": "money_with_wings"
      }
     },
@@ -38,7 +38,7 @@
      "sign": "",
      "status": "succeeded",
      "note": "PAYMENT RECEIVED",
-     "line": "\ud83d\udcb5 Paid",
+     "line": "💵 Paid",
      "react": "dollar"
     },
     "title": "Payment or refund: the words, the sign, the emoji"
@@ -141,7 +141,7 @@
     "object": "custom_objects.cash",
     "key": "{{event.provider_payment_id}}",
     "properties": {
-     "display_label": "{{vars.pay.sign}}${{event.amount | abs}} \u00b7 {{contact.name | default:Unknown}} \u00b7 {{event.paid_at | date_company:yyyy-MM-dd}}",
+     "display_label": "{{vars.pay.sign}}${{event.amount | abs}} · {{contact.name | default:Unknown}} · {{event.paid_at | date_company:yyyy-MM-dd}}",
      "transaction_id": "{{event.provider_payment_id}}",
      "amount": "{{event.amount}}",
      "occurred_at": "{{event.paid_at}}",
@@ -191,12 +191,12 @@
     "type": "pipeline_card",
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_purchase}}",
-    "title": "Card \u2192 Purchase (paid, agreement sent)"
+    "title": "Card → Purchase (paid, agreement sent)"
    },
    {
     "id": "m1",
     "type": "note",
-    "template": "{{vars.pay.note}} \u2014 {{event.paid_at | date_company}} \u00b7 {{vars.pay.sign}}${{event.amount | abs}} ({{event.kind}}) \u00b7 collected {{event.running_total}} of {{event.contract_value | default:?}}"
+    "template": "{{vars.pay.note}} — {{event.paid_at | date_company}} · {{vars.pay.sign}}${{event.amount | abs}} ({{event.kind}}) · collected {{event.running_total}} of {{event.contract_value | default:?}}"
    },
    {
     "id": "b2",
@@ -240,8 +240,8 @@
      "name": "Payment",
      "icon": ":dollar:"
     },
-    "template": "{{vars.pay.line}} ${{event.amount | abs | money}} {{event.kind | prefix:\u00b7}}. Details in the payments channel.",
-    "title": "React \ud83d\udcb5 (\ud83d\udcb8 on a refund) on the booking post"
+    "template": "{{vars.pay.line}} ${{event.amount | abs | money}} {{event.kind | prefix:·}}. Details in the payments channel.",
+    "title": "React 💵 (💸 on a refund) on the booking post"
    },
    {
     "id": "p_rev",
@@ -254,8 +254,8 @@
      "name": "Payment",
      "icon": ":dollar:"
     },
-    "template": "{{vars.pay.line}} ${{event.amount | abs | money}} {{event.kind | prefix:\u00b7}}.",
-    "title": "React \ud83d\udcb5 (\ud83d\udcb8 on a refund) on the call review"
+    "template": "{{vars.pay.line}} ${{event.amount | abs | money}} {{event.kind | prefix:·}}.",
+    "title": "React 💵 (💸 on a refund) on the call review"
    },
    {
     "id": "x1",

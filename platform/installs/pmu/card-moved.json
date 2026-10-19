@@ -37,8 +37,8 @@
       "{{event.to_stage}}"
      ]
     },
-    "value": "\ud83d\uddc2\ufe0f {{event.mover | default:someone}} moved the {{event.pipeline}} card to {{event.to_name}}{{vars.status_part}}",
-    "else_value": "\ud83d\uddc2\ufe0f {{event.mover | default:someone}} marked the {{event.pipeline}} card {{event.to_status}}",
+    "value": "🗂️ {{event.mover | default:someone}} moved the {{event.pipeline}} card to {{event.to_name}}{{vars.status_part}}",
+    "else_value": "🗂️ {{event.mover | default:someone}} marked the {{event.pipeline}} card {{event.to_status}}",
     "title": "The thread line"
    },
    {

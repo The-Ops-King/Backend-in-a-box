@@ -4949,3 +4949,392 @@ the additive setup (`provision`, D119/D121/D143) runs there: `GET /api/admin/ghl
 stages and custom objects with their fields and options; `POST { company, setup, apply? }` plans or applies a setup that names
 only what it is about. The provision guard holds as before: GETs only on a dry run, never a DELETE, a PUT only to the pipeline
 or field the setup names. An applied run is audited (`ghl.setup_applied`).
+
+## D170. Playbooks: a company's copies are built from its process and today's templates; each workflow has a starting rung (2026-10-18)
+
+Tyler (#53): onboarding picks from a library of templates by how an offer sells, so we know what to tweak or rebuild per
+offer; Hair, PMU and Dating are the role clients. A **playbook** is a sales process (`src/playbooks/`): its traits (one board or
+a setter and a closer board, who books, an application form, a triage call) and a pure build that turns the shipped templates
+and an offer's params into the copies its process changes. Everything it does not change stays the template's and keeps its
+upgrades (D118). The three today:
+- `setter-closer` (Hair): the templates as shipped, no copies.
+- `one-board` (PMU): was `installs/pmu/build.py`, ported line for line; the nine definitions it builds are the Python's
+  exactly. What is PMU's own (board and stage names, what makes a lead, card names, call types, objections, the payment object,
+  the Slack faces) is its params in `installs/pmu/playbook.json`, checked when built (a bad one is refused, naming it).
+- `application-triage` (Dating): was `installs/dating/copies.ts`; its params stay in `words.json` and `copies.json`.
+
+A company's `installs/<company>/playbook.json` names its playbook; `scripts/build-copies.ts <company>` builds for any of them
+(`--check`), and `playbooks.test.ts` fails when a committed copy is not what its playbook builds from today's templates. Found
+doing this: PMU's committed Call booked, Call cancelled and Call recorded had fallen behind D141 (Call booked finding or making
+the person in GHL) and D118 (the Sales Call object from the company's setting). They are rebuilt here; **PMU's live copies
+are not saved yet** (POST /api/admin/workflows/definition, dryRun first, one per file).
+
+#48: a workflow's starting rung follows what it does (`src/engine/rung.ts`): a step that reaches a contact (text, email,
+document, outbound webhook: what quiet holds) → test, until its words are approved and it is proven on test contacts;
+nothing that reaches a contact → quiet from the start. It is the plan the go-live board starts from; nothing moves a workflow by
+it alone, and every move still passes the readiness gate (D92).
+
+**Putting a playbook on a company** (`src/playbooks/apply.ts`, `POST /api/admin/playbooks`, `scripts/apply-playbook.ts`):
+the copies are built from today's templates and saved, all or nothing (every copy is checked first; one that cannot be saved
+saves none and says which), a second run changes nothing, and nothing is ever removed (a template copy a playbook workflow
+takes over is removed by hand first, D123). The playbook and its params are kept on the company (`playbook`), so `GET
+/api/admin/playbooks?company=` can say which copies fell behind today's templates (`stale`) and every workflow's starting rung.
+
+**Duplicating an offer** (Tyler: copy everything that is not client-specific): `copySettingsFrom` copies how an offer sells
+(its call prompts, qualifying answers, what its Sales Call's answers mean, setter-call reading, call timing, alert and report
+manners, its own call types and outcome reasons) where the new company has none of its own; an untouched default prompt is not
+its own. Never copied: a secret, an id, a channel, the scope tag, Calendly's questions, the booking card (it names the
+company's own fields), closers' options (people), test scripts, deposit products, forms, the playbook, the price. The keys are an
+allowlist (`OFFER_KEYS`), so a new setting is never copied until someone decides it is the offer's.
+
+Tests: `playbooks.test.ts`, `apply.test.ts`, `rung.test.ts`, `dating-copies.test.ts`.
+
+## D171. Add client and the onboarding wizard's first step: the offer picks the playbook and says what fits (2026-10-18)
+
+Tyler (#53): an Add client button on the Companies page; the wizard asks about the offer first. His choices: the draft
+question list, the closest playbook plus a gap list when none fits, and a page of its own per client.
+
+**Add client** (`POST /api/v1/companies`, behind the dashboard login) takes a name, a time zone and whether it is a new offer
+or a takeover, and makes the company in ghost with status `onboarding`. Nothing runs for it: the engine polls and ticks only
+active and hosted companies. It has an id, so the webhook and Slack URLs that carry it exist from the start; it becomes active,
+still in ghost, at the install step. The wizard is `/app/c/<slug>/onboarding` (the Companies list opens it while onboarding,
+and the company page says so). Its record is the `onboarding` table: the kind, the answers, the playbook, the fit report,
+each step's done time. Every step saves, so stopping for days loses nothing.
+
+**The offer** (`src/onboarding/intake.ts`): one list of questions drives the form and the check: the business, price,
+deposits, payment plans; how leads come in, application form, setters, triage, the pipeline's shape, the journey in Tyler's
+words; CRM, booking, payments, recording, agreements; closers' and setters' emails. Each problem is one line naming the
+question. Saving sets the program price and picks the playbook: the one whose traits differ least (a different board shape
+counts double), or the one Tyler chose. The fit report goes through every shipped template: fits (as shipped, or the
+playbook's own copy), tweak (a Zap door covers it: Stripe payments, other recorders, other forms; payment plans not tracked),
+build (the engine does not read it: iClosed bookings, agreements outside GHL, DM leads, another CRM), off (not used: no
+recording, no agreement, no setters). The builds and the playbook's differences are the client's build list. A takeover and
+another CRM are said once, above the list. Each playbook names the templates it changes (`changes`, held to what it builds).
+
+The other seven steps are on the page, marked not built yet, until their slices land.
+
+Tests: `intake.test.ts`, `store.test.ts`, `playbooks.test.ts`.
+
+## D172. The wizard's connections: every key tested live before it is kept (2026-10-18)
+
+The keys a client needs follow from the offer's answers: GoHighLevel (location id and Private Integration token) always,
+Calendly when it books there, Whop, Fathom and Typeform when it uses them, Anthropic and Jev always
+(`src/onboarding/connections.ts`). Each is tested against its service with the probes the hourly Health check uses (GHL's
+location, Calendly's /users/me, one Whop payment, one Fathom meeting page, Typeform's /me, Anthropic's model list, a Jev ping)
+**before anything is kept**: a key that fails is never stored, and the page says what the service answered. A key that works
+is kept encrypted under the name install reads (`secret.ghl_pit`, `secret.calendly_token`, …), and the page only ever shows
+"set · ends with 1234"; the answer never carries a key. A field left blank keeps what is stored. The Anthropic and Jev keys can
+be copied from a company that has them (D100: inside the engine, through no one's hands), and a copy that then fails its test is
+undone. Every test is recorded on the onboarding row, pass or fail; "Test again" re-checks what is kept. The step is done while
+every key the offer needs has passed, and a failed retest takes it back.
+
+Tests: `connections.test.ts`. Tried live with made-up keys: GHL and Anthropic refused them, the page said so, nothing was stored.
+
+## D173. The wizard's research: read what the client has, the AI guesses, Tyler confirms (2026-10-18)
+
+With the keys that passed (D172), "Read their accounts" reads their calendars (GHL) or event types (Calendly, every member's,
+with hosts and booking questions), their GHL team, boards, custom objects, and their own GHL workflows by name and status
+(`ghlWorkflows`: the API gives no triggers or steps; the GHL filters step goes through each). The AI, describe-config's
+proposer, reads that with the offer in Tyler's words and the answers that settle it (setters, triage, application, the
+closers' and setters' emails) and suggests what each calendar books, who books it, which is the closer call. Its guesses
+pre-fill the answers, each with its reason, and its open questions are shown above. The Anthropic key is the client's
+(Connections), else the engine's. A part that cannot be read is named and the rest still counts; the model failing leaves the
+reading, and every calendar is answered by hand.
+
+Tyler answers per calendar (closing, first call, qualifying, follow-up, or ignore; booked by the lead, a setter, the setter
+question or the company rule; their own name for the call), the closer call and the booking link, and per GHL user the role
+(closer, setter, manager, owner, staff, not on this offer; pre-filled from the offer's emails). The answers are saved even when
+something is left (each problem one line) and kept across a re-read for whatever is still there. Done when every calendar is
+answered, a closing calendar is the closer call, and someone closes. Nothing is written to the engine's calendars or roster
+here: install does that from these answers. The reading and the model's call run outside any database transaction.
+
+Tests: `research.test.ts`.
+
+## D174. The wizard's Slack step: a generated manifest, the token tested, a channel per slot (2026-10-18)
+
+The Slack app's manifest was written by hand per client (`installs/*-slack-manifest.yaml`). The wizard now makes it
+(`src/onboarding/slack.ts`): this company's id in every request URL (events, interactions, commands), the bot scopes, and the
+slash commands from the bot's own list (`SHORTCUTS`, which now carries each command's usage hint), so the manifest cannot drift
+from what the bot answers. Generated for Dating's id, its commands, hints, scopes and URLs are the hand-written manifest's.
+The app name and the bot's name default to the offer's ("<offer> Ops Engine", "<offer> Ops"). A workspace that already has
+another engine app gets no slash commands: Slack gives a command to the app installed last (#43). The manifest needs
+`PUBLIC_URL`; without it the step says so.
+
+Tyler creates the app from it and pastes the Bot User OAuth Token and the Signing Secret. The token is tested with Slack
+(auth.test) and kept only when Slack accepts it: encrypted in `slack_connections` with the bot's user id, as install keeps it,
+and the workspace's name (`slack.team_name`). Slack has no call that checks a signing secret: its shape (32 hex) is checked and
+it is kept encrypted (`secret.slack_signing`); the first event Slack sends proves it. Then each slot gets a channel from the
+ones the bot can see (private ones marked, and a note when the bot is not in the channel): bookings, calls, setter calls (only
+with setters), payments, deals, end of day, reports, ops, needs attention, team alerts, the engine's alerts channel and the
+test channel every post goes to before its workflow is live (D133). Ops, needs attention and team alerts may stay empty: their
+posts fall back to reports, ops and bookings (D58). Done while the bot is connected, the signing secret kept, and every other
+slot has a channel; emptying one takes it back. Tried live with a made-up token: Slack refused it and nothing was kept.
+
+Tests: `slack.test.ts`.
+
+## D175. The wizard's CRM build: what the playbook needs in their GHL, planned, then built (2026-10-18)
+
+Each playbook now says what it needs in a client's GHL (`src/playbooks/ghl-setup.ts`), as the setup the additive provisioner
+reads (`src/adapters/ghl/provision.ts`: creates only what is missing; never renames, retypes or deletes; writes nothing the
+setup does not name). Two shapes:
+- **Two boards** (setter-closer, application-triage): the setter and closer pipelines, the core contact fields (appointment
+  date, setter, cash collected, revenue generated, the UTMs and fbclid), Setter Owner and Stage Entered on the opportunity,
+  the Sales Call, Payment and Discovery Call records and their five links, and the install block (what each option key
+  means). Built with Dating's params it is Dating's hand-written setup exactly (pipelines, fields, objects, links, install).
+- **One board** (one-board): one closer pipeline whose stages are the offer's (its params), the payment object it names.
+The client's names: each closer's Sales Call option is their first name (from Research's team), the call types are the
+offer's own (Research's named calendars), the objections are the offer's (one-board params) or a generic six. A GHL account
+shared with another business takes a prefix on every name and object key. Calendars are not in it (Research maps theirs), nor
+a Typeform's own answer fields (they follow the form).
+
+Each playbook now has defaults for a new offer (`defaults(offer)`), kept on the client when the offer is saved
+(`onboarding.params`) and kept while the playbook stays the same: one-board's stage names, card names and the rest;
+application-triage's words as placeholders, which send nothing until written (D118).
+
+The step: a plan reads their GHL and lists, line by line, what is there, what would be made, what differs; "Build" makes only
+what is missing (it asks first); a build that leaves nothing to make is done, and its ids (the `crm` map the workflows read) are
+kept for install. The GHL calls run outside any database transaction. A test builds each playbook's setup into an in-memory GHL
+(now shared with the provisioner's own tests, `fake-ghl.ts`) and checks that every GHL id the playbook's workflows require comes
+out, and that a second build writes nothing. Not yet: a takeover's differently-named boards mapped onto ours (P2); today a board
+of another name is made anew beside theirs.
+
+Found doing this: Setter call logged moves the setter board's card, and one board has none, so on the one-board playbook with
+setters it cannot run as shipped. The fit report now says so (build: a one-board copy), and PMU needs that copy before its setter
+starts.
+
+Tests: `crm.test.ts`, `provision.test.ts`, `intake.test.ts`.
+
+## D176. The wizard's install step; an onboarding company installs as new (2026-10-18)
+
+Install moved ahead of Messages: a client's messages are the words in its own copies of the workflows (copy edits, D118), which
+exist only once installed, and installing is safe (every workflow off, the company in ghost). The step puts together what the
+earlier steps learned into one `installCompany` (`src/onboarding/install.ts`): the location; the booking source (Calendly's kept
+token, or GHL's calendars); Research's calendars (ignored ones left out) with the closer call and the booking link; the CRM
+build's ids and what each Sales Call and Discovery Call option means; the team's roles; Whop's and Fathom's kept keys, so the
+engine registers its own webhooks. The GHL token is not passed: install reads the stored one. The templates a playbook workflow
+takes over (D123) are left out, so nothing has to be removed. A new offer's SMS starts off (its own GHL account has no approved
+number yet); a takeover's is left as it is. Then the playbook's copies go on (D170, all or nothing) and the company turns
+active, still in ghost. Refused until The offer, Connections, Research, Slack and the CRM build are done, naming the ones left.
+Installing again changes nothing.
+
+Found doing this: install turned four internal workflows on (Unlinked payment, Unmatched recording, Ledger drift, Card moved
+by hand). D88 starts a template that "carries what the engine used to do by itself" ON for a company that already existed, so
+an upgrade never drops it; Add client makes the company row first, so a brand-new client looked like an existing one. A
+company still onboarding with no workflows is now new to install: everything starts off (Tyler's rule).
+
+Tests: `install.test.ts`.
+
+## D177. A company's words are kept apart from the steps; the wizard's messages step approves every one (2026-10-18)
+
+Tyler chose this over editing copies (2026-10-18): "words kept apart", and approval blocked while a message carries another
+client's words.
+
+**Words kept apart** (`src/engine/words.ts`). A message's words (a text, an email's subject and body, a Slack post, a note, a
+task) are the company's; the steps around them are the template's or the playbook's. The words are one setting, `copy.words`
+(workflow → step → field → text; a workflow is its template's slug, or `own:<name>`), laid over the workflow every time it is
+built: install putting a template on or upgrading it, a playbook's copies being built (D170), and a word being changed. So:
+- A word edit (`saveCopy`, now `setWord`) no longer freezes a copy. It stays untouched and keeps its template's fixes, the words
+  coming along (D141 is why this matters: a frozen copy is how PMU fell behind). Before, it marked the copy edited and every
+  template fix since passed it by.
+- A playbook rebuild never loses the words.
+- A copy changed beyond words (a step, a wait, a channel: `saveStepEdit`) is still the company's own and left alone, as before.
+- A word whose step a template drops is not applied and is named, never silently lost.
+
+**Moving earlier edits over** (`POST /api/admin/words { company, apply? }`, a dry run unless `apply`): a copy frozen by a
+pre-D177 word edit, still on its template's current version and different from it only in words, has those words moved into
+the company's words and is untouched again. A copy edited beyond words, or behind its template, stays as it is and is named. The
+words themselves do not change, so nothing a run sends does. Tyler (2026-10-19): "I can't move the edits, you do that": the
+deploy's migration does it for every company, once, idempotently (`migrate()`, logged as `words.moved` in each company's audit
+log and printed by `pnpm db:migrate`); the route stays for a dry run.
+
+**The messages step** (`src/onboarding/messages.ts`): every text and email a contact can get, workflow by workflow, with its
+words as they stand. Each is approved by Tyler as written; changing the words takes the approval back. It cannot be approved
+while its words are a placeholder (D118) or carry another client's words (`FOREIGN`: Hair's "save your hair", "hair", "scalp",
+"follicle", "thinning", "Allan", "clinician", "burned before"; never flagged in Hair's own company). The shipped templates still
+hold Hair's welcome (#43), so a new client is stopped before saying it. A workflow the offer does not use (off in the fit
+report) needs nothing approved. Done when every needed message is approved. Words changed here are the client's own, so they
+survive every upgrade and rebuild. Install moved ahead of Messages (D176) because the messages are the installed workflows' words.
+
+Tests: `messages.test.ts`, `install.upgrade.test.ts` (the word edit's new rule), `chart-exact.test.ts`.
+
+## D178. A template business per playbook: edited there, published; new clients start from it (2026-10-19)
+
+Tyler: "create a business with no API keys called template, and we'll have all the options there. Then if we want to make
+adjustments to all future ones we change the templates." His choices: one per playbook; edit there, then publish.
+
+A **template business** (`src/playbooks/template-business.ts`) is a company with the new status `template` (the engine never polls
+or ticks it: only active and hosted run), no keys, its playbook installed as a client would have it (every shipped template, the
+playbook's own copies), every workflow off, in ghost, SMS off; seeded with the default call prompts and the objections a client's
+CRM build would give it. "Make the template business" on the Companies page (Templates) makes it; its workflows are viewed like any
+company's; its words (D177) and its playbook's params are edited on its Words page (`/app/c/<slug>/words`).
+
+**Publish** checks it and keeps a release (`playbook_releases`: words, params, the offer settings by the duplicating allowlist,
+OFFER_KEYS and prompts). Refused, naming each: another client's words anywhere in it (D177's FOREIGN), a workflow the engine cannot
+read or draw exactly, a word that is not valid copy, and **a workflow changed beyond its words**. Steps are not published: a
+workflow's structure lives in code (src/templates, src/playbooks), tested and reviewed, and every deploy re-syncs the templates
+from it, so a step change made in a database would be overwritten or freeze whoever got it; a step change goes through the
+build-workflow skill. Placeholders left in are allowed and noted (each client writes them in its Messages step). The checks are the
+ones the live engine can run; the code's scenario tests cannot run inside it.
+
+**A new client on a playbook starts from its latest release** (Tyler: future clients only; existing ones are not touched): the
+wizard's params are the release's, made the offer's (`forOffer`: one board's name and board name), and before install its words and
+settings are laid in where the client has none of its own, so install and the playbook put them on. Every message still goes
+through the client's Messages step for approval.
+
+Found doing this: `applyPlaybook` checked its copies in parallel on one database connection (D170), which `pg` queues but warns
+is going away; it now checks them one at a time.
+
+Tests: `template-business.test.ts`. Walked in the browser: the Setter and closer template business made, publish refused over Hair's
+welcome text, the words rewritten on its Words page, published as v1.
+
+## D179: the wizard's test passes (#53 P1, step 8)
+
+Tyler's walkthrough, step 6: "test end to end". Each **journey** the offer has is staged on one test contact through the harness
+(D23: the fact is ours, source `test`; D97: only a test contact), the company ticked between steps, and every run it started read
+back: its workflow, how it ended, the failed or paused step and its error. The journeys come from the intake and the end-of-day
+form (`scenariosFor`): a new lead; an application (Typeform); books, shows, closes (recorded, paid, signed where the offer does
+those); a deposit; a no-show (a setter's booking when there are setters); a cancel; a reschedule; a setter's dial; and every
+scheduled workflow fired now. Each journey starts with `reset`, so it is the contact's first time through, and runs as its own
+request (a journey can take a while; no request times out on the whole set).
+
+First, **the test contact and the rung**: a contact tagged `sys-test` (or on a test domain), made in their GHL and read in by the
+poll; ghost (nothing written or sent anywhere) or test (the test contact's runs really write and send; everyone else stays ghost).
+The test rung waits for the messages to be approved, and on a takeover is confirmed first: their own GHL workflows see the test
+contact's tags and stage moves (step 9 filters them; Tyler's reminder, asked for every time). Then **the offer's workflows are
+turned on**: all of them but the fit report's off and build ones. One the offer uses that cannot run (a missing setting, a
+definition that does not parse) is left off and **blocks the step**, naming what it misses: a core workflow quietly off would pass
+a test that never ran it.
+
+**Done** when every workflow turned on has a clean run (completed, exited or waiting, no failed or paused step, no step retrying)
+and none failing, or is accepted by hand with a note (a workflow no journey reaches: a failed payment, an unmatched recording, the
+health sweep). A journey run again replaces its result, so a fix clears what it fixed; the done mark follows the results both
+ways. Saved on `onboarding.tests`.
+
+Found doing this, in the browser with live adapters: in ghost, runs still read GHL, so a bad key shows on the first journey as a
+paused run naming the 401, before anything goes live. The test suite leaves the scheduled journey out: the leaderboard and
+wrap-ups read GHL over HTTP, which the fake adapters do not stand in for.
+
+Tests: `tests.test.ts`. Walked in the browser: the step on an installed company, the Cancels journey run from its button.
+
+## D180: their GHL workflows (step 8), checked again before every rung up
+
+Tyler: "add a filter on existing GHL workflows so nothing has an issue", "I'll have to be reminded to check that every time as
+part of the go-live", and (2026-10-19) the check at **every rung up**, with this step moved **ahead of the test passes**.
+
+GHL's API lists a location's workflows (id, name, status) but **not their triggers, filters or actions**, so the engine cannot
+know what one fires on. Step 8 reads their list live and Tyler marks each after opening it in GHL: **replaced** (ours does it; off
+at go-live), **filtered** (stays, with the `sys-test` filter added in GHL), **harmless**, or **off** (refused while GHL says it is
+on). The guide is the list of what the engine does that a GHL workflow can fire on (09-possibilities, part B). Done when the list
+has been read and every workflow on it is marked; a new workflow of theirs takes the done mark off.
+
+**Every move up the ladder** (the company's or one workflow's; `setCompanyMode` and `setWorkflowMode`, so every door: the
+dashboard, the admin API, the test passes' test rung) needs a fresh check: the list read again live, nothing new, unmarked or
+marked off while on. A clean check lasts 30 minutes and is used by the one move it was made for. Moving down is never gated.
+Only companies onboarded through the wizard (an onboarding row) are gated; Hair, PMU and Dating are not.
+
+The test passes' takeover-only confirm (D179) is gone: the check covers the test rung for every company.
+
+Tests: `filters.test.ts`.
+
+## D181: the test contact, made by the wizard
+
+Tyler (2026-10-19): use his own email, and have the wizard make the contact. One button on the test passes makes it in the
+company's GHL: "Test <business>", his email **plus-addressed per business** (`jt+test-pmu@jtylerray.com`: one inbox, a distinct
+person in each GHL), an optional phone (texts on the test rung reach it), **created tagged `sys-test`** so a GHL workflow filtered
+on that tag never sees it, not even its Contact Created trigger. Its domain joins the company's test domains. One already there
+(same email) is tagged, not made twice. It is read back from GHL at once, so the passes need not wait for the poll. The email
+typed is kept per company and offered to the next company.
+
+Making a contact fires their own Contact Created workflows, so a wizard company needs its GHL workflows marked first (D180).
+
+Tests: `test-contact.test.ts`.
+
+## D182: template businesses tested in the sandbox; publish needs a current pass
+
+Tyler (2026-10-19): the template businesses test in his **snapshot sub-account** (no real leads, no phone number: SMS is not tested
+there), and a release **requires a clean test pass**.
+
+A template business now has a wizard record (`ensureTemplateOnboarding`): its offer is its playbook at its fullest
+(`templateIntake`: setters, application, deposits, plans and agreement where the playbook has them) on software needing no key
+beyond GHL and Slack (payments and recordings through the Zap doors the harness stages, GHL calendars, a GHL document), and its
+messages need no approval (its words are checked at publish). So it is set up like a client: Connections (the snapshot
+sub-account's key; the next template copies it), Research, Slack, CRM build (each playbook's pipelines with its own prefix),
+Install, its GHL workflows, Test passes. A param change follows into the record, so an install from the wizard builds the same
+copies. An install never turns on what a template business carries (D88's carry is for companies that ran).
+
+**One at a time in the sandbox.** The template businesses share one GHL location; two running there would see each other's test
+contacts and fire on each other's writes. A template business runs (polled, ticked, scheduled, alerted: `runningSql`, now the one
+rule every engine loop uses) only while it holds the sandbox. Turning its workflows on for the test passes takes it and stops any
+other template business on the same location; "Stop" gives it back.
+
+**Publish** is refused, naming each (`untested`), until every journey has passed **on the test rung** (real writes to the test
+contact; ghost proves less) **on exactly what is published**: each result carries a fingerprint of every workflow's version and the
+words, and a word or step changed since makes it stale.
+
+Tests: `running.test.ts`, `template-business.test.ts` (the gate).
+
+## D183: Claude tests the template businesses; the wizard is for onboarding clients only
+
+Tyler (2026-10-19), on D182: "the wizard doesn't make it, you make the test. Wizard is for onboarding new things only." D182's
+wizard path for template businesses is gone (no link, no banner; the onboarding API refuses a template business). Its parts stay:
+the record that stores the setup and the test results, the one-at-a-time sandbox, and the publish gate.
+
+Claude sets a template business up and tests it through **`/api/admin/templates/test`** (Bearer CRON_SECRET), on the deployment:
+- `POST { playbook, action: "setup" }` takes every step a client's wizard takes, in code, stopping at the first that fails:
+  - **GHL:** connects the snapshot sub-account.
+  - **Research:** reads its calendars and team and maps them. The first closing calendar is the closer call; one named "triage" is
+    the Triage call; the first user is the closer and the next a setter where the playbook has setters. Claude can pass `answers`
+    to override the mapping.
+  - **Slack:** Tyler's ops Slack app, with every post going to one test channel.
+  - **CRM build:** the playbook's pipelines and fields under the prefix "T <playbook>", so the three template businesses share the
+    one sub-account without colliding.
+  - **Agreement and model:** the agreement template and the model key.
+  - **Install.**
+  - **Test contact:** made from the test email, plus-addressed.
+  - **Test rung:** the workflows turned on and the company moved up.
+
+  The sandbox's own published GHL workflows are reported, not gated: it is Tyler's own account.
+- `POST { playbook, action: "run", journey }` runs one journey.
+- `GET ?playbook=` shows each journey, each workflow, and what publish still needs.
+
+**Settings** live in the deployment's environment, so no key passes through a conversation:
+- `SANDBOX_LOCATION_ID`, `SANDBOX_GHL_PIT`: the snapshot sub-account.
+- `SANDBOX_SLACK_BOT_TOKEN`, `SANDBOX_SLACK_SIGNING_SECRET`, `SANDBOX_SLACK_CHANNEL`: the ops Slack app and its test channel.
+- `SANDBOX_TEST_EMAIL`: the test contact's email.
+- `SANDBOX_AGREEMENT_TEMPLATE` (optional): without it, the agreement workflows stay off and the tests say so.
+
+The test offer is the playbook at its fullest (Tyler's call): one pass covers every journey.
+
+The client gates do not apply to a template business: the check before a rung up (D180) and the marked GHL workflows before the
+test contact (D181).
+
+Tests: `sandbox.test.ts`.
+
+## D184: onboarding merged into main, made to keep main's rules (CLAUDE.md)
+
+Merging the onboarding branch into main (Tyler, 2026-10-19: "merge the PR"). Main had moved on: D142–D146 and open items 49–52 of
+its own, so this branch's decisions became D170–D183 and its onboarding item #53. Three things in the branch broke main's binding
+rules (CLAUDE.md) and were changed in the merge:
+
+- **No migration changes an existing offer.** D177's deploy step, moving every company's word edits into its words and un-freezing
+  those copies, is gone: it changed live offers nobody named, and an un-frozen copy is one a template change can reach. The
+  previews of the branch had already run it against the database and moved nothing (their build logs). `wordsFromEdits` stays,
+  for one offer named (POST /api/admin/words), and now records the words without un-freezing the copy.
+- **A word edit freezes the copy again**, as before D177 ("a template change or a code default never reaches an offer that
+  already exists", until open item 50 makes install never upgrade a copy nobody named). The words are still kept apart and laid
+  over any upgrade the offer is named for.
+- **The test contact's email is used as given** (D181 plus-addressed it): main's send lock (D145) lets a locked workflow reach only
+  Tyler's own addresses, matched exactly. The template businesses share one test contact in the sandbox; one runs at a time.
+
+Also: the Dating playbook's params take main's triage calls (D142: a booked call records a Sales Call or a Discovery Call), and
+PMU's committed copies were rebuilt from main's templates (call-outcome); nothing reaches PMU until it is applied by name.
+
+## D185: merged again, onto main's D147
+
+Main took D147 while this branch was being merged ("install never changes a workflow an offer has; a template reaches an offer
+one named workflow at a time"), so this branch's decisions moved to D170–D184 (and then on, past main's D148, to leave room while main keeps adding). Install keeps main's rule: an offer's
+workflow is left exactly as it is; only a new one gets the company's words laid on (D177). D177's "words laid over an upgrade" is
+moot until main's one-named-workflow path does it: `saveFromTemplate` (D147) saves the template's own words, so bringing a
+template fix to a workflow whose messages the offer edited puts the template's words back. The dry run shows it; whether that
+path should keep the offer's words (they are kept apart, in `copy.words`) is Tyler's call.
+

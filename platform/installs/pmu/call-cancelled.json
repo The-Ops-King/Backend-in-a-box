@@ -52,7 +52,7 @@
    {
     "id": "n4",
     "type": "create_task",
-    "title": "Rebook {{contact.name}} \u2014 cancelled",
+    "title": "Rebook {{contact.name}} — cancelled",
     "body": "Cancelled by {{appointment.cancelled_by | default:the invitee}}. Reason: {{appointment.cancel_reason | default:none given}}.",
     "due": "+1d",
     "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
@@ -73,7 +73,7 @@
    {
     "id": "n6",
     "type": "crm_record",
-    "object": "custom_objects.sales_call",
+    "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
     "key": "{{appointment.slot_key}}",
     "if_missing": "match",
     "properties": {
@@ -86,7 +86,7 @@
     "id": "n7",
     "type": "slack_post",
     "channel": "{{slack.channel.bookings}}",
-    "template": "*Cancelled:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Was booked with:* {{appointment.closer.name | default:unassigned}} \u00b7 {{appointment.starts_at | date_company}}\n*Cancelled by:* {{appointment.cancelled_by | default:the invitee}}\n*Reason:* {{appointment.cancel_reason | default:none given}}\n*Phone:* {{contact.phone | default:\u2014}}\n*Rebook task:* due in 1 day for {{appointment.closer.name | default:the team}}",
+    "template": "*Cancelled:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Was booked with:* {{appointment.closer.name | default:unassigned}} · {{appointment.starts_at | date_company}}\n*Cancelled by:* {{appointment.cancelled_by | default:the invitee}}\n*Reason:* {{appointment.cancel_reason | default:none given}}\n*Phone:* {{contact.phone | default:—}}\n*Rebook task:* due in 1 day for {{appointment.closer.name | default:the team}}",
     "as": {
      "name": "Call cancelled",
      "icon": [
@@ -95,7 +95,7 @@
       ":no_entry_sign:"
      ]
     },
-    "title": "React \u274c, reply in the booking thread",
+    "title": "React ❌, reply in the booking thread",
     "thread_of": "tag:appointment:{{appointment.id}}",
     "react": "x"
    },
