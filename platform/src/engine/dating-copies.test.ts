@@ -73,7 +73,7 @@ describe("D118: Dating Nelly's copies", () => {
     for (const id of ["s1", "s_late", "rec_read", "rec_late", "w_post", "w_late"]) expect(ids).toContain(id);
   });
 
-  it("D155: her pre-call texts, one copy per call type, all from Nelly: the booking text with its reply handling, a day before, an hour before; no emails; the rebooking text held while it is a placeholder", () => {
+  it("D155: her pre-call texts, one copy per call type, all from Nelly: the booking text with its reply handling, a day before, an hour before; no emails; no rebooking text (🔁 notes who moves it by hand)", () => {
     type N = { id: string; type: string } & Record<string, unknown>;
     for (const [slug, callType, w] of [["triage-pre-call", "Triage call", words.preCall!.triage], ["closing-pre-call", "Closing call", words.preCall!.closing]] as const) {
       const c = file(slug) as unknown as { name: string; create: { takesOver: string }; definition: { nodes: N[]; edges: { from: string; to: string }[] } };
@@ -81,10 +81,10 @@ describe("D118: Dating Nelly's copies", () => {
       const at = (id: string) => c.definition.nodes.find((n) => n.id === id)!;
       for (const t of ["t1", "t2"]) expect(at(t).match).toEqual({ eq: ["{{appointment.term.name}}", callType] });
       expect(c.definition.nodes.filter((n) => n.type === "send_email")).toEqual([]);
-      expect(c.definition.nodes.filter((n) => n.type === "send_sms").map((n) => [n.id, n.template])).toEqual([["s1", w.booked], ["n_rs", w.rebook], ["m24s", w.day], ["m1", w.hour]]);
-      expect(at("n_rs").only_if).toEqual({ exists: "vars.welcome_copy_written" });
+      expect(c.definition.nodes.filter((n) => n.type === "send_sms").map((n) => [n.id, n.template])).toEqual([["s1", w.booked], ["m24s", w.day], ["m1", w.hour]]);
+      expect(String(at("n_rs_slack").template)).toMatch(/moving the call by hand/);
       expect(c.definition.edges.filter((e) => e.from === "m24s").map((e) => e.to)).toEqual(["r1"]);
-      expect(JSON.stringify(c.definition)).not.toMatch(/\[placeholder — (?!the text with the rebooking)/);
+      expect(JSON.stringify(c.definition)).not.toContain("[placeholder");
     }
     expect(words.preCall!.triage.hour).not.toContain("meeting_url");
     expect(words.preCall!.closing.hour).toContain("{{appointment.meeting_url}}");

@@ -5455,7 +5455,8 @@ voice and approved 2026-10-19) are in words.json `preCall`. The engine never pic
   closer asked when Jev is unsure), the text a day before, the one an hour before. No emails, no 3-day, 2-day, morning-of or
   10-minute texts. They take over pre-call-sequence for her.
 - The triage hour-before text has no link (Mitch calls through GHL); the closing one carries `{{appointment.meeting_url}}`.
-- The rebooking text (sent when someone taps 🔁 on a reply) is a placeholder, so it is skipped until Tyler writes it.
+- No rebooking text (Tyler: "we'll do it manually, and the emoji in Slack is just a confirmation of what happened"): 🔁 on a reply
+  notes in the booking thread who is moving the call, and the call is moved by hand.
 
 Tests: `dating-copies.test.ts` (D155).
 

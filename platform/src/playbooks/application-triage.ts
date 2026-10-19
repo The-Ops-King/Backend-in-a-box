@@ -28,8 +28,8 @@ export type DatingWords = {
   /** D155: the pre-call texts, in the company's voice: a triage call's and a closing call's booking text and reminders */
   preCall?: { triage: PreCallWords; closing: PreCallWords };
 };
-/** D155: the booking text, the reminder a day before and the one an hour before; `rebook`, the text with the rebooking link when they ask to move */
-export type PreCallWords = { booked: string; day: string; hour: string; rebook: string };
+/** D155: the booking text, the reminder a day before and the one an hour before */
+export type PreCallWords = { booked: string; day: string; hour: string };
 /**
  * D123: `booked`, one per call type a calendar of the install books (its `calendars[…].name`): the workflow's file and name, the
  * Sales Call's `call_type` option it writes, and any tags a booking of that type adds. `fromForm`: the applicant workflow.
@@ -128,7 +128,8 @@ function readOnlySetterCall(d: Def) {
  * Pre-call sequence held to that call type (a triage call is not a closing call, so the template would never take it): the
  * booking text with its reply handling (confirm, cancel, reschedule, the closer asked when Jev is unsure), then the text a day
  * before and the one an hour before. Taken out: the day-one and 24-hour emails, the 3- and 2-day texts, the morning-of and
- * 10-minute texts. The rebooking text is the company's too; while it is a placeholder it is skipped.
+ * 10-minute texts, and the rebooking text (Tyler: "we'll do it manually ... the emoji in Slack is just a confirmation of what
+ * happened"): 🔁 says in the booking thread who is moving the call; the closer sends the new time.
  */
 const PRE_CALL = [
   { key: "triage" as const, workflow: "triage-pre-call", name: "Triage pre-call", callType: "Triage call", card: "strategy call" },
@@ -138,12 +139,12 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
   const pc = template("pre-call-sequence");
   return PRE_CALL.map((t) => {
     const w = words[t.key];
-    for (const k of ["booked", "day", "hour", "rebook"] as const) if (!w?.[k]?.trim()) throw new Error(`words.preCall.${t.key}.${k} is empty`);
+    for (const k of ["booked", "day", "hour"] as const) if (!w?.[k]?.trim()) throw new Error(`words.preCall.${t.key}.${k} is empty`);
     const d = load("pre-call-sequence");
     const isType = { eq: ["{{appointment.term.name}}", t.callType] };
     Object.assign(node(d, "t1"), { match: isType, title: `A ${t.callType} booked` });
     Object.assign(node(d, "t2"), { match: isType, title: `A ${t.callType} moved` });
-    for (const id of ["e1", "r72", "m72", "r48", "m48", "m24e", "mm", "r10", "m10"]) drop(d, id);
+    for (const id of ["e1", "r72", "m72", "r48", "m48", "m24e", "mm", "r10", "m10", "n_rs"]) drop(d, id);
     // the morning-of fork: its wait and branch go, so the day-before text leads straight to the hour-before wait
     for (const e of d.edges) if (e.to === "rm") e.to = "r1";
     d.edges = d.edges.filter((e) => e.from !== "rm" && e.from !== "bm");
@@ -151,12 +152,11 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
     Object.assign(node(d, "s1"), { template: w.booked, title: "Booking text" });
     Object.assign(node(d, "m24s"), { template: w.day, title: "The day before" });
     Object.assign(node(d, "m1"), { template: w.hour, title: "An hour before" });
-    const rebookHeld = isPlaceholderCopy(w.rebook);
-    Object.assign(node(d, "n_rs"), { template: w.rebook, title: rebookHeld ? "Text the rebooking link [placeholder: the words are not written yet, so it is skipped]" : "Text the rebooking link", ...(rebookHeld ? { only_if: HELD } : {}) });
+    Object.assign(node(d, "n_rs_slack"), { template: "🔁 {{contact.first_name}} wants a new time: moving the call by hand.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}", title: "React 🔁, note who is moving it (by hand)" });
     const left = JSON.stringify(d.nodes);
-    if (left.includes("send_email") || /\[placeholder — (?!the text with the rebooking)/.test(left)) throw new Error(`${t.name}: a send of the template is left unwritten`);
+    if (left.includes("send_email") || left.includes("[placeholder") || d.nodes.filter((n) => n.type === "send_sms").length !== 3) throw new Error(`${t.name}: a send of the template is left unwritten`);
     return { workflow: t.workflow, name: t.name, create: { stage: pc.stage, sort: pc.sort + (t.key === "triage" ? 0 : 1), takesOver: "pre-call-sequence" }, definition: d as unknown as Record<string, unknown>,
-      note: `the ${t.callType}'s pre-call texts, all from Nelly (D155): the booking text with its reply handling, a day before and an hour before; no emails${rebookHeld ? "; the rebooking text is a placeholder, so it is skipped" : ""}` };
+      note: `the ${t.callType}'s pre-call texts, all from Nelly (D155): the booking text with its reply handling, a day before and an hour before; no emails; no rebooking text (a reschedule is moved by hand, 🔁 notes who)` };
   });
 }
 

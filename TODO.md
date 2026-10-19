@@ -14,14 +14,13 @@ Things only Tyler can do or decide, that are holding up work. Claude adds to it;
 
 ## Dating (Nelly)
 
-- [ ] The operator key: make a new `CRON_SECRET` (Vercel → backend-in-a-box → Settings → Environment Variables, Production, then
-      redeploy) and add the same value to the Claude environment as `CRON_SECRET`; add Nelly's Calendly token there as
-      `DN_CALENDLY_TOKEN`. Nothing reaches her live offer without them (the apply steps: engine/01-open.md item 54).
-- [ ] Calendly: on "Private Dating Consultation with Nelly" and "Complimentary Dating Strategy Session ♡", turn off Calendly's own
-      reminder emails and texts to invitees (Notifications, Workflows), or people get two sets.
+- [x] The operator key, in the Claude environment as `CRON_SECRET` (2026-10-19; the one the Supabase scheduler sends, never a new one:
+      a new key in Vercel would lock out the minute tick for every offer).
+- [x] Calendly sends no reminders of its own on her two event types (Tyler, 2026-10-19).
+- [ ] Merge claude/dreamy-hypatia-y7gbtf to main, then the apply steps (engine/01-open.md item 54).
+- [ ] Slack: paste the Dating manifest and reinstall (/issue, /request); invite the bot to the six Dating channels.
 - [ ] Mitch's setter link for the consultation (D153), ready once the engine change is live:
       `https://calendly.com/nellysudri/private-dating-consultation-with-nelly?utm_medium=setter&utm_content=mitch`
-- [ ] The rebooking text, for when someone asks to move a call (both pre-call copies skip it until written).
 - [ ] Skool invite link and Nelly's 1:1 kickoff booking link, for the welcome text and email (Deal closed; waits on payments).
 - [ ] Commas account and API access, for Deal closed and Payment recorded (both can never run until a payment source is connected).
 - [ ] The real agreement, for Payment recorded.

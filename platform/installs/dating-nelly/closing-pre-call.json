@@ -186,15 +186,6 @@
     }
    },
    {
-    "id": "n_rs",
-    "type": "send_sms",
-    "template": "[placeholder — the text with the rebooking link when they ask to move the consultation]",
-    "title": "Text the rebooking link [placeholder: the words are not written yet, so it is skipped]",
-    "only_if": {
-     "exists": "vars.welcome_copy_written"
-    }
-   },
-   {
     "id": "n_rs_slack",
     "type": "slack_post",
     "channel": "{{slack.channel.bookings}}",
@@ -204,8 +195,8 @@
      "name": "Reschedule",
      "icon": ":repeat:"
     },
-    "template": "🔁 {{contact.first_name}} got the rebooking link.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
-    "title": "React 🔁, note who decided",
+    "template": "🔁 {{contact.first_name}} wants a new time: moving the call by hand.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
+    "title": "React 🔁, note who is moving it (by hand)",
     "unreact": {
      "of": "tag:decision:{{appointment.id}}",
      "emojis": [
@@ -479,10 +470,6 @@
     "to": "x_cancelled"
    },
    {
-    "from": "n_rs",
-    "to": "n_rs_slack"
-   },
-   {
     "from": "n_rs_slack",
     "to": "x_reschedule"
    },
@@ -543,7 +530,7 @@
    },
    {
     "from": "b_dec",
-    "to": "n_rs",
+    "to": "n_rs_slack",
     "when": {
      "eq": [
       "{{reaction.reaction}}",
@@ -615,5 +602,5 @@
    }
   ]
  },
- "note": "the Closing call's pre-call texts, all from Nelly (D155): the booking text with its reply handling, a day before and an hour before; no emails; the rebooking text is a placeholder, so it is skipped"
+ "note": "the Closing call's pre-call texts, all from Nelly (D155): the booking text with its reply handling, a day before and an hour before; no emails; no rebooking text (a reschedule is moved by hand, 🔁 notes who)"
 }
