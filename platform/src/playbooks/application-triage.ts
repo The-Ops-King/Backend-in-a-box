@@ -157,7 +157,10 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
     const ask = node(d, "n_ask");
     const offer = "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link).";
     if (!String(ask.template).includes(offer)) throw new Error(`${t.name}: the ask no longer offers the rebooking link`);
-    Object.assign(ask, { channel: "{{slack.channel.bookings}}", template: String(ask.template).replace(offer, "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out)."), title: "Ask in the booking channel: keep, cancel or reschedule?" });
+    // a reply can come when no text of ours went out (refused, DND): the ask says so instead of failing on the missing text
+    const sent = "> {{reply.last_outbound.body}}";
+    if (!String(ask.template).includes(sent)) throw new Error(`${t.name}: the ask no longer quotes what we sent`);
+    Object.assign(ask, { channel: "{{slack.channel.bookings}}", template: String(ask.template).replace(offer, "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out).").replace(sent, "> {{reply.last_outbound.body | default:nothing yet: our booking text didn't go out}}"), title: "Ask in the booking channel: keep, cancel or reschedule?" });
     // D186: a booking with no meeting link is said at once in the channel the company names (slack.channel.no_link), the closer
     // tagged; the hour-before text then leaves the link line out
     if (w.hourNoLink !== undefined) {

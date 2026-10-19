@@ -31,6 +31,7 @@ const changed: ContactSnapshot[] = [];
 const inbox: MessageSnapshot[] = [];
 const sent: { kind: string; to: string; body: string }[] = [];
 const refused: { kind: string; to: string; error: string }[] = [];
+const dndInCrm = new Set<string>();   // D188: GHL refuses texts to these, whatever the replica knows
 const tags: string[] = [];
 const oppWrites: Record<string, unknown>[] = [];
 const apptStore = new Map<string, AppointmentSnapshot>();
@@ -44,7 +45,10 @@ const fake: Adapters = {
   write: { ...base.write, addTag: async (_c, _id, t) => { tags.push(t); }, createOpportunity: async (_c, input) => { oppWrites.push({ op: "create", ...input }); return { id: `ghl-opp-${oppWrites.length}` }; }, updateOpportunity: async (_c, id, patch) => { oppWrites.push({ op: "update", id, ...patch }); } },
   sender: { ...base.sender,
     // the CRM sends by contact id and refuses when the contact has no address for the channel, or is gone
-    sendSms: async (_c, to, body) => { const s = crm.get(to); if (!s) return refuse("sms", to, `Contact with id ${to} not found`); if (!s.phone) return refuse("sms", to, `contact ${to} has no phone number`); sent.push({ kind: "sms", to, body }); return { externalId: `s${sent.length}`, accepted: true }; },
+    sendSms: async (_c, to, body) => { const s = crm.get(to); if (!s) return refuse("sms", to, `Contact with id ${to} not found`); if (!s.phone) return refuse("sms", to, `contact ${to} has no phone number`);
+      // D188: GHL's own words when the person has Do Not Disturb on for texts
+      if (dndInCrm.has(to)) return refuse("sms", to, 'GHL 400 on /conversations/messages: {"statusCode":400,"error":"Bad Request","message":"Cannot send message as DND is active for SMS.","canonicalCode":"CONVERSATIONS_MSG_DND_ACTIVE_SMS"}');
+      sent.push({ kind: "sms", to, body }); return { externalId: `s${sent.length}`, accepted: true }; },
     sendEmail: async (_c, to, subject, html) => { const s = crm.get(to); if (!s) return refuse("email", to, `Contact with id ${to} not found`); if (!s.email) return refuse("email", to, `contact ${to} has no email address`); sent.push({ kind: "email", to, body: `${subject}|${html}` }); return { externalId: `e${sent.length}`, accepted: true }; } },
 };
 
@@ -433,5 +437,48 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
     expect(await asOperator((c) => contactPasses(c, companyId, ct.id, "test", {}))).toEqual({ ok: true });
     expect(await asOperator((c) => contactPasses(c, companyId, cher.id, "test", {}))).toMatchObject({ ok: false });
     expect(await asOperator((c) => contactPasses(c, companyId, cher.id, "live", {}))).toEqual({ ok: true });
+  });
+
+  // ---- 13: Do Not Disturb (D188) ----
+
+  const blocked = (runId: string) => asOperator((c) => many<{ node_id: string }>(c, "select node_id from run_steps where run_id=$1 and status='skipped' and result->>'kind'='blocked'", [runId]));
+  const dndOf = (contactId: string) => asOperator((c) => one<{ sms_dnd: boolean }>(c, "select sms_dnd from contacts where id=$1", [contactId]));
+
+  it("D188: GHL's Do Not Disturb reaches the replica; a text to them is suppressed without asking the CRM and without an alert, and the rest of the run goes on", async () => {
+    inCrm("DND1", { firstName: "Quiet", lastName: "Please", email: "dnd1@x.com", phone: "+16025551301", smsDnd: true });
+    await poll(); const r = refused.length; await tick(fake, undefined, companyId);
+    const ct = (await contactByGhl("DND1"))!;
+    expect(await dndOf(ct.id)).toEqual({ sms_dnd: true });
+    const stl = await runOf("speed-to-lead", ct.id);
+    expect((await sends(stl.id)).filter((x) => x.channel === "sms")).toEqual([{ channel: "sms", status: "suppressed", suppressed_reason: "texts are turned off for this contact (Do Not Disturb)", error: null }]);
+    expect(refused.slice(r).filter((x) => x.to === "DND1" && x.kind === "sms")).toEqual([]);   // the CRM was never asked
+    expect(await blocked(stl.id)).toEqual([]);   // nothing for the alert sweep
+    expect(sent.filter((x) => x.to === "DND1").map((x) => x.kind)).toContain("email");   // the email still went
+  });
+
+  it("D188: a text GHL refuses for Do Not Disturb the replica did not know of: the contact learns it, the send is suppressed, no alert; their next text is not asked for", async () => {
+    inCrm("DND2", { firstName: "Late", lastName: "Stop", email: "dnd2@x.com", phone: "+16025551302" }); dndInCrm.add("DND2");
+    await poll(); await tick(fake, undefined, companyId);
+    const ct = (await contactByGhl("DND2"))!;
+    const stl = await runOf("speed-to-lead", ct.id);
+    expect((await sends(stl.id)).filter((x) => x.channel === "sms")).toEqual([{ channel: "sms", status: "suppressed", suppressed_reason: "texts are turned off for this contact (Do Not Disturb)", error: expect.stringMatching(/DND is active/) }]);
+    expect(await dndOf(ct.id)).toEqual({ sms_dnd: true });
+    expect(await blocked(stl.id)).toEqual([]);
+  });
+
+  it("D188: a booking for someone with texts off gets ⚠️ on its card and a note under it, once: not for someone who can be texted, not again on a reschedule", async () => {
+    const dnd = (await contactByGhl("DND1"))!, ok = (await contactByGhl("TM1"))!;
+    await book(snap("A-DND1", { contactId: "DND1" })); await book(snap("A-TM1", { contactId: "TM1" }));
+    await tick(fake, undefined, companyId);
+    const step = async (contactId: string) => (await steps((await runOf("call-booked", contactId)).id)).find((x) => x.node_id === "n_dnd")!;
+    // no Slack in this harness: the note is written and stops at the door, where the other's step never gets past its condition
+    expect((await step(dnd.id)).result).toMatchObject({ why: "slack not connected", would_post: expect.stringMatching(/^⚠️ Quiet has texts turned off \(Do Not Disturb\)/) });
+    expect((await step(ok.id)).result).toMatchObject({ kind: "noop" });
+    const moved = daysOut(4);
+    await book(snap("A-DND1", { contactId: "DND1", startTime: moved.toISO()!, endTime: moved.plus({ minutes: 45 }).toISO()!, dateUpdated: new Date(Date.now() + 1000).toISOString() }));
+    await tick(fake, undefined, companyId);
+    const runs = (await runsFor("call-booked")).filter((x) => x.contact_id === dnd.id);
+    expect(runs.length).toBeGreaterThan(1);
+    expect((await steps(runs.at(-1)!.id)).find((x) => x.node_id === "n_dnd")!.result).toMatchObject({ kind: "noop" });
   });
 });

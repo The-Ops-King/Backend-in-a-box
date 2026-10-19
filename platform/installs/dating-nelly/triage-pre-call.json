@@ -232,7 +232,7 @@
      "name": "Keep, cancel or reschedule?",
      "icon": ":grey_question:"
     },
-    "template": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out). The reminders keep going until you do.",
+    "template": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body | default:nothing yet: our booking text didn't go out}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out). The reminders keep going until you do.",
     "title": "Ask in the booking channel: keep, cancel or reschedule?",
     "tag": "decision:{{appointment.id}}",
     "offer": [
