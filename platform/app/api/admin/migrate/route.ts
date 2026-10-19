@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { migrate } from "@/db/migrate";
 import { operatorAuthorized } from "@/engine/admin-auth";
-export const dynamic = "force-dynamic"; export const maxDuration = 120;
+export const dynamic = "force-dynamic"; export const maxDuration = 300;
 /** POST with Authorization: Bearer $CRON_SECRET. Applies engine/schema.sql if absent, forces RLS, creates engine_state. Idempotent. */
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

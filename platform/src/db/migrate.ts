@@ -37,8 +37,23 @@ export function migrator(conn: PoolClient, pause = (ms: number) => new Promise((
       }
     }
   };
+  // a statement with no parameters goes in one round trip with its own begin and commit (about 300 of them a deploy, over the
+  // network to the database: four round trips each took a build's migration from under a minute to three)
+  const single = async <R extends QueryResultRow>(sql: string): Promise<QueryResult<R>> => {
+    for (let i = 1; ; i++) {
+      try {
+        const res = (await conn.query(`begin; select set_config('lock_timeout', '${LOCK_TIMEOUT}', true); ${sql}; commit`)) as unknown as QueryResult<R>[];
+        if (res[res.length - 1].command === "ROLLBACK") throw new Error(`migration statement rolled back: ${sql.slice(0, 120)}`);
+        return res[2];
+      } catch (e) {
+        await conn.query("rollback").catch(() => {});
+        if (!lockedOut(e) || i >= LOCK_TRIES) throw e;
+        await pause(Math.min(500 * 2 ** (i - 1), 8_000));
+      }
+    }
+  };
   const m: Migrator = {
-    query: (sql, params) => (inTx ? conn.query(sql, params) : attempt(() => conn.query(sql, params))),
+    query: (sql, params) => (inTx ? conn.query(sql, params) : params?.length ? attempt(() => conn.query(sql, params)) : single(sql)),
     tx: async (fn) => {
       if (inTx) return fn(m);
       inTx = true;

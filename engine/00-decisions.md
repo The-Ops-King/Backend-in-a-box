@@ -5362,7 +5362,8 @@ From `10-audit-2026-10-19.md` §1, Tyler: "Do all those 5 recommendations."
    queued ahead of the live engine; each constraint or policy that is dropped and added again is one transaction on one table
    (`tx`), so a failure never leaves it dropped. (A first version ran the whole migration as one transaction under a session
    advisory lock: the production build deadlocked with a tick, rolled back cleanly, and the session lock would not have been
-   safe on the transaction pooler.) Numbered migrations are still to come (the ~300 lines re-run on every deploy stay for now).
+   safe on the transaction pooler. A second version wrapped each statement in four round trips and took 170 s on a build; a
+   statement without parameters now goes in one, with its begin and commit.) Numbered migrations are still to come (the ~300 lines re-run on every deploy stay for now).
 2. **A text is never sent twice on a retry.** The `sends` row is committed as `queued` before the vendor call and its outcome
    is committed after, each by `checkpoint` (db/client.ts): the run's transaction is committed so far, the ledger write gets its
    own, and a new one opens under the same scope, all on the run's own connection. (A second connection was tried first and

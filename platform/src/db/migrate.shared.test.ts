@@ -49,6 +49,19 @@ describe("migrator (D151): short transactions that give way to the live engine",
     } finally { holder.release(); conn.release(); }
   }, 30_000);
 
+  it("a statement without parameters is one round trip and answers with its own result; one with parameters works too", async () => {
+    const conn = await db().connect(), sent: string[] = [];
+    const spy = new Proxy(conn, { get: (t, k) => k === "query" ? (sql: string, p?: unknown[]) => { sent.push(sql); return t.query(sql, p); } : Reflect.get(t, k) });
+    try {
+      const m = migrator(spy);
+      expect((await m.query<{ n: number }>("select 41 + 1 as n")).rows).toEqual([{ n: 42 }]);
+      expect(sent).toHaveLength(1);
+      expect((await m.query<{ n: number }>("select $1::int as n", [7])).rows).toEqual([{ n: 7 }]);
+      await expect(m.query("select nope")).rejects.toThrow(/nope/);
+      expect((await m.query<{ n: number }>("select 1 as n")).rows).toEqual([{ n: 1 }]);   // the failed one left no transaction open
+    } finally { conn.release(); }
+  });
+
   it("a group is all or nothing: a constraint is never left dropped", async () => {
     const conn = await db().connect();
     try {
