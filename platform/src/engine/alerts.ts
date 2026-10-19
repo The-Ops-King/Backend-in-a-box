@@ -6,6 +6,7 @@ import type { Adapters } from "@/adapters/types";
 import type { PollReport } from "./poll";
 import type { TickReport } from "./runner";
 import { classifyError, plainError } from "./failures";
+import { runningSql } from "./running";
 
 /**
  * D33. The engine tells the operator the minute something fails, and says so once.
@@ -85,7 +86,7 @@ export async function collectThisTick(c: PoolClient, poll: PollReport, tick: Tic
   const add = (r: { raised: number; resolved: number }) => { raised += r.raised; resolved += r.resolved; };
   const only = onlyCompanyId ?? null;
   // 1. polling: a cursor that has failed `alerts.poll_failures` times in a row (2) is a problem; one miss is the vendor blinking
-  const companies = await many<{ id: string; slug: string }>(c, "select id, slug from companies where status in ('active','hosted') and ($1::uuid is null or id=$1)", [only]);
+  const companies = await many<{ id: string; slug: string }>(c, `select co.id, co.slug from companies co where ${runningSql()} and ($1::uuid is null or co.id=$1)`, [only]);
   const stuck = await many<{ company_id: string; entity: string; n: number; last_success_at: Date | null }>(c, `select p.company_id, p.entity, p.consecutive_failures as n, p.last_success_at from poll_cursors p
     left join bindings b on b.company_id=p.company_id and b.key='alerts.poll_failures'
     where ($2::uuid is null or p.company_id=$2) and p.consecutive_failures >= greatest(1, coalesce(nullif(regexp_replace(convert_from(b.value, 'UTF8'), '\\D', '', 'g'), '')::int, $1))`, [POLL_FAILURES, only]);

@@ -15,3 +15,15 @@ Things only Tyler can do or decide, that are holding up work. Claude adds to it;
 ## PMU
 
 - [ ] Say go on the step 3 dry runs (re-saving Call booked, Call cancelled and Call recorded from the onboarding branch).
+
+## Sandbox (template businesses, D183)
+
+- [ ] Slack for the template tests, in Vercel (Production and Preview): `SANDBOX_SLACK_BOT_TOKEN`, `SANDBOX_SLACK_SIGNING_SECRET`,
+      `SANDBOX_SLACK_CHANNEL` (your ops Slack app and its test channel's id), and `SANDBOX_TEST_EMAIL` = jt@jtylerray.com.
+- [ ] Optional: `SANDBOX_AGREEMENT_TEMPLATE`, a GHL document template in the snapshot sub-account (else the agreement workflows
+      stay off in the tests).
+- [ ] `CRON_SECRET` in this Claude environment (title bar → environment → Edit), so Claude can run the sandbox tests.
+- [ ] The snapshot sub-account needs at least one calendar and one user.
+- [ ] Decide: give previews their own database. Every preview build runs the migration, today against the same database as
+      production.
+

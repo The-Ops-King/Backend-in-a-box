@@ -1,6 +1,6 @@
 {
  "workflow": "call-booked",
- "note": "PMU: one board, one card fork after the setter / self paths: a new booking puts the card on Booked Call named -- Direct or -- Setter; a reschedule moves it to Rescheduled only off a pre-call stage and keeps its name; the Sales Call says Closing or Demo; no UTM fields; Appointment Start Time in PMU's format (10-15-2026 15:00)",
+ "note": "PMU: one board, one card fork after the setter / self paths: a new booking puts the card on Booked Call named -- Direct or -- Setter; a reschedule moves it to Rescheduled only off a pre-call stage and keeps its name; the Sales Call says Closing or Demo; no UTM fields; Appointment Start Time in PMU's format (MM-dd-yyyy HH:mm)",
  "definition": {
   "schema": 1,
   "reentry": "always",
@@ -31,18 +31,46 @@
     }
    },
    {
+    "id": "c_via",
+    "type": "set_var",
+    "key": "booked_via",
+    "value": "{{appointment.source}}",
+    "pick": {
+     "calendly": "Calendly",
+     "ghl": "GHL calendar"
+    },
+    "else_value": "booking page",
+    "title": "Where the booking came from, in words"
+   },
+   {
     "id": "c0",
-    "type": "check",
-    "title": "Wait for GHL to have the person (a booking can land first)",
-    "when": {
-     "exists": "contact.ghl_contact_id"
+    "type": "ensure_contact",
+    "title": "Make sure the person is in GHL: found by id, email or phone, else created",
+    "source": "{{vars.booked_via}} booking",
+    "scope_tag": true
+   },
+   {
+    "id": "c_added",
+    "type": "set_var",
+    "key": "added_line",
+    "value": "{{vars.c0.action}}",
+    "pick": {
+     "created": "*New to GHL:* added from their {{vars.booked_via}} booking"
     },
-    "retry": {
-     "every": "2m",
-     "for": "1h"
+    "else_value": "",
+    "title": "A line on the card when the booking put them in GHL"
+   },
+   {
+    "id": "c_note",
+    "type": "note",
+    "only_if": {
+     "eq": [
+      "{{vars.c0.action}}",
+      "created"
+     ]
     },
-    "else_exit": "no_crm_id",
-    "else_pause": "contact has no CRM id yet: GHL did not have the person an hour after the booking"
+    "template": "Added to GHL by the booking engine from their {{vars.booked_via}} booking ({{appointment.starts_at | date_company}}): they were not in GHL by email or phone.",
+    "title": "Say on the contact that the booking added them"
    },
    {
     "id": "n1",
@@ -175,7 +203,7 @@
      }
     ],
     "id": "c_new",
-    "title": "Card \u2192 Booked Call, named -- Setter / -- Direct",
+    "title": "Card → Booked Call, named -- Setter / -- Direct",
     "stage": "{{crm.stage_closer_scheduled}}"
    },
    {
@@ -190,7 +218,7 @@
      }
     ],
     "id": "c_rs",
-    "title": "Card \u2192 Rescheduled, if it is before the call (its name stays)",
+    "title": "Card → Rescheduled, if it is before the call (its name stays)",
     "stage": "{{crm.stage_closer_rescheduled}}",
     "keep_name": true,
     "from_stages": [
@@ -214,7 +242,7 @@
    {
     "id": "k5",
     "type": "crm_record",
-    "object": "custom_objects.sales_call",
+    "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
     "key": "{{event.slot.from | default:}}",
     "if_missing": "skip",
     "properties": {
@@ -236,10 +264,10 @@
    {
     "id": "k4",
     "type": "crm_record",
-    "object": "custom_objects.sales_call",
+    "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
     "key": "{{appointment.slot_key}}",
     "properties": {
-     "display_label": "{{contact.name | default:Unknown}} \u2014 {{appointment.starts_at | date_company:yyyy-MM-dd}}",
+     "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
      "external_id": "{{appointment.slot_key}}",
      "contact_id": "{{contact.ghl_contact_id | default:}}",
      "opportunity_id": "{{cards.closer.id | default:}}",
@@ -296,12 +324,12 @@
     "id": "n4",
     "type": "slack_post",
     "channel": "{{slack.channel.bookings}}",
-    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:\u2014}}{{contact.intake_lines | line}}\n*Reschedule link:* {{appointment.reschedule_url | default:\u2014}}\n*Source:* {{contact.source | default:\u2014}} \u00b7 {{vars.booking_kind}}",
+    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}{{contact.intake_lines | line}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}{{vars.added_line | line}}",
     "as": {
      "name": "{{vars.card.name}}",
      "icon": "{{vars.card.icons}}"
     },
-    "title": "Post the booking card in Slack (a reschedule: \ud83d\udd01 face, \ud83d\udd01 on the old card)",
+    "title": "Post the booking card in Slack (a reschedule: 🔁 face, 🔁 on the old card)",
     "tag": "appointment:{{appointment.id}}",
     "react_on": {
      "of": "tag:appointment:{{appointment.id}}",
@@ -319,14 +347,14 @@
   "edges": [
    {
     "from": "t1",
-    "to": "c0"
+    "to": "c_via"
    },
    {
     "from": "t2",
-    "to": "c0"
+    "to": "c_via"
    },
    {
-    "from": "c0",
+    "from": "c_note",
     "to": "n1"
    },
    {
@@ -397,6 +425,18 @@
    {
     "from": "b2b",
     "to": "b3"
+   },
+   {
+    "from": "c_via",
+    "to": "c0"
+   },
+   {
+    "from": "c0",
+    "to": "c_added"
+   },
+   {
+    "from": "c_added",
+    "to": "c_note"
    },
    {
     "from": "s_suffix",

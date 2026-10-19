@@ -13,7 +13,7 @@ create table companies (
   sms_enabled       boolean not null default true,      -- false when the sub-account has no number; SMS nodes skip
   mode              text not null default 'ghost' check (mode in ('ghost','test','quiet','live')),  -- the ladder (D52, D132): ghost runs everyone and writes nothing; test = sys-test contacts and test-domain emails only, everything real for them; quiet = the CRM written for everyone, nothing reaching a contact, Slack only to test channels; live = everyone
   status            text not null default 'active'
-                    check (status in ('onboarding','active','hosted','archived')),
+                    check (status in ('onboarding','active','hosted','archived','template')),   -- template: a playbook's template business (D178), never run
   archived_at       timestamptz,
   -- D88: an opportunity is won and lost by workflow steps (update_opportunity in Payment recorded and Call outcome filed), not by settings here
   reached_seconds   int not null default 60,            -- a connected dial at least this long counts as the lead being reached (speed to lead)
@@ -101,6 +101,43 @@ insert into core_categories (domain, value, label, sort) values
   ('reply_intent','unclear','Unclear',5);
 
 -- A company's own words. "Strategy session" is-a first_call. Free name, one-time category pick.
+-- D178: what a playbook's template business published: the words, the playbook's params and the offer settings a new client of that
+-- playbook starts from. Steps are not here: they are the code's (src/templates, src/playbooks), tested and reviewed.
+create table playbook_releases (
+  id            uuid primary key default gen_random_uuid(),
+  playbook      text not null,
+  version       int not null,
+  words         jsonb not null default '{}',
+  params        jsonb,
+  settings      jsonb not null default '{}',
+  notes         jsonb not null default '[]',      -- what the checks said that did not stop it (placeholders left for each client to write)
+  published_at  timestamptz not null default now(),
+  published_by  text,
+  unique (playbook, version)
+);
+
+-- D171 (#53): a client being stood up: the wizard's answers and progress, step by step. One row per company, kept after it is
+-- finished (the intake and the fit report are how the client was set up).
+create table onboarding (
+  company_id  uuid primary key references companies(id) on delete cascade,
+  kind        text not null default 'new' check (kind in ('new','takeover')),   -- a brand-new offer, or a running system taken over
+  intake      jsonb not null default '{}',     -- the offer as Tyler described it (src/onboarding/intake.ts)
+  playbook    text,                            -- the playbook the intake picked or Tyler chose (D170)
+  params      jsonb,                           -- that playbook's params for this offer, from its defaults until Tyler edits them (D175)
+  fit         jsonb,                           -- the fit report when the intake was saved: per workflow fits / tweak / build / off, the gaps
+  steps       jsonb not null default '{}',     -- step → { done_at, by }
+  connections jsonb not null default '{}',     -- connection → its last live test { ok, at, detail | error } (never a key)
+  research    jsonb,                           -- what was read from their accounts, the AI's proposal, and Tyler's answers (D173)
+  slack       jsonb not null default '{}',     -- the Slack app's name, face, and whether it carries the slash commands (D174)
+  crm         jsonb not null default '{}',     -- the CRM build: its options, the last plan or build and the ids it found or made (D175)
+  messages    jsonb not null default '{}',     -- each client-facing message Tyler approved: workflow:step → { hash of its words, at, by } (D177)
+  tests       jsonb not null default '{}',
+  filters     jsonb not null default '{}',     -- their own GHL workflows as last read, Tyler's mark on each, and the last check before a rung up (D180)     -- the test passes: the test contact, the workflows turned on and the rung, each scenario's latest result, workflows accepted by hand (D179)
+  started_at  timestamptz not null default now(),
+  started_by  text,
+  finished_at timestamptz
+);
+
 create table company_terms (
   id          uuid primary key default gen_random_uuid(),
   company_id  uuid not null references companies(id),

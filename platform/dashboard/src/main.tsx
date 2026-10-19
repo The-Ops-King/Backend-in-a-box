@@ -18,6 +18,8 @@ import { EodList } from "./pages/eod-list";
 import { Setup } from "./pages/setup";
 import { WrapUps } from "./pages/wrapups";
 import { Eod } from "./pages/eod";
+import { Onboarding } from "./pages/onboarding";
+import { Words } from "./pages/words";
 
 /**
  * D113: a tab opened before a deploy keeps the old code (the old chart) until it reloads. Once the API is newer, the next
@@ -52,6 +54,8 @@ createRoot(document.getElementById("root")!).render(
             <Route path="c/:slug/health" element={<Health />} />
             <Route path="c/:slug/eod" element={<EodList />} />
             <Route path="c/:slug/setup" element={<Setup />} />
+            <Route path="c/:slug/onboarding" element={<Onboarding />} />
+            <Route path="c/:slug/words" element={<Words />} />
             <Route path="c/:slug/wrap-ups" element={<WrapUps />} />
           </Route>
           <Route path="*" element={<Navigate to="/app" replace />} />

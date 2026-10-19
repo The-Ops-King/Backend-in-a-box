@@ -3,6 +3,7 @@ import { encrypt, decrypt } from "./crypto";
 import { vendorOfBinding, wakePausedOnAuth } from "./failures";
 import { randomBytes } from "node:crypto";
 import { extractManifest, parseDefinition, indexDefinition } from "./definition";
+import { applyWords, loadWords } from "./words";
 import { templates } from "@/templates";
 import { bookingFor, type Adapters, type BookingConfig, type Company } from "@/adapters/types";
 import { calendlyUserByEmail, calendlyWhoAmI } from "@/adapters/calendly/read";
@@ -116,6 +117,8 @@ export async function syncTemplateRow(c: import("pg").PoolClient, t: (typeof tem
 export async function installTemplates(c: import("pg").PoolClient, companyId: string, wanted: string[], opts: { enable?: boolean; existed: boolean }): Promise<string[]> {
   const installed: string[] = [];
   const replaced = new Map<string, { name: string; by: string[] }>();
+  // D177: the company's own words, laid over each template as it goes on (an upgrade is D147's, one workflow named)
+  const words = await loadWords(c, companyId);
   await backfillBookingCard(c, companyId);   // D104: before Call booked can upgrade to the card that reads it
   // D123: a template one of the company's own workflows does the job of is never put back on it
   const takenOver = new Map<string, string[]>();
@@ -124,6 +127,7 @@ export async function installTemplates(c: import("pg").PoolClient, companyId: st
     const by = takenOver.get(t.slug);
     if (by) { installed.push(`${t.slug} → not installed: the company's own ${by.map((n) => `“${n}”`).join(" and ")} ${by.length > 1 ? "do" : "does"} its job (D123)`); continue; }
     const def = parseDefinition(t.definition); const manifest = extractManifest(def);
+    const own = applyWords(t.definition, words[t.slug]).def, ownManifest = own === t.definition ? manifest : extractManifest(parseDefinition(own));
     // D111: a template whose chart no layout draws exactly is not put on a company (chart-layout.test holds every shipped one to it)
     const chart = await chartLayoutOf(def);
     if (chart.layout === "list") { installed.push(`${t.slug} → refused: ${notDrawable(chart.problems)}: ${chart.problems.join("; ")}`); continue; }
@@ -140,7 +144,7 @@ export async function installTemplates(c: import("pg").PoolClient, companyId: st
       continue;
     }
     const wf = await one<{ id: string }>(c, `insert into workflows (company_id, template_id, template_version, name, reentry_policy, reentry_window, stage, sort, origin) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, [companyId, tpl!.id, tpl!.version, t.name, def.reentry, def.reentry_window ?? null, t.stage, t.sort, t.origin]);
-    await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'installed from template')", [wf!.id, t.definition, manifest]);
+    await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,$4)", [wf!.id, own, ownManifest, own === t.definition ? "installed from template" : "installed from template, with the company's words"]);
     await syncTriggers(c, companyId, wf!.id, def);
     const carried = opts.existed && "engine_default" in t && t.engine_default === true;
     // D96: a template that takes over an older one (the three wrap-ups out of the one) starts the way the old copy stood: on or off, its mode.
@@ -254,7 +258,9 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
   const modeFlag = input.mode && WRITES_FOR_ALL.includes(input.mode) ? null : input.mode ?? null;
   const out = await asOperator(async (c) => {
     // D88: a company that already existed gets a template that carries what the engine used to do by itself ON, so an upgrade never lets that go quiet
-    const existed = !!(await one(c, "select 1 from companies where slug=$1", [input.slug]));
+    // D176: a company the onboarding wizard made (status onboarding, no workflows yet) never ran: it is new here, so it starts all off
+    // D182: nor did a template business: it never runs for real, so nothing it carries is ever turned on by an install
+    const existed = !!(await one(c, "select 1 from companies co where co.slug=$1 and (co.status not in ('onboarding','template') or (co.status='onboarding' and exists (select 1 from workflows w where w.company_id=co.id)))", [input.slug]));
     const storedPit = input.pit ? null : await one<{ value: Buffer }>(c, "select b.value from bindings b join companies co on co.id=b.company_id where co.slug=$1 and b.key='secret.ghl_pit'", [input.slug]);
     const pit = input.pit ?? (storedPit ? decrypt(storedPit.value) : null);
     if (!pit) throw new Error("pit is required: this company has no CRM token stored yet");

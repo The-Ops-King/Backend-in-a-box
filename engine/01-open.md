@@ -832,3 +832,107 @@ Closing (60 minutes):
   until then; when the first setter starts: a Discovery Call object and its contact association in PMU's GHL, `crm.pipeline_setter`
   on the Beauty Moguls board (DQ / Lost as the setter stages), dry run to Tyler first, and the UTM setter link.
 - PMU's Health check is on in quiet (Tyler: "only in our sandbox"); its posts land in #ops-test only (checked 2026-10-19).
+
+## 53. Onboarding: Add client, playbooks, launch a same-stack offer in under a day (Tyler, 2026-10-18; plan, nothing built)
+
+Tyler: an **Add client** button on the Companies page. It asks about the offer (sales process, sales journey, price),
+the software and its keys, and whether this is a brand-new offer or a takeover of a running one. Then a research pass
+("these Calendly event types / GHL calendars: which is the sales call, what does this one do"), the Slack app manifest,
+the signing secret, token and channels, test passes, then workflows turned up one at a time while the rest keep testing.
+The goal: "a full template library to handle 90% of every way we can do it", picked at onboarding, a simple install and
+swap over. Same-stack new offers (Hair, PMU, Dating are the role clients) launch in under a day by duplicating.
+
+What exists and is reused, not rebuilt: `installCompany` (idempotent, the whole `InstallInput`), `ghlCatalog` and
+`listCalendars` (discovery), `describe-config.ts` (an AI proposal that maps calendars and roles, no callers yet),
+`provision-ghl` (dry run, then apply), `companyReadiness` / `workflowLiveBlockers`, the per-workflow ladder (D92, D132),
+`simulate` (D23), the Health sweep, the backfills (dry-run plans), `binding-copy` (D100), and the hand runbooks in #43 and
+#44 that this productises. `companies.status = 'onboarding'` exists in the schema and is set by nothing yet.
+
+Decisions so far (Tyler, 2026-10-18):
+- **Playbooks.** A playbook is a sales process: the traits that pick it, its workflow set (the ~20 every offer needs plus
+  the ones its process adds), which copy of each workflow, a default rung per workflow (closes #48), and the connections
+  and keys it needs. What differs is mainly process: setter-led or direct-booked, application form or not, deposit / paid
+  in full / payment plan, agreement signing, recorded calls. A payment processor or a booking tool is a setting or a
+  trigger tweak inside a playbook, not a new playbook. The library grows over time; Hair, PMU and Dating are the first
+  ones, extracted from what runs today (`installs/pmu/`, `installs/dating-nelly/`).
+- **The wizard picks the playbook** from the intake: structured answers plus free text that the AI turns into
+  proposals (the D3 rule stands: the settings form is generated from the manifests, never hand-written). It reports per
+  workflow: fits, needs a tweak, needs building. That report is the per-offer work list.
+- **Keys go in on the dashboard**, behind the existing login (one operator; no new auth). Each key is encrypted on
+  arrival, never shown again, and checked against its API before the step completes. The operator key never reaches the
+  browser. Keys are not pasted into an agent chat (they stay in the transcript).
+- **Same-stack launch is built first** (GHL or Calendly, Whop, Fathom, Slack, its own GHL account). Takeover and the
+  library are built over time.
+- **Takeover = rebuild on the client's software**, not a snapshot and not a migration to GHL. Every step of their system
+  has to be captured; the API gives GHL workflow names and on/off only, never the steps, and Zaps are not visible
+  without the client's Zapier, so Tyler supplies the steps where they differ from the core flows. Swap-over per
+  workflow follows #40 (theirs filtered off and ours live at one moment). Backfill and import never change what exists.
+- **Copy:** playbooks ship placeholders, never a client's words (the #43 lesson: PMU inherited Hair's welcome text).
+  Basic copy is written at onboarding and finalised before live; readiness already blocks live on placeholder copy.
+- A2P and email deliverability are known and outside this: SMS stays off until a new account's number is approved.
+
+Not small, said plainly: HubSpot, Close and iClosed mean a CRM adapter each (`CrmRead`, `CrmWrite`, `Sender` in
+`src/adapters/types.ts`), not only new triggers. The interface is GHL-shaped (tags, notes, opportunities and stages,
+documents, sending texts through the CRM); HubSpot has no tags and no native SMS. Build one when a takeover needs it.
+
+Plan:
+- **P0, playbooks.** The playbook format (files in the repo beside the templates, versioned and reviewed like them), the
+  default-rung rule (no client-facing send → quiet; client-facing → test until its copy is approved), Hair / PMU / Dating
+  extracted as the first three, and an install that applies a playbook (its workflow copies, its rungs) on top of
+  `installCompany`.
+- **P1, same-stack launch (the under-a-day path).** Add client creates the company in ghost, every workflow off, status
+  `onboarding`, so the webhook URLs carrying its id exist from the start. Then, each step saved and resumable:
+  1. Offer intake (structured plus free text) → the playbook and its fit report.
+  2. Connections: the keys that playbook needs, each tested live.
+  3. Research: the GHL catalog, calendars or Calendly event types, Whop products, Fathom; the AI's proposal (which call
+     is the sales call, setter or self-booked, who closes) shown as questions to confirm or correct.
+  4. Slack: the manifest generated with this company's request URLs (from the two hand-written ones), Tyler creates the
+     app, pastes the signing secret and bot token, assigns channels, matches the team to Slack users.
+  5. GHL build: `provision-ghl` dry run shown, then applied (only what is missing).
+  6. Install the playbook, everything off.
+  7. Test passes: per workflow, the simulate actions it needs, run on a test contact, each result checked; then Health
+     and readiness green.
+  8. Go-live board: each workflow on its own rung, moved up one at a time; status `active` when the first goes live.
+- **P2, takeover.** The step audit, each of their steps mapped to a template (gaps flagged), backfill and import dry
+  runs, the swap-over checklist per workflow.
+- **P3, library growth.** A new process becomes a playbook (workflows through the `build-workflow` skill); a new tool
+  becomes an adapter when a client needs it.
+
+Open, to settle before P0 is built:
+- Which of today's ~30 templates are "the core every offer gets", and which belong to a process.
+- Duplicating: does "duplicate PMU" copy PMU's settings that are not client-specific (call types, outcomes, alerts,
+  prompts) as well as its workflow copies, or only the playbook? Secrets and ids never copy.
+
+**P0 built 2026-10-18 (D170):** playbooks (`setter-closer` Hair, `one-board` PMU, `application-triage` Dating), the starting
+rung per workflow (closes #48's rule), putting a playbook on a company and duplicating an offer's settings
+(`POST /api/admin/playbooks`). To do by Tyler: PMU's live copies are behind D141 and D118; `scripts/apply-playbook.ts pmu`
+(a dry run) says what saving them changes, `--apply` saves them.
+
+**The full walkthrough (Tyler, 2026-10-18), the wizard's steps in order:**
+1. **The offer**: the product, the sales process, the software (built, D171).
+2. **Connections**: every key, tested live (built, D172).
+3. **Research**: their calendars or event types, boards, team: which is the sales call, who closes, who sets.
+4. **Slack**: the manifest generated, the app installed, signing secret and token, which channel is for what.
+5. **CRM build**: a new offer gets what the playbook needs built (dry run first); a takeover is adapted to.
+6. **Messages**: every client-facing text and email written and approved (readiness already blocks placeholders).
+7. **Install**: the playbook installed, every workflow off, the company active in ghost.
+8. **Test passes**: end to end on test contacts, every workflow, no errors.
+9. **GHL filters**: the API lists the client's GHL workflows (names, on or off) but cannot read or change their triggers, so
+   this is a checklist the engine holds go-live on. Each existing GHL workflow is marked: replaced by an engine workflow (it
+   gets #40's filter, nobody new enters, at the moment ours goes live), kept (it gets a filter so the engine's tags and test
+   contacts never trigger it: the D90 double welcome), or turned off. Tyler, 1a: "add a filter on existing GHL workflows so
+   nothing has an issue."
+10. **Go live, per workflow**: each up its own rung (internal ones start in quiet, client-facing ones in test, D170).
+11. **Fully live**: every workflow live, tested, no errors; messages approved; SMS registration approved or SMS off; the
+    email domain verified; every GHL workflow on the checklist handled; and a reminder, every time, to check that test
+    contacts reach none of the client's own automations (Tyler, 1b). A takeover (a live offer) also needs 2 to 3 clean days
+    on the engine first; a new offer built from templates can go as soon as its test passes are green (Tyler, 2).
+A shared GHL account (1c) is rare; the scope tag (D117) covers it.
+
+**P1 slice 1 built 2026-10-18 (D171):** Add client, the wizard page, the offer step (intake → playbook → fit report).
+**Slice 2 built (D172):** connections, every key tested live before it is kept. **Slice 3 built (D173):** research. **Slice 4 built (D174):** Slack. **Slice 5 built (D175):** CRM build. **Slice 6 built (D176):** install (moved ahead of Messages). **Slice 7 built (D177):** messages, and a company's words kept apart from the steps. **Template businesses (D178).** **Slice 8 built (D179):** test passes. **D180:** their GHL workflows (now step 8, ahead of the tests), checked again before every rung up. **D181:** the wizard makes the test contact. **D182/D183:** template businesses tested by Claude in the snapshot sub-account (admin API, not the wizard), publish gated on a current pass. **09-possibilities** waits on Tyler's marks. Next: go live per workflow, fully live.
+
+Tyler, 2026-10-18: the core set is what runs today (new lead, call booked and cancelled, forms, Fathom recordings,
+agreements, payment and close, EODs, Health check and the rest). What to sell and build next is `08-problem-map.md`, his
+43 problems mapped against the engine: the core gaps come before new modules, and the wizard's intake asks which
+problems an offer has, to pick its modules.

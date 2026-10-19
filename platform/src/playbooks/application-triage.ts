@@ -12,8 +12,10 @@
  * Words still marked [placeholder] keep their sends from going out: each such send is skipped ("only if there is a welcome
  * copy written", which nothing sets) until the words are the company's and the copies are built again.
  * Build: pnpm exec tsx scripts/build-copies.ts dating-nelly (--check: say whether the files are current, write nothing).
+ * D170: this is the application-and-triage playbook (two boards, an application form, a triage call, a booked-call workflow per
+ * call type); it was installs/dating/copies.ts.
  */
-import { templates } from "@/templates";
+import { after, drop, load, node, RESCHEDULE, template, type Copy, type Def, type Edge } from "./kit";
 import { defaultPrompts } from "@/prompts";
 import { isPlaceholderCopy } from "@/engine/readiness";
 
@@ -36,14 +38,8 @@ export type DatingSetup = {
   triageFiled?: { workflow: string; name: string; callType: string };
 };
 type InstallBits = { scopeTag?: string; calendars?: Record<string, string | { term: string; name?: string }> };
-/** A copy of a template's workflow the company already has (saved over it), or (D123) the company's own workflow, made with `create`. */
-export type Copy = { workflow: string; note: string; definition: Record<string, unknown>; name?: string; create?: { stage: string; sort: number; takesOver?: string } };
-type Node = { id: string; type: string; [k: string]: unknown };
-type Def = { nodes: Node[]; edges: unknown[] };
 
 const DQ_REASONS = ["budget", "age", "geo", "medical", "timeline", "no_problem", "competitor", "bad_contact", "other"];
-const load = (slug: string): Def => structuredClone(templates.find((t) => t.slug === slug)!.definition) as unknown as Def;
-const node = (d: Def, id: string) => { const n = d.nodes.find((x) => x.id === id); if (!n) throw new Error(`no node ${id}`); return n; };
 /** A send that must not go out while its words are a placeholder: nothing sets vars.welcome_copy_written. */
 const HELD = { exists: "vars.welcome_copy_written" };
 
@@ -77,23 +73,6 @@ export function datingCopies(company: string, words: DatingWords, own?: { setup:
   return out;
 }
 
-const template = (slug: string) => templates.find((t) => t.slug === slug)!;
-type Edge = { from: string; to: string; label?: string; when?: unknown; else?: boolean };
-/** Removes node `id`, joining the edges into it to its one way on. */
-const drop = (d: Def, id: string) => {
-  const edges = d.edges as Edge[], outs = edges.filter((e) => e.from === id);
-  if (outs.length !== 1) throw new Error(`${id} has ${outs.length} ways on`);
-  for (const e of edges) if (e.to === id) e.to = outs[0].to;
-  d.edges = edges.filter((e) => e.from !== id); d.nodes = d.nodes.filter((n) => n.id !== id);
-};
-/** Puts node `n` right after `prev` (which has one way on), in the line and in the node list. */
-const after = (d: Def, prev: string, n: Node) => {
-  const outs = (d.edges as Edge[]).filter((e) => e.from === prev);
-  if (outs.length !== 1) throw new Error(`${prev} has ${outs.length} ways on`);
-  d.nodes.splice(d.nodes.findIndex((x) => x.id === prev) + 1, 0, n);
-  (d.edges as Edge[]).push({ from: n.id, to: outs[0].to }); outs[0].to = n.id;
-};
-const RESCHEDULE = { eq: ["{{event._type}}", "appointment.rescheduled"] };
 
 /**
  * D123/D105/D107: Call booked with one card fork after the setter and self paths rejoin, the way PMU's copy has it ("A new booking
