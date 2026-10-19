@@ -24,7 +24,7 @@ export type AppointmentSnapshot = {
   setBy?: string;             // the setter's name when the source carries it (Calendly question on the setter event type)
   answers?: Record<string, string>;   // booking-form answers keyed by the name the calendar config gave them
   rescheduleUrl?: string; cancelUrl?: string;   // per-booking self-service links when the source has them (Calendly)
-  meetingUrl?: string;        // the call's join link when the source carries one (Calendly location.join_url, GHL address); kept only as its meeting key (D102)
+  meetingUrl?: string;        // the call's join link when the source carries one (Calendly location.join_url, GHL address): its meeting key (D102) and the link itself (D144)
   cancellation?: { by?: string; reason?: string; byType?: string; at?: string };   // who cancelled, why and when, when the source says
   tracking?: Record<string, string>;            // utm_* and the like, as the source reports them
   rescheduledFrom?: string;   // this booking replaces that external id (same appointment, new time)
@@ -98,6 +98,11 @@ export interface CrmWrite {
   updateRecord(c: Company, objectKey: string, recordId: string, properties: Record<string, unknown>, ownerUserId?: string): Promise<void>;
   /** D137: the operator's repair route only, and only for a record the engine made. */
   deleteRecord?(c: Company, objectKey: string, recordId: string): Promise<void>;
+  /** D142: the operator's undo of what a run made (app/api/admin/runs/undo) */
+  deleteOpportunity?(c: Company, opportunityId: string): Promise<void>;
+  deleteTask?(c: Company, contactId: string, taskId: string): Promise<void>;
+  /** D142: a test contact removed (app/api/admin/contact/remove-test); GHL takes its cards, tasks and notes with it */
+  deleteContact?(c: Company, contactId: string): Promise<void>;
   relateRecords(c: Company, associationId: string, firstRecordId: string, secondRecordId: string): Promise<void>;
   createOpportunity(c: Company, input: OpportunityWrite & { contactId: string }): Promise<{ id: string }>;
   updateOpportunity(c: Company, id: string, patch: Partial<OpportunityWrite>): Promise<void>;

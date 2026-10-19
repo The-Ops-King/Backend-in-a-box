@@ -20,10 +20,10 @@
     "match": {
      "eq": [
       "{{appointment.term.name}}",
-      "Strategy session"
+      "Triage call"
      ]
     },
-    "title": "Only a Strategy session booking (its calendar's call type)"
+    "title": "Only a Triage call booking (its calendar's call type)"
    },
    {
     "id": "t2",
@@ -32,10 +32,10 @@
     "match": {
      "eq": [
       "{{appointment.term.name}}",
-      "Strategy session"
+      "Triage call"
      ]
     },
-    "title": "Only a Strategy session moved"
+    "title": "Only a Triage call moved"
    },
    {
     "id": "c_via",
@@ -152,12 +152,6 @@
     "value": "{{picklist.sales_call_booking_source.self}}"
    },
    {
-    "id": "s_suffix",
-    "type": "set_var",
-    "key": "card_suffix",
-    "value": "Direct"
-   },
-   {
     "id": "s3",
     "type": "pipeline_card",
     "pipeline": "{{crm.pipeline_setter}}",
@@ -204,12 +198,6 @@
     "value": "{{picklist.sales_call_booking_source.setter}}"
    },
    {
-    "id": "b_suffix",
-    "type": "set_var",
-    "key": "card_suffix",
-    "value": "Setter Booked"
-   },
-   {
     "id": "b3",
     "type": "update_contact",
     "fields": [
@@ -254,92 +242,42 @@
     ]
    },
    {
-    "id": "f_card",
-    "type": "branch",
-    "title": "A new booking or a reschedule?"
-   },
-   {
-    "type": "pipeline_card",
-    "pipeline": "{{crm.pipeline_closer}}",
-    "stage": "{{crm.stage_closer_scheduled}}",
-    "name": "{{contact.name}} -- {{vars.card_suffix}}",
-    "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-    "fields": [
-     {
-      "id": "{{crm.field_opportunity_setter_owner}}",
-      "value": "{{appointment.set_by | default:}}"
-     }
-    ],
-    "id": "c_new",
-    "title": "Closer card → Scheduled, named -- Direct / -- Setter Booked"
-   },
-   {
-    "type": "pipeline_card",
-    "pipeline": "{{crm.pipeline_closer}}",
-    "stage": "{{crm.stage_closer_scheduled}}",
-    "name": "{{contact.name}} -- {{vars.card_suffix}}",
-    "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-    "fields": [
-     {
-      "id": "{{crm.field_opportunity_setter_owner}}",
-      "value": "{{appointment.set_by | default:}}"
-     }
-    ],
-    "id": "c_rs",
-    "title": "Closer card → Scheduled, if it is before the call (its name stays)",
-    "keep_name": true,
-    "from_stages": [
-     "{{crm.stage_closer_scheduled}}",
-     "{{crm.stage_closer_cancelled}}"
-    ]
-   },
-   {
-    "id": "k3",
-    "type": "create_task",
-    "title": "Send {{contact.first_name}} a personalized video",
-    "body": "Booked for {{appointment.starts_at | date_company}}. A quick personal video before the call.",
-    "due": "+1d",
-    "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
-   },
-   {
-    "id": "k5",
+    "id": "d_rs",
     "type": "crm_record",
-    "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+    "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
     "key": "{{event.slot.from | default:}}",
     "if_missing": "skip",
-    "properties": {
-     "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
+    "only_if": {
+     "eq": [
+      "{{event._type}}",
+      "appointment.rescheduled"
+     ]
     },
-    "title": "The Sales Call for the old time: logged as rescheduled"
+    "properties": {
+     "outcome": "rescheduled"
+    },
+    "title": "The Discovery Call for the old time: logged as rescheduled"
    },
    {
-    "id": "k4",
+    "id": "d1",
     "type": "crm_record",
-    "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+    "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
     "key": "{{appointment.slot_key}}",
+    "owner": "{{appointment.closer.ghl_user_id | default:}}",
     "properties": {
      "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
      "external_id": "{{appointment.slot_key}}",
      "contact_id": "{{contact.ghl_contact_id | default:}}",
-     "opportunity_id": "{{cards.closer.id | default:}}",
-     "scheduled_at": "{{appointment.starts_at}}",
-     "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
-     "closer": "{{appointment.closer.name | default: | option:sales_call_closer}}",
-     "setter": "{{appointment.set_by | default:}}",
-     "outcome": "{{picklist.sales_call_outcome.scheduled}}",
-     "booking_source": "{{vars.booking_source | default:}}",
-     "call_type": "strategy_session"
+     "occurred_at": "{{appointment.starts_at | date_company}}",
+     "setter": "{{appointment.closer.name | default:}}",
+     "outcome": "scheduled"
     },
+    "title": "The triage call's Discovery Call record",
     "relate": [
      {
-      "association": "{{crm.assoc_sales_call_contact}}",
+      "association": "{{crm.assoc_discovery_call_contact}}",
       "first": "{{contact.ghl_contact_id | default:}}",
       "second": "{{record.id}}"
-     },
-     {
-      "association": "{{crm.assoc_sales_call_opportunity}}",
-      "first": "{{record.id}}",
-      "second": "{{cards.closer.id | default:}}"
      }
     ]
    },
@@ -354,14 +292,14 @@
      ]
     },
     "value": {
-     "name": "Call rescheduled",
+     "name": "Triage call rescheduled",
      "icons": [
       ":repeat:"
      ],
      "reschedule_mark": "repeat"
     },
     "else_value": {
-     "name": "New call booked",
+     "name": "New triage call booked",
      "icons": [
       ":telephone_receiver:",
       ":calendar:",
@@ -462,10 +400,6 @@
     "to": "b6"
    },
    {
-    "from": "k4",
-    "to": "v4"
-   },
-   {
     "from": "v4",
     "to": "n4"
    },
@@ -475,11 +409,11 @@
    },
    {
     "from": "s2b",
-    "to": "s_suffix"
+    "to": "s3"
    },
    {
     "from": "b2b",
-    "to": "b_suffix"
+    "to": "b3"
    },
    {
     "from": "c_via",
@@ -494,55 +428,22 @@
     "to": "c_note"
    },
    {
-    "from": "s_suffix",
-    "to": "s3"
-   },
-   {
-    "from": "b_suffix",
-    "to": "b3"
-   },
-   {
     "from": "s5",
-    "to": "f_card"
+    "to": "d_rs"
    },
    {
     "from": "b6",
-    "to": "f_card"
+    "to": "d_rs"
    },
    {
-    "from": "f_card",
-    "to": "c_rs",
-    "label": "a reschedule",
-    "when": {
-     "eq": [
-      "{{event._type}}",
-      "appointment.rescheduled"
-     ]
-    }
+    "from": "d_rs",
+    "to": "d1"
    },
    {
-    "from": "f_card",
-    "to": "c_new",
-    "label": "a new booking",
-    "else": true
-   },
-   {
-    "from": "c_new",
-    "to": "k3"
-   },
-   {
-    "from": "k3",
-    "to": "k4"
-   },
-   {
-    "from": "c_rs",
-    "to": "k5"
-   },
-   {
-    "from": "k5",
-    "to": "k4"
+    "from": "d1",
+    "to": "v4"
    }
   ]
  },
- "note": "dating-nelly: Call booked for a Strategy session booking only (its calendar's call type), the Sales Call's call type strategy_session, and the tag stat-triage-first; one card fork after the booking paths, a new booking (closer card to Scheduled, the video task) or a reschedule (the card to Scheduled only before the call, its name kept; the old slot's Sales Call logged rescheduled), as PMU's (D105, D107, D123)"
+ "note": "dating-nelly: Call booked for a Triage call booking only (its calendar's call type), a triage call: the setter card and a Discovery Call record, owned by the calendar's owner (D142); no Sales Call, no closer card; the tag stat-triage-first"
 }

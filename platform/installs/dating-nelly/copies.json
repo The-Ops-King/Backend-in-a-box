@@ -1,8 +1,36 @@
 {
-  "_note": "D123: Dating (Nelly)'s own workflows, read by scripts/build-copies.ts with installs/dating-nelly.json. Each booked workflow is Call booked for one call type (the calendar's own type in the install file's calendars), so a booking runs exactly one; together they take Call booked's place for her. fromForm: what an applicant gets on form.submitted (the scope tag, New lead once).",
+  "_note": "D123: Dating (Nelly)'s own workflows, read by scripts/build-copies.ts with installs/dating-nelly.json. Each booked workflow is Call booked for one call type (D142: a triage call writes a Discovery Call, a closing call a Sales Call) (the calendar's own type in the install file's calendars), so a booking runs exactly one; together they take Call booked's place for her. fromForm: what an applicant gets on form.submitted (the scope tag, New lead once).",
   "booked": [
-    { "workflow": "triage-call-booked", "name": "Triage call booked", "callType": "Strategy session", "salesCallType": "strategy_session", "tags": ["stat-triage-first"] },
-    { "workflow": "sales-call-booked", "name": "Sales call booked", "callType": "Consultation", "salesCallType": "closing" }
+    {
+      "workflow": "triage-call-booked",
+      "name": "Triage call booked",
+      "callType": "Triage call",
+      "record": "discovery",
+      "card": "triage call",
+      "tags": [
+        "stat-triage-first"
+      ]
+    },
+    {
+      "workflow": "closing-call-booked",
+      "name": "Closing call booked",
+      "callType": "Closing call",
+      "salesCallType": "closing",
+      "card": "closing call"
+    }
   ],
-  "fromForm": { "workflow": "new-from-typeform", "name": "New from Typeform" }
+  "fromForm": {
+    "workflow": "new-from-typeform",
+    "name": "New from Typeform"
+  },
+  "triageCancelled": {
+    "workflow": "triage-call-cancelled",
+    "name": "Triage call cancelled",
+    "callType": "Triage call"
+  },
+  "triageFiled": {
+    "workflow": "triage-call-filed",
+    "name": "Triage call filed",
+    "callType": "Triage call"
+  }
 }

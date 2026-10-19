@@ -67,3 +67,14 @@ Naming the exact mechanism locks the build in writing and makes it harder to cha
 
 Watch for "that's the difference between X and Y." It is one of the clearest AI tells
 in this document family.
+
+## Words for calls (Tyler, 2026-10-18)
+
+Calls are **triage** or **closing**. Never "demo": "I've used demo in the past but the new phrasing is triage or closing,
+we don't do demos." Applies to copy, Slack cards, workflow names and anything said to a client or a team.
+
+PMU (Tyler, 2026-10-19): "Demo for pmu is triage / discovery. I hate the phrase but that's what they chose ... Internal
+language is never demo for a call type. If that's the name of the call that's fine." So a calendar or event may be named
+"Demo Call" (PMU's Calendly "Beauty Moguls Demo Call"). Then, on whether PMU's demo calls become triage calls: "Keep PMU demo
+as a sales call type demo." PMU's demo calls stay Sales Calls of type `demo`, handled as closing calls (they can sell); the
+engine's own words for call kinds stay triage and closing.

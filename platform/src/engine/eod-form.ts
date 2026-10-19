@@ -8,7 +8,9 @@
 export type CallOutcome = string;
 /** What an outcome means to the engine: whether they came (attendance) and, for a call that happened, the call outcome category it files (D83: pending is half a close, never a close). */
 export type Attendance = "showed" | "noshow" | "rescheduled";
-export type CallMeaning = "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified";
+export type CallMeaning = "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified" | "qualified";
+/** D143: what a call is on the form: a closing call (the company's outcome list) or a triage call (its own list: set, follow up, DQ, not interested; no money). */
+export type CallKind = "closing" | "triage";
 /** One answer to "what happened on the call?": the company's label over a meaning. `money`: cash and revenue are asked and counted (closed, deposit by default). */
 export type OutcomeChoice = { value: string; label: string; attendance: Attendance; call_outcome?: CallMeaning | null; money?: boolean };
 export const DEFAULT_OUTCOMES: OutcomeChoice[] = [
@@ -21,20 +23,33 @@ export const DEFAULT_OUTCOMES: OutcomeChoice[] = [
   { value: "rescheduled", label: "Rescheduled / cancelled on the call", attendance: "rescheduled" },
   { value: "no_show", label: "No-show", attendance: "noshow" },
 ];
+/** D143: a triage call's answers. "Set" is a call outcome of qualified; not interested is lost; no money is asked. */
+export const TRIAGE_OUTCOMES: OutcomeChoice[] = [
+  { value: "set", label: "Set (booked a closing call)", attendance: "showed", call_outcome: "qualified" },
+  { value: "follow_up", label: "Follow up", attendance: "showed", call_outcome: "follow_up" },
+  { value: "dq", label: "DQ", attendance: "showed", call_outcome: "unqualified" },
+  { value: "not_interested", label: "Not interested", attendance: "showed", call_outcome: "lost" },
+  { value: "rescheduled", label: "Rescheduled / cancelled on the call", attendance: "rescheduled" },
+  { value: "no_show", label: "No-show", attendance: "noshow" },
+];
+/** What the Discovery Call record says for each triage meaning (its call_result options), and for each attendance (its outcome). */
+export const TRIAGE_RESULT: Partial<Record<CallMeaning, string>> = { qualified: "set", follow_up: "follow_up", unqualified: "dq", lost: "not_interested" };
 /** @deprecated the defaults; a company's list is `outcomesOf(fields)` */
 export const OUTCOMES = DEFAULT_OUTCOMES;
 /** The company's list: the choices on its outcome field, else the defaults. */
 export const outcomesOf = (fields?: EodField[] | null): OutcomeChoice[] => fields?.find((f) => f.key === "outcome")?.choices?.length ? fields.find((f) => f.key === "outcome")!.choices! : DEFAULT_OUTCOMES;
-export const choiceOf = (v: string, fields?: EodField[] | null): OutcomeChoice | undefined => outcomesOf(fields).find((o) => o.value === v);
-export const outcomeLabel = (v: string, fields?: EodField[] | null) => choiceOf(v, fields)?.label ?? (v || "blank");
-/** Money changes hands: cash and revenue are asked and counted. */
-export const isMoney = (v: string, fields?: EodField[] | null) => { const o = choiceOf(v, fields); return !!o && (o.money ?? (o.call_outcome === "closed" || o.call_outcome === "deposit")); };
+/** The answers a call of this kind takes (D143). */
+export const outcomesFor = (kind: CallKind | undefined, fields?: EodField[] | null): OutcomeChoice[] => (kind === "triage" ? TRIAGE_OUTCOMES : outcomesOf(fields));
+export const choiceOf = (v: string, fields?: EodField[] | null, kind?: CallKind): OutcomeChoice | undefined => outcomesFor(kind, fields).find((o) => o.value === v);
+export const outcomeLabel = (v: string, fields?: EodField[] | null, kind?: CallKind) => choiceOf(v, fields, kind)?.label ?? (v || "blank");
+/** Money changes hands: cash and revenue are asked and counted (never on a triage call). */
+export const isMoney = (v: string, fields?: EodField[] | null, kind?: CallKind) => { const o = choiceOf(v, fields, kind); return kind !== "triage" && !!o && (o.money ?? (o.call_outcome === "closed" || o.call_outcome === "deposit")); };
 /** D119: revenue contracted is asked and counted only on a close: a deposit's cash counts, its revenue does not. */
 const isRevenue = (o: OutcomeChoice) => o.call_outcome !== "deposit" && (o.money ?? o.call_outcome === "closed");
-export const isRevenueOutcome = (v: string, fields?: EodField[] | null) => { const o = choiceOf(v, fields); return !!o && isRevenue(o); };
+export const isRevenueOutcome = (v: string, fields?: EodField[] | null, kind?: CallKind) => { const o = choiceOf(v, fields, kind); return kind !== "triage" && !!o && isRevenue(o); };
 /** The value of the company's first answer with this meaning (how the ledger's outcome shows on the form); "" when it has none. */
-export function valueFor(fields: EodField[] | null | undefined, m: { attendance?: Attendance; call_outcome?: CallMeaning }): string {
-  const list = outcomesOf(fields);
+export function valueFor(fields: EodField[] | null | undefined, m: { attendance?: Attendance; call_outcome?: CallMeaning }, kind?: CallKind): string {
+  const list = outcomesFor(kind, fields);
   if (m.call_outcome) return list.find((o) => o.call_outcome === m.call_outcome)?.value ?? "";
   return (list.find((o) => o.attendance === m.attendance && !o.call_outcome) ?? list.find((o) => o.attendance === m.attendance))?.value ?? "";
 }
@@ -103,12 +118,20 @@ function cleanChoices(stored?: OutcomeChoice[]): OutcomeChoice[] {
   return ok.length ? ok : DEFAULT_OUTCOMES.map((o) => ({ ...o }));
 }
 
-/** Fields that apply to a call that ended this way (none until an outcome is picked). */
-export const fieldsFor = (fields: EodField[], outcome: CallOutcome) => (outcome ? fields.filter((f) => f.scope === "call" && f.key !== "outcome" && (!f.when || f.when.includes(outcome))) : []);
+/** Fields that apply to a call that ended this way (none until an outcome is picked). A triage call (D143) asks only why a DQ, about them when they came, and notes. */
+export function fieldsFor(fields: EodField[], outcome: CallOutcome, kind?: CallKind): EodField[] {
+  if (!outcome) return [];
+  if (kind === "triage") {
+    const o = choiceOf(outcome, fields, kind);
+    return fields.filter((f) => f.scope === "call" && (f.key === "notes" || (f.key === "about" && o?.attendance === "showed") || ((f.key === "dq_reason" || f.key === "dq_note") && o?.call_outcome === "unqualified")));
+  }
+  return fields.filter((f) => f.scope === "call" && f.key !== "outcome" && (!f.when || f.when.includes(outcome)));
+}
 export const dayFields = (fields: EodField[]) => fields.filter((f) => f.scope === "day");
 
 export type CallEntry = {
   appointment_id: string; contact_id: string; contact: string; starts_at: string; href_contact: string | null; recording_url: string | null;
+  kind?: CallKind;                                     // D143: absent on a report filed before triage calls were on the form: a closing call
   outcome: CallOutcome;
   hint?: string;                                       // why the outcome is blank (no evidence to pre-fill from)
   moved?: string;                                      // A1 (D88): a card dragged in the CRM filed this outcome; the form says so and asks why
@@ -123,10 +146,10 @@ export type DayTotals = { calls_count: number; closes: number; deposits: number;
 /** The day's totals by what each answer means: a close is a closed call outcome (never pending, D83), a deposit its own count. */
 export const totalsOf = (calls: CallEntry[], fields?: EodField[] | null): DayTotals => ({
   calls_count: calls.length,
-  closes: calls.filter((c) => choiceOf(c.outcome, fields)?.call_outcome === "closed").length,
-  deposits: calls.filter((c) => choiceOf(c.outcome, fields)?.call_outcome === "deposit").length,
-  cash: calls.reduce((s, c) => s + (isMoney(c.outcome, fields) ? Number(c.cash ?? 0) : 0), 0),
-  revenue: calls.reduce((s, c) => s + (isRevenueOutcome(c.outcome, fields) ? Number(c.revenue ?? 0) : 0), 0),
+  closes: calls.filter((c) => c.kind !== "triage" && choiceOf(c.outcome, fields)?.call_outcome === "closed").length,
+  deposits: calls.filter((c) => c.kind !== "triage" && choiceOf(c.outcome, fields)?.call_outcome === "deposit").length,
+  cash: calls.reduce((s, c) => s + (isMoney(c.outcome, fields, c.kind) ? Number(c.cash ?? 0) : 0), 0),
+  revenue: calls.reduce((s, c) => s + (isRevenueOutcome(c.outcome, fields, c.kind) ? Number(c.revenue ?? 0) : 0), 0),
 });
 
 /** The value a call carries for a field key, as text: "" when nothing. */
@@ -146,7 +169,8 @@ export function missingAnswers(fields: EodField[], calls: CallEntry[], day: Reco
   for (const call of calls) {
     const outcomeField = fields.find((f) => f.key === "outcome")!;
     if (!call.outcome) { if (outcomeField.required) out.push(`${call.contact}: ${outcomeField.label}`); continue; }
-    for (const f of fieldsFor(fields, call.outcome)) if (f.required && valueOf(call, f.key).trim() === "") out.push(`${call.contact}: ${f.label}`);
+    if (!choiceOf(call.outcome, fields, call.kind)) { out.push(`${call.contact}: ${outcomeField.label}`); continue; }
+    for (const f of fieldsFor(fields, call.outcome, call.kind)) if (f.required && valueOf(call, f.key).trim() === "") out.push(`${call.contact}: ${f.label}`);
   }
   for (const f of dayFields(fields)) if (f.required && (day[f.key] ?? "").trim() === "") out.push(f.label);
   return out;

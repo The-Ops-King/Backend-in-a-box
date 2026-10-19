@@ -13,7 +13,7 @@ import { tick } from "@/engine/runner";
 import { encrypt } from "@/engine/crypto";
 import { clearReplyTexts } from "@/engine/retention";
 import { REDACTED, scrubReplyText } from "@/engine/replies";
-import { fakeAdapters, ghlMessages } from "@/engine/test-install";
+import { fakeAdapters, ghlMessages, unlockSendsForTest } from "@/engine/test-install";
 import type { Adapters, AppointmentSnapshot, Classification, ContactSnapshot, MessageSnapshot } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -101,6 +101,7 @@ describe.skipIf(!HAS_DB)("D89: a reply is kept as 'it came in' plus Jev's read",
     await wipe();
     const r = await installCompany({ name: "Replies", slug: SLUG, timezone: TZ, locationId: "LOC-REPLIES", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, templates: ["pre-call-sequence"], crm: CRM, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);
     companyId = r.companyId;
+    await unlockSendsForTest(companyId);   // D145: these assert what the workflows send
     await asOperator(async (c) => {
       await c.query("update companies set mode='live', send_window_start='00:00', send_window_end='23:59', sms_enabled=true where id=$1", [companyId]);
       // the baseline poll already happened: from here a poll brings deltas

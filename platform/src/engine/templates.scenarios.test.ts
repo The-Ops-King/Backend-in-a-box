@@ -12,7 +12,7 @@ import { applyPayment } from "@/engine/lifecycle";
 import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { fakeMessageBodies, ghlMessages, inboundForTest, replicaSnapshot } from "@/engine/test-install";
+import { fakeMessageBodies, ghlMessages, inboundForTest, replicaSnapshot, unlockSendsForTest } from "@/engine/test-install";
 import { templates } from "@/templates";
 import type { Adapters, AppointmentSnapshot, Classification, BookingRead } from "@/adapters/types";
 import { recordRecording, linkRecording, recordPhoneCall, settlePhoneCall, phoneFacts, type RecordingInput } from "@/engine/recordings";
@@ -131,6 +131,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
         field_contact_cash_collected: "CF-CASH", field_contact_revenue_generated: "CF-REV", assoc_payment_contact: "ASSOC-PC", assoc_payment_opportunity: "ASSOC-PO",
         stage_setter_showed: "STAGE-SHOWED", assoc_sales_call_contact: "ASSOC-SC", assoc_sales_call_opportunity: "ASSOC-SO" }, contractValueDefault: 2999, anthropicKey: "sk-ant-fake" }, fake);
     companyId = r.companyId;
+    await unlockSendsForTest(companyId);   // D145: these assert what the workflows send
     // the fixture sets the flag itself: the only real way to live is goLive (D56), which wants Slack connected, and these scenarios assert what happens while it is not
     await asOperator((c) => c.query("update companies set mode='live', send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
     // (ticks below are scoped to this company: the test database is shared with the other suites)

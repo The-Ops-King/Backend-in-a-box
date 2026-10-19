@@ -4800,6 +4800,121 @@ The Slack check's sibling, the steps check, now also says when an enabled workfl
 Tests: `sweep.test.ts` (D-5), `readiness.whop.test.ts`; Call booked as it was is frozen in `fixtures/before-d141` for D118's
 render comparisons.
 
+## D142. Triage and closing calls; a calendar's owner; taking back what a run made (2026-10-18)
+
+Tyler: calls are triage or closing (VOICE.md). Dating's 15-minute Complimentary Strategy Session is the triage call, taken by
+Mitch; the Private Dating Consultation is the closing call, Nelly's. "They should not be in the sales call deal, it should be
+in the discovery call section."
+
+- A calendar mapping takes `owner` (a roster email or GHL user id): its bookings are that person's whoever hosts them, so
+  `appointment.closer` (the card's owner, the contact's owner, the record's owner, the card's "Booked with") is Mitch on the
+  triage calendar. Install moves what it already holds: every booking of a calendar takes its call type, an upcoming one its
+  owner (a past call stays whoever took it).
+- Dating's calendars: Strategy Session → "Triage call" (first_call; not a closing call, so close and show rates leave it out),
+  owner Mitch; Consultation → "Closing call" (closing).
+- Triage call booked: Call booked's booking paths (the person in GHL, the contact's owner and date, the setter card, the tags
+  with stat-triage-first), then a Discovery Call record (custom_objects.dating_discovery: the slot key, the time, the setter,
+  outcome scheduled; a reschedule logs the old slot's record rescheduled). No closer card, no task, no Sales Call.
+- Closing call booked (was Sales call booked): the closer card and the Sales Call, call type closing.
+- Triage call cancelled: Call cancelled takes closing calls only, so a triage cancel has its own: the setter card to Cancelled,
+  the Discovery Call record cancelled, the tags, ❌ in the booking thread.
+- Slack cards: "New triage call booked" / "New closing call booked" (and "… rescheduled").
+
+Operator tools:
+- `POST /api/admin/runs/undo { company, runs, nodes?, why, dryRun }`: takes back what runs made in GHL, from the engine's
+  ledger of creates (step_effects): cards, tasks, custom object records it made; never a note, a sent document or a record
+  taken over from GHL. Audited.
+- `replay-bookings` `again: true` (named appointments): a booking whose runs are over is handed on again, as a new engine event.
+- `POST /api/admin/contact/remove-test`: a test contact (sys-test or a test-domain email; anyone else refused) removed from GHL
+  (its engine-made records, then the contact) and from the engine's runs, bookings and records; the row stays, gone.
+- `POST /api/admin/contact/tags`: one contact's tags on or off, in GHL and the replica. Audited.
+
+A calendar with no open times (or too few) is said once and closed with a ✅, never repeated hourly (Tyler: "we don't need an
+alert every hour for no times open").
+
+Open: a triage call's outcome (showed, no-show; set, DQ) has no path yet (the closing call's are the end of day and Call
+outcome filed); a Fathom recording of a triage call goes to Sales call recorded.
+
+Tests: `dating-booked.test.ts`, `dating-copies.test.ts`, `simulate-form.test.ts`, `undo.test.ts`, `replay.test.ts`,
+`alerts.test.ts` (D142).
+
+## D143. One end of day per person, triage and closing calls each with their own answers (2026-10-18)
+
+Tyler: "EOD should have whatever is assigned to that person. Sometimes someone will have setter and closer calls." Mitch is a
+setter now; the triage calls are his (D142).
+
+- The end of day lists every call assigned to the person. A call is a triage call when its call type is a first call; a
+  closing call otherwise. A triage call asks Set (booked a closing call) / Follow up / DQ / Not interested / Rescheduled /
+  No-show, then only why a DQ, about them when they came, and notes: no money, no follow-up date (Tyler: no). A day of triage
+  calls only shows no closes, cash or revenue. The call's kind comes from its booking, never from the browser.
+- "Set" pre-fills once the person has booked a closing call since the triage call (evidence, like a recording's read); the
+  setter confirms.
+- Filing records the call's outcome (showed or no-show) and its meaning (set → qualified, follow up, DQ → unqualified, not
+  interested → lost) through the disposition path. GHL decides what is still to file (D134): a triage call's Discovery Call
+  record as GHL holds it (outcome, call_result).
+- Call outcome filed (the template) takes closing calls only. Dating's Triage call filed writes the Discovery Call record
+  (outcome showed / no_show, call_result set / follow_up / dq / not_interested), moves the setter card (Showed won; DQ, Not
+  Interested, Cancelled / No Show lost) and puts a line in the booking thread. The disposition's context now carries the call
+  type's name as well as its category.
+- The end-of-day reminders go to setters as well as closers (only anyone with calls owed is reminded).
+
+Open (asked): the setter pipeline's Cancelled stage renamed "Cancelled / No Show" by hand (GHL's API cannot); a closing call
+booked through the setting link vs the direct link (Tyler: a setter call even when booked direct) — what the setting link is.
+
+Tests: `dating-booked.test.ts` (D143), `eod.test.ts`.
+
+## D144. One engine, everything else a workflow or a setting; the three inventories (2026-10-18)
+
+Tyler: "Code engine should only run the workflows and execute what is built ... All wording rules, CRM writes ... are in the
+workflows or in the settings." Engine code is: running workflows, recording what vendors send as facts and events, operator
+tools, and capability steps whose words and rules come from the workflow or the company's settings. The audit (2026-10-18)
+listed what is not yet so; the programme that moves it is open item 49.
+
+Done now:
+- The inventories, made from the code: `engine/inventory/templates.md`, `triggers.md`, `steps.md` (`scripts/inventory.ts`;
+  `inventory.test.ts` fails when one is stale). Each step type's description and the settings it reads are in
+  `src/engine/step-docs.ts`, a Record over every step type, so a new step does not compile undescribed; each event's writer too.
+- A tag a step adds or takes off is one event per tag, dispatched: a workflow that starts on that tag starts (as a tag added in
+  GHL does); never the workflow whose run added it.
+- No-show recovery takes closing calls only (a triage no-show is Triage call filed's).
+- A booking keeps its join link (`appointments.meeting_url`, `{{appointment.meeting_url}}`), for the hour-before text.
+
+Found: four event types are offered as starts and nothing writes them (contact.created, contact.merged, intake.recorded,
+stage.changed).
+
+Tests: `inventory.test.ts`, `tag-dispatch.test.ts`, `dating-booked.test.ts` (D144).
+
+## D145. The send lock: every workflow starts locked to Tyler's own addresses (2026-10-18)
+
+Tyler: "Yes, I want the SMS lock as well. I'm the only one who can unlock sends ... All of the rest, I just want redundancy, so
+we don't accidentally send something to people." A second guard, apart from the mode: a workflow whose sends are locked texts,
+emails, sends an agreement or calls a webhook only for Tyler, whatever mode it runs in.
+- `workflows.sends_unlocked_at` null is locked: every workflow there was, and every one made after. Only
+  `POST /api/admin/workflows/sends` unlocks, one workflow, with `confirm` repeating "<company>/<workflow name>" and `by`; audited.
+  CLAUDE.md: only on Tyler's word in the chat; the dashboard has no way to.
+- Checked at the moment of sending, after the mode lets a send through, against the contact as GHL holds it (GHL sends to its
+  own phone and email, not the replica's): a text needs his phone, an email or agreement his email, a webhook either. A contact
+  GHL cannot be asked about is not sent to: the step fails and is retried (the send row reclaimable); one GHL does not have, or
+  that is not him, is held with the reason and the run goes on.
+- His addresses are the roster's first rows (`people` with `operator`, `person_identities`: email lower-cased, phone E.164),
+  set by `POST /api/admin/people/operator`. The query door does not read the roster (it spans companies).
+- A workflow that runs live with its sends locked is one warning on the setup page (Tyler: "that's fine. Just let me know").
+
+Tests: `step-failures.test.ts` (D145); the tests about what workflows send unlock their company (`unlockSendsForTest`). Two clock
+flakes fixed on the way: `moves.test.ts` fell outside the alert repeat hours after 5 PM in Arizona; `step-failures.test.ts`
+ordered two cards written in one transaction by a tied `created_at`.
+
+## D146. Before go-live the Slack check asks for the test channel only (2026-10-19)
+
+Tyler, on PMU's #ops-test filling with "The bot is not in #signed-contract … Invite it": "You should have set it to have them
+all going to this channel by default remember? Until I say go live." The posts were already going there (D133); the health
+check was wrong to ask for the real channels. While a company has a test channel and nothing posts live (the company is not
+live, `slack.live` is off or it is in ghost, and no workflow on runs live), the Slack check asks only that the bot is in the
+test channel; the real channels it is not in yet are one go-live note ("Before go-live, invite the bot to …"), never an alert.
+Once anything posts live, every bound channel is checked as before. People not in Slack (D140) are unchanged.
+
+Tests: `health.slack-scope.test.ts` (D146).
+
 ## D147. Playbooks: a company's copies are built from its process and today's templates; each workflow has a starting rung (2026-10-18)
 
 Tyler (#53): onboarding picks from a library of templates by how an offer sells, so we know what to tweak or rebuild per
@@ -5159,4 +5274,23 @@ The client gates do not apply to a template business: the check before a rung up
 test contact (D158).
 
 Tests: `sandbox.test.ts`.
+
+## D161: onboarding merged into main, made to keep main's rules (CLAUDE.md)
+
+Merging the onboarding branch into main (Tyler, 2026-10-19: "merge the PR"). Main had moved on: D142–D146 and open items 49–52 of
+its own, so this branch's decisions became D147–D160 and its onboarding item #53. Three things in the branch broke main's binding
+rules (CLAUDE.md) and were changed in the merge:
+
+- **No migration changes an existing offer.** D154's deploy step, moving every company's word edits into its words and un-freezing
+  those copies, is gone: it changed live offers nobody named, and an un-frozen copy is one a template change can reach. The
+  previews of the branch had already run it against the database and moved nothing (their build logs). `wordsFromEdits` stays,
+  for one offer named (POST /api/admin/words), and now records the words without un-freezing the copy.
+- **A word edit freezes the copy again**, as before D154 ("a template change or a code default never reaches an offer that
+  already exists", until open item 50 makes install never upgrade a copy nobody named). The words are still kept apart and laid
+  over any upgrade the offer is named for.
+- **The test contact's email is used as given** (D158 plus-addressed it): main's send lock (D145) lets a locked workflow reach only
+  Tyler's own addresses, matched exactly. The template businesses share one test contact in the sandbox; one runs at a time.
+
+Also: the Dating playbook's params take main's triage calls (D142: a booked call records a Sales Call or a Discovery Call), and
+PMU's committed copies were rebuilt from main's templates (call-outcome); nothing reaches PMU until it is applied by name.
 

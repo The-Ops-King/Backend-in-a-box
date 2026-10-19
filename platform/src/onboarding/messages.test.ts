@@ -68,23 +68,24 @@ describe.skipIf(!process.env.DATABASE_URL)("D154: the messages step", () => {
     expect(await asOperator((c) => editMessage(c, id, { workflowId: sms.workflowId, nodeId: sms.nodeId, field: "template", text: "Hi {{nope.x}}" }))).toMatchObject({ ok: false, why: expect.stringMatching(/unknown placeholder/) });
   });
 
-  it("a word edit made the old way moves into the company's words; a copy changed beyond words stays as it is", async () => {
+  it("a word edit made the old way is recorded in the company's words, the copy staying frozen; a copy changed beyond words is named", async () => {
     const wf = (await asOperator((c) => one<{ id: string; current_version: number; definition: { nodes: { id: string; type: string; template?: string }[] } }>(c,
       "select w.id, w.current_version, v.definition from workflows w join workflow_templates t on t.id=w.template_id join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 and t.slug='reactivation'", [id])))!;
     const def = JSON.parse(JSON.stringify(wf.definition)); const sms = def.nodes.find((n: { type: string }) => n.type === "send_sms");
     sms.template = "Hi {{contact.first_name}}, the old way.";
     await asOperator(async (c) => { await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,'{\"bindings\":[]}','copy edited')", [wf.id, wf.current_version + 1, def]); await c.query("update workflows set current_version=$2, diverged=true where id=$1", [wf.id, wf.current_version + 1]); });
     const dry = await asOperator((c) => wordsFromEdits(c, id, true));
-    expect(dry).toEqual({ moved: [{ workflow: expect.any(String), words: [`${sms.id}.template`] }], kept: [] });
+    // (Deal closed is there too: its words were edited above, which now makes it the offer's own as well)
+    expect(dry.moved.find((m) => m.workflow === "Reactivation")).toEqual({ workflow: "Reactivation", words: [`${sms.id}.template`] });
+    expect(dry.kept).toEqual([]);
     expect((await asOperator((c) => one<{ diverged: boolean }>(c, "select diverged from workflows where id=$1", [wf.id])))!.diverged).toBe(true);
     await asOperator((c) => wordsFromEdits(c, id, false));
-    expect((await asOperator((c) => one<{ diverged: boolean }>(c, "select diverged from workflows where id=$1", [wf.id])))!.diverged).toBe(false);
+    // the copy stays frozen: a template change never reaches an offer that already exists (CLAUDE.md)
+    expect((await asOperator((c) => one<{ diverged: boolean }>(c, "select diverged from workflows where id=$1", [wf.id])))!.diverged).toBe(true);
     expect((await asOperator((c) => loadWords(c, id))).reactivation).toEqual({ [sms.id]: { template: "Hi {{contact.first_name}}, the old way." } });
-    // the deploy's migration does the same for every company (here: nothing left to move, so nothing changes)
-    expect((await migrate()).words.filter((w) => w.startsWith("words-co"))).toEqual([]);
     // a step changed by hand: not words only, so it stays
     def.nodes.find((n: { type: string }) => n.type === "send_sms").ghl_template = "snip";
     await asOperator(async (c) => { await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,'{\"bindings\":[]}','step edited')", [wf.id, wf.current_version + 2, def]); await c.query("update workflows set current_version=$2, diverged=true where id=$1", [wf.id, wf.current_version + 2]); });
-    expect((await asOperator((c) => wordsFromEdits(c, id, true))).kept).toEqual([{ workflow: expect.any(String), why: expect.stringMatching(/beyond words/) }]);
+    expect((await asOperator((c) => wordsFromEdits(c, id, true))).kept).toEqual([{ workflow: "Reactivation", why: expect.stringMatching(/beyond words/) }]);
   });
 });

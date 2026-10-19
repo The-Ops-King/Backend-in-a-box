@@ -9,7 +9,7 @@ import { migrate } from "@/db/migrate";
 import { installCompany } from "@/engine/install";
 import { pollAll } from "@/engine/poll";
 import { tick } from "@/engine/runner";
-import { fakeAdapters } from "@/engine/test-install";
+import { fakeAdapters, unlockSendsForTest } from "@/engine/test-install";
 import { runPage } from "@/api/data";
 import { setCrmNamesReader } from "@/api/crm-names-read";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
@@ -69,6 +69,7 @@ describe.skipIf(!HAS_DB)("the live contact is read before a run acts (D68)", () 
     await wipe("truth");
     const r = await installCompany({ name: "Truth", slug: "truth", timezone: TZ, locationId: "LOC-TRUTH", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, templates: TEMPLATES, crm: CRM, anthropicKey: "sk-fake", contractValueDefault: 2999 }, fake);
     companyId = r.companyId;
+    await unlockSendsForTest(companyId);   // D145: these assert what the workflows send
     expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(TEMPLATES.length);
     await asOperator(async (c) => {
       await c.query("update companies set mode='live', send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]);

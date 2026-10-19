@@ -2,8 +2,8 @@
  * D125: the operator's full synthetic journey for a Calendly company with two mapped calendars and a Typeform door (Dating
  * (Nelly)). `form` stages an application through the door's own function: the person need not exist, New from Typeform and
  * New lead run once, the GHL write follows the mode (real for a test-domain contact in test, nothing in shadow), one synthetic
- * response id is one application, and `reset` clears it. `calendar` says which calendar a booking is on: the Strategy session
- * runs Triage call booked, the Consultation Sales call booked, never both. Every other action works on a contact `form` made.
+ * response id is one application, and `reset` clears it. `calendar` says which calendar a booking is on: the Triage call
+ * runs Triage call booked, the Closing call Closing call booked, never both. Every other action works on a contact `form` made.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
@@ -39,7 +39,7 @@ const base = fakeAdapters();
 const cals = [{ id: STRATEGY, name: "Complimentary Dating Strategy Session ♡", teamMemberIds: [] }, { id: CONSULT, name: "Private Dating Consultation with Nelly", teamMemberIds: [] }];
 const fake: Adapters = { ...base,
   booking: (() => { const b = { appointmentsInWindow: async () => [], listCalendars: async () => cals, getAppointment: async () => null }; return { ghl: b, calendly: b }; })(),
-  read: { ...base.read, listUsers: async () => [{ id: "U-NELLY", name: "Nelly S.", email: "nellysudri@d125.test" }],
+  read: { ...base.read, listUsers: async () => [{ id: "U-NELLY", name: "Nelly S.", email: "nellysudri@d125.test" }, { id: "U-MITCH", name: "Mitch Sapoff", email: "mitch@revsignals.io" }],
     findDuplicate: async (_c, by) => [...ghl.values()].find((k) => ("email" in by ? k.email?.toLowerCase() === by.email.toLowerCase() : !!k.phone && normPhone(k.phone) === normPhone(by.phone))) ?? null,
     getContact: async (_c, id) => ghl.get(id) ?? null },
   write: { ...base.write,
@@ -68,7 +68,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     co = (await installCompany({ name: "Dating (Nelly) D125", slug: SLUG, timezone: TZ, locationId: "LOC-D125", pit: "fake", crm, salesCall, calendars, closerCall, bookingCalendar, scopeTag, testDomains, contractValueDefault, harness,
       typeform: { forms: typeform.forms }, closers: ["nellysudri@d125.test"], templates: templates.map((t) => t.slug).filter((s) => s !== "call-booked") }, fake)).companyId;
     await asOperator(async (c) => {
-      for (const slug of ["new-from-typeform", "triage-call-booked", "sales-call-booked"]) {
+      for (const slug of ["new-from-typeform", "triage-call-booked", "closing-call-booked", "triage-call-cancelled"]) {
         const o = own(slug);
         expect(await createCompanyWorkflow(c, { companyId: co, name: o.name, definition: o.definition, note: o.note, ...o.create }), slug).toMatchObject({ ok: true, created: true });
       }
@@ -77,7 +77,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
       // RapidCloser's roster holds the other business's staff too: never the caller of a staged setter call
       await c.query("insert into users (company_id, email, name, role, ghl_user_id) values ($1,'andy@other.test','Andy Other','staff','U-ANDY')", [co]);
       await c.query("update workflows set enabled=true where company_id=$1 and name = any($2::text[])", [co,
-        ["New from Typeform", "New lead", "Triage call booked", "Sales call booked", "Call cancelled", "Call outcome filed", "Sales call recorded", "Payment recorded", "Setter call logged", "Agreement signed", "Deal closed"]]);
+        ["New from Typeform", "New lead", "Triage call booked", "Closing call booked", "Triage call cancelled", "Call cancelled", "Call outcome filed", "Sales call recorded", "Payment recorded", "Setter call logged", "Agreement signed", "Deal closed"]]);
     });
   }, 60_000);
   afterAll(async () => {
@@ -165,39 +165,39 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     expect(await runs(who.id)).toEqual(["New from Typeform", "New lead"]);
   });
 
-  it("calendar: a Strategy session runs Triage call booked, a Consultation Sales call booked, never both; reschedule and cancel take the calendar too; no calendar is the closer call, as before", async () => {
+  it("calendar: a Triage call runs Triage call booked, a Closing call Closing call booked, never both; reschedule and cancel take the calendar too; no calendar is the closer call, as before", async () => {
     const r = await form("tyler+cal@jtylerray.com");
     const ct = (r.ok && r.detail.contact) as string;
     await settle();
     const booked = async (o: Partial<Parameters<typeof simulate>[0]>, action: SimAction = "book-self") => { const before = await runs(ct); const x = await sim(ct, action, o); expect(x.ok, JSON.stringify(x)).toBe(true); await settle(); return (await runs(ct)).slice(before.length); };
-    expect(await booked({ calendar: "Strategy session" })).toEqual(["Triage call booked"]);
-    expect(await booked({ calendar: CONSULT })).toEqual(["Sales call booked"]);
-    expect(await booked({ calendar: "strategy SESSION" }, "reschedule")).toEqual(["Triage call booked"]);
-    expect(await booked({ calendar: "Consultation" }, "reschedule")).toEqual(["Sales call booked"]);
-    expect(await booked({})).toEqual(["Sales call booked"]);   // the closer call, Calendly's Consultation
+    expect(await booked({ calendar: "Triage call" })).toEqual(["Triage call booked"]);
+    expect(await booked({ calendar: CONSULT })).toEqual(["Closing call booked"]);
+    expect(await booked({ calendar: "triage CALL" }, "reschedule")).toEqual(["Triage call booked"]);
+    expect(await booked({ calendar: "Closing call" }, "reschedule")).toEqual(["Closing call booked"]);
+    expect(await booked({})).toEqual(["Closing call booked"]);   // the closer call, Calendly's Private Consultation
     const rescheduled = await asOperator((c) => many<{ term: string }>(c, "select t.name as term from events e join appointments a on a.id=e.appointment_id join company_terms t on t.id=a.appointment_term where e.company_id=$1 and e.contact_id=$2 and e.event_type='appointment.rescheduled' order by e.id", [co, ct]));
-    expect(rescheduled.map((x) => x.term)).toEqual(["Strategy session", "Consultation"]);
-    expect(await sim(ct, "book", { calendar: "Discovery" })).toMatchObject({ ok: false, why: expect.stringMatching(/^no mapped calendar is "Discovery".*"Consultation" \(80955126.*"Strategy session" \(86985d27/) });
-    const cancelled = await booked({ calendar: "Strategy session" }, "cancel");
-    expect(cancelled).toEqual(["Call cancelled"]);
+    expect(rescheduled.map((x) => x.term)).toEqual(["Triage call", "Closing call"]);
+    expect(await sim(ct, "book", { calendar: "Discovery" })).toMatchObject({ ok: false, why: expect.stringMatching(/^no mapped calendar is "Discovery".*"Closing call" \(80955126.*"Triage call" \(86985d27/) });
+    const cancelled = await booked({ calendar: "Triage call" }, "cancel");
+    expect(cancelled).toEqual(["Triage call cancelled"]);   // D142: a triage call's cancel is its own, never Call cancelled's
     expect(await asOperator((c) => many<{ status: string; term: string }>(c, "select a.status, t.name as term from appointments a join company_terms t on t.id=a.appointment_term where a.company_id=$1 and a.contact_id=$2 order by a.booked_at", [co, ct]))).toEqual([
-      { status: "cancelled", term: "Strategy session" }, { status: "confirmed", term: "Consultation" }, { status: "confirmed", term: "Consultation" }]);
+      { status: "cancelled", term: "Triage call" }, { status: "confirmed", term: "Closing call" }, { status: "confirmed", term: "Closing call" }]);
   });
 
   it("every other action works on a contact form made, for the Calendly company: record, call, a deposit, pay, agreement, sign", async () => {
     const r = await form("tyler+journey@jtylerray.com");
     const ct = (r.ok && r.detail.contact) as string;
     const done = async (action: SimAction, o: Partial<Parameters<typeof simulate>[0]> = {}) => { const x = await sim(ct, action, o); expect(x.ok, `${action}: ${JSON.stringify(x)}`).toBe(true); await settle(); return x.ok ? x : null!; };
-    await done("book-self", { calendar: "Consultation", startsAt: DateTime.now().setZone(TZ).minus({ hours: 2 }).toISO()! });
+    await done("book-self", { calendar: "Closing call", startsAt: DateTime.now().setZone(TZ).minus({ hours: 2 }).toISO()! });
     // D131: the staged calls speak the company's offer, from its install, with the people's names (read before the runs are done: D87 drops a held transcript then)
     const said = (id: unknown) => asOperator(async (c) => (await one<{ t: { speaker: string; text: string }[] }>(c, "select transcript as t from recordings where id=$1", [id]))!.t);
     const staged = async (action: SimAction, o: Partial<Parameters<typeof simulate>[0]> = {}) => { const x = await sim(ct, action, o); expect(x.ok, `${action}: ${JSON.stringify(x)}`).toBe(true); const t = x.ok ? await said(x.detail.recording) : []; await settle(); return { x: x.ok ? x : null!, t }; };
-    const { x: rec, t: closerSaid } = await staged("record", { calendar: "Consultation" });
+    const { x: rec, t: closerSaid } = await staged("record", { calendar: "Closing call" });
     expect(rec.detail.appointment).toBeTruthy();
     expect(closerSaid.map((l) => `${l.speaker}: ${l.text}`)).toEqual(NELLY.harness.closerCall!.map((l) => `${l.speaker === "prospect" ? "Test Applicant" : "Nelly S."}: ${l.text}`));
     // D126: the closer's end-of-day answer for this one call, through the form's own per-call path
     const filed = await done("outcome", { outcome: "Deposit", amount: 250 });
-    expect(filed.detail).toMatchObject({ appointment: rec.detail.appointment, call_type: "Consultation", outcome: "deposit", cash: 250, filed: "filed" });
+    expect(filed.detail).toMatchObject({ appointment: rec.detail.appointment, call_type: "Closing call", outcome: "deposit", cash: 250, filed: "filed" });
     expect(filed.runsStarted).toBe(1);
     expect(await asOperator((c) => one(c, "select ot.category as attendance, cot.category as call_outcome, fs.answers->>'notes' as notes from appointments a join company_terms ot on ot.id=a.outcome_term join company_terms cot on cot.id=a.call_outcome_term join form_submissions fs on fs.id=a.disposition_id where a.id=$1", [rec.detail.appointment])))
       .toEqual({ attendance: "showed", call_outcome: "deposit", notes: "Filed by the test harness\nDeposit: $250 collected" });
@@ -213,7 +213,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     await done("agreement");
     const signed = await done("sign");
     expect(signed.detail).toMatchObject({ status: "completed" });
-    expect(await runs(ct)).toEqual(expect.arrayContaining(["New from Typeform", "New lead", "Sales call booked", "Sales call recorded", "Setter call logged", "Payment recorded", "Agreement signed", "Deal closed"]));
+    expect(await runs(ct)).toEqual(expect.arrayContaining(["New from Typeform", "New lead", "Closing call booked", "Sales call recorded", "Setter call logged", "Payment recorded", "Agreement signed", "Deal closed"]));
     expect(count(await runs(ct), "Call outcome filed")).toBe(1);
   });
 
@@ -221,9 +221,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
     const r = await form("tyler+outcome@jtylerray.com");
     const ct = (r.ok && r.detail.contact) as string;
     expect(await sim(ct, "outcome", { outcome: "deposit" })).toMatchObject({ ok: false, why: expect.stringMatching(/^no open simulated appointment/) });
-    expect((await sim(ct, "book-self", { calendar: "Consultation" })).ok).toBe(true);
+    expect((await sim(ct, "book-self", { calendar: "Closing call" })).ok).toBe(true);
     expect(await sim(ct, "outcome", { outcome: "deposit" })).toMatchObject({ ok: false, why: expect.stringMatching(/only a call that has started/) });
-    expect((await sim(ct, "reschedule", { calendar: "Consultation", startsAt: DateTime.now().setZone(TZ).minus({ hours: 1 }).toISO()! })).ok).toBe(true);
+    expect((await sim(ct, "reschedule", { calendar: "Closing call", startsAt: DateTime.now().setZone(TZ).minus({ hours: 1 }).toISO()! })).ok).toBe(true);
     expect(await sim(ct, "outcome", { outcome: "won" })).toMatchObject({ ok: false, why: expect.stringMatching(/^outcome is one of the company's end-of-day answers: "closed" \(Closed\), "deposit" \(Deposit\)/) });
   });
 
@@ -238,9 +238,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D125: the harness stages a Typeform 
 
   it("the admin route: book takes a calendar; form refuses answers that are not a map; an unknown contact still 404s for every action but a form by email", async () => {
     const post = (body: unknown) => simulateRoute(new Request("http://x/api/admin/simulate", { method: "POST", headers: { authorization: `Bearer ${KEY}`, "content-type": "application/json" }, body: JSON.stringify(body) }));
-    const r = await post({ company: SLUG, contact: "tyler+journey@jtylerray.com", action: "book-self", calendar: "Strategy session" });
+    const r = await post({ company: SLUG, contact: "tyler+journey@jtylerray.com", action: "book-self", calendar: "Triage call" });
     expect(r.status).toBe(200);
-    expect(await r.json()).toMatchObject({ ok: true, action: "book-self", detail: { calendar: STRATEGY, call_type: "Strategy session" }, runs_started: 1 });
+    expect(await r.json()).toMatchObject({ ok: true, action: "book-self", detail: { calendar: STRATEGY, call_type: "Triage call" }, runs_started: 1 });
     expect((await post({ company: SLUG, contact: "nobody@jtylerray.com", action: "book" })).status).toBe(404);
     expect((await post({ company: SLUG, contact: "00000000-0000-0000-0000-000000000000", action: "form" })).status).toBe(404);
     expect((await post({ company: SLUG, contact: "tyler+journey@jtylerray.com", action: "form", answers: ["x"] })).status).toBe(400);

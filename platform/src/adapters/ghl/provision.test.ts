@@ -81,7 +81,7 @@ describe("provision-ghl", () => {
     expect(puts.map((c) => c.path).sort()).toEqual(["/custom-fields/f2", "/opportunities/pipelines/ours"]);
     const stages = f.g.pipelines.find((p) => p.id === "ours")!.stages;
     expect(stages.slice(0, 2)).toMatchObject([{ id: "a", name: "New Lead", position: 0 }, { id: "b", name: "Custom Stage Tyler Added", position: 1 }]);
-    expect(stages.map((s) => s.name)).toEqual(["New Lead", "Custom Stage Tyler Added", "Direct Booked", "Appointment Set", "Showed", "Cancelled", "DQ", "Not Interested"]);
+    expect(stages.map((s) => s.name)).toEqual(["New Lead", "Custom Stage Tyler Added", "Direct Booked", "Appointment Set", "Showed", "Cancelled / No Show", "DQ", "Not Interested"]);
     expect(f.g.objFields.find((x) => x.id === "f2")!.options!.map((o) => o.key)).toEqual(["mitch", "old", "nelly"]);
     expect(f.writes().filter((c) => c.path === "/objects/")).toHaveLength(2);   // the other two objects only
     expect(r.after!.every((l) => l.action === "exists")).toBe(true);
@@ -99,6 +99,20 @@ describe("provision-ghl", () => {
       { id: "c0", name: "Scheduled", position: 0 }, { id: "c1", name: "Cancelled / No Show", position: 1 }, { id: "c2", name: "Follow Up", position: 2 },
       { name: "Deposit", position: 3 },
       { id: "c3", name: "Agreement Sent", position: 4 }, { id: "c4", name: "Closed Won", position: 5 }, { id: "c5", name: "Lost", position: 6 }, { id: "c6", name: "Disqualified", position: 7 }]);
+  });
+
+  it("D143: a stage the setup renamed (`was`) is renamed in place on a pipeline that still has the old name: same id, same place, no second stage; a pipeline that already has the new name is left alone", async () => {
+    const built = ["New Lead", "Direct Booked", "Appointment Set", "Showed", "Cancelled", "DQ", "Not Interested"];
+    const f = fakeGhl((g) => { foreign(g); g.pipelines.push({ id: "setter", name: "Dating – Setter Pipeline", stages: built.map((name, i) => ({ id: `s${i}`, name, position: i })) }); });
+    const dry = await provision(setup, LOC, f.http, { apply: false });
+    expect(dry.plan).toContainEqual(expect.objectContaining({ action: "change-on-ours", what: '  stage "Cancelled"', id: "s4", detail: 'renamed "Cancelled / No Show" (same stage: its cards and bindings stay)' }));
+    expect((dry.install.crm as Record<string, string>).stage_setter_cancelled).toBe("s4");
+    await provision(setup, LOC, f.http, { apply: true });
+    const put = f.writes().find((c) => c.method === "PUT" && c.path === "/opportunities/pipelines/setter")!;
+    expect(put.body.stages).toEqual(built.map((name, i) => ({ id: `s${i}`, name: name === "Cancelled" ? "Cancelled / No Show" : name, position: i })));
+    const again = fakeGhl((g) => { foreign(g); g.pipelines.push({ id: "setter", name: "Dating – Setter Pipeline", stages: built.map((name, i) => ({ id: `s${i}`, name: name === "Cancelled" ? "Cancelled / No Show" : name, position: i })) }); });
+    await provision(setup, LOC, again.http, { apply: true });
+    expect(again.writes().some((c) => c.path === "/opportunities/pipelines/setter")).toBe(false);
   });
 
   it("refuses a type mismatch: a field it does not own by type is left alone, not duplicated and not bound", async () => {

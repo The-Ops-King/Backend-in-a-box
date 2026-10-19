@@ -1,5 +1,5 @@
 /**
- * D158: the wizard makes the test contact in their GHL: the email plus-addressed per business, tagged sys-test, its domain a test
+ * D158: the wizard makes the test contact in their GHL: the email as given (the send lock matches it exactly), tagged sys-test, its domain a test
  * domain, read back at once; one already there is tagged, not made twice; refused until their GHL workflows are marked.
  */
 import { describe, it, expect, beforeAll } from "vitest";
@@ -9,17 +9,10 @@ import { encrypt } from "@/engine/crypto";
 import { fakeAdapters } from "@/engine/test-install";
 import type { ContactSnapshot } from "@/adapters/types";
 import { createClient } from "@/onboarding/store";
-import { createTestContact, plusAddress, suggestedEmail } from "@/onboarding/test-contact";
+import { createTestContact, suggestedEmail } from "@/onboarding/test-contact";
 import { testContacts } from "@/onboarding/tests";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
-
-describe("D158: plusAddress", () => {
-  it("makes the base email this business's own, keeping one already plus-addressed", () => {
-    expect(plusAddress("JT@jtylerray.com ", "pmu")).toBe("jt+test-pmu@jtylerray.com");
-    expect(plusAddress("jt+mine@jtylerray.com", "pmu")).toBe("jt+mine@jtylerray.com");
-  });
-});
 
 describe.skipIf(!process.env.DATABASE_URL)("D158: the test contact, made by the wizard", () => {
   let id: string;
@@ -50,11 +43,11 @@ describe.skipIf(!process.env.DATABASE_URL)("D158: the test contact, made by the 
     });
   });
 
-  it("makes it in GHL tagged sys-test, reads it back, and makes its domain a test domain; again, it is found and not made twice", async () => {
+  it("makes it in GHL on the email as given, tagged sys-test, reads it back, and makes its domain a test domain; again, it is found and not made twice", async () => {
     const r = await createTestContact(asOperator, adapters, id, { email: "JT@jtylerray.com", phone: "+16025550100" });
-    expect(r).toMatchObject({ ok: true, email: "jt+test-contact-co@jtylerray.com", created: true });
-    expect(made).toEqual([{ firstName: "Test", lastName: "Contact Co", email: "jt+test-contact-co@jtylerray.com", phone: "+16025550100", tags: ["sys-test"], source: "engine test contact" }]);
-    expect((await asOperator((c) => testContacts(c, id))).map((x) => x.email)).toEqual(["jt+test-contact-co@jtylerray.com"]);
+    expect(r).toMatchObject({ ok: true, email: "jt@jtylerray.com", created: true });
+    expect(made).toEqual([{ firstName: "Test", lastName: "Contact Co", email: "jt@jtylerray.com", phone: "+16025550100", tags: ["sys-test"], source: "engine test contact" }]);
+    expect((await asOperator((c) => testContacts(c, id))).map((x) => x.email)).toEqual(["jt@jtylerray.com"]);
     expect(await asOperator((c) => one(c, "select convert_from(value,'utf8') as v from bindings where company_id=$1 and key='test.domains'", [id]))).toEqual({ v: "jtylerray.com" });
     expect(await asOperator((c) => suggestedEmail(c, id))).toBe("jt@jtylerray.com");
     const again = await createTestContact(asOperator, adapters, id, { email: "jt@jtylerray.com" });

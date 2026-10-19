@@ -21,7 +21,7 @@ import { dispatchEvent } from "./dispatch";
 import { loadCompany } from "./context";
 import { simulate } from "./simulate";
 import { tick } from "./runner";
-import { fakeAdapters } from "./test-install";
+import { fakeAdapters, unlockSendsForTest } from "./test-install";
 import { parseWhopEvent } from "./webhooks/whop";
 import { parseZapierPayment } from "./webhooks/zapier";
 import { dispositionValues } from "./sales-call";
@@ -142,6 +142,7 @@ async function company(slug: string, extra: Partial<InstallInput>): Promise<stri
   await wipe(slug);
   const id = (await installCompany(install(slug, extra), fake)).companyId;
   await asOperator((c) => c.query("update companies set mode='live', send_window_start='00:00', send_window_end='23:59' where id=$1", [id]));
+  await unlockSendsForTest(id);   // D145
   return id;
 }
 /** A person who had their closing call an hour ago, with a Sales Call record for it and a closer card at Scheduled. */

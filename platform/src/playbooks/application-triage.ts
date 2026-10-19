@@ -29,8 +29,13 @@ export type DatingWords = {
  * Sales Call's `call_type` option it writes, and any tags a booking of that type adds. `fromForm`: the applicant workflow.
  */
 export type DatingSetup = {
-  booked: { workflow: string; name: string; callType: string; salesCallType: string; tags?: string[] }[];
+  /** `record` (D142): the call's record, a Sales Call (`sales`, the default, with `salesCallType`) or, for a triage call, a Discovery Call (`discovery`: no Sales Call, no closer card); `card`: the Slack card's words for the call ("triage call") */
+  booked: { workflow: string; name: string; callType: string; salesCallType?: string; record?: "sales" | "discovery"; card?: string; tags?: string[] }[];
   fromForm?: { workflow: string; name: string };
+  /** D142: a triage call's cancel (Call cancelled takes closing calls only): its own workflow for that call type */
+  triageCancelled?: { workflow: string; name: string; callType: string };
+  /** D143: a triage call's filed outcome (Call outcome filed takes closing calls only) */
+  triageFiled?: { workflow: string; name: string; callType: string };
 };
 type InstallBits = { scopeTag?: string; calendars?: Record<string, string | { term: string; name?: string }> };
 
@@ -102,6 +107,78 @@ function bookedWithFork(): Def {
   return d;
 }
 
+const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
+/**
+ * D142: a triage call (Tyler: "it should be in the discovery call section"): Call booked's booking paths (the person in GHL, the
+ * contact's owner and date, the setter card, the tags), then the call's Discovery Call record, owned by whoever takes the call (the
+ * calendar's owner); a reschedule logs the old slot's record rescheduled first. No closer card, no task, no Sales Call: those are
+ * the closing call's.
+ */
+function triageBooked(): Def {
+  const d = load("call-booked");
+  for (const id of ["s4", "b5"]) drop(d, id);
+  const edges = d.edges as Edge[];
+  if (edges.filter((e) => e.to === "k3").map((e) => e.from).sort().join() !== "b6,s5") throw new Error("Call booked's paths no longer meet at k3");
+  if ((edges.filter((e) => e.from === "k4").map((e) => e.to)).join() !== "v4") throw new Error("Call booked's record no longer leads to the card words");
+  const rec = "{{crm.object_discovery_call | default:custom_objects.discovery_call}}";
+  const props = { display_label: "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}", external_id: "{{appointment.slot_key}}", contact_id: "{{contact.ghl_contact_id | default:}}",
+    occurred_at: "{{appointment.starts_at | date_company}}", setter: "{{appointment.closer.name | default:}}", outcome: "scheduled" };
+  d.nodes = d.nodes.filter((n) => !["k3", "k4", "k5"].includes(n.id));
+  d.nodes.splice(d.nodes.findIndex((n) => n.id === "v4"), 0,
+    { id: "d_rs", type: "crm_record", object: rec, key: "{{event.slot.from | default:}}", if_missing: "skip", only_if: RESCHEDULE, properties: { outcome: "rescheduled" }, title: "The Discovery Call for the old time: logged as rescheduled" },
+    { id: "d1", type: "crm_record", object: rec, key: "{{appointment.slot_key}}", owner: "{{appointment.closer.ghl_user_id | default:}}", properties: props, title: "The triage call's Discovery Call record",
+      relate: [{ association: "{{crm.assoc_discovery_call_contact}}", first: "{{contact.ghl_contact_id | default:}}", second: "{{record.id}}" }] });
+  d.edges = edges.filter((e) => !["k3", "k4", "k5"].includes(e.from) && !["k3", "k4", "k5"].includes(e.to));
+  (d.edges as Edge[]).push({ from: "s5", to: "d_rs" }, { from: "b6", to: "d_rs" }, { from: "d_rs", to: "d1" }, { from: "d1", to: "v4" });
+  return d;
+}
+
+/** D142: Call cancelled for a triage call: its trigger held to that call type (any category), the closer card, the rebook task and the Sales Call left out, the Discovery Call record cancelled instead. */
+function triageCancelled(callType: string): Def {
+  const d = load("call-cancelled");
+  const t1 = node(d, "t1"), m = t1.match as { and: unknown[] };
+  m.and = m.and.map((x) => (JSON.stringify(x) === JSON.stringify({ eq: ["{{appointment.term.category}}", "closing"] }) ? { eq: ["{{appointment.term.name}}", callType] } : x));
+  if (!JSON.stringify(m).includes(callType)) throw new Error("Call cancelled no longer holds itself to closing calls by category");
+  for (const id of ["n2", "n4"]) drop(d, id);
+  Object.assign(node(d, "n6"), { object: "{{crm.object_discovery_call | default:custom_objects.discovery_call}}", if_missing: "skip", properties: { outcome: "cancelled" }, title: "The Discovery Call record: cancelled" });
+  Object.assign(node(d, "n7"), { as: { name: "Triage call cancelled", icon: [":x:", ":calendar:", ":no_entry_sign:"] } });
+  return d;
+}
+
+/** D143: a triage call's outcome: what the closing call's Call outcome filed does for the Sales Call and the closer card, done for the Discovery Call and the setter card. */
+function triageFiled(callType: string): Def {
+  const isType = { eq: ["{{appointment.term.name}}", callType] };
+  const rec = "{{crm.object_discovery_call | default:custom_objects.discovery_call}}";
+  const card = (id: string, stage: string, status: string, title: string) => ({ id, type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage, if_missing: "skip", pick: "latest", status, title });
+  return {
+    schema: 1, reentry: "always", premise: { check: "contact_exists" },
+    nodes: [
+      { id: "t1", type: "trigger", event: "appointment.outcome", match: { and: [{ eq: ["{{event._source}}", "disposition"] }, isType] }, title: `A ${callType}'s outcome filed` },
+      { id: "t2", type: "trigger", event: "appointment.status_changed", match: { and: [{ eq: ["{{event.status.to}}", "noshow"] }, isType] }, title: `A ${callType} marked a no-show in the CRM` },
+      { id: "v_att", type: "set_var", key: "att", value: "{{event.outcome | default:noshow}}", pick: { showed: "showed", noshow: "no_show", rescheduled: "rescheduled" }, else_value: "", title: "Whether they came, in the record's words" },
+      { id: "v_res", type: "set_var", key: "res", value: "{{appointment.call_outcome | default:}}", pick: { qualified: "set", follow_up: "follow_up", unqualified: "dq", lost: "not_interested" }, else_value: "", title: "What came of it, in the record's words" },
+      { id: "v_line", type: "set_var", key: "line", value: "{{vars.att}}:{{vars.res}}", pick: { "showed:set": "✅ Triage: set", "showed:follow_up": "🔁 Triage: follow up", "showed:dq": "⛔ Triage: DQ", "showed:not_interested": "👋 Triage: not interested", "showed:": "✅ Triage: showed", "no_show:": "👻 Triage: no-show", "rescheduled:": "🔁 Triage: rescheduled on the call" }, else_value: "", title: "The thread line" },
+      { id: "d1", type: "crm_record", object: rec, key: "{{appointment.slot_key}}", if_missing: "skip", properties: { outcome: "{{vars.att}}", call_result: "{{vars.res}}" }, title: "The Discovery Call record: showed or no-show, and the result" },
+      { id: "b1", type: "branch", title: "Where the setter card goes" },
+      card("c_show", "{{crm.stage_setter_showed}}", "won", "Setter card → Showed, won (set or follow up)"),
+      card("c_dq", "{{crm.stage_setter_dq}}", "lost", "Setter card → DQ, marked lost"),
+      card("c_ni", "{{crm.stage_setter_not_interested}}", "lost", "Setter card → Not Interested, marked lost"),
+      card("c_ns", "{{crm.stage_setter_cancelled}}", "lost", "Setter card → Cancelled / No Show, marked lost"),
+      { id: "n1", type: "slack_post", channel: "{{slack.channel.bookings}}", thread_of: "tag:appointment:{{appointment.id}}", thread_only: true, only_if: { neq: ["{{vars.line}}", ""] }, as: { name: "Triage call", icon: ":clipboard:" }, template: "{{vars.line}}", title: "A line in the booking thread" },
+      { id: "x1", type: "exit", reason: "filed" },
+    ],
+    edges: [
+      { from: "t1", to: "v_att" }, { from: "t2", to: "v_att" }, { from: "v_att", to: "v_res" }, { from: "v_res", to: "v_line" }, { from: "v_line", to: "d1" }, { from: "d1", to: "b1" },
+      { from: "b1", to: "c_ns", label: "no-show", when: { eq: ["{{vars.att}}", "no_show"] } },
+      { from: "b1", to: "c_dq", label: "DQ", when: { eq: ["{{vars.res}}", "dq"] } },
+      { from: "b1", to: "c_ni", label: "not interested", when: { eq: ["{{vars.res}}", "not_interested"] } },
+      { from: "b1", to: "c_show", label: "showed", when: { eq: ["{{vars.att}}", "showed"] } },
+      { from: "b1", to: "n1", label: "rescheduled", else: true },
+      { from: "c_show", to: "n1" }, { from: "c_dq", to: "n1" }, { from: "c_ni", to: "n1" }, { from: "c_ns", to: "n1" }, { from: "n1", to: "x1" },
+    ],
+  } as unknown as Def;
+}
+
 /**
  * D123: the company's own workflows. Each booked-call one is Call booked with both triggers held to its call type (a calendar's
  * own type, D101, so a booking runs exactly one of them), its Sales Call written with its call_type option, and its extra tags
@@ -117,14 +194,29 @@ function ownWorkflows(company: string, setup: DatingSetup, install: InstallBits)
   for (const m of cals) if (m.term === "closing" && !types.includes(m.name ?? "")) throw new Error(`copies.json: a closing calendar books "${m.name ?? "the default closing type"}", which no booked workflow takes: it would run nothing once Call booked is taken over`);
   const cb = template("call-booked");
   for (const b of setup.booked) {
-    const d = bookedWithFork();
+    const d = b.record === "discovery" ? triageBooked() : bookedWithFork();
     const isType = { eq: ["{{appointment.term.name}}", b.callType] };
     Object.assign(node(d, "t1"), { match: isType, title: `Only a ${b.callType} booking (its calendar's call type)` });
     Object.assign(node(d, "t2"), { match: isType, title: `Only a ${b.callType} moved` });
-    (node(d, "k4").properties as Record<string, string>).call_type = b.salesCallType;
+    if (b.record !== "discovery") { if (!b.salesCallType) throw new Error(`copies.json: ${b.workflow} writes a Sales Call and needs its salesCallType`); (node(d, "k4").properties as Record<string, string>).call_type = b.salesCallType; }
+    if (b.card) { const v4 = node(d, "v4"); (v4.value as Record<string, unknown>).name = `${cap(b.card)} rescheduled`; (v4.else_value as Record<string, unknown>).name = `New ${b.card} booked`; }
     if (b.tags?.length) for (const id of ["s5", "b6"]) { const n = node(d, id); n.add = [...(n.add as string[]), ...b.tags]; }
     out.push({ workflow: b.workflow, name: b.name, create: { stage: cb.stage, sort: cb.sort, takesOver: "call-booked" }, definition: d as unknown as Record<string, unknown>,
-      note: `${company}: Call booked for a ${b.callType} booking only (its calendar's call type), the Sales Call's call type ${b.salesCallType}${b.tags?.length ? `, and the tag${b.tags.length > 1 ? "s" : ""} ${b.tags.join(", ")}` : ""}; one card fork after the booking paths, a new booking (closer card to Scheduled, the video task) or a reschedule (the card to Scheduled only before the call, its name kept; the old slot's Sales Call logged rescheduled), as PMU's (D105, D107, D123)` });
+      note: b.record === "discovery"
+        ? `${company}: Call booked for a ${b.callType} booking only (its calendar's call type), a triage call: the setter card and a Discovery Call record, owned by the calendar's owner (D142); no Sales Call, no closer card${b.tags?.length ? `; the tag${b.tags.length > 1 ? "s" : ""} ${b.tags.join(", ")}` : ""}`
+        : `${company}: Call booked for a ${b.callType} booking only (its calendar's call type), the Sales Call's call type ${b.salesCallType}${b.tags?.length ? `, and the tag${b.tags.length > 1 ? "s" : ""} ${b.tags.join(", ")}` : ""}; one card fork after the booking paths, a new booking (closer card to Scheduled, the video task) or a reschedule (the card to Scheduled only before the call, its name kept; the old slot's Sales Call logged rescheduled), as PMU's (D105, D107, D123)` });
+  }
+  if (setup.triageCancelled) {
+    const tc = setup.triageCancelled, cc = template("call-cancelled");
+    if (!setup.booked.some((b) => b.callType === tc.callType && b.record === "discovery")) throw new Error(`copies.json triageCancelled: no triage booked workflow takes "${tc.callType}"`);
+    out.push({ workflow: tc.workflow, name: tc.name, create: { stage: cc.stage, sort: cc.sort + 1 }, definition: triageCancelled(tc.callType) as unknown as Record<string, unknown>,
+      note: `${company}: Call cancelled for a ${tc.callType} (a triage call, which Call cancelled leaves to it): the setter card to Cancelled, the Discovery Call record cancelled, the tags, ❌ in the booking thread; no closer card, no task, no Sales Call (D142)` });
+  }
+  if (setup.triageFiled) {
+    const tf = setup.triageFiled, co = template("call-outcome");
+    if (!setup.booked.some((b) => b.callType === tf.callType && b.record === "discovery")) throw new Error(`copies.json triageFiled: no triage booked workflow takes "${tf.callType}"`);
+    out.push({ workflow: tf.workflow, name: tf.name, create: { stage: co.stage, sort: co.sort + 1 }, definition: triageFiled(tf.callType) as unknown as Record<string, unknown>,
+      note: `${company}: a ${tf.callType}'s outcome, filed on the end of day (or a no-show marked in the CRM): the Discovery Call record (showed or no-show, set / follow up / DQ / not interested), the setter card to Showed (won), DQ, Not Interested or Cancelled / No Show (lost), a line in the booking thread (D143)` });
   }
   if (setup.fromForm) {
     const tag = install.scopeTag?.trim().toLowerCase();

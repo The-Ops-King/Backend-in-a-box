@@ -15,7 +15,8 @@ export type Opt = { key: string; label: string };
 export type Setup = {
   prefix: string; timezone: string; team: string[];
   hours: { days: number[]; open: string; close: string };
-  pipelines: { binding: string; name: string; stages: { binding: string; name: string }[] }[];
+  /** a stage's `was` (D143): the name it had; a pipeline that still has that name and not this one gets the stage renamed in place (its id, cards and bindings kept), never a second stage */
+  pipelines: { binding: string; name: string; stages: { binding: string; name: string; was?: string }[] }[];
   /** D122: `folder` puts a contact field in the setup's own contact-field folder of that name (the prefix goes in front). */
   contactFields: { binding: string; name: string; type: string; folder?: string }[];
   opportunityFields: { binding: string; name: string; type: string }[];
@@ -130,14 +131,16 @@ async function pass(setup: Setup, s: State, loc: string, call: Http, apply: bool
       continue;
     }
     say("exists", what, ex.id); crm[`pipeline_${p.binding}`] = ex.id;
-    const absent = p.stages.filter((st) => !ex.stages.some((x) => norm(x.name) === norm(st.name)));
+    const renames = p.stages.flatMap((st) => { const old = st.was && !ex.stages.some((x) => norm(x.name) === norm(st.name)) ? ex.stages.find((x) => norm(x.name) === norm(st.was!)) : undefined; return old ? [{ st, old }] : []; });
+    for (const { st, old } of renames) { say("change-on-ours", `  stage "${old.name}"`, old.id, `renamed "${st.name}" (same stage: its cards and bindings stay)`); crm[`stage_${p.binding}_${st.binding}`] = old.id; }
+    const absent = p.stages.filter((st) => !ex.stages.some((x) => norm(x.name) === norm(st.name)) && !renames.some((r) => r.st === st));
     for (const st of p.stages) { const h = ex.stages.find((x) => norm(x.name) === norm(st.name)); if (h) { say("exists", `  stage "${st.name}"`, h.id); crm[`stage_${p.binding}_${st.binding}`] = h.id; } }
-    if (!absent.length) continue;
+    if (!absent.length && !renames.length) continue;
     // D119: a missing stage goes where the setup puts it: after the stage it follows in the setup (and any stages that are not
     // the setup's right behind that one), else at the end. A stage added later (Deposit after Follow Up) lands in its place
     type Slot = { id?: string; name: string; showInFunnel?: boolean; showInPieChart?: boolean };
     const own = new Set(p.stages.map((st) => norm(st.name)));
-    const list: Slot[] = ex.stages.map((x, i) => ({ x, at: x.position ?? i })).sort((a, b) => a.at - b.at).map(({ x }) => ({ id: x.id, name: x.name, ...(x.showInFunnel !== undefined ? { showInFunnel: x.showInFunnel } : {}), ...(x.showInPieChart !== undefined ? { showInPieChart: x.showInPieChart } : {}) }));
+    const list: Slot[] = ex.stages.map((x, i) => ({ x, at: x.position ?? i })).sort((a, b) => a.at - b.at).map(({ x }) => ({ id: x.id, name: renames.find((r) => r.old.id === x.id)?.st.name ?? x.name, ...(x.showInFunnel !== undefined ? { showInFunnel: x.showInFunnel } : {}), ...(x.showInPieChart !== undefined ? { showInPieChart: x.showInPieChart } : {}) }));
     const where: string[] = [];
     for (const st of absent) {
       const before = p.stages.slice(0, p.stages.indexOf(st)).reverse().find((b) => list.some((x) => norm(x.name) === norm(b.name)));
@@ -146,7 +149,7 @@ async function pass(setup: Setup, s: State, loc: string, call: Http, apply: bool
       list.splice(k, 0, { name: st.name });
       where.push(`"${st.name}" ${before ? `after "${before.name}"` : "at the end"}`);
     }
-    say("missing-on-ours", `  stages of "${name}"`, ex.id, `adds ${where.join(", ")} (none removed or renamed; the stages behind a new one move down one)`);
+    if (where.length) say("missing-on-ours", `  stages of "${name}"`, ex.id, `adds ${where.join(", ")} (none removed${renames.length ? "" : " or renamed"}; the stages behind a new one move down one)`);
     if (!apply) continue;
     const path = `/opportunities/pipelines/${ex.id}`; ours.add(path);
     // GHL replaces the whole stage list on update: every stage it has goes back with its id and name, each at its place in the new order

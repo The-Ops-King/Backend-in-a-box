@@ -397,7 +397,7 @@ function AutomationsCheck({ slug, invalidate }: { slug: string; invalidate: stri
   </div>;
 }
 
-/** D158: the test contact made in their GHL: your email plus-addressed for this business, tagged sys-test, read back at once. */
+/** D158: the test contact made in their GHL: your own email (the send lock knows it), tagged sys-test, read back at once. */
 function MakeTestContact({ slug, suggested, first, invalidate, onMade }: { slug: string; suggested: string | null; first: boolean; invalidate: string[][]; onMade: (id: string) => void }) {
   const [open, setOpen] = useState(first), [email, setEmail] = useState(suggested ?? ""), [phone, setPhone] = useState(""), [err, setErr] = useState<string | null>(null);
   const post = useAction<void, { id: string; email: string; created: boolean }>(() => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "test", makeContact: true, email, phone } }), invalidate);
@@ -407,7 +407,7 @@ function MakeTestContact({ slug, suggested, first, invalidate, onMade }: { slug:
     {err ? <div className="banner warn">{err}</div> : null}
     <label><span>Your email</span><input type="email" placeholder="jt@jtylerray.com" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
     <label><span>Your phone (optional: texts on the test rung reach it)</span><input type="tel" placeholder="+1…" value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
-    <p className="note">Made in their GHL as "Test {"<business>"}" on {email.includes("@") ? email.replace(/^([^@+]+)@/, `$1+test-${slug}@`) : "your email, plus-addressed for this business"}, tagged <code>sys-test</code> (so a workflow filtered on that tag never sees it); its domain becomes a test domain here.</p>
+    <p className="note">Made in their GHL as "Test {"<business>"}" on {email.includes("@") ? email : "your email"} (the send lock lets a locked workflow reach only your own addresses), tagged <code>sys-test</code> (so a workflow filtered on that tag never sees it); its domain becomes a test domain here.</p>
     <div><button className="btn" type="button" disabled={post.isPending || !email.includes("@")} onClick={go}>{post.isPending ? "Making…" : "Make the test contact"}</button></div>
   </div>;
 }

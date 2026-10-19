@@ -38,7 +38,10 @@ export type Playbook = {
 };
 
 const words = z.object({ welcome: z.object({ subject: z.string(), email: z.string(), sms: z.string() }), setterDq: z.object({ result: z.string(), reasons: z.record(z.string()) }) });
-const setup = z.object({ booked: z.array(z.object({ workflow: z.string().min(1), name: z.string().min(1), callType: z.string().min(1), salesCallType: z.string().min(1), tags: z.array(z.string()).optional() })), fromForm: z.object({ workflow: z.string().min(1), name: z.string().min(1) }).optional() });
+// D142 (main): a booked call records a Sales Call (`sales`, the default, which needs its salesCallType) or, for a triage call, a Discovery Call
+const booked = z.object({ workflow: z.string().min(1), name: z.string().min(1), callType: z.string().min(1), salesCallType: z.string().min(1).optional(), record: z.enum(["sales", "discovery"]).optional(), card: z.string().min(1).optional(), tags: z.array(z.string()).optional() })
+  .refine((b) => b.record === "discovery" || !!b.salesCallType, { message: "a booked call that writes a Sales Call needs its salesCallType", path: ["salesCallType"] });
+const setup = z.object({ booked: z.array(booked), fromForm: z.object({ workflow: z.string().min(1), name: z.string().min(1) }).optional() });
 const label = z.string().trim().min(1);
 const oneBoard = z.object({
   name: label, board: label,

@@ -120,7 +120,7 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
 });
 
 describe.skipIf(!process.env.DATABASE_URL)("editing copy", () => {
-  it("D154: saving a message makes a new version, keeps the words apart and the copy untouched; a template upgrade brings the words along; a step edit still freezes the copy", async () => {
+  it("D154: saving a message makes a new version and keeps the words apart; the copy is the offer's own (a template change never reaches it), as is a step edit", async () => {
     const co = (await asOperator((c) => one<{ id: string }>(c, "select id from companies where slug='upg'")))!;
     await installCompany({ ...base, templates: ["speed-to-lead"] }, fake);
     const stl = (await asOperator((c) => one<{ id: string; current_version: number }>(c, "select w.id, w.current_version from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='speed-to-lead'", [co.id])))!;
@@ -130,16 +130,16 @@ describe.skipIf(!process.env.DATABASE_URL)("editing copy", () => {
     const ok = await asOperator((c) => saveCopy(c, { workflowId: stl.id, nodeId: "n1", field: "template", text: WORDS }));
     expect(ok).toEqual({ ok: true, version: stl.current_version + 1, layout: "tidy" });
     const row = () => asOperator((c) => one<{ current_version: number; diverged: boolean; template_version: number }>(c, "select current_version, diverged, template_version from workflows where id=$1", [stl.id]));
-    expect(await row()).toMatchObject({ current_version: stl.current_version + 1, diverged: false });
+    expect(await row()).toMatchObject({ current_version: stl.current_version + 1, diverged: true });
     const textNow = async () => (await asOperator((c) => one<{ definition: { nodes: { id: string; template?: string }[] } }>(c, "select v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.id=$1", [stl.id])))!.definition.nodes.find((n) => n.id === "n1")!.template;
     expect(await textNow()).toBe(WORDS);
     expect(JSON.parse((await asOperator((c) => one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='copy.words'", [co.id])))!.value.toString())).toEqual({ "speed-to-lead": { n1: { template: WORDS } } });
-    // the template moves on (as if a fix shipped): the untouched copy upgrades, and its words come along
+    // the template moves on (as if a fix shipped): the offer's copy is left alone, its words with it (CLAUDE.md: never reaches an existing offer)
     await asOperator((c) => c.query("update workflows set template_version=0 where id=$1", [stl.id]));
     const r = await installCompany({ ...base, templates: ["speed-to-lead"] }, fake);
-    expect(r.installed[0]).toMatch(/upgraded/);
+    expect(r.installed[0]).toMatch(/edited since install, left alone/);
     expect(await textNow()).toBe(WORDS);
-    expect((await row())!.diverged).toBe(false);
+    expect((await row())!.diverged).toBe(true);
     // a step changed by hand is the company's own: the copy is frozen, and its name still follows the template (D108)
     const smsId = templates.find((t) => t.slug === "speed-to-lead")!.definition.nodes.find((n) => n.type === "send_sms")!.id;
     expect(await asOperator((c) => saveStepEdit(c, { workflowId: stl.id, nodeId: smsId, edit: { type: "send_sms", ghl_template: "snip-1" } }))).toMatchObject({ ok: true });

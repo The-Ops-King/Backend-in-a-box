@@ -47,8 +47,9 @@ export function applyWords<D extends { nodes: unknown[] }>(def: D, words: Words[
 export type SetWordResult = { ok: true; version: number; layout?: Layout } | { ok: false; why: string };
 
 /**
- * One message's words changed: kept in the company's words and laid on the workflow as a new version. The workflow stays
- * untouched (not diverged), so template upgrades keep reaching it and bring the words along.
+ * One message's words changed: kept in the company's words and laid on the workflow as a new version. The copy is the offer's
+ * own from then on (diverged), as before D154: a template change never reaches an offer that already exists (CLAUDE.md, open
+ * item 50); the words kept apart mean an upgrade the offer is named for later brings them along.
  */
 export async function setWord(c: PoolClient, args: { workflowId: string; nodeId: string; field: CopyField; text: string; by?: string }): Promise<SetWordResult> {
   const v = validateCopy(args.text); if (!v.ok) return v;
@@ -70,16 +71,16 @@ export async function setWord(c: PoolClient, args: { workflowId: string; nodeId:
   await storeWords(c, w.company_id, words);
   const next = w.current_version + 1;
   await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [w.id, next, def, cur.manifest, `words: ${args.nodeId}.${args.field}`]);
-  await c.query("update workflows set current_version=$2 where id=$1", [w.id, next]);
+  await c.query("update workflows set current_version=$2, diverged=true, diverged_at=coalesce(diverged_at, now()) where id=$1", [w.id, next]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.copy_edited','workflow',$2,$3,$4)", [w.company_id, w.id, { node: args.nodeId, field: args.field, text: before }, { node: args.nodeId, field: args.field, text: args.text, version: next, by: args.by ?? "dashboard", kept: "words" }]);
   return { ok: true, version: next, layout: chart.layout };
 }
 
 /**
- * D154: a company's earlier word edits moved into its words. A copy edited by `saveCopy` before D154 was marked edited
- * (diverged) and left behind by every template fix since. Where such a copy differs from its template only in words, those words
- * go into the company's words and the copy is untouched again (it then follows its template, words and all). A copy edited
- * beyond words, or behind its template, stays as it is and is named. `dryRun` writes nothing.
+ * D154: a company's earlier word edits recorded in its words, for one offer named (POST /api/admin/words), never by a deploy.
+ * Where a copy edited before D154 differs from its template only in words, those words go into the company's words; the copy
+ * stays as it is, frozen (a template change never reaches an existing offer, CLAUDE.md). A copy edited beyond words, or behind
+ * its template, is named. `dryRun` writes nothing.
  */
 export async function wordsFromEdits(c: PoolClient, companyId: string, dryRun: boolean): Promise<{ moved: { workflow: string; words: string[] }[]; kept: { workflow: string; why: string }[] }> {
   const rows = await many<{ id: string; name: string; slug: string; template_version: number | null; tversion: number; tdef: Definition; def: Definition }>(c,
@@ -98,7 +99,6 @@ export async function wordsFromEdits(c: PoolClient, companyId: string, dryRun: b
     moved.push({ workflow: r.name, words: Object.entries(mine).flatMap(([id, fs]) => Object.keys(fs).map((f) => `${id}.${f}`)) });
     if (dryRun) continue;
     words[r.slug] = { ...(words[r.slug] ?? {}), ...mine };
-    await c.query("update workflows set diverged=false, diverged_at=null where id=$1", [r.id]);
   }
   if (!dryRun && moved.length) {
     await storeWords(c, companyId, words);

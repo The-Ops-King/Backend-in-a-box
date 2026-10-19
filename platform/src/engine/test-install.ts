@@ -77,3 +77,6 @@ export const fakeAdapters = (opts: { crm?: Map<string, ContactSnapshot> } = {}):
   notifier: { post: async () => ({ ts: "1" }), lookupUserByEmail: async () => null, react: async () => true, unreact: async () => true, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }) },
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 });
+
+/** Tests (D145): a test about what workflows send runs with its company's sends unlocked; send-lock.test.ts covers the lock. Workflows made later in the test need it again. */
+export const unlockSendsForTest = (companyId: string) => asOperator((c) => c.query("update workflows set sends_unlocked_at=now(), sends_unlocked_by='test' where company_id=$1", [companyId]));

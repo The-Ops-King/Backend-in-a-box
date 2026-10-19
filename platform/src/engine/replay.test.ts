@@ -33,13 +33,18 @@ describe.skipIf(!process.env.DATABASE_URL)("D138: replaying bookings", () => {
     });
   });
 
-  it("dry run says what it would do and starts nothing; the real one starts the booked workflow once; again, it is refused", async () => {
+  it("dry run says what it would do and starts nothing; the real one starts the booked workflow once; again, it is refused while its run goes and after unless asked again (D142)", async () => {
     const a = await appt(24);
     expect(await asOperator((c) => replayBookings(c, co, [a], { dryRun: true }))).toMatchObject([{ appointment_id: a, would: "replay" }]);
     expect(await runs(a)).toEqual([]);
     expect(await asOperator((c) => replayBookings(c, co, [a], { dryRun: false }))).toMatchObject([{ would: "replay", runs_started: 1 }]);
     expect((await runs(a)).length).toBe(1);
-    expect(await asOperator((c) => replayBookings(c, co, [a], { dryRun: false }))).toMatchObject([{ would: "skip", why: "it already has runs" }]);
+    expect(await asOperator((c) => replayBookings(c, co, [a], { dryRun: false }))).toMatchObject([{ would: "skip", why: "a run of it is still going" }]);
+    // D142: its run over, it is refused unless asked again (its workflows changed, what the old run made taken back)
+    await asOperator((c) => c.query("update runs set status='completed', finished_at=now() where appointment_id=$1", [a]));
+    expect(await asOperator((c) => replayBookings(c, co, [a], { dryRun: false }))).toMatchObject([{ would: "skip", why: "it already has runs (again: true hands it on anyway)" }]);
+    expect(await asOperator((c) => replayBookings(c, co, [a], { dryRun: false, again: true }))).toMatchObject([{ would: "replay", runs_started: 1 }]);
+    expect((await runs(a)).length).toBe(2);
   });
 
   it("refused: a call that has started, a cancelled booking; a baseline booking only when asked, with an event recorded for it", async () => {

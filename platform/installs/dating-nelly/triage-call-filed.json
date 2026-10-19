@@ -1,0 +1,283 @@
+{
+ "workflow": "triage-call-filed",
+ "name": "Triage call filed",
+ "create": {
+  "stage": "post_call",
+  "sort": 5
+ },
+ "definition": {
+  "schema": 1,
+  "reentry": "always",
+  "premise": {
+   "check": "contact_exists"
+  },
+  "nodes": [
+   {
+    "id": "t1",
+    "type": "trigger",
+    "event": "appointment.outcome",
+    "match": {
+     "and": [
+      {
+       "eq": [
+        "{{event._source}}",
+        "disposition"
+       ]
+      },
+      {
+       "eq": [
+        "{{appointment.term.name}}",
+        "Triage call"
+       ]
+      }
+     ]
+    },
+    "title": "A Triage call's outcome filed"
+   },
+   {
+    "id": "t2",
+    "type": "trigger",
+    "event": "appointment.status_changed",
+    "match": {
+     "and": [
+      {
+       "eq": [
+        "{{event.status.to}}",
+        "noshow"
+       ]
+      },
+      {
+       "eq": [
+        "{{appointment.term.name}}",
+        "Triage call"
+       ]
+      }
+     ]
+    },
+    "title": "A Triage call marked a no-show in the CRM"
+   },
+   {
+    "id": "v_att",
+    "type": "set_var",
+    "key": "att",
+    "value": "{{event.outcome | default:noshow}}",
+    "pick": {
+     "showed": "showed",
+     "noshow": "no_show",
+     "rescheduled": "rescheduled"
+    },
+    "else_value": "",
+    "title": "Whether they came, in the record's words"
+   },
+   {
+    "id": "v_res",
+    "type": "set_var",
+    "key": "res",
+    "value": "{{appointment.call_outcome | default:}}",
+    "pick": {
+     "qualified": "set",
+     "follow_up": "follow_up",
+     "unqualified": "dq",
+     "lost": "not_interested"
+    },
+    "else_value": "",
+    "title": "What came of it, in the record's words"
+   },
+   {
+    "id": "v_line",
+    "type": "set_var",
+    "key": "line",
+    "value": "{{vars.att}}:{{vars.res}}",
+    "pick": {
+     "showed:set": "✅ Triage: set",
+     "showed:follow_up": "🔁 Triage: follow up",
+     "showed:dq": "⛔ Triage: DQ",
+     "showed:not_interested": "👋 Triage: not interested",
+     "showed:": "✅ Triage: showed",
+     "no_show:": "👻 Triage: no-show",
+     "rescheduled:": "🔁 Triage: rescheduled on the call"
+    },
+    "else_value": "",
+    "title": "The thread line"
+   },
+   {
+    "id": "d1",
+    "type": "crm_record",
+    "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
+    "key": "{{appointment.slot_key}}",
+    "if_missing": "skip",
+    "properties": {
+     "outcome": "{{vars.att}}",
+     "call_result": "{{vars.res}}"
+    },
+    "title": "The Discovery Call record: showed or no-show, and the result"
+   },
+   {
+    "id": "b1",
+    "type": "branch",
+    "title": "Where the setter card goes"
+   },
+   {
+    "id": "c_show",
+    "type": "pipeline_card",
+    "pipeline": "{{crm.pipeline_setter}}",
+    "stage": "{{crm.stage_setter_showed}}",
+    "if_missing": "skip",
+    "pick": "latest",
+    "status": "won",
+    "title": "Setter card → Showed, won (set or follow up)"
+   },
+   {
+    "id": "c_dq",
+    "type": "pipeline_card",
+    "pipeline": "{{crm.pipeline_setter}}",
+    "stage": "{{crm.stage_setter_dq}}",
+    "if_missing": "skip",
+    "pick": "latest",
+    "status": "lost",
+    "title": "Setter card → DQ, marked lost"
+   },
+   {
+    "id": "c_ni",
+    "type": "pipeline_card",
+    "pipeline": "{{crm.pipeline_setter}}",
+    "stage": "{{crm.stage_setter_not_interested}}",
+    "if_missing": "skip",
+    "pick": "latest",
+    "status": "lost",
+    "title": "Setter card → Not Interested, marked lost"
+   },
+   {
+    "id": "c_ns",
+    "type": "pipeline_card",
+    "pipeline": "{{crm.pipeline_setter}}",
+    "stage": "{{crm.stage_setter_cancelled}}",
+    "if_missing": "skip",
+    "pick": "latest",
+    "status": "lost",
+    "title": "Setter card → Cancelled / No Show, marked lost"
+   },
+   {
+    "id": "n1",
+    "type": "slack_post",
+    "channel": "{{slack.channel.bookings}}",
+    "thread_of": "tag:appointment:{{appointment.id}}",
+    "thread_only": true,
+    "only_if": {
+     "neq": [
+      "{{vars.line}}",
+      ""
+     ]
+    },
+    "as": {
+     "name": "Triage call",
+     "icon": ":clipboard:"
+    },
+    "template": "{{vars.line}}",
+    "title": "A line in the booking thread"
+   },
+   {
+    "id": "x1",
+    "type": "exit",
+    "reason": "filed"
+   }
+  ],
+  "edges": [
+   {
+    "from": "t1",
+    "to": "v_att"
+   },
+   {
+    "from": "t2",
+    "to": "v_att"
+   },
+   {
+    "from": "v_att",
+    "to": "v_res"
+   },
+   {
+    "from": "v_res",
+    "to": "v_line"
+   },
+   {
+    "from": "v_line",
+    "to": "d1"
+   },
+   {
+    "from": "d1",
+    "to": "b1"
+   },
+   {
+    "from": "b1",
+    "to": "c_ns",
+    "label": "no-show",
+    "when": {
+     "eq": [
+      "{{vars.att}}",
+      "no_show"
+     ]
+    }
+   },
+   {
+    "from": "b1",
+    "to": "c_dq",
+    "label": "DQ",
+    "when": {
+     "eq": [
+      "{{vars.res}}",
+      "dq"
+     ]
+    }
+   },
+   {
+    "from": "b1",
+    "to": "c_ni",
+    "label": "not interested",
+    "when": {
+     "eq": [
+      "{{vars.res}}",
+      "not_interested"
+     ]
+    }
+   },
+   {
+    "from": "b1",
+    "to": "c_show",
+    "label": "showed",
+    "when": {
+     "eq": [
+      "{{vars.att}}",
+      "showed"
+     ]
+    }
+   },
+   {
+    "from": "b1",
+    "to": "n1",
+    "label": "rescheduled",
+    "else": true
+   },
+   {
+    "from": "c_show",
+    "to": "n1"
+   },
+   {
+    "from": "c_dq",
+    "to": "n1"
+   },
+   {
+    "from": "c_ni",
+    "to": "n1"
+   },
+   {
+    "from": "c_ns",
+    "to": "n1"
+   },
+   {
+    "from": "n1",
+    "to": "x1"
+   }
+  ]
+ },
+ "note": "dating-nelly: a Triage call's outcome, filed on the end of day (or a no-show marked in the CRM): the Discovery Call record (showed or no-show, set / follow up / DQ / not interested), the setter card to Showed (won), DQ, Not Interested or Cancelled / No Show (lost), a line in the booking thread (D143)"
+}

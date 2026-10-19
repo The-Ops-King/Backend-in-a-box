@@ -172,7 +172,7 @@ export function decideSelfBooked(rule: string | undefined, calendarSelfBooked: b
 
 export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot, rep?: PollReport, baseline = false): Promise<void> {
   const source = ac.booking.source;
-  const calRow = await one<{ id: string; appointment_term: string; self_booked: boolean | null; config: { booking?: "self" | "setter" | "question" } }>(c, "select id, appointment_term, self_booked, config from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
+  const calRow = await one<{ id: string; appointment_term: string; self_booked: boolean | null; config: { booking?: "self" | "setter" | "question"; owner?: string } }>(c, "select id, appointment_term, self_booked, config from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
   if (!calRow) return;
   const rule = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='booking.setter_rule'", [co.id]))?.value.toString("utf8");
   const cal = { ...calRow, self_booked: decideSelfBooked(rule, calRow.self_booked, s.setBy, calRow.config?.booking) };
@@ -180,7 +180,8 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (s.rescheduledTo) return;
   const contact = await resolveContactForBooking(c, co, ac, adapters, s);
   if (!contact) return;
-  const userId = s.assignedUserId ? await ensureUser(c, adapters, ac, s.assignedUserId) : await userIdByEmail(c, co.id, s.assignedUserEmail);
+  // D142: a calendar with an owner (triage taken by Mitch on Nelly's calendar) gives its bookings to them, whoever hosts
+  const userId = cal.config?.owner ?? (s.assignedUserId ? await ensureUser(c, adapters, ac, s.assignedUserId) : await userIdByEmail(c, co.id, s.assignedUserEmail));
   const find = (ext: string) => one<{ id: string; status: string; starts_at: Date; external_id: string; slot_key: string | null; meeting_key: string | null; repointed_from?: string }>(c, "select id, status, starts_at, external_id, slot_key, meeting_key from appointments where company_id=$1 and source=$2 and external_id=$3", [co.id, source, ext]);
   const key = meetingKey(s.meetingUrl) ?? null;
   let existing = await find(s.id);
@@ -204,8 +205,8 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
     }
   }
   if (!existing) {
-    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at, slot_key, meeting_key)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$4,$19) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.setBy ?? null, JSON.stringify(s.answers ?? {}), s.rescheduleUrl ?? null, s.cancelUrl ?? null, s.tracking ?? {}, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null, key]);
+    const row = await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, reschedule_url, cancel_url, tracking, booked_at, status, source_updated_at, slot_key, meeting_key, meeting_url)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$4,$19,$20) returning id`, [co.id, contact.id, source, s.id, cal.id, cal.appointment_term, userId, s.startTime, s.endTime, cal.self_booked, s.setBy ?? null, JSON.stringify(s.answers ?? {}), s.rescheduleUrl ?? null, s.cancelUrl ?? null, s.tracking ?? {}, s.dateAdded ?? new Date(), s.status, s.dateUpdated ?? null, key, s.meetingUrl ?? null]);
     if (baseline) { if (rep) rep.baselined++; return; }   // replica only; an appointment that existed before install is not a new booking
     // D117: a booking on a mapped calendar puts the person in scope (the calendar is the offer's), tagged or not; GHL is told with the tag
     const tag = await companyScopeTag(c, co.id);
@@ -227,6 +228,7 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   }
   // D102: a booking from before the link was kept, or one whose link changed (a Calendly reschedule is a new meeting), gets it without an event
   if (key && key !== existing.meeting_key) await c.query("update appointments set meeting_key=$2 where id=$1", [existing.id, key]);
+  if (s.meetingUrl) await c.query("update appointments set meeting_url=$2 where id=$1 and meeting_url is distinct from $2", [existing.id, s.meetingUrl]);   // D144
   const changes: Record<string, unknown> = {};
   // D76: a cancel after the call's start never overwrites a show or a no-show the call already has: the outcome stands
   if (s.status === "cancelled" && existing.status !== "cancelled" && Math.min(Date.now(), Date.parse(s.dateUpdated ?? "") || Date.now()) >= new Date(s.startTime).getTime()) {

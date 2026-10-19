@@ -7,7 +7,7 @@ const APPOINTMENT_SOURCES = ["ghl", "calendly", "test"].map((s) => `'${s}'`).joi
 const EVENT_SOURCES = ["form", "ghl_poll", "whop", "fathom", "zapier", "slack", "engine", "disposition", "command_center", "user", "test"].map((s) => `'${s}'`).join(",");
 
 /** Applies engine/schema.sql (idempotently: skips if `companies` exists) then forces RLS on every tenant table. */
-export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[]; bookingCard: string[]; words: string[] }> {
+export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[]; bookingCard: string[] }> {
   const c = await db().connect();
   try {
     const exists = await c.query("select 1 from information_schema.tables where table_name='companies' and table_schema='public'");
@@ -28,6 +28,12 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table appointments add column if not exists slot_key text`);
     // D102: the booking's meeting link as a key, so a recording with no attendee to match on finds its call
     await c.query(`alter table appointments add column if not exists meeting_key text`);
+    await c.query(`alter table appointments add column if not exists meeting_url text`);   // D144
+    // D145: the send lock (null = locked, every workflow so far included) and the roster's first two tables
+    await c.query(`alter table workflows add column if not exists sends_unlocked_at timestamptz`);
+    await c.query(`alter table workflows add column if not exists sends_unlocked_by text`);
+    await c.query(`create table if not exists people (id uuid primary key default gen_random_uuid(), name text not null, operator boolean not null default false, created_at timestamptz not null default now())`);
+    await c.query(`create table if not exists person_identities (id uuid primary key default gen_random_uuid(), person_id uuid not null references people(id) on delete cascade, kind text not null check (kind in ('email','phone','slack')), value text not null, workspace text not null default '', created_at timestamptz not null default now(), unique (kind, value, workspace))`);
     await c.query(`create index if not exists appointments_company_id_meeting_key_idx on appointments (company_id, meeting_key) where meeting_key is not null`);
     // D51: which mode a run was born in; the column arriving on a database that already has runs stamps them with their company's mode today (every run so far was shadow-born where the company is still in shadow)
     const bornIn = await c.query("select 1 from information_schema.columns where table_name='runs' and column_name='born_in'");
@@ -292,19 +298,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D104: Call booked's card no longer carries Hair's intake questions; a company that bound them keeps them as its own setting.
     // As the operator: bindings are under FORCE RLS, where this unscoped connection would see no rows.
     const bookingCard = await asOperator((o) => backfillBookingCard(o));
-    // D154: every company's earlier word edits move into its words, so those copies follow their templates again. Idempotent: only a
-    // copy still marked edited, on its template's current version and different from it in words only, moves; the words are the same
-    // words, so nothing a run sends changes. Each move is in the company's audit log.
-    const words = await asOperator(async (o) => {
-      const { wordsFromEdits } = await import("@/engine/words");
-      const out: string[] = [];
-      for (const co of (await o.query<{ id: string; slug: string }>("select distinct co.id, co.slug from companies co join workflows w on w.company_id=co.id where w.diverged")).rows) {
-        const r = await wordsFromEdits(o, co.id, false);
-        if (r.moved.length) out.push(`${co.slug}: ${r.moved.map((m) => m.workflow).join(", ")}`);
-      }
-      return out;
-    });
-    return { applied, rlsTables: tenantTables, repaired, bookingCard, words };
+    return { applied, rlsTables: tenantTables, repaired, bookingCard };
   } finally {
     c.release();
   }

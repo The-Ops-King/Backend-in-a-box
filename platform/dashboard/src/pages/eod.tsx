@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { api, usePage } from "~/api";
 import type { CallEntry, EodField } from "@/engine/eod-form";
 type EodPrefill = { day: string; calls_count: number; closes: number; deposits: number; cash: number; revenue: number; calls: CallEntry[] };
-import { dayFields, fieldsFor, outcomeLabel, totalsOf, valueOf, type CallOutcome } from "@/engine/eod-form";
+import { dayFields, fieldsFor, outcomeLabel, totalsOf, valueOf, TRIAGE_OUTCOMES, type CallOutcome } from "@/engine/eod-form";
 import { Skeleton } from "~/ui/pieces";
 
 type Page = { closer: { first_name: string; name: string }; company: { name: string; timezone: string }; day: string; is_today: boolean; prev: string; next: string; filed: { at: string; changes: number } | null; pre: EodPrefill; seen: { calls: number; cash: number }; fields: EodField[]; day_answers: Record<string, string>; outcomes: { value: string; label: string }[] };
@@ -48,6 +48,8 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   const time = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: d.company.timezone });
   const outcomeField = d.fields.find((f) => f.key === "outcome")!;
   const showDeposits = t.deposits > 0 || touched.deposits !== undefined;
+  // D143: a day of triage calls only (a setter's) asks no money: closes, cash and revenue are the closing calls'
+  const closing = calls.length === 0 || calls.some((c) => c.kind !== "triage");
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try { const r = await api<{ recorded: number; changes: number }>(`/api/eod/${token}`, { method: "POST", json: { day: d.day, calls_count: callsCount, closes: touched.closes ?? "", deposits: touched.deposits ?? String(t.deposits), cash: touched.cash ?? "", revenue: touched.revenue ?? "", calls, day_answers: dayAnswers } }); setDone(r); setEditing(false); onFiled(); }
@@ -56,7 +58,7 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   };
   // filed: a thank-you page in place of the form, with what went in; the form comes back only if they choose to change something
   if (done && !editing) {
-    const counts = Object.entries(calls.reduce<Record<string, number>>((m, c) => { const k = outcomeLabel(c.outcome, d.fields); m[k] = (m[k] ?? 0) + 1; return m; }, {}));
+    const counts = Object.entries(calls.reduce<Record<string, number>>((m, c) => { const k = outcomeLabel(c.outcome, d.fields, c.kind); m[k] = (m[k] ?? 0) + 1; return m; }, {}));
     const dayWords = new Date(`${d.day}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
     return <div className="thanks" style={{ marginTop: 14 }}>
       <h2>Thanks, {d.closer.first_name}. Your end of day for {dayWords} is in.</h2>
@@ -69,17 +71,19 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
     {err ? <div className="banner warn"><strong>Not saved.</strong> {err}. Your answers are still here; fix and press Submit again.</div> : null}
     <div className="call"><div className="g2" style={{ gridTemplateColumns: showDeposits ? "repeat(auto-fit, minmax(130px, 1fr))" : "repeat(auto-fit, minmax(150px, 1fr))" }}>
       <label>How many calls today?<input type="number" min={0} value={callsCount} onChange={(e) => setCallsCount(e.target.value)} /><span className="note">{d.seen.calls} on your calendar</span></label>
+      {closing ? <>
       <label>Closes<input type="number" min={0} value={touched.closes ?? String(t.closes)} onChange={(e) => setTouched((x) => ({ ...x, closes: e.target.value }))} /></label>
       {showDeposits ? <label>Deposits<input type="number" min={0} value={touched.deposits ?? String(t.deposits)} onChange={(e) => setTouched((x) => ({ ...x, deposits: e.target.value }))} /></label> : null}
       <label>Cash collected ($)<input type="text" inputMode="decimal" value={touched.cash ?? String(t.cash)} onChange={(e) => setTouched((x) => ({ ...x, cash: e.target.value }))} /><span className="note">{d.seen.cash ? `$${d.seen.cash.toLocaleString("en-US")} seen in payments` : "nothing seen in payments"}</span></label>
       <label>Revenue generated ($)<input type="text" inputMode="decimal" value={touched.revenue ?? String(t.revenue)} onChange={(e) => setTouched((x) => ({ ...x, revenue: e.target.value }))} /></label>
+      </> : null}
     </div></div>
     <h3 className="sec">Your calls <small>{calls.length}</small></h3>
     {calls.length === 0 ? <div className="empty">No calls on your calendar for this day.</div> : null}
-    {calls.map((c, i) => { const after = fieldsFor(d.fields, c.outcome);
+    {calls.map((c, i) => { const after = fieldsFor(d.fields, c.outcome, c.kind), choices = c.kind === "triage" ? TRIAGE_OUTCOMES : d.outcomes;
       return <div key={c.appointment_id} className="call">
-        <div className="hd"><b>{i + 1}. {c.contact}</b><span className="note">{time(c.starts_at)}</span>{c.href_contact ? <a href={c.href_contact} target="_blank" rel="noreferrer">CRM ↗</a> : null}{c.recording_url ? <a href={c.recording_url} target="_blank" rel="noreferrer">Recording ↗</a> : null}</div>
-        <label>{outcomeField.label}{outcomeField.required ? <span className="req"> *</span> : null}<select value={c.outcome} required={outcomeField.required} onChange={(e) => set(i, { outcome: e.target.value as CallOutcome })}><option value="">—</option>{d.outcomes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
+        <div className="hd"><b>{i + 1}. {c.contact}</b><span className="note">{time(c.starts_at)}{c.kind === "triage" ? " · triage call" : calls.some((x) => x.kind === "triage") ? " · closing call" : ""}</span>{c.href_contact ? <a href={c.href_contact} target="_blank" rel="noreferrer">CRM ↗</a> : null}{c.recording_url ? <a href={c.recording_url} target="_blank" rel="noreferrer">Recording ↗</a> : null}</div>
+        <label>{outcomeField.label}{outcomeField.required ? <span className="req"> *</span> : null}<select value={c.outcome} required={outcomeField.required} onChange={(e) => set(i, { outcome: e.target.value as CallOutcome })}><option value="">—</option>{choices.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
         {c.hint && !c.outcome ? <p className="hint">{c.hint}</p> : null}
         {c.moved ? <p className="hint">{c.moved}</p> : null}
         {after.length ? <div className="after">{after.map((f) => <Field key={f.key} f={f} value={valueOf(c, f.key)} onChange={(v) => setField(i, f.key, v)} />)}</div> : null}

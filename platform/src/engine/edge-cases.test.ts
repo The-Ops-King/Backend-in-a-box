@@ -15,7 +15,7 @@ import { applyAppointment } from "@/engine/poll";
 import { applyPayment } from "@/engine/lifecycle";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { fakeAdapters, inboundForTest } from "@/engine/test-install";
+import { fakeAdapters, inboundForTest, unlockSendsForTest } from "@/engine/test-install";
 import { recordRecording, type RecordingInput } from "@/engine/recordings";
 import { companyReadiness } from "@/engine/readiness";
 import { parseDefinition, extractManifest } from "@/engine/definition";
@@ -110,6 +110,7 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     const input = { name: "Edges", slug: "edges", timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: { CAL: "closing" }, enable: true, templates: TEMPLATES, crm: CRM, slack: { calls: "CCALLS" }, slackSigningSecret: SIGNING, anthropicKey: "sk-fake", contractValueDefault: 2999 };
     const r = await installCompany(input, fake);
     companyId = r.companyId;
+    await unlockSendsForTest(companyId);   // D145: these assert what the workflows send
     expect(r.installed.filter((s) => s.endsWith("enabled"))).toHaveLength(TEMPLATES.length);
     await asOperator(async (c) => {
       await c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]);

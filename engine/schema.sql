@@ -246,6 +246,7 @@ create table appointments (
   pending_read         jsonb,                                      -- D58: Jev's read of a reply the team was asked about and has not answered: { intent, confidence, at }; cleared when a person taps
   slot_key             text,                                       -- D76: the call slot a Sales Call record is keyed by: the booking's id, or id@start after a move that kept the id; null = external_id
   meeting_key          text,                                       -- D102: the booking's meeting link as a key (Zoom meeting id, Meet code, else the link without its query); a recording with the same key is this call's
+  meeting_url          text,                                       -- D144: the join link itself, as the source gives it, for a message to carry ({{appointment.meeting_url}})
   cancel_reason        text,
   booked_at            timestamptz not null,
   -- replica of the booking source's state (GHL vocabulary; Calendly active/canceled maps onto it)
@@ -454,6 +455,8 @@ create table workflows (
   origin            text,                                 -- copied from the template; a workflow built in the chat for one company is 'spec'
   diverged          boolean not null default false,       -- edited since copy
   diverged_at       timestamptz,
+  sends_unlocked_at timestamptz,                          -- D145: null = the send lock is on (only an operator's own addresses get a text, email, agreement or webhook); set only on Tyler's word
+  sends_unlocked_by text,
   created_at        timestamptz not null default now()
 );
 
@@ -618,6 +621,25 @@ create table slack_connections (
   channels     jsonb not null default '{}',                -- {"closers":"C0123","managers":"C0456","ops":"C0789"}
   connected_by uuid references users(id),
   connected_at timestamptz not null default now()
+);
+
+-- D145: the people behind every offer, one roster across companies. The operator (Tyler) is the only one the send lock lets
+-- through. Not readable through the query door: it spans companies.
+create table people (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  operator   boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create table person_identities (
+  id         uuid primary key default gen_random_uuid(),
+  person_id  uuid not null references people(id) on delete cascade,
+  kind       text not null check (kind in ('email','phone','slack')),
+  value      text not null,                                -- email lower-cased, phone E.164, a Slack user id
+  workspace  text not null default '',                     -- the Slack team a Slack id belongs to; '' for email and phone
+  created_at timestamptz not null default now(),
+  unique (kind, value, workspace)
 );
 
 create table audit_log (

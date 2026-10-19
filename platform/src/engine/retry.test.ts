@@ -145,7 +145,7 @@ describe.skipIf(!HAS_DB)("a failed step is retried in place (D66)", () => {
       for (const d of DEFS) {
         const { name, ...definition } = d;
         const def = parseDefinition(definition);
-        const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,$2,'always',true) returning id", [companyId, name]))!;
+        const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, sends_unlocked_at) values ($1,$2,'always',true,now()) returning id", [companyId, name]))!;
         await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,1,$2,$3,'retry test')", [wf.id, def, extractManifest(def)]);
         await syncTriggers(c, companyId, wf.id, def);
         wfIds[name] = wf.id;

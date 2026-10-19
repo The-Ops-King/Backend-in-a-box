@@ -29,7 +29,7 @@ export async function dispatchSchedules(c: PoolClient, now = DateTime.now(), onl
       const local = now.setZone(t.timezone);
       const period = periodOf(node.schedule, local); if (!period) continue;
       const subjects: { id: string | null; name?: string }[] = node.schedule.for === "closer"
-        ? await many<{ id: string; name: string }>(c, "select id, name from users where company_id=$1 and active and role='closer' order by name", [t.company_id]) : [{ id: null }];
+        ? await many<{ id: string; name: string }>(c, "select id, name from users where company_id=$1 and active and role in ('closer','setter') order by name", [t.company_id]) : [{ id: null }];
       for (const who of subjects) {
         const key = `schedule:${t.node_id}:${period}${who.id ? `:${who.id}` : ""}`;
         // this period ran, or is running; a run that stopped at a check carries a ":gate:" suffix on its key (D30) and still counts as run
@@ -73,7 +73,7 @@ export async function fireNow(c: PoolClient, companyId: string, workflowId: stri
   if (!trig || trig.type !== "trigger" || !trig.schedule) return { started: [], why: "no schedule trigger on this workflow" };
   const t = await one<{ id: string }>(c, "select id from workflow_triggers where workflow_id=$1 and node_id=$2", [workflowId, trig.id]);
   const local = now.setZone(ver.timezone), period = `manual:${now.toMillis()}`;
-  const subjects: { id: string | null }[] = trig.schedule.for === "closer" ? await many<{ id: string }>(c, "select id from users where company_id=$1 and active and role='closer' order by name", [companyId]) : [{ id: null }];
+  const subjects: { id: string | null }[] = trig.schedule.for === "closer" ? await many<{ id: string }>(c, "select id from users where company_id=$1 and active and role in ('closer','setter') order by name", [companyId]) : [{ id: null }];
   const started: string[] = [];
   for (const who of subjects) {
     const ev = await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "schedule", source: "user",

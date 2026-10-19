@@ -5,13 +5,13 @@
  * from the sandbox itself: its GHL key, its calendars and team (the first closing-looking calendar is the closer call, the first
  * user the closer, the next a setter where the playbook has setters), one Slack channel in Tyler's ops Slack for every post, the
  * playbook's GHL build under its own prefix (so every template business can share the one sub-account), the install, the test
- * contact (his email, plus-addressed), and the test rung. Then each journey is run with `run` (one per call: a journey ticks the
+ * contact (his own email, so the send lock lets its sends through; the template businesses share it, one runs at a time), and the test rung. Then each journey is run with `run` (one per call: a journey ticks the
  * company between its steps) and `status` says what publish still needs (`untested`).
  *
  * Settings, kept in the deployment's environment so no key passes through a conversation:
  *   SANDBOX_LOCATION_ID, SANDBOX_GHL_PIT       the snapshot sub-account
  *   SANDBOX_SLACK_BOT_TOKEN, SANDBOX_SLACK_SIGNING_SECRET, SANDBOX_SLACK_CHANNEL   Tyler's ops Slack app and its test channel
- *   SANDBOX_TEST_EMAIL                         the test contact's email (plus-addressed per template business)
+ *   SANDBOX_TEST_EMAIL                         the test contact's email, as the send lock knows it (jt@jtylerray.com)
  *   SANDBOX_AGREEMENT_TEMPLATE                 a GHL document template in the sub-account (optional: without it the
  *                                              agreement workflows stay off and the tests say so)
  *   ANTHROPIC_API_KEY                          (already set) for the workflows that ask the model

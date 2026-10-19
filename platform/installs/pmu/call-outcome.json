@@ -13,9 +13,19 @@
     "type": "trigger",
     "event": "appointment.outcome",
     "match": {
-     "eq": [
-      "{{event._source}}",
-      "disposition"
+     "and": [
+      {
+       "eq": [
+        "{{event._source}}",
+        "disposition"
+       ]
+      },
+      {
+       "eq": [
+        "{{appointment.term.category}}",
+        "closing"
+       ]
+      }
      ]
     }
    },
@@ -24,9 +34,19 @@
     "type": "trigger",
     "event": "appointment.status_changed",
     "match": {
-     "eq": [
-      "{{event.status.to}}",
-      "noshow"
+     "and": [
+      {
+       "eq": [
+        "{{event.status.to}}",
+        "noshow"
+       ]
+      },
+      {
+       "eq": [
+        "{{appointment.term.category}}",
+        "closing"
+       ]
+      }
      ]
     }
    },

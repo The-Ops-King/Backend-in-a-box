@@ -69,7 +69,7 @@ describe.skipIf(!HAS_DB)("engine end to end", () => {
       await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email','jamie@x.com'), ($1,$2,'phone','+16025550001')", [companyId, contactId]);   // a send needs an address on the replica (G11)
       for (const t of templates) {
         const def = parseDefinition(t.definition), manifest = extractManifest(def);
-        const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,$2,$3,true) returning id", [companyId, t.name, def.reentry]))!;
+        const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, sends_unlocked_at) values ($1,$2,$3,true,now()) returning id", [companyId, t.name, def.reentry]))!;
         await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [wf.id, t.definition, manifest]);
         for (const trig of indexDefinition(def).triggers) await c.query("insert into workflow_triggers (company_id, workflow_id, node_id, event_type, match) values ($1,$2,$3,$4,$5)", [companyId, wf.id, trig.id, trig.event, trig.match ?? {}]);
       }
