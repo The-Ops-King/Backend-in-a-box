@@ -964,4 +964,10 @@ first, shown to Tyler; nothing to any other offer:
    every run not born live.
 7. Live, then Tyler unlocks sends one workflow at a time, in the chat (D145).
 
+Applied 2026-10-19, steps 1–4. Step 2 was a reduced re-install at Tyler's call: only name, slug, timezone, locationId, calendars,
+closerCall, bookingCalendar and eod, so a setting changed since the file was written stays as it is (install has no dry run).
+The Consultation is `utm`, `eod.setter_calls` on, `eod.dq_reasons` dating_dq_reason. Setter call logged saved (v3 → v4, still on).
+Pre-call sequence deleted (off, 0 runs). Triage pre-call, Closing pre-call and Setter call filed made, all off; the two pre-call
+ones have their sends locked (Setter call filed has no send step). Tyler checks them before any is turned on (step 5).
+
 Open: a triage call Jev reads as a confirmation call (not a setting call) logs no read, so its row opens blank.
