@@ -32,8 +32,10 @@ const hashOf = (fields: Message["fields"]) => createHash("sha256").update(JSON.s
 const FIELD_LABEL: Record<string, string> = { subject: "Subject", template: "Message", substitute_template: "Instead, when the first is out of date" };
 
 export async function listMessages(c: PoolClient, companyId: string): Promise<{ messages: Message[]; ready: boolean }> {
-  const o = await one<{ slug: string; fit: FitReport | null; messages: Record<string, { hash: string; at: string; by: string }> }>(c, "select co.slug, o.fit, o.messages from onboarding o join companies co on co.id=o.company_id where o.company_id=$1", [companyId]);
+  // D150: a company with no onboarding row (a template business) lists its messages too, with nothing approved and all needed
+  const o = await one<{ slug: string; fit: FitReport | null; messages: Record<string, { hash: string; at: string; by: string }> | null }>(c, "select co.slug, o.fit, o.messages from companies co left join onboarding o on o.company_id=co.id where co.id=$1", [companyId]);
   if (!o) return { messages: [], ready: false };
+  o.messages ??= {};
   const off = new Set((o.fit?.workflows ?? []).filter((w) => w.fit === "off").map((w) => w.slug));
   const rows = await many<{ id: string; name: string; slug: string | null; definition: unknown }>(c, `select w.id, w.name, t.slug, v.definition from workflows w left join workflow_templates t on t.id=w.template_id
     join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 order by w.stage nulls last, w.sort, w.name`, [companyId]);
@@ -44,7 +46,7 @@ export async function listMessages(c: PoolClient, companyId: string): Promise<{ 
       if (n.type !== "send_sms" && n.type !== "send_email") continue;
       const fields = (["subject", "template", "substitute_template"] as const).filter((f) => typeof n[f] === "string").map((f) => ({ field: f as CopyField, label: FIELD_LABEL[f], text: n[f] as string }));
       const all = fields.map((f) => f.text).join("\n");
-      const key = `${r.id}:${n.id}`, a = o.messages[key];
+      const key = `${r.id}:${n.id}`, a = o.messages![key];
       messages.push({ workflowId: r.id, workflow: r.name, slug: r.slug, nodeId: n.id, channel: n.type === "send_sms" ? "sms" : "email", title: String(n.title ?? (n.type === "send_sms" ? "Text" : "Email")),
         fields, placeholder: fields.some((f) => isPlaceholderCopy(f.text)), foreign: foreignWords(o.slug, all), needed: !(r.slug && off.has(r.slug)),
         approved: a && a.hash === hashOf(fields) ? { at: a.at, by: a.by } : null });

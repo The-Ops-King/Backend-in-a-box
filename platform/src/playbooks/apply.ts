@@ -51,7 +51,9 @@ export async function applyPlaybook(c: PoolClient, args: { company: string; play
   let built; try { built = pb.build(args.company, args.params, bits); } catch (e) { return { ok: false, status: 422, why: (e as Error).message }; }
   const by = args.by ?? "operator";
   // first every copy as a dry run: nothing is written unless all of them pass
-  const checked = await Promise.all(built.copies.map((copy) => putCopy(c, co.id, copy, by, true)));
+  // one connection, one query at a time
+  const checked: CopyOutcome[] = [];
+  for (const copy of built.copies) checked.push(await putCopy(c, co.id, copy, by, true));
   if (checked.some((o) => o.did === "refused")) return { ok: false, status: 422, why: `${checked.filter((o) => o.did === "refused").length} of the playbook's copies cannot be saved: nothing was`, copies: checked };
   // what the build writes into the install file: the call prompts (D118), bound where they differ from the company's
   const prompts = Object.entries((built.install?.prompts ?? {}) as Record<string, string>).filter(([k, v]) => bits.prompts?.[k] !== v).map(([k]) => k).sort();

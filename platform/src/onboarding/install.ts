@@ -15,6 +15,7 @@ import { installCompany, type CalendarMapping, type InstallInput } from "@/engin
 import { templates } from "@/templates";
 import { playbookOf } from "@/playbooks";
 import { applyPlaybook, type ApplyResult } from "@/playbooks/apply";
+import { seedFromRelease } from "@/playbooks/template-business";
 import type { Intake } from "./intake";
 import type { Research } from "./research";
 import type { CrmRun } from "./crm";
@@ -71,6 +72,8 @@ export async function finishInstall(c: PoolClient, companyId: string, slug: stri
 export async function runInstall(asOp: <T>(fn: (c: PoolClient) => Promise<T>) => Promise<T>, companyId: string, slug: string, adapters: Parameters<typeof installCompany>[1], by = "dashboard"): Promise<InstallOutcome> {
   const p = await asOp((c) => installPlan(c, companyId));
   if (!p.ok) return p;
+  // D150: the playbook's latest release (its template business) gives the words and settings the client has none of its own for
+  await asOp((c) => seedFromRelease(c, companyId, p.plan.playbook));
   let out;
   try { out = await installCompany(p.plan.input, adapters); }
   catch (e) { return { ok: false, status: 422, why: `the install was refused: ${String((e as Error).message).slice(0, 300)}` }; }

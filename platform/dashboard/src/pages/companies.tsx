@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, usePage, useAction, type CompaniesPage } from "~/api";
 import { Counts, Empty, NameLine, Sec, Skeleton, Tag } from "~/ui/pieces";
 import { ago } from "~/fmt";
+import { Templates } from "./templates";
 
 export function Companies() {
   const q = usePage<CompaniesPage>(["companies"], "/api/v1/companies");
@@ -17,10 +18,11 @@ export function Companies() {
     {adding ? <AddClient onCancel={() => setAdding(false)} /> : null}
     {engine.problems.length ? <><Sec>Needs a look</Sec><div>{engine.problems.map((p) => <div key={p.key} className="issue"><Tag kind={p.level === "error" ? "warn" : ""}>{p.level}</Tag><span>{p.text}</span></div>)}</div></> : null}
     <Sec>Every company</Sec>
-    {companies.length === 0 ? <Empty>No companies yet. Add client starts one.</Empty> : <div className="rows">{companies.map((c) => <Link key={c.id} to={href(c)} className="row noicon">
+    {companies.filter((c) => c.status !== "template").length === 0 ? <Empty>No companies yet. Add client starts one.</Empty> : <div className="rows">{companies.filter((c) => c.status !== "template").map((c) => <Link key={c.id} to={href(c)} className="row noicon">
       <span className="mid"><span className="nm">{c.name}</span><span className="sub">{c.status === "onboarding" ? <Tag kind="warn">onboarding</Tag> : null}<Tag kind={c.mode}>{c.mode}</Tag>{c.alerts ? <Tag kind="warn">{c.alerts} open</Tag> : null}<span>{c.on} of {c.workflows} on</span><span>last poll {c.last_poll ? ago(c.last_poll) : "never"}</span>{c.last_tick ? <span>ticked {ago(c.last_tick)}{c.tick_ms != null ? ` in ${(c.tick_ms / 1000).toFixed(1)} s` : ""}</span> : null}</span></span>
       <Counts people={c.contacts} in_flight={c.in_flight} needs_hand={c.needs_hand} />
     </Link>)}</div>}
+    <Templates />
   </>;
 }
 

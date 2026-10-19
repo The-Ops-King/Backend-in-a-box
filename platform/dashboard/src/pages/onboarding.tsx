@@ -329,29 +329,30 @@ function MessagesStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage
   const byWf = [...new Set(needed.map((m) => m.workflow))];
   return <>
     <p className="note">{done} of {needed.length} approved. Each text and email is approved as written; changing its words takes the approval back. A placeholder or another client's words cannot be approved. Words saved here are this client's own and survive every template upgrade.</p>
-    {byWf.map((wf) => <div key={wf} className="call" style={{ marginTop: 12 }}><b>{wf}</b>{needed.filter((m) => m.workflow === wf).map((m) => <MessageCard key={m.workflowId + m.nodeId} slug={slug} m={m} invalidate={[...invalidate]} listKey={key} />)}</div>)}
+    {byWf.map((wf) => <div key={wf} className="call" style={{ marginTop: 12 }}><b>{wf}</b>{needed.filter((m) => m.workflow === wf).map((m) => <MessageCard key={m.workflowId + m.nodeId} url={`/api/v1/companies/${slug}/onboarding`} extra={{ step: "messages" }} approvable m={m} invalidate={[[...invalidate], key]} />)}</div>)}
     {q.data.messages.some((m) => !m.needed) ? <Fold title={<>Not needed: workflows this offer does not use · {q.data.messages.filter((m) => !m.needed).length}</>}><ul className="note">{q.data.messages.filter((m) => !m.needed).map((m) => <li key={m.workflowId + m.nodeId}>{m.workflow}: {m.title}</li>)}</ul></Fold> : null}
   </>;
 }
 
-function MessageCard({ slug, m, invalidate, listKey }: { slug: string; m: Message; invalidate: string[]; listKey: string[] }) {
+/** One text or email, its words editable; `approvable` adds the onboarding approval (D149). Also the template business's words page (D150). */
+export function MessageCard({ url, extra = {}, approvable, m, invalidate }: { url: string; extra?: Record<string, unknown>; approvable?: boolean; m: Message; invalidate: string[][] }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
-  const post = useAction<Record<string, unknown>>((v) => api(`/api/v1/companies/${slug}/onboarding`, { method: "POST", json: { step: "messages", workflowId: m.workflowId, nodeId: m.nodeId, ...v } }), [listKey, invalidate]);
+  const post = useAction<Record<string, unknown>>((v) => api(url, { method: "POST", json: { ...extra, workflowId: m.workflowId, nodeId: m.nodeId, ...v } }), invalidate);
   const changed = m.fields.filter((f) => draft[f.field] !== undefined && draft[f.field] !== f.text);
-  const save = async () => { setErr(null); try { for (const f of changed) await post.mutateAsync({ field: f.field, text: draft[f.field] }); setDraft({}); toast("Words saved: approve them when they read right."); } catch (x) { setErr((x as Error).message); } };
+  const save = async () => { setErr(null); try { for (const f of changed) await post.mutateAsync({ field: f.field, text: draft[f.field] }); setDraft({}); toast(approvable ? "Words saved: approve them when they read right." : "Words saved."); } catch (x) { setErr((x as Error).message); } };
   const approve = async () => { setErr(null); try { await post.mutateAsync({ approve: true }); toast(`Approved: ${m.title}.`); } catch (x) { setErr((x as Error).message); } };
   return <div className="cal-row">
     <div className="hd"><b>{m.channel === "sms" ? "Text" : "Email"}{["Text", "Email"].includes(m.title) ? "" : `: ${m.title}`}</b>
-      {m.approved ? <Tag kind="ok">approved</Tag> : m.placeholder ? <Tag kind="warn">placeholder</Tag> : m.foreign.length ? <Tag kind="warn">another client's words</Tag> : <Tag>to approve</Tag>}</div>
-    {m.foreign.length ? <div className="banner warn" style={{ marginTop: 0 }}>Carries {m.foreign.join(", ")}: change them before it can be approved.</div> : null}
+      {m.foreign.length ? <Tag kind="warn">another client's words</Tag> : m.placeholder ? <Tag kind="warn">placeholder</Tag> : !approvable ? null : m.approved ? <Tag kind="ok">approved</Tag> : <Tag>to approve</Tag>}</div>
+    {m.foreign.length ? <div className="banner warn" style={{ marginTop: 0 }}>Carries {m.foreign.join(", ")}: change them{approvable ? " before it can be approved" : " before this can be published"}.</div> : null}
     {err ? <div className="banner warn" style={{ marginTop: 0 }}>{err}</div> : null}
     <div className="form">{m.fields.map((f) => <label key={f.field}><span>{f.label}</span>
       {f.field === "subject" ? <input value={draft[f.field] ?? f.text} onChange={(e) => setDraft({ ...draft, [f.field]: e.target.value })} />
         : <textarea rows={m.channel === "email" ? 8 : 3} value={draft[f.field] ?? f.text} onChange={(e) => setDraft({ ...draft, [f.field]: e.target.value })} />}</label>)}</div>
     <div style={{ display: "flex", gap: 8 }}>
       {changed.length ? <button className="btn" type="button" disabled={post.isPending} onClick={save}>Save the words</button> : null}
-      {!m.approved && !changed.length ? <button className="btn" type="button" disabled={post.isPending || m.placeholder || m.foreign.length > 0} onClick={approve}>Approve as written</button> : null}
+      {approvable && !m.approved && !changed.length ? <button className="btn" type="button" disabled={post.isPending || m.placeholder || m.foreign.length > 0} onClick={approve}>Approve as written</button> : null}
     </div>
   </div>;
 }

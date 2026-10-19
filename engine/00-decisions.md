@@ -5006,3 +5006,33 @@ report) needs nothing approved. Done when every needed message is approved. Word
 survive every upgrade and rebuild. Install moved ahead of Messages (D148) because the messages are the installed workflows' words.
 
 Tests: `messages.test.ts`, `install.upgrade.test.ts` (the word edit's new rule), `chart-exact.test.ts`.
+
+## D150. A template business per playbook: edited there, published; new clients start from it (2026-10-19)
+
+Tyler: "create a business with no API keys called template, and we'll have all the options there. Then if we want to make
+adjustments to all future ones we change the templates." His choices: one per playbook; edit there, then publish.
+
+A **template business** (`src/playbooks/template-business.ts`) is a company with the new status `template` (the engine never polls
+or ticks it: only active and hosted run), no keys, its playbook installed as a client would have it (every shipped template, the
+playbook's own copies), every workflow off, in ghost, SMS off; seeded with the default call prompts and the objections a client's
+CRM build would give it. "Make the template business" on the Companies page (Templates) makes it; its workflows are viewed like any
+company's; its words (D149) and its playbook's params are edited on its Words page (`/app/c/<slug>/words`).
+
+**Publish** checks it and keeps a release (`playbook_releases`: words, params, the offer settings by the duplicating allowlist,
+OFFER_KEYS and prompts). Refused, naming each: another client's words anywhere in it (D149's FOREIGN), a workflow the engine cannot
+read or draw exactly, a word that is not valid copy, and **a workflow changed beyond its words**. Steps are not published: a
+workflow's structure lives in code (src/templates, src/playbooks), tested and reviewed, and every deploy re-syncs the templates
+from it, so a step change made in a database would be overwritten or freeze whoever got it; a step change goes through the
+build-workflow skill. Placeholders left in are allowed and noted (each client writes them in its Messages step). The checks are the
+ones the live engine can run; the code's scenario tests cannot run inside it.
+
+**A new client on a playbook starts from its latest release** (Tyler: future clients only; existing ones are not touched): the
+wizard's params are the release's, made the offer's (`forOffer`: one board's name and board name), and before install its words and
+settings are laid in where the client has none of its own, so install and the playbook put them on. Every message still goes
+through the client's Messages step for approval.
+
+Found doing this: `applyPlaybook` checked its copies in parallel on one database connection (D142), which `pg` queues but warns
+is going away; it now checks them one at a time.
+
+Tests: `template-business.test.ts`. Walked in the browser: the Setter and closer template business made, publish refused over Hair's
+welcome text, the words rewritten on its Words page, published as v1.

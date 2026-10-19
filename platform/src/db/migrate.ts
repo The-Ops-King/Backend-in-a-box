@@ -246,6 +246,11 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table onboarding add column if not exists params jsonb`);
     await c.query(`alter table onboarding add column if not exists crm jsonb not null default '{}'`);
     await c.query(`alter table onboarding add column if not exists messages jsonb not null default '{}'`);
+    // D150: a playbook's template business, and what it publishes
+    await c.query(`alter table companies drop constraint if exists companies_status_check`);
+    await c.query(`alter table companies add constraint companies_status_check check (status in ('onboarding','active','hosted','archived','template'))`);
+    await ownsOrAbsent(c, "playbook_releases", "params");
+    await c.query(`create table if not exists playbook_releases (id uuid primary key default gen_random_uuid(), playbook text not null, version int not null, words jsonb not null default '{}', params jsonb, settings jsonb not null default '{}', notes jsonb not null default '[]', published_at timestamptz not null default now(), published_by text, unique (playbook, version))`);
     // simulation harness (D23): synthetic appointments and events carry source 'test'; dark-hours policy per company
     await c.query(`alter table companies add column if not exists quiet_allow_transactional boolean not null default false`);
     await c.query(`alter table calendars add column if not exists config jsonb not null default '{}'`);

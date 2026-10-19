@@ -10,6 +10,7 @@ import { playbooks } from "@/playbooks";
 import { fitReport, intakeProblems, INTAKE_FIELDS, type FitReport, type Intake, type IntakeField } from "./intake";
 import { connectionsState, type ConnectionRow } from "./connections";
 import type { Research } from "./research";
+import { latestRelease } from "@/playbooks/template-business";
 import { crmState, type CrmState } from "./crm";
 
 /** The wizard's steps, in order. `built`: false until its slice of P1 is built, so the page says so instead of pretending. */
@@ -100,7 +101,10 @@ export async function saveIntake(c: PoolClient, companyId: string, args: { intak
   const done: StepDone = { done_at: new Date().toISOString(), by: args.by ?? "dashboard" };
   // D147: a playbook's params start from its defaults for this offer; a changed playbook starts again from the new one's
   const was = await one<{ playbook: string | null; params: unknown; name: string }>(c, "select o.playbook, o.params, co.name from onboarding o join companies co on co.id=o.company_id where o.company_id=$1", [companyId]);
-  const params = was && was.playbook === fit.playbook && was.params != null ? was.params : playbooks.find((p) => p.slug === fit.playbook)!.defaults(was?.name ?? "");
+  // D150: a new offer starts from its playbook's latest release (the template business's), made this offer's; else the code's defaults
+  const pb = playbooks.find((p) => p.slug === fit.playbook)!, release = await latestRelease(c, fit.playbook);
+  const params = was && was.playbook === fit.playbook && was.params != null ? was.params
+    : release?.params != null ? pb.forOffer(release.params, was?.name ?? "") : pb.defaults(was?.name ?? "");
   await c.query("update onboarding set intake=$2, playbook=$3, fit=$4, params=$6, steps=steps || jsonb_build_object('offer', $5::jsonb) where company_id=$1", [companyId, intake, fit.playbook, fit, done, params === undefined ? null : JSON.stringify(params)]);
   await c.query("update companies set contract_value_default=$2 where id=$1", [companyId, Number(intake.price)]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'onboarding.offer','company',$2,$3)", [companyId, companyId, { playbook: fit.playbook, chosen: chosen ?? null, gaps: fit.gaps, by: done.by }]);

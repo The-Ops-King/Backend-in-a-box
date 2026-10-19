@@ -33,6 +33,8 @@ export type Playbook = {
   build(company: string, params: unknown, install: InstallBits): Built;
   /** D147: the params a new offer starts from (the offer's name in them); the wizard keeps them on the client, Tyler edits them. */
   defaults(offer: string): unknown;
+  /** D150: published params (a template business's) made a given offer's: whatever in them names the offer. */
+  forOffer(params: unknown, offer: string): unknown;
 };
 
 const words = z.object({ welcome: z.object({ subject: z.string(), email: z.string(), sms: z.string() }), setterDq: z.object({ result: z.string(), reasons: z.record(z.string()) }) });
@@ -59,6 +61,7 @@ export const playbooks: Playbook[] = [
     changes: [],
     build: () => ({ copies: [] }),
     defaults: () => undefined,
+    forOffer: (p) => p,
   },
   {
     slug: "one-board", name: "One board",
@@ -66,6 +69,7 @@ export const playbooks: Playbook[] = [
     traits: { boards: "one", booking: ["self", "setter"], application: false, triage: false },
     changes: ["new-lead", "call-booked", "call-cancelled", "call-outcome", "call-recorded", "deal-closed", "payment-recorded", "pre-call-sequence", "card-moved"],
     build: (_company, params) => ({ copies: oneBoardCopies(parse(oneBoard, params, "one-board") as OneBoardParams) }),
+    forOffer: (p, offer) => ({ ...(p as OneBoardParams), name: offer, board: offer }),
     defaults: (offer): OneBoardParams => ({
       name: offer, board: offer,
       stages: { newLead: "New Lead", booked: "Booked Call", rescheduled: "Rescheduled", cancelled: "Cancelled", noShow: "No Show", confirmed: "Call Confirmed", unresponsive: "Unresponsive", purchase: "Purchase", won: "Closed Won" },
@@ -85,6 +89,7 @@ export const playbooks: Playbook[] = [
       return { copies: datingCopies(company, p.words as DatingWords, p.setup ? { setup: p.setup as DatingSetup, install } : undefined),
         install: { prompts: { ...(install.prompts ?? {}), ...datingPrompts(install.salesCall.objections) } } };
     },
+    forOffer: (p) => p,
     // the words start as placeholders, which send nothing (D118) until Tyler writes them in the Messages step
     defaults: (offer) => ({ words: {
       welcome: { subject: `[placeholder — ${offer}'s welcome email subject]`, email: `<p>Hi {{contact.first_name | default:there}},</p><p>[placeholder — ${offer}'s welcome email]</p>`, sms: `[placeholder — ${offer}'s welcome text]` },
