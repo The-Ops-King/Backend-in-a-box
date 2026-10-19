@@ -58,6 +58,22 @@ export async function withScope<T>(scope: Scope, fn: (c: PoolClient) => Promise<
   }
 }
 
+/**
+ * D151: commits what the open transaction has done, runs `fn` in a transaction of its own and commits that too, then opens a new
+ * transaction under the same scope. A vendor write's ledger row (its claim, a queued send, the outcome) is written this way so it
+ * outlives anything that happens to the rest of the run. It stays on the run's own connection: a second one would wait forever on
+ * a row the run itself has locked (a contact whose CRM id it just moved) and take one of the pool's three.
+ */
+export async function checkpoint<T>(c: PoolClient, fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  const scope = (await c.query<{ co: string | null; role: string | null }>("select current_setting('app.company_id', true) as co, current_setting('app.role', true) as role")).rows[0];
+  // COMMIT on a transaction that already failed answers ROLLBACK without an error: that is work lost, never a checkpoint
+  const commit = async () => { if ((await c.query("commit")).command === "ROLLBACK") throw new Error("the transaction had already failed: its work was rolled back, not committed"); };
+  const reopen = async () => { await c.query("begin"); await c.query("select set_config('app.company_id', $1, true), set_config('app.role', $2, true)", [scope.co ?? "", scope.role || "operator"]); };
+  await commit(); await reopen();
+  try { const out = await fn(c); await commit(); await reopen(); return out; }
+  catch (e) { await c.query("rollback").catch(() => {}); await reopen(); throw e; }
+}
+
 export const asOperator = <T>(fn: (c: PoolClient) => Promise<T>) => withScope({ role: "operator" }, fn);
 export const asCompany = <T>(companyId: string, fn: (c: PoolClient) => Promise<T>) => withScope({ companyId }, fn);
 

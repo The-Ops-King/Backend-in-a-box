@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
-import { asOperator, many, one } from "@/db/client";
+import { checkpoint, many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 import { fallbacksOf, labelledEdge, onwardEdge, type Edge, type Node } from "./definition";
 import { evaluate } from "./predicate";
@@ -126,14 +126,14 @@ async function recordSend(d: ExecDeps, node: Node, channel: "sms" | "email" | "s
 }
 
 /**
- * D151 (audit 2026-10-19): what stands between one vendor write and a second is written in its own committed transaction,
- * apart from the run's. A run whose transaction rolls back after the vendor accepted (a later SQL error, the function killed)
- * still finds its claim, or its queued send, on the retry, and does not ask the vendor twice.
+ * D151 (audit 2026-10-19): what stands between one vendor write and a second is committed before the vendor is asked, with what
+ * the run did before it (`checkpoint`). A run whose transaction rolls back after the vendor accepted (a later SQL error, the
+ * function killed) still finds its claim, or its queued send, on the retry, and does not ask the vendor twice.
  */
-const committed = <T>(fn: (c: PoolClient) => Promise<T>) => asOperator(fn);
+const committed = <T>(d: ExecDeps, fn: (c: PoolClient) => Promise<T>) => checkpoint(d.c, fn);
 /** D66: the create ledger, claimed before a vendor write that has no key of its own and marked done after (effects.ts). */
-const claim = (d: ExecDeps, node: Node, kind: EffectKind) => committed((c) => claimEffect(c, d.company.id, d.run.id, node.id, kind));
-const done = (d: ExecDeps, node: Node, kind: EffectKind, externalId?: string | null) => committed((c) => markEffect(c, d.run.id, node.id, kind, externalId));
+const claim = (d: ExecDeps, node: Node, kind: EffectKind) => committed(d, (c) => claimEffect(c, d.company.id, d.run.id, node.id, kind));
+const done = (d: ExecDeps, node: Node, kind: EffectKind, externalId?: string | null) => committed(d, (c) => markEffect(c, d.run.id, node.id, kind, externalId));
 /** A vendor that never answered may have done it: not reclaimable, said in an alert, never retried blind. */
 export const ambiguousSendError = (e?: string) => !!e && /\btimeout\b|timed out|aborted|ECONNRESET|socket hang up|other side closed|UND_ERR/i.test(e);
 
@@ -182,14 +182,14 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
     await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "send.suppressed", source: "engine", data: { channel, node: node.id, why: lock.why } });
     return { status: "skipped", next, result: { kind: "noop", why: lock.why, would_send: body.slice(0, 120) } };
   }
-  const send = await committed((o) => recordSend(d, node, channel, body, "queued", null, o));
+  const send = await committed(d, (o) => recordSend(d, node, channel, body, "queued", null, o));
   if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already sent (idempotency)" } };
   const ghlContactId = (d.ctx.contact as { ghl_contact_id?: string }).ghl_contact_id!;
   const r = node.type === "send_sms"
     ? await d.adapters.sender.sendSms(d.adapterCompany, ghlContactId, body)
     : viaCrmEmailTemplate ? await d.adapters.sender.sendEmailTemplate(d.adapterCompany, ghlContactId, ghlTemplateId) : await d.adapters.sender.sendEmail(d.adapterCompany, ghlContactId, subject, body);
   const unknown = !r.accepted && ambiguousSendError(r.error);
-  await committed((o) => o.query("update sends set status=$2, external_id=$3, error=$4, sent_at=case when $2='sent' then now() end where id=$1", [send.id, r.accepted ? "sent" : unknown ? "unknown" : "failed", r.externalId || null, r.error ?? null]));
+  await committed(d, (o) => o.query("update sends set status=$2, external_id=$3, error=$4, sent_at=case when $2='sent' then now() end where id=$1", [send.id, r.accepted ? "sent" : unknown ? "unknown" : "failed", r.externalId || null, r.error ?? null]));
   if (unknown) return { status: "skipped", next, result: { kind: "blocked", why: `the CRM did not answer, so the ${channel} may or may not have gone out; it is not sent again (check the conversation in the CRM): ${r.error}`, would_send: body.slice(0, 120) } };
   await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: r.accepted ? "message.sent" : "send.suppressed", source: "engine", data: { channel, node: node.id, external_id: r.externalId, error: r.error, substituted } });
   if (r.accepted) return { status: "ok", next, result: { external_id: r.externalId, substituted } };
@@ -786,20 +786,20 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         await recordSend(d, node, "webhook", bodyText ?? "", "suppressed", lock.why);
         return { status: "skipped", next, result: { kind: "noop", why: lock.why, would_call: `${node.method} ${safeUrl}`, would_send: bodyText?.slice(0, 300) } };
       }
-      const send = await committed((o) => recordSend(d, node, "webhook", bodyText ?? "", "queued", null, o)); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already called (idempotency)" } };
+      const send = await committed(d, (o) => recordSend(d, node, "webhook", bodyText ?? "", "queued", null, o)); if (!send) return { status: "skipped", next, result: { kind: "noop", why: "already called (idempotency)" } };
       try {
         const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 20_000);
         const res = await fetch(url, { method: node.method, headers, body: node.method === "GET" ? undefined : bodyText, signal: ctl.signal }).finally(() => clearTimeout(timer));
         const text = await res.text().catch(() => "");
         let parsed: unknown = text; try { parsed = JSON.parse(text); } catch { /* not JSON: keep the text */ }
-        await committed((o) => o.query("update sends set status=$2, external_id=$3, sent_at=now(), error=$4 where id=$1", [send.id, res.ok ? "sent" : "failed", String(res.status), res.ok ? null : text.slice(0, 500)]));
+        await committed(d, (o) => o.query("update sends set status=$2, external_id=$3, sent_at=now(), error=$4 where id=$1", [send.id, res.ok ? "sent" : "failed", String(res.status), res.ok ? null : text.slice(0, 500)]));
         if (node.into) setPath(d.ctx, `vars.${node.into}`, parsed);
         if (!res.ok) { if (node.on_error === "skip") return { status: "skipped", next, result: { kind: "blocked", why: `${res.status} from ${safeUrl}`, response: text.slice(0, 300) } }; return { status: "failed", error: `${node.method} ${safeUrl} → ${res.status}: ${text.slice(0, 300)}` }; }
         return { status: "ok", next, result: { called: `${node.method} ${safeUrl}`, status: res.status, response: text.slice(0, 300) } };
       } catch (e) {
         const why = String((e as Error).name === "AbortError" ? "timed out after 20s" : (e as Error).message);
         const unknown = ambiguousSendError(why);
-        await committed((o) => o.query("update sends set status=$2, error=$3 where id=$1", [send.id, unknown ? "unknown" : "failed", why]));
+        await committed(d, (o) => o.query("update sends set status=$2, error=$3 where id=$1", [send.id, unknown ? "unknown" : "failed", why]));
         if (unknown) return { status: "skipped", next, result: { kind: "blocked", why: `${safeUrl} did not answer, so it may or may not have run; not called again: ${why}` } };
         if (node.on_error === "skip") return { status: "skipped", next, result: { kind: "blocked", why: `${safeUrl}: ${why}` } };
         return { status: "failed", error: `${node.method} ${safeUrl}: ${why}` };

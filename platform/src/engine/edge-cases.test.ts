@@ -15,7 +15,7 @@ import { applyAppointment } from "@/engine/poll";
 import { applyPayment } from "@/engine/lifecycle";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
-import { fakeAdapters, inboundForTest, unlockSendsForTest } from "@/engine/test-install";
+import { fakeAdapters, freshGhlCheckForTest, inboundForTest, unlockSendsForTest } from "@/engine/test-install";
 import { recordRecording, type RecordingInput } from "@/engine/recordings";
 import { companyReadiness } from "@/engine/readiness";
 import { parseDefinition, extractManifest } from "@/engine/definition";
@@ -118,6 +118,7 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
       await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id, channels) values ($1,'T1',$2,'UBOT','{}')", [companyId, encrypt("xoxb-fake")]);
     });
     // live is a go-live (D56): readiness wants Slack connected first, so the mode comes on a second install
+    await asOperator((c) => freshGhlCheckForTest(c, companyId));   // D151: every move up, install's too, needs a fresh check
     await installCompany({ ...input, mode: "live" }, fake);
   });
 
@@ -352,6 +353,7 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     await expect(installCompany({ ...input, mode: "live" }, fake)).rejects.toThrow(/not ready to go live.*Slack is not connected/);
     expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [co2])))?.mode).toBe("ghost");
     await asOperator((c) => c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id, channels) values ($1,'T2',$2,'UBOT2','{}')", [co2, encrypt("xoxb-fake")]));
+    await asOperator((c) => freshGhlCheckForTest(c, co2));
     const live = await installCompany({ ...input, mode: "live" }, fake);
     expect(live.wentLive?.runs).toBe(1);
     expect((await asOperator((c) => one<{ mode: string }>(c, "select mode from companies where id=$1", [co2])))?.mode).toBe("live");

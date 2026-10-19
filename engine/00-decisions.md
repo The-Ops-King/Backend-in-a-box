@@ -5359,8 +5359,10 @@ From `10-audit-2026-10-19.md` §1, Tyler: "Do all those 5 recommendations."
    share the production database, so an unreviewed branch's DDL never runs against it. A production migration takes
    `pg_advisory_lock(7351151)` (two deploys can build at once) and runs in one transaction up to the backfill, so a failure
    leaves no constraint dropped. Numbered migrations are still to come (the ~300 lines re-run on every deploy stay for now).
-2. **A text is never sent twice on a retry.** The `sends` row is committed as `queued` before the vendor call, in its own
-   transaction (`asOperator`), and its outcome is committed after: `sent`, `failed`, or `unknown` when the call timed out or
+2. **A text is never sent twice on a retry.** The `sends` row is committed as `queued` before the vendor call and its outcome
+   is committed after, each by `checkpoint` (db/client.ts): the run's transaction is committed so far, the ledger write gets its
+   own, and a new one opens under the same scope, all on the run's own connection. (A second connection was tried first and
+   hung: it waited on the contact row the run's refresh had just moved to a new CRM id.) The outcome is `sent`, `failed`, or `unknown` when the call timed out or
    the connection dropped after it may have been taken (`ambiguousSendError`). A retry finds the key with any status but
    `failed` and does not send again; an `unknown` send skips the step and raises a blocked alert for a person to look at the
    contact in GHL. The run's claim and done marks are committed the same way, and webhook steps follow the same pattern.
@@ -5377,7 +5379,7 @@ From `10-audit-2026-10-19.md` §1, Tyler: "Do all those 5 recommendations."
    the one before on its outbound steps (`send_sms`, `send_email`, `send_document`, `webhook`) and their edges; a change clears
    `sends_unlocked_at` and audits `workflow.sends_locked` by `engine`. Tyler unlocks again (D145).
 
-Tests: `migrate.shared.test.ts`, `step-failures.test.ts` (timeout → unknown, relock), `query.test.ts`, `bot.test.ts`, `filters.test.ts`; `freshGhlCheckForTest` (test-install) gives a test its check before a move up.
+Tests: `client.test.ts` (checkpoint), `migrate.shared.test.ts`, `step-failures.test.ts` (timeout → unknown, relock), `contact-truth.test.ts`, `query.test.ts`, `bot.test.ts`, `filters.test.ts`; `freshGhlCheckForTest` (test-install) gives a test its check before a move up.
 
 ## D152. /issue and /request (2026-10-19)
 
