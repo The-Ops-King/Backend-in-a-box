@@ -827,3 +827,8 @@ Closing (60 minutes):
   in GHL. Consultation S has no setter question; the UTM rule replaces it.
 - Hair: Josh Harris has left (off the roster after the install fix); the Deposit option and stage are Claude's to add; the
   Zaps are handled; the switch-over is tomorrow, after a go/no-go per pair.
+- PMU setters (Tyler, 2026-10-19): "PMU doesn't have setters right now, but it probably will in the future. They will dial
+  through GHL, and then they will either send the link or they will book on the call." Setter call logged stays off on PMU
+  until then; when the first setter starts: a Discovery Call object and its contact association in PMU's GHL, `crm.pipeline_setter`
+  on the Beauty Moguls board (DQ / Lost as the setter stages), dry run to Tyler first, and the UTM setter link.
+- PMU's Health check is on in quiet (Tyler: "only in our sandbox"); its posts land in #ops-test only (checked 2026-10-19).
