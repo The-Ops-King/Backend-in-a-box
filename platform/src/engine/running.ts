@@ -1,6 +1,6 @@
 /**
- * Which companies the engine runs (polls, ticks, schedules, alerts): active and hosted ones, and (D159) the one template business
- * checked out to the sandbox. A template business is otherwise inert (D155); its playbook's businesses share one sandbox GHL
+ * Which companies the engine runs (polls, ticks, schedules, alerts): active and hosted ones, and (D160) the one template business
+ * checked out to the sandbox. A template business is otherwise inert (D156); its playbook's businesses share one sandbox GHL
  * location, so only one runs there at a time: two would see each other's test contacts and fire on each other's writes.
  */
 export const SANDBOX_KEY = "sandbox.running";

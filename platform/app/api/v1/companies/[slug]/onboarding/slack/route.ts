@@ -4,7 +4,7 @@ import { fail, ok } from "@/api/http";
 import { slackState } from "@/onboarding/slack";
 export const dynamic = "force-dynamic";
 
-/** D151: the Slack step: the manifest, whether the bot is connected, each channel slot, and the channels the bot can see. Never a token. */
+/** D152: the Slack step: the manifest, whether the bot is connected, each channel slot, and the channels the bot can see. Never a token. */
 export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   return asOperator(async (c) => {

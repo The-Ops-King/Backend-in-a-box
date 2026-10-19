@@ -309,7 +309,7 @@ pre.pre,pre.raw{font-size:12px;color:var(--fg-2);background:var(--panel-2);borde
 .grpl .n{font-size:12px;color:var(--fg-3)}
 .grpl .n.s-ok,.grpl .n.s-ghost{color:var(--ok)}.grpl .n.s-skip{color:var(--cond)}.grpl .n.s-warn,.grpl .n.s-blocked{color:var(--warn)}.grpl .n.s-here{color:var(--wait)}
 
-/* D148: the onboarding wizard: a rail of steps beside the step (above it on a phone) */
+/* D149: the onboarding wizard: a rail of steps beside the step (above it on a phone) */
 .wiz{display:grid;gap:18px;margin-top:16px}
 @media (min-width:900px){.wiz{grid-template-columns:240px minmax(0,1fr);align-items:start}}
 .wiz-rail{list-style:none;margin:0;padding:0;display:grid;gap:2px}

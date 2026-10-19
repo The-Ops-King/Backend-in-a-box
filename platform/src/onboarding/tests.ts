@@ -1,5 +1,5 @@
 /**
- * D156 (#53 P1): the wizard's test passes. Each scenario is a sales journey the offer has (a lead, a self-booked call that shows
+ * D157 (#53 P1): the wizard's test passes. Each scenario is a sales journey the offer has (a lead, a self-booked call that shows
  * and closes, a no-show, a cancel, a reschedule, a setter's dial, a deposit, an application), staged on one test contact through
  * the harness (D23: the fact is ours, source 'test'; only a test contact, D97), the company's runs then ticked, and every run it
  * started read back: its workflow, how it ended, the step that failed. Scheduled workflows are fired by hand. A scenario starts
@@ -8,7 +8,7 @@
  * Before the passes, the workflows the offer uses are turned on (the fit report's off and build ones stay off, as does any
  * missing a required setting), and the company stands on the rung Tyler picks: ghost (nothing written anywhere, every run says
  * what it would do) or test (the test contact's runs really write and send; anyone else's stay ghost). The test rung is a move
- * up, so it needs a fresh check of their own GHL workflows (D157: their workflows see the test contact's tags and stage moves).
+ * up, so it needs a fresh check of their own GHL workflows (D158: their workflows see the test contact's tags and stage moves).
  *
  * The step is done when every workflow turned on has a clean run (completed, exited or waiting, no failed or paused step) and none
  * failed, or Tyler has accepted it with a note (a workflow no scenario reaches: a payment that fails, a recording with no match).
@@ -39,10 +39,10 @@ export type TestRung = "ghost" | "test";
 type Act = { action: SimAction; startsAt?: "past" | "future"; outcome?: string; deposit?: boolean; calendar?: string };
 export type Scenario = { id: string; label: string; about: string; acts: Act[] };
 export type RunSeen = { workflow: string; status: string; exit_reason: string | null; steps: number; problem: string | null };
-/** `fp`: what was tested (testedFingerprint), so a template's publish can tell a pass on what it publishes from a stale one (D159). */
+/** `fp`: what was tested (testedFingerprint), so a template's publish can tell a pass on what it publishes from a stale one (D160). */
 export type ScenarioResult = { at: string; by: string; rung: string; acts: { action: SimAction; ok: boolean; why?: string; runs: number }[]; runs: RunSeen[]; passed: boolean; fp?: string };
 
-/** D159: what a pass tested: every workflow at its current version, and the company's words. Any edit to a step or a word changes it. */
+/** D160: what a pass tested: every workflow at its current version, and the company's words. Any edit to a step or a word changes it. */
 export async function testedFingerprint(c: PoolClient, companyId: string): Promise<string> {
   const wf = await many<{ id: string; v: number; enabled: boolean }>(c, "select id, current_version as v, enabled from workflows where company_id=$1 order by id", [companyId]);
   const words = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [companyId, WORDS_KEY]))?.value.toString("utf8") ?? "";
@@ -50,7 +50,7 @@ export async function testedFingerprint(c: PoolClient, companyId: string): Promi
 }
 
 /**
- * D159: a template business takes the sandbox: it runs there (polled, ticked) and every other template business on the same GHL
+ * D160: a template business takes the sandbox: it runs there (polled, ticked) and every other template business on the same GHL
  * location stops, so no two see each other's test contacts.
  */
 export async function takeSandbox(c: PoolClient, companyId: string) {
@@ -107,7 +107,7 @@ export type PrepareResult = { ok: true; on: string[]; left_off: LeftOff[] } | { 
 
 /**
  * The test contact chosen, the offer's workflows turned on (in one transaction), then the company onto the rung (its own, as the
- * mode route does, with its check of their GHL workflows, D157). Refused before install and for a contact that is not a test contact.
+ * mode route does, with its check of their GHL workflows, D158). Refused before install and for a contact that is not a test contact.
  */
 export async function prepareTests(op: Op, companyId: string, args: { contactId?: unknown; rung?: unknown; by?: string }): Promise<PrepareResult> {
   const rung: TestRung | null = args.rung === "test" ? "test" : args.rung === undefined || args.rung === "ghost" ? "ghost" : null;
@@ -235,7 +235,7 @@ export function workflowStates(t: Tests): WorkflowState[] {
 }
 
 export type TestsState = { tests: Tests; scenarios: Scenario[]; workflows: WorkflowState[]; contacts: { id: string; name: string; email: string | null }[]; suggestedEmail: string | null; done: boolean; todo: string[];
-  /** D159: a template business is tested in the sandbox; `running`: it holds it now */
+  /** D160: a template business is tested in the sandbox; `running`: it holds it now */
   sandbox: { template: boolean; running: boolean } };
 
 /** What is left before the step is done, one line each; none means done. */

@@ -1,5 +1,5 @@
 /**
- * D147: the tools a playbook builds a company's copies with: a fresh copy of a shipped template's definition, and the two
+ * D148: the tools a playbook builds a company's copies with: a fresh copy of a shipped template's definition, and the two
  * edits every copy so far is made of (take a step out, put one in after another). A copy is always rebuilt from the template
  * it changes, so a template's fix reaches every company on the next build.
  */

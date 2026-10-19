@@ -16,7 +16,7 @@ Things only Tyler can do or decide, that are holding up work. Claude adds to it;
 
 - [ ] Say go on the step 3 dry runs (re-saving Call booked, Call cancelled and Call recorded from the onboarding branch).
 
-## Sandbox (template businesses, D160)
+## Sandbox (template businesses, D161)
 
 - [ ] Slack for the template tests, in Vercel (Production and Preview): `SANDBOX_SLACK_BOT_TOKEN`, `SANDBOX_SLACK_SIGNING_SECRET`,
       `SANDBOX_SLACK_CHANNEL` (your ops Slack app and its test channel's id), and `SANDBOX_TEST_EMAIL` = jt@jtylerray.com.

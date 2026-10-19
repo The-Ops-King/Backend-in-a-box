@@ -3,7 +3,7 @@
 Tyler: "brainstorm all the possibilities and create them as templates and trigger steps." Three lists, each row with a
 recommended call. **Mark the Call column** (Build / Later / Cut, or a note) and nothing below gets built until you have.
 
-- **Part A**: every path a lead can take. Each one becomes a test journey (D156) and, where no workflow handles it, a template.
+- **Part A**: every path a lead can take. Each one becomes a test journey (D157) and, where no workflow handles it, a template.
 - **Part B**: every way a client's own GHL workflow can fire on what the engine does. It feeds the check at every rung up and the filters step.
 - **Part C**: the kinds of offer you'll onboard. Each one becomes a playbook.
 
@@ -12,7 +12,7 @@ Today's harness can stage: `form`, `create`, `book` (setter), `book-self`, `resc
 
 ## Part A. Sales journeys
 
-**Handled by** names today's workflows. **Gap** is what's missing. Journeys 1–8 are D156's, already built.
+**Handled by** names today's workflows. **Gap** is what's missing. Journeys 1–8 are D157's, already built.
 
 ### A1. Getting in
 

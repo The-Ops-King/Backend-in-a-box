@@ -6,7 +6,7 @@ import { applyPlaybook, copyOfferSettings, playbookState, rungPlan, type ApplyRe
 export const dynamic = "force-dynamic"; export const maxDuration = 120;
 
 /**
- * D147, with Authorization: Bearer $CRON_SECRET.
+ * D148, with Authorization: Bearer $CRON_SECRET.
  * GET  → { playbooks: [{ slug, name, about, traits }] }; ?company=<slug> → also its playbook as last applied, the copies that fell
  *      behind today's templates (`stale`), and every workflow's starting rung (#48).
  * POST { company, playbook, params?, copySettingsFrom?, dryRun?, by? } → the company's copies built by the playbook and saved

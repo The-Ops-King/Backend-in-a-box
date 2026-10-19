@@ -1,8 +1,8 @@
 /**
- * D153 (#53 P1): the wizard's install step. Everything the earlier steps learned becomes one install (installCompany, D16): the
+ * D154 (#53 P1): the wizard's install step. Everything the earlier steps learned becomes one install (installCompany, D16): the
  * GHL location, the booking source (Calendly's token, or GHL's calendars), the calendars Research mapped with the closer call
  * and the booking link, the ids the CRM build found or made with what the Sales Call's options mean, the team's roles, the keys
- * that register the engine's own webhooks (Whop, Fathom). Then the playbook's copies go on (D147, all or nothing), and the
+ * that register the engine's own webhooks (Whop, Fathom). Then the playbook's copies go on (D148, all or nothing), and the
  * company turns active, still in ghost: the engine starts reading their accounts, every workflow off, nothing written and nothing
  * sent. Templates a playbook workflow takes over (D123) are left out of the install, so nothing has to be removed. A new offer's
  * SMS starts off (its own GHL account has no approved number yet; Tyler turns it on once A2P is through); a takeover keeps theirs.
@@ -72,7 +72,7 @@ export async function finishInstall(c: PoolClient, companyId: string, slug: stri
 export async function runInstall(asOp: <T>(fn: (c: PoolClient) => Promise<T>) => Promise<T>, companyId: string, slug: string, adapters: Parameters<typeof installCompany>[1], by = "dashboard"): Promise<InstallOutcome> {
   const p = await asOp((c) => installPlan(c, companyId));
   if (!p.ok) return p;
-  // D155: the playbook's latest release (its template business) gives the words and settings the client has none of its own for
+  // D156: the playbook's latest release (its template business) gives the words and settings the client has none of its own for
   await asOp((c) => seedFromRelease(c, companyId, p.plan.playbook));
   let out;
   try { out = await installCompany(p.plan.input, adapters); }

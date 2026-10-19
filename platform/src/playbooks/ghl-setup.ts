@@ -1,9 +1,9 @@
 /**
- * D152: what a playbook needs in a client's GHL, as a setup the additive provisioner reads (src/adapters/ghl/provision.ts: it
+ * D153: what a playbook needs in a client's GHL, as a setup the additive provisioner reads (src/adapters/ghl/provision.ts: it
  * creates only what is missing, never renames, retypes or deletes). Dating's setup was written by hand
  * (installs/dating/ghl-setup.json, built and verified on RapidCloser); this builds the same shape for any offer from a few
  * params, and the test holds the two-board build with Dating's params to Dating's file. The calendars are not here: research
- * maps the client's own (D150). The application's own fields (a Typeform's answers, D122) are not here either: they follow the
+ * maps the client's own (D151). The application's own fields (a Typeform's answers, D122) are not here either: they follow the
  * form, not the process.
  */
 import type { Setup } from "@/adapters/ghl/provision";

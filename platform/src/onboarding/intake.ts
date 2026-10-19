@@ -1,6 +1,6 @@
 /**
- * #53 P1 (D148): the wizard's first step, the offer as Tyler describes it. One list of fields drives the form and the check, and
- * the answers pick the playbook (D147) and say, workflow by workflow, what fits as shipped, what needs a tweak, what has to be
+ * #53 P1 (D149): the wizard's first step, the offer as Tyler describes it. One list of fields drives the form and the check, and
+ * the answers pick the playbook (D148) and say, workflow by workflow, what fits as shipped, what needs a tweak, what has to be
  * built and what stays off. The gaps are that client's build list. No playbook fits exactly? The closest is picked and the
  * differences are in the report (Tyler, 2026-10-18).
  */
@@ -126,7 +126,7 @@ export function fitReport(a: Intake, kind: "new" | "takeover" = "new", chosen?: 
     }
     if (s === "deal-closed" && a.agreement === "none") return w("tweak", "it closes a deal when it is paid and signed; with no agreement it must close on payment alone");
     if (s === "setter-call-logged" && a.setters === false) return w("off", "no setters");
-    // D152: Setter call logged moves the setter board's card; on one board there is none, and the playbook has no copy of it yet
+    // D153: Setter call logged moves the setter board's card; on one board there is none, and the playbook has no copy of it yet
     if (s === "setter-call-logged" && pb.traits.boards === "one") { gaps.add("Setter call logged on one board: it moves a setter card, and one board has none (a one-board copy is to build)"); return w("build", "it moves the setter board's card, and one board has none: a one-board copy is to build"); }
     if (s === "new-lead" && Array.isArray(a.lead_paths) && a.lead_paths.includes("organic_dm")) { gaps.add("DM leads: nothing brings an Instagram DM lead into the CRM yet (problem 7)"); return w("tweak", "DM leads reach it only once they are in the CRM"); }
     if (s === "new-lead" && a.application === "other") return w("tweak", "the application's answers come in through a Zap");

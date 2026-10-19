@@ -1,8 +1,8 @@
 /**
- * D154: a company's own words, kept apart from the steps. A message's words (an SMS, an email's subject and body, a Slack
+ * D155: a company's own words, kept apart from the steps. A message's words (an SMS, an email's subject and body, a Slack
  * post, a note, a task) are the company's; the steps around them are the template's or the playbook's. The words are kept as
  * one setting (`copy.words`: workflow → step → field → text) and laid over the workflow every time it is built: when install
- * puts a template on or upgrades it, when a playbook's copies are built (D147), and when a word is changed. So a word edit no
+ * puts a template on or upgrades it, when a playbook's copies are built (D148), and when a word is changed. So a word edit no
  * longer freezes a copy (it stays "untouched" and keeps getting its template's fixes, D141 is why that matters), and a rebuild
  * never loses the words. A copy edited beyond words (a step changed, D-edits) is still the company's own and left alone.
  * A workflow is named by its template's slug, or `own:<name>` for a company's own workflow (D123).
@@ -48,7 +48,7 @@ export type SetWordResult = { ok: true; version: number; layout?: Layout } | { o
 
 /**
  * One message's words changed: kept in the company's words and laid on the workflow as a new version. The copy is the offer's
- * own from then on (diverged), as before D154: a template change never reaches an offer that already exists (CLAUDE.md, open
+ * own from then on (diverged), as before D155: a template change never reaches an offer that already exists (CLAUDE.md, open
  * item 50); the words kept apart mean an upgrade the offer is named for later brings them along.
  */
 export async function setWord(c: PoolClient, args: { workflowId: string; nodeId: string; field: CopyField; text: string; by?: string }): Promise<SetWordResult> {
@@ -77,8 +77,8 @@ export async function setWord(c: PoolClient, args: { workflowId: string; nodeId:
 }
 
 /**
- * D154: a company's earlier word edits recorded in its words, for one offer named (POST /api/admin/words), never by a deploy.
- * Where a copy edited before D154 differs from its template only in words, those words go into the company's words; the copy
+ * D155: a company's earlier word edits recorded in its words, for one offer named (POST /api/admin/words), never by a deploy.
+ * Where a copy edited before D155 differs from its template only in words, those words go into the company's words; the copy
  * stays as it is, frozen (a template change never reaches an existing offer, CLAUDE.md). A copy edited beyond words, or behind
  * its template, is named. `dryRun` writes nothing.
  */

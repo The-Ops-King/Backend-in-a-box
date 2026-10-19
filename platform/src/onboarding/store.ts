@@ -1,5 +1,5 @@
 /**
- * D148 (#53 P1): a client being stood up. "Add client" makes the company, in ghost and `onboarding`: the engine neither polls
+ * D149 (#53 P1): a client being stood up. "Add client" makes the company, in ghost and `onboarding`: the engine neither polls
  * nor ticks it (only active and hosted companies run), but it has an id, so the webhook and Slack URLs that carry it exist from
  * the start. Each wizard step saves what it learned on the onboarding row; nothing is lost when Tyler stops for days.
  */
@@ -36,11 +36,11 @@ export type OnboardingState = {
   steps: { id: StepId; label: string; about: string; built: boolean; done: StepDone | null }[];
   intake: Intake; playbook: string | null; fit: FitReport | null;
   fields: IntakeField[];
-  /** D149: the keys the offer needs, what is kept (masked), each one's last live test */
+  /** D150: the keys the offer needs, what is kept (masked), each one's last live test */
   connections: ConnectionRow[];
-  /** D150: what was read from their accounts, the AI's suggestions, Tyler's answers */
+  /** D151: what was read from their accounts, the AI's suggestions, Tyler's answers */
   research: Research | null;
-  /** D152: the CRM build's options and its last plan or build */
+  /** D153: the CRM build's options and its last plan or build */
   crm: CrmState | null;
   playbooks: { slug: string; name: string; about: string }[];
 };
@@ -99,9 +99,9 @@ export async function saveIntake(c: PoolClient, companyId: string, args: { intak
   const intake = args.intake as Intake;
   const fit = fitReport(intake, row.kind, chosen);
   const done: StepDone = { done_at: new Date().toISOString(), by: args.by ?? "dashboard" };
-  // D152: a playbook's params start from its defaults for this offer; a changed playbook starts again from the new one's
+  // D153: a playbook's params start from its defaults for this offer; a changed playbook starts again from the new one's
   const was = await one<{ playbook: string | null; params: unknown; name: string }>(c, "select o.playbook, o.params, co.name from onboarding o join companies co on co.id=o.company_id where o.company_id=$1", [companyId]);
-  // D155: a new offer starts from its playbook's latest release (the template business's), made this offer's; else the code's defaults
+  // D156: a new offer starts from its playbook's latest release (the template business's), made this offer's; else the code's defaults
   const pb = playbooks.find((p) => p.slug === fit.playbook)!, release = await latestRelease(c, fit.playbook);
   const params = was && was.playbook === fit.playbook && was.params != null ? was.params
     : release?.params != null ? pb.forOffer(release.params, was?.name ?? "") : pb.defaults(was?.name ?? "");

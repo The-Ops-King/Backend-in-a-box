@@ -1,5 +1,5 @@
 /**
- * D147: playbooks. A playbook is a sales process: the shipped templates every offer runs, and the copies of them its process
+ * D148: playbooks. A playbook is a sales process: the shipped templates every offer runs, and the copies of them its process
  * changes, built from the offer's own params. A company runs one playbook (installs/<company>/playbook.json names it and holds
  * its params); its copies are rebuilt from the current templates on every build, so a template's fix reaches it, and a copy
  * nobody rebuilt shows as stale rather than silently falling behind. The wizard (#53) picks a playbook from how an offer sells.
@@ -31,9 +31,9 @@ export type Playbook = {
   changes: string[];
   /** Pure: the company's copies from its params and install file. Throws, naming the param, when the params are not right. */
   build(company: string, params: unknown, install: InstallBits): Built;
-  /** D152: the params a new offer starts from (the offer's name in them); the wizard keeps them on the client, Tyler edits them. */
+  /** D153: the params a new offer starts from (the offer's name in them); the wizard keeps them on the client, Tyler edits them. */
   defaults(offer: string): unknown;
-  /** D155: published params (a template business's) made a given offer's: whatever in them names the offer. */
+  /** D156: published params (a template business's) made a given offer's: whatever in them names the offer. */
   forOffer(params: unknown, offer: string): unknown;
 };
 

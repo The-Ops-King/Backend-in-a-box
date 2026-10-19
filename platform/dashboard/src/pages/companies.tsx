@@ -28,7 +28,7 @@ export function Companies() {
 
 const ZONES = ["America/New_York", "America/Chicago", "America/Denver", "America/Phoenix", "America/Los_Angeles", "Europe/London", "Australia/Sydney"];
 
-/** D148: a client starts as a name, a time zone, and whether it is a new offer or a running system taken over. */
+/** D149: a client starts as a name, a time zone, and whether it is a new offer or a running system taken over. */
 function AddClient({ onCancel }: { onCancel: () => void }) {
   const nav = useNavigate();
   const [name, setName] = useState(""); const [timezone, setTz] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York");

@@ -1,5 +1,5 @@
 /**
- * D151 (#53 P1): the wizard's Slack step. The app's manifest is generated with this company's id in every request URL (it was
+ * D152 (#53 P1): the wizard's Slack step. The app's manifest is generated with this company's id in every request URL (it was
  * written by hand per client, installs/*-slack-manifest.yaml) and the slash commands from the bot's own list (SHORTCUTS), so
  * the manifest cannot drift from what the bot answers. Slack gives a slash command to the app installed last, so a workspace
  * that already has another engine app gets the manifest without commands (#43). Tyler creates the app from it, installs it,

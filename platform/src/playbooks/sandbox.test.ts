@@ -1,5 +1,5 @@
 /**
- * D160: Claude sets a template business up in the sandbox from the deployment's settings: refused, naming each, while one is
+ * D161: Claude sets a template business up in the sandbox from the deployment's settings: refused, naming each, while one is
  * missing; the wizard's research answers made from the sandbox (closer call, closer, setter, a triage calendar); and the client
  * gates (the check before a rung up, their GHL workflows before the test contact) do not apply to a template business.
  */
@@ -15,7 +15,7 @@ import { ensureTemplateBusiness, templateSlug } from "./template-business";
 
 const research = (cals: string[], users: number) => ({ calendars: cals.map((name, i) => ({ id: `k${i}`, name, teamMemberIds: [] })), users: Array.from({ length: users }, (_, i) => ({ id: `u${i}`, name: `U${i}`, email: `u${i}@x.co` })) }) as unknown as Research;
 
-describe("D160: the research answers made from the sandbox", () => {
+describe("D161: the research answers made from the sandbox", () => {
   it("one board: every calendar a closing call booked by the lead, the first the closer call; the first user closes, the next sets", () => {
     expect(sandboxAnswers(research(["Strategy call", "Other"], 3), "one-board")).toEqual({
       calendars: { k0: { call_type: "closing", booking: "question" }, k1: { call_type: "closing", booking: "question" } }, closerCall: "k0", bookingCalendar: "k0",
@@ -32,7 +32,7 @@ describe("D160: the research answers made from the sandbox", () => {
   });
 });
 
-describe.skipIf(!process.env.DATABASE_URL)("D160: setup, and the client gates a template business skips", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D161: setup, and the client gates a template business skips", () => {
   beforeAll(async () => { await migrate(); });
 
   it("is refused before anything is made while a setting is missing, naming each", async () => {

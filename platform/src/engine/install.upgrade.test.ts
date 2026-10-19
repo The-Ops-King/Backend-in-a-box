@@ -120,7 +120,7 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
 });
 
 describe.skipIf(!process.env.DATABASE_URL)("editing copy", () => {
-  it("D154: saving a message makes a new version and keeps the words apart; the copy is the offer's own (a template change never reaches it), as is a step edit", async () => {
+  it("D155: saving a message makes a new version and keeps the words apart; the copy is the offer's own (a template change never reaches it), as is a step edit", async () => {
     const co = (await asOperator((c) => one<{ id: string }>(c, "select id from companies where slug='upg'")))!;
     await installCompany({ ...base, templates: ["speed-to-lead"] }, fake);
     const stl = (await asOperator((c) => one<{ id: string; current_version: number }>(c, "select w.id, w.current_version from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='speed-to-lead'", [co.id])))!;

@@ -4,7 +4,7 @@ import { fail, ok } from "@/api/http";
 import { testsState } from "@/onboarding/tests";
 export const dynamic = "force-dynamic";
 
-/** D156: the test passes: the scenarios this offer has, each one's latest result, each workflow's state, the test contacts to choose from, what is left. */
+/** D157: the test passes: the scenarios this offer has, each one's latest result, each workflow's state, the test contacts to choose from, what is left. */
 export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   return asOperator(async (c) => {
