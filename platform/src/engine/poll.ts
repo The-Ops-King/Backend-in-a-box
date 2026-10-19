@@ -63,11 +63,11 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
   }
   const tz = zone ?? companyTz;
   if (!id) {
-    const row = await one<{ id: string }>(c, `insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone, timezone_source, tags, ghl_fields, ghl_updated_at, ghl_added_at, assigned_ghl_user_id, attribution)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,coalesce($12::jsonb,'{}')) returning id`, [companyId, s.id, firstName, lastName, tz, zone ? "ghl" : "company_default", s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.assignedTo ?? null, attribution]);
+    const row = await one<{ id: string }>(c, `insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone, timezone_source, tags, ghl_fields, ghl_updated_at, ghl_added_at, assigned_ghl_user_id, attribution, sms_dnd)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,coalesce($12::jsonb,'{}'),coalesce($13,false)) returning id`, [companyId, s.id, firstName, lastName, tz, zone ? "ghl" : "company_default", s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.assignedTo ?? null, attribution, s.smsDnd ?? null]);
     id = row!.id;
   } else {
-    await c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), tags=$5, ghl_fields=$6, ghl_updated_at=$7, ghl_added_at=coalesce(ghl_added_at,$8), ghl_contact_id=coalesce(ghl_contact_id,$9), assigned_ghl_user_id=$10, attribution=coalesce($11::jsonb,attribution), gone_at=null, updated_at=now() where id=$1", [id, firstName, lastName, zone ?? null, s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.id, s.assignedTo ?? null, attribution]);
+    await c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), tags=$5, ghl_fields=$6, ghl_updated_at=$7, ghl_added_at=coalesce(ghl_added_at,$8), ghl_contact_id=coalesce(ghl_contact_id,$9), assigned_ghl_user_id=$10, attribution=coalesce($11::jsonb,attribution), sms_dnd=coalesce($12,sms_dnd), gone_at=null, updated_at=now() where id=$1", [id, firstName, lastName, zone ?? null, s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.id, s.assignedTo ?? null, attribution, s.smsDnd ?? null]);
     // G15: this CRM record's own number or email changed; the old one no longer names this person. Retired, not deleted (the
     // history stays readable), and never matched again, so a recycled number is a stranger, not this person
     for (const [kind, value] of [["email", email], ["phone", phone]] as const)

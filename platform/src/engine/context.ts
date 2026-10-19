@@ -62,7 +62,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   // first_name is the CRM's own field as typed; when the CRM left it blank, the first word of whatever name there is; a wholly nameless person is null and the template's `default:` speaks
   const contact = await one<Record<string, unknown>>(c, `select ct.id, ct.ghl_contact_id, ct.last_name, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name,
       coalesce(nullif(trim(ct.first_name),''), split_part(nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),''), ' ', 1)) as first_name,
-      ct.timezone, ct.tags, ct.attributes, ct.ghl_fields, ct.assigned_ghl_user_id,
+      ct.timezone, ct.tags, ct.attributes, ct.ghl_fields, ct.assigned_ghl_user_id, ct.sms_dnd,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='phone' and i.retired_at is null order by i.created_at limit 1) as phone,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='email' and i.retired_at is null order by i.created_at limit 1) as email,
       ${leadSourceSql("ct", "$2")} as lead_source,

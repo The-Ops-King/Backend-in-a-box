@@ -4,7 +4,8 @@ import type { AppointmentSnapshot, Attribution, BookingRead, CalendarSnapshot, C
 
 type RawTouch = Record<string, unknown> & { isFirst?: boolean; isLast?: boolean };
 export type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string | null; tags?: string[]; source?: string; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string;
-  attributionSource?: RawTouch | null; lastAttributionSource?: RawTouch | null; attributions?: RawTouch[] | null };
+  attributionSource?: RawTouch | null; lastAttributionSource?: RawTouch | null; attributions?: RawTouch[] | null;
+  dnd?: boolean; dndSettings?: { SMS?: { status?: string } | null } | null };
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 function mapTouch(t: RawTouch | null | undefined): Touch | undefined {
   if (!t || typeof t !== "object") return undefined;
@@ -20,12 +21,19 @@ export function mapAttribution(c: Pick<RawContact, "attributionSource" | "lastAt
   const last = mapTouch(c.lastAttributionSource ?? list.find((t) => t.isLast) ?? (list.length > 1 ? list[list.length - 1] : undefined));
   return first || last ? { ...(first ? { first } : {}), ...(last ? { last } : {}) } : undefined;
 }
+/** D188: GHL's Do Not Disturb as it bears on a text: on for everything (`dnd`), or on for SMS (`dndSettings.SMS.status` active or
+ * permanent, the latter a STOP the person sent). Said only when GHL sent either, so a reply without them leaves the replica as it was. */
+export const smsDnd = (c: Pick<RawContact, "dnd" | "dndSettings">): { smsDnd?: boolean } => {
+  const sms = c.dndSettings?.SMS?.status;
+  if (c.dnd === undefined && sms === undefined) return {};
+  return { smsDnd: c.dnd === true || sms === "active" || sms === "permanent" };
+};
 export const mapContact = (c: RawContact): ContactSnapshot => {
   const attribution = mapAttribution(c);
   return {
     id: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, timezone: c.timezone, assignedTo: c.assignedTo ?? undefined,
     tags: c.tags ?? [], ...(c.source ? { source: c.source } : {}), customFields: Object.fromEntries((c.customFields ?? []).map((f) => [f.id, f.value])),
-    dateUpdated: c.dateUpdated, dateAdded: c.dateAdded, ...(attribution ? { attribution } : {}),
+    dateUpdated: c.dateUpdated, dateAdded: c.dateAdded, ...(attribution ? { attribution } : {}), ...smsDnd(c),
   };
 };
 export type RawEvent = { id: string; calendarId: string; contactId: string; assignedUserId?: string; startTime: string; endTime: string; appointmentStatus: string; title?: string; dateUpdated?: string; dateAdded?: string; address?: string };
