@@ -81,13 +81,44 @@ describe("D118: Dating Nelly's copies", () => {
       const at = (id: string) => c.definition.nodes.find((n) => n.id === id)!;
       for (const t of ["t1", "t2"]) expect(at(t).match).toEqual({ eq: ["{{appointment.term.name}}", callType] });
       expect(c.definition.nodes.filter((n) => n.type === "send_email")).toEqual([]);
-      expect(c.definition.nodes.filter((n) => n.type === "send_sms").map((n) => [n.id, n.template])).toEqual([["s1", w.booked], ["m24s", w.day], ["m1", w.hour]]);
+      const noLink = "hourNoLink" in w ? [["m1_nolink", w.hourNoLink]] : [];
+      expect(c.definition.nodes.filter((n) => n.type === "send_sms").map((n) => [n.id, n.template])).toEqual([["s1", w.booked], ["m24s", w.day], ["m1", w.hour], ...noLink]);
       expect(String(at("n_rs_slack").template)).toMatch(/moving the call by hand/);
+      // D186: the keep / cancel / reschedule ask is in the booking channel and promises no rebooking link
+      expect(at("n_ask")).toMatchObject({ channel: "{{slack.channel.bookings}}" });
+      expect(String(at("n_ask").template)).not.toMatch(/rebooking link/);
+      expect(String(at("n_ask").template)).toMatch(/move it by hand; no text goes out/);
       expect(c.definition.edges.filter((e) => e.from === "m24s").map((e) => e.to)).toEqual(["r1"]);
       expect(JSON.stringify(c.definition)).not.toContain("[placeholder");
     }
     expect(words.preCall!.triage.hour).not.toContain("meeting_url");
     expect(words.preCall!.closing.hour).toContain("{{appointment.meeting_url}}");
+  });
+
+  it("D186: a consultation with no meeting link is said at once in the no-link channel, the closer tagged; the hour-before text leaves the link out (the triage call has no link to miss)", () => {
+    type N = { id: string; type: string } & Record<string, unknown>;
+    const c = file("closing-pre-call").definition as unknown as { nodes: N[]; edges: { from: string; to: string }[] };
+    const at = (id: string) => c.nodes.find((n) => n.id === id)!;
+    const ways = (from: string) => c.edges.filter((e) => e.from === from).map((e) => e.to);
+    const noLink = { not: { exists: "appointment.meeting_url" } };
+    expect(ways("c0")).toEqual(["n_nolink"]); expect(ways("n_nolink")).toEqual(["s1"]);
+    expect(at("n_nolink")).toMatchObject({ type: "slack_post", channel: "{{slack.channel.no_link}}", only_if: noLink });
+    expect(String(at("n_nolink").template)).toMatch(/^\{\{appointment\.closer\.mention/);
+    expect(at("m1").only_if).toEqual({ exists: "appointment.meeting_url" });
+    expect(ways("m1")).toEqual(["m1_nolink"]); expect(ways("m1_nolink")).toEqual(["x_done"]);
+    expect(at("m1_nolink")).toMatchObject({ type: "send_sms", only_if: noLink, validity: at("m1").validity, on_stale: "skip" });
+    expect(String(at("m1_nolink").template)).not.toContain("meeting_url");
+    expect(JSON.stringify(file("triage-pre-call").definition)).not.toMatch(/n_nolink|m1_nolink|no_link/);
+    // the channel is a setting (CLAUDE.md "configurable, not written in"): Dating's is #dating-calls-booked, as its bookings
+    const slack = (JSON.parse(fs.readFileSync(INSTALL, "utf8")) as { slack: Record<string, string> }).slack;
+    expect(slack.no_link).toBe(slack.bookings);
+  });
+
+  it("D186: the end of day's notes and why a DQ reach the Discovery Call record, from a triage call's row and an outbound call's; a DQ reason a later answer drops is emptied", () => {
+    type N = { id: string; properties: Record<string, string>; clear?: string[] };
+    const d1 = (slug: string) => (file(slug).definition as unknown as { nodes: N[] }).nodes.find((n) => n.id === "d1")!;
+    expect(d1("triage-call-filed")).toMatchObject({ properties: { dq_reason: "{{event.dq_reason | default:}}", notes: "{{event.notes | default:}}" }, clear: ["dq_reason"] });
+    expect(d1("setter-call-filed")).toMatchObject({ properties: { dq_reason: "{{event.dq_reason | default:}}", notes: "{{event.note | default:}}" }, clear: ["dq_reason"] });
   });
 
   it("D123, D142: her booked-call workflows are Call booked held to one call type each: the closing call with one card fork after the booking paths as PMU's (D105, D107); the triage call with a Discovery Call record and no closer card, task or Sales Call; New from Typeform tags and starts New lead once", () => {

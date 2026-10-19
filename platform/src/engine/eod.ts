@@ -332,7 +332,7 @@ export async function fileCall(c: PoolClient, companyId: string, fields: EodFiel
   const ghlShows = ghl ? ghl.attendance === outcomeCat && (outcomeCat !== "showed" || !shownAs || ghl.call === shownAs) : null;
   if (ghlShows === true) return { status: "held", runs: 0 };
   if (ghlShows === null && held && (held.outcome_term === outcomeTermId ? outcomeCat !== "showed" || held.call_outcome_term === callOutcomeTermId : outcomeCat === "noshow" && !held.outcome_term && held.status === "noshow")) return { status: "held", runs: 0 };
-  try { return { status: "filed", runs: (await recordDisposition(c, { companyId, appointmentId: call.appointment_id, outcomeTermId, callOutcomeTermId, notes: dispositionNotes(call, fields), userId })).runs }; } catch { return skipped; }
+  try { return { status: "filed", runs: (await recordDisposition(c, { companyId, appointmentId: call.appointment_id, outcomeTermId, callOutcomeTermId, notes: dispositionNotes(call, fields), dqReason: choice.call_outcome === "unqualified" ? call.dq_reason || undefined : undefined, userId })).runs }; } catch { return skipped; }
 }
 
 /**

@@ -233,7 +233,8 @@
     "reports": "C0C9ZC15Q59",
     "eod": "C0C9ZC15Q59",
     "ops": "C0C9ZC15Q59",
-    "setter_calls": "C0CB00CSDCG"
+    "setter_calls": "C0CB00CSDCG",
+    "no_link": "C0C9Q7MEANT"
   },
   "alerts": {
     "slackChannel": "C0C9ZC29FK5"

@@ -227,13 +227,13 @@
    {
     "id": "n_ask",
     "type": "slack_post",
-    "channel": "{{slack.channel.attention}}",
+    "channel": "{{slack.channel.bookings}}",
     "as": {
      "name": "Keep, cancel or reschedule?",
      "icon": ":grey_question:"
     },
-    "template": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link). The reminders keep going until you do.",
-    "title": "Ask the closer in the attention channel: keep, cancel or reschedule?",
+    "template": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out). The reminders keep going until you do.",
+    "title": "Ask in the booking channel: keep, cancel or reschedule?",
     "tag": "decision:{{appointment.id}}",
     "offer": [
      "white_check_mark",

@@ -122,7 +122,9 @@
         { "key": "recording_url", "name": "Recording URL", "type": "TEXT" },
         { "key": "call_result", "name": "Call Result", "type": "SINGLE_OPTIONS", "options": [
           { "key": "set", "label": "Set" }, { "key": "follow_up", "label": "Follow Up" }, { "key": "dq", "label": "DQ" },
-          { "key": "not_interested", "label": "Not Interested" } ] } ] }
+          { "key": "not_interested", "label": "Not Interested" } ] },
+        { "key": "dq_reason", "name": "DQ Reason", "type": "TEXT" },
+        { "key": "notes", "name": "Notes", "type": "LARGE_TEXT" } ] }
   ],
   "associations": [
     { "binding": "sales_call_contact", "key": "dating_sales_call_contact", "first": "contact", "second": "sales_call" },

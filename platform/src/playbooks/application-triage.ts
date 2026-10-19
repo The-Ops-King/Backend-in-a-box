@@ -28,8 +28,8 @@ export type DatingWords = {
   /** D155: the pre-call texts, in the company's voice: a triage call's and a closing call's booking text and reminders */
   preCall?: { triage: PreCallWords; closing: PreCallWords };
 };
-/** D155: the booking text, the reminder a day before and the one an hour before */
-export type PreCallWords = { booked: string; day: string; hour: string };
+/** D155: the booking text, the reminder a day before and the one an hour before; `hourNoLink` (D186): the hour-before text when the booking has no meeting link */
+export type PreCallWords = { booked: string; day: string; hour: string; hourNoLink?: string };
 /**
  * D123: `booked`, one per call type a calendar of the install books (its `calendars[…].name`): the workflow's file and name, the
  * Sales Call's `call_type` option it writes, and any tags a booking of that type adds. `fromForm`: the applicant workflow.
@@ -153,8 +153,25 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
     Object.assign(node(d, "m24s"), { template: w.day, title: "The day before" });
     Object.assign(node(d, "m1"), { template: w.hour, title: "An hour before" });
     Object.assign(node(d, "n_rs_slack"), { template: "🔁 {{contact.first_name}} wants a new time: moving the call by hand.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}", title: "React 🔁, note who is moving it (by hand)" });
+    // D186: the keep / cancel / reschedule ask goes to the booking channel, and 🔁 sends nothing (the call is moved by hand)
+    const ask = node(d, "n_ask");
+    const offer = "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link).";
+    if (!String(ask.template).includes(offer)) throw new Error(`${t.name}: the ask no longer offers the rebooking link`);
+    Object.assign(ask, { channel: "{{slack.channel.bookings}}", template: String(ask.template).replace(offer, "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out)."), title: "Ask in the booking channel: keep, cancel or reschedule?" });
+    // D186: a booking with no meeting link is said at once in the channel the company names (slack.channel.no_link), the closer
+    // tagged; the hour-before text then leaves the link line out
+    if (w.hourNoLink !== undefined) {
+      if (!w.hourNoLink.trim()) throw new Error(`words.preCall.${t.key}.hourNoLink is empty`);
+      if (!w.hour.includes("{{appointment.meeting_url}}")) throw new Error(`words.preCall.${t.key}: hourNoLink without a link in the hour text`);
+      const noLink = { not: { exists: "appointment.meeting_url" } };
+      after(d, "c0", { id: "n_nolink", type: "slack_post", channel: "{{slack.channel.no_link}}", only_if: noLink, as: { name: "No meeting link", icon: ":link:" },
+        template: `{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s ${t.card} {{appointment.starts_at | date_company}} has no meeting link in Calendly. Please send them the link.`,
+        title: "No meeting link: tell the closer now" });
+      node(d, "m1").only_if = { exists: "appointment.meeting_url" };
+      after(d, "m1", { id: "m1_nolink", type: "send_sms", template: w.hourNoLink, validity: node(d, "m1").validity, on_stale: "skip", only_if: noLink, title: "An hour before, no link yet" });
+    }
     const left = JSON.stringify(d.nodes);
-    if (left.includes("send_email") || left.includes("[placeholder") || d.nodes.filter((n) => n.type === "send_sms").length !== 3) throw new Error(`${t.name}: a send of the template is left unwritten`);
+    if (left.includes("send_email") || left.includes("[placeholder") || d.nodes.filter((n) => n.type === "send_sms").length !== (w.hourNoLink !== undefined ? 4 : 3)) throw new Error(`${t.name}: a send of the template is left unwritten`);
     return { workflow: t.workflow, name: t.name, create: { stage: pc.stage, sort: pc.sort + (t.key === "triage" ? 0 : 1), takesOver: "pre-call-sequence" }, definition: d as unknown as Record<string, unknown>,
       note: `the ${t.callType}'s pre-call texts, all from Nelly (D155): the booking text with its reply handling, a day before and an hour before; no emails; no rebooking text (a reschedule is moved by hand, 🔁 notes who)` };
   });
@@ -244,7 +261,8 @@ function triageFiled(callType: string): Def {
       { id: "v_att", type: "set_var", key: "att", value: "{{event.outcome | default:noshow}}", pick: { showed: "showed", noshow: "no_show", rescheduled: "rescheduled" }, else_value: "", title: "Whether they came, in the record's words" },
       { id: "v_res", type: "set_var", key: "res", value: "{{appointment.call_outcome | default:}}", pick: { qualified: "set", follow_up: "follow_up", unqualified: "dq", lost: "not_interested" }, else_value: "", title: "What came of it, in the record's words" },
       { id: "v_line", type: "set_var", key: "line", value: "{{vars.att}}:{{vars.res}}", pick: { "showed:set": "✅ Triage: set", "showed:follow_up": "🔁 Triage: follow up", "showed:dq": "⛔ Triage: DQ", "showed:not_interested": "👋 Triage: not interested", "showed:": "✅ Triage: showed", "no_show:": "👻 Triage: no-show", "rescheduled:": "🔁 Triage: rescheduled on the call" }, else_value: "", title: "The thread line" },
-      { id: "d1", type: "crm_record", object: rec, key: "{{appointment.slot_key}}", if_missing: "skip", properties: { outcome: "{{vars.att}}", call_result: "{{vars.res}}" }, title: "The Discovery Call record: showed or no-show, and the result" },
+      // D186: the end of day's notes and why a DQ (Tyler: "it should update the discovery calls with what happened and why the person was DQ"); a DQ reason a later answer drops is emptied
+      { id: "d1", type: "crm_record", object: rec, key: "{{appointment.slot_key}}", if_missing: "skip", properties: { outcome: "{{vars.att}}", call_result: "{{vars.res}}", dq_reason: "{{event.dq_reason | default:}}", notes: "{{event.notes | default:}}" }, clear: ["dq_reason"], title: "The Discovery Call record: showed or no-show, the result, why a DQ and the notes" },
       { id: "b1", type: "branch", title: "Where the setter card goes" },
       card("c_show", "{{crm.stage_setter_showed}}", "won", "Setter card → Showed, won (set or follow up)"),
       card("c_dq", "{{crm.stage_setter_dq}}", "lost", "Setter card → DQ, marked lost"),
@@ -282,7 +300,8 @@ function setterFiled(): Def {
       { id: "d1", type: "crm_record", object: rec, key: "{{event.conversation}}", owner: "{{event.setter_ghl_user_id | default:}}", title: "The call's Discovery Call record",
         properties: { display_label: "{{contact.name | default:Unknown}} — {{event.started_at | date_company:yyyy-MM-dd}}", external_id: "{{event.conversation}}", contact_id: "{{contact.ghl_contact_id | default:}}",
           occurred_at: "{{event.started_at | date_company}}", direction: "{{event.direction | default:}}", duration_sec: "{{event.duration_sec | default:}}", setter: "{{event.setter | default:}}", outcome: "showed",
-          recording_url: "{{event.recording_url | default:}}", call_result: "{{event.result}}" },
+          recording_url: "{{event.recording_url | default:}}", call_result: "{{event.result}}", dq_reason: "{{event.dq_reason | default:}}", notes: "{{event.note | default:}}" },
+        clear: ["dq_reason"],
         relate: [{ association: "{{crm.assoc_discovery_call_contact}}", first: "{{contact.ghl_contact_id | default:}}", second: "{{record.id}}" }] },
       { id: "b1", type: "branch", title: "Where the setter card goes" },
       card("c_set", "{{crm.stage_setter_appointment_set}}", null, "Setter card → Appointment Set"),
