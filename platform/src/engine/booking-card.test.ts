@@ -12,6 +12,7 @@ import { exampleContext, nodeExamples } from "./example";
 import { parseDefinition, type Definition } from "./definition";
 import { BOOKING_CARD_KEY, HAIR_INTAKE, intakeLines, intakeProblem, intakeText, type IntakeLine } from "./booking-card";
 import { fakeAdapters } from "./test-install";
+import { saveFromTemplate } from "@/engine/definitions";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 
@@ -79,9 +80,11 @@ describe.skipIf(!process.env.DATABASE_URL)("the booking card's intake lines (D10
     expect(before[0]).toContain("*Hair loss:* Noticeable thinning Stage 3\n*Noticing for:* 2 years\n*Commit to routine:* Yes\n*Work situation:* Full time\n");
     expect(before[2]).toContain("*Phone:* —\n*Hair loss:* — \n*Noticing for:* —\n");
 
-    // POST /api/admin/templates: the template half of install, the path that upgrades Hair's copy
+    // install backfills the setting and leaves Hair's copy as it is (D147); the template reaches it when that copy is saved from the template
     const out = await asOperator((c) => installTemplates(c, hair, ["call-booked"], { existed: true }));
-    expect(out[0]).toMatch(/^call-booked → upgraded/);
+    expect(out[0]).toMatch(/^call-booked \(already on this offer, left as it is; template v\d+ is newer/);
+    const copy = (await asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='call-booked'", [hair])))!;
+    expect(await asOperator((c) => saveFromTemplate(c, { workflowId: copy.id, note: "the card without Hair's lines", by: "Tyler" }))).toMatchObject({ ok: true, saved: true });
     const after = await asOperator(async (c) => {
       const tpl = await currentCard(c, hair);
       expect(tpl).toBe(card(shipped()));

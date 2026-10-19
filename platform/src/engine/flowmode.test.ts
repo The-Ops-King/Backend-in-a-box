@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { installCompany, syncTriggers } from "@/engine/install";
+import { saveFromTemplate } from "@/engine/definitions";
 import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
 import { setWorkflowMode } from "@/engine/golive";
@@ -174,11 +175,12 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
     });
   });
 
-  it("install and a template upgrade never change a workflow's mode", async () => {
+  it("install and a save from the template never change a workflow's mode", async () => {
     await setFlow(speed, "ghost");
     await asOperator((c) => c.query("update workflows set template_version=0 where id=$1", [speed]));   // the template moved on
     const again = await installCompany(input, fake);
-    expect(again.installed.find((s) => s.startsWith("speed-to-lead"))).toMatch(/upgraded/);
+    expect(again.installed.find((s) => s.startsWith("speed-to-lead")) ?? "speed-to-lead (not named)").toMatch(/left as it is|not named/);
+    await asOperator((c) => saveFromTemplate(c, { workflowId: speed, note: "bring the template", by: "Tyler" }));
     expect(await asOperator((c) => workflowMode(c, speed))).toEqual({ mode: "ghost", own: "ghost", company: "test" });
     expect(await asOperator((c) => workflowMode(c, newLead))).toEqual({ mode: "live", own: "live", company: "test" });
   });

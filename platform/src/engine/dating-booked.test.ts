@@ -123,7 +123,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D123: Dating (Nelly)'s two booked-ca
     expect(await asOperator((c) => many(c, "select after->>'takes_over' as t from audit_log where company_id=$1 and action='workflow.created'", [co]))).toEqual([{ t: "call-booked" }, { t: "call-booked" }]);
     // the same call again finds the workflow by its name: an ordinary save, the same definition, no new version
     expect(await (await make("closing-call-booked")).json()).toMatchObject({ ok: true, saved: false, version: 1 });
-    const out = await installCompany(input({ templates: undefined }), fake);
+    const out = await installCompany(input({ templates: ["call-booked"] }), fake);   // D147: even asked for by name
     expect(out.installed).toContain("call-booked → not installed: the company's own “Closing call booked” and “Triage call booked” do its job (D123)");
     expect(await asOperator((c) => many(c, "select 1 from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='call-booked'", [co]))).toEqual([]);
     await asOperator((c) => c.query("update workflows set enabled=true where company_id=$1 and name in ('Triage call booked','Closing call booked','Call cancelled','Call outcome filed')", [co]));

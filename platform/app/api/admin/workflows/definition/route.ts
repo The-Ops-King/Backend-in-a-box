@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { asOperator, one } from "@/db/client";
 import { operatorAuthorized } from "@/engine/admin-auth";
-import { createCompanyWorkflow, findCompanyWorkflow, saveDefinition } from "@/engine/definitions";
+import { createCompanyWorkflow, findCompanyWorkflow, saveDefinition, saveFromTemplate } from "@/engine/definitions";
 export const dynamic = "force-dynamic";
 
 /**
@@ -14,6 +14,8 @@ export const dynamic = "force-dynamic";
  *      D123: with `create: { stage?, sort?, takesOver? }` and a `workflow` name the company does not have, the company's own workflow
  *      is made (no template, OFF, version 1) → { ok, created, dryRun, id, name, takesOver, missing, warnings, layout }; `takesOver` is the
  *      shipped template it does the job of for this company (install never puts that template back; refused 409 while its copy exists).
+ *      D147: `fromTemplate: true` in place of `definition` saves the shipped template onto this one copy (the only way a template
+ *      change reaches an offer that has the workflow; dryRun first); the copy is that template version again, not an edit.
  * Authorization: Bearer $CRON_SECRET.
  */
 export async function GET(req: Request) {
@@ -33,8 +35,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const body = (await req.json().catch(() => null)) as { company?: string; workflow?: string; definition?: unknown; note?: string; by?: string; dryRun?: boolean; create?: { stage?: string; sort?: number; takesOver?: string } } | null;
-  if (!body?.company || !body.workflow || !body.definition || typeof body.definition !== "object") return NextResponse.json({ error: "company, workflow and definition are required" }, { status: 400 });
+  const body = (await req.json().catch(() => null)) as { company?: string; workflow?: string; definition?: unknown; fromTemplate?: boolean; note?: string; by?: string; dryRun?: boolean; create?: { stage?: string; sort?: number; takesOver?: string } } | null;
+  const fromTemplate = body?.fromTemplate === true;
+  if (!body?.company || !body.workflow || (fromTemplate ? body.definition !== undefined : !body.definition || typeof body.definition !== "object")) return NextResponse.json({ error: "company, workflow and definition (or fromTemplate: true, without a definition) are required" }, { status: 400 });
   if (typeof body.note !== "string" || !body.note.trim()) return NextResponse.json({ error: "note is required: say what changed and why" }, { status: 400 });
   return asOperator(async (c) => {
     const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [body.company]);
@@ -46,7 +49,8 @@ export async function POST(req: Request) {
       return NextResponse.json(r);
     }
     if (!w.ok) return NextResponse.json({ error: w.why }, { status: 404 });
-    const r = await saveDefinition(c, { workflowId: w.id, definition: body.definition, note: body.note!, by: body.by || "operator", dryRun: body.dryRun === true });
+    const r = fromTemplate ? await saveFromTemplate(c, { workflowId: w.id, note: body.note!, by: body.by || "operator", dryRun: body.dryRun === true })
+      : await saveDefinition(c, { workflowId: w.id, definition: body.definition, note: body.note!, by: body.by || "operator", dryRun: body.dryRun === true });
     if (!r.ok) return NextResponse.json({ error: r.why, ...(r.problems ? { problems: r.problems } : {}), ...(r.missing ? { missing: r.missing } : {}) }, { status: r.status });
     return NextResponse.json({ workflow: { id: w.id, name: w.name, slug: w.slug }, ...r });
   });
