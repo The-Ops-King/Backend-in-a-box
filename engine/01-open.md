@@ -810,3 +810,20 @@ Closing (60 minutes):
 1. Booking: "Hi {{contact.first_name}}, you're booked for your private consultation with {{appointment.closer.first_name}} on {{appointment.starts_at | date:"cccc, LLL d 'at' h:mm a ZZZZ"}}. It runs about an hour, so block off the time. Reply YES to confirm, or let us know if you need to move it."
 2. 24 hours before: "Hi {{contact.first_name}}, your consultation with {{appointment.closer.first_name}} is tomorrow at {{appointment.starts_at | date:"h:mm a ZZZZ"}}. Come ready to talk about what you want in a partner and what hasn't worked so far."
 3. 1 hour before: "{{contact.first_name}}, you're on with {{appointment.closer.first_name}} in an hour ({{appointment.starts_at | date:"h:mm a ZZZZ"}}). Join here: {{appointment.meeting_url}}"
+
+## 52. Answers, 2026-10-19 (Tyler)
+
+- PMU Slack: the bot is in #ops-test (`test.slack_channel`). Channel map approved "for now" (more channels later): bookings
+  #booked-calls, calls #sales-call-summary, attention #live-handoff, deals #signed-contract, payments #payment-success,
+  reports and eod #closer-eod, setter_calls #setter-calls, ops and alerts #admin-team. Bound. The bot still has to be
+  invited to each before PMU posts there live.
+- Setter attribution by UTM, for every offer: "Yes as long as we can map that to the setter owner. You might need to update
+  the flow." A booking link carries the setter (`utm_content=<setter>`); the roster maps it to the person; the booked
+  workflows set the setter and the setter's ownership in GHL from it.
+- PMU's Whop also posts to Make and Pabbly: "If it's just payment I don't really care." Left alone; they only receive
+  payments (what they do with them is not visible from here).
+- PMU's "demo" is triage / discovery (VOICE.md). PMU's GHL still has the old Sales Call options (Closer `carly_vu`;
+  Disposition `closed_paid_full`, `closed_deposit`, `closed_payment_plan`, `not_qualified`, `no_offer_made`): Tyler deletes them
+  in GHL. Consultation S has no setter question; the UTM rule replaces it.
+- Hair: Josh Harris has left (off the roster after the install fix); the Deposit option and stage are Claude's to add; the
+  Zaps are handled; the switch-over is tomorrow, after a go/no-go per pair.
