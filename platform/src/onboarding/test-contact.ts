@@ -7,7 +7,7 @@
  * passes can use it without waiting for the poll.
  *
  * Creating a contact fires their own "Contact Created" workflows, so a company onboarded through the wizard needs its GHL
- * workflows marked first (D152, step 8). The email typed is kept per company and offered to the next one.
+ * workflows marked first (D152, step 8); a template business, in Tyler's own sandbox, does not (D155). The email typed is kept per company and offered to the next one.
  */
 import type { PoolClient } from "pg";
 import { one } from "@/db/client";
@@ -38,8 +38,8 @@ export async function createTestContact(op: <T>(fn: (c: PoolClient) => Promise<T
   if (!EMAIL.test(base)) return { ok: false, status: 400, why: "an email is needed: yours (jt@jtylerray.com), plus-addressed per business" };
   const phone = typeof args.phone === "string" && args.phone.trim() ? args.phone.trim() : undefined;
   const pre = await op(async (c) => {
-    const o = await one<{ steps: Record<string, unknown> }>(c, "select steps from onboarding where company_id=$1", [companyId]);
-    if (o && !o.steps.filters) return { ok: false as const, status: 409, why: "mark their GHL workflows first (step 8): making a contact fires their Contact Created workflows" };
+    const o = await one<{ steps: Record<string, unknown>; template: boolean }>(c, "select o.steps, co.status='template' as template from onboarding o join companies co on co.id=o.company_id where o.company_id=$1", [companyId]);
+    if (o && !o.template && !o.steps.filters) return { ok: false as const, status: 409, why: "mark their GHL workflows first (step 8): making a contact fires their Contact Created workflows" };
     const co = await loadCompany(c, companyId).catch(() => null);
     if (!co?.adapterCompany.pit || !co.adapterCompany.locationId) return { ok: false as const, status: 409, why: "connect their GHL first" };
     return { ok: true as const, co };

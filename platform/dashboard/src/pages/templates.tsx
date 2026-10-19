@@ -24,7 +24,7 @@ export function Templates() {
     <div className="rows">{q.data.templates.map((t) => <div key={t.playbook} className="row noicon" style={{ alignItems: "start" }}>
       <span className="mid"><span className="nm">{t.name}</span>
         <span className="sub">{t.release ? <Tag kind="ok">v{t.release.version} published {ago(t.release.published_at)}</Tag> : <Tag>never published: new clients start from the code's defaults</Tag>}
-          {t.business ? <><Link to={`/app/c/${t.business}`}>workflows</Link><Link to={`/app/c/${t.business}/words`}>words and params</Link><Link to={`/app/c/${t.business}/onboarding`}>set up and test in the sandbox</Link></> : null}</span>
+          {t.business ? <><Link to={`/app/c/${t.business}`}>workflows</Link><Link to={`/app/c/${t.business}/words`}>words and params</Link></> : null}</span>
         {problems[t.playbook]?.length ? <div className="banner warn"><strong>Not published:</strong><ul>{problems[t.playbook].map((p) => <li key={p}>{p}</li>)}</ul></div> : null}
         {t.release?.notes.length ? <span className="sub">{t.release.notes.length} placeholder{t.release.notes.length === 1 ? "" : "s"} left for each client to write</span> : null}</span>
       <span style={{ display: "flex", gap: 6 }}>{t.business ? <button className="btn" type="button" disabled={act.isPending} onClick={() => run(t.playbook, "publish")}>Publish</button>

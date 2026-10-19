@@ -1,4 +1,4 @@
-import { asOperator } from "@/db/client";
+import { asOperator, one } from "@/db/client";
 import { companyBySlug } from "@/api/data";
 import { fail, ok, readJson } from "@/api/http";
 import { onboardingState, saveIntake } from "@/onboarding/store";
@@ -12,11 +12,15 @@ import { acceptWorkflow, leaveSandbox, prepareTests, runScenario } from "@/onboa
 import { createTestContact } from "@/onboarding/test-contact";
 import { confirmCheck, markWorkflow, readTheirWorkflows, saveList } from "@/onboarding/filters";
 import { liveAdapters } from "@/adapters";
-export const dynamic = "force-dynamic"; export const maxDuration = 180;   // research reads their accounts and asks the model
+export const dynamic = "force-dynamic"; export const maxDuration = 180;
+/** D155: the wizard is for onboarding clients only; a template business is set up and tested by Claude in the sandbox. */
+const TEMPLATE = "a template business is not onboarded: Claude tests it in the sandbox (/api/admin/templates/test)";
+const isTemplate = async (c: import("pg").PoolClient, slug: string) => !!(await one(c, "select 1 from companies where slug=$1 and status='template'", [slug]));   // research reads their accounts and asks the model
 
 /** D143: the onboarding wizard of a client being stood up: its steps, what each saved, the intake's questions. */
 export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+  if (await asOperator((c) => isTemplate(c, slug))) return fail(409, TEMPLATE);
   const s = await asOperator((c) => onboardingState(c, slug));
   return s ? ok(s) : fail(404, "this company is not being onboarded");
 }
@@ -49,6 +53,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
   const { slug } = await params;
   const body = await readJson<{ step?: string; intake?: unknown; playbook?: unknown; id?: unknown; values?: unknown; copyFrom?: unknown; answers?: unknown; options?: unknown; token?: unknown; signingSecret?: unknown; channels?: unknown; run?: unknown; workflowId?: unknown; nodeId?: unknown; approve?: unknown; field?: unknown; text?: unknown; prepare?: unknown; contactId?: unknown; rung?: unknown; scenario?: unknown; accept?: unknown; note?: unknown; read?: unknown; check?: unknown; mark?: unknown; makeContact?: unknown; email?: unknown; phone?: unknown; leaveSandbox?: unknown }>(req);
   if (!body?.step) return fail(400, "step is required");
+  if (await asOperator((c) => isTemplate(c, slug))) return fail(409, TEMPLATE);
   if (body.step === "install") {
     const co = await asOperator((c) => companyBySlug(c, slug)); if (!co) return fail(404, "no such company");
     const r = await runInstall(asOperator, co.id, slug, liveAdapters, "dashboard");

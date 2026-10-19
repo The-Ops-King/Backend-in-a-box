@@ -49,9 +49,9 @@ export function templateIntake(playbook: string): Intake {
 }
 
 /**
- * D154: the template business's wizard record, so it is set up and tested like a client (Connections to the sandbox, Research,
- * Slack, CRM build, Install, its GHL workflows, Test passes). The offer is its playbook's (templateIntake) and its messages need
- * no approval: they are the template's own words, checked at publish. Made once; an existing record is left alone.
+ * D154/D155: the template business's record of its setup and tests (the same record a client's wizard keeps, so the same steps
+ * and passes serve both), driven by Claude in the sandbox (sandbox.ts), never shown as a wizard. The offer is its playbook's
+ * (templateIntake) and its messages need no approval: they are the template's own words, checked at publish. Made once.
  */
 export async function ensureTemplateOnboarding(c: PoolClient, playbook: string, companyId: string, by = "dashboard") {
   if (await one(c, "select 1 from onboarding where company_id=$1", [companyId])) return;

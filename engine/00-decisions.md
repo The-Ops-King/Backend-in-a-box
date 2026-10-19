@@ -5123,3 +5123,40 @@ words, and a word or step changed since makes it stale.
 
 Tests: `running.test.ts`, `template-business.test.ts` (the gate).
 
+## D155: Claude tests the template businesses; the wizard is for onboarding clients only
+
+Tyler (2026-10-19), on D154: "the wizard doesn't make it, you make the test. Wizard is for onboarding new things only." D154's
+wizard path for template businesses is gone (no link, no banner; the onboarding API refuses a template business). Its parts stay:
+the record that stores the setup and the test results, the one-at-a-time sandbox, and the publish gate.
+
+Claude sets a template business up and tests it through **`/api/admin/templates/test`** (Bearer CRON_SECRET), on the deployment:
+- `POST { playbook, action: "setup" }` takes every step a client's wizard takes, in code, stopping at the first that fails:
+  - **GHL:** connects the snapshot sub-account.
+  - **Research:** reads its calendars and team and maps them. The first closing calendar is the closer call; one named "triage" is
+    the Triage call; the first user is the closer and the next a setter where the playbook has setters. Claude can pass `answers`
+    to override the mapping.
+  - **Slack:** Tyler's ops Slack app, with every post going to one test channel.
+  - **CRM build:** the playbook's pipelines and fields under the prefix "T <playbook>", so the three template businesses share the
+    one sub-account without colliding.
+  - **Agreement and model:** the agreement template and the model key.
+  - **Install.**
+  - **Test contact:** made from the test email, plus-addressed.
+  - **Test rung:** the workflows turned on and the company moved up.
+
+  The sandbox's own published GHL workflows are reported, not gated: it is Tyler's own account.
+- `POST { playbook, action: "run", journey }` runs one journey.
+- `GET ?playbook=` shows each journey, each workflow, and what publish still needs.
+
+**Settings** live in the deployment's environment, so no key passes through a conversation:
+- `SANDBOX_LOCATION_ID`, `SANDBOX_GHL_PIT`: the snapshot sub-account.
+- `SANDBOX_SLACK_BOT_TOKEN`, `SANDBOX_SLACK_SIGNING_SECRET`, `SANDBOX_SLACK_CHANNEL`: the ops Slack app and its test channel.
+- `SANDBOX_TEST_EMAIL`: the test contact's email.
+- `SANDBOX_AGREEMENT_TEMPLATE` (optional): without it, the agreement workflows stay off and the tests say so.
+
+The test offer is the playbook at its fullest (Tyler's call): one pass covers every journey.
+
+The client gates do not apply to a template business: the check before a rung up (D152) and the marked GHL workflows before the
+test contact (D153).
+
+Tests: `sandbox.test.ts`.
+
