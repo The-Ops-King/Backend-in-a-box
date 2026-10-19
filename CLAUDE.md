@@ -22,6 +22,13 @@ chat window here. This is a super dangerous situation which needs protections."
   they did (hold them with frozen fixtures, as src/engine/fixtures/before-d141 does). If it cannot, tell Tyler before building it.
 - The dashboard never changes more than one offer at a time.
 
+## Slack works the same on every offer (Tyler, 2026-10-19)
+
+"Again, i want this to be live on all accounts. not just nelly. Slack should work the same across all." How Slack behaves
+(alert buttons such as Pause, slash commands, how alerts post and repeat) is the platform's, not one offer's: a Slack change
+goes to every offer in the same pass, each offer's workflow saved by name with a dry run showing only the Slack part changes.
+What an offer posts and where (its channels, its words) stays that offer's own.
+
 ## The send lock (Tyler, 2026-10-18)
 
 "I want the SMS lock as well. I'm the only one who can unlock sends." Every workflow starts with its sends locked: a text, email
