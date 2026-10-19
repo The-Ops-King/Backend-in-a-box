@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { asOperator, many, one } from "@/db/client";
-import { bookingFor, type Adapters, type AppointmentSnapshot, type Company, type ContactSnapshot, type MessageSnapshot } from "@/adapters/types";
+import { bookingFor, type Adapters, type AppointmentSnapshot, type BookingMode, type Company, type ContactSnapshot, type MessageSnapshot } from "@/adapters/types";
 import { loadCompany, type CompanyRow } from "./context";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { ensureOpportunityForBooking, ensureUser, userIdByEmail } from "./lifecycle";
@@ -156,10 +156,12 @@ async function resolveContactForBooking(c: PoolClient, co: CompanyRow, ac: Compa
  *   calendar  — the calendar says (a separate setter event type / calendar)                      [default]
  *   question  — the booking question names the setter; no name → self-booked (one calendar for both)
  *   either    — setter-booked if the calendar is a setter calendar OR a setter was named
+ * A calendar's own `utm` (D153) says setter-booked when the booking came through a setter's link (`setterLink`, setterFromLink).
  */
-export function decideSelfBooked(rule: string | undefined, calendarSelfBooked: boolean | null, setBy: string | undefined | null, perCalendar?: "self" | "setter" | "question"): boolean | null {
+export function decideSelfBooked(rule: string | undefined, calendarSelfBooked: boolean | null, setBy: string | undefined | null, perCalendar?: BookingMode, setterLink?: boolean): boolean | null {
   const named = !!(setBy && setBy.trim());
   // the calendar's own rule wins over the company default
+  if (perCalendar === "utm") return !setterLink;
   if (perCalendar === "self") return true;
   if (perCalendar === "setter") return false;
   if (perCalendar === "question") return !named;
@@ -170,12 +172,30 @@ export function decideSelfBooked(rule: string | undefined, calendarSelfBooked: b
   }
 }
 
+/**
+ * D153: a setter's booking link is the calendar's own link with utm_medium=setter and utm_content naming the setter (Tyler: "setter
+ * equal the setter's name"). The name is a person of the company, matched without case on their first name, full name or email;
+ * exactly one must match. A link that names no one, or more than one, is still a setter's link: the booking is setter-booked with
+ * no setter named, which is the setter-missing alert (D121). Anything else (a Typeform applicant's ad UTMs) is not a setter's link.
+ */
+export async function setterFromLink(c: PoolClient, companyId: string, tracking?: Record<string, string> | null): Promise<{ link: boolean; name?: string }> {
+  if ((tracking?.utm_medium ?? "").trim().toLowerCase() !== "setter") return { link: false };
+  const who = (tracking?.utm_content ?? "").trim().toLowerCase();
+  if (!who) return { link: true };
+  const hits = await many<{ name: string }>(c, `select name from users where company_id=$1 and active
+    and (lower(email)=$2 or lower(name)=$2 or lower(split_part(trim(name), ' ', 1))=$2)`, [companyId, who]);
+  return hits.length === 1 ? { link: true, name: hits[0].name } : { link: true };
+}
+
 export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot, rep?: PollReport, baseline = false): Promise<void> {
   const source = ac.booking.source;
-  const calRow = await one<{ id: string; appointment_term: string; self_booked: boolean | null; config: { booking?: "self" | "setter" | "question"; owner?: string } }>(c, "select id, appointment_term, self_booked, config from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
+  const calRow = await one<{ id: string; appointment_term: string; self_booked: boolean | null; config: { booking?: BookingMode; owner?: string } }>(c, "select id, appointment_term, self_booked, config from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
   if (!calRow) return;
   const rule = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='booking.setter_rule'", [co.id]))?.value.toString("utf8");
-  const cal = { ...calRow, self_booked: decideSelfBooked(rule, calRow.self_booked, s.setBy, calRow.config?.booking) };
+  // D153: through a setter's link, the setter is the person the link names (the booking question, if any, is not asked there)
+  const link = calRow.config?.booking === "utm" ? await setterFromLink(c, co.id, s.tracking) : undefined;
+  if (link?.name) s = { ...s, setBy: link.name };
+  const cal = { ...calRow, self_booked: decideSelfBooked(rule, calRow.self_booked, s.setBy, calRow.config?.booking, link?.link) };
   // a cancelled booking that was rescheduled is carried by its replacement (same appointment, new time); nothing to do here
   if (s.rescheduledTo) return;
   const contact = await resolveContactForBooking(c, co, ac, adapters, s);

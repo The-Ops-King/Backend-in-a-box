@@ -1,7 +1,9 @@
 export type BookingSource = "ghl" | "calendly";
 /** Where a company's appointments live. The CRM (GHL calendars) or a separate scheduler (Calendly event types). */
 /** Per-calendar booking rules (D24): how setter-vs-self is decided on this calendar, and which booking question answers what. */
-export type CalendarConfig = { booking?: "self" | "setter" | "question"; questions?: Record<string, string> };
+/** How a calendar's bookings say setter or self (D24); `utm` (D153): a setter's link, utm_medium=setter and utm_content naming them */
+export type BookingMode = "self" | "setter" | "question" | "utm";
+export type CalendarConfig = { booking?: BookingMode; questions?: Record<string, string> };
 export type BookingConfig =
   | { source: "ghl"; calendars?: Record<string, CalendarConfig> }
   | { source: "calendly"; token: string; organization: string; user?: string; phoneQuestion?: string; setterQuestion?: string; calendars?: Record<string, CalendarConfig> };

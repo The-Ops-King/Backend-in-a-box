@@ -1,22 +1,36 @@
 {
-  "_note": "Dating Nelly's own words for its workflow copies (D118), read by scripts/build-copies.ts. Everything marked [placeholder] is not Tyler's yet: a welcome send whose words are a placeholder is built as skipped, and the DQ reasons only label what Jev reads (setter_result.act is off). Replace the words, run the build, save the copies.",
+  "_note": "Dating Nelly's own words for its workflow copies (D118), read by scripts/build-copies.ts. Everything marked [placeholder] is not Tyler's yet: a welcome send whose words are a placeholder is built as skipped. setterDq: what Jev reads as a DQ and why, in Nelly's reasons (D154, Tyler 2026-10-19); setterCall: what Jev counts as a setting call (D154); preCall: the pre-call texts Tyler approved 2026-10-19, all from Nelly (D155). Replace the words, run the build, save the copies.",
   "welcome": {
     "subject": "[placeholder — welcome email subject]",
     "email": "<p>Hi {{contact.first_name | default:there}},</p><p>[placeholder — Dating Nelly's welcome email: what happens next, to come from Tyler]</p>",
     "sms": "[placeholder — Dating Nelly's welcome text, to come from Tyler]"
   },
   "setterDq": {
-    "result": "[placeholder — Dating Nelly's DQ wording to come] The lead does not qualify: the setter or the lead established they are not a fit for the offer, or it is a bad or wrong contact.",
+    "result": "The lead is not a fit: they cannot afford the program right now, are not ready for a serious relationship, are already in one, want something casual, or it is a wrong or fake contact.",
     "reasons": {
-      "budget": "[placeholder] They cannot afford it or have no money for it right now.",
-      "age": "[placeholder] They are outside the ages the offer is for.",
-      "geo": "[placeholder] They are outside the area the company serves.",
-      "medical": "[placeholder — not a Dating Nelly reason yet] A health reason rules them out.",
-      "timeline": "[placeholder] Their timing does not work: not for a long while, or no urgency at all.",
-      "no_problem": "[placeholder] They do not actually have the problem the offer solves.",
-      "competitor": "[placeholder] They are already working with, or committed to, someone else.",
-      "bad_contact": "[placeholder] A wrong number, a fake or duplicate contact, or someone who never asked to be contacted.",
+      "budget": "They cannot afford the program right now, or have no money set aside for it.",
+      "not_ready": "They are not ready to date seriously yet: still getting over a breakup, too busy, or not in the right place for a relationship.",
+      "in_relationship": "They are already in a relationship or married.",
+      "casual": "They want casual dating or hookups, not a committed relationship.",
+      "bad_contact": "A wrong number, a fake or duplicate contact, or someone who never asked to be contacted.",
       "other": "Any other reason, or the transcript does not say."
+    }
+  },
+  "setterCall": {
+    "setting": "The setter learns about the lead's situation, qualifies them, and works toward booking (or books) a closing call with Nelly. A booked triage or strategy call is a setting call too, whether or not it ends in a booking."
+  },
+  "preCall": {
+    "triage": {
+      "booked": "Hi {{contact.first_name}}, it's Nelly. You're booked for your free 15-minute strategy call on {{appointment.starts_at | date:\"cccc, LLL d 'at' h:mm a ZZZZ\"}}. My teammate {{appointment.closer.first_name}} will be the one calling you. Reply YES to confirm, or reply here if you need a different time.",
+      "day": "Hi {{contact.first_name}}, Nelly here. Quick reminder that {{appointment.closer.first_name}} is calling you tomorrow at {{appointment.starts_at | date:\"h:mm a ZZZZ\"}} for your strategy call. It's only 15 minutes, so find a spot where you can talk freely.",
+      "hour": "{{contact.first_name}}, your call with {{appointment.closer.first_name}} is in an hour ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Keep your phone close.",
+      "rebook": "[placeholder — the text with the rebooking link when they ask to move a strategy call]"
+    },
+    "closing": {
+      "booked": "Hi {{contact.first_name}}, it's Nelly. You're booked for your private consultation with me on {{appointment.starts_at | date:\"cccc, LLL d 'at' h:mm a ZZZZ\"}}. It runs about an hour, so block off the time. Reply YES to confirm, or let me know if you need to move it.",
+      "day": "Hi {{contact.first_name}}, looking forward to our consultation tomorrow at {{appointment.starts_at | date:\"h:mm a ZZZZ\"}}. Come ready to talk about what you want in a partner and what hasn't worked so far. Nelly",
+      "hour": "{{contact.first_name}}, we're on in an hour ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Join here: {{appointment.meeting_url}} See you soon! Nelly",
+      "rebook": "[placeholder — the text with the rebooking link when they ask to move the consultation]"
     }
   }
 }

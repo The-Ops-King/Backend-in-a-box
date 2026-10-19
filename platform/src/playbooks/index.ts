@@ -37,11 +37,18 @@ export type Playbook = {
   forOffer(params: unknown, offer: string): unknown;
 };
 
-const words = z.object({ welcome: z.object({ subject: z.string(), email: z.string(), sms: z.string() }), setterDq: z.object({ result: z.string(), reasons: z.record(z.string()) }) });
+const preCallWords = z.object({ booked: z.string().min(1), day: z.string().min(1), hour: z.string().min(1), rebook: z.string().min(1) });
+const words = z.object({ welcome: z.object({ subject: z.string(), email: z.string(), sms: z.string() }), setterDq: z.object({ result: z.string(), reasons: z.record(z.string()) }),
+  setterCall: z.object({ setting: z.string().min(1) }).optional(),   // D154
+  preCall: z.object({ triage: preCallWords, closing: preCallWords }).optional() });   // D155
 // D142 (main): a booked call records a Sales Call (`sales`, the default, which needs its salesCallType) or, for a triage call, a Discovery Call
 const booked = z.object({ workflow: z.string().min(1), name: z.string().min(1), callType: z.string().min(1), salesCallType: z.string().min(1).optional(), record: z.enum(["sales", "discovery"]).optional(), card: z.string().min(1).optional(), tags: z.array(z.string()).optional() })
   .refine((b) => b.record === "discovery" || !!b.salesCallType, { message: "a booked call that writes a Sales Call needs its salesCallType", path: ["salesCallType"] });
-const setup = z.object({ booked: z.array(booked), fromForm: z.object({ workflow: z.string().min(1), name: z.string().min(1) }).optional() });
+const own = z.object({ workflow: z.string().min(1), name: z.string().min(1), callType: z.string().min(1) });
+const setup = z.object({ booked: z.array(booked), fromForm: z.object({ workflow: z.string().min(1), name: z.string().min(1) }).optional(),
+  triageCancelled: own.optional(), triageFiled: own.optional(),   // D142, D143 (dropped here by the onboarding merge, so a build left them out)
+  setterCallReadOnly: z.boolean().optional(),   // D154
+  setterFiled: z.object({ workflow: z.string().min(1), name: z.string().min(1) }).optional() });   // D156
 const label = z.string().trim().min(1);
 const oneBoard = z.object({
   name: label, board: label,
@@ -86,7 +93,7 @@ export const playbooks: Playbook[] = [
     slug: "application-triage", name: "Application and triage",
     about: "Dating's process: an application form, a setter's triage call before the closing call, a setter board and a closer board, and a booked-call workflow per call type.",
     traits: { boards: "setter_and_closer", booking: ["self", "setter"], application: true, triage: true },
-    changes: ["deal-closed", "setter-call-logged", "call-booked"],
+    changes: ["deal-closed", "setter-call-logged", "call-booked", "pre-call-sequence"],
     build: (company, params, install) => {
       const p = parse(z.object({ words, setup: setup.optional() }), params, "application-triage");
       if (!install.salesCall?.objections?.length) throw new Error("application-triage: the install file's salesCall.objections is needed for the call prompts");

@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { api, usePage } from "~/api";
 import type { CallEntry, EodField } from "@/engine/eod-form";
 type EodPrefill = { day: string; calls_count: number; closes: number; deposits: number; cash: number; revenue: number; calls: CallEntry[] };
-import { dayFields, fieldsFor, outcomeLabel, totalsOf, valueOf, TRIAGE_OUTCOMES, type CallOutcome } from "@/engine/eod-form";
+import { dayFields, fieldsFor, isSetterCall, outcomeLabel, totalsOf, valueOf, DIAL_OUTCOMES, TRIAGE_OUTCOMES, type CallOutcome } from "@/engine/eod-form";
 import { Skeleton } from "~/ui/pieces";
 
 type Page = { closer: { first_name: string; name: string }; company: { name: string; timezone: string }; day: string; is_today: boolean; prev: string; next: string; filed: { at: string; changes: number } | null; pre: EodPrefill; seen: { calls: number; cash: number }; fields: EodField[]; day_answers: Record<string, string>; outcomes: { value: string; label: string }[] };
@@ -48,8 +48,8 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   const time = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: d.company.timezone });
   const outcomeField = d.fields.find((f) => f.key === "outcome")!;
   const showDeposits = t.deposits > 0 || touched.deposits !== undefined;
-  // D143: a day of triage calls only (a setter's) asks no money: closes, cash and revenue are the closing calls'
-  const closing = calls.length === 0 || calls.some((c) => c.kind !== "triage");
+  // D143: a day of triage calls only (a setter's) asks no money: closes, cash and revenue are the closing calls'; D156: outbound calls are a setter's too
+  const closing = calls.length === 0 || calls.some((c) => !isSetterCall(c.kind));
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try { const r = await api<{ recorded: number; changes: number }>(`/api/eod/${token}`, { method: "POST", json: { day: d.day, calls_count: callsCount, closes: touched.closes ?? "", deposits: touched.deposits ?? String(t.deposits), cash: touched.cash ?? "", revenue: touched.revenue ?? "", calls, day_answers: dayAnswers } }); setDone(r); setEditing(false); onFiled(); }
@@ -80,9 +80,9 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
     </div></div>
     <h3 className="sec">Your calls <small>{calls.length}</small></h3>
     {calls.length === 0 ? <div className="empty">No calls on your calendar for this day.</div> : null}
-    {calls.map((c, i) => { const after = fieldsFor(d.fields, c.outcome, c.kind), choices = c.kind === "triage" ? TRIAGE_OUTCOMES : d.outcomes;
+    {calls.map((c, i) => { const after = fieldsFor(d.fields, c.outcome, c.kind), choices = c.kind === "triage" ? TRIAGE_OUTCOMES : c.kind === "dial" ? DIAL_OUTCOMES : d.outcomes;
       return <div key={c.appointment_id} className="call">
-        <div className="hd"><b>{i + 1}. {c.contact}</b><span className="note">{time(c.starts_at)}{c.kind === "triage" ? " · triage call" : calls.some((x) => x.kind === "triage") ? " · closing call" : ""}</span>{c.href_contact ? <a href={c.href_contact} target="_blank" rel="noreferrer">CRM ↗</a> : null}{c.recording_url ? <a href={c.recording_url} target="_blank" rel="noreferrer">Recording ↗</a> : null}</div>
+        <div className="hd"><b>{i + 1}. {c.contact}</b><span className="note">{time(c.starts_at)}{c.kind === "triage" ? " · triage call" : c.kind === "dial" ? " · outbound call" : calls.some((x) => isSetterCall(x.kind)) ? " · closing call" : ""}</span>{c.href_contact ? <a href={c.href_contact} target="_blank" rel="noreferrer">CRM ↗</a> : null}{c.recording_url ? <a href={c.recording_url} target="_blank" rel="noreferrer">Recording ↗</a> : null}</div>
         <label>{outcomeField.label}{outcomeField.required ? <span className="req"> *</span> : null}<select value={c.outcome} required={outcomeField.required} onChange={(e) => set(i, { outcome: e.target.value as CallOutcome })}><option value="">—</option>{choices.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
         {c.hint && !c.outcome ? <p className="hint">{c.hint}</p> : null}
         {c.moved ? <p className="hint">{c.moved}</p> : null}

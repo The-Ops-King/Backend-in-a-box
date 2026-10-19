@@ -328,6 +328,12 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`insert into core_categories (domain, value, label, sort) values ('setter_call_type','closing','Closing call',3) on conflict (domain, value) do nothing`);
     await c.query(`update core_categories set sort=4 where domain='setter_call_type' and value='other' and sort<>4`);
     await c.query(`insert into event_types values ('call.closing','call') on conflict do nothing`);
+    await c.query(`insert into event_types values ('setter_call.filed','call') on conflict do nothing`);   // D156: an outbound call's answer on the end of day
+    // D154: why a dating lead is a DQ (Tyler, 2026-10-19): Jev's DQ reason in a dating offer's Setter call logged, and its end of day's answers
+    await c.query(`insert into core_categories (domain, value, label, sort) values
+      ('dating_dq_reason','budget','Can''t afford it right now',1), ('dating_dq_reason','not_ready','Not ready for a relationship',2), ('dating_dq_reason','in_relationship','Already in a relationship',3),
+      ('dating_dq_reason','casual','Looking for something casual',4), ('dating_dq_reason','bad_contact','Wrong or fake contact',5), ('dating_dq_reason','other','Other',6)
+      on conflict (domain, value) do nothing`);
     await c.query(`insert into event_types values ('scope.left','crm') on conflict do nothing`);   // D117: a person the scope tag no longer covers (recorded, never a start)
     await c.query(`insert into event_types values ('form.submitted','lead') on conflict do nothing`);   // D122: a Typeform submission (the webhook door or the importer)
     await c.tx(async (c) => {

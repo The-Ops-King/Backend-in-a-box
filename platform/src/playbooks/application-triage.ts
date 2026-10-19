@@ -21,9 +21,15 @@ import { isPlaceholderCopy } from "@/engine/readiness";
 
 export type DatingWords = {
   welcome: { subject: string; email: string; sms: string };
-  /** a3's meaning of a DQ, and a4's words for each setter DQ reason (the setter_dq_reason options) */
+  /** a3's meaning of a DQ, and a4's words for each DQ reason (D154: the dating_dq_reason options, DATING_DQ_REASONS) */
   setterDq: { result: string; reasons: Record<string, string> };
+  /** D154: a1's meaning of a setting call, in the company's words (a booked triage call counts) */
+  setterCall?: { setting: string };
+  /** D155: the pre-call texts, in the company's voice: a triage call's and a closing call's booking text and reminders */
+  preCall?: { triage: PreCallWords; closing: PreCallWords };
 };
+/** D155: the booking text, the reminder a day before and the one an hour before; `rebook`, the text with the rebooking link when they ask to move */
+export type PreCallWords = { booked: string; day: string; hour: string; rebook: string };
 /**
  * D123: `booked`, one per call type a calendar of the install books (its `calendars[…].name`): the workflow's file and name, the
  * Sales Call's `call_type` option it writes, and any tags a booking of that type adds. `fromForm`: the applicant workflow.
@@ -36,10 +42,16 @@ export type DatingSetup = {
   triageCancelled?: { workflow: string; name: string; callType: string };
   /** D143: a triage call's filed outcome (Call outcome filed takes closing calls only) */
   triageFiled?: { workflow: string; name: string; callType: string };
+  /** D154: Setter call logged reads and posts only; the end of day writes the Discovery Call record and moves the setter card */
+  setterCallReadOnly?: boolean;
+  /** D156: an outbound call's answer on the end of day (setter_call.filed): its own workflow */
+  setterFiled?: { workflow: string; name: string };
 };
 type InstallBits = { scopeTag?: string; calendars?: Record<string, string | { term: string; name?: string }> };
 
 const DQ_REASONS = ["budget", "age", "geo", "medical", "timeline", "no_problem", "competitor", "bad_contact", "other"];
+/** D154: why a dating lead is a DQ (Tyler, 2026-10-19), the dating_dq_reason options Jev reads into and the end of day asks */
+export const DATING_DQ_REASONS = ["budget", "not_ready", "in_relationship", "casual", "bad_contact", "other"];
 /** A send that must not go out while its words are a placeholder: nothing sets vars.welcome_copy_written. */
 const HELD = { exists: "vars.welcome_copy_written" };
 
@@ -58,21 +70,95 @@ export function datingCopies(company: string, words: DatingWords, own?: { setup:
   out.push({ workflow: "deal-closed", definition: dc as unknown as Record<string, unknown>,
     note: `${company}: the welcome email and text are the company's own (installs/${company}/words.json)${held ? "; still placeholders, so both are skipped" : ""}, not Hair's (D118); the won closer card carries the deal's value (D130)` });
 
-  // Setter call logged: why a setter DQs a lead, in the company's words
+  // Setter call logged: why a setter DQs a lead, in the company's words; D154: it reads and posts, the end of day writes
   const scl = load("setter-call-logged");
-  const reasons = Object.keys(words.setterDq.reasons);
-  if (reasons.length !== DQ_REASONS.length || DQ_REASONS.some((r) => !words.setterDq.reasons[r]?.trim())) throw new Error(`setterDq.reasons needs words for each of ${DQ_REASONS.join(", ")}`);
-  const a3 = node(scl, "a3"), a4 = node(scl, "a4");
+  // the reasons are the template's (setter_dq_reason) or, D154, the dating ones (dating_dq_reason): whichever set the words name, all of it
+  const keys = Object.keys(words.setterDq.reasons).sort().join();
+  const domain = keys === [...DATING_DQ_REASONS].sort().join() ? "dating_dq_reason" : "setter_dq_reason";
+  const list = domain === "dating_dq_reason" ? DATING_DQ_REASONS : DQ_REASONS;
+  if (list.some((r) => !words.setterDq.reasons[r]?.trim()) || Object.keys(words.setterDq.reasons).length !== list.length) throw new Error(`setterDq.reasons needs words for each of ${DQ_REASONS.join(", ")}, or of ${DATING_DQ_REASONS.join(", ")}`);
+  const a1 = node(scl, "a1"), a3 = node(scl, "a3"), a4 = node(scl, "a4");
+  if (words.setterCall?.setting) (a1.criteria as Record<string, string>).setting = words.setterCall.setting;
   (a3.criteria as Record<string, string>).dq = words.setterDq.result;
-  a4.criteria = Object.fromEntries(DQ_REASONS.map((r) => [r, words.setterDq.reasons[r]]));
+  if (domain !== a4.domain) a4.domain = domain;
+  a4.criteria = Object.fromEntries(list.map((r) => [r, words.setterDq.reasons[r]]));
   const dqHeld = [words.setterDq.result, ...Object.values(words.setterDq.reasons)].some(isPlaceholderCopy);
   if (dqHeld) a4.title = "Jev: why disqualified? [placeholder: the company's DQ reasons are not written yet]";
+  const readOnly = !!own?.setup.setterCallReadOnly;
+  if (readOnly) readOnlySetterCall(scl);
   out.push({ workflow: "setter-call-logged", definition: scl as unknown as Record<string, unknown>,
-    note: `${company}: why a setter DQs a lead, in the company's words (installs/${company}/words.json)${dqHeld ? "; still placeholders" : ""}, not Hair's (D118)` });
+    note: `${company}: why a setter DQs a lead, in the company's words (installs/${company}/words.json)${dqHeld ? "; still placeholders" : ""}, not Hair's (D118)${readOnly ? "; a setting call's read is posted and logged for the end of day, which writes the Discovery Call record and moves the setter card: nothing written to the CRM here, no question to the team (D154)" : ""}` });
+  if (words.preCall) out.push(...preCallCopies(words.preCall));
   if (own) out.push(...ownWorkflows(company, own.setup, own.install));
   return out;
 }
 
+
+/**
+ * D154 (Tyler: "the setter call log shouldn't change things in HighLevel ... the setter end of day should"): Setter call logged
+ * reads the call (Jev's call type, result and DQ reason, the notes), posts it in the setter channel and logs the read
+ * (setter_call.result) for the end of day to pre-fill; Set by a booking through a setter's link still counts. Taken out: the
+ * Discovery Call record and the note (r1, r_late, m1), the question to the team and its answer (b_ask on), the actions behind
+ * setter_result.act (the task, the DQ tag, the lost cards) and the variables only they read.
+ */
+function readOnlySetterCall(d: Def) {
+  for (const id of ["v_dqtag", "v_due", "v_mode", "v_key", "v_act", "v_ask", "r1", "m1", "lt_key", "lt_act", "r_late"]) drop(d, id);
+  // b_ask and everything only it leads to: the run ends where the team would have been asked
+  const gone = new Set<string>(["b_ask"]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const e of d.edges) if (gone.has(e.from) && !gone.has(e.to) && d.edges.filter((x) => x.to === e.to).every((x) => gone.has(x.from))) { gone.add(e.to); grew = true; }
+  }
+  gone.delete("x1");
+  for (const e of d.edges) if (e.to === "b_ask") e.to = "x1";
+  d.edges = d.edges.filter((e) => !gone.has(e.from) && !gone.has(e.to));
+  d.nodes = d.nodes.filter((n) => !gone.has(n.id));
+  for (const id of ["s1", "s_late"]) { const n = node(d, id); n.template = String(n.template).replace("{{vars.act_line | line}}", ""); }
+  Object.assign(node(d, "v_line"), { else_value: "{{vars.unsure_line}}; the end of day asks" });
+  node(d, "v_by").title = "Without a booking, Jev's read (a Set read with no booking is left to the end of day)";
+  // what the end of day pre-fills from (D156): the call type, the DQ reason's list, the write-up
+  const a4 = node(d, "a4");
+  for (const id of ["rec_read", "rec_late"]) { const rec = node(d, id); rec.data = { ...(rec.data as Record<string, unknown>), call_type: "{{vars.classify.call_type}}", dq_domain: a4.domain, digest: "{{vars.notes.digest | default:}}" }; }
+  const left = JSON.stringify(d.nodes);
+  for (const w of ["crm_record", "\"note\"", "create_task", "pipeline_card", "\"tags\"", "vars.act_line", "vars.asking"]) if (left.includes(w)) throw new Error(`Setter call logged still has ${w} after D154`);
+}
+
+/**
+ * D155 (Tyler, 2026-10-19: one number, Nelly's, "all from Nelly"): the pre-call texts per call type, each its own copy of the
+ * Pre-call sequence held to that call type (a triage call is not a closing call, so the template would never take it): the
+ * booking text with its reply handling (confirm, cancel, reschedule, the closer asked when Jev is unsure), then the text a day
+ * before and the one an hour before. Taken out: the day-one and 24-hour emails, the 3- and 2-day texts, the morning-of and
+ * 10-minute texts. The rebooking text is the company's too; while it is a placeholder it is skipped.
+ */
+const PRE_CALL = [
+  { key: "triage" as const, workflow: "triage-pre-call", name: "Triage pre-call", callType: "Triage call", card: "strategy call" },
+  { key: "closing" as const, workflow: "closing-pre-call", name: "Closing pre-call", callType: "Closing call", card: "consultation" },
+];
+function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): Copy[] {
+  const pc = template("pre-call-sequence");
+  return PRE_CALL.map((t) => {
+    const w = words[t.key];
+    for (const k of ["booked", "day", "hour", "rebook"] as const) if (!w?.[k]?.trim()) throw new Error(`words.preCall.${t.key}.${k} is empty`);
+    const d = load("pre-call-sequence");
+    const isType = { eq: ["{{appointment.term.name}}", t.callType] };
+    Object.assign(node(d, "t1"), { match: isType, title: `A ${t.callType} booked` });
+    Object.assign(node(d, "t2"), { match: isType, title: `A ${t.callType} moved` });
+    for (const id of ["e1", "r72", "m72", "r48", "m48", "m24e", "mm", "r10", "m10"]) drop(d, id);
+    // the morning-of fork: its wait and branch go, so the day-before text leads straight to the hour-before wait
+    for (const e of d.edges) if (e.to === "rm") e.to = "r1";
+    d.edges = d.edges.filter((e) => e.from !== "rm" && e.from !== "bm");
+    d.nodes = d.nodes.filter((n) => n.id !== "rm" && n.id !== "bm");
+    Object.assign(node(d, "s1"), { template: w.booked, title: "Booking text" });
+    Object.assign(node(d, "m24s"), { template: w.day, title: "The day before" });
+    Object.assign(node(d, "m1"), { template: w.hour, title: "An hour before" });
+    const rebookHeld = isPlaceholderCopy(w.rebook);
+    Object.assign(node(d, "n_rs"), { template: w.rebook, title: rebookHeld ? "Text the rebooking link [placeholder: the words are not written yet, so it is skipped]" : "Text the rebooking link", ...(rebookHeld ? { only_if: HELD } : {}) });
+    const left = JSON.stringify(d.nodes);
+    if (left.includes("send_email") || /\[placeholder — (?!the text with the rebooking)/.test(left)) throw new Error(`${t.name}: a send of the template is left unwritten`);
+    return { workflow: t.workflow, name: t.name, create: { stage: pc.stage, sort: pc.sort + (t.key === "triage" ? 0 : 1), takesOver: "pre-call-sequence" }, definition: d as unknown as Record<string, unknown>,
+      note: `the ${t.callType}'s pre-call texts, all from Nelly (D155): the booking text with its reply handling, a day before and an hour before; no emails${rebookHeld ? "; the rebooking text is a placeholder, so it is skipped" : ""}` };
+  });
+}
 
 /**
  * D123/D105/D107: Call booked with one card fork after the setter and self paths rejoin, the way PMU's copy has it ("A new booking
@@ -180,6 +266,43 @@ function triageFiled(callType: string): Def {
 }
 
 /**
+ * D156 (Tyler: "the setter end of day should change things in HighLevel ... if this person is an outbound dial and they are not
+ * booked on the calendar, then yes, they should also be moved by that"): an outbound call's answer, as Triage call filed is a
+ * triage call's: the conversation's Discovery Call record (made here, keyed by the conversation, as Setter call logged's was), the
+ * setter card, a line under the call's post.
+ */
+function setterFiled(): Def {
+  const rec = "{{crm.object_discovery_call | default:custom_objects.discovery_call}}";
+  const card = (id: string, stage: string, status: string | null, title: string) => ({ id, type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage, if_missing: "skip", pick: "latest", ...(status ? { status } : {}), title });
+  return {
+    schema: 1, reentry: "always", premise: { check: "contact_exists" },
+    nodes: [
+      { id: "t1", type: "trigger", event: "setter_call.filed", title: "An outbound call answered on the end of day" },
+      { id: "v_line", type: "set_var", key: "line", value: "{{event.result}}", pick: { set: "✅ End of day: set", follow_up: "🔁 End of day: follow up", dq: "⛔ End of day: DQ", not_interested: "👋 End of day: not interested" }, else_value: "", title: "The thread line" },
+      { id: "d1", type: "crm_record", object: rec, key: "{{event.conversation}}", owner: "{{event.setter_ghl_user_id | default:}}", title: "The call's Discovery Call record",
+        properties: { display_label: "{{contact.name | default:Unknown}} — {{event.started_at | date_company:yyyy-MM-dd}}", external_id: "{{event.conversation}}", contact_id: "{{contact.ghl_contact_id | default:}}",
+          occurred_at: "{{event.started_at | date_company}}", direction: "{{event.direction | default:}}", duration_sec: "{{event.duration_sec | default:}}", setter: "{{event.setter | default:}}", outcome: "showed",
+          recording_url: "{{event.recording_url | default:}}", call_result: "{{event.result}}" },
+        relate: [{ association: "{{crm.assoc_discovery_call_contact}}", first: "{{contact.ghl_contact_id | default:}}", second: "{{record.id}}" }] },
+      { id: "b1", type: "branch", title: "Where the setter card goes" },
+      card("c_set", "{{crm.stage_setter_appointment_set}}", null, "Setter card → Appointment Set"),
+      card("c_dq", "{{crm.stage_setter_dq}}", "lost", "Setter card → DQ, marked lost"),
+      card("c_ni", "{{crm.stage_setter_not_interested}}", "lost", "Setter card → Not Interested, marked lost"),
+      { id: "n1", type: "slack_post", channel: "{{slack.channel.setter_calls}}", thread_of: "tag:setter-call:{{event.conversation}}", thread_only: true, only_if: { neq: ["{{vars.line}}", ""] }, as: { name: "Setter call", icon: ":clipboard:" }, template: "{{vars.line}}", title: "A line under the call's post" },
+      { id: "x1", type: "exit", reason: "filed" },
+    ],
+    edges: [
+      { from: "t1", to: "v_line" }, { from: "v_line", to: "d1" }, { from: "d1", to: "b1" },
+      { from: "b1", to: "c_set", label: "set", when: { eq: ["{{event.result}}", "set"] } },
+      { from: "b1", to: "c_dq", label: "DQ", when: { eq: ["{{event.result}}", "dq"] } },
+      { from: "b1", to: "c_ni", label: "not interested", when: { eq: ["{{event.result}}", "not_interested"] } },
+      { from: "b1", to: "n1", label: "follow up", else: true },
+      { from: "c_set", to: "n1" }, { from: "c_dq", to: "n1" }, { from: "c_ni", to: "n1" }, { from: "n1", to: "x1" },
+    ],
+  } as unknown as Def;
+}
+
+/**
  * D123: the company's own workflows. Each booked-call one is Call booked with both triggers held to its call type (a calendar's
  * own type, D101, so a booking runs exactly one of them), its Sales Call written with its call_type option, and its extra tags
  * on the booking's tag steps. Every closing calendar the install maps must book one of these types: Call booked is taken over,
@@ -217,6 +340,12 @@ function ownWorkflows(company: string, setup: DatingSetup, install: InstallBits)
     if (!setup.booked.some((b) => b.callType === tf.callType && b.record === "discovery")) throw new Error(`copies.json triageFiled: no triage booked workflow takes "${tf.callType}"`);
     out.push({ workflow: tf.workflow, name: tf.name, create: { stage: co.stage, sort: co.sort + 1 }, definition: triageFiled(tf.callType) as unknown as Record<string, unknown>,
       note: `${company}: a ${tf.callType}'s outcome, filed on the end of day (or a no-show marked in the CRM): the Discovery Call record (showed or no-show, set / follow up / DQ / not interested), the setter card to Showed (won), DQ, Not Interested or Cancelled / No Show (lost), a line in the booking thread (D143)` });
+  }
+  if (setup.setterFiled) {
+    const sf = setup.setterFiled, co = template("call-outcome");
+    if (!setup.setterCallReadOnly) throw new Error("copies.json setterFiled: only with setterCallReadOnly (the end of day writes what Setter call logged no longer does)");
+    out.push({ workflow: sf.workflow, name: sf.name, create: { stage: co.stage, sort: co.sort + 2 }, definition: setterFiled() as unknown as Record<string, unknown>,
+      note: `${company}: a setter's outbound call answered on the end of day (D156): the conversation's Discovery Call record (showed, set / follow up / DQ / not interested), the setter card to Appointment Set or DQ / Not Interested (lost), a line under the call's post in the setter channel` });
   }
   if (setup.fromForm) {
     const tag = install.scopeTag?.trim().toLowerCase();

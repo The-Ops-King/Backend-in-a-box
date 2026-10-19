@@ -89,6 +89,7 @@ export const EVENT_SOURCES: Record<string, string> = {
   "intent.unanswered": "a record step (Pre-call sequence, Setter call logged)",
   "intent.unanswered_no_show": "a record step (Call outcome filed)",
   "setter_call.result": "a record step (Setter call logged)",
+  "setter_call.filed": "the end of day: a setter's outbound call answered (D156)",
   "opportunity.opened": "a booking, a payment or a card that opened a deal (a record, not a start)",
   "recording.linked": "a recording linked to a booking by hand (a record, not a start)",
   "run.started": "every run as it starts (a record, not a start)",

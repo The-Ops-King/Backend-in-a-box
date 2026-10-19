@@ -46,11 +46,48 @@ describe("D118: Dating Nelly's copies", () => {
       return d.nodes.filter((n) => t.get(n.id) !== JSON.stringify(n)).map((n) => n.id); };
     expect(changed("deal-closed")).toEqual(["p1", "e1", "e2"]);
     expect(file("deal-closed").definition.nodes.find((n) => n.id === "p1")).toEqual({ ...template("deal-closed").nodes.find((n) => n.id === "p1"), value: "{{contact.revenue}}" });
-    expect(changed("setter-call-logged")).toEqual(["a3", "a4"]);
     // the template still carries Hair's words; her copies carry none
     expect(JSON.stringify(template("deal-closed"))).toMatch(HAIR_WORDS);
     for (const slug of ["deal-closed", "setter-call-logged"]) expect(JSON.stringify(file(slug).definition)).not.toMatch(HAIR_WORDS);
     expect(JSON.stringify(file("setter-call-logged").definition)).not.toMatch(/medical condition|medical, timeline/);
+  });
+
+  it("D154: her Setter call logged reads and posts only: her setting-call meaning and DQ reasons; no CRM write, no question to the team, no actions; the read is logged with its call type for the end of day", () => {
+    type N = { id: string } & Record<string, unknown>; type E = { from: string; to: string };
+    const t = new Map(template("setter-call-logged").nodes.map((n) => [n.id, n as N]));
+    const d = file("setter-call-logged").definition as unknown as { nodes: N[]; edges: E[] };
+    const ids = d.nodes.map((n) => n.id);
+    expect(ids.filter((id) => !t.has(id))).toEqual([]);
+    expect([...t.keys()].filter((id) => !ids.includes(id)).sort()).toEqual(["b_ask", "k_lost_dq", "k_lost_ni", "k_tag", "k_task", "l1", "lt_act", "lt_key", "m1", "q1", "q_reply", "r1", "r2", "r_late", "rec_rev", "rs", "rs2", "ru1", "ru2",
+      "tv_act", "tv_agree", "tv_ask", "tv_by", "tv_key", "tv_res", "tv_words", "v_act", "v_ask", "v_due", "v_dqtag", "v_key", "v_mode", "w_hold"].sort());
+    expect(d.nodes.filter((n) => JSON.stringify(n) !== JSON.stringify(t.get(n.id))).map((n) => n.id).sort()).toEqual(["a1", "a3", "a4", "rec_late", "rec_read", "s1", "s_late", "v_by", "v_line"]);
+    const at = (id: string) => d.nodes.find((n) => n.id === id)!;
+    expect((at("a1").criteria as Record<string, string>).setting).toBe(words.setterCall!.setting);
+    expect(at("a4")).toMatchObject({ domain: "dating_dq_reason", criteria: words.setterDq.reasons });
+    expect(Object.keys(at("a4").criteria as object)).toEqual(["budget", "not_ready", "in_relationship", "casual", "bad_contact", "other"]);
+    for (const id of ["rec_read", "rec_late"]) expect(at(id).data).toMatchObject({ call_type: "{{vars.classify.call_type}}", dq_domain: "dating_dq_reason", digest: "{{vars.notes.digest | default:}}" });
+    expect(d.nodes.filter((n) => ["crm_record", "note", "create_task", "pipeline_card", "tags", "set_tag", "wait_for_reaction"].includes(n.type as string))).toEqual([]);
+    expect(d.edges.filter((e) => e.to === "x1").map((e) => e.from).sort()).toEqual(["b_late", "s_late"]);
+    expect(JSON.stringify(d)).not.toContain("act_line");
+    // the read still goes out and is logged, and a booking through a setter's link still makes it Set
+    for (const id of ["s1", "s_late", "rec_read", "rec_late", "w_post", "w_late"]) expect(ids).toContain(id);
+  });
+
+  it("D155: her pre-call texts, one copy per call type, all from Nelly: the booking text with its reply handling, a day before, an hour before; no emails; the rebooking text held while it is a placeholder", () => {
+    type N = { id: string; type: string } & Record<string, unknown>;
+    for (const [slug, callType, w] of [["triage-pre-call", "Triage call", words.preCall!.triage], ["closing-pre-call", "Closing call", words.preCall!.closing]] as const) {
+      const c = file(slug) as unknown as { name: string; create: { takesOver: string }; definition: { nodes: N[]; edges: { from: string; to: string }[] } };
+      expect(c.create.takesOver).toBe("pre-call-sequence");
+      const at = (id: string) => c.definition.nodes.find((n) => n.id === id)!;
+      for (const t of ["t1", "t2"]) expect(at(t).match).toEqual({ eq: ["{{appointment.term.name}}", callType] });
+      expect(c.definition.nodes.filter((n) => n.type === "send_email")).toEqual([]);
+      expect(c.definition.nodes.filter((n) => n.type === "send_sms").map((n) => [n.id, n.template])).toEqual([["s1", w.booked], ["n_rs", w.rebook], ["m24s", w.day], ["m1", w.hour]]);
+      expect(at("n_rs").only_if).toEqual({ exists: "vars.welcome_copy_written" });
+      expect(c.definition.edges.filter((e) => e.from === "m24s").map((e) => e.to)).toEqual(["r1"]);
+      expect(JSON.stringify(c.definition)).not.toMatch(/\[placeholder — (?!the text with the rebooking)/);
+    }
+    expect(words.preCall!.triage.hour).not.toContain("meeting_url");
+    expect(words.preCall!.closing.hour).toContain("{{appointment.meeting_url}}");
   });
 
   it("D123, D142: her booked-call workflows are Call booked held to one call type each: the closing call with one card fork after the booking paths as PMU's (D105, D107); the triage call with a Discovery Call record and no closer card, task or Sales Call; New from Typeform tags and starts New lead once", () => {
@@ -138,6 +175,10 @@ describe.skipIf(!process.env.DATABASE_URL)("D118: Dating Nelly's copies on a com
   });
 
   it("each copy validates as a save would (no problems, nothing missing, drawn exactly) and saves as a new version of that company's copy", async () => {
+    for (const slug of ["triage-pre-call", "closing-pre-call"]) {   // D155: her own, made with create; they validate as a create would
+      const v = await asOperator((c) => validateDefinition(c, co, file(slug).definition));
+      expect(v.ok ? { missing: v.missing } : v, slug).toEqual({ missing: [] });
+    }
     for (const slug of ["deal-closed", "setter-call-logged"]) {
       const { definition, note } = file(slug);
       const v = await asOperator((c) => validateDefinition(c, co, definition));
