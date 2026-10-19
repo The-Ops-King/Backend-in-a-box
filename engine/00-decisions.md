@@ -4941,3 +4941,11 @@ and reschedule so they don't get all the automation reminders."
   (saved on PMU as version 3; `installs/pmu/build.py` and the repo copy carry the same triggers).
 
 Tests: `install.upgrade.test.ts` (D148).
+
+## D149. GHL setup for one offer, run inside the engine with its own token (2026-10-19)
+
+Tyler, on Hair's Deposit stage and Sales Call option: "I told you to add that." Hair's GHL token lives only in the engine, so
+the additive setup (`provision`, D119/D121/D143) runs there: `GET /api/admin/ghl/setup?company=` reads the location's pipelines,
+stages and custom objects with their fields and options; `POST { company, setup, apply? }` plans or applies a setup that names
+only what it is about. The provision guard holds as before: GETs only on a dry run, never a DELETE, a PUT only to the pipeline
+or field the setup names. An applied run is audited (`ghl.setup_applied`).
