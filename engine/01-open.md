@@ -969,5 +969,9 @@ closerCall, bookingCalendar and eod, so a setting changed since the file was wri
 The Consultation is `utm`, `eod.setter_calls` on, `eod.dq_reasons` dating_dq_reason. Setter call logged saved (v3 → v4, still on).
 Pre-call sequence deleted (off, 0 runs). Triage pre-call, Closing pre-call and Setter call filed made, all off; the two pre-call
 ones have their sends locked (Setter call filed has no send step). Tyler checks them before any is turned on (step 5).
+Step 6 checked 2026-10-19 (read only): the Slack bot is in all six Dating channels and #ops-test with the manifest's scopes
+(the slash commands, /support among them, cannot be read from the API); no run is open, the 301 New lead runs all completed, so
+going live clears nothing; one test contact (Nelly Test One, nellytest1@jtylerray.com), kept for the step 5 walk; Health check is
+on. Open: Calendly says the Complimentary Dating Strategy Session (the Typeform's booking link) has no time in the next 7 days.
 
 Open: a triage call Jev reads as a confirmation call (not a setting call) logs no read, so its row opens blank.
