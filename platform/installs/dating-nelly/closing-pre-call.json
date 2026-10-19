@@ -53,6 +53,22 @@
     "else_pause": "contact has no CRM id yet: GHL did not have the person an hour after the booking"
    },
    {
+    "id": "n_nolink",
+    "type": "slack_post",
+    "channel": "{{slack.channel.no_link}}",
+    "only_if": {
+     "not": {
+      "exists": "appointment.meeting_url"
+     }
+    },
+    "as": {
+     "name": "No meeting link",
+     "icon": ":link:"
+    },
+    "template": "{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s consultation {{appointment.starts_at | date_company}} has no meeting link in Calendly. Please send them the link.",
+    "title": "No meeting link: tell the closer now"
+   },
+   {
     "id": "s1",
     "type": "send_sms",
     "kind": "transactional",
@@ -227,13 +243,13 @@
    {
     "id": "n_ask",
     "type": "slack_post",
-    "channel": "{{slack.channel.attention}}",
+    "channel": "{{slack.channel.bookings}}",
     "as": {
      "name": "Keep, cancel or reschedule?",
      "icon": ":grey_question:"
     },
-    "template": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link). The reminders keep going until you do.",
-    "title": "Ask the closer in the attention channel: keep, cancel or reschedule?",
+    "template": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out). The reminders keep going until you do.",
+    "title": "Ask in the booking channel: keep, cancel or reschedule?",
     "tag": "decision:{{appointment.id}}",
     "offer": [
      "white_check_mark",
@@ -394,7 +410,26 @@
      "min_lead": "15m"
     },
     "on_stale": "skip",
-    "title": "An hour before"
+    "title": "An hour before",
+    "only_if": {
+     "exists": "appointment.meeting_url"
+    }
+   },
+   {
+    "id": "m1_nolink",
+    "type": "send_sms",
+    "template": "{{contact.first_name}}, we're on in an hour ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). I'll send you the link here shortly. See you soon! Nelly",
+    "validity": {
+     "anchor": "before_event",
+     "min_lead": "15m"
+    },
+    "on_stale": "skip",
+    "only_if": {
+     "not": {
+      "exists": "appointment.meeting_url"
+     }
+    },
+    "title": "An hour before, no link yet"
    },
    {
     "id": "x_done",
@@ -423,7 +458,7 @@
    },
    {
     "from": "c0",
-    "to": "s1"
+    "to": "n_nolink"
    },
    {
     "from": "s1",
@@ -487,7 +522,7 @@
    },
    {
     "from": "m1",
-    "to": "x_done"
+    "to": "m1_nolink"
    },
    {
     "from": "b1",
@@ -599,6 +634,14 @@
    {
     "from": "rs",
     "to": "r24"
+   },
+   {
+    "from": "n_nolink",
+    "to": "s1"
+   },
+   {
+    "from": "m1_nolink",
+    "to": "x_done"
    }
   ]
  },

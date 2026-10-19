@@ -2,7 +2,7 @@ import type { PoolClient } from "pg";
 import { one } from "@/db/client";
 import { dispatchEvent, emitEvent } from "./dispatch";
 
-export type DispositionInput = { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; userId?: string | null; via?: string };
+export type DispositionInput = { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; userId?: string | null; via?: string; /** D186: why a DQ, in the end of day's words */ dqReason?: string };
 type OutcomeSource = "disposition" | "engine";
 
 /**
@@ -10,7 +10,7 @@ type OutcomeSource = "disposition" | "engine";
  * showed, call.held. Both the closer's form and a workflow step (a recording proves the show) land here. What the answer
  * does to the opportunity is Call outcome filed's (D88).
  */
-export async function applyOutcome(c: PoolClient, args: { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; userId?: string | null; dispositionId?: string | null; source: OutcomeSource; runId?: string | null; by?: string }): Promise<{ events: number; runs: number; outcome: string }> {
+export async function applyOutcome(c: PoolClient, args: { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; dqReason?: string; userId?: string | null; dispositionId?: string | null; source: OutcomeSource; runId?: string | null; by?: string }): Promise<{ events: number; runs: number; outcome: string }> {
   const a = await one<{ id: string; contact_id: string; opportunity_id: string | null; appointment_term: string; term_category: string; term_name: string }>(c,
     "select a.id, a.contact_id, a.opportunity_id, a.appointment_term, t.category as term_category, t.name as term_name from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1 and a.company_id=$2", [args.appointmentId, args.companyId]);
   if (!a) throw new Error("appointment not found");
@@ -26,7 +26,9 @@ export async function applyOutcome(c: PoolClient, args: { companyId: string; app
   const base = { company_id: args.companyId, contact_id: a.contact_id, opportunity_id: a.opportunity_id, appointment_id: a.id, source: args.source, run_id: args.runId ?? null };
   const ctx = { contact: { id: a.contact_id }, appointment: { id: a.id, term: { category: a.term_category, name: a.term_name } } };
   let events = 0, runs = 0;
-  const ev1 = await emitEvent(c, { ...base, event_type: "appointment.outcome", data: { outcome: outcome.category, label: outcome.name, by: args.by ?? args.source, previous_outcome: before?.outcome ?? null, previous_call_outcome: before?.call_outcome ?? null } }); events++;
+  const ev1 = await emitEvent(c, { ...base, event_type: "appointment.outcome", data: { outcome: outcome.category, label: outcome.name, by: args.by ?? args.source, previous_outcome: before?.outcome ?? null, previous_call_outcome: before?.call_outcome ?? null,
+    // D186: what the end of day wrote about the call, for a workflow that keeps it on a record (a Discovery Call); only when given
+    ...(args.notes ? { notes: args.notes } : {}), ...(args.dqReason ? { dq_reason: args.dqReason } : {}) } }); events++;
   runs += (await dispatchEvent(c, ev1, ctx)).length;
   if (outcome.category === "showed") {
     const ev2 = await emitEvent(c, { ...base, event_type: "call.held", data: { type: a.term_category, outcome: callOutcome?.category ?? null, notes: args.notes ? args.notes.slice(0, 500) : undefined, by: args.by ?? args.source } }); events++;
@@ -53,7 +55,7 @@ export async function recordDisposition(c: PoolClient, d: DispositionInput): Pro
   if (!form) form = await one<{ id: string; version: number }>(c, `insert into forms (company_id, purpose, appointment_term, name, fields) values ($1,'disposition',$2,'Disposition',$3) returning id, version`,
     [d.companyId, a.appointment_term, JSON.stringify([{ key: "outcome", label: "Did they show?", type: "enum", required: true }, { key: "call_outcome", label: "How did the call go?", type: "enum" }, { key: "notes", label: "Notes", type: "text" }])]);
   const sub = await one<{ id: string }>(c, `insert into form_submissions (company_id, form_id, form_version, contact_id, appointment_id, submitted_by, answers) values ($1,$2,$3,$4,$5,$6,$7) returning id`,
-    [d.companyId, form!.id, form!.version, a.contact_id, a.id, d.userId ?? null, { outcome: outcome.category, call_outcome: callOutcome?.category ?? null, notes: d.notes ?? "", ...(d.via ? { via: d.via } : {}) }]);
-  const r = await applyOutcome(c, { companyId: d.companyId, appointmentId: d.appointmentId, outcomeTermId: d.outcomeTermId, callOutcomeTermId: d.callOutcomeTermId, notes: d.notes, userId: d.userId, dispositionId: sub!.id, source: "disposition" });
+    [d.companyId, form!.id, form!.version, a.contact_id, a.id, d.userId ?? null, { outcome: outcome.category, call_outcome: callOutcome?.category ?? null, notes: d.notes ?? "", ...(d.dqReason ? { dq_reason: d.dqReason } : {}), ...(d.via ? { via: d.via } : {}) }]);
+  const r = await applyOutcome(c, { companyId: d.companyId, appointmentId: d.appointmentId, outcomeTermId: d.outcomeTermId, callOutcomeTermId: d.callOutcomeTermId, notes: d.notes, dqReason: d.dqReason, userId: d.userId, dispositionId: sub!.id, source: "disposition" });
   return { events: r.events, runs: r.runs };
 }

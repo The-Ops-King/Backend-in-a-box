@@ -108,9 +108,14 @@
     "if_missing": "skip",
     "properties": {
      "outcome": "{{vars.att}}",
-     "call_result": "{{vars.res}}"
+     "call_result": "{{vars.res}}",
+     "dq_reason": "{{event.dq_reason | default:}}",
+     "notes": "{{event.notes | default:}}"
     },
-    "title": "The Discovery Call record: showed or no-show, and the result"
+    "clear": [
+     "dq_reason"
+    ],
+    "title": "The Discovery Call record: showed or no-show, the result, why a DQ and the notes"
    },
    {
     "id": "b1",

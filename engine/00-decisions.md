@@ -5486,3 +5486,26 @@ those to his end of day as well." Outbound answers: set, follow up, DQ, not inte
 - A triage call's row files as before, through its booking (Triage call filed).
 
 Tests: `eod.setter-calls.test.ts`.
+
+
+## D186. Nelly's go-live fixes: the ask in the booking channel, a missing meeting link, a DQ's reason on the record (2026-10-19)
+
+Tyler, reviewing her three new workflows: the keep / cancel / reschedule ask "not dating-call-recordings, that should be in call
+bookings"; "fix the reschedule thing"; on a booking with no meeting link, "I should have been alerted way sooner ... I don't want
+to drop the link line unless the link is blank, and alert the person in slack that X person has no link please send manually";
+and on the Discovery Call, "when he submits his EOD it should update the discovery calls with what happened and why the person
+was DQ." Dating only (the application-triage playbook is hers alone).
+
+- Both pre-call copies: the ask posts in the booking channel and says 🔁 sends nothing (the call is moved by hand).
+- A pre-call's words may carry `hourNoLink` (the closing call's does; the triage call's has no link): the booking with no
+  meeting link is said at once, right after the person is in GHL, in `slack.channel.no_link` (a setting; Dating's is
+  #dating-calls-booked), the closer tagged; the hour-before text with the link goes only when there is one, else `hourNoLink`
+  ("I'll send you the link here shortly"). A reschedule starts the copy again, so a new time is checked again.
+- The Discovery Call object gets `dq_reason` (text) and `notes` (large text) in GHL (installs/dating/ghl-setup.json). Setter call
+  filed writes the outbound row's DQ reason and notes; Triage call filed the triage row's. A later answer that is not a DQ
+  empties the reason.
+- Engine (every offer, additive): `appointment.outcome` carries the end of day's `notes` and `dq_reason` when it has them, and
+  the disposition keeps the reason. No saved workflow of any offer reads either, so none changes.
+
+Tests: `dating-copies.test.ts` (D186); the full suite against a local database (one ordering failure in
+`health.slack-scope.test.ts` that fails the same without this change).

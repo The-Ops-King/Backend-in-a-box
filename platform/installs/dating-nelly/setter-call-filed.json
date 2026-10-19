@@ -49,8 +49,13 @@
      "setter": "{{event.setter | default:}}",
      "outcome": "showed",
      "recording_url": "{{event.recording_url | default:}}",
-     "call_result": "{{event.result}}"
+     "call_result": "{{event.result}}",
+     "dq_reason": "{{event.dq_reason | default:}}",
+     "notes": "{{event.note | default:}}"
     },
+    "clear": [
+     "dq_reason"
+    ],
     "relate": [
      {
       "association": "{{crm.assoc_discovery_call_contact}}",
