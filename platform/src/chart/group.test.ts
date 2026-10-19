@@ -50,13 +50,13 @@ describe("D114: a run of value-keeping steps is one box", () => {
   it("PMU's Call booked: each booking path's remembered values are a box; a lone one stays a step", () => {
     const chart = chartOf(pmu("call-booked"), company); const g = grouped(chart);
     const boxes = g.nodes.filter((n) => n.group).map((n) => [n.group, n.title]);
-    expect(boxes).toEqual([[["s1", "s2", "s2b", "s_suffix"], "Remember the setter line, booking kind, booking source and card's name ending (4 steps)"], [["b1", "b2", "b2b"], "Remember the setter line, booking kind and booking source (3 steps)"]]);
+    expect(boxes).toEqual([[["s1", "s2", "s2b", "s_suffix"], "Remember the setter line, booking kind, booking source and card's name ending (4 steps)"], [["b1", "b2", "b2b"], "Remember the setter line, booking kind and booking source (3 steps)"], [["v_textoff", "v_nophone"], "Remember the no text reason (2 steps)"]]);
     // b_suffix comes after the contact update: alone, it is drawn as itself
     expect(g.nodes.find((n) => n.id === "b_suffix")?.group).toBeUndefined();
     expect(tidyOf(chart).tidy.problems).toEqual([]);
     // the template's two paths keep the same values: told apart by the way into them
     expect(grouped(chartOf(template("call-booked"), company)).nodes.filter((n) => n.group).map((n) => n.title)).toEqual([
-      "Remember the setter line, booking kind and booking source, when self booked (3 steps)", "Remember the setter line, booking kind and booking source, when setter booked (3 steps)"]);
+      "Remember the setter line, booking kind and booking source, when self booked (3 steps)", "Remember the setter line, booking kind and booking source, when setter booked (3 steps)", "Remember the no text reason (2 steps)"]);
   });
 
   it("only values kept and lookups are grouped: a wait, Jev's read, a fork or a step that acts is never inside a box", () => {

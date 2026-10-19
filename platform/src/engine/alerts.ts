@@ -184,6 +184,9 @@ export const ENGINE_SCOPE = "engine";
 /** An alert about the engine itself: no company, or a company's `engine:` key (its ticks stopped). It goes to the operator's webhook, never through the company's workflows, which do not run while its ticks are stuck. */
 const aboutEngine = (a: Pick<AlertRow, "company_id" | "key">) => !a.company_id || a.key.startsWith("engine:");
 
+/** D189: a calendar's open times (the hourly sweep's or the booking-time check's): Calendar availability says these, Health check the rest. */
+const AVAILABILITY = /^health:(calendly_calendars|ghl_calendars|availability)(:|$)/;
+
 /**
  * D88 (A7): what is due is an event for the company's workflows, not a post: `alert.raised` the first time, `alert.repeated`
  * once it has been open `alerts.repeat_minutes` since it was last said, `alert.resolved` once it cleared. The Health check
@@ -235,7 +238,7 @@ export async function announceDue(c: PoolClient, adapters: Adapters, now = new D
       const d = a.detail as { fix?: { label: string }; link?: string; link_label?: string; thread?: string };
       const link = a.href ? `${base()}${a.href}` : null;
       const ev = await emitEvent(c, { company_id: a.company_id, contact_id: null, opportunity_id: null, appointment_id: null, event_type: type, source: "engine", data: {
-        alert_id: a.id, key: a.key, level: a.level, source: a.source, kind: alertKind(a), text: a.text, detail: a.detail, company: a.company, href: a.href, link,
+        alert_id: a.id, key: a.key, level: a.level, source: a.source, kind: alertKind(a), ...(AVAILABILITY.test(a.key) ? { topic: "availability" } : {}), text: a.text, detail: a.detail, company: a.company, href: a.href, link,
         ...(link && d.fix ? { fix_link: `${link}#fix`, fix_label: d.fix.label } : {}), ...(d.link ? { extra_link: d.link, extra_label: d.link_label ?? null } : {}), ...(d.thread ? { thread: d.thread } : {}),
         hours_open: hoursOpen(a.first_seen, a.resolved_at ?? now), open_for: openFor(a.first_seen, a.resolved_at ?? now), first_seen: a.first_seen.toISOString(), ...(a.resolved_at ? { resolved_at: a.resolved_at.toISOString() } : {}),
         channel: dest.channel, as_name: dest.as_name, as_icon: dest.as_icon } });

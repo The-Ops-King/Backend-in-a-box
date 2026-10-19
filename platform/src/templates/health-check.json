@@ -5,7 +5,7 @@
   "stage": "engine",
   "sort": 10,
   "origin": "spec",
-  "description": "Every hour, a read-only sweep of every connection and every step's dependencies; a failed check is an alert that clears itself. Every alert is said here (D88): the engine collects and dedupes them and emits alert.raised, alert.repeated (every alerts.repeat_minutes, 60) and alert.resolved; this workflow posts the alert to the alerts channel (the sweep's own channel for its findings), its still-open line in the thread, and the resolved line with a ✅. The post carries a Resolve button, and Retry when the alert is a step skipped after its tries (D93): a manager's press is handled by the Slack interactions door. Silent while everything works. Slack only. The hourly ledger drift questions (D73, D75, D76, D83) are worded here too, one line per question, by kind.",
+  "description": "Every hour, a read-only sweep of every connection and every step's dependencies; a failed check is an alert that clears itself. Every alert is said here (D88): the engine collects and dedupes them and emits alert.raised, alert.repeated (every alerts.repeat_minutes, 60) and alert.resolved; this workflow posts the alert to the alerts channel (the sweep's own channel for its findings), its still-open line in the thread, and the resolved line with a ✅. The post carries a Resolve button, and Retry when the alert is a step skipped after its tries (D93): a manager's press is handled by the Slack interactions door. Silent while everything works. Slack only. The hourly ledger drift questions (D73, D75, D76, D83) are worded here too, one line per question, by kind. A calendar's open times are Calendar availability's to say (D189).",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -30,17 +30,35 @@
       {
         "id": "t_raised",
         "type": "trigger",
-        "event": "alert.raised"
+        "event": "alert.raised",
+        "match": {
+          "neq": [
+            "{{event.topic}}",
+            "availability"
+          ]
+        }
       },
       {
         "id": "t_repeated",
         "type": "trigger",
-        "event": "alert.repeated"
+        "event": "alert.repeated",
+        "match": {
+          "neq": [
+            "{{event.topic}}",
+            "availability"
+          ]
+        }
       },
       {
         "id": "t_resolved",
         "type": "trigger",
-        "event": "alert.resolved"
+        "event": "alert.resolved",
+        "match": {
+          "neq": [
+            "{{event.topic}}",
+            "availability"
+          ]
+        }
       },
       {
         "id": "a_mark",

@@ -232,7 +232,7 @@ describe.skipIf(!process.env.DATABASE_URL)("sweep 2026-10-10 on a Calendly compa
       await c.query("insert into slack_connections (company_id, team_id, bot_token, channels) values ($1,'T1',$2,'{}')", [companyId, encrypt("xoxb-fake")]);
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.bookings','channel',$2)", [companyId, Buffer.from("CBOOK")]);
     });
-    ghlContacts = [...ghlContacts, person("GC-RAY", "ray@x.com", "Ray")];
+    ghlContacts = [...ghlContacts, person("GC-RAY", "ray@x.com", "Ray", { phone: "+15205550142" })];   // D188: a phone, so no ⚠️ note joins the booking thread these lines are read from
     await pollAll(fake);
     events = [appt("EV-RAY", day(1, 10), { invitee: { email: "ray@x.com", firstName: "Ray", lastName: "Sweep", timezone: TZ } })];
     await pollAll(fake); await tick(fake, undefined, companyId);
