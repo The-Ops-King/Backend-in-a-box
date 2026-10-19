@@ -15,8 +15,9 @@ chat window here. This is a super dangerous situation which needs protections."
   and a check that nothing already running there changes in a way he did not ask for.
 - A template change or a code default never reaches an offer that already exists. Bringing it to an offer is a separate change
   Tyler asks for by name.
-- Never re-run `/api/admin/install` or `/api/admin/templates` on an existing offer to pick up a template change. Both upgrade an
-  untouched copy to the newest template today (`installTemplates`, src/engine/install.ts) until open item 50 is built.
+- A template change reaches an existing offer only through `POST /api/admin/workflows/definition` with `fromTemplate: true`,
+  for the one workflow Tyler named, dry run first (D147). Install and `/api/admin/templates` never change, rename or upgrade a
+  workflow an offer already has; they only add the templates they name.
 - Engine code (how a step works) runs every offer. A change there must leave every existing offer's saved workflows doing what
   they did (hold them with frozen fixtures, as src/engine/fixtures/before-d141 does). If it cannot, tell Tyler before building it.
 - The dashboard never changes more than one offer at a time.

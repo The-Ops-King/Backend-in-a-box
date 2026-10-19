@@ -136,17 +136,29 @@ describe.skipIf(!process.env.DATABASE_URL)("saving a company's whole workflow de
     expect(b.triggers).toEqual([{ node_id: "t1", event_type: "appointment.status_changed" }]);
   });
 
-  it("a later template upgrade leaves the diverged copy alone and upgrades the untouched one", async () => {
-    const a = await snapshot("defa");
+  it("D147: a later template change reaches neither copy through install, the edited one nor the untouched one", async () => {
+    const a = await snapshot("defa"), b = await snapshot("defb");
     await asOperator((c) => c.query("update workflows set template_version=0 where company_id = any($1::uuid[])", [[ids.defa, ids.defb]]));
     const outA = await asOperator((c) => installTemplates(c, ids.defa, ["call-cancelled"], { existed: true }));
     const outB = await asOperator((c) => installTemplates(c, ids.defb, ["call-cancelled"], { existed: true }));
-    expect(outA[0]).toMatch(/edited since install, left alone/);
-    expect(outB[0]).toMatch(/upgraded v1→v2/);
+    expect(outA[0]).toMatch(/already on this offer, left as it is; template v\d+ is newer/);
+    expect(outB[0]).toMatch(/already on this offer, left as it is; template v\d+ is newer/);
+    expect((await snapshot("defb")).w.current_version).toBe(b.w.current_version);
     const a2 = await snapshot("defa");
     expect(a2.w.current_version).toBe(a.w.current_version);
     expect(a2.def).toEqual(a.def);
     expect(a2.triggers).toEqual(a.triggers);
+  });
+
+  it("D147: the route brings the template to one named copy: fromTemplate with a definition is refused; a dry run saves nothing; the save is the template's version, not an edit", async () => {
+    const b = await snapshot("defb");
+    expect((await post({ company: "defb", workflow: b.w.id, fromTemplate: true, definition: b.def, note: "both" })).status).toBe(400);
+    const dry = await post({ company: "defb", workflow: b.w.id, fromTemplate: true, dryRun: true, note: "bring the template" });
+    expect(await dry.json()).toMatchObject({ ok: true, dryRun: true, template: { slug: "call-cancelled" } });
+    expect((await snapshot("defb")).w.current_version).toBe(b.w.current_version);
+    const saved = await (await post({ company: "defb", workflow: b.w.id, fromTemplate: true, note: "bring the template", by: "Tyler" })).json();
+    expect(saved).toMatchObject({ ok: true, dryRun: false, template: { slug: "call-cancelled" } });
+    expect(await asOperator((c) => one(c, "select diverged, template_version from workflows where id=$1", [b.w.id]))).toEqual({ diverged: false, template_version: saved.template.version });
   });
 
   it("a workflow that is ON is not saved into needing a binding the company lacks", async () => {

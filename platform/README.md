@@ -334,10 +334,12 @@ wrap-up is shown on `/app/c/<slug>/wrap-ups` exactly as sent (ghost: posted with
 `POST /api/admin/reports { company, kind }` starts that kind's wrap-up now (the workflow whose trigger is `t_<kind>`)
 with the period in progress (today so far / this week so far / this month so far).
 
-`POST /api/admin/templates { company, templates? }` (D96) puts the shipped templates on an existing company and
-touches nothing else (no bindings, calendars, Slack or secrets): new ones install off, untouched copies upgrade,
-edited copies are left alone, a template that takes one over follows the handover above. Without `templates`: the
-ones the company has and any that take one of them over. A template change never needs the install file again.
+`POST /api/admin/templates { company, templates }` (D96, D147) puts the named shipped templates on an existing company
+and touches nothing else (no bindings, calendars, Slack or secrets): new ones install off, a template that takes one
+over follows the handover above, and a workflow the company already has is left exactly as it is (no upgrade, no
+rename). A re-run of `/api/admin/install` adds only the templates it names, likewise. A template change reaches an
+offer only one named workflow at a time: `POST /api/admin/workflows/definition { company, workflow, fromTemplate: true,
+note, dryRun: true }` shows the diff, the same without `dryRun` saves it (the copy is that template version again).
 
 **The weekly leaderboard** (D94) is its own workflow (`weekly-leaderboard`): a schedule trigger (Monday 09:00 company
 time), a `leaderboard` step (`period` in plain words, `last week` by default; `into` → `vars.<into>` with `closers`,

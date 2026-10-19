@@ -1,4 +1,4 @@
-/** Re-running install upgrades a company's untouched copy of a template whose definition changed; an edited copy is left alone; a stale copy is flagged and skipped, never fatal. */
+/** D147: re-running install never changes a workflow the company has; a newer template reaches one copy only when that copy is saved from the template by name. A stale copy is flagged and skipped, never fatal. */
 import { loadCompany } from "@/engine/context";
 import { qualifyConfig, salesCallConfig } from "@/engine/ghl-metrics";
 import { describe, it, expect, beforeAll } from "vitest";
@@ -9,6 +9,7 @@ import { companyReadiness } from "@/engine/readiness";
 import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { templates } from "@/templates";
 import { saveCopy } from "@/engine/copy";
+import { saveFromTemplate } from "@/engine/definitions";
 import type { Adapters, BookingRead } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -35,7 +36,7 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
     companyId = (await installCompany(base, fake)).companyId;
   });
 
-  it("a stored copy on an old node vocabulary is flagged by readiness and skipped by dispatch instead of crashing the poll; re-install upgrades it", async () => {
+  it("a stored copy on an old node vocabulary is flagged by readiness and skipped by dispatch instead of crashing the poll; a re-install leaves it; saving it from the template by name mends it", async () => {
     const wf = (await asOperator((c) => one<{ id: string; template_id: string }>(c, "select w.id, w.template_id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='new-lead'", [companyId])))!;
     // what Hair had on 2026-10-07: the first new-lead template, with a node type the engine has since renamed
     const old = JSON.parse(JSON.stringify(templates.find((t) => t.slug === "new-lead")!.definition)) as { nodes: { type: string }[] };
@@ -48,23 +49,31 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
     const started = await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: ct, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "test", data: {} }), { contact: { id: ct } }));
     expect(started).toEqual([]);   // skipped, not thrown
     expect(await asOperator((c) => one(c, "select 1 from audit_log where company_id=$1 and action='workflow.unparseable' and target_id=$2", [companyId, wf.id]))).toBeTruthy();
-    const again = await installCompany(base, fake);
-    expect(again.installed.find((s) => s.startsWith("new-lead"))).toMatch(/upgraded v1→v2/);
-    expect(again.installed.find((s) => s.startsWith("call-cancelled"))).toMatch(/already installed, current/);
-    const w2 = await asOperator((c) => one<{ current_version: number; template_version: number; enabled: boolean }>(c, "select current_version, template_version, enabled from workflows where id=$1", [wf.id]));
-    expect(w2).toMatchObject({ current_version: 2, enabled: true });
+    const again = await installCompany({ ...base, templates: undefined }, fake);
+    expect(again.installed).toEqual([]);   // D147: a re-run that names no template adds none and touches none
+    const named = await installCompany({ ...base, templates: ["new-lead", "call-cancelled"] }, fake);
+    expect(named.installed.find((s) => s.startsWith("new-lead"))).toMatch(/^new-lead \(already on this offer, left as it is; template v\d+ is newer, bring it by saving this workflow from the template\)$/);
+    expect(named.installed.find((s) => s.startsWith("call-cancelled"))).toBe("call-cancelled (already on this offer, left as it is)");
+    expect(await asOperator((c) => one<{ current_version: number }>(c, "select current_version from workflows where id=$1", [wf.id]))).toEqual({ current_version: 1 });
+    const dry = await asOperator((c) => saveFromTemplate(c, { workflowId: wf.id, note: "bring the template", by: "Tyler", dryRun: true }));
+    expect(dry).toMatchObject({ ok: true, saved: false, dryRun: true, version: 2 });
+    expect(await asOperator((c) => one<{ current_version: number }>(c, "select current_version from workflows where id=$1", [wf.id]))).toEqual({ current_version: 1 });
+    const saved = await asOperator((c) => saveFromTemplate(c, { workflowId: wf.id, note: "bring the template", by: "Tyler" }));
+    expect(saved).toMatchObject({ ok: true, saved: true, version: 2, template: { slug: "new-lead" } });
+    const w2 = await asOperator((c) => one<{ current_version: number; template_version: number; enabled: boolean; diverged: boolean }>(c, "select current_version, template_version, enabled, diverged from workflows where id=$1", [wf.id]));
+    expect(w2).toMatchObject({ current_version: 2, enabled: true, diverged: false, template_version: (saved as { template: { version: number } }).template.version });
     expect((await asOperator((c) => companyReadiness(c, companyId, "/c/upg"))).issues.some((i) => /no longer runs/.test(i.text))).toBe(false);
     const started2 = await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: ct, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "test", data: {} }), { contact: { id: ct } }));
     expect(started2).toHaveLength(1);
   });
 
-  it("upgrading a workflow that already has runs keeps their trigger row (no FK failure, same trigger id)", async () => {
-    const wf = (await asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='new-lead'", [companyId])))!;
+  it("saving from the template a workflow that already has runs keeps their trigger row (no FK failure, same trigger id)", async () => {
+    const wf = (await asOperator((c) => one<{ id: string; current_version: number }>(c, "select w.id, w.current_version from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='new-lead'", [companyId])))!;
     const before = await asOperator((c) => one<{ id: string; n: string }>(c, "select t.id, count(r.id)::text as n from workflow_triggers t left join runs r on r.trigger_id=t.id where t.workflow_id=$1 group by t.id", [wf.id]));
     expect(Number(before!.n)).toBeGreaterThan(0);   // the previous test started a run on this trigger
-    await asOperator((c) => c.query("update workflows set template_version=0 where id=$1", [wf.id]));   // pretend the template moved on again
-    const again = await installCompany(base, fake);
-    expect(again.installed.find((s) => s.startsWith("new-lead"))).toMatch(/upgraded/);
+    // the copy drifts from the template (a step's title), so the save is a real new version
+    await asOperator((c) => c.query("update workflow_versions set definition=jsonb_set(definition, '{nodes,1,title}', '\"An older title\"') where workflow_id=$1 and version=$2", [wf.id, wf.current_version]));
+    expect(await asOperator((c) => saveFromTemplate(c, { workflowId: wf.id, note: "bring the template", by: "Tyler" }))).toMatchObject({ ok: true, saved: true, version: wf.current_version + 1 });
     const after = await asOperator((c) => one<{ id: string }>(c, "select id from workflow_triggers where workflow_id=$1", [wf.id]));
     expect(after!.id).toBe(before!.id);
   });
@@ -110,8 +119,8 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
   it("an edited copy is left alone when the template moves on", async () => {
     const wf = (await asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='call-cancelled'", [companyId])))!;
     await asOperator((c) => c.query("update workflows set diverged=true, diverged_at=now(), template_version=0 where id=$1", [wf.id]));
-    const r = await installCompany(base, fake);
-    expect(r.installed.find((s) => s.startsWith("call-cancelled"))).toMatch(/edited since install, left alone/);
+    const r = await installCompany({ ...base, templates: ["call-cancelled"] }, fake);
+    expect(r.installed.find((s) => s.startsWith("call-cancelled"))).toMatch(/already on this offer, left as it is; template v\d+ is newer/);
     expect((await asOperator((c) => one<{ current_version: number }>(c, "select current_version from workflows where id=$1", [wf.id])))!.current_version).toBe(1);
     const versions = await asOperator((c) => many(c, "select 1 from workflow_versions where workflow_id=$1", [wf.id]));
     expect(versions).toHaveLength(1);
@@ -134,11 +143,11 @@ describe.skipIf(!process.env.DATABASE_URL)("editing copy", () => {
     const def = await asOperator((c) => one<{ definition: { nodes: { id: string; template?: string }[] } }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [stl.id, stl.current_version + 1]));
     expect(def!.definition.nodes.find((n) => n.id === "n1")!.template).toContain("grab a time");
     const r = await installCompany({ ...base, templates: ["speed-to-lead"] }, fake);
-    expect(r.installed[0]).toMatch(/edited since install, left alone/);
-    // D108: an edited copy's steps stay its own, its name follows the template (nothing renames a company's copy)
+    expect(r.installed[0]).toBe("speed-to-lead (already on this offer, left as it is)");
+    // D147: nothing renames an offer's workflow either
     await asOperator((c) => c.query("update workflows set name='An old name' where id=$1", [stl.id]));
     await installCompany({ ...base, templates: ["speed-to-lead"] }, fake);
-    expect((await asOperator((c) => one<{ name: string }>(c, "select name from workflows where id=$1", [stl.id])))!.name).toBe(templates.find((t) => t.slug === "speed-to-lead")!.name);
+    expect((await asOperator((c) => one<{ name: string }>(c, "select name from workflows where id=$1", [stl.id])))!.name).toBe("An old name");
     expect(wf.id).toBeTruthy();
   });
 
@@ -161,7 +170,7 @@ describe.skipIf(!process.env.DATABASE_URL)("editing copy", () => {
     expect(rows).toEqual([{ slug: "daily-wrap-up", enabled: true, mode: "test" }, { slug: "monthly-wrap-up", enabled: true, mode: "test" }, { slug: "weekly-wrap-up", enabled: true, mode: "test" }, { slug: "wrap-ups", enabled: false, mode: "test" }]);
     expect(await asOperator((c) => one(c, "select 1 from audit_log where company_id=$1 and action='workflow.replaced' and target_id=$2", [companyId, old]))).toBeTruthy();
     // a second run changes nothing: the old one stays off, the new ones are current
-    expect(await asOperator((c) => installTemplates(c, companyId, wraps, { existed: true }))).toEqual(wraps.map((s) => `${s} (already installed, current)`));
+    expect(await asOperator((c) => installTemplates(c, companyId, wraps, { existed: true }))).toEqual(wraps.map((s) => `${s} (already on this offer, left as it is)`));
     // an edited old copy is the company's: it stays on and the new ones install off, so nothing posts twice
     await asOperator(async (c) => {
       await dropCopies(c, wraps);

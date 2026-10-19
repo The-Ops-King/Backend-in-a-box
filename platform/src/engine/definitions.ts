@@ -6,7 +6,7 @@ import { EDITABLE, validateCopy } from "./copy";
 import { OFFSET } from "./edits";
 import { KNOWN_ROOTS, referencedPaths } from "./template";
 import { workflowRefs } from "./coverage";
-import { canon, syncTriggers } from "./install";
+import { canon, syncTemplateRow, syncTriggers } from "./install";
 import { chartLayoutOf, notDrawable, type Layout } from "@/api/chart-verdict";
 import { RETIRED_EVENTS } from "./describe";
 import { templates } from "@/templates";
@@ -119,7 +119,7 @@ export type SaveDefinitionResult =
  * Missing required bindings are a warning while the workflow is off (it can be saved; readiness refuses turning it on), and a
  * refusal while it is on: saving would leave a workflow that is running without what its steps read.
  */
-export async function saveDefinition(c: PoolClient, args: { workflowId: string; definition: unknown; note: string; by?: string; dryRun?: boolean }): Promise<SaveDefinitionResult> {
+export async function saveDefinition(c: PoolClient, args: { workflowId: string; definition: unknown; note: string; by?: string; dryRun?: boolean; /** D147: the copy saved is this template version, not an edit */ asTemplate?: number }): Promise<SaveDefinitionResult> {
   if (!args.note?.trim()) return { ok: false, status: 400, why: "a note is required: say what changed and why" };
   const w = await one<{ id: string; company_id: string; current_version: number; enabled: boolean }>(c, "select id, company_id, current_version, enabled from workflows where id=$1 for update", [args.workflowId]);
   if (!w) return { ok: false, status: 404, why: "workflow not found" };
@@ -133,16 +133,34 @@ export async function saveDefinition(c: PoolClient, args: { workflowId: string; 
   // a stored copy on an older vocabulary does not parse: everything in the new one counts as changed
   const diff = before.success ? diffDefinitions(before.data, v.def) : diffDefinitions({ ...v.def, nodes: [], edges: [] }, v.def);
   const base = { from: w.current_version, diff, missing: v.missing, warnings: v.warnings, layout: chart.layout };
-  if (before.success && isEmpty(diff)) return { ok: true, saved: false, dryRun: !!args.dryRun, version: w.current_version, ...base };
+  if (before.success && isEmpty(diff)) {
+    if (args.asTemplate !== undefined && !args.dryRun) await c.query("update workflows set template_version=$2, diverged=false, diverged_at=null where id=$1 and template_version is distinct from $2", [w.id, args.asTemplate]);
+    return { ok: true, saved: false, dryRun: !!args.dryRun, version: w.current_version, ...base };
+  }
   if (w.enabled && v.missing.length) return { ok: false, status: 409, why: `it is ON and would be missing ${v.missing.join(", ")}: bind them first, or turn it off and save`, missing: v.missing };
   if (args.dryRun) return { ok: true, saved: false, dryRun: true, version: w.current_version + 1, ...base };
   const next = w.current_version + 1;
   await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [w.id, next, v.def, v.manifest, args.note.trim()]);
-  await c.query("update workflows set current_version=$2, diverged=true, diverged_at=coalesce(diverged_at, now()), reentry_policy=$3, reentry_window=$4 where id=$1", [w.id, next, v.def.reentry, v.def.reentry_window ?? null]);
+  if (args.asTemplate !== undefined) await c.query("update workflows set current_version=$2, template_version=$5, diverged=false, diverged_at=null, reentry_policy=$3, reentry_window=$4 where id=$1", [w.id, next, v.def.reentry, v.def.reentry_window ?? null, args.asTemplate]);
+  else await c.query("update workflows set current_version=$2, diverged=true, diverged_at=coalesce(diverged_at, now()), reentry_policy=$3, reentry_window=$4 where id=$1", [w.id, next, v.def.reentry, v.def.reentry_window ?? null]);
   await syncTriggers(c, w.company_id, w.id, v.def);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.definition_saved','workflow',$2,$3,$4)",
-    [w.company_id, w.id, { version: w.current_version }, { version: next, note: args.note.trim(), by: args.by ?? "operator", diff, ...(v.missing.length ? { missing: v.missing } : {}) }]);
+    [w.company_id, w.id, { version: w.current_version }, { version: next, note: args.note.trim(), by: args.by ?? "operator", diff, ...(args.asTemplate !== undefined ? { template_version: args.asTemplate } : {}), ...(v.missing.length ? { missing: v.missing } : {}) }]);
   return { ok: true, saved: true, dryRun: false, version: next, ...base };
+}
+
+/**
+ * D147: bring the shipped template to one workflow of one offer, the only way a template change reaches an offer that already
+ * has the workflow. Asked for by name (dry run first); a new version of that copy, which is then the template's version again.
+ */
+export async function saveFromTemplate(c: PoolClient, args: { workflowId: string; note: string; by?: string; dryRun?: boolean }): Promise<SaveDefinitionResult & { template?: { slug: string; version: number } }> {
+  const w = await one<{ slug: string | null }>(c, "select t.slug from workflows w left join workflow_templates t on t.id=w.template_id where w.id=$1", [args.workflowId]);
+  if (!w) return { ok: false, status: 404, why: "workflow not found" };
+  const t = templates.find((x) => x.slug === w.slug);
+  if (!t) return { ok: false, status: 409, why: "this workflow is the company's own, not a copy of a shipped template" };
+  const tpl = await syncTemplateRow(c, t);
+  const r = await saveDefinition(c, { workflowId: args.workflowId, definition: t.definition, note: args.note, by: args.by, dryRun: args.dryRun, asTemplate: tpl.version });
+  return r.ok ? { ...r, template: { slug: t.slug, version: tpl.version } } : r;
 }
 
 export type CreateWorkflowResult =

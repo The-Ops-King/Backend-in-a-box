@@ -4914,3 +4914,17 @@ test channel; the real channels it is not in yet are one go-live note ("Before g
 Once anything posts live, every bound channel is checked as before. People not in Slack (D140) are unchanged.
 
 Tests: `health.slack-scope.test.ts` (D146).
+
+## D147. Install never changes a workflow an offer has; a template reaches an offer one named workflow at a time (2026-10-19)
+
+Tyler: "every offer is its own offer ... the minute it's copied over from template to live offer, it is no longer a template."
+Before this, every install or `/api/admin/templates` run upgraded each untouched copy to the newest template and renamed every
+copy to the template's name (PMU had six upgraded on 2026-10-17 that way, none named by Tyler).
+- `installTemplates` leaves a workflow the company has exactly as it is and says so ("left as it is; template vN is newer").
+- A re-run of install adds only the templates it names (a new company still gets them all); `/api/admin/templates` requires
+  the list.
+- `POST /api/admin/workflows/definition { fromTemplate: true }` saves the shipped template onto that one copy (dry run first):
+  a new version, `template_version` set, `diverged` false. `syncTemplateRow` keeps the catalog row following the code.
+- Part 2 (open item 50): every setting an offer relies on written onto it, so a code default never reaches it.
+
+Tests: `install.upgrade.test.ts`, `definitions.test.ts` (D147), `booking-card.test.ts`, `flowmode.test.ts`, `dating-booked.test.ts`.
