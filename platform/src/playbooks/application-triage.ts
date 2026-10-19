@@ -164,9 +164,10 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
       if (!w.hourNoLink.trim()) throw new Error(`words.preCall.${t.key}.hourNoLink is empty`);
       if (!w.hour.includes("{{appointment.meeting_url}}")) throw new Error(`words.preCall.${t.key}: hourNoLink without a link in the hour text`);
       const noLink = { not: { exists: "appointment.meeting_url" } };
-      after(d, "c0", { id: "n_nolink", type: "slack_post", channel: "{{slack.channel.no_link}}", only_if: noLink, as: { name: "No meeting link", icon: ":link:" },
-        template: `{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s ${t.card} {{appointment.starts_at | date_company}} has no meeting link in Calendly. Please send them the link.`,
-        title: "No meeting link: tell the closer now" });
+      const said = `{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s ${t.card} {{appointment.starts_at | date_company}} has no meeting link in Calendly. Please send them the link.`;
+      // Tyler: "let's have no-link alert to go to sales booked and alert": one post in each, each channel its own setting
+      after(d, "c0", { id: "n_nolink", type: "slack_post", channel: "{{slack.channel.no_link}}", only_if: noLink, as: { name: "No meeting link", icon: ":link:" }, template: said, title: "No meeting link: tell the closer in the booking channel" });
+      after(d, "n_nolink", { id: "n_nolink_alert", type: "slack_post", channel: "{{slack.channel.no_link_alerts}}", only_if: noLink, as: { name: "No meeting link", icon: ":link:" }, template: said, title: "No meeting link: and in the alerts channel" });
       node(d, "m1").only_if = { exists: "appointment.meeting_url" };
       after(d, "m1", { id: "m1_nolink", type: "send_sms", template: w.hourNoLink, validity: node(d, "m1").validity, on_stale: "skip", only_if: noLink, title: "An hour before, no link yet" });
     }
