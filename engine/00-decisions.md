@@ -4928,3 +4928,16 @@ copy to the template's name (PMU had six upgraded on 2026-10-17 that way, none n
 - Part 2 (open item 50): every setting an offer relies on written onto it, so a code default never reaches it.
 
 Tests: `install.upgrade.test.ts`, `definitions.test.ts` (D147), `booking-card.test.ts`, `flowmode.test.ts`, `dating-booked.test.ts`.
+
+## D148. A calendar the engine does not watch; PMU's follow-up calls get no pre-call reminders (2026-10-19)
+
+Tyler, on the PMU alert "availability cannot be read" (Mary's old personal "Beauty Moguls Demo Call", no active host in
+Calendly, never booked): "Marys link you don't watch, but don't remove it from calendly." And: "Carly's strat call is follow up
+and reschedule so they don't get all the automation reminders."
+- An install file may map a calendar `"ignore"`: the engine sets it inactive (no polling, no health check) and touches nothing
+  at the source. Mapped again, it is watched again.
+- PMU: Mary's link is `"ignore"`. Carly's "Beauty Moguls Strategy Call" is its own call type, "Follow-up call", still a closing
+  call (its card, its Sales Call, the end of day); PMU's Pre-call sequence starts on closing calls that are not Follow-up calls
+  (saved on PMU as version 3; `installs/pmu/build.py` and the repo copy carry the same triggers).
+
+Tests: `install.upgrade.test.ts` (D148).

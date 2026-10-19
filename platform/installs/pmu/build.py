@@ -117,6 +117,8 @@ out['payment-recorded']=(d,"PMU: payments go on PMU's Cash object; the card move
 
 # Pre-call sequence: the card follows the confirmation
 d=load('pre-call-sequence')
+# D148: Carly's Strategy Call (call type Follow-up call) is a follow-up or a reschedule: no pre-call reminders for it
+for t in ('t1','t2'): node(d,t)['match']={'and':[{'eq':['{{appointment.term.category}}','closing']},{'neq':['{{appointment.term.name}}','Follow-up call']}]}
 after(d,'n_conf',{'id':'k_conf','type':'pipeline_card','title':'Card → Call Confirmed','pipeline':CLOSER,'stage':'{{crm.stage_closer_confirmed}}','if_missing':'skip','pick':'latest'})
 after(d,'n_unc',{'id':'k_unc','type':'pipeline_card','title':'No reply in 4 hours: card → Unresponsive - Call Unconfirmed','pipeline':CLOSER,'stage':'{{crm.stage_closer_unresponsive}}','if_missing':'skip','pick':'latest'})
 out['pre-call-sequence']=(d,"PMU: the card follows the confirmation: Call Confirmed when they confirm, Unresponsive - Call Unconfirmed when there is no reply in 4 hours")

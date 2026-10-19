@@ -21,6 +21,7 @@
     },
     "6f818f39-a3ae-47c8-a7d1-1d9f453686d5": {
       "term": "closing",
+      "name": "Follow-up call",
       "booking": "self"
     },
     "2d752cf4-2c47-4852-baa8-3cd1094215b6": {
@@ -28,11 +29,7 @@
       "name": "Demo call",
       "booking": "self"
     },
-    "289a599a-4cf5-447d-a1f6-f67ac21e5ec0": {
-      "term": "closing",
-      "name": "Demo call",
-      "booking": "self"
-    }
+    "289a599a-4cf5-447d-a1f6-f67ac21e5ec0": "ignore"
   },
   "closerCall": "6f818f39-a3ae-47c8-a7d1-1d9f453686d5",
   "bookingCalendar": "0f6f8816-7972-46ba-bbea-23ea0a84b1d6",

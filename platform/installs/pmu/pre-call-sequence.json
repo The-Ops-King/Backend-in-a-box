@@ -14,9 +14,19 @@
     "type": "trigger",
     "event": "appointment.booked",
     "match": {
-     "eq": [
-      "{{appointment.term.category}}",
-      "closing"
+     "and": [
+      {
+       "eq": [
+        "{{appointment.term.category}}",
+        "closing"
+       ]
+      },
+      {
+       "neq": [
+        "{{appointment.term.name}}",
+        "Follow-up call"
+       ]
+      }
      ]
     }
    },
@@ -25,9 +35,19 @@
     "type": "trigger",
     "event": "appointment.rescheduled",
     "match": {
-     "eq": [
-      "{{appointment.term.category}}",
-      "closing"
+     "and": [
+      {
+       "eq": [
+        "{{appointment.term.category}}",
+        "closing"
+       ]
+      },
+      {
+       "neq": [
+        "{{appointment.term.name}}",
+        "Follow-up call"
+       ]
+      }
      ]
     }
    },
@@ -49,8 +69,8 @@
     "id": "e1",
     "type": "send_email",
     "kind": "transactional",
-    "subject": "You're booked: {{appointment.starts_at | date:ccc, LLL d 'at' h:mma}} \u2014 reply to lock it in",
-    "template": "[placeholder \u2014 day-one email]",
+    "subject": "You're booked: {{appointment.starts_at | date:ccc, LLL d 'at' h:mma}} — reply to lock it in",
+    "template": "[placeholder — day-one email]",
     "validity": {
      "anchor": "before_event",
      "min_lead": "5m"
@@ -61,7 +81,7 @@
     "id": "s1",
     "type": "send_sms",
     "kind": "transactional",
-    "template": "[placeholder \u2014 immediate text]",
+    "template": "[placeholder — immediate text]",
     "validity": {
      "anchor": "before_event",
      "min_lead": "15m"
@@ -114,7 +134,7 @@
    {
     "id": "k_conf",
     "type": "pipeline_card",
-    "title": "Card \u2192 Call Confirmed",
+    "title": "Card → Call Confirmed",
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_confirmed}}",
     "if_missing": "skip",
@@ -130,8 +150,8 @@
      "name": "Confirmed",
      "icon": ":white_check_mark:"
     },
-    "template": "\u2705 {{contact.first_name}}'s call {{appointment.starts_at | relative:auto}} is confirmed.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
-    "title": "React \u2705, note who confirmed",
+    "template": "✅ {{contact.first_name}}'s call {{appointment.starts_at | relative:auto}} is confirmed.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
+    "title": "React ✅, note who confirmed",
     "unreact": {
      "of": "tag:decision:{{appointment.id}}",
      "emojis": [
@@ -155,7 +175,7 @@
    {
     "id": "k_unc",
     "type": "pipeline_card",
-    "title": "No reply in 4 hours: card \u2192 Unresponsive - Call Unconfirmed",
+    "title": "No reply in 4 hours: card → Unresponsive - Call Unconfirmed",
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_unresponsive}}",
     "if_missing": "skip",
@@ -169,8 +189,8 @@
      "name": "Not confirmed yet",
      "icon": ":hourglass_flowing_sand:"
     },
-    "template": "\u23f3 No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going.",
-    "title": "React \u23f3 in the booking thread",
+    "template": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going.",
+    "title": "React ⏳ in the booking thread",
     "thread_of": "tag:appointment:{{appointment.id}}",
     "react": "hourglass_flowing_sand"
    },
@@ -185,12 +205,12 @@
     "id": "n_cx_slack",
     "type": "slack_post",
     "channel": "{{slack.channel.bookings}}",
-    "template": "\u274c {{contact.first_name}}'s call is cancelled.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
+    "template": "❌ {{contact.first_name}}'s call is cancelled.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
     "as": {
      "name": "Call cancelled",
      "icon": ":x:"
     },
-    "title": "React \u274c, note who cancelled",
+    "title": "React ❌, note who cancelled",
     "thread_of": "tag:appointment:{{appointment.id}}",
     "react": "x",
     "unreact": {
@@ -211,7 +231,7 @@
    {
     "id": "n_rs",
     "type": "send_sms",
-    "template": "No problem \u2014 grab a new time here: {{calendar.closer_call.url}}",
+    "template": "No problem — grab a new time here: {{calendar.closer_call.url}}",
     "title": "Text the rebooking link"
    },
    {
@@ -224,8 +244,8 @@
      "name": "Reschedule",
      "icon": ":repeat:"
     },
-    "template": "\ud83d\udd01 {{contact.first_name}} got the rebooking link.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
-    "title": "React \ud83d\udd01, note who decided",
+    "template": "🔁 {{contact.first_name}} got the rebooking link.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
+    "title": "React 🔁, note who decided",
     "unreact": {
      "of": "tag:decision:{{appointment.id}}",
      "emojis": [
@@ -261,7 +281,7 @@
      "name": "Keep, cancel or reschedule?",
      "icon": ":grey_question:"
     },
-    "template": "{{appointment.closer.mention | default:Heads up}} \u2014 {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap \u2705 keep the call, \u274c cancel it, \ud83d\udd01 reschedule (they get the rebooking link). The reminders keep going until you do.",
+    "template": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link). The reminders keep going until you do.",
     "title": "Ask the closer in the attention channel: keep, cancel or reschedule?",
     "tag": "decision:{{appointment.id}}",
     "offer": [
@@ -396,7 +416,7 @@
    {
     "id": "m72",
     "type": "send_sms",
-    "template": "[placeholder \u2014 3 days out]",
+    "template": "[placeholder — 3 days out]",
     "validity": {
      "anchor": "before_event",
      "min_lead": "60h"
@@ -417,7 +437,7 @@
    {
     "id": "m48",
     "type": "send_sms",
-    "template": "[placeholder \u2014 2 days out]",
+    "template": "[placeholder — 2 days out]",
     "validity": {
      "anchor": "before_event",
      "min_lead": "36h"
@@ -439,7 +459,7 @@
     "id": "m24e",
     "type": "send_email",
     "subject": "Tomorrow: your call with {{appointment.closer.first_name}}",
-    "template": "[placeholder \u2014 24-hour email]",
+    "template": "[placeholder — 24-hour email]",
     "validity": {
      "anchor": "before_event",
      "min_lead": "18h"
@@ -449,7 +469,7 @@
    {
     "id": "m24s",
     "type": "send_sms",
-    "template": "[placeholder \u2014 24-hour text]",
+    "template": "[placeholder — 24-hour text]",
     "validity": {
      "anchor": "before_event",
      "min_lead": "18h"
@@ -479,7 +499,7 @@
    {
     "id": "mm",
     "type": "send_sms",
-    "template": "[placeholder \u2014 morning-of text]",
+    "template": "[placeholder — morning-of text]",
     "validity": {
      "anchor": "before_event",
      "min_lead": "2h"
@@ -499,7 +519,7 @@
    {
     "id": "m1",
     "type": "send_sms",
-    "template": "[placeholder \u2014 1-hour text]",
+    "template": "[placeholder — 1-hour text]",
     "validity": {
      "anchor": "before_event",
      "min_lead": "15m"
@@ -518,7 +538,7 @@
    {
     "id": "m10",
     "type": "send_sms",
-    "template": "[placeholder \u2014 10-minute text]"
+    "template": "[placeholder — 10-minute text]"
    },
    {
     "id": "x_done",
@@ -699,7 +719,7 @@
       "white_check_mark"
      ]
     },
-    "label": "\u2705 keep the call"
+    "label": "✅ keep the call"
    },
    {
     "from": "b_dec",
@@ -710,7 +730,7 @@
       "x"
      ]
     },
-    "label": "\u274c cancel it"
+    "label": "❌ cancel it"
    },
    {
     "from": "b_dec",
@@ -721,7 +741,7 @@
       "repeat"
      ]
     },
-    "label": "\ud83d\udd01 reschedule"
+    "label": "🔁 reschedule"
    },
    {
     "from": "n_conf",
