@@ -158,3 +158,47 @@ export async function calendarOwner(c: PoolClient, a: { company: string; calenda
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'calendar.owner','calendar',$2,$3,$4)", [co.id, cal.id, { owner: cal.config.owner ?? null }, { owner: owner.id, why: a.why, upcoming }]);
   return { ok: true, dryRun: false, calendar: cal.name, was, owner: owner.name, upcoming };
 }
+
+/**
+ * D205: a calendar's calls split by time (Tyler: "Anything future assign to Nonie, anything past to mitch"): each booking whose time
+ * is ahead belongs to `future`, each one passed to `past`, in the replica (who took or takes it: their end of day, their numbers) and
+ * on its Discovery Call record in GHL (the Setter field and the record's owner, the other side's owner taken off). Each GHL record is
+ * read back after the change, so an owner GHL did not swap is said, not assumed. `limit` changes only that many records (a first
+ * one to prove the swap). A dry run (the default) lists what would change.
+ */
+export async function callsByTime(c: PoolClient, adapters: Adapters, a: { company: string; calendar: string; future: string; past: string; why: string; dryRun?: boolean; limit?: number }):
+  Promise<{ ok: true; dryRun: boolean; bookings: { who: string; when: string; from: string; to: string }[]; records: { who: string; when: string; from: string; to: string; checked?: string }[]; failed: { who: string; why: string }[] } | Fail> {
+  if (!a.calendar || !a.future || !a.past || !a.why?.trim()) return { ok: false, status: 400, error: "calendar, future, past and why are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const who = (email: string) => one<{ id: string; name: string; ghl_user_id: string | null }>(c, "select id, name, ghl_user_id from users where company_id=$1 and lower(email)=lower($2) and active", [co.id, email.trim()]);
+  const fut = await who(a.future), pst = await who(a.past);
+  if (!fut?.ghl_user_id || !pst?.ghl_user_id) return { ok: false, status: 404, error: `${!fut?.ghl_user_id ? a.future : a.past} is not a GHL user on this offer's roster` };
+  const { adapterCompany: ac, bindings } = await loadCompany(c, co.id);
+  const objectKey = bindings["crm.object_discovery_call"] || "custom_objects.discovery_call";
+  const rows = await many<{ id: string; status: string; when: string; future: boolean; assigned: string | null; owner_name: string | null; who: string; rec_id: string | null; ghl_record_id: string | null; setter: string | null }>(c, `
+    select a.id, a.status, to_char(a.starts_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI') as when, a.starts_at > now() as future, a.assigned_user_id as assigned, u.name as owner_name,
+      coalesce(nullif(trim(concat_ws(' ', ct.first_name, ct.last_name)), ''), '?') as who, r.id as rec_id, r.ghl_record_id, r.properties->>'setter' as setter
+    from appointments a join calendars k on k.id=a.calendar_id left join users u on u.id=a.assigned_user_id left join contacts ct on ct.id=a.contact_id
+      left join crm_records r on r.company_id=a.company_id and r.object_key=$3 and r.record_key=a.slot_key
+    where a.company_id=$1 and k.active and (k.external_id=$2 or lower(k.name)=lower($2)) order by a.starts_at`, [co.id, a.calendar.trim(), objectKey]);
+  if (!rows.length) return { ok: false, status: 404, error: `no bookings on a watched calendar ${a.calendar}` };
+  const side = (r: { future: boolean }) => (r.future ? { id: fut.id, name: fut.name, ghl: fut.ghl_user_id!, other: pst.ghl_user_id! } : { id: pst.id, name: pst.name, ghl: pst.ghl_user_id!, other: fut.ghl_user_id! });
+  const bookings = rows.filter((r) => r.assigned !== side(r).id).map((r) => ({ r, to: side(r) }));
+  const records = rows.filter((r) => r.ghl_record_id && r.setter !== side(r).name).map((r) => ({ r, to: side(r) })).slice(0, a.limit && a.limit > 0 ? a.limit : undefined);
+  const say = (x: { r: (typeof rows)[number]; to: { name: string } }, from: string | null) => ({ who: x.r.who, when: x.r.when, from: from ?? "nobody", to: x.to.name });
+  if (a.dryRun !== false) return { ok: true, dryRun: true, bookings: bookings.map((b) => say(b, b.r.owner_name)), records: records.map((x) => say(x, x.r.setter)), failed: [] };
+  const failed: { who: string; why: string }[] = [], doneRecords: { who: string; when: string; from: string; to: string; checked?: string }[] = [];
+  for (const b of bookings) await checkpoint(c, (c) => c.query("update appointments set assigned_user_id=$2 where id=$1", [b.r.id, b.to.id]));
+  for (const x of records) {
+    try {
+      await adapters.write.updateRecord(ac, objectKey, x.r.ghl_record_id!, { setter: x.to.name }, x.to.ghl, [x.to.other]);
+      await checkpoint(c, (c) => c.query("update crm_records set properties = properties || jsonb_build_object('setter', $2::text) where id=$1", [x.r.rec_id, x.to.name]));
+      const back = adapters.read.objectRecord ? await adapters.read.objectRecord(ac, objectKey, x.r.ghl_record_id!) : undefined;
+      const checked = back === undefined ? "not read back" : !back ? "gone from GHL" : !back.owners.includes(x.to.ghl) ? `GHL owners: ${back.owners.join(", ") || "none"} (${x.to.name} not added)` : back.owners.includes(x.to.other) ? `GHL kept the other owner too (${back.owners.join(", ")})` : "owner swapped";
+      doneRecords.push({ ...say(x, x.r.setter), checked });
+    } catch (e) { failed.push({ who: x.r.who, why: `GHL refused: ${String((e as Error).message).slice(0, 160)}` }); }
+  }
+  await checkpoint(c, (c) => c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'calls.by_time','calendar',$2,$3)",
+    [co.id, a.calendar, { future: fut.name, past: pst.name, why: a.why, bookings: bookings.map((b) => ({ id: b.r.id, to: b.to.name })), records: doneRecords.length, failed: failed.length }]));
+  return { ok: true, dryRun: false, bookings: bookings.map((b) => say(b, b.r.owner_name)), records: doneRecords, failed };
+}

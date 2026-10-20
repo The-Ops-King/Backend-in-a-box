@@ -74,6 +74,8 @@ export interface CrmRead {
   contactCalls?(c: Company, contactId: string): Promise<MessageSnapshot[]>;
   wonOpportunities(c: Company, from: Date, to: Date): Promise<WonOpportunity[]>;
   objectRecords(c: Company, objectKey: string): Promise<ObjectRecord[]>;
+  /** D205: one record as GHL holds it now, with its owners (to check an owner change took). Optional; null when it is gone. */
+  objectRecord?(c: Company, objectKey: string, recordId: string): Promise<(ObjectRecord & { owners: string[] }) | null>;
   /** The properties a custom object has: each key (the last segment of its field key) and the vendor's data type for it; absent where the vendor has no schema read. */
   objectFields?(c: Company, objectKey: string): Promise<ObjectField[]>;
   documents(c: Company): Promise<DocumentSnapshot[]>;
@@ -108,7 +110,7 @@ export interface CrmWrite {
   updateContact(c: Company, contactId: string, patch: ContactWrite): Promise<void>;
   createTask(c: Company, contactId: string, task: { title: string; body?: string; dueAt: Date; assignedUserId?: string }): Promise<{ id: string }>;
   createRecord(c: Company, objectKey: string, properties: Record<string, unknown>, ownerUserId?: string): Promise<{ id: string }>;
-  updateRecord(c: Company, objectKey: string, recordId: string, properties: Record<string, unknown>, ownerUserId?: string): Promise<void>;
+  updateRecord(c: Company, objectKey: string, recordId: string, properties: Record<string, unknown>, ownerUserId?: string, removeOwnerIds?: string[]): Promise<void>;
   /** D137: the operator's repair route only, and only for a record the engine made. */
   deleteRecord?(c: Company, objectKey: string, recordId: string): Promise<void>;
   /** D142: the operator's undo of what a run made (app/api/admin/runs/undo) */

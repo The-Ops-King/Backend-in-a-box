@@ -31,8 +31,9 @@ export const ghlWrite: CrmWrite = {
     const r = await ghl<{ record?: { id: string }; id?: string }>(c.pit, "POST", `/objects/${objectKey}/records`, { body: { locationId: c.locationId, properties, ...(ownerUserId ? { owners: [ownerUserId] } : {}) } });
     return { id: r.record?.id ?? r.id ?? "" };
   },
-  async updateRecord(c, objectKey, recordId, properties, ownerUserId) {
-    await ghl(c.pit, "PUT", `/objects/${objectKey}/records/${recordId}?locationId=${c.locationId}`, { body: { properties, ...(ownerUserId ? { owners: { add: [ownerUserId] } } : {}) } });
+  async updateRecord(c, objectKey, recordId, properties, ownerUserId, removeOwnerIds) {
+    const owners = { ...(ownerUserId ? { add: [ownerUserId] } : {}), ...(removeOwnerIds?.length ? { remove: removeOwnerIds } : {}) };
+    await ghl(c.pit, "PUT", `/objects/${objectKey}/records/${recordId}?locationId=${c.locationId}`, { body: { properties, ...(Object.keys(owners).length ? { owners } : {}) } });
   },
   async deleteContact(c, contactId) { await ghl(c.pit, "DELETE", `/contacts/${contactId}`); },
   async deleteOpportunity(c, opportunityId) { await ghl(c.pit, "DELETE", `/opportunities/${opportunityId}`); },

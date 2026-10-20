@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { installCompany } from "./install";
-import { calendarOwner, contactsReassign } from "./contact-ops";
+import { calendarOwner, callsByTime, contactsReassign } from "./contact-ops";
 import { fakeAdapters } from "./test-install";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
 
@@ -91,4 +91,33 @@ describe.skipIf(!process.env.DATABASE_URL)("D204: reassign and calendar owner", 
     expect(rows.rows.map((r) => [r.external_id, r.name])).toEqual([["P1", "Mitch Sapoff"], ["U1", "Nonie Wallace"], ["U2", "Nonie Wallace"]]);
     expect(await asOperator((c) => calendarOwner(c, args))).toMatchObject({ was: "Nonie Wallace", upcoming: 0 });
   });
+  it("D205: upcoming calls to Nonie, past ones to Mitch, in the replica and on their Discovery records (Setter and owner, checked read back); limit proves one first", async () => {
+    const recWrites: [string, Record<string, unknown>, string | undefined, string[] | undefined][] = [];
+    const owners = new Map<string, string[]>([["R-FUT1", ["GM"]], ["R-FUT2", ["GM"]], ["R-PAST", ["GM"]]]);
+    const withRecords: Adapters = { ...fake,
+      write: { ...fake.write, updateRecord: async (_c, _k, id, props, add, remove) => { recWrites.push([id, props, add, remove]); owners.set(id, [...(owners.get(id) ?? []).filter((o) => !(remove ?? []).includes(o)), ...(add ? [add] : [])]); } },
+      read: { ...fake.read, objectRecord: async (_c, _k, id) => ({ id, createdAt: "", properties: {}, owners: owners.get(id) ?? [] }) } };
+    await asOperator(async (c) => {
+      const cal = await one<{ id: string; appointment_term: string }>(c, "select id, appointment_term from calendars where company_id=$1 and name='Strategy Session'", [co]);
+      const nelly = await one<{ id: string }>(c, "select id from users where company_id=$1 and email='nelly@x.com'", [co]);
+      for (const [ext, at, slot, rec] of [["F1", "3 days", "S-F1", "R-FUT1"], ["F2", "4 days", "S-F2", "R-FUT2"], ["P2", "-3 days", "S-P2", null], ["P3", "-4 days", "S-P3", "R-PAST"]] as const) {
+        await c.query(`insert into appointments (company_id, contact_id, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, booked_at, status, source, slot_key)
+          select $1, id, $2, $3, $4, $5, now() + $6::interval, now() + $6::interval + interval '15 minutes', now() - interval '9 days', 'confirmed', 'ghl', $7 from contacts where company_id=$1 and ghl_contact_id='A'`, [co, ext, cal!.id, cal!.appointment_term, ext === "P2" ? nelly!.id : null, at, slot]);
+        if (rec) await c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, properties) values ($1,'custom_objects.discovery_call',$2,$3,$4)", [co, slot, rec, { setter: "Mitch Sapoff" }]);
+      }
+    });
+    const args = { company: SLUG, calendar: "Strategy Session", future: "nonie@x.com", past: "mitch@x.com", why: "test" };
+    const dry = await asOperator((c) => callsByTime(c, withRecords, args));
+    expect(dry.ok && dry.records.map((r) => [r.who, r.to])).toEqual([["A", "Nonie Wallace"], ["A", "Nonie Wallace"]]);   // the past record already says Mitch
+    expect(dry.ok && dry.bookings.map((b) => [b.from, b.to])).toEqual(expect.arrayContaining([["Nelly S.", "Mitch Sapoff"], ["nobody", "Nonie Wallace"]]));
+    expect(recWrites).toEqual([]);
+    const one1 = await asOperator((c) => callsByTime(c, withRecords, { ...args, dryRun: false, limit: 1 }));
+    expect(one1).toMatchObject({ ok: true, records: [{ to: "Nonie Wallace", checked: "owner swapped" }], failed: [] });
+    expect(recWrites).toEqual([["R-FUT1", { setter: "Nonie Wallace" }, "GN", ["GM"]]]);
+    expect(await asOperator((c) => callsByTime(c, withRecords, { ...args, dryRun: false }))).toMatchObject({ records: [{ checked: "owner swapped" }], bookings: [] });
+    expect(await asOperator((c) => callsByTime(c, withRecords, args))).toMatchObject({ bookings: [], records: [] });
+    const rows = await asOperator((c) => c.query("select a.external_id, u.name from appointments a left join users u on u.id=a.assigned_user_id where a.company_id=$1 and a.external_id in ('F1','F2','P2','P3') order by 1", [co]));
+    expect(rows.rows.map((r) => [r.external_id, r.name])).toEqual([["F1", "Nonie Wallace"], ["F2", "Nonie Wallace"], ["P2", "Mitch Sapoff"], ["P3", "Mitch Sapoff"]]);
+  });
+
 });
