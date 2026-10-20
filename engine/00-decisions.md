@@ -5661,4 +5661,12 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
     nothing new takes no table lock. The migrator's parts move to `migrator.ts`. The D104 booking-card backfill still runs each
     deploy: row inserts only, no table lock.
 
-Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`, `db/baseline.test.ts`, `db/migrate.shared.test.ts`.
+12. **The bot and MQL speak for each offer, not Hair** (Tyler: yes). The bot's prompt was Hair's for every offer: a real customer's
+    name in its examples, "hair loss" answers, MQL as Hair's work-situation question and answers. The prompt is now the same
+    neutral text for every offer, and each question's context carries that offer's qualifying question and answer lists, or
+    that MQL is not defined for it (then the bot says so). MQL reads `qualify.field` (any contact field) and `qualify.question`
+    (its words) instead of a field named for Hair's question; migration 0003 copies an offer's work-situation field onto them,
+    word for word (Hair; Dating and PMU had none and still have none). `/help`'s examples, the metric definitions and the
+    unrecognised-answer warning say "qualifying question/answer". Install takes `qualify.field` and `qualify.question`.
+
+Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`, `db/baseline.test.ts`, `db/migrate.shared.test.ts`, `qualify.test.ts`.

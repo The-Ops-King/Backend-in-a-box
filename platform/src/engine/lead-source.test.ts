@@ -198,7 +198,7 @@ describe.skipIf(!process.env.DATABASE_URL)("lead source through the engine (D78)
         co2 = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('Lead Source 2','lsrc2',$1) returning id", [TZ]))!.id;
         await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories`, [co2]);
         const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [co2]))!.id;
-        for (const [k, v] of [["crm.location_id", "LOC"], ["crm.field_contact_lead_source", "CF-LEAD"], ["crm.field_contact_utm_source", "CF-UTM-SRC"], ["crm.field_contact_work_situation", "CF-WORK"], ["qualify.mql_answers", "[\"Employed\"]"], ["qualify.dq_answers", "[\"Between jobs\"]"]])
+        for (const [k, v] of [["crm.location_id", "LOC"], ["crm.field_contact_lead_source", "CF-LEAD"], ["crm.field_contact_utm_source", "CF-UTM-SRC"], ["crm.field_contact_work_situation", "CF-WORK"], ["qualify.field", "CF-WORK"], ["qualify.mql_answers", "[\"Employed\"]"], ["qualify.dq_answers", "[\"Between jobs\"]"]])
           await c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,'id',$3)", [co2, k, Buffer.from(v)]);
         await c.query("insert into bindings (company_id, key, kind, value) values ($1,'secret.ghl_pit','secret',$2)", [co2, encrypt("pit")]);
         await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id) values ($1,'T-LS2',$2,'UBOT2')", [co2, encrypt("xoxb-fake")]);

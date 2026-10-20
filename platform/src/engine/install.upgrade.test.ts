@@ -89,7 +89,7 @@ describe.skipIf(!process.env.DATABASE_URL)("template upgrades on re-install", ()
 
   it("the bot's GHL config (D73): the work-situation answers and the Sales Call object are bindings the metrics read back", async () => {
     const { pit: _p, ...rest } = base;
-    await installCompany({ ...rest, crm: { ...base.crm, field_contact_work_situation: "WS" }, qualify: { mqlAnswers: ["Employed full-time", " Investor "], dqAnswers: ["Currently between jobs"], unansweredIsMql: false },
+    await installCompany({ ...rest, crm: { ...base.crm, field_contact_work_situation: "WS" }, qualify: { field: "WS", mqlAnswers: ["Employed full-time", " Investor "], dqAnswers: ["Currently between jobs"], unansweredIsMql: false },
       salesCall: { object: "custom_objects.sales_call", outcomes: { showed: "showed", no_show: "noshow", late_cancel: "cancelled" }, dqDispositions: ["dq"] } }, fake);
     const { bindings } = await asOperator((c) => loadCompany(c, companyId));
     expect(qualifyConfig(bindings)).toEqual({ field: "WS", mql: ["Employed full-time", "Investor"], dq: ["Currently between jobs"], unansweredIsMql: false });

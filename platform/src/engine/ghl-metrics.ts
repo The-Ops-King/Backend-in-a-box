@@ -12,7 +12,7 @@ export { callTime } from "./sales-call";
 
 /**
  * D73: people and deals are read from GHL at answer time ("Always GHL. It's the truth."). Leads are contacts by the CRM's
- * dateAdded; MQL / DQ is the answer to the company's work-situation field; closes are distinct people with a won card on
+ * dateAdded; MQL / DQ is the answer to the offer's qualifying question (qualify.field); closes are distinct people with a won card on
  * the Closer pipeline; calls and shows are the company's Sales Call records (one per booking, outcome filed from the EOD
  * form). The ledger only lends what GHL does not hold: the closer of a person's latest call, the UTM source of their latest
  * booking, and the booking source's own word that a call was cancelled before it started (which wins over the record, and
@@ -31,7 +31,7 @@ const DEFAULT_DISPOSITIONS: Record<string, CallResult> = { closed_won: "closed",
 export type CallMismatch = { name: string; ghl_contact_id: string; record_id: string; ghl: CallClass; booking_source: string };
 export type ShowBreakdown = { booked: number; showed: number; noshow: number; cancelled: number; rescheduled: number; missing: number; missing_names: string[]; mismatches: CallMismatch[] };
 export type Qualification = "mql" | "dq" | "unanswered" | "unrecognized";
-export type QualifyConfig = { field: string; mql: string[]; dq: string[]; unansweredIsMql: boolean };
+export type QualifyConfig = { field: string; question?: string; mql: string[]; dq: string[]; unansweredIsMql: boolean };
 export type QualificationSummary = { mql: number; dq: number; unanswered: number; unrecognized: number; unrecognized_answers: string[]; unanswered_is_mql: boolean };
 
 const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
@@ -41,10 +41,11 @@ export function answerList(v: string | undefined): string[] {
   try { const j = JSON.parse(v); if (Array.isArray(j)) return j.map(String).map((s) => s.trim()).filter(Boolean); } catch { /* one per line */ }
   return v.split("\n").map((s) => s.trim()).filter(Boolean);
 }
+/** D193: the offer's qualifying question (any contact field, `qualify.field`, worded as `qualify.question`) and its answer lists. */
 export function qualifyConfig(bindings: Record<string, string>): QualifyConfig | null {
-  const field = bindings["crm.field_contact_work_situation"];
+  const field = bindings["qualify.field"];
   if (!field) return null;
-  return { field, mql: answerList(bindings["qualify.mql_answers"]), dq: answerList(bindings["qualify.dq_answers"]), unansweredIsMql: /^(true|yes|1)$/i.test(bindings["qualify.unanswered_is_mql"] ?? "") };
+  return { field, question: bindings["qualify.question"] || undefined, mql: answerList(bindings["qualify.mql_answers"]), dq: answerList(bindings["qualify.dq_answers"]), unansweredIsMql: /^(true|yes|1)$/i.test(bindings["qualify.unanswered_is_mql"] ?? "") };
 }
 /**
  * The Sales Call object and what its values mean: `crm.object_sales_call`; `sales_call.outcomes` as JSON {value: showed |
@@ -319,7 +320,7 @@ export async function closesFor(x: GhlCtx): Promise<{ ghl: string; name: string;
 
 const timeKey = (g: GroupBy, at: DateTime) => (g === "day" ? at.toISODate()! : g === "week" ? at.startOf("week").toISODate()! : at.toFormat("yyyy-MM"));
 
-/** One GHL-read metric for the period, per group ("" when not split), with the work-situation summary for the MQL family. */
+/** One GHL-read metric for the period, per group ("" when not split), with the qualifying-answer summary for the MQL family. */
 export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, label: string, groupBy?: GroupBy): Promise<{ rows: Map<string, number>; qualification?: QualificationSummary; unavailable?: string }> {
   if (x.filters.setter && entity !== "payment" && entity !== "call") throw new MetricError(`${label} cannot be filtered by setter`);
   if (x.filters.closer && entity === "lead") throw new MetricError(`${label} cannot be filtered by closer`);
@@ -331,7 +332,7 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
     const sourceOf = (p: Person) => p.source;
     const cfg = qualifyConfig(x.bindings);
     if ((metric === "mqls" || metric === "marketing_dqs") && (!cfg || (!cfg.mql.length && !cfg.dq.length)))
-      throw new MetricError(`${label} come from the answer to the CRM's work-situation field, and ${!cfg ? "no field is bound (crm.field_contact_work_situation)" : "no answers are set (qualify.mql_answers, qualify.dq_answers)"}`);
+      throw new MetricError(`${label} come from the answer to the offer's qualifying question, and ${!cfg ? "none is set for this offer (qualify.field)" : "no answers are set (qualify.mql_answers, qualify.dq_answers)"}`);
     const pool = people.filter((p) => !x.filters.source || src(sourceOf(p)) === src(x.filters.source));
     const counts = (p: Person) => metric === "leads" ? true : metric === "marketing_dqs" ? p.q === "dq" : p.q === "mql" || (p.q === "unanswered" && !!cfg?.unansweredIsMql);
     for (const p of pool) if (counts(p)) add(!groupBy ? "" : groupBy === "source" ? sourceOf(p) : timeKey(groupBy, p.at), 1);

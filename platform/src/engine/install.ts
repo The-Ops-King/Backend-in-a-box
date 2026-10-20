@@ -46,8 +46,8 @@ export type InstallInput = {
   /** Call recordings. `apiKey` registers Fathom's webhook at install (needs PUBLIC_URL); `webhookSecret` binds one made by hand. Either way the Zapier door is open too. */
   recording?: { source: "fathom"; apiKey?: string; webhookSecret?: string };
   anthropicKey?: string;                 // bound as secret.anthropic_key; the analyze node reads it (env ANTHROPIC_API_KEY is the fallback)
-  /** D73: financial qualification from the CRM's work-situation field (bound through `crm` as field_contact_work_situation): the answers that make an MQL and a DQ (qualify.mql_answers, qualify.dq_answers), matched exactly; a blank answer is an MQL only with unansweredIsMql (qualify.unanswered_is_mql). */
-  qualify?: { mqlAnswers?: string[]; dqAnswers?: string[]; unansweredIsMql?: boolean };
+  /** D73, D193: the offer's qualifying question (`field`, a contact field, worded as `question`; qualify.field, qualify.question): the answers that make an MQL and a DQ (qualify.mql_answers, qualify.dq_answers), matched exactly; a blank answer is an MQL only with unansweredIsMql (qualify.unanswered_is_mql). */
+  qualify?: { field?: string; question?: string; mqlAnswers?: string[]; dqAnswers?: string[]; unansweredIsMql?: boolean };   // field, question: D193 (qualify.field, qualify.question)
   /** D73: the Sales Call custom object the show rate reads (crm.object_sales_call), what each of its `outcome` values means (sales_call.outcomes; also what the engine writes there, inverted: a new booking's `scheduled`, a no-show, a late cancel), and which `disposition` values are a sales DQ (sales_call.dq_dispositions). */
   salesCall?: { object?: string; outcomes?: Record<string, "showed" | "noshow" | "cancelled" | "rescheduled" | "scheduled">; dqDispositions?: string[]; dispositions?: Record<string, "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified" | { meaning: "closed" | "deposit" | "pending" | "follow_up" | "lost" | "unqualified"; reason?: string }>; bookingSources?: { setter?: string; self?: string };
     /** D118: the Primary Objection options the company's Sales Call takes (sales_call.objections); unset, the templates' own list. */
@@ -297,6 +297,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     for (const [k, v] of Object.entries(input.crm ?? {})) await bind(`crm.${k}`, "id", v);
     if (input.setterRule) await bind("booking.setter_rule", "text", input.setterRule);
     const answers = (xs: string[]) => JSON.stringify(xs.map((x) => x.trim()).filter(Boolean));
+    if (input.qualify?.field) await bind("qualify.field", "id", input.qualify.field);
+    if (input.qualify?.question) await bind("qualify.question", "text", input.qualify.question);
     if (input.qualify?.mqlAnswers) await bind("qualify.mql_answers", "text", answers(input.qualify.mqlAnswers));
     if (input.qualify?.dqAnswers) await bind("qualify.dq_answers", "text", answers(input.qualify.dqAnswers));
     if (input.qualify?.unansweredIsMql !== undefined) await bind("qualify.unanswered_is_mql", "text", String(input.qualify.unansweredIsMql));
