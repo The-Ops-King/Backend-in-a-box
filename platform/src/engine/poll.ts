@@ -18,8 +18,7 @@ import { runningSql } from "./running";
 export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; agreements: number; cardsMoved: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
 
 // US/CA: ten digits, or eleven with a leading 1, with or without the plus, are one number; any other length stays as typed
-export const normPhone = (p?: string) => p ? p.replace(/[^\d+]/g, "").replace(/^\+?1?(\d{10})$/, "+1$1") : undefined;
-const normEmail = (e?: string) => e?.trim().toLowerCase() || undefined;
+import { contactByGhlId, normEmail, normPhone } from "./identity";
 /** As typed (case, hyphens, apostrophes), minus surrounding and doubled spaces; blank is null so a template's `default:` can speak. */
 export const normName = (n?: string | null) => n?.trim().replace(/\s+/g, " ") || null;
 /** A zone the CRM or a booking sent that Luxon cannot use is no zone at all (the company's stands in). */
@@ -294,12 +293,15 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
   const tag = scopeTag(bindings);
   // D117: a thread of someone out of scope is the location's other business: no call row, no reply, nothing started. The baseline asks only the replica
   const mine = (contactId: string) => (isBaseline ? inScope(c, contactId, tag) : stillInScope(c, co, ac, adapters, contactId, tag));
-  const msgs = await adapters.read.inboundSince(ac, since.toISO()!);
+  // audit risk 11: a tick that could not read every thread touched since the cursor leaves the cursor where it is and says where it stopped
+  const resume = await one<{ cursor: string }>(c, "select cursor from poll_cursors where company_id=$1 and entity=$2", [co.id, INBOUND_RESUME]);
+  const after = resume?.cursor && /^\d+$/.test(resume.cursor) ? Number(resume.cursor) : undefined;
+  const msgs = await adapters.read.inboundSince(ac, since.toISO()!, after);
   let max = since;
   for (const m of msgs) {
     // G14: the sender may be a duplicate CRM record folded into one person; those ids live as ghl_contact identifiers, the primary on the row
-    let contact = await one<{ id: string }>(c, `select contact_id as id from contact_identifiers where company_id=$1 and kind='ghl_contact' and value=$2 and retired_at is null
-      union all select id from contacts where company_id=$1 and ghl_contact_id=$2 limit 1`, [co.id, m.contactId]);
+    const known = await contactByGhlId(c, co.id, m.contactId);
+    let contact = known ? { id: known } : undefined;
     // a call to a brand-new lead can land before the contacts poll has them; the call is a fact worth keeping, so fetch the person now.
     // D117: not with a scope tag: a stranger's call is the location's other business, and the tagged contacts poll runs first each tick
     if (!contact && m.channel === "call" && !tag) {
@@ -324,8 +326,11 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
     }
     const d = DateTime.fromISO(m.dateAdded); if (d > max) max = d;
   }
+  if (msgs.more !== undefined) { await saveCursor(c, co.id, INBOUND_RESUME, String(msgs.more), true); return; }
+  await c.query("delete from poll_cursors where company_id=$1 and entity=$2", [co.id, INBOUND_RESUME]);
   await saveCursor(c, co.id, "conversations", max.toISO()!, true);
 }
+const INBOUND_RESUME = "conversations:resume";
 
 /** A call entry in the thread → a ledger row. Connected calls wait for their transcript (settled here if it is already there, else by pollPendingCalls); the rest settle at once. */
 async function applyCall(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, m: MessageSnapshot, contactId: string, isBaseline: boolean, rep: PollReport) {
@@ -361,6 +366,8 @@ async function pollPendingCalls(c: PoolClient, co: CompanyRow, ac: Company, adap
 
 /** Documents & Contracts (D30): every document the location sent, mirrored; new → agreement.sent, first completion → agreement.signed. The first pass is a silent baseline. */
 async function pollAgreements(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
+  // D202: the minute tick and GHL's nudge can read the same documents at once; one at a time per company, so a signature is news once
+  await c.query("select pg_advisory_xact_lock(hashtextextended('poll:agreements:' || $1::text, 0))", [co.id]);
   const { isBaseline } = await cursor(c, co.id, "agreements", DateTime.now());
   const tag = scopeTag(bindings);
   for (const d of await adapters.read.documents(ac)) {
@@ -435,6 +442,18 @@ export async function pollAll(adapters: Adapters): Promise<PollReport> {
  * One company's poll, every entity in its own transaction; what it read and what failed is added to `rep`. D98: a company's
  * own tick calls this alone, with `timings` to learn how long each read took (ms per entity, `setup` for the bindings and calendars).
  */
+/**
+ * D202: GHL's own workflow says a document was sent or signed (its webhook is only a nudge: the body is not trusted); the company's
+ * documents are read from GHL now, as the minute poll would, and what that announces is dispatched.
+ */
+export async function pollDocumentsNow(adapters: Adapters, companyId: string): Promise<PollReport> {
+  const rep = emptyPollReport();
+  const { row: co, adapterCompany: ac, bindings } = await asOperator((c) => loadCompany(c, companyId));
+  if (!ac.pit || !ac.locationId) { rep.errors.push({ company: co.slug, entity: "bindings", error: "crm.location_id / secret.ghl_pit not bound" }); return rep; }
+  await asOperator((c) => pollAgreements(c, co, ac, adapters, rep, bindings));
+  return rep;
+}
+
 export async function pollCompany(adapters: Adapters, companyId: string, rep: PollReport = emptyPollReport(), timings?: Record<string, number>): Promise<PollReport> {
   rep.companies++;
   const t0 = Date.now();

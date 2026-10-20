@@ -1,4 +1,4 @@
-/** D200: /team in Slack: only the operator; a checklist of what is done and what is left; the role given once they are a GHL user. */
+/** D203: /team in Slack: only the operator; a checklist of what is done and what is left; the role given once they are a GHL user. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -11,7 +11,7 @@ import type { Adapters } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 
-describe("D200: parseTeam", () => {
+describe("D203: parseTeam", () => {
   it("reads add, remove, the list and help; refuses the rest with a reason", () => {
     expect(parseTeam("")).toEqual({ kind: "list" });
     expect(parseTeam("add <mailto:Nonie@X.com|Nonie@X.com> Setter")).toEqual({ kind: "add", email: "nonie@x.com", role: "setter" });
@@ -34,10 +34,10 @@ const fake: Adapters = { ...base, read: { ...base.read, listUsers: async () => g
   notifier: { ...base.notifier, lookupUserByEmail: async (_t, e) => slackIds[e] ?? null, channelMembers: async (_t, id) => channels[id] ?? null } };
 const run = (text: string, userId = "UTYLER1") => asOperator(async (c) => { const { adapterCompany, bindings } = await loadCompany(c, co); return teamCommand(c, { companyId: co, ac: adapterCompany, adapters: fake, slackToken: "xoxb", bindings, userId, text }); });
 
-describe.skipIf(!process.env.DATABASE_URL)("D200: /team", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D203: /team", () => {
   beforeAll(async () => {
     await migrate();
-    co = (await installCompany({ name: "Team Cmd", slug: SLUG, timezone: "America/Phoenix", locationId: "LOC-D200", pit: "pit-fake", calendars: {}, templates: [] }, fake)).companyId;
+    co = (await installCompany({ name: "Team Cmd", slug: SLUG, timezone: "America/Phoenix", locationId: "LOC-D203", pit: "pit-fake", calendars: {}, templates: [] }, fake)).companyId;
     await asOperator(async (c) => {
       for (const [k, v] of [["bot.escalate_to", "UTYLER1"], ["bot.escalate_name", "Tyler"], ["slack.channel.bookings", "CBOOK1"], ["slack.channel.setter_calls", "CSET1"], ["slack.channel.eod", "CEOD1"]] as const) await setBinding(c, co, k, k.startsWith("bot.") ? "text" : "channel", v, "test");
       const term = (await c.query("select id, category from company_terms where company_id=$1 and domain='appointment_type' and is_default", [co])).rows as { id: string; category: string }[];

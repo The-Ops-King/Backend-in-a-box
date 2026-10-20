@@ -83,3 +83,32 @@ describe("migrator (D151): short transactions that give way to the live engine",
     } finally { conn.release(); }
   });
 });
+
+describe("numbered migrations (D200)", () => {
+  it("each runs once: a second migrate runs none and touches no tenant table", async () => {
+    await migrate();
+    const again = await migrate();
+    expect(again.ran).toEqual([]);
+    expect(again.rlsFixed).toEqual([]);
+    expect((await db().query("select id from schema_migrations order by id")).rows.map((r) => r.id)).toEqual(expect.arrayContaining(["0001-baseline", "0002-unemitted-event-types"]));
+  });
+  it("a tenant table that lost its policy gets it back, and only that one", async () => {
+    await db().query("drop policy if exists tenant_isolation on tickets");
+    const r = await migrate();
+    expect(r.rlsFixed).toEqual(["tickets"]);
+    expect((await db().query("select 1 from pg_policies where tablename='tickets' and policyname='tenant_isolation'")).rowCount).toBe(1);
+  });
+});
+
+describe("migration 0003 (D200): an offer's work-situation field becomes its qualifying question", () => {
+  it("copies the field and its question onto an offer that had it, word for word; an offer without it gets none", async () => {
+    const withIt = (await db().query("insert into companies (name, slug, timezone) values ('Q1', $1, 'UTC') returning id", [`q1-${Date.now()}`])).rows[0].id;
+    const without = (await db().query("insert into companies (name, slug, timezone) values ('Q2', $1, 'UTC') returning id", [`q2-${Date.now()}`])).rows[0].id;
+    await db().query("insert into bindings (company_id, key, kind, value) values ($1, 'crm.field_contact_work_situation', 'id', convert_to('WS1', 'UTF8'))", [withIt]);
+    await db().query("delete from schema_migrations where id='0003-qualify-field'");
+    expect((await migrate()).ran).toEqual(["0003-qualify-field"]);
+    const keys = async (co: string) => Object.fromEntries((await db().query("select key, convert_from(value, 'UTF8') as v from bindings where company_id=$1 and key like 'qualify.%'", [co])).rows.map((r) => [r.key, r.v]));
+    expect(await keys(withIt)).toEqual({ "qualify.field": "WS1", "qualify.question": "What best describes your current work situation?" });
+    expect(await keys(without)).toEqual({});
+  });
+});

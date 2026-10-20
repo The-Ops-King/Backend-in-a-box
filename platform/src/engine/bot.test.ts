@@ -165,7 +165,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       await c.query("update users set ghl_user_id='G-' || upper(split_part(name, ' ', 1)) where company_id=$1 and role='closer'", [companyId]);
       await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id) values ($1,'T-BOT',$2,'UBOT')", [companyId, encrypt("xoxb-fake")]);
       for (const [k, kind, v] of [["secret.slack_signing", "secret", SECRET], ["secret.anthropic_key", "secret", "sk-fake"], ["secret.ghl_pit", "secret", "pit"], ["crm.location_id", "id", "LOC"], ["crm.field_contact_lead_source", "id", "F-SRC"], ["bot.escalate_to", "id", "U-TYLER"],
-        ["crm.field_contact_work_situation", "id", WORK], ["qualify.mql_answers", "text", JSON.stringify(["Employed full-time", "Business owner or entrepreneur", "Investor"])], ["qualify.dq_answers", "text", JSON.stringify(["Currently between jobs", "Employed part-time"])],
+        ["crm.field_contact_work_situation", "id", WORK], ["qualify.field", "id", WORK], ["qualify.mql_answers", "text", JSON.stringify(["Employed full-time", "Business owner or entrepreneur", "Investor"])], ["qualify.dq_answers", "text", JSON.stringify(["Currently between jobs", "Employed part-time"])],
         ["crm.pipeline_closer", "id", "PIPE-CLOSER"], ["crm.pipeline_setter", "id", "PIPE-SETTER"], ["crm.field_contact_cash_collected", "id", "CF-CASH"], ["crm.object_sales_call", "id", "custom_objects.sales_call"], ["sales_call.outcomes", "text", JSON.stringify({ showed: "showed", no_show: "noshow", noshow: "noshow", cancelled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" })], ["test.domains", "text", "test.co"], ["sales_call.dq_dispositions", "text", JSON.stringify(["dq"])]])
         await c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,$3,$4)", [companyId, k, kind, kind === "secret" ? encrypt(v) : Buffer.from(v)]);
       const cal = async (ext: string, owner: string) => (await one<{ id: string }>(c, "insert into calendars (company_id, source, external_id, name, appointment_term, default_user_id) values ($1,'ghl',$2,$3,$4,$5) returning id", [companyId, ext, `Calendar ${ext}`, closing, owner]))!.id;
@@ -362,7 +362,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(lines).toContain("⚠️ No EOD outcome yet: C4");
       expect(lines).toContain("⚠️ C2: GHL says no-show, the GHL calendar says cancelled (fix the Sales Call in GHL)");
       expect(text).toContain("Zed Outsider"); expect(text).not.toMatch(/Rescheduled|Missing from EOD disposition/);
-      expect(formatAnswer([await metric("mqls")], { now: NOW }).split("\n").filter((l) => l.startsWith("⚠️"))).toEqual(["⚠️ 1 work-situation answer not recognised: \"retired\""]);
+      expect(formatAnswer([await metric("mqls")], { now: NOW }).split("\n").filter((l) => l.startsWith("⚠️"))).toEqual(["⚠️ 1 qualifying answer not recognised: \"retired\""]);
     });
     it("availability: one table, a day per row, a column per closer (first names), the day's total, a total row, then the footer", async () => {
       const text = formatAvailability(await asOperator((c) => getAvailability(c, companyId, probes, 3, NOW)), { now: NOW });
@@ -386,7 +386,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(tbl.map((l) => l.replace(/\s+/g, " "))).toEqual(["Leads 4 ▲ 4", "MQLs 1 ▲ 1", "Booked 8 ▲ 8", "Show rate 38%", "Close rate 67%", "Deposits 1 same", "Deposit cash $3,000 ▲ $1,000", "Cash $3,900 ▲ $1,900"]);   // D119: deposits on their own lines
       expect(Math.max(...tbl.map((l) => l.length))).toBeLessThanOrEqual(PHONE_WIDTH);
       expect(lines).toContain("Top source: instagram ($2,500)");
-      expect(lines.filter((l) => l.startsWith("⚠️"))).toEqual(["⚠️ 1 work-situation answer not recognised: \"retired\"", "⚠️ No EOD outcome yet: C4", "⚠️ C2: GHL says no-show, the GHL calendar says cancelled (fix the Sales Call in GHL)"]);
+      expect(lines.filter((l) => l.startsWith("⚠️"))).toEqual(["⚠️ 1 qualifying answer not recognised: \"retired\"", "⚠️ No EOD outcome yet: C4", "⚠️ C2: GHL says no-show, the GHL calendar says cancelled (fix the Sales Call in GHL)"]);
       expect(posts[0].text).not.toMatch(/read just now|didn't answer|Rescheduled|÷/);
       expect(lines[lines.length - 1]).toBe("_Oct 1–10 vs Sep 1–10 · From GHL, read 12:00 PM MST · Asked by <@U-CARA>_"); expect(lines[lines.length - 2]).toBe("");
       const row = await asOperator((c) => one<{ messages: unknown[] }>(c, "select messages from bot_threads where company_id=$1 and channel='C-SALES' and thread_ts=$2", [companyId, (out as { ts: string }).ts]));
@@ -422,7 +422,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(posts[0].channel).toBe("D-CARA");
       const lines = posts[0].text.split("\n");
       expect(lines[0]).toBe("📊 *Leads: 4*"); expect(lines[1]).toMatch(/^MQLs 1 · Marketing DQs \d+$/);
-      expect(lines).toContain("Source     Leads  MQLs  DQs"); expect(lines).toContain("⚠️ 1 work-situation answer not recognised: \"retired\"");
+      expect(lines).toContain("Source     Leads  MQLs  DQs"); expect(lines).toContain("⚠️ 1 qualifying answer not recognised: \"retired\"");
     });
     it("/closes lists each close, newest first, with the count on top; /weekly is the same GHL numbers", async () => {
       const cmd = { command: "/closes", text: "", userId: "U-CARA", channelId: "C-SALES" };

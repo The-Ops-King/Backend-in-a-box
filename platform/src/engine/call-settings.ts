@@ -1,3 +1,4 @@
+import { CALL_SETTING_DEFAULTS } from "./setting-defaults";
 /**
  * D87: the company settings the call flow reads (bindings of kind text, offered on the settings screen). Each is the
  * company's to change; these are only the values a company that never set one gets.
@@ -11,7 +12,7 @@
  * - `calls.transcript_hold_hours`: the longest a transcript a webhook delivered may stay held after the last run about it
  *   ended (retention's safety sweep; transcripts.ts).
  */
-export const CALL_SETTING_DEFAULTS = { "calls.transcript_wait_min": 120, "calls.conversation_gap_min": 15, "setter_result.set_within_min": 30, "calls.transcript_hold_hours": 48 } as const;
+export { CALL_SETTING_DEFAULTS };
 export type CallSettingKey = keyof typeof CALL_SETTING_DEFAULTS;
 
 /** A whole number ≥ 0 from the binding (minutes; hours for the hold), else the default. */

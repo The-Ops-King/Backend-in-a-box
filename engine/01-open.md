@@ -182,10 +182,10 @@ GHL contacts carry a `timezone` only sometimes; the rest fall back to the compan
 code inference (#14) is still the fix. Until then, "morning of" is the company's morning for
 those contacts.
 
-## 22. Dashboard writes have no login (deferred by Tyler: "no password and such yet")
-Go live / Switch to shadow, Turn on / Turn off, and Save disposition are server actions with no
-authorization of their own; the only wall is Vercel's deployment protection. Fine for the test
-period. Before any client logs in, these need the same gate as `/api/admin/*` at minimum.
+## 22. Dashboard login (closed 2026-10-20, D200)
+The dashboard and its JSON API sit behind one operator password (`DASHBOARD_PASSWORD`, a signed session cookie,
+`middleware.ts`); every page and write needs it. Tyler (2026-10-20): no one but him logs in, so one password is right.
+Per-client logins (each client seeing only its own offer) become a project only when a client is given access.
 
 ## 23. One transaction per run per tick across external side effects (sends and webhooks closed 2026-10-19, D151)
 A tick processes a run's nodes inside one database transaction while calling GHL/Slack. A node

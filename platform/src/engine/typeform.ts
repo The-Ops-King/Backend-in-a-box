@@ -7,8 +7,8 @@ import { loadCompany, type CompanyRow } from "./context";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { effectiveMode, handlerMode } from "./mode";
 import { carriesTag, scopeTag } from "./scope";
-import { attachIdentifier, boundFieldIds, normName, normPhone, upsertContact } from "./poll";
-import { normEmail } from "./payments";
+import { attachIdentifier, boundFieldIds, normName, upsertContact } from "./poll";
+import { normEmail, normPhone } from "./identity";
 
 /**
  * D122: a Typeform form is a door straight into the engine, no Zapier. The engine registers its own webhook on each form the

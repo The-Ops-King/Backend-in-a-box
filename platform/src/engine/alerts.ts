@@ -7,6 +7,8 @@ import type { PollReport } from "./poll";
 import type { TickReport } from "./runner";
 import { classifyError, plainError } from "./failures";
 import { runningSql } from "./running";
+import { slackBot } from "./slack-conn";
+import { POLL_FAILURES, REPEAT_AFTER_MIN, REPEAT_HOURS, REPEAT_TZ } from "./setting-defaults";
 
 /**
  * D33. The engine tells the operator the minute something fails, and says so once.
@@ -25,9 +27,8 @@ export type AlertInput = { companyId: string | null; key: string; level: Level; 
 export type AlertRow = { id: string; company_id: string | null; key: string; level: Level; source: Source; text: string; detail: Record<string, unknown>; href: string | null; first_seen: Date; last_seen: Date; announced_at: Date | null; announce_count: number; slack_channel: string | null; slack_ts: string | null; resolved_at: Date | null; resolved_announced: boolean; paused_at?: Date | null; paused_by?: string | null };
 
 /** The defaults of the two alert settings (bindings, D88): `alerts.repeat_minutes` and `alerts.poll_failures`. */
-export const REPEAT_AFTER_MIN = 60;
+export { POLL_FAILURES, REPEAT_AFTER_MIN, REPEAT_HOURS, REPEAT_TZ };
 /** D135: an open alert is said again only within these hours (alerts.repeat_hours, alerts.repeat_timezone): Tyler's working day, Arizona. */
-export const REPEAT_HOURS = "07:00-17:00", REPEAT_TZ = "America/Phoenix";
 /** Whether `now` falls in a "HH:MM-HH:MM" window in `tz`; a window that does not parse is always open. */
 export function inRepeatHours(now: Date, hours = REPEAT_HOURS, tz = REPEAT_TZ): boolean {
   const m = /^\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*$/.exec(hours);
@@ -36,7 +37,6 @@ export function inRepeatHours(now: Date, hours = REPEAT_HOURS, tz = REPEAT_TZ): 
   const at = local.hour * 60 + local.minute, from = +m[1] * 60 + +m[2], to = +m[3] * 60 + +m[4];
   return from <= to ? at >= from && at < to : at >= from || at < to;
 }
-export const POLL_FAILURES = 2;
 const NIL = "00000000-0000-0000-0000-000000000000";
 
 /** Open the alert, or touch it if it is already open. */
@@ -271,10 +271,9 @@ export async function stillTrue(c: PoolClient, adapters: Adapters, a: Pick<Alert
   const u = await one<{ email: string | null; slack_user_id: string | null }>(c, "select email, slack_user_id from users where id=$1 and company_id=$2", [needs.slack_user, a.company_id]);
   if (!u) return "fixed";   // the person is gone, and so is the DM to them
   if (u.slack_user_id) return "fixed";
-  const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [a.company_id]);
-  if (!conn || !u.email) return "open";
-  const { decrypt } = await import("./crypto");
-  const found = await adapters.notifier.lookupUserByEmail(decrypt(conn.bot_token), u.email).catch(() => null);
+  const bot = await slackBot(c, a.company_id);
+  if (!bot || !u.email) return "open";
+  const found = await adapters.notifier.lookupUserByEmail(bot.token, u.email).catch(() => null);
   if (!found) return "open";
   await c.query("update users set slack_user_id=$2 where id=$1", [needs.slack_user, found]);
   return "fixed";
@@ -282,9 +281,16 @@ export async function stillTrue(c: PoolClient, adapters: Adapters, a: Pick<Alert
 /** What a blocked step needed (its result's `needs`), so the alert can be checked again without redoing the step: Slack connected, one of these settings bound, or this person linked in Slack. */
 export type Needs = { slack: true } | { bindings: string[] } | { slack_user: string };
 
+/** D200: `text` is what a Slack incoming webhook shows (it refuses a body without one); the rest is for a Zap that reads the fields. */
+export function webhookBody(event: string, a: AlertRow, now: Date) {
+  const href = a.href ? `${base()}${a.href}` : null;
+  const head = event === "alert.resolved" ? "✅ Resolved" : event === "alert.repeated" ? "⏰ Still open" : a.level === "error" ? "🔴 Problem" : "🟡 Warning";
+  return { text: `${head}: ${a.text}${href?.startsWith("http") ? ` <${href}|Open>` : ""}`, event, at: now.toISOString(), source: "backend-in-a-box",
+    alert: { id: a.id, key: a.key, level: a.level, kind: a.source, text: a.text, href, first_seen: a.first_seen, resolved_at: a.resolved_at } };
+}
 async function sendWebhook(event: string, a: AlertRow, now: Date): Promise<boolean> {
   const url = process.env.OPERATOR_WEBHOOK_URL; if (!url) return false;
-  try { const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event, at: now.toISOString(), source: "backend-in-a-box", alert: { id: a.id, key: a.key, level: a.level, kind: a.source, text: a.text, href: a.href ? `${base()}${a.href}` : null, first_seen: a.first_seen, resolved_at: a.resolved_at } }) }); return r.ok; }
+  try { const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(webhookBody(event, a, now)) }); return r.ok; }
   catch { return false; }   /* the alert channel being down is reported by the outside health check, not by us */
 }
 

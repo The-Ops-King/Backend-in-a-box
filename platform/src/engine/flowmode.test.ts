@@ -7,6 +7,8 @@ import { saveFromTemplate } from "@/engine/definitions";
 import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
 import { setWorkflowMode } from "@/engine/golive";
+import { dispatchSchedules } from "@/engine/clock";
+import { DateTime } from "luxon";
 import { handlerMode, workflowMode, type Mode } from "@/engine/mode";
 import { harnessRefusal } from "@/engine/simulate";
 import { companyReadiness } from "@/engine/readiness";
@@ -35,7 +37,7 @@ const contact = (ghl: string, email: string, tags: string[] = []) => asOperator(
 });
 const runsOf = (ct: string, wf: string) => asOperator((c) => many<{ id: string; status: string; born_in: string }>(c, "select id, status, born_in from runs where contact_id=$1 and workflow_id=$2 order by started_at", [ct, wf]));
 const stepOf = (runId: string, type: string) => asOperator((c) => one<{ status: string; result: Record<string, unknown> }>(c, "select status, result from run_steps where run_id=$1 and node_type=$2 order by started_at limit 1", [runId, type]));
-const sendsOf = (ct: string) => asOperator((c) => many<{ channel: string; status: string }>(c, "select channel, status from sends where contact_id=$1 and channel in ('sms','email') order by scheduled_for", [ct]));
+const sendsOf = (ct: string) => asOperator((c) => many<{ channel: string; status: string }>(c, "select channel, status from sends where contact_id=$1 and channel in ('sms','email') order by scheduled_for, channel", [ct]));
 /** A small workflow of the company's own, for what the templates here do not do (post to Slack, run with no contact). */
 const probe = (name: string, event: string, middle: Record<string, unknown>[]) => asOperator(async (c) => {
   const nodes = [{ id: "t1", type: "trigger", event }, ...middle, { id: "x1", type: "exit", reason: "done" }];
@@ -183,5 +185,40 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
     await asOperator((c) => saveFromTemplate(c, { workflowId: speed, note: "bring the template", by: "Tyler" }));
     expect(await asOperator((c) => workflowMode(c, speed))).toEqual({ mode: "ghost", own: "ghost", company: "test" });
     expect(await asOperator((c) => workflowMode(c, newLead))).toEqual({ mode: "live", own: "live", company: "test" });
+  });
+
+  it("D201: a scheduled report that ran on a lower rung is not run again when its workflow goes up: its period stays run, its run closed out", async () => {
+    const report = await probe("Report probe", "schedule", [{ id: "v1", type: "set_var", key: "x", value: "1" }]);
+    await asOperator(async (c) => {   // the probe's trigger, scheduled for every day at midnight (so today's period has come)
+      const v = (await one<{ definition: { nodes: Record<string, unknown>[] } }>(c, "select definition from workflow_versions where workflow_id=$1 and version=1", [report]))!.definition;
+      v.nodes[0].schedule = { at: "00:00", for: "company" };
+      const def = parseDefinition(v);
+      await c.query("update workflow_versions set definition=$2 where workflow_id=$1 and version=1", [report, def]);
+      await syncTriggers(c, companyId, report, def);
+    });
+    const now = DateTime.now();
+    const first = await asOperator((c) => dispatchSchedules(c, now, companyId));
+    expect(first.started.filter((s) => s.workflow === "Report probe")).toHaveLength(1);
+    await tick(fake, undefined, companyId);
+    const ran = await asOperator((c) => one<{ id: string; born_in: string; status: string }>(c, "select id, born_in, status from runs where workflow_id=$1", [report]));
+    expect(ran).toMatchObject({ born_in: "test", status: "completed" });
+    const up = await setFlow(report, "live");
+    expect(up).toMatchObject({ ok: true, cleared: { runs: 0, periods: 1 } });
+    // the period counts as run: the clock starts nothing more today
+    expect((await asOperator((c) => dispatchSchedules(c, now.plus({ minutes: 1 }), companyId))).started.filter((s) => s.workflow === "Report probe")).toEqual([]);
+    expect(await asOperator((c) => one(c, "select status, exit_reason, (select count(*)::int from run_steps s where s.run_id=r.id) as steps from runs r where id=$1", [ran!.id])))
+      .toEqual({ status: "completed", exit_reason: "done", steps: 0 });   // it had finished: it keeps how it ended
+    // one still going when the workflow goes up is closed out, not left to pick up halfway
+    await setFlow(report, null);
+    await asOperator((c) => c.query("update runs set status='waiting', exit_reason=null, born_in='test', next_run_at=now() + interval '1 hour', finished_at=null where id=$1", [ran!.id]));
+    expect(await setFlow(report, "live")).toMatchObject({ ok: true, cleared: { runs: 0, periods: 1 } });
+    expect(await asOperator((c) => one(c, "select status, exit_reason, next_run_at from runs where id=$1", [ran!.id])))
+      .toEqual({ status: "exited", exit_reason: "cleared at the move up: its period ran on a lower rung", next_run_at: null });
+    // a run that is not a schedule's is still deleted at the move up, as before
+    const ct = await contact("D201", "d200@example.com");
+    await lead(ct);
+    expect((await runsOf(ct, speed)).length).toBeGreaterThan(0);
+    await setFlow(speed, "live");
+    expect(await runsOf(ct, speed)).toEqual([]);
   });
 });

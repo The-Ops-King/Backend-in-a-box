@@ -39,3 +39,11 @@ offer and that workflow in this chat and says to unlock it. Never on inference, 
 
 Tyler wants things like where an alert posts to be settings, not code ("I want you to remember that this should be
 configurable"). The first case: where the one-time "this person doesn't have a link" tag goes (Dating: #dating-calls-booked).
+
+## Schema changes are numbered migrations (D200)
+
+`platform/src/db/baseline.ts` is frozen (its test fails if it changes): it already ran on production and never runs again. A new
+table, column, constraint or data fix is a new entry at the end of `platform/src/db/migrations.ts` with the next number, run once and
+recorded in `schema_migrations`; never edit one that has reached production. Write it through the migrator (`c.query`, and `c.tx`
+for a group that must not be left half done, one table per group) so it gives way to the live engine. Keep `engine/schema.sql` in
+step (`pnpm -s schema:sync`): it is what an empty database starts from.

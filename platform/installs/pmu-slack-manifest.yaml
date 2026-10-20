@@ -26,6 +26,7 @@ features:
     - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "What the bot can answer", should_escape: false }
     - { command: /support, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Something broke, or you need something: logs it for Tyler with a number", usage_hint: "[what's wrong or what you need]", should_escape: false }
     - { command: /team, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "Operator only: add or remove a setter or closer, and what's left to set up", usage_hint: "[add <email> <setter|closer>]", should_escape: false }
+    - { command: /agreement, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/83295103-a572-47f6-bee9-0ff986681a66/commands", description: "send an agreement: their email, phone or GHL link sends at once; a full name asks you first; leave", usage_hint: "[name, email or GHL link] [type]", should_escape: false }
 oauth_config:
   scopes:
     bot:

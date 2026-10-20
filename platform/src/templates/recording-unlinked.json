@@ -26,7 +26,15 @@
         "fallback_channel": "{{slack.channel.bookings}}",
         "label": "ghost",
         "title": "Tell the team a recording matched nobody",
-        "template": "*Unmatched recording* · {{event.title | default:untitled}} · {{event.duration_min | default:?}} min\n{{event.reason | default:no match}}\n*Attendees:* {{event.attendees | default:nobody listed}} · *Recorded by:* {{event.recorded_by | default:—}}\n{{event.share_url | default:}}\nLink it: {{company.base_url}}/c/{{company.slug}}/recordings"
+        "template": "*Unmatched recording* · {{event.title | default:untitled}} · {{event.duration_min | default:?}} min\n{{event.reason | default:no match}}\n*Attendees:* {{event.attendees | default:nobody listed}} · *Recorded by:* {{event.recorded_by | default:—}}\n{{event.share_url | default:}}\nLink it: {{company.base_url}}/c/{{company.slug}}/recordings",
+        "buttons": [
+          {
+            "text": "Link to a contact",
+            "action": "link_recording",
+            "value": "{{event.recording_id}}",
+            "style": "primary"
+          }
+        ]
       },
       {
         "id": "x1",

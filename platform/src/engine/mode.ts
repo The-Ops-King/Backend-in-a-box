@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
+import { switchOn } from "./setting-defaults";
 
 /**
  * The ladder a company climbs before anyone real hears from it (D52, renamed and widened by D132):
@@ -31,7 +32,7 @@ export const TEST_DOMAINS_KEY = "test.domains";
 export const TEST_CHANNEL_KEY = "test.slack_channel";
 /** D141: Slack is the team, not the contact: `slack.live` on puts every post and DM where its step points, unmarked, while the rung still holds what reaches a contact. */
 export const SLACK_LIVE_KEY = "slack.live";
-export const slackLiveSet = (bindings: Record<string, string>) => /^(true|yes|on|1)$/i.test((bindings[SLACK_LIVE_KEY] ?? "").trim());
+export const slackLiveSet = (bindings: Record<string, string>) => switchOn(bindings, "slack.live");
 export const testDomains = (bindings: Record<string, string>) => (bindings[TEST_DOMAINS_KEY] ?? "").split(",").map((d) => d.trim().toLowerCase().replace(/^@/, "")).filter(Boolean);
 
 /** The one rule for "the team's own test contact" (D52): tagged sys-test, or an email on one of the company's test domains. Test mode lets them through; every metric leaves them out (D73). */

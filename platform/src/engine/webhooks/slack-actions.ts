@@ -4,9 +4,9 @@ import type { Adapters, SlackBlock } from "@/adapters/types";
 import { alertKind, destinationsFor, pauseAlert, resolveByPerson, type AlertRow } from "../alerts";
 import { retryStep } from "../hand";
 import { classifyError, plainError } from "../failures";
-import { decrypt } from "../crypto";
 import { settledMessage } from "../slack-blocks";
 import { SLACK_ACTIONS } from "../definition";
+import { slackBot } from "../slack-conn";
 
 /**
  * D93: Retry and Resolve on an alert's Slack post. The Health check workflow puts the buttons on the post (slack_post `buttons`);
@@ -15,12 +15,22 @@ import { SLACK_ACTIONS } from "../definition";
  * and the operator (`bot.escalate_to`) may press; the alert row is locked for the press, so a second press waits for the first
  * and finds it done.
  */
-export type SlackPress = { kind: "press"; teamId?: string; user: string; userName?: string; action: (typeof SLACK_ACTIONS)[number]; value: string; channel?: string; ts?: string; responseUrl?: string; message?: { text?: string; blocks?: SlackBlock[] } };
+export type SlackPress = { kind: "press"; teamId?: string; user: string; userName?: string; action: (typeof SLACK_ACTIONS)[number]; value: string; channel?: string; ts?: string; responseUrl?: string; triggerId?: string; message?: { text?: string; blocks?: SlackBlock[] } };
+/** D200: a form of ours sent back (view_submission): which form, what it carried, what was typed (block id → value). */
+export type SlackSubmit = { kind: "submit"; teamId?: string; user: string; callbackId: string; meta?: string; values: Record<string, string> };
 
-/** Slack posts an interaction form-encoded, the JSON in `payload`. Only a button of ours on a message is a press. */
-export function parseSlackInteraction(raw: string): SlackPress | { kind: "ignored"; type: string } {
+/** Slack posts an interaction form-encoded, the JSON in `payload`. A button of ours on a message is a press; a form of ours sent back, a submit. */
+export function parseSlackInteraction(raw: string): SlackPress | SlackSubmit | { kind: "ignored"; type: string } {
   let p: Record<string, unknown>;
   try { p = JSON.parse(new URLSearchParams(raw).get("payload") ?? ""); } catch { return { kind: "ignored", type: "no payload" }; }
+  if (p?.type === "view_submission") {
+    const view = (p.view ?? {}) as { callback_id?: string; private_metadata?: string; state?: { values?: Record<string, Record<string, { value?: string | null; selected_option?: { value?: string } | null }>> } };
+    const user = (p.user ?? {}) as Record<string, unknown>;
+    if (typeof view.callback_id !== "string" || typeof user.id !== "string") return { kind: "ignored", type: "view_submission" };
+    // a text box answers `value`, a dropdown `selected_option.value` (D202)
+    const values = Object.fromEntries(Object.entries(view.state?.values ?? {}).map(([block, inputs]) => { const i = Object.values(inputs)[0]; return [block, String(i?.value ?? i?.selected_option?.value ?? "")]; }));
+    return { kind: "submit", teamId: typeof (p.team as { id?: unknown } | undefined)?.id === "string" ? (p.team as { id: string }).id : undefined, user: user.id, callbackId: view.callback_id, meta: view.private_metadata, values };
+  }
   if (p?.type !== "block_actions") return { kind: "ignored", type: String(p?.type ?? "?") };
   const a = ((p.actions as Record<string, unknown>[] | undefined) ?? [])[0] ?? {};
   const action = SLACK_ACTIONS.find((x) => x === a.action_id);
@@ -29,7 +39,7 @@ export function parseSlackInteraction(raw: string): SlackPress | { kind: "ignore
   const container = (p.container ?? {}) as Record<string, unknown>, message = (p.message ?? {}) as Record<string, unknown>, channel = (p.channel ?? {}) as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === "string" ? v : undefined);
   return { kind: "press", teamId: str(((p.team ?? {}) as Record<string, unknown>).id), user: user.id, userName: str(user.name) ?? str(user.username), action, value: a.value,
-    channel: str(container.channel_id) ?? str(channel.id), ts: str(container.message_ts) ?? str(message.ts), responseUrl: str(p.response_url),
+    channel: str(container.channel_id) ?? str(channel.id), ts: str(container.message_ts) ?? str(message.ts), responseUrl: str(p.response_url), triggerId: str(p.trigger_id),
     message: { text: str(message.text), blocks: Array.isArray(message.blocks) ? (message.blocks as SlackBlock[]) : undefined } };
 }
 
@@ -49,15 +59,15 @@ async function presser(c: PoolClient, companyId: string, slackUser: string): Pro
 }
 
 async function decide(c: PoolClient, deps: PressDeps, companyId: string, p: SlackPress): Promise<Decision> {
-  const conn = await one<{ team_id: string; bot_token: Buffer }>(c, "select team_id, bot_token from slack_connections where company_id=$1", [companyId]);
-  if (!conn || (p.teamId && p.teamId !== conn.team_id)) return { out: { done: "ignored", why: "another workspace" } };
+  const bot = await slackBot(c, companyId);
+  if (!bot || (p.teamId && p.teamId !== bot.teamId)) return { out: { done: "ignored", why: "another workspace" } };
   const who = await presser(c, companyId, p.user);
   if (!who.allowed) return { out: { done: "denied" }, say: ONLY_MANAGERS };
   if (!UUID.test(p.value)) return { out: { done: "ignored", why: "not an alert id" } };
   // locked for the press: a second press on the same alert waits here, then finds it resolved
   const a = await one<AlertRow>(c, "select * from alerts where id=$1 and company_id=$2 for update", [p.value, companyId]);
   if (!a) return { out: { done: "ignored", why: "no such alert" }, say: "I can't find that alert any more." };
-  const token = decrypt(conn.bot_token);
+  const token = bot.token;
   const at = p.channel && p.ts ? { channel: p.channel, ts: p.ts } : (await one<{ channel: string; ts: string }>(c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [companyId, `alert:${a.id}`])) ?? null;
   if (a.resolved_at) return { out: { done: "already" }, say: "Already done: this alert is resolved." };
   const mention = `<@${p.user}>`;

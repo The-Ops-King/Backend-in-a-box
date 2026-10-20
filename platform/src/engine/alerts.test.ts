@@ -7,7 +7,7 @@ import { encrypt } from "@/engine/crypto";
 import { parseDefinition, extractManifest, indexDefinition } from "@/engine/definition";
 import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
-import { tickAlerts, openAlerts, raise, resolve, announceDue, inRepeatHours, pauseAlert } from "@/engine/alerts";
+import { tickAlerts, openAlerts, raise, resolve, announceDue, inRepeatHours, pauseAlert, webhookBody, type AlertRow } from "@/engine/alerts";
 import { type HealthProbes, CHECKS, type Finding } from "@/engine/health";
 import { fireNow } from "@/engine/clock";
 import { installTemplateForTest, replicaSnapshot } from "@/engine/test-install";
@@ -317,5 +317,20 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(await asOperator((c) => many(c, "select text from alerts where company_id=$1 and key='x:1'", [companyId]))).toEqual([{ text: "b" }]);
     expect(await asOperator((c) => resolve(c, companyId, "x:1", t))).toBe(true);
     expect(await asOperator((c) => resolve(c, companyId, "x:1", t))).toBe(false);
+  });
+});
+
+describe("D200: the operator webhook a Slack incoming webhook can show", () => {
+  it("leads with text (Slack refuses a body without it), keeps the fields a Zap reads", () => {
+    const a = { id: "a1", key: "engine:company_stale", level: "error", source: "engine", text: "Hair has not ticked for 12 minutes.", href: "/companies/hair", first_seen: new Date(0), resolved_at: null } as unknown as AlertRow;
+    const now = new Date("2026-10-20T15:00:00Z");
+    const was = process.env.PUBLIC_URL;
+    process.env.PUBLIC_URL = "https://biab.example";
+    const b = webhookBody("alert.raised", a, now);
+    if (was === undefined) delete process.env.PUBLIC_URL; else process.env.PUBLIC_URL = was;
+    expect(b.text).toBe("🔴 Problem: Hair has not ticked for 12 minutes. <https://biab.example/companies/hair|Open>");
+    expect(b).toMatchObject({ event: "alert.raised", source: "backend-in-a-box", alert: { key: "engine:company_stale", level: "error", text: a.text } });
+    expect(webhookBody("alert.resolved", a, now).text).toMatch(/^✅ Resolved: /);
+    expect(webhookBody("alert.repeated", { ...a, href: null } as AlertRow, now).text).toBe("⏰ Still open: Hair has not ticked for 12 minutes.");
   });
 });

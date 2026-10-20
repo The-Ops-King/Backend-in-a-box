@@ -26,7 +26,7 @@ export const slackAuthTest = async (token: string): Promise<SlackAuth> => {
   } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 160) }; }
 };
 
-/** D200: the operator's /team, in the manifest but not in /help (the team cannot run it). */
+/** D203: the operator's /team, in the manifest but not in /help (the team cannot run it). */
 export const TEAM_SHORTCUT = { command: "/team", description: "Operator only: add or remove a setter or closer, and what's left to set up", hint: "[add <email> <setter|closer>]" };
 const BOT_SCOPES = ["chat:write", "chat:write.customize", "channels:read", "groups:read", "reactions:read", "reactions:write", "users:read.email", "users:read", "app_mentions:read", "im:history", "channels:history", "groups:history"];
 const q = (s: string) => JSON.stringify(s);   // a JSON string is a YAML string

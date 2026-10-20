@@ -1,5 +1,5 @@
 /**
- * D200: /team in Slack (Tyler: "Maybe if we could just have the Slack command tell me what I need to do"). Only the operator
+ * D203: /team in Slack (Tyler: "Maybe if we could just have the Slack command tell me what I need to do"). Only the operator
  * (`bot.escalate_to`) runs it. `/team add <email> <setter|closer>` re-reads the GHL roster, gives the person the role once they are a
  * GHL user (D197's changeTeam), and answers with a checklist: what is done, and the exact next step for anything that is not. Run it
  * again after a fix; nothing is done twice. `/team remove <email>` takes the role off; `/team` lists the team. Nothing is invited or

@@ -5,10 +5,10 @@ import { companyReadiness, type Readiness } from "@/engine/readiness";
 import { liveAdapters } from "@/adapters";
 import { bookingFor, type CalendarSnapshot } from "@/adapters/types";
 import { ghlCatalog, type Catalog } from "@/adapters/ghl/catalog";
-import { decrypt } from "@/engine/crypto";
 import { loadEodForm, type EodField } from "@/engine/eod";
 import { parseDefinition } from "@/engine/definition";
 import { scheduleWords } from "@/engine/clock";
+import { slackBot } from "@/engine/slack-conn";
 
 /** A channel the company's bot can see; is_member false = it cannot post there until someone invites it. */
 export type SlackChannel = { id: string; name: string; is_member: boolean; is_private: boolean };
@@ -85,7 +85,7 @@ export async function loadSettings(slug: string): Promise<SettingsData | null> {
     const tagCounts = new Map((await many<{ tag: string; n: number }>(c, "select t as tag, count(*)::int as n from contacts, unnest(tags) t where company_id=$1 group by t", [co.id])).map((r) => [r.tag, r.n]));
     const slack = (await one<{ team_id: string; connected_at: Date }>(c, "select team_id, connected_at from slack_connections where company_id=$1", [co.id])) ?? null;
     let slackChannels: SlackChannel[] | null = null;
-    if (slack) { const tok = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [co.id]); slackChannels = await listSlackChannels(decrypt(tok!.bot_token)); }
+    if (slack) { const bot = await slackBot(c, co.id); slackChannels = await listSlackChannels(bot!.token); }
     const readiness = await companyReadiness(c, co.id, `/app/c/${slug}`);
     let liveCalendars: CalendarSnapshot[] = [], liveCalendarsError: string | null = null, catalog: Catalog | null = null;
     const connected = !!adapterCompany.pit && !!adapterCompany.locationId;

@@ -79,7 +79,7 @@ const CLASS_WORDS: Record<string, string> = { showed: "showed", noshow: "no-show
 export function warnings(r: MetricResult): string[] {
   const L: string[] = [];
   const q = r.qualification;
-  if (q?.unrecognized) L.push(`⚠️ ${q.unrecognized} work-situation answer${q.unrecognized === 1 ? "" : "s"} not recognised: ${q.unrecognized_answers.map((a) => `"${a}"`).join(", ")}`);
+  if (q?.unrecognized) L.push(`⚠️ ${q.unrecognized} qualifying answer${q.unrecognized === 1 ? "" : "s"} not recognised: ${q.unrecognized_answers.map((a) => `"${a}"`).join(", ")}`);
   const b = r.shows_breakdown;
   if (b?.missing) L.push(`⚠️ No EOD outcome yet: ${names(b.missing_names)}`);
   for (const m of b?.mismatches ?? []) L.push(`⚠️ ${m.name}: GHL says ${CLASS_WORDS[m.ghl] ?? m.ghl}, ${m.booking_source} says cancelled (fix the Sales Call in GHL)`);
@@ -112,7 +112,7 @@ export function analysisTable(a: Analysis): string[] {
   const rows = a.rows.map((g) => [g.value === NO_ANSWER ? "no answer" : g.value, String(unitCount(a, g)), ...(rate ? [pc(g[rate])] : a.payments ? [money(g.cash)] : [])]);
   return [table(head, rows), ...(a.test ? [`_${a.test.verdict}_`] : [])];
 }
-/** Who: split, the counted bullets with the names under each ("• 2 — answer" / "_Lynton Thompson, Lakshan Gunaratne_"); not split, one bullet per person with their outcome unless every one is the same. */
+/** Who: split, the counted bullets with the names under each ("• 2 — answer" / "_Sam Lee, Rae Park_"); not split, one bullet per person with their outcome unless every one is the same. */
 export function analysisList(a: Analysis): string[] {
   if (!a.list?.length) return [];
   if (a.split) {
@@ -140,7 +140,7 @@ export function analysisIssues(a: Analysis): string[] {
 }
 
 // ---- closes, availability --------------------------------------------------------------------------------------------------
-/** "*Closes: 1*", then each closer's closes: "• Lynton Thompson — $750 / $750 — Mon Oct 5" (cash collected / revenue). */
+/** "*Closes: 1*", then each closer's closes: "• Sam Lee — $750 / $750 — Mon Oct 5" (cash collected / revenue). */
 export const closesKey = (k: ClosesList) => `*Closes${k.filters?.closer ? ` (${k.filters.closer})` : ""}: ${k.count}*`;
 export function closesBody(k: ClosesList): string[] {
   if (!k.closes.length) return ["_No closes in this period._"];
@@ -264,6 +264,7 @@ export const SHORTCUTS: { command: string; about: string; example: string; hint?
   { command: "/leads", about: "leads, MQLs and marketing DQs by source (default this month)", example: "/leads yesterday", hint: "[yesterday]" },
   { command: "/closes", about: "every close by closer: who, cash collected / revenue, the day it was won (default this month)", example: "/closes last month", hint: "[last month]" },
   { command: "/leaderboard", about: "closers ranked by cash (closes and close rate beside), setters ranked by sets (show rate of their sets beside) (default this week)", example: "/leaderboard last week", hint: "[last week]" },
+  { command: "/agreement", about: "send an agreement: their email, phone or GHL link sends at once; a full name asks you first; leave off the type to pick it; nothing typed opens a form", example: "/agreement rae@example.com full", hint: "[name, email or GHL link] [type]" },
   { command: "/support", about: "something broke, or you need something: logs it for Tyler with a number (add a Loom or a screenshot in its thread)", example: "/support the EOD form won't load", hint: "[what's wrong or what you need]" },
 ];
 export function helpText(botMention = "@bot"): string {
@@ -275,8 +276,8 @@ export function helpText(botMention = "@bot"): string {
     "",
     `*Or just ask me* (mention ${botMention}, or DM me). For example:`,
     `• ${botMention} what's our close rate this month?`,
-    `• ${botMention} who showed this month and how did they describe their hair loss?`,
-    `• ${botMention} what did Lynton pay?`,
+    `• ${botMention} who showed this month and what did they answer on the booking form?`,
+    `• ${botMention} what did Sam pay?`,
     `• ${botMention} show rate by closer last month, as a table`,
     `• ${botMention} what does our calendar availability look like?`,
     "",

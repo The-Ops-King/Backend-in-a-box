@@ -1,400 +1,57 @@
-import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import { asOperator, db } from "./client";
-import { acquireTickLock, releaseTickLock } from "@/engine/lock";
+import { acquireTickLock, releaseTickLock, renewTickLock } from "@/engine/lock";
 import { SCHEMA } from "./schema.sql";
+import { migrator } from "./migrator";
+import { MIGRATIONS } from "./migrations";
+export { migrator, type Migrator } from "./migrator";
 import { backfillBookingCard } from "@/engine/booking-card";
 
-/** Every event source the engine writes; one list so an added source cannot be missed by a later constraint rebuild. */
-const APPOINTMENT_SOURCES = ["ghl", "calendly", "test"].map((s) => `'${s}'`).join(",");
-const EVENT_SOURCES = ["form", "ghl_poll", "whop", "fathom", "zapier", "slack", "engine", "disposition", "command_center", "user", "test"].map((s) => `'${s}'`).join(",");
-
 /**
- * D151: the migration runs against a database the live engine is using every minute, so it never holds a lock for long. Each
- * statement is its own transaction that gives up on a lock after a few seconds (and is tried again after a pause) rather than
- * queueing ahead of the engine's own queries, and on its last try waits for it; `tx` keeps a group on one table together (a constraint dropped and added again,
- * a once-only marker and its update), re-run whole on a retry. One big transaction deadlocked with a tick (2026-10-19).
+ * One migration at a time: a lease row like the ticks' (lock.ts), renewed every minute while its migration runs, so a build that dies
+ * frees it within MIGRATE_LEASE_SECONDS and a waiting one, which waits longer than that, always gets it.
  */
-export type Migrator = {
-  query<R extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]): Promise<QueryResult<R>>;
-  tx<T>(fn: (c: Migrator) => Promise<T>): Promise<T>;
-};
-// a few short tries that step aside for the engine, then one that waits as long as it takes (the way every deploy used to): a busy
-// engine can slow a migration down but never fail it
-const LOCK_TRIES = 5, lockTimeout = (i: number) => (i < LOCK_TRIES ? "3s" : "0");
-const lockedOut = (e: unknown) => ["55P03", "40P01"].includes((e as { code?: string }).code ?? "");   // lock_not_available, deadlock_detected
-export function migrator(conn: PoolClient, pause = (ms: number) => new Promise((r) => setTimeout(r, ms))): Migrator {
-  let inTx = false;
-  const attempt = async <T>(fn: () => Promise<T>): Promise<T> => {
-    for (let i = 1; ; i++) {
-      await conn.query("begin");
-      try {
-        await conn.query("select set_config('lock_timeout', $1, true)", [lockTimeout(i)]);
-        const out = await fn();
-        await conn.query("commit");
-        return out;
-      } catch (e) {
-        await conn.query("rollback").catch(() => {});
-        if (!lockedOut(e) || i >= LOCK_TRIES + 3) throw e;   // past the short tries only a deadlock comes back here
-        await pause(Math.min(500 * 2 ** (i - 1), 8_000));
-      }
-    }
-  };
-  // a statement with no parameters goes in one round trip with its own begin and commit (about 300 of them a deploy, over the
-  // network to the database: four round trips each took a build's migration from under a minute to three)
-  const single = async <R extends QueryResultRow>(sql: string): Promise<QueryResult<R>> => {
-    for (let i = 1; ; i++) {
-      try {
-        const res = (await conn.query(`begin; select set_config('lock_timeout', '${lockTimeout(i)}', true); ${sql}; commit`)) as unknown as QueryResult<R>[];
-        if (res[res.length - 1].command === "ROLLBACK") throw new Error(`migration statement rolled back: ${sql.slice(0, 120)}`);
-        return res[2];
-      } catch (e) {
-        await conn.query("rollback").catch(() => {});
-        if (!lockedOut(e) || i >= LOCK_TRIES + 3) throw e;   // past the short tries only a deadlock comes back here
-        await pause(Math.min(500 * 2 ** (i - 1), 8_000));
-      }
-    }
-  };
-  const m: Migrator = {
-    query: (sql, params) => (inTx ? conn.query(sql, params) : params?.length ? attempt(() => conn.query(sql, params)) : single(sql)),
-    tx: async (fn) => {
-      if (inTx) return fn(m);
-      inTx = true;
-      try { return await attempt(() => fn(m)); } finally { inTx = false; }
-    },
-  };
-  return m;
-}
-
-/** One migration at a time: a lease row like the ticks' (lock.ts), waited for while another build migrates. */
-const MIGRATE_LOCK = "migrate_lock", MIGRATE_LEASE_SECONDS = 900, MIGRATE_WAIT_MS = 10 * 60_000;
+const MIGRATE_LOCK = "migrate_lock", MIGRATE_LEASE_SECONDS = 180, MIGRATE_RENEW_MS = 60_000, MIGRATE_WAIT_MS = 5 * 60_000;
 async function takeMigrateLease(): Promise<string> {
   const until = Date.now() + MIGRATE_WAIT_MS;
   for (;;) {
     const owner = await acquireTickLock(MIGRATE_LEASE_SECONDS, MIGRATE_LOCK);
     if (owner) return owner;
-    if (Date.now() > until) throw new Error("another migration has held the migrate lease for over 10 minutes");
+    if (Date.now() > until) throw new Error("another migration has held the migrate lease for over 5 minutes");
     await new Promise((r) => setTimeout(r, 5_000));
   }
 }
 
-/** Applies engine/schema.sql (idempotently: skips if `companies` exists) then forces RLS on every tenant table. */
-export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]; repaired: string[]; bookingCard: string[]; skipped?: string }> {
+/**
+ * Applies engine/schema.sql to an empty database, then each numbered migration not yet recorded (migrations.ts, D200), then makes sure
+ * every tenant table has its row-level security: a deploy with nothing new changes nothing and takes no table lock.
+ */
+export async function migrate(): Promise<{ applied: boolean; ran: string[]; rlsTables: string[]; rlsFixed: string[]; repaired: string[]; bookingCard: string[]; skipped?: string }> {
   // D151 (audit 2026-10-19): a preview build shares the production database, so only a production deployment migrates it; a
   // preview runs against the schema production has
   const env = process.env.VERCEL_ENV;
-  if (env && env !== "production") return { applied: false, rlsTables: [], repaired: [], bookingCard: [], skipped: `${env} deployment: the database is production's, migrated only by a production deployment` };
+  if (env && env !== "production") return { applied: false, ran: [], rlsTables: [], rlsFixed: [], repaired: [], bookingCard: [], skipped: `${env} deployment: the database is production's, migrated only by a production deployment` };
   const conn = await db().connect();
   const c = migrator(conn);
-  let lease: string | null = null;
+  let lease: string | null = null, renewal: ReturnType<typeof setInterval> | undefined;
   try {
     // one migration at a time (two deploys can build at once): a lease row, pooler-safe, freed by expiry if a build dies
     await c.query(`create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())`);
     lease = await takeMigrateLease();
+    const held = lease;
+    renewal = setInterval(() => { void renewTickLock(held, MIGRATE_LOCK, MIGRATE_LEASE_SECONDS).catch(() => {}); }, MIGRATE_RENEW_MS);
+    renewal.unref?.();
     const exists = await c.query("select 1 from information_schema.tables where table_name='companies' and table_schema='public'");
     let applied = false;
     if (exists.rowCount === 0) { await c.query(SCHEMA); applied = true; }   // embedded: works inside a serverless bundle, no filesystem path
-    // engine-internal additions beyond schema.sql; idempotent so an already-migrated database picks them up
-    await c.query(`alter table companies add column if not exists sms_enabled boolean not null default true`);
-    await c.query(`alter table companies add column if not exists mode text not null default 'ghost'`);
-    await c.query(`alter table runs add column if not exists wake_on_reply boolean not null default false`);
-    await c.query(`alter table runs add column if not exists wake_on_tag text`);   // D53: the Slack post whose tap wakes a run parked on wait_for_reaction
-    await c.query(`alter table runs add column if not exists wake_on_event text`);   // D85: the event type whose arrival wakes a run parked on wait_for_event
-    await c.query(`create index if not exists runs_company_id_wake_on_event_idx on runs (company_id, wake_on_event) where wake_on_event is not null`);
-    // D58: a non-blocking listener; where the run was parked (and when it was due) so `resume` can put it back after the decision path
-    await c.query(`alter table runs add column if not exists resume_node text`);
-    await c.query(`alter table runs add column if not exists resume_at timestamptz`);
-    await c.query(`alter table appointments add column if not exists pending_read jsonb`);
-    await c.query(`alter table appointments add column if not exists slot_key text`);
-    // D102: the booking's meeting link as a key, so a recording with no attendee to match on finds its call
-    await c.query(`alter table appointments add column if not exists meeting_key text`);
-    await c.query(`alter table appointments add column if not exists meeting_url text`);   // D144
-    // D152: /support tickets
-    await c.query(`create table if not exists tickets (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, number int not null, text text not null, by_slack_user text, by_name text, slack_channel text, slack_ts text, status text not null default 'open' check (status in ('open','closed')), github_number int, github_url text, github_error text, created_at timestamptz not null default now(), closed_at timestamptz, closed_by text, close_note text, unique (company_id, number))`);
-    await c.query(`alter table tickets drop column if exists kind`);   // D152: /issue and /request became one /support
-    // D150: an alert can be paused (no reminders until it clears)
-    await c.query(`alter table alerts add column if not exists paused_at timestamptz`);
-    await c.query(`alter table alerts add column if not exists paused_by text`);
-    // D145: the send lock (null = locked, every workflow so far included) and the roster's first two tables
-    await c.query(`alter table workflows add column if not exists sends_unlocked_at timestamptz`);
-    await c.query(`alter table workflows add column if not exists sends_unlocked_by text`);
-    await c.query(`create table if not exists people (id uuid primary key default gen_random_uuid(), name text not null, operator boolean not null default false, created_at timestamptz not null default now())`);
-    await c.query(`create table if not exists person_identities (id uuid primary key default gen_random_uuid(), person_id uuid not null references people(id) on delete cascade, kind text not null check (kind in ('email','phone','slack')), value text not null, workspace text not null default '', created_at timestamptz not null default now(), unique (kind, value, workspace))`);
-    await c.query(`create index if not exists appointments_company_id_meeting_key_idx on appointments (company_id, meeting_key) where meeting_key is not null`);
-    // D51: which mode a run was born in; the column arriving on a database that already has runs stamps them with their company's mode today (every run so far was shadow-born where the company is still in shadow)
-    const bornIn = await c.query("select 1 from information_schema.columns where table_name='runs' and column_name='born_in'");
-    if (bornIn.rowCount === 0) {
-      await c.query(`alter table runs add column born_in text not null default 'live'`);
-      await c.query(`update runs r set born_in=co.mode from companies co where co.id=r.company_id`);
+    await c.query(`create table if not exists schema_migrations (id text primary key, applied_at timestamptz not null default now())`);
+    const recorded = new Set((await c.query<{ id: string }>("select id from schema_migrations")).rows.map((r) => r.id));
+    const ran: string[] = [];
+    for (const m of MIGRATIONS) {
+      if (recorded.has(m.id)) continue;
+      await m.run(c);
+      await c.query("insert into schema_migrations (id) values ($1) on conflict do nothing", [m.id]);
+      ran.push(m.id);
     }
-    // D52: the mode ladder; the check constraints follow the list in one place
-    await c.query(`update companies set mode='test' where mode='rehearsal'`); await c.query(`update runs set born_in='test' where born_in='rehearsal'`);   // the rung existed for an hour (D52 addendum)
-    await c.tx(async (c) => {
-      await c.query(`alter table companies drop constraint if exists companies_mode_check`);
-      // D132: shadow is ghost, and quiet (the CRM written for everyone, nothing reaching a contact) sits between test and live
-      await c.query(`update companies set mode='ghost' where mode='shadow'`);
-      await c.query(`alter table companies alter column mode set default 'ghost'`);
-      await c.query(`alter table companies add constraint companies_mode_check check (mode in ('ghost','test','quiet','live'))`);
-    });
-    await c.query(`alter table workflows add column if not exists mode text`);   // D92: the workflow's own rung; null follows the company
-    await c.tx(async (c) => {
-      await c.query(`alter table workflows drop constraint if exists workflows_mode_check`);
-      await c.query(`update workflows set mode='ghost' where mode='shadow'`);
-      await c.query(`alter table workflows add constraint workflows_mode_check check (mode in ('ghost','test','quiet','live'))`);
-    });
-    // D123: a company's own workflow (no template) that does a shipped template's job for that company: install never puts that template back
-    await c.query(`alter table workflows add column if not exists takes_over text`);
-    await c.tx(async (c) => {
-      await c.query(`alter table runs drop constraint if exists runs_born_in_check`);
-      await c.query(`update runs set born_in='ghost' where born_in='shadow'`);
-      await c.query(`alter table runs add constraint runs_born_in_check check (born_in in ('ghost','test','quiet','live'))`);
-    });
-    // D88: alerts are Slack only, said by the Health check workflow; the email and webhook destinations are gone with their paths
-    await c.query(`delete from bindings where key in ('alerts.email','alerts.email_from','alerts.webhook','secret.resend_key')`);
-    // D88: settings nothing read (purge_after_months, opp_lost_on, opp_inactive_days) or that half worked (opp_opens_on, opp_won_on) are gone; won and lost are workflow steps
-    for (const col of ["purge_after_months", "opp_opens_on", "opp_won_on", "opp_lost_on", "opp_inactive_days"]) await c.query(`alter table companies drop column if exists ${col}`);
-    await c.query(`alter table companies add column if not exists reply_retention_days int not null default 7`);
-    await c.query(`alter table companies add column if not exists sends_retention_days int not null default 30`);
-    await c.tx(async (c) => {
-      await c.query(`alter table sends drop constraint if exists sends_status_check`);
-      // D132: a would-have send in ghost is 'ghost'; one held back in quiet is 'quiet'
-      await c.query(`update sends set status='ghost' where status='shadow'`);
-      await c.query(`alter table sends add constraint sends_status_check check (status in ('queued','sent','failed','suppressed','ghost','quiet','unknown'))`);   // unknown: D151
-    });
-    // D137: a record the engine took over (made by GHL or a person) is adopted, never one the engine made: the repair route never deletes it
-    await c.query(`alter table crm_records add column if not exists adopted boolean not null default false`);
-    await c.query(`update crm_records cr set adopted=true from audit_log a where a.action='crm_record.repair' and a.after ? 'key' and a.before->>'record' = cr.ghl_record_id and not cr.adopted`);
-    // D133: one test channel (the first of D132's list); every pre-live post goes there
-    await c.query(`update bindings set key='test.slack_channel', kind='channel', value=convert_to(split_part(convert_from(value,'utf8'),',',1),'utf8') where key='test.slack_channels' and not exists (select 1 from bindings b where b.company_id=bindings.company_id and b.key='test.slack_channel')`);
-    await c.query(`delete from bindings where key='test.slack_channels'`);
-    // booking source generalisation (2026-10-06): columns lose their GHL prefix, calendars/appointments carry a source.
-    // Renames are guarded so a database created from the current schema.sql passes straight through.
-    await c.query(`do $$ begin
-      if exists (select 1 from information_schema.columns where table_schema='public' and table_name='calendars' and column_name='ghl_calendar_id') then alter table calendars rename column ghl_calendar_id to external_id; end if;
-      if exists (select 1 from information_schema.columns where table_schema='public' and table_name='appointments' and column_name='ghl_appointment_id') then alter table appointments rename column ghl_appointment_id to external_id; end if;
-      if exists (select 1 from information_schema.columns where table_schema='public' and table_name='appointments' and column_name='ghl_status') then alter table appointments rename column ghl_status to status; end if;
-      if exists (select 1 from information_schema.columns where table_schema='public' and table_name='appointments' and column_name='ghl_updated_at') then alter table appointments rename column ghl_updated_at to source_updated_at; end if;
-    end $$`);
-    for (const t of ["calendars", "appointments"]) {
-      await c.query(`alter table ${t} add column if not exists source text not null default 'ghl'`);
-      await c.tx(async (c) => {
-        await c.query(`alter table ${t} drop constraint if exists ${t}_source_check`);
-        await c.query(`alter table ${t} add constraint ${t}_source_check check (source in (${t === "appointments" ? APPOINTMENT_SOURCES : "'ghl','calendly'"}))`);   // calendars are only ever real; appointments may be staged by the harness
-      });
-      await c.tx(async (c) => {
-        await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_${t === "calendars" ? "ghl_calendar_id" : "ghl_appointment_id"}_key`);
-        await c.query(`alter table ${t} drop constraint if exists ${t}_company_id_source_external_id_key`);
-        await c.query(`alter table ${t} add constraint ${t}_company_id_source_external_id_key unique (company_id, source, external_id)`);
-      });
-    }
-    for (const col of ["name", "ghl_pipeline_id", "ghl_stage_id"]) await c.query(`alter table opportunities drop column if exists ${col}`);   // short-lived 1:1 mirror, replaced by pipeline_cards
-    await c.query(`create table if not exists pipeline_cards (
-      id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id), opportunity_id uuid not null references opportunities(id), contact_id uuid not null references contacts(id),
-      ghl_opportunity_id text, ghl_pipeline_id text not null, ghl_stage_id text not null, name text not null, status text not null default 'open',
-      created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (company_id, ghl_opportunity_id))`);
-    await c.query(`create index if not exists pipeline_cards_company_id_contact_id_ghl_pipeline_id_idx on pipeline_cards (company_id, contact_id, ghl_pipeline_id)`);
-    await c.query(`alter table pipeline_cards add column if not exists assigned_user_id uuid references users(id)`);
-    await c.query(`alter table calendars add column if not exists self_booked boolean`);
-    await c.query(`alter table appointments add column if not exists set_by text`);
-    await c.query(`alter table appointments add column if not exists reschedule_url text`);
-    await c.query(`alter table appointments add column if not exists cancel_url text`);
-    await c.query(`alter table appointments add column if not exists tracking jsonb not null default '{}'`);
-    await c.query(`alter table appointments add column if not exists cancelled_by text`);
-    await c.query(`alter table appointments add column if not exists cancel_reason text`);
-    await c.query(`alter table calendars add column if not exists booking_url text`);
-    await c.tx(async (c) => {
-      await c.query(`alter table contacts drop constraint if exists contacts_timezone_source_check`);
-      await c.query(`alter table contacts add constraint contacts_timezone_source_check check (timezone_source in ('ghl','booking','phone','company_default'))`);
-    });
-    // payments ledger (D21): unlinked payments, identity columns, derived kind, provider; webhook idempotency; CRM record map
-    await c.query(`alter table payments alter column contact_id drop not null`);
-    await c.query(`alter table sends alter column contact_id drop not null`);   // team alerts have no contact
-    for (const col of ["provider text not null default 'whop'", "kind text", "customer_email text", "customer_phone text", "whop_member_id text", "link_status text not null default 'linked'", "linked_by text"]) await c.query(`alter table payments add column if not exists ${col}`);
-    await c.tx(async (c) => {
-      await c.query(`alter table payments drop constraint if exists payments_kind_check`);
-      await c.query(`alter table payments add constraint payments_kind_check check (kind in ('deposit','installment','balance','paid_in_full','refund','chargeback','failed'))`);
-    });
-    // D119: a deposit was guessed from the amount (a first payment short of the price); now it is only a payment for one of the
-    // company's declared deposit products. Once: the guessed ones are what they were, a first installment (no company declared any yet)
-    await c.tx(async (c) => {
-      if ((await c.query("insert into engine_state (key, value) values ('d119_deposit_kinds', '{}') on conflict (key) do nothing returning key")).rowCount) {
-        const r = await c.query(`update payments p set kind='installment' where kind='deposit' and not exists (select 1 from bindings b where b.company_id=p.company_id and b.key='payments.deposit_products')`);
-        await c.query("update engine_state set value=$1, updated_at=now() where key='d119_deposit_kinds'", [{ reclassified: r.rowCount ?? 0 }]);
-      }
-    });
-    await c.tx(async (c) => {
-      await c.query(`alter table payments drop constraint if exists payments_link_status_check`);
-      await c.query(`alter table payments add constraint payments_link_status_check check (link_status in ('linked','unlinked'))`);
-    });
-    await c.tx(async (c) => {
-      await c.query(`alter table payments drop constraint if exists payments_company_id_whop_payment_id_key`);
-      await c.query(`alter table payments drop constraint if exists payments_company_id_provider_whop_payment_id_key`);
-      await c.query(`alter table payments add constraint payments_company_id_provider_whop_payment_id_key unique (company_id, provider, whop_payment_id)`);
-    });
-    await c.query(`create index if not exists payments_company_id_link_status_idx on payments (company_id, link_status)`);
-    await c.query(`alter table companies add column if not exists contract_value_default numeric(12,2)`);
-    await c.query(`alter table companies add column if not exists reached_seconds int not null default 60`);   // D29: speed-to-lead "reached" threshold
-    await c.query(`alter table contacts add column if not exists ghl_added_at timestamptz`);
-    await c.query(`insert into event_types values ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment') on conflict do nothing`);
-    await c.query(`create table if not exists webhook_deliveries (company_id uuid not null references companies(id), provider text not null, delivery_id text not null, received_at timestamptz not null default now(), primary key (company_id, provider, delivery_id))`);
-    await c.query(`create table if not exists crm_records (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id), object_key text not null, record_key text not null, ghl_record_id text, contact_id uuid references contacts(id), properties jsonb not null default '{}', created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (company_id, object_key, record_key))`);
-    // call recordings (D22): same ledger shape as payments
-    await c.query(`insert into event_types values ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call') on conflict do nothing`);
-    await c.query(`insert into event_types values ('call.logged','call') on conflict do nothing`);   // D28: phone calls the CRM's dialer logged
-    await c.query(`insert into event_types values ('agreement.sent','agreement'), ('agreement.signed','agreement') on conflict do nothing`);   // D30
-    await c.query(`alter table contacts add column if not exists assigned_ghl_user_id text`);
-    // D60: a contact the CRM no longer has (G21) and an identifier a CRM record moved away from (G15)
-    await c.query(`alter table contacts add column if not exists gone_at timestamptz`);
-    await c.query(`alter table contacts add column if not exists attribution jsonb not null default '{}'`);
-    await c.query(`alter table contact_identifiers add column if not exists retired_at timestamptz`);
-    await c.query(`alter table runs add column if not exists pending_events jsonb not null default '[]'`);
-    // D66: a failed step is retried in place; the create ledger keeps a retry from making a second note, task, document, card or record
-    await c.query(`alter table runs add column if not exists step_attempt int not null default 0`);
-    await c.query(`alter table runs add column if not exists step_error text`);
-    await c.query(`alter table runs add column if not exists step_held boolean not null default false`);   // D77: held on a blocking step that is down, re-checked alone
-    await c.query(`alter table pipeline_cards add column if not exists created_by_run uuid references runs(id) on delete set null`);
-    await c.tx(async (c) => {
-      await c.query(`alter table run_steps drop constraint if exists run_steps_status_check`);
-      await c.query(`alter table run_steps add constraint run_steps_status_check check (status in ('ok','skipped','stale','failed','waiting','paused'))`);
-    });
-    await ownsOrAbsent(c, "step_effects", "done_at");
-    await c.query(`create table if not exists step_effects (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, run_id uuid not null references runs(id) on delete cascade, node_id text not null, kind text not null, external_id text, created_at timestamptz not null default now(), done_at timestamptz, unique (run_id, node_id, kind))`);
-    // runs.trigger_id is history: a template upgrade that drops a trigger node must not be blocked by the runs it once started
-    await c.tx(async (c) => {
-      await c.query(`alter table runs drop constraint if exists runs_trigger_id_fkey`);
-      await c.query(`alter table runs add constraint runs_trigger_id_fkey foreign key (trigger_id) references workflow_triggers(id) on delete set null`);
-    });
-    await ownsOrAbsent(c, "agreements", "signed_at");
-    await c.query(`create table if not exists agreements (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, contact_id uuid references contacts(id), external_id text not null, name text, status text not null, sent_at timestamptz not null, signed_at timestamptz, sent_by text, raw jsonb not null default '{}', updated_at timestamptz not null default now(), unique (company_id, external_id))`);
-    await c.query(`create index if not exists agreements_company_id_contact_id_idx on agreements (company_id, contact_id)`);
-    // D29: daily rollups, wrap-up schedules and the generated wrap-ups. The database is shared with other apps (a foreign `reports`
-    // table exists in production), so each name is checked first: a same-named table that is not ours fails loudly instead of
-    // being half-used by `create table if not exists`.
-    // the first D29 deploy created two tables under the old names before failing on the foreign "reports"; drop them only if they are ours
-    for (const [t, col] of [["metrics_daily", "dimension"], ["report_schedules", "last_period_start"]] as const)
-      if ((await c.query("select 1 from information_schema.columns where table_schema='public' and table_name=$1 and column_name=$2", [t, col])).rowCount) await c.query(`drop table ${t}`);
-    for (const [t, col] of [["rollups_daily", "dimension"], ["wrapups", "period_start"]] as const) await ownsOrAbsent(c, t, col);
-    await c.query(`create table if not exists rollups_daily (company_id uuid not null references companies(id) on delete cascade, day date not null, dimension text not null, dimension_id text not null default '', metric text not null, value numeric not null default 0, computed_at timestamptz not null default now(), primary key (company_id, day, dimension, dimension_id, metric))`);
-    await c.query(`create table if not exists wrapups (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, kind text not null, period_start date not null, period_end date not null, generated_at timestamptz not null default now(), on_demand boolean not null default false, body text not null, numbers jsonb not null default '{}', send_id uuid references sends(id) on delete set null)`);
-    await c.query(`create index if not exists wrapups_company_id_generated_at_idx on wrapups (company_id, generated_at)`);
-    // D33: alerts + the hourly sweep
-    for (const [t, col] of [["alerts", "resolved_announced"], ["health_checks", "last_result"]] as const) await ownsOrAbsent(c, t, col);
-    await c.query(`create table if not exists alerts (id uuid primary key default gen_random_uuid(), company_id uuid references companies(id) on delete cascade, key text not null, level text not null check (level in ('error','warning')), source text not null check (source in ('step','poll','health','engine')), text text not null, detail jsonb not null default '{}', href text, first_seen timestamptz not null default now(), last_seen timestamptz not null default now(), announced_at timestamptz, announce_count int not null default 0, slack_channel text, slack_ts text, resolved_at timestamptz, resolved_announced boolean not null default false)`);
-    await c.query(`create unique index if not exists alerts_open_one on alerts (coalesce(company_id, '00000000-0000-0000-0000-000000000000'::uuid), key) where resolved_at is null`);
-    await c.query(`create index if not exists alerts_company_id_resolved_at_last_seen_idx on alerts (company_id, resolved_at, last_seen)`);
-    await c.query(`create table if not exists health_checks (company_id uuid primary key references companies(id) on delete cascade, enabled boolean not null default true, every_minutes int not null default 60 check (every_minutes between 5 and 1440), channel text, as_name text, as_icon text, checks jsonb not null default '{}', last_run_at timestamptz, last_result jsonb not null default '[]')`);
-    // D34: the closer's end-of-day report
-    await c.query(`alter table users add column if not exists report_token text unique`);
-    await c.tx(async (c) => {
-      await c.query(`alter table users drop constraint if exists users_role_check`);
-      await c.query(`alter table users add constraint users_role_check check (role in ('operator','owner','manager','closer','setter','staff'))`);
-    });
-    await c.query(`insert into core_categories (domain, value, label, sort) values ('call_outcome','deposit','Deposit',4) on conflict (domain, value) do nothing`);
-    // D83: a close that has not gone through yet (agreement or the rest of the money outstanding); not a close
-    await c.query(`insert into core_categories (domain, value, label, sort) values ('call_outcome','pending','Close pending',7) on conflict (domain, value) do nothing`);
-    await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select co.id, 'call_outcome', 'Close pending', 'pending', true, 7 from companies co where exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome') and not exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome' and t.category='pending') on conflict (company_id, domain, name) do nothing`);
-    await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select co.id, 'call_outcome', 'Deposit', 'deposit', true, 4 from companies co where exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome' and t.category='closed') and not exists (select 1 from company_terms t where t.company_id=co.id and t.domain='call_outcome' and t.category='deposit') on conflict (company_id, domain, name) do nothing`);
-    await ownsOrAbsent(c, "eod_reports", "prefill");
-    // D35: everything on a clock is a workflow. Runs may be about the company or a person; schedule and eod.filed start them.
-    await c.query(`alter table runs alter column contact_id drop not null`);
-    await c.query(`alter table runs add column if not exists user_id uuid references users(id)`);
-    await c.query(`insert into event_types values ('schedule','clock'), ('eod.filed','report') on conflict do nothing`);
-    // D110: nothing emits eod.call_filed any more; the type goes once nothing points at it (its events stay as history, and keep the row with them)
-    await c.query(`delete from event_types et where et.name='eod.call_filed' and not exists (select 1 from events e where e.event_type=et.name) and not exists (select 1 from workflow_triggers t where t.event_type=et.name)`);
-    await c.query(`insert into event_types values ('alert.raised','engine'), ('alert.repeated','engine'), ('alert.resolved','engine') on conflict do nothing`);   // D88 A7: the Health check workflow says what broke
-    await c.query(`insert into event_types values ('drift.found','engine'), ('drift.sales_call_cancelled','engine'), ('drift.sales_call_unlinked','engine') on conflict do nothing`);   // D88 A6: the hourly drift sweep's findings
-    // D45: a team member's reaction on a post the engine remembered is an event a workflow can start from
-    await c.query(`alter table slack_connections add column if not exists bot_user_id text`);
-    // D46 column, unused since D54 (the end-of-day form presumes a no-show from the call time alone); left in place, nothing reads it
-    await c.query(`alter table appointments add column if not exists presumed_outcome text`);
-    await c.query(`insert into event_types values ('slack.reaction','slack') on conflict do nothing`);
-    // D55: a person's verdict on Jev's read of a reply (predicted vs decided), so Jev can be scored before cancels and reschedules are automated
-    await c.query(`insert into event_types values ('intent.reviewed','message') on conflict do nothing`);
-    // D58: the question nobody answered before the call, and a no-show after one Jev had read as a cancel or a reschedule
-    await c.query(`insert into event_types values ('intent.unanswered','message'), ('intent.unanswered_no_show','message') on conflict do nothing`);
-    await c.query(`insert into event_types values ('card.moved','crm') on conflict do nothing`);   // D61: a pipeline card moved by a hand in the CRM
-    // D48: the three call decisions Jev makes (what kind of recording, what kind of setter call, how the sales call ended)
-    await c.query(`insert into core_categories (domain, value, label, sort) values
-      ('recording_kind','sales_call','Sales call',1), ('recording_kind','internal','Internal',2), ('recording_kind','other','Other',3),
-      ('setter_call_type','setting','Setting call',1), ('setter_call_type','confirmation','Confirmation call',2), ('setter_call_type','other','Other',3),
-      ('sales_call_disposition','closed_won','Closed won',1), ('sales_call_disposition','close_pending','Close pending',2), ('sales_call_disposition','follow_up','Follow-up',3), ('sales_call_disposition','lost','Lost',4), ('sales_call_disposition','dq','Disqualified',5), ('sales_call_disposition','financing_denied','Financing denied',6), ('sales_call_disposition','unclear','Unclear',7)
-      on conflict (domain, value) do nothing`);
-    // D79: what a setter call achieved, Jev's reason for a DQ, and the read as a ledger fact
-    await c.query(`insert into core_categories (domain, value, label, sort) values
-      ('setter_call_result','set','Set',1), ('setter_call_result','follow_up','Follow up',2), ('setter_call_result','dq','Disqualified',3), ('setter_call_result','not_interested','Not interested',4),
-      ('setter_dq_reason','budget','Budget',1), ('setter_dq_reason','age','Age',2), ('setter_dq_reason','geo','Location',3), ('setter_dq_reason','medical','Medical',4), ('setter_dq_reason','timeline','Timeline',5),
-      ('setter_dq_reason','no_problem','No problem to solve',6), ('setter_dq_reason','competitor','Competitor',7), ('setter_dq_reason','bad_contact','Bad contact',8), ('setter_dq_reason','other','Other',9)
-      on conflict (domain, value) do nothing`);
-    await c.query(`insert into event_types values ('setter_call.result','call') on conflict do nothing`);
-    // D87: Jev's fourth call type, and the hand-over of a dialer call Jev read as closing to the closer's workflow
-    await c.query(`insert into core_categories (domain, value, label, sort) values ('setter_call_type','closing','Closing call',3) on conflict (domain, value) do nothing`);
-    await c.query(`update core_categories set sort=4 where domain='setter_call_type' and value='other' and sort<>4`);
-    await c.query(`insert into event_types values ('call.closing','call') on conflict do nothing`);
-    await c.query(`insert into event_types values ('setter_call.filed','call') on conflict do nothing`);   // D156: an outbound call's answer on the end of day
-    // D154: why a dating lead is a DQ (Tyler, 2026-10-19): Jev's DQ reason in a dating offer's Setter call logged, and its end of day's answers
-    await c.query(`insert into core_categories (domain, value, label, sort) values
-      ('dating_dq_reason','budget','Can''t afford it right now',1), ('dating_dq_reason','not_ready','Not ready for a relationship',2), ('dating_dq_reason','in_relationship','Already in a relationship',3),
-      ('dating_dq_reason','casual','Looking for something casual',4), ('dating_dq_reason','bad_contact','Wrong or fake contact',5), ('dating_dq_reason','other','Other',6)
-      on conflict (domain, value) do nothing`);
-    await c.query(`insert into event_types values ('scope.left','crm') on conflict do nothing`);   // D117: a person the scope tag no longer covers (recorded, never a start)
-    await c.query(`insert into event_types values ('form.submitted','lead') on conflict do nothing`);   // D122: a Typeform submission (the webhook door or the importer)
-    await c.tx(async (c) => {
-      await c.query(`alter table sends drop constraint if exists sends_channel_check`);
-      await c.query(`alter table sends add constraint sends_channel_check check (channel in ('sms','email','slack','webhook'))`);
-    });
-    await ownsOrAbsent(c, "slack_posts", "tag");
-    await c.query(`create table if not exists slack_posts (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, tag text not null, channel text not null, ts text not null, run_id uuid references runs(id) on delete set null, posted_at timestamptz not null default now(), unique (company_id, tag))`);
-    await c.query(`drop table if exists wrapup_schedules`);
-    for (const col of ["enabled", "every_minutes", "checks", "min_slots", "slots_days"]) await c.query(`alter table health_checks drop column if exists ${col}`);
-    await c.query(`alter table companies drop column if exists eod_enabled`);
-    await c.query(`alter table companies drop column if exists eod_at`);
-    // D36: workflows sit on the journey
-    for (const t of ["workflow_templates", "workflows"]) { await c.query(`alter table ${t} add column if not exists stage text`); await c.query(`alter table ${t} add column if not exists sort int not null default 0`); await c.query(`alter table ${t} add column if not exists origin text`); }
-
-    await c.query(`create table if not exists eod_reports (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, user_id uuid not null references users(id) on delete cascade, day date not null, prefill jsonb, answers jsonb, changes jsonb not null default '[]', reminded_at timestamptz, dm_channel text, dm_ts text, submitted_at timestamptz, unique (company_id, user_id, day))`);
-    await c.tx(async (c) => {
-      await c.query(`alter table events drop constraint if exists events_source_check`);
-      await c.query(`alter table events add constraint events_source_check check (source in (${EVENT_SOURCES}))`);
-    });
-    await c.query(`create table if not exists recordings (
-      id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id), contact_id uuid references contacts(id), appointment_id uuid references appointments(id),
-      provider text not null default 'fathom', external_id text not null, title text, started_at timestamptz not null, ended_at timestamptz, duration_min int, url text, share_url text,
-      recorded_by_email text, recorded_by_name text, invitees jsonb not null default '[]', transcript jsonb, summary text, analysis jsonb not null default '{}',
-      link_status text not null default 'unlinked' check (link_status in ('linked','unlinked')), linked_by text, unlinked_reason text, raw jsonb not null default '{}', received_at timestamptz not null default now(),
-      unique (company_id, provider, external_id))`);
-    await c.query(`create index if not exists recordings_company_id_link_status_idx on recordings (company_id, link_status)`);
-    await c.query(`create index if not exists recordings_company_id_contact_id_idx on recordings (company_id, contact_id)`);
-    // D70: the Slack bot's conversations
-    await ownsOrAbsent(c, "bot_threads", "thread_ts");
-    await c.query(`create table if not exists bot_threads (id uuid primary key default gen_random_uuid(), company_id uuid not null references companies(id) on delete cascade, channel text not null, thread_ts text not null, asked_by text, messages jsonb not null default '[]', created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (company_id, channel, thread_ts))`);
-    // D171: the onboarding wizard's record of a client being stood up
-    await ownsOrAbsent(c, "onboarding", "intake");
-    await c.query(`create table if not exists onboarding (company_id uuid primary key references companies(id) on delete cascade, kind text not null default 'new' check (kind in ('new','takeover')), intake jsonb not null default '{}', playbook text, fit jsonb, steps jsonb not null default '{}', started_at timestamptz not null default now(), started_by text, finished_at timestamptz)`);
-    await c.query(`alter table onboarding add column if not exists connections jsonb not null default '{}'`);
-    await c.query(`alter table onboarding add column if not exists research jsonb`);
-    await c.query(`alter table onboarding add column if not exists slack jsonb not null default '{}'`);
-    await c.query(`alter table onboarding add column if not exists params jsonb`);
-    await c.query(`alter table onboarding add column if not exists crm jsonb not null default '{}'`);
-    await c.query(`alter table onboarding add column if not exists messages jsonb not null default '{}'`);
-    await c.query(`alter table onboarding add column if not exists tests jsonb not null default '{}'`);
-    await c.query(`alter table onboarding add column if not exists filters jsonb not null default '{}'`);
-    // D178: a playbook's template business, and what it publishes
-    await c.tx(async (c) => {
-      await c.query(`alter table companies drop constraint if exists companies_status_check`);
-      await c.query(`alter table companies add constraint companies_status_check check (status in ('onboarding','active','hosted','archived','template'))`);
-    });
-    await ownsOrAbsent(c, "playbook_releases", "params");
-    await c.query(`create table if not exists playbook_releases (id uuid primary key default gen_random_uuid(), playbook text not null, version int not null, words jsonb not null default '{}', params jsonb, settings jsonb not null default '{}', notes jsonb not null default '[]', published_at timestamptz not null default now(), published_by text, unique (playbook, version))`);
-    // simulation harness (D23): synthetic appointments and events carry source 'test'; dark-hours policy per company
-    await c.query(`alter table companies add column if not exists quiet_allow_transactional boolean not null default false`);
-    await c.query(`alter table calendars add column if not exists config jsonb not null default '{}'`);
-    await c.query(`alter table appointments add column if not exists answers jsonb not null default '{}'`);
-    // D188: the CRM will not text them (Do Not Disturb); the poll and every contact read keep it, a text refused for it sets it
-    await c.query(`alter table contacts add column if not exists sms_dnd boolean not null default false`);
-    // appointments ↔ form_submissions reference each other; the disposition pointer must not block deleting a submission
-    await c.tx(async (c) => {
-      await c.query(`alter table appointments drop constraint if exists appointments_disposition_fk`);
-      await c.query(`alter table appointments add constraint appointments_disposition_fk foreign key (disposition_id) references form_submissions(id) on delete set null`);
-    });
     // Only OUR tables get the tenant policy. The database may be shared with other apps (a Supabase project is one
     // schema for everything), so "every table with a company_id column" is the wrong set.
     const ours = new Set(ownTables());
@@ -402,7 +59,11 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
       "select table_name from information_schema.columns where table_schema='public' and column_name='company_id' order by 1",
     );
     const tenantTables = withCompanyId.rows.map((r) => r.table_name).filter((t) => ours.has(t));
-    for (const table_name of tenantTables) {
+    // D200: only a table missing its RLS, its FORCE or its policy is touched (every deploy used to rebuild all of them, 148 table locks)
+    const lacking = await c.query<{ t: string }>(`select cl.relname as t from pg_class cl join pg_namespace n on n.oid=cl.relnamespace where n.nspname='public' and cl.relname = any($1::text[])
+      and not (cl.relrowsecurity and cl.relforcerowsecurity and exists (select 1 from pg_policies p where p.schemaname='public' and p.tablename=cl.relname and p.policyname='tenant_isolation'))`, [tenantTables]);
+    const rlsFixed = lacking.rows.map((r) => r.t);
+    for (const table_name of rlsFixed) {
       await c.tx(async (c) => {
         await c.query(`alter table ${table_name} enable row level security`);
         await c.query(`alter table ${table_name} force row level security`);
@@ -431,20 +92,14 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     // D104: Call booked's card no longer carries Hair's intake questions; a company that bound them keeps them as its own setting.
     // As the operator: bindings are under FORCE RLS, where this unscoped connection would see no rows.
     const bookingCard = await asOperator((o) => backfillBookingCard(o));
-    return { applied, rlsTables: tenantTables, repaired, bookingCard };
+    return { applied, ran, rlsTables: tenantTables, rlsFixed, repaired, bookingCard };
   } finally {
+    clearInterval(renewal);
     if (lease) await releaseTickLock(lease, MIGRATE_LOCK).catch(() => {});
     conn.release();
   }
 }
 
-/** A table we are about to `create if not exists` must be ours (has our sentinel column) or absent; anything else belongs to another app. */
-async function ownsOrAbsent(c: Migrator, table: string, sentinelColumn: string): Promise<void> {
-  const t = await c.query("select 1 from information_schema.tables where table_schema='public' and table_name=$1", [table]);
-  if (t.rowCount === 0) return;
-  const col = await c.query("select 1 from information_schema.columns where table_schema='public' and table_name=$1 and column_name=$2", [table, sentinelColumn]);
-  if (col.rowCount === 0) throw new Error(`table "${table}" exists in this database but is not the engine's (no column "${sentinelColumn}"): pick another name or move the engine to its own schema`);
-}
 
 /** Table names declared in engine/schema.sql plus engine-internal additions. */
 export function ownTables(): string[] {

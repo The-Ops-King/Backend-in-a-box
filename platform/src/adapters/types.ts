@@ -36,6 +36,11 @@ export type AppointmentSnapshot = {
   raw: Record<string, unknown>;
 };
 /** `channel: "call"` is a phone call the CRM logged in the thread: no body, `call` carries what the dialer knew (status, seconds, who dialed). */
+/**
+ * Audit risk 11: one tick's read of the threads touched since a cursor, oldest first. `more` is set when the tick stopped before the end:
+ * the position (a thread's last-message time, ms) the next tick starts after, while the cursor stays where it was.
+ */
+export type InboundPage = MessageSnapshot[] & { more?: number };
 export type MessageSnapshot = { id: string; conversationId: string; contactId: string; channel: "sms" | "email" | "call"; direction: "inbound" | "outbound"; body?: string; subject?: string; status?: string; dateAdded: string; call?: { status: string; durationSec?: number; userId?: string } };
 /** An inbound message's words as the CRM holds them (D89): read by id when a step needs them, never stored. An email's body is not read (its subject is), as the poll never read it. */
 export type MessageText = { body: string; subject?: string };
@@ -57,7 +62,7 @@ export type UserSnapshot = { id: string; email?: string; name: string };
 export interface CrmRead {
   /** `tag` (D117): only contacts carrying it, filtered by the CRM's own search. */
   contactsChangedSince(c: Company, sinceIso: string, tag?: string): Promise<ContactSnapshot[]>;
-  inboundSince(c: Company, sinceIso: string): Promise<MessageSnapshot[]>;
+  inboundSince(c: Company, sinceIso: string, after?: number): Promise<InboundPage>;
   callMedia(c: Company, messageId: string): Promise<CallMedia | null>;
   /** D89: the words of these messages, by message id, read at the moment a step needs them. A thread named for a message is read once for all of
    *  its messages; the rest one by one. A message the CRM no longer has is left out of the map; a CRM that does not answer throws. */
@@ -142,6 +147,8 @@ export type SlackBlock = Record<string, unknown> & { type: string };
 export interface Notifier {
   /** `threadTs` replies in that message's thread instead of posting to the channel. `blocks` (D93): Block Kit layout; `text` stays the notification and fallback. */
   post(token: string, channelId: string, text: string, as?: SlackPersona, threadTs?: string, blocks?: SlackBlock[]): Promise<{ ts: string; channel?: string }>;
+  /** views.open (D200): a form for the person who pressed, with the press's trigger_id (good for three seconds). Optional. */
+  openView?(token: string, triggerId: string, view: Record<string, unknown>): Promise<void>;
   /** chat.update: rewrite a message the bot posted (needs chat:write). Optional: a notifier without it posts anew. `blocks` replaces the message's blocks (an empty list takes them off). */
   update?(token: string, channelId: string, ts: string, text: string, blocks?: SlackBlock[]): Promise<void>;
   /** Slack user id for an email (users.lookupByEmail; needs users:read.email), null when unknown. A DM is a post to that id. */

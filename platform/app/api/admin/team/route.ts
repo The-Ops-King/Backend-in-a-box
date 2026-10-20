@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { asOperator, one } from "@/db/client";
 import { operatorAuthorized } from "@/engine/admin-auth";
 import { loadCompany } from "@/engine/context";
-import { decrypt } from "@/engine/crypto";
 import { changeTeam, teamOf } from "@/engine/team";
+import { slackBot } from "@/engine/slack-conn";
 import { liveAdapters } from "@/adapters";
 export const dynamic = "force-dynamic";
 
@@ -29,8 +29,8 @@ export async function POST(req: Request) {
   return asOperator(async (c) => {
     const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [b.company]); if (!co) return NextResponse.json({ error: "no such company" }, { status: 404 });
     const { adapterCompany } = await loadCompany(c, co.id);
-    const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [co.id]);
-    const r = await changeTeam(c, { companyId: co.id, ac: adapterCompany, adapters: liveAdapters, slackToken: conn ? decrypt(conn.bot_token) : null, change: { email: b.email!, role: b.role, remove: b.remove === true, slack: b.slack, by: b.by } });
+    const bot = await slackBot(c, co.id);
+    const r = await changeTeam(c, { companyId: co.id, ac: adapterCompany, adapters: liveAdapters, slackToken: bot?.token ?? null, change: { email: b.email!, role: b.role, remove: b.remove === true, slack: b.slack, by: b.by } });
     return r.ok ? NextResponse.json(r) : NextResponse.json({ error: r.why }, { status: r.status });
   });
 }

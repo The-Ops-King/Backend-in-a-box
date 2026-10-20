@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { PoolClient } from "pg";
 import { one } from "@/db/client";
 import type { CompanyRow } from "./context";
@@ -24,5 +25,7 @@ export async function ingestRecording(c: PoolClient, company: CompanyRow, bindin
 export const zapierAuthorized = (req: Request, bindings: Record<string, string>) => {
   const secret = bindings["secret.zapier_inbound"];
   const given = req.headers.get("x-engine-secret") ?? (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-  return !!secret && !!given && given === secret;
+  return !!secret && !!given && same(given, secret);
 };
+const same = (a: string, b: string) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); };
+

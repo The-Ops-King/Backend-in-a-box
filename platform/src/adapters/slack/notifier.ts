@@ -16,6 +16,11 @@ export const slackNotifier: Notifier = {
     if (!data.ok) throw new Error(`slack: ${data.error}`);
     return { ts: data.ts!, channel: data.channel };
   },
+  async openView(token, triggerId, view) {
+    const res = await fetch("https://slack.com/api/views.open", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ trigger_id: triggerId, view }) });
+    const data = (await res.json()) as { ok: boolean; error?: string };
+    if (!data.ok) throw new Error(`slack: ${data.error}`);
+  },
   async update(token, channelId, ts, text, blocks) {
     const res = await fetch("https://slack.com/api/chat.update", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ channel: channelId, ts, text, ...(blocks ? { blocks } : {}) }) });
     const data = (await res.json()) as { ok: boolean; error?: string };

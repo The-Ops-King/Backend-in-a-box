@@ -5,14 +5,13 @@
  * still says, at its end, what it gathered on the way. The one-time cleanup for older rows is tested here too.
  */
 import { describe, it, expect, beforeAll } from "vitest";
-import { asOperator, one, many } from "@/db/client";
+import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { installCompany } from "@/engine/install";
 import { emitEvent, startRun } from "@/engine/dispatch";
 import { upsertContact } from "@/engine/poll";
 import { tick } from "@/engine/runner";
-import { buildContext, loadCompany, persistedContext, type RunRow } from "@/engine/context";
-import { slimRunContexts } from "@/engine/retention";
+import { persistedContext } from "@/engine/context";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { encrypt } from "@/engine/crypto";
 import { fakeAdapters, inboundForTest, unlockSendsForTest } from "@/engine/test-install";
@@ -177,43 +176,4 @@ describe.skipIf(!HAS_DB)("D84: a run keeps its own state, not a copy of the cont
     expect(persistedContext(persistedContext(full))).toEqual(persistedContext(full));
   });
 
-  it("the one-time cleanup: a dry run counts what would change and writes nothing; the real one slims old rows once and leaves slim ones alone", async () => {
-    // an older run, saved the way runs used to be: the whole built context
-    const ids = await asOperator(async (c) => {
-      const out: string[] = [];
-      const { row: company, bindings } = await loadCompany(c, companyId);
-      for (const key of ["old1", "old2"]) {
-        const ev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "test", data: { key, recording_id: recordingId } });
-        const id = (await startRun(c, { companyId, workflowId, triggerNodeId: "t1", event: ev, contactId }))!;
-        const run = (await one<RunRow>(c, "select * from runs where id=$1", [id]))!;
-        const fat: Record<string, unknown> = { ...(await buildContext(c, run, company, bindings)), vars: { greeting: `${key}-ok`, __wait: { w1: { until: "2026-10-12T00:00:00.000Z" } } } };
-        (fat.contact as Record<string, unknown>).fetched_at = "2026-10-11T00:00:00.000Z";
-        (fat.recording as Record<string, unknown>).transcript_text = TRANSCRIPT;   // a row saved before D87 carried the call's transcript too
-        await c.query("update runs set status='waiting', current_node='w1', next_run_at=now()+interval '1 day', context=$2 where id=$1", [id, fat]);
-        out.push(id);
-      }
-      return out;
-    });
-    const before = await asOperator((c) => many<{ id: string; context: Record<string, unknown> }>(c, "select id, context from runs where id = any($1) order by id", [ids]));
-    expect(JSON.stringify(before)).toContain(TRANSCRIPT); expect(JSON.stringify(before)).toContain("dana@slim.test");
-
-    const dry = await slimRunContexts({ dryRun: true, companyId, batchSize: 1 });
-    expect(dry).toMatchObject({ dryRun: true, changed: 2, scanned: 2, done: true, next: null });
-    expect(dry.bytes_after).toBeLessThan(dry.bytes_before);
-    expect(await asOperator((c) => many<{ id: string; context: Record<string, unknown> }>(c, "select id, context from runs where id = any($1) order by id", [ids]))).toEqual(before);
-
-    const real = await slimRunContexts({ dryRun: false, companyId, batchSize: 1 });
-    expect(real).toMatchObject({ dryRun: false, changed: 2, done: true, bytes_before: dry.bytes_before, bytes_after: dry.bytes_after });
-    for (const row of await asOperator((c) => many<{ id: string; context: Record<string, unknown> }>(c, "select id, context from runs where id = any($1) order by id", [ids]))) {
-      expectSlim(row.context, true);
-      const old = before.find((b) => b.id === row.id)!.context;
-      expect(row.context).toEqual({ vars: old.vars, reply: old.reply, event: old.event, contact: { fetched_at: "2026-10-11T00:00:00.000Z" } });
-    }
-    expect(await slimRunContexts({ dryRun: false, companyId })).toMatchObject({ scanned: 0, changed: 0, done: true });
-
-    // a slimmed run still goes on from where it was parked
-    await asOperator((c) => c.query("update runs set next_run_at=now(), context=jsonb_set(context, '{vars,__wait,w1,until}', to_jsonb(now()-interval '1 minute')) where id=$1", [ids[0]]));
-    await tickOnce();
-    expect(await runRow(ids[0])).toMatchObject({ status: "waiting", current_node: "r1", wake_on_reply: true });
-  });
 });

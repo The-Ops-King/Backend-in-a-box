@@ -354,7 +354,7 @@ create table event_types (
   category text not null
 );
 insert into event_types values
-  ('lead.created','lead'), ('intake.recorded','lead'), ('contact.merged','lead'), ('form.submitted','lead'),
+  ('lead.created','lead'), ('form.submitted','lead'),
   ('opportunity.opened','opportunity'), ('opportunity.won','opportunity'), ('opportunity.lost','opportunity'),
   ('appointment.booked','appointment'), ('appointment.rescheduled','appointment'),
   ('appointment.status_changed','appointment'), ('appointment.outcome','appointment'),
@@ -362,8 +362,8 @@ insert into event_types values
   ('message.sent','message'), ('message.received','message'), ('reply.classified','message'), ('intent.reviewed','message'), ('intent.unanswered','message'), ('intent.unanswered_no_show','message'),
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
   ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'), ('setter_call.result','call'), ('call.closing','call'),
-  ('agreement.sent','agreement'), ('agreement.signed','agreement'),
-  ('tag.added','crm'), ('tag.removed','crm'), ('stage.changed','crm'), ('card.moved','crm'), ('scope.left','crm'),
+  ('agreement.sent','agreement'), ('agreement.signed','agreement'), ('agreement.requested','agreement'),
+  ('tag.added','crm'), ('tag.removed','crm'), ('card.moved','crm'), ('scope.left','crm'),
   ('schedule','clock'), ('eod.filed','report'), ('slack.reaction','slack'),
   ('alert.raised','engine'), ('alert.repeated','engine'), ('alert.resolved','engine'),
   ('drift.found','engine'), ('drift.sales_call_cancelled','engine'), ('drift.sales_call_unlinked','engine'),
