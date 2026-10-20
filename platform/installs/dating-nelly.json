@@ -81,6 +81,12 @@
       "booking": "self",
       "owner": "camwall2026@gmail.com"
     },
+    "aac238a5-f530-4a6b-8908-a5c56c905081": {
+      "term": "first_call",
+      "name": "Triage call",
+      "booking": "self",
+      "owner": "camwall2026@gmail.com"
+    },
     "80955126-29fe-48ea-a85e-ba4bcd145790": {
       "term": "closing",
       "name": "Closing call",
@@ -88,7 +94,7 @@
     }
   },
   "closerCall": "80955126-29fe-48ea-a85e-ba4bcd145790",
-  "bookingCalendar": "86985d27-22e5-4b6b-ab66-8e68e9ee8e30",
+  "bookingCalendar": "aac238a5-f530-4a6b-8908-a5c56c905081",
   "crm": {
     "pipeline_setter": "N59nJLRaspsNwiaPWtE8",
     "stage_setter_new_lead": "e4044e0d-0622-45ff-83f0-13b1244b2aae",

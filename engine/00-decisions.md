@@ -5847,3 +5847,16 @@ field, and the record's owner: the new one added, the other side's taken off). G
 an owner off, so each record is read back after the change and the answer says whether the owner swapped; `limit: 1` proves it on
 one record before the rest. A booking with no record (before records were made) changes only in the replica. Nelly only.
 Tests: `contact-ops.reassign.test.ts`.
+Applied 2026-10-20: the first record proved the swap (read back: Nonie the owner, Mitch off), then the other 93; every one read back
+swapped, none failed. The 9 past Strategy Sessions filed under Nelly (Oct 15-16, before the calendar named an owner, and Tyler's own
+test today) are Mitch's in the replica; they have no Discovery record to change. A dry run after finds nothing left.
+
+## D206. Nelly's new round-robin Strategy Session is watched, and is the self-book link (2026-10-20)
+
+Tyler moved the Typeform to a new Calendly event type, `calendly.com/d/d3sw-sxb-st7/complimentary-dating-strategy-session`
+(aac238a5, round robin, Nonie a host): "Yes use those two links." It is watched as the old one is (call type Triage call, self-booked,
+owner Nonie), so its bookings run the same workflows; the old event type stays watched for the 96 calls booked on it. It is the
+company's self-book link (`bookingCalendar`). Applied by a reduced re-install (calendar settings only; no template named, so no
+workflow touched); Nelly's install file says the same. `GET /api/admin/calendars?company=` lists the booking tool's calendars with
+what the engine watches (read only), which is how the new event type was found. The new calendar's first poll was its baseline with
+no bookings on it yet, so nothing booked through the new link was swallowed.
