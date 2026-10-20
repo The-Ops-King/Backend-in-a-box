@@ -5653,4 +5653,12 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
     is held in quiet too; the owner's task never fails its step). The send guard's parts were already one each (`sendLock`,
     `sentBefore`, the idempotency key); how a refused send is recorded differs by channel and stays with each.
 
-Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`.
+11. **Numbered migrations** (audit risk 8). Every deploy re-ran ~300 schema statements against the live database (about two minutes,
+    and the source of D151's lock trouble). Now `schema_migrations` records each migration once run: `0001-baseline` is
+    everything up to today, frozen (`baseline.ts`; `baseline.test.ts` fails if it changes), and each later change is the next
+    entry in `migrations.ts`, never edited after it reaches production (CLAUDE.md). The tenant policies are checked, not rebuilt:
+    only a table missing its RLS, FORCE or policy is touched (every deploy used to rebuild all 37: 148 table locks). A deploy with
+    nothing new takes no table lock. The migrator's parts move to `migrator.ts`. The D104 booking-card backfill still runs each
+    deploy: row inserts only, no table lock.
+
+Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`, `db/baseline.test.ts`, `db/migrate.shared.test.ts`.

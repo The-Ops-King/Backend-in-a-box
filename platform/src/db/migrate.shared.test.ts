@@ -83,3 +83,19 @@ describe("migrator (D151): short transactions that give way to the live engine",
     } finally { conn.release(); }
   });
 });
+
+describe("numbered migrations (D193)", () => {
+  it("each runs once: a second migrate runs none and touches no tenant table", async () => {
+    await migrate();
+    const again = await migrate();
+    expect(again.ran).toEqual([]);
+    expect(again.rlsFixed).toEqual([]);
+    expect((await db().query("select id from schema_migrations order by id")).rows.map((r) => r.id)).toEqual(expect.arrayContaining(["0001-baseline", "0002-unemitted-event-types"]));
+  });
+  it("a tenant table that lost its policy gets it back, and only that one", async () => {
+    await db().query("drop policy if exists tenant_isolation on tickets");
+    const r = await migrate();
+    expect(r.rlsFixed).toEqual(["tickets"]);
+    expect((await db().query("select 1 from pg_policies where tablename='tickets' and policyname='tenant_isolation'")).rowCount).toBe(1);
+  });
+});
