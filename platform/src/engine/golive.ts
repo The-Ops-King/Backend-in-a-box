@@ -15,10 +15,15 @@ export const WRITES_FOR_ALL: Mode[] = ["quiet", "live"];
 const rank = (m: Mode) => MODES.indexOf(m);
 /** The runs a move up to `to` leaves behind: born on a rung below it. */
 const bornBelow = (to: Mode) => MODES.filter((m) => rank(m) < rank(to));
-export type Cleared = { runs: number; steps: number; sends: number; events: number; appointments: number };
+/** `periods`: scheduled reports' runs kept as closed-out markers, so the period they ran in is not run again (D200) */
+export type Cleared = { runs: number; steps: number; sends: number; events: number; appointments: number; periods?: number };
 /**
  * The clean slate (item 9): every run not born live, and every synthetic appointment the test harness made, with what pointed at them. Real CRM facts (contacts, their tags, real appointments) stay: the CRM is the truth about those.
  * D92: for the company, only the runs of workflows that will run live (those on their own lower rung keep rehearsing); for one workflow going live on its own, only its runs, and the synthetic bookings stay for the rest.
+ * D200: a scheduled run (a report: the wrap-ups, the leaderboard, the end-of-day nudges) is cleared of what it did but its row is
+ * kept, closed out (exited), so the clock counts its period as run. Deleting it let the clock fire that period again the moment the
+ * workflow went up (Nelly's weekly wrap-up and leaderboard, 2026-10-19: run on quiet at 8 and 9am, posted again at 7:12pm when they
+ * went live). Tyler: no re-fire; the next post is the next scheduled one.
  */
 export async function clearRehearsalRuns(c: PoolClient, companyId: string, workflowId?: string, to: Mode = "live"): Promise<Cleared> {
   const out: Cleared = { runs: 0, steps: 0, sends: 0, events: 0, appointments: 0 };
@@ -27,13 +32,22 @@ export async function clearRehearsalRuns(c: PoolClient, companyId: string, workf
     ? "select id from runs where company_id=$1 and workflow_id=$2 and born_in = any($3::text[])"
     : "select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and r.born_in = any($3::text[]) and coalesce(w.mode,$2)=$2", workflowId ? [companyId, workflowId, below] : [companyId, to, below])).map((r) => r.id);
   const n = async (sql: string, arg: unknown) => (await c.query(sql, [arg])).rowCount ?? 0;
+  const scheduled = ids.length ? new Set((await many<{ id: string }>(c, "select id from runs where id = any($1::uuid[]) and reentry_key like 'schedule:%'", [ids])).map((r) => r.id)) : new Set<string>();
   if (ids.length) {
     // a run started by an event a cleared run wrote (New from Typeform's lead.created starting New lead) lets go of it first; a run that stays keeps its history, not the pointer
     await n("update runs set triggered_by_event=null where triggered_by_event in (select id from events where run_id = any($1::uuid[]))", ids);
     out.events += await n("delete from events where run_id = any($1::uuid[])", ids);
     out.sends = await n("delete from sends where run_id = any($1::uuid[])", ids);
     out.steps = await n("delete from run_steps where run_id = any($1::uuid[])", ids);
-    out.runs = await n("delete from runs where id = any($1::uuid[])", ids);
+    const gone = ids.filter((id) => !scheduled.has(id));
+    out.runs = gone.length ? await n("delete from runs where id = any($1::uuid[])", gone) : 0;
+    // a finished one keeps how it ended; one still going is closed out, so nothing picks up halfway with its first steps gone
+    if (scheduled.size) {
+      await n(`update runs set status='exited', exit_reason='cleared at the move up: its period ran on a lower rung', next_run_at=null, wake_on_reply=false,
+        wake_on_tag=null, wake_on_event=null, resume_node=null, resume_at=null, claimed_at=null, claimed_by=null, step_held=false, finished_at=now()
+        where id = any($1::uuid[]) and status in ('active','waiting','paused')`, [...scheduled]);
+      out.periods = scheduled.size;
+    }
   }
   if (workflowId || to !== "live") return out;   // a quiet company's staged bookings are its test contacts' rehearsal, still real for them
   const synthetic = (await many<{ id: string }>(c, "select id from appointments where company_id=$1 and source='test'", [companyId])).map((a) => a.id);
