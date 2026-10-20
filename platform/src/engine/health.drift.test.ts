@@ -243,6 +243,8 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       await appt("AP10", 50, "showed", "deposit");      // the engine filed a deposit, which GHL holds as closed won (no deposit option declared: D119)
       await appt("AP11", 60, "showed", null);           // a disposition the engine has no meaning for
       await appt("AP12", 70, "showed", null);           // close pending: not a close
+      // an offer whose dispositions have no deposit option (install writes the engine's own, which have one: D200)
+      await c.query("insert into bindings (company_id, key, kind, value) values ($1,'sales_call.dispositions','text',$2) on conflict (company_id, key) do update set value=excluded.value", [companyId, Buffer.from(JSON.stringify({ closed_won: "closed", follow_up: "follow_up", lost: "lost", dq: "unqualified" }))]);
     });
     const rec = (id: string, ext: string, hoursAgo: number, outcome: string, disposition: string) => { const r = sc(id, ext, "G-K3", ago({ hours: hoursAgo }).startOf("minute"), outcome); r.properties.disposition = disposition; return r; };
     records.push(rec("R8", "Z-8", 30, "showed", "closed_won"), rec("R9", "Z-9", 40, "no_show", ""), rec("R10", "Z-10", 50, "showed", "closed_won"), rec("R11", "Z-11", 60, "showed", "financing_denied"), rec("R12", "Z-12", 70, "showed", "close_pending"));
@@ -259,7 +261,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       expect(await worded()).toContain(`GHL's outcome is "financing_denied", and the engine hasn't been told what that means yet.`);
       // the company says what it means, with its own reason under lost; the next sweep follows
       await asOperator(async (c) => {
-        await c.query("insert into bindings (company_id, key, kind, value) values ($1,'sales_call.dispositions','text',$2)", [companyId, Buffer.from(JSON.stringify({ closed_won: "closed", follow_up: "follow_up", lost: "lost", dq: "unqualified", financing_denied: { meaning: "lost", reason: "Financing denied" }, close_pending: "pending" }))]);
+        await c.query("insert into bindings (company_id, key, kind, value) values ($1,'sales_call.dispositions','text',$2) on conflict (company_id, key) do update set value=excluded.value", [companyId, Buffer.from(JSON.stringify({ closed_won: "closed", follow_up: "follow_up", lost: "lost", dq: "unqualified", financing_denied: { meaning: "lost", reason: "Financing denied" }, close_pending: "pending" }))]);
         await c.query("insert into company_terms (company_id, domain, name, category, is_default, sort) values ($1,'call_outcome','Financing denied','lost',false,50)", [companyId]);
       });
       const again = drift((await sweep()).findings);

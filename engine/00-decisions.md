@@ -5724,16 +5724,26 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
 
 13. **Each offer holds the settings it runs on** (audit §3.1, open item 50 part 2; Tyler: yes, all three offers). Every setting
     the engine fell back on when an offer had not set it is listed once, with that fallback, in `setting-defaults.ts` (alert
-    timing, call timings, the payment object, the setter rule, and six yes/no switches). Install writes the ones a new offer
-    lacks; migration 0004 wrote each existing offer's effective value onto it, so changing a default later reaches new offers
-    only. The yes/no settings are read one way (`switchOn`: on/yes/true/1, off/no/false/0, anything else its default); four
-    readers had each taken different words. Copying settings between offers treats a value at its default as not the target's
-    own, the same as an untouched default prompt, so it is still copied over. Three settings are deliberately left unset,
-    because their readers disagree on what unset means and no single value is what the offer runs on today (for Tyler):
-    `crm.object_discovery_call` (setter results and the bot fall back on `custom_objects.discovery_call`; the end of day reads
-    none), `sales_call.dispositions` (ledger drift takes unset as "no Deposit option"; the end of day writes `deposit`) and
-    `sales_call.objections` (the Sales Call takes the default list; the application-triage playbook refuses an offer that has
-    not named its own). Found on the way: the metrics' own copy of the default dispositions had lost `close_pending`, so a
-    pending close filed by an offer without its own map counted as nothing; it now reads the engine's list.
+    timing, call timings, the payment and Discovery Call objects, the objections, the dispositions, the setter rule, and six
+    yes/no switches). Install writes the ones a new offer lacks; migration 0004 wrote each existing offer's effective value onto
+    it, so changing a default later reaches new offers only. The yes/no settings are read one way (`switchOn`: on/yes/true/1,
+    off/no/false/0, anything else its default); four readers had each taken different words. Copying settings between offers
+    treats a value at its default as not the target's own, the same as an untouched default prompt, so it is still copied over.
 
-Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`, `db/baseline.test.ts`, `db/migrate.shared.test.ts`, `qualify.test.ts`, `setting-defaults.test.ts`, `playbooks/apply.test.ts`.
+    Three settings meant different things to different readers when unset; each now means one thing (Tyler: Claude's call):
+    - `crm.object_discovery_call`: unset is `custom_objects.discovery_call`, the object the workflows write. The end of day read
+      no Discovery Calls at all when it was unset, so an offer that never named the object lost its triage calls' answers there.
+    - `sales_call.dispositions`: unset is the engine's own keys (deposit and close pending included), as the end of day, the
+      metrics and the Sales Call writes already took it. Ledger drift's pre-D119 allowance (GHL's closed won kept as the ledger's
+      deposit) now turns on what the offer's map holds, an offer with no deposit option, not on the setting being unset.
+      Dating, PMU and Hair each declare their own map, so nothing they do changes.
+    - `sales_call.objections`: unset is a neutral list (price, partner, timing, fear, competitor, think about it: the one the GHL
+      setup makes for a new offer), not Hair's (which adds medical and burned before). Migration 0004 wrote Hair's list onto
+      every existing offer without its own, so none of them changes; the default call prompts offer the AI the neutral list.
+
+    Found on the way: the metrics' own copy of the default dispositions had lost `close_pending`, so a pending close filed by an
+    offer without its own map counted as nothing; it now reads the engine's list. The operator webhook's body leads with a
+    `text` line (a Slack incoming webhook refuses a body without one, so the engine's own alerts would never have shown there);
+    its fields stay for a Zap.
+
+Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`, `db/baseline.test.ts`, `db/migrate.shared.test.ts`, `qualify.test.ts`, `setting-defaults.test.ts`, `playbooks/apply.test.ts`, `health.drift.test.ts`, `company-objects.test.ts`, `alerts.test.ts`.

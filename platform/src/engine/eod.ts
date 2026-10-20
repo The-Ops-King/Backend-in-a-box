@@ -8,7 +8,7 @@ import { callTime, dispositionMeaning, dispositionValues, filedMeaning, closerNa
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, isSetterCall, choiceOf, valueFor, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
-import { switchOn } from "./setting-defaults";
+import { SETTING_DEFAULTS, switchOn } from "./setting-defaults";
 
 /**
  * D34. The closer's end-of-day report: one link per closer, no login. Opening it shows their day prefilled from what the
@@ -113,7 +113,8 @@ export async function closerSalesCalls(c: PoolClient, adapters: Adapters, adapte
  * its outcome (showed, no_show) as the attendance and its call_result (set, follow_up, dq, not_interested) as the call's meaning.
  */
 export async function triageRecords(c: PoolClient, adapters: Adapters, adapterCompany: Company, companyId: string, bindings: Record<string, string>, appointmentIds: string[]): Promise<Map<string, { attendance: string | null; call: string | null }>> {
-  const object = bindings["crm.object_discovery_call"], out = new Map<string, { attendance: string | null; call: string | null }>();
+  // D200: the object the workflows write (unset, the default), not none
+  const object = bindings["crm.object_discovery_call"] || SETTING_DEFAULTS["crm.object_discovery_call"].default, out = new Map<string, { attendance: string | null; call: string | null }>();
   if (!object || !appointmentIds.length) return out;
   const ours = await many<{ appt: string; rec: string }>(c, `select a.id::text as appt, cr.ghl_record_id as rec from appointments a join crm_records cr on cr.company_id=a.company_id and cr.object_key=$2 and cr.record_key=coalesce(a.slot_key, a.external_id)
     where a.company_id=$1 and a.id = any($3::uuid[]) and cr.ghl_record_id is not null`, [companyId, object, appointmentIds]);

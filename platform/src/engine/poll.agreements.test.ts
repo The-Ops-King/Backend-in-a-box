@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
-import { pollAll } from "@/engine/poll";
+import { pollCompany } from "@/engine/poll";
 import type { Adapters, ContactSnapshot, DocumentSnapshot } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -23,6 +23,7 @@ const fake: Adapters = {
 const events = () => asOperator((c) => many<{ event_type: string; data: Record<string, unknown> }>(c, "select event_type, data from events where company_id=$1 and event_type like 'agreement.%' order by id", [companyId]));
 
 describe.skipIf(!HAS_DB)("agreements mirrored from the CRM's documents", () => {
+  const poll = () => pollCompany(fake, companyId);   // this company only: the test database holds every other suite's too
   beforeAll(async () => {
     await migrate();
     await asOperator(async (c) => {
@@ -34,17 +35,17 @@ describe.skipIf(!HAS_DB)("agreements mirrored from the CRM's documents", () => {
   });
   it("baseline mirrors what exists and says nothing; a new document is 'sent'; its completion is 'signed' exactly once", async () => {
     docs = [{ id: "d0", name: "Purchase Agreement", status: "completed", contactId: "GA1", createdAt: "2026-10-01T10:00:00Z", signedAt: "2026-10-01T11:00:00Z" }];
-    await pollAll(fake);
+    await poll();
     expect(await events()).toEqual([]);
     expect(await asOperator((c) => one<{ status: string; signed_at: Date | null }>(c, "select status, signed_at from agreements where company_id=$1 and external_id='d0'", [companyId]))).toMatchObject({ status: "completed" });
     docs = [...docs, { id: "d1", name: "Purchase Agreement", status: "sent", contactId: "GA1", createdAt: "2026-10-06T10:00:00Z" }];
-    await pollAll(fake);
+    await poll();
     expect((await events()).map((e) => e.event_type)).toEqual(["agreement.sent"]);
     docs = docs.map((d) => (d.id === "d1" ? { ...d, status: "viewed" } : d));
-    await pollAll(fake);
+    await poll();
     expect((await events()).map((e) => e.event_type)).toEqual(["agreement.sent"]);   // viewed is not a fact anyone acts on
     docs = docs.map((d) => (d.id === "d1" ? { ...d, status: "completed", signedAt: "2026-10-06T12:00:00Z" } : d));
-    await pollAll(fake); await pollAll(fake);
+    await poll(); await poll();
     const evs = await events();
     expect(evs.map((e) => e.event_type)).toEqual(["agreement.sent", "agreement.signed"]);
     expect(evs[1].data).toMatchObject({ external_id: "d1", signed: true, signed_at: "2026-10-06T12:00:00.000Z" });

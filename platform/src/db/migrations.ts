@@ -1,6 +1,6 @@
 import type { Migrator } from "./migrator";
 import { baseline } from "./baseline";
-import { writeDefaults } from "@/engine/setting-defaults";
+import { LEGACY_OBJECTIONS, writeDefaults } from "@/engine/setting-defaults";
 
 /**
  * D200 (audit risk 8): the schema's history, each step run once and recorded (`schema_migrations`), in order. A deploy with nothing
@@ -31,7 +31,8 @@ export const MIGRATIONS: Migration[] = [
   // engine's fallback for, at exactly that value; a later change to a fallback then reaches only new offers.
   { id: "0004-settings-onto-offers", run: (c) => asOperatorTx(c, async (t) => {
     for (const co of (await t.query<{ id: string }>("select id from companies")).rows) {
-      const keys = await writeDefaults(t, co.id);
+      // the objections are the one setting whose fallback changed with it (Hair's list before, a neutral one for new offers)
+      const keys = await writeDefaults(t, co.id, { "sales_call.objections": JSON.stringify(LEGACY_OBJECTIONS) });
       if (keys.length) await t.query("insert into audit_log (company_id, action, target_type, after) values ($1, 'binding.set', 'binding', $2)", [co.id, { keys, by: "migration 0004", why: "the offer's own copy of what it ran on" }]);
     }
   }) },

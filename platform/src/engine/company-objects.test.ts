@@ -18,6 +18,7 @@ import { render } from "./template";
 import { templates } from "@/templates";
 import { fakeAdapters } from "./test-install";
 import { closerNameOf, closerOptions, DEFAULT_OBJECTIONS, objectionOptions } from "./sales-call";
+import { LEGACY_OBJECTIONS } from "./setting-defaults";
 import { closerSalesCalls } from "./eod";
 import { dispatchEvent } from "./dispatch";
 import { applyAppointment } from "./poll";
@@ -60,9 +61,10 @@ const DATING_OBJECTS = { object_sales_call: "custom_objects.dating_sales_call", 
 const base = (slug: string, extra: Partial<InstallInput>): InstallInput => ({ name: slug, slug, timezone: TZ, locationId: `LOC-${slug}`, pit: "fake-token", calendars: { CAL: "closing" }, templates: CHANGED, ...extra });
 // Hair in production (read 2026-10-16 with a dry-run save that names the bindings a company lacks): crm.object_sales_call bound
 // (the Sales Call object the ledger drift and the numbers read), no crm.object_payment, no crm.object_discovery_call, no option lists
-const HAIR: Partial<InstallInput> = { crm: HAIR_CRM, salesCall: { object: "custom_objects.sales_call" } };
+// Hair and PMU hold what they ran on before D200 (migration 0004): the list the templates always wrote
+const HAIR: Partial<InstallInput> = { crm: HAIR_CRM, salesCall: { object: "custom_objects.sales_call", objections: LEGACY_OBJECTIONS } };
 // PMU, as installs/pmu.json binds it: payments go on its Cash object
-const PMU_INPUT: Partial<InstallInput> = { crm: { ...HAIR_CRM, object_payment: "custom_objects.cash" }, salesCall: { object: "custom_objects.sales_call" } };
+const PMU_INPUT: Partial<InstallInput> = { crm: { ...HAIR_CRM, object_payment: "custom_objects.cash" }, salesCall: { object: "custom_objects.sales_call", objections: LEGACY_OBJECTIONS } };
 const DATING: Partial<InstallInput> = { crm: { ...HAIR_CRM, ...DATING_OBJECTS }, salesCall: { object: DATING_OBJECTS.object_sales_call, objections: ["price", "partner", "timing", "fear", "competitor", "think_about_it"], closerOptions: { "mitch@d118.test": "mitch", "nelly@d118.test": "nelly" } } };
 const ROSTER = [{ id: "U-CLOSER", name: "Mitch Sapoff", email: "mitch@d118.test" }, { id: "U-OTHER", name: "Pat Staff", email: "pat@d118.test" }];
 
@@ -199,8 +201,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D118: the templates write the compan
 });
 
 describe("D118: the option lists", () => {
-  it("objections: the company's own list, else the list the templates always wrote", () => {
-    expect(objectionOptions({})).toEqual(["price", "partner", "timing", "fear", "medical", "burned_before", "competitor", "think_about_it"]);
+  it("objections: the company's own list, else the neutral default (D200: no client's own)", () => {
+    expect(objectionOptions({})).toEqual(["price", "partner", "timing", "fear", "competitor", "think_about_it"]);
     expect(objectionOptions({ "sales_call.objections": '["price","partner"]' })).toEqual(["price", "partner"]);
     expect(objectionOptions({ "sales_call.objections": "[]" })).toEqual(DEFAULT_OBJECTIONS);
     expect(objectionOptions({ "sales_call.objections": "not json" })).toEqual(DEFAULT_OBJECTIONS);

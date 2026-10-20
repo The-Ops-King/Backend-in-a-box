@@ -13,6 +13,7 @@ import { findCompanyWorkflow, saveDefinition } from "@/engine/definitions";
 import { fakeAdapters } from "@/engine/test-install";
 import { defaultPrompts } from "@/prompts";
 import { templates } from "@/templates";
+import { SETTING_DEFAULTS } from "@/engine/setting-defaults";
 import { applyPlaybook, copyOfferSettings, playbookState, rungPlan, PLAYBOOK_KEY } from "@/playbooks/apply";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -53,7 +54,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D170: putting a playbook on a compan
     // reports.quiet_when_empty: the target holds the default install wrote (D200), which is not its own
     expect(dry.copied).toEqual(expect.arrayContaining(["prompt.call_review", "qualify.mql_answers", "sales_call.dispositions", "sales_call.objections", "test.domains", "reports.quiet_when_empty"]));
     for (const k of dry.copied) expect(k, k).not.toMatch(/^(secret\.|slack\.channel\.|crm\.|scope\.tag)/);
-    expect(await binding(dst, "sales_call.objections")).toBeNull();   // a dry run writes nothing
+    expect((await binding(dst, "sales_call.objections"))!.value.toString()).toBe(SETTING_DEFAULTS["sales_call.objections"].default);   // a dry run writes nothing
     const r = await asOperator((c) => copyOfferSettings(c, { from: "pb-src", to: "pb-new", by: "test" }));
     expect(r).toMatchObject({ ok: true, copied: dry.copied });
     expect((await binding(dst, "prompt.call_review"))!.value.toString()).toBe("PMU's own review prompt");   // the untouched default was not the company's own

@@ -281,9 +281,16 @@ export async function stillTrue(c: PoolClient, adapters: Adapters, a: Pick<Alert
 /** What a blocked step needed (its result's `needs`), so the alert can be checked again without redoing the step: Slack connected, one of these settings bound, or this person linked in Slack. */
 export type Needs = { slack: true } | { bindings: string[] } | { slack_user: string };
 
+/** D200: `text` is what a Slack incoming webhook shows (it refuses a body without one); the rest is for a Zap that reads the fields. */
+export function webhookBody(event: string, a: AlertRow, now: Date) {
+  const href = a.href ? `${base()}${a.href}` : null;
+  const head = event === "alert.resolved" ? "✅ Resolved" : event === "alert.repeated" ? "⏰ Still open" : a.level === "error" ? "🔴 Problem" : "🟡 Warning";
+  return { text: `${head}: ${a.text}${href?.startsWith("http") ? ` <${href}|Open>` : ""}`, event, at: now.toISOString(), source: "backend-in-a-box",
+    alert: { id: a.id, key: a.key, level: a.level, kind: a.source, text: a.text, href, first_seen: a.first_seen, resolved_at: a.resolved_at } };
+}
 async function sendWebhook(event: string, a: AlertRow, now: Date): Promise<boolean> {
   const url = process.env.OPERATOR_WEBHOOK_URL; if (!url) return false;
-  try { const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event, at: now.toISOString(), source: "backend-in-a-box", alert: { id: a.id, key: a.key, level: a.level, kind: a.source, text: a.text, href: a.href ? `${base()}${a.href}` : null, first_seen: a.first_seen, resolved_at: a.resolved_at } }) }); return r.ok; }
+  try { const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(webhookBody(event, a, now)) }); return r.ok; }
   catch { return false; }   /* the alert channel being down is reported by the outside health check, not by us */
 }
 

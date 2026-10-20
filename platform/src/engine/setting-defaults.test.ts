@@ -4,9 +4,11 @@ import { asOperator, db } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { MIGRATIONS } from "@/db/migrations";
 import type { Migrator } from "@/db/migrator";
-import { SETTING_DEFAULTS, isDefaultValue, switchOn, writeDefaults } from "./setting-defaults";
+import { SETTING_DEFAULTS, isDefaultValue, switchOn, writeDefaults, LEGACY_OBJECTIONS } from "./setting-defaults";
 import { salesCallConfig } from "./ghl-metrics";
-import { objectionOptions, DEFAULT_OBJECTIONS } from "./sales-call";
+import { dispositionValues, objectionOptions, DEFAULT_OBJECTIONS } from "./sales-call";
+import { DISCOVERY_OBJECT } from "./setter-result";
+import { defaultPrompts } from "@/prompts";
 import { callSetting } from "./call-settings";
 
 describe("one reading of a yes/no setting", () => {
@@ -32,9 +34,16 @@ describe("one reading of a yes/no setting", () => {
     expect(isDefaultValue("prompt.x", "on")).toBe(false);
   });
 
-  it("settings whose readers disagree on 'unset' are left unset (Tyler decides)", () => {
-    for (const k of ["crm.object_discovery_call", "sales_call.dispositions", "sales_call.objections"]) expect(k in SETTING_DEFAULTS, k).toBe(false);
+  it("unset means one thing to every reader (D200): the neutral objections, the engine's own dispositions, the Discovery Call object the workflows write", () => {
     expect(objectionOptions({})).toEqual(DEFAULT_OBJECTIONS);
+    expect(DEFAULT_OBJECTIONS).not.toContain("medical");
+    expect(objectionOptions({ "sales_call.objections": SETTING_DEFAULTS["sales_call.objections"].default })).toEqual(objectionOptions({}));
+    expect(dispositionValues({ "sales_call.dispositions": SETTING_DEFAULTS["sales_call.dispositions"].default })).toEqual(dispositionValues({}));
+    const cfg = { "crm.object_sales_call": "custom_objects.sales_call" };
+    expect(salesCallConfig({ ...cfg, "sales_call.dispositions": SETTING_DEFAULTS["sales_call.dispositions"].default })!.dispositions).toEqual(salesCallConfig(cfg)!.dispositions);
+    expect(SETTING_DEFAULTS["crm.object_discovery_call"].default).toBe(DISCOVERY_OBJECT);
+    // the default call prompts offer the AI the same objections, no client's own
+    for (const k of ["call_notes", "call_review"]) expect(defaultPrompts[k], k).toContain(`"primary_objection": ${[...DEFAULT_OBJECTIONS, ""].map((o) => JSON.stringify(o)).join(" | ")}`);
   });
 
   it("an offer without its own dispositions counts a pending close as pending (the copy had lost close_pending)", () => {
@@ -58,6 +67,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D200: the defaults written onto each
     expect(b["slack.live"]).toBe("off");
     expect(b["calls.transcript_wait_min"]).toBe("120");
     expect(await asOperator((c) => writeDefaults(c, co))).toEqual([]);
+    await asOperator(async (c) => { await c.query("delete from bindings where company_id=$1", [co]); await c.query("delete from companies where id=$1", [co]); });
   });
 
   it("migration 0004 gives every offer its own copy, and its own values stay", async () => {
@@ -70,7 +80,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D200: the defaults written onto each
       await conn.query("insert into bindings (company_id, key, kind, value) values ($1,'slack.live','text',convert_to('yes','UTF8'))", [co]);
       await MIGRATIONS.find((m) => m.id === "0004-settings-onto-offers")!.run(t);
       const b = Object.fromEntries((await conn.query<{ key: string; v: string }>("select key, convert_from(value,'UTF8') as v from bindings where company_id=$1", [co])).rows.map((r) => [r.key, r.v]));
-      for (const [k, d] of Object.entries(SETTING_DEFAULTS)) expect(b[k], k).toBe(k === "slack.live" ? "yes" : d.default);
+      // what it ran on: its own Slack switch, Hair's objection list (the fallback before D200), every other default
+      for (const [k, d] of Object.entries(SETTING_DEFAULTS)) expect(b[k], k).toBe(k === "slack.live" ? "yes" : k === "sales_call.objections" ? JSON.stringify(LEGACY_OBJECTIONS) : d.default);
       expect((await conn.query("select after->>'by' as by from audit_log where company_id=$1", [co])).rows).toEqual([{ by: "migration 0004" }]);
     } finally { await conn.query("rollback"); conn.release(); }
   });

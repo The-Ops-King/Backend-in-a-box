@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { ENGINE_DISPOSITIONS } from "./setting-defaults";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { bookingFor, type Adapters, type AppointmentSnapshot, type Company, type ContactNote, type LiveCard, type ObjectRecord } from "@/adapters/types";
@@ -120,7 +121,7 @@ async function loadSetup(c: PoolClient, co: LoadedCompany, adapters: Adapters): 
   let fields: Setup["fields"] = null;
   try { if (adapters.read.objectFields) { const f = await adapters.read.objectFields(co.adapterCompany, objectKey); if (f.length) fields = new Map(f.map((x) => [x.key, { type: x.type, options: x.options }])); } } catch { fields = null; }
   let map: Record<string, unknown> = {};
-  try { map = JSON.parse(co.bindings["sales_call.dispositions"] ?? "{}") as Record<string, unknown>; } catch { map = {}; }
+  try { map = JSON.parse(co.bindings["sales_call.dispositions"] || JSON.stringify(ENGINE_DISPOSITIONS)) as Record<string, unknown>; } catch { map = {}; }
   const dispositions = Object.entries(map).map(([key, v]) => typeof v === "string" ? { key, meaning: v } : { key, meaning: String((v as { meaning?: string }).meaning ?? ""), reason: (v as { reason?: string }).reason }).filter((d) => d.meaning);
   const stages = new Map<string, string>();
   for (const [k, v] of Object.entries(co.bindings)) if (k.startsWith("crm.stage_closer_")) stages.set(v, k.slice("crm.stage_closer_".length));
