@@ -61,3 +61,61 @@ export async function contactTags(c: PoolClient, adapters: Adapters, a: { compan
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.tags','contact',$2,$3)", [co.id, ct.id, { add, remove, why: a.why }]);
   return { ok: true, dryRun: false, who: ct.who, add, remove };
 }
+
+/**
+ * D204: one offer's contacts handed from one team member to another in GHL (Tyler: "assign Nonie to all the contacts that mitch is
+ * assigned to and have the 'dating' tag"). The list is the replica's (owner `from`, carrying `tag`); each contact is read live in GHL
+ * first and changed only if it still has that owner and tag, so a contact reassigned or untagged since is left alone and said.
+ * A dry run (the default) lists them; re-running moves only what is left. Audited once with every contact moved.
+ */
+export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { company: string; from: string; to: string; tag: string; why: string; dryRun?: boolean }):
+  Promise<{ ok: true; dryRun: boolean; from: string; to: string; count: number; moved: number; contacts: string[]; skipped: { who: string; why: string }[] } | Fail> {
+  if (!a.from || !a.to || !a.tag?.trim() || !a.why?.trim()) return { ok: false, status: 400, error: "from, to, tag and why are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const who = (email: string) => one<{ name: string; ghl_user_id: string | null }>(c, "select name, ghl_user_id from users where company_id=$1 and lower(email)=lower($2)", [co.id, email.trim()]);
+  const from = await who(a.from), to = await who(a.to);
+  if (!from?.ghl_user_id) return { ok: false, status: 404, error: `${a.from} is not a GHL user on this offer's roster` };
+  if (!to?.ghl_user_id) return { ok: false, status: 404, error: `${a.to} is not a GHL user on this offer's roster: add them in GHL, then to the team (/team add)` };
+  const list = await many<{ id: string; ghl_contact_id: string; who: string }>(c, `select id, ghl_contact_id, coalesce(nullif(trim(concat_ws(' ', first_name, last_name)), ''), ghl_contact_id) as who from contacts
+    where company_id=$1 and assigned_ghl_user_id=$2 and $3 = any(tags) and ghl_contact_id is not null and gone_at is null and merged_into is null order by who`, [co.id, from.ghl_user_id, a.tag.trim()]);
+  const base = { from: from.name, to: to.name, count: list.length };
+  if (a.dryRun !== false) return { ok: true, dryRun: true, ...base, moved: 0, contacts: list.map((x) => x.who), skipped: [] };
+  const { adapterCompany: ac } = await loadCompany(c, co.id);
+  const moved: { id: string; who: string }[] = [], skipped: { who: string; why: string }[] = [];
+  for (const x of list) {
+    try {
+      const live = await adapters.read.getContact(ac, x.ghl_contact_id);
+      if (!live) { skipped.push({ who: x.who, why: "gone from GHL" }); continue; }
+      if (live.assignedTo !== from.ghl_user_id) { skipped.push({ who: x.who, why: live.assignedTo ? "owned by someone else now" : "has no owner now" }); continue; }
+      if (!live.tags.includes(a.tag.trim())) { skipped.push({ who: x.who, why: `no longer tagged ${a.tag}` }); continue; }
+      await adapters.write.updateContact(ac, x.ghl_contact_id, { assignedUserId: to.ghl_user_id });
+      await c.query("update contacts set assigned_ghl_user_id=$2, updated_at=now() where id=$1", [x.id, to.ghl_user_id]);
+      moved.push(x);
+    } catch (e) { skipped.push({ who: x.who, why: `GHL refused: ${String((e as Error).message).slice(0, 120)}` }); }
+  }
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'contacts.reassigned','user',$2,$3,$4)",
+    [co.id, to.ghl_user_id, { owner: from.ghl_user_id, tag: a.tag }, { owner: to.ghl_user_id, why: a.why, contacts: moved.map((m) => m.id), skipped: skipped.length }]);
+  return { ok: true, dryRun: false, ...base, moved: moved.length, contacts: moved.map((m) => m.who), skipped };
+}
+
+/**
+ * D204: a watched calendar's owner (D142: its bookings are its call type and its owner's), changed on its own without a re-install:
+ * the calendar's `owner`, and its upcoming bookings given to the new owner as install gives them (a past call stays whoever took it).
+ * New bookings then name the new owner (their pre-call texts, the contact's owner, the end of day). A dry run (the default) says how many.
+ */
+export async function calendarOwner(c: PoolClient, a: { company: string; calendar: string; owner: string; why: string; dryRun?: boolean }):
+  Promise<{ ok: true; dryRun: boolean; calendar: string; was: string | null; owner: string; upcoming: number } | Fail> {
+  if (!a.calendar || !a.owner || !a.why?.trim()) return { ok: false, status: 400, error: "calendar, owner and why are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const cal = await one<{ id: string; name: string; config: Record<string, unknown> }>(c, "select id, name, config from calendars where company_id=$1 and active and (external_id=$2 or lower(name)=lower($2))", [co.id, a.calendar.trim()]);
+  if (!cal) return { ok: false, status: 404, error: `no watched calendar is ${a.calendar}` };
+  const owner = await one<{ id: string; name: string }>(c, "select id, name from users where company_id=$1 and lower(email)=lower($2) and active", [co.id, a.owner.trim()]);
+  if (!owner) return { ok: false, status: 404, error: `${a.owner} is not on this offer's roster` };
+  const was = typeof cal.config.owner === "string" ? (await one<{ name: string }>(c, "select name from users where id=$1", [cal.config.owner]))?.name ?? null : null;
+  const upcoming = Number((await one<{ n: string }>(c, "select count(*) as n from appointments where calendar_id=$1 and starts_at > now() and assigned_user_id is distinct from $2", [cal.id, owner.id]))?.n ?? 0);
+  if (a.dryRun !== false) return { ok: true, dryRun: true, calendar: cal.name, was, owner: owner.name, upcoming };
+  await c.query("update calendars set config = config || jsonb_build_object('owner', $2::text) where id=$1", [cal.id, owner.id]);
+  await c.query("update appointments set assigned_user_id=$2 where calendar_id=$1 and starts_at > now() and assigned_user_id is distinct from $2", [cal.id, owner.id]);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'calendar.owner','calendar',$2,$3,$4)", [co.id, cal.id, { owner: cal.config.owner ?? null }, { owner: owner.id, why: a.why, upcoming }]);
+  return { ok: true, dryRun: false, calendar: cal.name, was, owner: owner.name, upcoming };
+}
