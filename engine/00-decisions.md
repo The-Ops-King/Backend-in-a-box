@@ -5588,3 +5588,18 @@ Also D188: the find-or-make step reads the contact's Do Not Disturb and phone fr
 for a contact GHL already held.
 
 Tests: `filters.test.ts` (D192).
+
+## D193. The audit's open items, phase 2 (2026-10-20, branch `audit-fixes`)
+
+Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after D151). One entry, one part per item as it lands.
+
+1. **No reply is missed in a busy location** (audit risk 11). The inbound poll read only the newest 50 threads a tick; Dating
+   shares RapidCloser's GHL, where 50 threads can turn over in minutes. It now reads every thread touched since its cursor,
+   oldest first (`sort=asc&startAfterDate`, checked against PMU's GHL), up to 150 threads a tick. A tick that stops short keeps
+   the cursor where it was and saves where it stopped (`poll_cursors` entity `conversations:resume`); the next tick starts after
+   it, and the cursor moves only once caught up. Reading a message twice is harmless (replies dedupe on the GHL message id,
+   calls on theirs). Each thread now reads its newest 50 messages, not 20.
+   With it, the migrate lease (D151) is renewed every minute while its migration runs (lease 3 minutes, a waiter waits 5): a
+   build that died held the old 15-minute lease past the next build's 10-minute wait.
+
+Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`.

@@ -1,11 +1,13 @@
 import { DateTime } from "luxon";
 import { ghl, GhlError } from "./client";
-import type { AppointmentSnapshot, Attribution, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, LiveCard, MessageSnapshot, MessageText, ObjectRecord, Touch, UserSnapshot, WonOpportunity } from "../types";
+import type { AppointmentSnapshot, Attribution, BookingRead, CalendarSnapshot, CallMedia, ContactSnapshot, CrmRead, DocumentSnapshot, InboundPage, LiveCard, MessageSnapshot, MessageText, ObjectRecord, Touch, UserSnapshot, WonOpportunity } from "../types";
 
 type RawTouch = Record<string, unknown> & { isFirst?: boolean; isLast?: boolean };
 export type RawContact = { id: string; firstName?: string; lastName?: string; email?: string; phone?: string; timezone?: string; assignedTo?: string | null; tags?: string[]; source?: string; customFields?: { id: string; value: unknown }[]; dateUpdated: string; dateAdded: string;
   attributionSource?: RawTouch | null; lastAttributionSource?: RawTouch | null; attributions?: RawTouch[] | null;
   dnd?: boolean; dndSettings?: { SMS?: { status?: string } | null } | null };
+/** Audit risk 11: threads a page, and at most this many a tick (each is one more GHL read); the rest go to the next tick. */
+const INBOUND_PAGE = 50, INBOUND_MAX_THREADS = 150;
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 function mapTouch(t: RawTouch | null | undefined): Touch | undefined {
   if (!t || typeof t !== "object") return undefined;
@@ -60,26 +62,36 @@ export const ghlRead: CrmRead = {
     }
     return out;
   },
-  async inboundSince(c, sinceIso) {
-    const r = await ghl<{ conversations: { id: string; contactId: string; lastMessageDate: string | number; lastMessageDirection?: string; lastMessageType?: string }[] }>(
-      c.pit, "GET", `/conversations/search?locationId=${c.locationId}&sortBy=last_message_date&sort=desc&limit=50`, { version: "2021-04-15" });   // no direction filter: a human reply after the contact's text must not hide the text
+  /**
+   * Audit risk 11: every thread touched since the cursor, oldest first (the newest 50 alone missed replies in a busy location, and Dating
+   * shares RapidCloser's), INBOUND_MAX_THREADS a tick. Stopping short sets `more`; the poll keeps its cursor and starts after it next tick.
+   */
+  async inboundSince(c, sinceIso, after) {
     const since = DateTime.fromISO(sinceIso);
-    const out: MessageSnapshot[] = [];
-    for (const conv of r.conversations ?? []) {
-      const last = typeof conv.lastMessageDate === "number" ? DateTime.fromMillis(conv.lastMessageDate) : DateTime.fromISO(String(conv.lastMessageDate));
-      if (last <= since) break;
-      const m = await ghl<{ messages: { messages: { id: string; direction: string; messageType: string; body?: string; subject?: string; status?: string; dateAdded: string; userId?: string; meta?: { call?: { status?: string; duration?: number } } }[] } }>(
-        c.pit, "GET", `/conversations/${conv.id}/messages?limit=20`, { version: "2021-04-15" });
-      for (const msg of m.messages?.messages ?? []) {
-        if (DateTime.fromISO(msg.dateAdded) <= since) continue;
-        const type = msg.messageType ?? "";
-        if (/^TYPE_ACTIVITY/.test(type)) continue;   // "opportunity moved", "appointment booked" entries are the CRM talking to itself, not the contact
-        const base = { id: msg.id, conversationId: conv.id, contactId: conv.contactId, direction: msg.direction as "inbound" | "outbound", status: msg.status, dateAdded: msg.dateAdded };
-        if (type === "TYPE_CALL") { const call = msg.meta?.call ?? {}; out.push({ ...base, channel: "call", call: { status: String(call.status ?? msg.status ?? ""), durationSec: typeof call.duration === "number" ? call.duration : undefined, userId: msg.userId } }); continue; }
-        out.push({ ...base, channel: type === "TYPE_EMAIL" ? "email" : "sms", body: type === "TYPE_EMAIL" ? undefined : msg.body, subject: msg.subject });
+    const out: InboundPage = [];
+    let pos = after ?? since.toMillis(), seen = 0;
+    for (;;) {
+      const start = pos;
+      const r = await ghl<{ conversations: { id: string; contactId: string; lastMessageDate: string | number }[] }>(
+        c.pit, "GET", `/conversations/search?locationId=${c.locationId}&sortBy=last_message_date&sort=asc&limit=${INBOUND_PAGE}&startAfterDate=${pos}`, { version: "2021-04-15" });   // no direction filter: a human reply after the contact's text must not hide the text
+      const convs = r.conversations ?? [];
+      for (const conv of convs) {
+        const m = await ghl<{ messages: { messages: { id: string; direction: string; messageType: string; body?: string; subject?: string; status?: string; dateAdded: string; userId?: string; meta?: { call?: { status?: string; duration?: number } } }[] } }>(
+          c.pit, "GET", `/conversations/${conv.id}/messages?limit=50`, { version: "2021-04-15" });
+        for (const msg of m.messages?.messages ?? []) {
+          if (DateTime.fromISO(msg.dateAdded) <= since) continue;
+          const type = msg.messageType ?? "";
+          if (/^TYPE_ACTIVITY/.test(type)) continue;   // "opportunity moved", "appointment booked" entries are the CRM talking to itself, not the contact
+          const base = { id: msg.id, conversationId: conv.id, contactId: conv.contactId, direction: msg.direction as "inbound" | "outbound", status: msg.status, dateAdded: msg.dateAdded };
+          if (type === "TYPE_CALL") { const call = msg.meta?.call ?? {}; out.push({ ...base, channel: "call", call: { status: String(call.status ?? msg.status ?? ""), durationSec: typeof call.duration === "number" ? call.duration : undefined, userId: msg.userId } }); continue; }
+          out.push({ ...base, channel: type === "TYPE_EMAIL" ? "email" : "sms", body: type === "TYPE_EMAIL" ? undefined : msg.body, subject: msg.subject });
+        }
+        pos = typeof conv.lastMessageDate === "number" ? conv.lastMessageDate : Date.parse(String(conv.lastMessageDate));
+        seen++;
       }
+      if (convs.length < INBOUND_PAGE) return out;
+      if (seen >= INBOUND_MAX_THREADS || pos === start) { out.more = pos; return out; }   // a full page that did not move on (all one timestamp) is not read again this tick
     }
-    return out;
   },
   /**
    * D89: a reply's words are read back from GHL when a step needs them; the engine stores only that it came in. The messages of one thread

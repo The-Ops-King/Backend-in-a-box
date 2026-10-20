@@ -294,7 +294,10 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
   const tag = scopeTag(bindings);
   // D117: a thread of someone out of scope is the location's other business: no call row, no reply, nothing started. The baseline asks only the replica
   const mine = (contactId: string) => (isBaseline ? inScope(c, contactId, tag) : stillInScope(c, co, ac, adapters, contactId, tag));
-  const msgs = await adapters.read.inboundSince(ac, since.toISO()!);
+  // audit risk 11: a tick that could not read every thread touched since the cursor leaves the cursor where it is and says where it stopped
+  const resume = await one<{ cursor: string }>(c, "select cursor from poll_cursors where company_id=$1 and entity=$2", [co.id, INBOUND_RESUME]);
+  const after = resume?.cursor && /^\d+$/.test(resume.cursor) ? Number(resume.cursor) : undefined;
+  const msgs = await adapters.read.inboundSince(ac, since.toISO()!, after);
   let max = since;
   for (const m of msgs) {
     // G14: the sender may be a duplicate CRM record folded into one person; those ids live as ghl_contact identifiers, the primary on the row
@@ -324,8 +327,11 @@ async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters:
     }
     const d = DateTime.fromISO(m.dateAdded); if (d > max) max = d;
   }
+  if (msgs.more !== undefined) { await saveCursor(c, co.id, INBOUND_RESUME, String(msgs.more), true); return; }
+  await c.query("delete from poll_cursors where company_id=$1 and entity=$2", [co.id, INBOUND_RESUME]);
   await saveCursor(c, co.id, "conversations", max.toISO()!, true);
 }
+const INBOUND_RESUME = "conversations:resume";
 
 /** A call entry in the thread → a ledger row. Connected calls wait for their transcript (settled here if it is already there, else by pollPendingCalls); the rest settle at once. */
 async function applyCall(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, m: MessageSnapshot, contactId: string, isBaseline: boolean, rep: PollReport) {

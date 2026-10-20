@@ -1,6 +1,6 @@
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import { asOperator, db } from "./client";
-import { acquireTickLock, releaseTickLock } from "@/engine/lock";
+import { acquireTickLock, releaseTickLock, renewTickLock } from "@/engine/lock";
 import { SCHEMA } from "./schema.sql";
 import { backfillBookingCard } from "@/engine/booking-card";
 
@@ -65,14 +65,17 @@ export function migrator(conn: PoolClient, pause = (ms: number) => new Promise((
   return m;
 }
 
-/** One migration at a time: a lease row like the ticks' (lock.ts), waited for while another build migrates. */
-const MIGRATE_LOCK = "migrate_lock", MIGRATE_LEASE_SECONDS = 900, MIGRATE_WAIT_MS = 10 * 60_000;
+/**
+ * One migration at a time: a lease row like the ticks' (lock.ts), renewed every minute while its migration runs, so a build that dies
+ * frees it within MIGRATE_LEASE_SECONDS and a waiting one, which waits longer than that, always gets it.
+ */
+const MIGRATE_LOCK = "migrate_lock", MIGRATE_LEASE_SECONDS = 180, MIGRATE_RENEW_MS = 60_000, MIGRATE_WAIT_MS = 5 * 60_000;
 async function takeMigrateLease(): Promise<string> {
   const until = Date.now() + MIGRATE_WAIT_MS;
   for (;;) {
     const owner = await acquireTickLock(MIGRATE_LEASE_SECONDS, MIGRATE_LOCK);
     if (owner) return owner;
-    if (Date.now() > until) throw new Error("another migration has held the migrate lease for over 10 minutes");
+    if (Date.now() > until) throw new Error("another migration has held the migrate lease for over 5 minutes");
     await new Promise((r) => setTimeout(r, 5_000));
   }
 }
@@ -85,11 +88,14 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
   if (env && env !== "production") return { applied: false, rlsTables: [], repaired: [], bookingCard: [], skipped: `${env} deployment: the database is production's, migrated only by a production deployment` };
   const conn = await db().connect();
   const c = migrator(conn);
-  let lease: string | null = null;
+  let lease: string | null = null, renewal: ReturnType<typeof setInterval> | undefined;
   try {
     // one migration at a time (two deploys can build at once): a lease row, pooler-safe, freed by expiry if a build dies
     await c.query(`create table if not exists engine_state (key text primary key, value jsonb not null default '{}', updated_at timestamptz not null default now())`);
     lease = await takeMigrateLease();
+    const held = lease;
+    renewal = setInterval(() => { void renewTickLock(held, MIGRATE_LOCK, MIGRATE_LEASE_SECONDS).catch(() => {}); }, MIGRATE_RENEW_MS);
+    renewal.unref?.();
     const exists = await c.query("select 1 from information_schema.tables where table_name='companies' and table_schema='public'");
     let applied = false;
     if (exists.rowCount === 0) { await c.query(SCHEMA); applied = true; }   // embedded: works inside a serverless bundle, no filesystem path
@@ -433,6 +439,7 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     const bookingCard = await asOperator((o) => backfillBookingCard(o));
     return { applied, rlsTables: tenantTables, repaired, bookingCard };
   } finally {
+    clearInterval(renewal);
     if (lease) await releaseTickLock(lease, MIGRATE_LOCK).catch(() => {});
     conn.release();
   }
