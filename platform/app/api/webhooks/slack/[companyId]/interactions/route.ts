@@ -7,6 +7,7 @@ import { alertPressed, parseSlackInteraction, ONLY_MANAGERS, type SlackPress } f
 import { checkSubmit, LINK_ACTIONS, LINK_FORM, linkForm, linkSubmitted, parseMeta } from "@/engine/webhooks/slack-link";
 import { one } from "@/db/client";
 import { slackBot } from "@/engine/slack-conn";
+import { runCompanyNow } from "@/api/run-soon";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
@@ -50,8 +51,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     return { kind: "press", press: p };
   });
   if (res instanceof Response) return res;
-  if (res.kind === "link") { after(() => linkSubmitted(liveAdapters, companyId, res.user, res.meta, res.contact).then(() => undefined).catch((e) => console.error("slack link:", e))); return new Response(null, { status: 200 }); }
+  if (res.kind === "link") { after(() => linkSubmitted(liveAdapters, companyId, res.user, res.meta, res.contact).then(() => undefined).catch((e) => console.error("slack link:", e)).then(() => runCompanyNow(companyId))); return new Response(null, { status: 200 }); }
   if (res.kind === "say") { const url = res.url; if (url) after(() => respondToSlack(url, { response_type: "ephemeral", replace_original: false, text: res.text }).catch(() => {})); return new Response(null, { status: 200 }); }
-  after(() => alertPressed({ adapters: liveAdapters, respond: respondToSlack }, companyId, res.press).catch((e) => console.error("slack press:", e)));
+  after(() => alertPressed({ adapters: liveAdapters, respond: respondToSlack }, companyId, res.press).catch((e) => console.error("slack press:", e)).then(() => runCompanyNow(companyId)));
   return new Response(null, { status: 200 });
 }

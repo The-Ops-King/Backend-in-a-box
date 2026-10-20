@@ -4,6 +4,7 @@ import { liveAdapters } from "@/adapters";
 import { loadCompany } from "@/engine/context";
 import { handleMessage } from "@/engine/bot";
 import { parseSlackEvent, reactionArrived, verifySlackSignature } from "@/engine/webhooks/slack";
+import { respondAndRun } from "@/api/run-soon";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
@@ -34,7 +35,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     if (!first) return NextResponse.json({ ok: true, duplicate_delivery: true });
     if (ev.kind === "message") return { message: ev };
     const out = await reactionArrived(c, companyId, ev);
-    return NextResponse.json("ignored" in out ? { ok: true, ignored: out.ignored } : { ok: true, ...out });
+    return respondAndRun(companyId, "ignored" in out ? { ok: true, ignored: out.ignored } : { ok: true, ...out });   // a reaction can wake a run waiting on it (D58)
   });
   if (res instanceof Response) return res;
   after(() => handleMessage({ adapters: liveAdapters }, companyId, res.message).catch((e) => console.error("slack bot:", e)));

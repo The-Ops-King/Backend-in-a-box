@@ -366,6 +366,8 @@ async function pollPendingCalls(c: PoolClient, co: CompanyRow, ac: Company, adap
 
 /** Documents & Contracts (D30): every document the location sent, mirrored; new → agreement.sent, first completion → agreement.signed. The first pass is a silent baseline. */
 async function pollAgreements(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
+  // D202: the minute tick and GHL's nudge can read the same documents at once; one at a time per company, so a signature is news once
+  await c.query("select pg_advisory_xact_lock(hashtextextended('poll:agreements:' || $1::text, 0))", [co.id]);
   const { isBaseline } = await cursor(c, co.id, "agreements", DateTime.now());
   const tag = scopeTag(bindings);
   for (const d of await adapters.read.documents(ac)) {
@@ -440,6 +442,18 @@ export async function pollAll(adapters: Adapters): Promise<PollReport> {
  * One company's poll, every entity in its own transaction; what it read and what failed is added to `rep`. D98: a company's
  * own tick calls this alone, with `timings` to learn how long each read took (ms per entity, `setup` for the bindings and calendars).
  */
+/**
+ * D202: GHL's own workflow says a document was sent or signed (its webhook is only a nudge: the body is not trusted); the company's
+ * documents are read from GHL now, as the minute poll would, and what that announces is dispatched.
+ */
+export async function pollDocumentsNow(adapters: Adapters, companyId: string): Promise<PollReport> {
+  const rep = emptyPollReport();
+  const { row: co, adapterCompany: ac, bindings } = await asOperator((c) => loadCompany(c, companyId));
+  if (!ac.pit || !ac.locationId) { rep.errors.push({ company: co.slug, entity: "bindings", error: "crm.location_id / secret.ghl_pit not bound" }); return rep; }
+  await asOperator((c) => pollAgreements(c, co, ac, adapters, rep, bindings));
+  return rep;
+}
+
 export async function pollCompany(adapters: Adapters, companyId: string, rep: PollReport = emptyPollReport(), timings?: Record<string, number>): Promise<PollReport> {
   rep.companies++;
   const t0 = Date.now();

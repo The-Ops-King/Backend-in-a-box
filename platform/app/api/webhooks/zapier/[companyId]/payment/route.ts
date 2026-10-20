@@ -1,11 +1,11 @@
-import { NextResponse } from "next/server";
 import { asOperator } from "@/db/client";
 import { loadCompany } from "@/engine/context";
 import { recordPayment } from "@/engine/payments";
 import { dispatchEvent } from "@/engine/dispatch";
 import { parseZapierPayment } from "@/engine/webhooks/zapier";
 import { zapierAuthorized } from "@/engine/inbound";
-export const dynamic = "force-dynamic";
+import { respondAndRun } from "@/api/run-soon";
+export const dynamic = "force-dynamic"; export const maxDuration = 60;
 
 /**
  * Whop → Zapier → here. Authenticated with the company's inbound secret (install returns it) as `Authorization: Bearer`
@@ -14,19 +14,19 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request, { params }: { params: Promise<{ companyId: string }> }) {
   const { companyId } = await params;
   let body: Record<string, unknown>;
-  try { body = (await req.json()) as Record<string, unknown>; } catch { return NextResponse.json({ error: "body is not JSON" }, { status: 400 }); }
+  try { body = (await req.json()) as Record<string, unknown>; } catch { return respondAndRun(companyId, { error: "body is not JSON" }, { status: 400 }); }
   return asOperator(async (c) => {
     const { bindings } = await loadCompany(c, companyId);
-    if (!zapierAuthorized(req, bindings)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    if (!zapierAuthorized(req, bindings)) return respondAndRun(companyId, { error: "unauthorized" }, { status: 401 });
     const parsed = parseZapierPayment(body);
-    if (!parsed.ok) return NextResponse.json({ error: parsed.why }, { status: 400 });
+    if (!parsed.ok) return respondAndRun(companyId, { error: parsed.why }, { status: 400 });
     const r = await recordPayment(c, companyId, parsed.input);
-    if (r.outcome === "duplicate") return NextResponse.json({ ok: true, duplicate: true, payment: r.payment.id });
+    if (r.outcome === "duplicate") return respondAndRun(companyId, { ok: true, duplicate: true, payment: r.payment.id });
     if (r.outcome === "unlinked") {
       await dispatchEvent(c, r.event, {});   // D88: the Unlinked payment workflow tells the team
-      return NextResponse.json({ ok: true, unlinked: true, payment: r.payment.id });
+      return respondAndRun(companyId, { ok: true, unlinked: true, payment: r.payment.id });
     }
     const started = await dispatchEvent(c, r.event, { contact: { id: r.contactId } });
-    return NextResponse.json({ ok: true, event: r.event.id, kind: r.payment.kind, running_total: r.event.data.running_total, cleared: r.event.data.cleared, healed: r.healed, runs_started: started.length });
+    return respondAndRun(companyId, { ok: true, event: r.event.id, kind: r.payment.kind, running_total: r.event.data.running_total, cleared: r.event.data.cleared, healed: r.healed, runs_started: started.length });
   });
 }

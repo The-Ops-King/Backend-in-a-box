@@ -3,7 +3,7 @@
  * The catalogue is engine/05-edge-cases.md; every `it.fails` here is a row under its "Known gaps": the test states the
  * behaviour the operator expects, the engine does something else today, and the one-line reason says where.
  */
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import { DateTime } from "luxon";
 import { asOperator, one, many } from "@/db/client";
@@ -22,6 +22,8 @@ import { parseDefinition, extractManifest } from "@/engine/definition";
 import type { Adapters, AppointmentSnapshot, Classification } from "@/adapters/types";
 import { POST as slackDoor } from "../../app/api/webhooks/slack/[companyId]/route";
 import { SCHEMA } from "@/db/schema.sql";
+// these drive the doors outside a Next request: what a door hands to `after` (D202: the run pass) is left to the ticks the tests run
+vi.mock("next/server", async (orig) => ({ ...(await orig<typeof import("next/server")>()), after: () => undefined }));
 
 const HAS_DB = !!process.env.DATABASE_URL;
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");

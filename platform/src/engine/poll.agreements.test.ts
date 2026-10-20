@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
-import { pollCompany } from "@/engine/poll";
+import { pollCompany, pollDocumentsNow } from "@/engine/poll";
 import type { Adapters, ContactSnapshot, DocumentSnapshot } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -49,5 +49,15 @@ describe.skipIf(!HAS_DB)("agreements mirrored from the CRM's documents", () => {
     const evs = await events();
     expect(evs.map((e) => e.event_type)).toEqual(["agreement.sent", "agreement.signed"]);
     expect(evs[1].data).toMatchObject({ external_id: "d1", signed: true, signed_at: "2026-10-06T12:00:00.000Z" });
+  });
+
+  it("D202: GHL's nudge and the minute poll reading the same new signature at once say it once", async () => {
+    // first in GHL's list: no earlier document's row lock lines the two readers up before they reach it
+    docs = [{ id: "d2", name: "Purchase Agreement", status: "sent", contactId: "GA1", createdAt: "2026-10-07T10:00:00Z" }, ...docs];
+    await poll();
+    docs = docs.map((d) => (d.id === "d2" ? { ...d, status: "completed", signedAt: "2026-10-07T11:00:00Z" } : d));
+    await Promise.all([pollDocumentsNow(fake, companyId), poll(), pollDocumentsNow(fake, companyId)]);
+    const d2 = (await events()).filter((e) => e.data.external_id === "d2").map((e) => e.event_type);
+    expect(d2).toEqual(["agreement.sent", "agreement.signed"]);
   });
 });

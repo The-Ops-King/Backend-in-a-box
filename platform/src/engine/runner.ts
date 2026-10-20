@@ -19,6 +19,7 @@ import { releasePending } from "./effects";
 import { dependentsWords, doingWords, failureRoles } from "./blocking";
 
 const LEASE_MIN = 5, MAX_STEPS = 50, BATCH = 100;
+const emptyReport = (): TickReport => ({ claimed: 0, completed: 0, waiting: 0, exited: 0, failed: 0, paused: 0, recovery: false, staleExits: 0, sends: 0 });
 export const RECOVERY_AFTER_MIN = 10;          // D5b: a gap longer than this means we were down
 export const PREMISE_RETRY_MIN = 5;            // D56: the booking source could not be read; look at the run again this much later
 const PREMISE_ALERT_KEY = "premise:booking-source-unreachable";
@@ -67,7 +68,7 @@ async function listenerFired(c: import("pg").PoolClient, companyId: string, lis:
  * the first time, so the upgrade to per-company ticks is not taken for an outage.
  */
 export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompanyId?: string, probes?: HealthProbes, clockKey = "scheduler"): Promise<TickReport> {
-  const report: TickReport = { claimed: 0, completed: 0, waiting: 0, exited: 0, failed: 0, paused: 0, recovery: false, staleExits: 0, sends: 0 };
+  const report = emptyReport();
   const claimedBy = `tick-${now.toMillis()}`;
 
   const runs = await asOperator(async (c) => {
@@ -75,13 +76,43 @@ export async function tick(adapters: Adapters, now = DateTime.now(), onlyCompany
     const last = st?.value.last_tick ? DateTime.fromISO(st.value.last_tick) : undefined;
     report.recovery = !!last && now.diff(last, "minutes").minutes > RECOVERY_AFTER_MIN;
     await c.query("insert into engine_state (key, value, updated_at) values ($2, $1, now()) on conflict (key) do update set value=engine_state.value || $1, updated_at=now()", [{ last_tick: now.toISO(), recovery: report.recovery }, clockKey]);
-    // Due-ness is decided by the database clock, the same clock that wrote next_run_at. Comparing against a JS
-    // timestamp (ms) lost a race against Postgres now() (µs) when a wake and a tick landed in the same millisecond.
-    return many<RunRow>(c, `update runs set claimed_at=now(), claimed_by=$1 where id in (
-        select id from runs where (status in ('active','waiting') or (status='paused' and step_held)) and next_run_at <= now()
-          and (claimed_at is null or claimed_at < now() - interval '${LEASE_MIN} minutes') and ($2::uuid is null or company_id=$2)
-        order by next_run_at limit ${BATCH} for update skip locked) returning *`, [claimedBy, onlyCompanyId ?? null]);
+    return claimDue(c, claimedBy, onlyCompanyId);
   });
+  return executeClaimed(adapters, runs, now, probes, report);
+}
+
+// Due-ness is decided by the database clock, the same clock that wrote next_run_at. Comparing against a JS
+// timestamp (ms) lost a race against Postgres now() (µs) when a wake and a tick landed in the same millisecond.
+// The lease and `skip locked` keep two claimers (the minute tick, an event's runNow) from ever running one run twice.
+const claimDue = (c: import("pg").PoolClient, claimedBy: string, companyId?: string) => many<RunRow>(c, `update runs set claimed_at=now(), claimed_by=$1 where id in (
+    select id from runs where (status in ('active','waiting') or (status='paused' and step_held)) and next_run_at <= now()
+      and (claimed_at is null or claimed_at < now() - interval '${LEASE_MIN} minutes') and ($2::uuid is null or company_id=$2)
+    order by next_run_at limit ${BATCH} for update skip locked) returning *`, [claimedBy, companyId ?? null]);
+
+/**
+ * D202 (Tyler: payments and contracts "need to be basically instant"): what an incoming event started runs now, not on the next
+ * minute tick. Called after a webhook has answered: the company's due runs are claimed (as its tick would claim them a minute
+ * later) and run, then again for any those started, until none is due or the passes run out. It never touches the tick's clock
+ * (a gap is still the minute tick's to judge), so it runs as no recovery.
+ */
+export async function runNow(adapters: Adapters, companyId: string, opts: { passes?: number; budgetMs?: number } = {}): Promise<TickReport> {
+  const total = emptyReport();
+  // after a gap the minute tick runs the backlog as a recovery (sends capped, stale reminders exited); an event arriving first must
+  // not run that backlog as if nothing had happened, so it waits for the tick
+  const last = await asOperator((c) => one<{ value: { last_tick?: string } }>(c, "select value from engine_state where key = any($1::text[]) order by (key=$2) desc limit 1", [[`scheduler:${companyId}`, "scheduler"], `scheduler:${companyId}`]));
+  if (!last?.value.last_tick || DateTime.now().diff(DateTime.fromISO(last.value.last_tick), "minutes").minutes > RECOVERY_AFTER_MIN) return { ...total, recovery: true };
+  const stopAt = Date.now() + (opts.budgetMs ?? 45_000);
+  for (let pass = 0; pass < (opts.passes ?? 5) && Date.now() < stopAt; pass++) {
+    const now = DateTime.now();
+    const runs = await asOperator((c) => claimDue(c, `now-${now.toMillis()}`, companyId));
+    if (!runs.length) break;
+    const r = await executeClaimed(adapters, runs, now, undefined, emptyReport());
+    for (const k of ["claimed", "completed", "waiting", "exited", "failed", "paused", "staleExits", "sends"] as const) total[k] += r[k];
+  }
+  return total;
+}
+
+async function executeClaimed(adapters: Adapters, runs: RunRow[], now: DateTime, probes: HealthProbes | undefined, report: TickReport): Promise<TickReport> {
   report.claimed = runs.length;
   const sendsThisTick = new Map<string, number>();   // company → sends this tick (recovery cap is per company)
   const premiseRead = new Set<string>(), premiseDown = new Set<string>();   // companies whose booking source answered / could not be read this tick

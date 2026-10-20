@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server";
 import { asOperator, one } from "@/db/client";
 import { loadCompany } from "@/engine/context";
 import { recordPayment } from "@/engine/payments";
 import { dispatchEvent } from "@/engine/dispatch";
 import { parseWhopEvent, verifyWhopSignature, type WhopEnvelope } from "@/engine/webhooks/whop";
-export const dynamic = "force-dynamic";
+import { respondAndRun } from "@/api/run-soon";
+export const dynamic = "force-dynamic"; export const maxDuration = 60;
 
 /**
  * Whop → ledger. Signature verified (Standard Webhooks), delivery id stored first so a retry is a no-op, then the payment
@@ -16,22 +16,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
   return asOperator(async (c) => {
     const { bindings } = await loadCompany(c, companyId);
     const secret = bindings["secret.whop_webhook"];
-    if (!secret) return NextResponse.json({ error: "webhook secret not bound for this company" }, { status: 401 });
+    if (!secret) return respondAndRun(companyId, { error: "webhook secret not bound for this company" }, { status: 401 });
     const v = verifyWhopSignature(secret, { id: req.headers.get("webhook-id"), timestamp: req.headers.get("webhook-timestamp"), signature: req.headers.get("webhook-signature") }, raw);
-    if (!v.ok) return NextResponse.json({ error: v.why }, { status: 401 });
+    if (!v.ok) return respondAndRun(companyId, { error: v.why }, { status: 401 });
     let env: WhopEnvelope;
-    try { env = JSON.parse(raw) as WhopEnvelope; } catch { return NextResponse.json({ error: "body is not JSON" }, { status: 400 }); }
+    try { env = JSON.parse(raw) as WhopEnvelope; } catch { return respondAndRun(companyId, { error: "body is not JSON" }, { status: 400 }); }
     const first = await one(c, "insert into webhook_deliveries (company_id, provider, delivery_id) values ($1,'whop',$2) on conflict do nothing returning delivery_id", [companyId, env.id]);
-    if (!first) return NextResponse.json({ ok: true, duplicate_delivery: true });
+    if (!first) return respondAndRun(companyId, { ok: true, duplicate_delivery: true });
     const p = parseWhopEvent(env);
-    if (!p) return NextResponse.json({ ok: true, ignored: env.type });
+    if (!p) return respondAndRun(companyId, { ok: true, ignored: env.type });
     const r = await recordPayment(c, companyId, p);
-    if (r.outcome === "duplicate") return NextResponse.json({ ok: true, duplicate: true, payment: r.payment.id });
+    if (r.outcome === "duplicate") return respondAndRun(companyId, { ok: true, duplicate: true, payment: r.payment.id });
     if (r.outcome === "unlinked") {
       await dispatchEvent(c, r.event, {});   // D88: the Unlinked payment workflow tells the team
-      return NextResponse.json({ ok: true, unlinked: true, payment: r.payment.id });
+      return respondAndRun(companyId, { ok: true, unlinked: true, payment: r.payment.id });
     }
     const started = await dispatchEvent(c, r.event, { contact: { id: r.contactId } });
-    return NextResponse.json({ ok: true, event: r.event.id, kind: r.payment.kind, healed: r.healed, runs_started: started.length });
+    return respondAndRun(companyId, { ok: true, event: r.event.id, kind: r.payment.kind, healed: r.healed, runs_started: started.length });
   });
 }

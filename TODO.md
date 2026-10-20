@@ -8,6 +8,9 @@ Things only Tyler can do or decide, that are holding up work. Claude adds to it;
       and PMU), then reinstall the app. Request URL is the offer's own: `https://backend-in-a-box.vercel.app/api/webhooks/slack/<company id>/commands`.
 - [ ] Before any offer moves up a rung (D151): read and mark its own GHL workflows with Claude. Hair first, before the switch-over.
 
+- [ ] Instant contracts (D202), per offer, Hair first: in the offer's GHL, a new workflow: trigger "Documents & Contracts"
+      (sent, and signed/completed), action "Webhook" to the URL on the dashboard's Setup page → Inbound doors → "GHL → documents".
+      Publish it. Nothing else in GHL changes.
 - [ ] Watchdog (D200): in Slack, make an incoming webhook to your own channel or DM (api.slack.com/apps → your ops app →
       Incoming Webhooks), put its URL in Vercel Production as `OPERATOR_WEBHOOK_URL`, then tell Claude to reinstall the scheduler
       (it also moves the operator key into Vault).

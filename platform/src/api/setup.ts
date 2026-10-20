@@ -71,7 +71,7 @@ export async function setupPage(co: CompanyHead) {
     alerts: ["alerts.slack_channel", "alerts.as_name", "alerts.as_icon", "alerts.repeat_minutes", "alerts.poll_failures"].map((k) => one(k)).filter((r): r is SetupRow => !!r),
     prompts: by("prompts").map((r) => ({ key: r.key, label: humanKey(r.key), used_by: r.used_by, text: r.value ?? "" })),
     scheduled: d.scheduled,
-    inbound: { whop: d.inbound.whop, fathom: d.inbound.fathom, zapier_payment: d.inbound.zapierPayment, zapier_recording: d.inbound.zapierRecording, zapier_secret: d.inbound.secret ? `set · ends with ${d.inbound.secret.slice(-4)}` : null, fathom_webhook_id: d.inbound.fathomWebhookId,
+    inbound: { ghl_documents: d.inbound.ghlDocuments, whop: d.inbound.whop, fathom: d.inbound.fathom, zapier_payment: d.inbound.zapierPayment, zapier_recording: d.inbound.zapierRecording, zapier_secret: d.inbound.secret ? `set · ends with ${d.inbound.secret.slice(-4)}` : null, fathom_webhook_id: d.inbound.fathomWebhookId,
       typeform: d.inbound.typeformTag ? `${d.inbound.typeform} · webhook "${d.inbound.typeformTag}" on ${d.inbound.typeformForms.join(", ") || "no form"}` : d.inbound.typeformForms.length ? `${d.inbound.typeform} · not registered yet` : null },
   };
 }
