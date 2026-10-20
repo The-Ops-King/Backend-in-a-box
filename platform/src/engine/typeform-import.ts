@@ -2,8 +2,7 @@ import { asOperator, many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 import { formFields, liveTypeform, type TfResponse, type TypeformApi } from "@/adapters/typeform/client";
 import { loadCompany } from "./context";
-import { normEmail } from "./payments";
-import { normPhone } from "./poll";
+import { normEmail, normPhone } from "./identity";
 import { carriesTag, scopeTag } from "./scope";
 import { findInGhl, formsOf, parseResponse, submitApplication, TF_TOKEN_KEY, WRITTEN, type Found, type TypeformFormMap } from "./typeform";
 

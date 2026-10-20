@@ -5,8 +5,8 @@ import { loadCompany } from "@/engine/context";
 import { respondToSlack, verifySlackSignature } from "@/engine/webhooks/slack";
 import { alertPressed, parseSlackInteraction, ONLY_MANAGERS, type SlackPress } from "@/engine/webhooks/slack-actions";
 import { checkSubmit, LINK_ACTIONS, LINK_FORM, linkForm, linkSubmitted, parseMeta } from "@/engine/webhooks/slack-link";
-import { decrypt } from "@/engine/crypto";
 import { one } from "@/db/client";
+import { slackBot } from "@/engine/slack-conn";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
@@ -30,8 +30,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     if (!v.ok) return NextResponse.json({ error: v.why }, { status: 401 });
     const p = parseSlackInteraction(raw);
     if (p.kind === "ignored") return new Response(null, { status: 200 });
-    const conn = await one<{ team_id: string; bot_token: Buffer }>(c, "select team_id, bot_token from slack_connections where company_id=$1", [companyId]);
-    if (!conn || (p.teamId && p.teamId !== conn.team_id)) return new Response(null, { status: 200 });
+    const bot = await slackBot(c, companyId);
+    if (!bot || (p.teamId && p.teamId !== bot.teamId)) return new Response(null, { status: 200 });
     if (p.kind === "submit") {
       const meta = p.callbackId === LINK_FORM ? parseMeta(p.meta) : null;
       if (!meta) return new Response(null, { status: 200 });
@@ -44,7 +44,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
       const allowed = await one(c, `select 1 where exists (select 1 from users where company_id=$1 and slack_user_id=$2 and active and role in ('owner','manager'))
         or exists (select 1 from bindings where company_id=$1 and key='bot.escalate_to' and convert_from(value,'utf8')=$2)`, [companyId, p.user]);
       if (!allowed) return { kind: "say", url: p.responseUrl, text: ONLY_MANAGERS };
-      if (p.triggerId && liveAdapters.notifier.openView) await liveAdapters.notifier.openView(decrypt(conn.bot_token), p.triggerId, linkForm({ kind, id: p.value, channel: p.channel, ts: p.ts })).catch((e) => console.error("slack link form:", e));
+      if (p.triggerId && liveAdapters.notifier.openView) await liveAdapters.notifier.openView(bot.token, p.triggerId, linkForm({ kind, id: p.value, channel: p.channel, ts: p.ts })).catch((e) => console.error("slack link form:", e));
       return new Response(null, { status: 200 });
     }
     return { kind: "press", press: p };

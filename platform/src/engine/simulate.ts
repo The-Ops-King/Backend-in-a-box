@@ -11,7 +11,8 @@ import { phoneFacts, recordPhoneCall, recordRecording, settlePhoneCall } from ".
 import { applyDocument, facts as agreementFacts } from "./agreements";
 import { contactPasses, isTestContact, testDomains, TEST_DOMAINS_KEY } from "./mode";
 import { formsOf, takeDelivery, type Submitted, type TypeformFormMap } from "./typeform";
-import { depositProducts, DEPOSIT_PRODUCTS_KEY, normEmail } from "./payments";
+import { depositProducts, DEPOSIT_PRODUCTS_KEY } from "./payments";
+import { contactByEmail, normEmail } from "./identity";
 import { fileCall, loadEodForm } from "./eod";
 import { harnessScripts } from "./harness-scripts";
 import { choiceOf, isMoney, isRevenueOutcome, outcomesOf } from "./eod-form";
@@ -277,7 +278,8 @@ export async function simulateForm(x: { c: PoolClient; company: CompanyRow; adap
   const formId = asked ? ids.find((id) => id === asked || forms[id].name?.trim().toLowerCase() === asked.toLowerCase()) : ids.length === 1 ? ids[0] : undefined;
   const said = ids.map((id) => (forms[id].name ? `${id} "${forms[id].name}"` : id)).join(", ");
   if (!formId) return { ok: false, why: asked ? `no mapped form is "${asked}" (${said})` : `several forms are mapped: say which (${said})` };
-  const known = await one<{ contact_id: string }>(c, "select i.contact_id from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.kind='email' and i.value=$2 and i.retired_at is null and ct.merged_into is null limit 1", [company.id, email]);
+  const knownId = await contactByEmail(c, company.id, email);
+  const known = knownId ? { contact_id: knownId } : undefined;
   const refused = known ? await harnessRefusal(c, company, known.contact_id, x.force)
     : !isTestContact({ emails: [email] }, testDomains(loaded.bindings)) ? NOT_TEST : company.mode === "live" && !x.force ? LIVE : null;
   if (refused) return { ok: false, why: refused };

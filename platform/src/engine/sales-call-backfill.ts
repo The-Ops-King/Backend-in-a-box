@@ -15,6 +15,7 @@ import type { RecordingRow } from "./recordings";
 import { transcriptFor } from "./transcripts";
 import { outcomeTermFor } from "./disposition";
 import { rollupRange } from "./metrics";
+import { contactByEmail, contactByGhlId } from "./identity";
 
 /**
  * D115: a closer's Sales Calls over a window, read back from the evidence and written the way Call booked writes them
@@ -189,8 +190,8 @@ export async function backfillSalesCalls(c: PoolClient, co: LoadedCompany, adapt
     const host = userOf(s); if (closer && host?.id !== closer.id) continue;
     const email = s.invitee?.email ?? null;
     // the person as the booking names them: the CRM's id (a GHL calendar), else the invitee's email (Calendly)
-    const ct = s.contactId ? await one<{ contact_id: string }>(c, "select id as contact_id from contacts where company_id=$1 and ghl_contact_id=$2 union all select contact_id from contact_identifiers where company_id=$1 and kind='ghl_contact' and value=$2 and retired_at is null limit 1", [co.row.id, s.contactId])
-      : email ? await one<{ contact_id: string }>(c, "select contact_id from contact_identifiers where company_id=$1 and kind='email' and value=$2 and retired_at is null", [co.row.id, email]) : null;
+    const ctId = s.contactId ? await contactByGhlId(c, co.row.id, s.contactId) : email ? await contactByEmail(c, co.row.id, email) : null;
+    const ct = ctId ? { contact_id: ctId } : null;
     const cal = calOf.get(s.calendarId), by = s.cancellation ? `${s.cancellation.byType === "host" ? "the host" : s.cancellation.byType === "invitee" ? "the invitee" : "someone"}${s.cancellation.by ? ` (${s.cancellation.by})` : ""}` : "someone";
     slots.push({ kind: "left_slot", key, startsAt: at, snap: s, move: { source: "Calendly", at: s.cancellation?.at ? new Date(s.cancellation.at) : null, to: next ? new Date(next.startTime) : null, by, reason: s.cancellation?.reason ?? "" }, calendar: cal?.name ?? s.title ?? "", termName: cal?.term_name ?? "", selfBooked: cal?.self_booked ?? null, closer: host, contactId: ct?.contact_id ?? null, email });
   }

@@ -4,9 +4,9 @@ import type { Adapters, SlackBlock } from "@/adapters/types";
 import { alertKind, destinationsFor, pauseAlert, resolveByPerson, type AlertRow } from "../alerts";
 import { retryStep } from "../hand";
 import { classifyError, plainError } from "../failures";
-import { decrypt } from "../crypto";
 import { settledMessage } from "../slack-blocks";
 import { SLACK_ACTIONS } from "../definition";
+import { slackBot } from "../slack-conn";
 
 /**
  * D93: Retry and Resolve on an alert's Slack post. The Health check workflow puts the buttons on the post (slack_post `buttons`);
@@ -58,15 +58,15 @@ async function presser(c: PoolClient, companyId: string, slackUser: string): Pro
 }
 
 async function decide(c: PoolClient, deps: PressDeps, companyId: string, p: SlackPress): Promise<Decision> {
-  const conn = await one<{ team_id: string; bot_token: Buffer }>(c, "select team_id, bot_token from slack_connections where company_id=$1", [companyId]);
-  if (!conn || (p.teamId && p.teamId !== conn.team_id)) return { out: { done: "ignored", why: "another workspace" } };
+  const bot = await slackBot(c, companyId);
+  if (!bot || (p.teamId && p.teamId !== bot.teamId)) return { out: { done: "ignored", why: "another workspace" } };
   const who = await presser(c, companyId, p.user);
   if (!who.allowed) return { out: { done: "denied" }, say: ONLY_MANAGERS };
   if (!UUID.test(p.value)) return { out: { done: "ignored", why: "not an alert id" } };
   // locked for the press: a second press on the same alert waits here, then finds it resolved
   const a = await one<AlertRow>(c, "select * from alerts where id=$1 and company_id=$2 for update", [p.value, companyId]);
   if (!a) return { out: { done: "ignored", why: "no such alert" }, say: "I can't find that alert any more." };
-  const token = decrypt(conn.bot_token);
+  const token = bot.token;
   const at = p.channel && p.ts ? { channel: p.channel, ts: p.ts } : (await one<{ channel: string; ts: string }>(c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [companyId, `alert:${a.id}`])) ?? null;
   if (a.resolved_at) return { out: { done: "already" }, say: "Already done: this alert is resolved." };
   const mention = `<@${p.user}>`;

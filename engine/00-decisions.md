@@ -5640,4 +5640,10 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
    post's thread says "✅ Linked to <name> by <who>" with a ✅ on the post. Needs no Slack scope or manifest change. In the
    templates; an offer gets it when its own copy is saved from the template (D147), one offer at a time on Tyler's word.
 
+9. **One copy of the shared helpers** (audit §3). `identity.ts` holds the one email and phone rule (three copies disagreed on a
+   number written without "+"; the poll's rule stays, as it wrote every stored identifier) and the two contact lookups that were
+   written out again and again, by GHL id and by email; one copy matched a contact merged into another, none does now.
+   `slack-conn.ts` holds the company's bot (the same query and decrypt in eleven places). `notify_owner` stays its own step: it
+   already shares routing and posting with `slack_post`, and what is left is its own (the owner's task, the owner named).
+
 Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`.

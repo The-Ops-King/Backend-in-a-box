@@ -1,11 +1,10 @@
 import type { PoolClient } from "pg";
 import { asOperator, many, one } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
-import { decrypt } from "../crypto";
 import { linkPayment } from "../payments";
 import { linkRecording } from "../recordings";
-import { normEmail } from "../send-lock";
-import { normPhone } from "../poll";
+import { normEmail, normPhone } from "../identity";
+import { slackBot } from "../slack-conn";
 
 /**
  * D193 (Tyler: hand-linking back, as a Slack button). The Unlinked payment and Unmatched recording posts carry "Link to a contact";
@@ -59,9 +58,9 @@ export async function linkSubmitted(adapters: Adapters, companyId: string, slack
     await asOperator(async (c) => { if (meta.kind === "payment") await linkPayment(c, companyId, meta.id, contact.id); else await linkRecording(c, companyId, meta.id, contact.id); });
     await asOperator((c) => c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,$2,$3,$4,$5)", [companyId, `${meta.kind}.linked_in_slack`, meta.kind, meta.id, { contact: contact.id, by: slackUser }]));
   } catch (e) { ok = false; why = String((e as Error).message); }
-  const conn = await asOperator((c) => one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [companyId]));
-  if (conn && meta.channel && meta.ts) {
-    const token = decrypt(conn.bot_token);
+  const bot = await asOperator((c) => slackBot(c, companyId));
+  if (bot && meta.channel && meta.ts) {
+    const token = bot.token;
     await adapters.notifier.post(token, meta.channel, ok ? `✅ Linked to ${contact.name} by <@${slackUser}>.` : `Couldn't link it: ${why}.`, undefined, meta.ts).catch(() => null);
     if (ok) await adapters.notifier.react(token, meta.channel, meta.ts, "white_check_mark");
   }

@@ -25,6 +25,7 @@ import { typeformGetWebhook } from "@/adapters/typeform/client";
 import { ghlWorkflows } from "@/adapters/ghl/catalog";
 import { isOn, type Filters } from "@/onboarding/filters";
 import { formsOf, publicBase, TF_TAG_KEY, TF_TOKEN_KEY, typeformWebhookUrl, unboundOf } from "./typeform";
+import { slackBot } from "./slack-conn";
 
 /**
  * D33. The hourly sweep: a read-only look at every connection a company runs on. Its own automation, with its own
@@ -240,9 +241,9 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
 
   // Slack
   if (on("slack")) {
-    const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [company.id]);
-    if (conn) {
-      const { decrypt } = await import("./crypto"); const token = decrypt(conn.bot_token);
+    const bot = await slackBot(c, company.id);
+    if (bot) {
+      const token = bot.token;
       const auth: { ok: boolean; error?: string } = await adapters.notifier.authTest(token).catch((e) => ({ ok: false, error: String((e as Error).message) }));
       if (!auth.ok) bad("slack", "error", `Slack bot token rejected: ${auth.error ?? "unknown"}.`, "token");
       else {
@@ -303,8 +304,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
     const events = new Set((await many<{ name: string }>(c, "select name from event_types")).map((e) => e.name));
     const domains = new Set((await many<{ domain: string }>(c, "select distinct domain from core_categories")).map((d) => d.domain));
     const cals = new Set((await many<{ external_id: string }>(c, "select external_id from calendars where company_id=$1 and active", [company.id])).map((x) => x.external_id));
-    const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [company.id]);
-    const token = conn ? (await import("./crypto")).decrypt(conn.bot_token) : null;
+    const token = (await slackBot(c, company.id))?.token ?? null;
     const stages = new Set(catalog?.pipelines.flatMap((p) => p.stages.map((s) => s.id)) ?? []), pipes = new Set(catalog?.pipelines.map((p) => p.id) ?? []), cf = new Set(catalog?.contactFields.map((f) => f.id) ?? []), of = new Set(catalog?.opportunityFields.map((f) => f.id) ?? []), assocs = new Set(catalog?.associations.map((a) => a.id) ?? []), objects = new Set(catalog?.objects.flatMap((o) => [o.key, o.key.replace(/^custom_objects\./, "")]) ?? []), users = new Set(catalog?.users.map((u) => u.id) ?? []);
     const unverifiable: string[] = [];
     for (const wf of wfs) {
@@ -349,7 +349,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
           case "classify_domain": if (!domains.has(r.value)) miss(`step ${r.node} classifies into "${r.value}", which has no options.`); else verified++; break;
           case "event": if (!events.has(r.value)) miss(r.what === "the event it records" ? `step ${r.node} records "${r.value}", which is not an event type the ledger accepts.` : r.what === "the event it waits for" ? `step ${r.node} waits for "${r.value}", which the engine never emits.` : `trigger ${r.node} listens for "${r.value}", which the engine never emits.`); else verified++; break;
           case "anthropic": if (!(bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY)) miss(`step ${r.node} needs an Anthropic key and none is set.`); else verified++; break;
-          case "slack": if (!conn) miss(`step ${r.node} posts to Slack, which is not connected; those posts are skipped.`, "warning"); else verified++; break;
+          case "slack": if (!token) miss(`step ${r.node} posts to Slack, which is not connected; those posts are skipped.`, "warning"); else verified++; break;
           case "url": verified++; break;   // checked once per unique link under "urls"
           case "webhook": break;           // not probed (VERIFIES says why)
         }

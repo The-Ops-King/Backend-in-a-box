@@ -25,6 +25,7 @@ import { dropTranscripts, hydrateTranscripts } from "./transcripts";
 import { dropReplies, hydrateReplies, mentionsReplyText, readsReplyText, scrubReplyText } from "./replies";
 import { boardOf, stageWords } from "./card-moves";
 import { QUIET_SUPPRESSED, QUIET_WHY, quietWhenEmpty } from "./quiet";
+import { slackBot } from "./slack-conn";
 
 /** Ghost posts to the team are real posts, labelled; nothing else in ghost leaves the engine. */
 export const GHOST_PREFIX = "🧪 *ghost* — ";
@@ -391,9 +392,8 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
     }
     case "notify_owner": {
       const owner = (d.ctx.contact as { owner?: { name: string; email: string; ghl_user_id: string; slack_user_id: string | null } } | undefined)?.owner;
-      const conn = await one<{ bot_token: Buffer }>(d.c, "select bot_token from slack_connections where company_id=$1", [d.company.id]);
-      const { decrypt } = await import("./crypto");
-      if (conn) await resolveMentions(d, decrypt(conn.bot_token));
+      const bot = await slackBot(d.c, d.company.id);
+      if (bot) await resolveMentions(d, bot.token);
       const text = render(node.template, d.ctx, env(d));
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
       const out: Record<string, unknown> = { owner: owner?.name ?? null };
@@ -412,9 +412,9 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (route && "blocked" in route) { await recordSend(d, node, "slack", text, "suppressed", route.blocked); return { status: "skipped", next, result: { ...out, kind: "noop", why: route.blocked, would_post: text.slice(0, 160) } }; }
       const target = route ? route.to : slackUser ?? fallback;
       const named = slackUser ? text : `${owner?.name ? `*${owner.name}* ` : ""}${text}`, body = route ? `${route.prefix}${named}` : named;
-      if (!conn || !target) { await recordSend(d, node, "slack", body, "suppressed", conn ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, kind: "blocked", why: conn ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
+      if (!bot || !target) { await recordSend(d, node, "slack", body, "suppressed", bot ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, kind: "blocked", why: bot ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", body, "queued"); if (!send) return { status: "skipped", next, result: { ...out, kind: "noop", why: "already posted (idempotency)" } };
-      const r = await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(decrypt(conn.bot_token), target, `${modePrefix(d)}${body}`, persona(d, node.as)));
+      const r = await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(bot.token, target, `${modePrefix(d)}${body}`, persona(d, node.as)));
       if ("refused" in r) return { status: "skipped", next, result: { ...out, kind: "blocked", why: `Slack refused the post: ${r.refused}`, would_post: body.slice(0, 160) } };
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, ghost(d) ? "ghost" : "sent", r.ts]);
       return { status: "ok", next, result: { ...out, ...(ghost(d) ? { ghost: true } : {}), dm: !!slackUser, ...(route ? { redirected_to: route.to } : {}), ts: r.ts } };

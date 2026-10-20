@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { normEmail as normEmailOf, normPhone as normPhoneOf } from "./identity";
 import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 
@@ -11,12 +12,8 @@ import type { Adapters, Company } from "@/adapters/types";
 export type LockChannel = "sms" | "email" | "document" | "webhook";
 export type LockVerdict = { ok: true; unlocked: boolean } | { ok: false; why: string; retry?: boolean };
 
-export const normEmail = (e: string) => e.trim().toLowerCase();
-/** E.164 for a US/CA number written any way (602-555-0199, (602) 555 0199, +16025550199); anything else as +digits. */
-export function normPhone(p: string): string {
-  const digits = p.replace(/\D/g, "");
-  return digits.length === 10 ? `+1${digits}` : `+${digits}`;
-}
+const normEmail = (e: string) => normEmailOf(e) ?? "";
+const normPhone = (p: string) => normPhoneOf(p) ?? "";
 
 export async function operatorAddresses(c: PoolClient): Promise<{ emails: Set<string>; phones: Set<string> }> {
   const rows = await many<{ kind: string; value: string }>(c, "select i.kind, i.value from person_identities i join people p on p.id=i.person_id where p.operator and i.kind in ('email','phone')");

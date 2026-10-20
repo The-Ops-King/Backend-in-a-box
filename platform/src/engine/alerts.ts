@@ -7,6 +7,7 @@ import type { PollReport } from "./poll";
 import type { TickReport } from "./runner";
 import { classifyError, plainError } from "./failures";
 import { runningSql } from "./running";
+import { slackBot } from "./slack-conn";
 
 /**
  * D33. The engine tells the operator the minute something fails, and says so once.
@@ -271,10 +272,9 @@ export async function stillTrue(c: PoolClient, adapters: Adapters, a: Pick<Alert
   const u = await one<{ email: string | null; slack_user_id: string | null }>(c, "select email, slack_user_id from users where id=$1 and company_id=$2", [needs.slack_user, a.company_id]);
   if (!u) return "fixed";   // the person is gone, and so is the DM to them
   if (u.slack_user_id) return "fixed";
-  const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [a.company_id]);
-  if (!conn || !u.email) return "open";
-  const { decrypt } = await import("./crypto");
-  const found = await adapters.notifier.lookupUserByEmail(decrypt(conn.bot_token), u.email).catch(() => null);
+  const bot = await slackBot(c, a.company_id);
+  if (!bot || !u.email) return "open";
+  const found = await adapters.notifier.lookupUserByEmail(bot.token, u.email).catch(() => null);
   if (!found) return "open";
   await c.query("update users set slack_user_id=$2 where id=$1", [needs.slack_user, found]);
   return "fixed";
