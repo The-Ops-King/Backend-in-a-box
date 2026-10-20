@@ -292,3 +292,27 @@ export async function simulateForm(x: { c: PoolClient; company: CompanyRow; adap
   if (r.outcome !== "recorded") return { ok: true, action: "form", detail: { outcome: r.outcome, form: formId, response_id: rid, contact: known?.contact_id ?? null }, runsStarted: 0 };
   return { ok: true, action: "form", detail: { outcome: r.outcome, form: formId, response_id: rid, contact: r.contactId, ghl_contact_id: r.ghlContactId, action: r.action, matched: r.matched, ghost: r.ghost }, runsStarted: r.runsStarted ?? 0 };
 }
+
+/**
+ * Tyler, 2026-10-20: a staged booking left over from a rehearsal sits on a closer's end-of-day form as a call to file (and in the
+ * numbers) once its time passes. Voiding it makes it `invalid`, which every reader already leaves out, with no event and so no
+ * workflow (a cancel would start Call cancelled and text the test contact); its runs still going end. Staged (source `test`) only.
+ */
+export async function voidStagedBookings(c: PoolClient, companyId: string, appointmentIds: string[], by: string, dryRun = false): Promise<{ voided: { id: string; starts_at: string; was: string }[]; refused: { id: string; why: string }[]; runsEnded: number }> {
+  const rows = await many<{ id: string; source: string; status: string; starts_at: Date }>(c, "select id, source, status, starts_at from appointments where company_id=$1 and id = any($2::uuid[])", [companyId, appointmentIds]);
+  const refused = appointmentIds.filter((id) => !rows.some((r) => r.id === id)).map((id) => ({ id, why: "no such booking for this company" }));
+  const ok: typeof rows = [];
+  for (const r of rows) {
+    if (r.source !== "test") refused.push({ id: r.id, why: `a real ${r.source} booking: only staged (test) bookings can be voided here` });
+    else if (r.status === "invalid") refused.push({ id: r.id, why: "already void" });
+    else ok.push(r);
+  }
+  let runsEnded = 0;
+  if (!dryRun && ok.length) {
+    const ids = ok.map((r) => r.id);
+    runsEnded = (await c.query("update runs set status='exited', exit_reason='staged booking voided', next_run_at=null where company_id=$1 and appointment_id = any($2::uuid[]) and status in ('active','waiting','paused')", [companyId, ids])).rowCount ?? 0;
+    await c.query("update appointments set status='invalid', source_updated_at=now() where company_id=$1 and id = any($2::uuid[])", [companyId, ids]);
+    await c.query("insert into audit_log (company_id, action, target_type, after) values ($1,'appointment.voided','appointment',$2)", [companyId, { appointments: ok.map((r) => ({ id: r.id, was: r.status })), runs_ended: runsEnded, by }]);
+  }
+  return { voided: ok.map((r) => ({ id: r.id, starts_at: r.starts_at.toISOString(), was: r.status })), refused, runsEnded };
+}
