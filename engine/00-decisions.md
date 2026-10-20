@@ -5638,3 +5638,15 @@ reaches the day-before wait (`v_lead`, `vars.lead_at_day_before`); the day-befor
 text and the hour-before text are unchanged. Triage call cancelled keeps the template's rebook task (Tyler: "Create the task for
 Mitch"), due in a day for whoever takes the call, so its post's "Rebook task" line is true; D142 had left it out. Nelly only.
 Tests: `dating-copies.test.ts`.
+
+## D200. /team in Slack: the operator adds or removes a setter or closer and is told what's left (2026-10-20)
+
+Tyler: "I prefer the slack command ... Maybe if we could just have the Slack command tell me what I need to do." Only the
+workspace's operator (`bot.escalate_to`) runs it; anyone else is told so. `/team add <email> <setter|closer> [slack:<email>]` re-reads
+the GHL roster and gives the role once they are a GHL user (D197), then answers privately with a checklist: in GHL, the role, a
+setter's first name theirs alone (their link matches on it), Slack linked, in the role's channels (bookings and setter calls; a
+closer's bookings, calls and end of day), a call of theirs seen, a closer hosting a closing calendar (a setter told inbound hosting
+is only if they take inbound calls), and a setter's link. Each ❌ says the next step; run it again after a fix. `/team remove`
+takes the role off; `/team` lists the team. It invites, creates and buys nothing (GHL, Slack, Calendly and the phone number stay
+Tyler's). Slack behaviour, so every offer's app gets it in one pass (CLAUDE.md): the manifests list it; /help does not. The two
+welcome emails (personal and work address) are later. Tests: `team-command.test.ts`.

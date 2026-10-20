@@ -156,6 +156,8 @@ export interface Notifier {
   channelInfo(token: string, channelId: string): Promise<{ ok: boolean; name?: string; member?: boolean; error?: string; needed?: string }>;
   /** users.info: a Slack user's email (needs users:read.email), null when Slack does not say. Optional: the bot falls back to asking who they are. */
   userEmail?(token: string, userId: string): Promise<string | null>;
+  /** conversations.members (channels:read / groups:read): who is in a channel, null when Slack will not say (a private channel the bot is not in). */
+  channelMembers?(token: string, channelId: string): Promise<string[] | null>;
 }
 /** A long-form read of a document (a call transcript) against an instruction, answered as text or as JSON. */
 export type AnalysisRequest = { system: string; input: string; format: "json" | "text"; maxTokens?: number; model?: string };

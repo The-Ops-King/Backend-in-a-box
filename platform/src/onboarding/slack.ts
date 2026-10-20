@@ -26,13 +26,15 @@ export const slackAuthTest = async (token: string): Promise<SlackAuth> => {
   } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 160) }; }
 };
 
+/** D200: the operator's /team, in the manifest but not in /help (the team cannot run it). */
+export const TEAM_SHORTCUT = { command: "/team", description: "Operator only: add or remove a setter or closer, and what's left to set up", hint: "[add <email> <setter|closer>]" };
 const BOT_SCOPES = ["chat:write", "chat:write.customize", "channels:read", "groups:read", "reactions:read", "reactions:write", "users:read.email", "users:read", "app_mentions:read", "im:history", "channels:history", "groups:history"];
 const q = (s: string) => JSON.stringify(s);   // a JSON string is a YAML string
 
 /** The app manifest (YAML), every request URL carrying this company's id. */
 export function slackManifest(companyId: string, base: string, o: SlackOptions, offer: string): string {
   const url = (p = "") => `${base}/api/webhooks/slack/${companyId}${p}`;
-  const commands = [...SHORTCUTS.map((s) => ({ command: s.command, description: s.about, hint: s.hint ?? "" })), { command: "/help", description: "What the bot can answer", hint: "" }];
+  const commands = [...SHORTCUTS.map((s) => ({ command: s.command, description: s.about, hint: s.hint ?? "" })), { command: "/help", description: "What the bot can answer", hint: "" }, TEAM_SHORTCUT];
   return [
     `# ${o.appName}: api.slack.com/apps → Create New App → From an app manifest → the workspace → YAML → paste this → Create.`,
     `# Then Install to Workspace; the Bot User OAuth Token (OAuth & Permissions) and the Signing Secret (Basic Information) go in the wizard.`,
