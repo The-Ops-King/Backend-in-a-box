@@ -147,6 +147,16 @@ describe.skipIf(!process.env.DATABASE_URL)("D154/D156: a setter's calls on the e
     expect(facts.today.calls).toBe(2);
   });
 
+  it("D191: the end-of-day reminder counts the setter's outbound calls too: Mitch is owed two calls today (Pia's triage call and Omar's outbound call), not one", async () => {
+    await installCompany({ name: "EOD setter", slug: "eodset", timezone: TZ, locationId: "LOC", templates: ["eod-reminder"], enable: true }, fake);
+    const { fireNow } = await import("@/engine/clock");
+    const wf = (await asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='eod-reminder'", [co])))!.id;
+    await asOperator((c) => fireNow(c, co, wf, "t_evening")); await run();
+    const r = (await asOperator((c) => one<{ context: { vars: { due: { days: { today: boolean; calls: number }[] } } } }>(c, "select r.context from runs r where r.workflow_id=$1 and r.user_id=$2 order by r.started_at desc limit 1", [wf, mitch.id])))!;
+    expect(r.context.vars.due.days.filter((x) => x.today)).toEqual([expect.objectContaining({ today: true, calls: 2 })]);
+    await asOperator((c) => c.query("update workflows set enabled=false where id=$1", [wf]));
+  });
+
   it("D156: filing Omar's outbound call as a DQ writes his Discovery Call record and moves his setter card to DQ (lost), with a line under the call's post; Pia's triage call files through its booking as before; filing again writes nothing twice", async () => {
     const token = await asOperator((c) => tokenFor(c, mitch.id));
     const p = await asOperator(async (c) => prefill(c, (await loadCompany(c, co)).row, mitch, day));

@@ -102,30 +102,41 @@ export function parseResponse(form: TypeformFormMap, r: TfResponse, bindings: Re
 
 export type Found = { snap: ContactSnapshot; by: "email" | "phone" | "ledger" };
 /** Tyler: the person in GHL by email, then by phone. Another business's contact may match: the same human, so the same record. */
-export async function findInGhl(ac: Company, adapters: Adapters, email?: string, phone?: string): Promise<Found | null> {
+export async function findInGhl(ac: Company, adapters: Adapters, email?: string, phone?: string, policy: MatchPolicy = EMAIL_FIRST): Promise<Found | null> {
   const dup = adapters.read.findDuplicate;
   if (!dup) throw new Error("the CRM adapter cannot look a contact up by email or phone");
+  if (policy.phoneFirst && phone) { const s = await dup(ac, { phone }); if (s) return { snap: s, by: "phone" }; }
   if (email) { const s = await dup(ac, { email }); if (s) return { snap: s, by: "email" }; }
-  if (phone) { const s = await dup(ac, { phone }); if (s) return { snap: s, by: "phone" }; }
+  if (!policy.phoneFirst && phone) { const s = await dup(ac, { phone }); if (s) return { snap: s, by: "phone" }; }
   return null;
 }
 
-export type WritePlan = { action: "create" | "update"; ghlContactId?: string; standard: Partial<Record<(typeof STANDARD)[Std], string>>; customFields: { id: string; field_value: string }[]; tags: string[]; source?: string; fields: string[]; kept: string[] };
+/**
+ * D190: how a company finds and updates its people in the CRM (`contacts.match`). The default: by email, then phone, and a name,
+ * email or phone GHL already holds is kept. `phone` (Dating, Tyler: "Two people cannot share a number. We should be keyed on number
+ * not email ... I would rather it update the existing contact. But update it to the new stuff"): by phone first, and the person's
+ * new name, email and phone replace what the matched contact held.
+ */
+export type MatchPolicy = { phoneFirst: boolean; overwrite: boolean };
+const EMAIL_FIRST: MatchPolicy = { phoneFirst: false, overwrite: false };
+export const matchPolicy = (bindings: Record<string, string>): MatchPolicy => (bindings["contacts.match"]?.trim().toLowerCase() === "phone" ? { phoneFirst: true, overwrite: true } : EMAIL_FIRST);
+
+export type WritePlan = { action: "create" | "update"; ghlContactId?: string; standard: Partial<Record<(typeof STANDARD)[Std], string>>; customFields: { id: string; field_value: string }[]; tags: string[]; source?: string; fields: string[]; kept: string[]; overwrite?: boolean };
 /**
  * What the write is. A new contact gets everything. An existing one (maybe another business's in a shared location) gets the
  * application fields and UTMs, the tags it lacks (added one by one: a PUT's `tags` would replace them all), and only the
  * standard fields GHL has blank: a name, email or phone it already holds is never overwritten (`kept` says which differed).
  */
-export function planWrite(p: Parsed, found: ContactSnapshot | null, tags: string[], source?: string): WritePlan {
+export function planWrite(p: Parsed, found: ContactSnapshot | null, tags: string[], source?: string, overwrite = false): WritePlan {
   const standard: WritePlan["standard"] = {}, kept: string[] = [];
   for (const [k, v] of Object.entries(p.std) as [Std, string][]) {
     const key = STANDARD[k], have = found ? str((found as Record<string, unknown>)[key]) : undefined;
     if (!have) standard[key] = v;
-    else if ((k === "email" ? have.toLowerCase() : k === "phone" ? normPhone(have) : have) !== (k === "phone" ? normPhone(v) : v)) kept.push(k);
+    else if ((k === "email" ? have.toLowerCase() : k === "phone" ? normPhone(have) : have) !== (k === "phone" ? normPhone(v) : v)) { if (overwrite) standard[key] = v; else kept.push(k); }   // D190
   }
   const customFields = p.fields.filter((f) => f.id).map((f) => ({ id: f.id!, field_value: f.value }));
   const lacking = tags.filter((t) => !carriesTag(found?.tags, t.toLowerCase()));
-  return { action: found ? "update" : "create", ...(found ? { ghlContactId: found.id } : {}), standard, customFields, tags: lacking, ...(found ? {} : source ? { source } : {}), fields: p.fields.filter((f) => f.id).map((f) => f.binding), kept };
+  return { action: found ? "update" : "create", ...(found ? { ghlContactId: found.id } : {}), standard, customFields, tags: lacking, ...(found ? {} : source ? { source } : {}), fields: p.fields.filter((f) => f.id).map((f) => f.binding), kept, ...(overwrite ? { overwrite } : {}) };
 }
 
 /** The real write. A create GHL refuses as a duplicate (the location allows none; its search can lag a create) is found again and updated. */
@@ -136,9 +147,9 @@ export async function applyWrite(ac: Company, adapters: Adapters, plan: WritePla
       return { id, action: "create", tagsAdded: plan.tags };
     } catch (e) {
       if (!/duplicat/i.test(String((e as Error).message))) throw e;
-      const again = await findInGhl(ac, adapters, p.std.email, p.std.phone);
+      const again = await findInGhl(ac, adapters, p.std.email, p.std.phone, plan.overwrite ? { phoneFirst: true, overwrite: true } : undefined);
       if (!again) throw e;
-      return applyWrite(ac, adapters, planWrite(p, again.snap, retag(), plan.source), p, retag);
+      return applyWrite(ac, adapters, planWrite(p, again.snap, retag(), plan.source, plan.overwrite), p, retag);
     }
   }
   const id = plan.ghlContactId!;
@@ -187,7 +198,8 @@ export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Compa
     if (seen) await emitEvent(c, { ...base, contact_id: null, event_type: "form.submitted", occurred_at: at, data: { ...about, unidentified: true } });
     return { outcome: "unidentified", responseId };
   }
-  let found = await findInGhl(ac, adapters, p.std.email, p.std.phone);
+  const policy = matchPolicy(bindings);
+  let found = await findInGhl(ac, adapters, p.std.email, p.std.phone, policy);
   if (!found) {
     // GHL's search can lag a contact made seconds ago (a second submission right after the first): the ledger's GHL id for them stands in
     const mine = await one<{ ghl: string }>(c, `select ct.ghl_contact_id as ghl from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.retired_at is null and ct.ghl_contact_id is not null
@@ -200,7 +212,7 @@ export async function submitApplication(c: PoolClient, co: CompanyRow, ac: Compa
   const tags = opts.via === "import" ? [scopeTag(bindings)].filter((t): t is string => !!t) : [];
   // a CRM write: real in quiet too (D132), recorded only in ghost
   const real = opts.real === true || (await effectiveMode(c, co.id, person.id, await handlerMode(c, co.id, "form.submitted"), bindings)) !== "ghost";
-  const plan = planWrite(p, found?.snap ?? null, tags, form.name ? `Typeform: ${form.name}` : "Typeform");
+  const plan = planWrite(p, found?.snap ?? null, tags, form.name ? `Typeform: ${form.name}` : "Typeform", policy.overwrite);
   let ghlId = found?.snap.id ?? null, action = plan.action, tagsDone = plan.tags;
   if (real) {
     const w = await applyWrite(ac, adapters, plan, p, () => tags);

@@ -5549,3 +5549,42 @@ i need to be able to see and adjust the slack notification and such."
   together (Health check first, so nothing is said twice), one offer at a time, dry run first.
 
 Tests: `alerts.test.ts`, `group.test.ts` (D189).
+
+
+## D190. A person is keyed on their phone; a match takes the new details (a setting, Dating on) (2026-10-20)
+
+Tyler: "Two people cannot share a number. We should be keyed on number not email ... I would rather it update the existing contact.
+But update it to the new stuff." And: "If it matches an RC lead it should mark it as dating" (the booking's find-or-make step and
+New from Typeform already tag `dating`).
+
+- `contacts.match` (a setting): `phone` looks a person up in GHL by phone first, then email; on a match the new name, email and
+  phone replace what that contact held. Unset (every other offer): email first, and what GHL holds is kept (D141), as before.
+- Both doors: the Typeform application and the booking's "make sure the person is in GHL" step. A contact the engine already
+  tracks by its GHL id keeps what GHL holds (a hand fix there is never reverted). The history import is unchanged.
+- Dating (Nelly): `contacts.match = phone`.
+
+Tests: `match-policy.test.ts`.
+
+
+## D191. A setter's logged calls are owed on the reminder (2026-10-20)
+
+Tyler: "We have a record setter calls workflow so we should be adding those to the reminder." The end-of-day reminder counts a
+setter's logged calls the day has not answered (the form already did, D156), so a day of outbound calls only is reminded too.
+Setter call logged still writes nothing to GHL (D154); the end of day fills from its read. Tests: `eod.setter-calls.test.ts`.
+
+
+## D192. No move waits for a GHL-workflows check; the hourly Health check says a new one (2026-10-20, over D180)
+
+Tyler: "Can we turn off the GHL workflow check? I don't want to have to turn that flag off every 30 minutes if I want something to
+go live. If I turn it on it should obey me."
+
+- A move up (the company's or a workflow's, every door) no longer needs a fresh check of their GHL workflows.
+- The hourly Health check reads their list against the marks made when they were checked (`their_workflows`): a published one not
+  marked, or one marked off that GHL says is on, is said once, until it is marked or turned off. Nothing is said for a company
+  whose list was never marked.
+- "Check now" stays, to read the list again on demand. Every offer (the gate was every offer's).
+
+Also D188: the find-or-make step reads the contact's Do Not Disturb and phone from GHL after it, so the booking card's ⚠️ is right
+for a contact GHL already held.
+
+Tests: `filters.test.ts` (D192).

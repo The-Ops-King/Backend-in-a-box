@@ -22,6 +22,8 @@ import { liveGhlReads, type GhlReads } from "@/adapters/ghl/metrics";
 import { crmPresence, ledgerDrift } from "./ledger-drift";
 import { chartLayoutOf } from "@/api/chart-verdict";
 import { typeformGetWebhook } from "@/adapters/typeform/client";
+import { ghlWorkflows } from "@/adapters/ghl/catalog";
+import { isOn, type Filters } from "@/onboarding/filters";
 import { formsOf, publicBase, TF_TAG_KEY, TF_TOKEN_KEY, typeformWebhookUrl, unboundOf } from "./typeform";
 
 /**
@@ -53,6 +55,7 @@ export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "fathom_key", label: "Fathom key", about: "the API key still lists meetings" },
   { id: "fathom_webhook", label: "Fathom webhook", about: "the recording webhook is still registered (or, when Fathom cannot list webhooks, that deliveries keep arriving)" },
   { id: "typeform_webhook", label: "Typeform webhook", about: "on every form the company maps, the engine's own webhook is still there, on, sending form responses to this engine (not somewhere else); gone, off or pointing elsewhere is an alert with a button that puts it back" },
+  { id: "their_workflows", label: "Their GHL workflows", about: "the company's own GHL workflows, read every hour against the marks made when they were checked (D180): one published since then and not marked, or one marked off that GHL says is on, is said once, until it is marked or turned off (D192). Nothing is said before the list was first marked" },
   { id: "slack", label: "Slack", about: "the bot token is alive and the bot is in every channel the workflows post to" },
   { id: "anthropic", label: "Anthropic key", about: "the AI key still answers (the company's, else the server's)" },
   { id: "jev", label: "Jev (reply reading)", about: "the TypeSafe AI key still answers; without it every reply goes to a person" },
@@ -73,6 +76,8 @@ export type HealthProbes = {
   calendlyEventTypeHosts: typeof calendlyEventTypeHosts; calendlyEventTypeSchedules: typeof calendlyEventTypeSchedules; calendlyBusyTimes: typeof calendlyBusyTimes;
   whopPing: typeof whopPing; whopGetWebhook: typeof whopGetWebhook; fathomPing: typeof fathomPing; fathomListWebhooks: typeof fathomListWebhooks; anthropicPing: typeof anthropicPing; jevPing?: typeof jevPing;
   typeformGetWebhook?: typeof typeformGetWebhook;
+  /** D192: the company's own GHL workflows (id, name, status) */
+  theirWorkflows?: typeof ghlWorkflows;
   urlOk: (url: string) => Promise<{ ok: boolean; status?: number; error?: string }>;
   /** the CRM reads the drift check compares with (D73); without them the check does not run */
   ghl?: GhlReads;
@@ -90,7 +95,7 @@ export async function urlOk(url: string): Promise<{ ok: boolean; status?: number
 /** Wait between re-asks of a vendor that did not answer; 0 in tests. */
 export let PROBE_RETRY_MS = 3000;
 export const setProbeRetryMs = (ms: number) => { PROBE_RETRY_MS = ms; };
-export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, ghlCalendarTeam, calendlyWhoAmI, calendlyAvailableTimes, calendlyEventTypeHosts, calendlyEventTypeSchedules, calendlyBusyTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk, ghl: liveGhlReads, typeformGetWebhook };
+export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, ghlCalendarTeam, calendlyWhoAmI, calendlyAvailableTimes, calendlyEventTypeHosts, calendlyEventTypeSchedules, calendlyBusyTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk, ghl: liveGhlReads, typeformGetWebhook, theirWorkflows: ghlWorkflows };
 
 const DAYS_AHEAD = 7;
 type SlotRead = { name: string; id: string; slots: number; href?: string; times: string[] };
@@ -195,6 +200,23 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
       if (days === null) ok("fathom_webhook", "Registered; no delivery yet (Fathom does not list webhooks, so this is as far as the sweep can see).");
       else if (days > (row.fathom_silent_days ?? 14)) bad("fathom_webhook", "warning", `No Fathom delivery in ${days} days (Fathom does not list webhooks, so this is the only signal).`);
       else ok("fathom_webhook", `Last Fathom delivery ${days} day${days === 1 ? "" : "s"} ago.`);
+    }
+  }
+
+  // D192: their own GHL workflows against the marks made when they were checked: a new published one, or one marked off and on, is said once
+  if (on("their_workflows") && probes.theirWorkflows && ac.pit && ac.locationId) {
+    const marks = (await one<{ filters: Filters }>(c, "select filters from onboarding where company_id=$1", [company.id]))?.filters.marks;
+    if (marks && Object.keys(marks).length) {
+      try {
+        const list = await probes.theirWorkflows(ac.pit, ac.locationId);
+        let flagged = 0;
+        for (const w of list) {
+          const m = marks[w.id];
+          if (!m && isOn(w.status)) { flagged++; bad("their_workflows", "warning", `Their GHL workflow "${w.name}" is ${w.status} and not marked yet: open it in GHL, check it fires on nothing the engine does, and mark it.`, w.id, { repeat: false }); }
+          else if (m?.mark === "off" && isOn(w.status)) { flagged++; bad("their_workflows", "warning", `Their GHL workflow "${w.name}" was marked off, but GHL says it is ${w.status}.`, w.id, { repeat: false }); }
+        }
+        if (!flagged) ok("their_workflows", `${list.length} GHL workflows, every published one marked.`);
+      } catch (e) { bad("their_workflows", "warning", `Cannot read their GHL workflows: ${String((e as Error).message).slice(0, 160)}`); }
     }
   }
 
