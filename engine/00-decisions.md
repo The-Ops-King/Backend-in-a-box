@@ -5611,4 +5611,10 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
    Vault keeps it in the command as before). It takes effect when the scheduler is next installed (`POST /api/admin/schedule`).
    And `/api/tick` without `CRON_SECRET` is open only on a developer's machine: a deployment (`VERCEL_ENV` set) refuses it.
 
+4. **Leftovers out.** The one-off admin routes `slim-runs` (D84) and `clear-reply-texts` (D89) go, with their code and tests: a
+   production dry run of each (2026-10-20) found nothing left to change. The event types nothing ever emits (`contact.created`,
+   `contact.merged`, `intake.recorded`, `stage.changed`) go from the seed, the labels and the database (a trigger on one would
+   never fire; a row an event or trigger already names would be kept). `set_tag` / `remove_tag` stay: they already share the
+   `tags` step's code, and removing them means rewriting stored workflows on every offer for no change in behaviour.
+
 Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`.

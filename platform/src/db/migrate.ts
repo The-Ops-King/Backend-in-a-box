@@ -304,6 +304,8 @@ export async function migrate(): Promise<{ applied: boolean; rlsTables: string[]
     await c.query(`alter table runs alter column contact_id drop not null`);
     await c.query(`alter table runs add column if not exists user_id uuid references users(id)`);
     await c.query(`insert into event_types values ('schedule','clock'), ('eod.filed','report') on conflict do nothing`);
+    // D193: event types nothing emits (a trigger on one would never fire); kept only where an event or a trigger already names one
+    await c.query(`delete from event_types t where t.name in ('contact.created','contact.merged','intake.recorded','stage.changed') and not exists (select 1 from events e where e.event_type=t.name) and not exists (select 1 from workflow_triggers w where w.event_type=t.name)`);
     // D110: nothing emits eod.call_filed any more; the type goes once nothing points at it (its events stay as history, and keep the row with them)
     await c.query(`delete from event_types et where et.name='eod.call_filed' and not exists (select 1 from events e where e.event_type=et.name) and not exists (select 1 from workflow_triggers t where t.event_type=et.name)`);
     await c.query(`insert into event_types values ('alert.raised','engine'), ('alert.repeated','engine'), ('alert.resolved','engine') on conflict do nothing`);   // D88 A7: the Health check workflow says what broke
