@@ -8,6 +8,7 @@ import { MetricError, type GroupBy } from "./metric-registry";
 import { bookingSourceValues, callTime, closerNameOf, closerOptions } from "./sales-call";
 import { contactSource, sourceFields } from "./lead-source";
 import { carriesTag, scopeTag } from "./scope";
+import { ENGINE_DISPOSITIONS, switchOn } from "./setting-defaults";
 export { callTime } from "./sales-call";
 
 /**
@@ -27,7 +28,8 @@ export type SalesCallConfig = { object: string; outcomes: Record<string, CallCla
 export const CALL_RESULTS = ["closed", "deposit", "pending", "follow_up", "lost", "unqualified"] as const;
 export type CallResult = (typeof CALL_RESULTS)[number];
 /** The disposition keys the engine itself writes (eod.ts), read back the same way when the company has not mapped its own. */
-const DEFAULT_DISPOSITIONS: Record<string, CallResult> = { closed_won: "closed", deposit: "deposit", follow_up: "follow_up", lost: "lost", dq: "unqualified" };
+// D193: the same keys the engine writes (setting-defaults.ts); this copy had lost `close_pending`, so a pending close an offer without its own map filed counted as nothing
+const DEFAULT_DISPOSITIONS = ENGINE_DISPOSITIONS;
 export type CallMismatch = { name: string; ghl_contact_id: string; record_id: string; ghl: CallClass; booking_source: string };
 export type ShowBreakdown = { booked: number; showed: number; noshow: number; cancelled: number; rescheduled: number; missing: number; missing_names: string[]; mismatches: CallMismatch[] };
 export type Qualification = "mql" | "dq" | "unanswered" | "unrecognized";
@@ -45,7 +47,7 @@ export function answerList(v: string | undefined): string[] {
 export function qualifyConfig(bindings: Record<string, string>): QualifyConfig | null {
   const field = bindings["qualify.field"];
   if (!field) return null;
-  return { field, question: bindings["qualify.question"] || undefined, mql: answerList(bindings["qualify.mql_answers"]), dq: answerList(bindings["qualify.dq_answers"]), unansweredIsMql: /^(true|yes|1)$/i.test(bindings["qualify.unanswered_is_mql"] ?? "") };
+  return { field, question: bindings["qualify.question"] || undefined, mql: answerList(bindings["qualify.mql_answers"]), dq: answerList(bindings["qualify.dq_answers"]), unansweredIsMql: switchOn(bindings, "qualify.unanswered_is_mql") };
 }
 /**
  * The Sales Call object and what its values mean: `crm.object_sales_call`; `sales_call.outcomes` as JSON {value: showed |

@@ -1,5 +1,6 @@
 import type { Migrator } from "./migrator";
 import { baseline } from "./baseline";
+import { writeDefaults } from "@/engine/setting-defaults";
 
 /**
  * D193 (audit risk 8): the schema's history, each step run once and recorded (`schema_migrations`), in order. A deploy with nothing
@@ -24,6 +25,14 @@ export const MIGRATIONS: Migration[] = [
     for (const r of made.rows) {
       await t.query("insert into bindings (company_id, key, kind, value) values ($1, 'qualify.question', 'text', convert_to($2, 'UTF8')) on conflict (company_id, key) do nothing", [r.company_id, "What best describes your current work situation?"]);
       await t.query("insert into audit_log (company_id, action, target_type, after) values ($1, 'binding.set', 'binding', $2)", [r.company_id, { keys: ["qualify.field", "qualify.question"], by: "migration 0003", from: "crm.field_contact_work_situation" }]);
+    }
+  }) },
+  // D193.13 (open item 50 part 2; Tyler: yes, all three offers): each offer gets, as its own, every setting it was running on the
+  // engine's fallback for, at exactly that value; a later change to a fallback then reaches only new offers.
+  { id: "0004-settings-onto-offers", run: (c) => asOperatorTx(c, async (t) => {
+    for (const co of (await t.query<{ id: string }>("select id from companies")).rows) {
+      const keys = await writeDefaults(t, co.id);
+      if (keys.length) await t.query("insert into audit_log (company_id, action, target_type, after) values ($1, 'binding.set', 'binding', $2)", [co.id, { keys, by: "migration 0004", why: "the offer's own copy of what it ran on" }]);
     }
   }) },
 ];

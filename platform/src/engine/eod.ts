@@ -8,6 +8,7 @@ import { callTime, dispositionMeaning, dispositionValues, filedMeaning, closerNa
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, isSetterCall, choiceOf, valueFor, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
+import { switchOn } from "./setting-defaults";
 
 /**
  * D34. The closer's end-of-day report: one link per closer, no login. Opening it shows their day prefilled from what the
@@ -136,7 +137,7 @@ export async function triageRecords(c: PoolClient, adapters: Adapters, adapterCo
  */
 type SetterRead = { conversation: string; contact_id: string; contact: string; ghl_contact_id: string | null; started_at: Date; share_url: string | null; day: string;
   result: string; dq_reason: string; digest: string; filed: string | null };
-const setterCallsOn = async (c: PoolClient, companyId: string) => ["on", "true"].includes(((await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='eod.setter_calls'", [companyId]))?.v.toString("utf8") ?? "").trim().toLowerCase());
+const setterCallsOn = async (c: PoolClient, companyId: string) => switchOn({ "eod.setter_calls": (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='eod.setter_calls'", [companyId]))?.v.toString("utf8") ?? "" }, "eod.setter_calls");
 async function setterReads(c: PoolClient, companyId: string, tz: string, userId: string, from: DateTime, to: DateTime): Promise<SetterRead[]> {
   const rows = await many<{ conversation: string; contact_id: string; contact: string; ghl_contact_id: string | null; started_at: Date; share_url: string | null; data: Record<string, string>; filed: Record<string, string> | null }>(c, `
     select distinct on (e.data->>'external_id') e.data->>'external_id' as conversation, e.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.ghl_contact_id,

@@ -20,6 +20,7 @@ import { HARNESS_KEY, harnessProblem, type HarnessTranscripts } from "./harness-
 import { chartLayoutOf, notDrawable } from "@/api/chart-verdict";
 import { checkMapAgainstForms, mapProblems, registerTypeform, TF_FORMS_KEY, TF_TOKEN_KEY, type TypeformForms } from "./typeform";
 import { liveTypeform, type TypeformApi } from "@/adapters/typeform/client";
+import { writeDefaults } from "./setting-defaults";
 
 /**
  * A calendar's mapping: the kind of call it books; optionally how setter-vs-self is decided on it (`booking`: self | setter |
@@ -411,6 +412,8 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     if (closerCal) await bind("calendar.closer_call", "id", closerCal);
     const bookingCal = input.bookingCalendar ?? Object.entries(calMap).find(([, m]) => m.term === "first_call")?.[0] ?? closerCal;
     if (bookingCal) await bind("calendar.booking", "id", bookingCal);
+    // D193: every setting the engine would otherwise fall back on, written onto the offer as its own (only those it does not have)
+    await writeDefaults(c, companyId);
     const installed = await installTemplates(c, companyId, existed ? input.templates ?? [] : wanted, { enable: input.enable, existed });   // D147: a re-run adds only what it names
     // Fathom's webhook is registered once per company and remembered; a re-install never makes a second one
     let fathomWebhook = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='fathom.webhook_id'", [companyId]))?.value.toString("utf8");

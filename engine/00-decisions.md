@@ -5605,6 +5605,7 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
 2. **Retention never lets a retried step send again** (audit risk 13). Old sends were kept only while their run was active or
    waiting; a paused or failed run can still be retried (`hand.ts`), and the send row is what stops that step sending twice. A
    run's sends now go only once it has completed or exited, and links to them (agreements, messages) are cleared by the same rule.
+   The sweep looks up which tables link to sends once, not once per company.
 
 3. **The operator key is not left lying around** (audit risk 9). The minute job's key moves into Supabase Vault (`bb_operator_key`)
    and is read when the job runs, so `cron.job` holds no secret and a changed key is one secret replaced (a database without
@@ -5669,4 +5670,18 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
     word for word (Hair; Dating and PMU had none and still have none). `/help`'s examples, the metric definitions and the
     unrecognised-answer warning say "qualifying question/answer". Install takes `qualify.field` and `qualify.question`.
 
-Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`, `db/baseline.test.ts`, `db/migrate.shared.test.ts`, `qualify.test.ts`.
+13. **Each offer holds the settings it runs on** (audit §3.1, open item 50 part 2; Tyler: yes, all three offers). Every setting
+    the engine fell back on when an offer had not set it is listed once, with that fallback, in `setting-defaults.ts` (alert
+    timing, call timings, the payment object, the setter rule, and six yes/no switches). Install writes the ones a new offer
+    lacks; migration 0004 wrote each existing offer's effective value onto it, so changing a default later reaches new offers
+    only. The yes/no settings are read one way (`switchOn`: on/yes/true/1, off/no/false/0, anything else its default); four
+    readers had each taken different words. Copying settings between offers treats a value at its default as not the target's
+    own, the same as an untouched default prompt, so it is still copied over. Three settings are deliberately left unset,
+    because their readers disagree on what unset means and no single value is what the offer runs on today (for Tyler):
+    `crm.object_discovery_call` (setter results and the bot fall back on `custom_objects.discovery_call`; the end of day reads
+    none), `sales_call.dispositions` (ledger drift takes unset as "no Deposit option"; the end of day writes `deposit`) and
+    `sales_call.objections` (the Sales Call takes the default list; the application-triage playbook refuses an offer that has
+    not named its own). Found on the way: the metrics' own copy of the default dispositions had lost `close_pending`, so a
+    pending close filed by an offer without its own map counted as nothing; it now reads the engine's list.
+
+Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`, `db/baseline.test.ts`, `db/migrate.shared.test.ts`, `qualify.test.ts`, `setting-defaults.test.ts`, `playbooks/apply.test.ts`.

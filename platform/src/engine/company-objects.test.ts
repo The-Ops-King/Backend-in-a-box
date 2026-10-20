@@ -120,7 +120,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D118: the templates write the compan
     await asOperator(async (c) => {
       const b = await loadCompany(c, hair);
       expect(b.bindings["crm.object_sales_call"]).toBe("custom_objects.sales_call");
-      expect(b.bindings["crm.object_payment"] ?? null).toBeNull(); expect(b.bindings["crm.object_discovery_call"] ?? null).toBeNull();
+      expect(b.bindings["crm.object_payment"]).toBe("custom_objects.payment");   // D193: install writes the default it always ran on expect(b.bindings["crm.object_discovery_call"] ?? null).toBeNull();
       let compared = 0;
       for (const closer of [true, false]) {
         const who = await person(c, hair, `h${closer}`, closer);

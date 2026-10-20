@@ -143,13 +143,14 @@ describe.skipIf(!process.env.DATABASE_URL)("each company ticks on its own (D98)"
   it("the engine's minute: a company whose last tick is over five minutes old gets engine:company_stale; a fresh tick resolves it", async () => {
     await tickCompany(adapters, B);
     await asOperator((c) => c.query("update engine_state set value = value || $2 where key=$1", [companyClock(A), { last_tick: new Date(Date.now() - 7 * 60e3).toISOString() }]));
+    const t0 = Date.now();
     const e1 = await tickEngine(adapters);
     expect(e1.busy).toBe(false);
     expect(await openKeys(A)).toEqual([STALE_KEY]);
     expect(await openKeys(B)).toEqual([]);
     expect(await openKeys(Z)).toEqual([]);   // archived: not expected to tick
     const heartbeat = await asOperator((c) => one<{ value: { last_tick: string } }>(c, "select value from engine_state where key='scheduler'"));
-    expect(Date.now() - new Date(heartbeat!.value.last_tick).getTime()).toBeLessThan(5000);
+    expect(new Date(heartbeat!.value.last_tick).getTime()).toBeGreaterThanOrEqual(t0);   // written by this tick (not timed: the tick's length grows with the test database)
     await tickCompany(adapters, A);
     await tickEngine(adapters);
     expect(await openKeys(A)).toEqual([]);

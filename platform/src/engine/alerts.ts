@@ -8,6 +8,7 @@ import type { TickReport } from "./runner";
 import { classifyError, plainError } from "./failures";
 import { runningSql } from "./running";
 import { slackBot } from "./slack-conn";
+import { POLL_FAILURES, REPEAT_AFTER_MIN, REPEAT_HOURS, REPEAT_TZ } from "./setting-defaults";
 
 /**
  * D33. The engine tells the operator the minute something fails, and says so once.
@@ -26,9 +27,8 @@ export type AlertInput = { companyId: string | null; key: string; level: Level; 
 export type AlertRow = { id: string; company_id: string | null; key: string; level: Level; source: Source; text: string; detail: Record<string, unknown>; href: string | null; first_seen: Date; last_seen: Date; announced_at: Date | null; announce_count: number; slack_channel: string | null; slack_ts: string | null; resolved_at: Date | null; resolved_announced: boolean; paused_at?: Date | null; paused_by?: string | null };
 
 /** The defaults of the two alert settings (bindings, D88): `alerts.repeat_minutes` and `alerts.poll_failures`. */
-export const REPEAT_AFTER_MIN = 60;
+export { POLL_FAILURES, REPEAT_AFTER_MIN, REPEAT_HOURS, REPEAT_TZ };
 /** D135: an open alert is said again only within these hours (alerts.repeat_hours, alerts.repeat_timezone): Tyler's working day, Arizona. */
-export const REPEAT_HOURS = "07:00-17:00", REPEAT_TZ = "America/Phoenix";
 /** Whether `now` falls in a "HH:MM-HH:MM" window in `tz`; a window that does not parse is always open. */
 export function inRepeatHours(now: Date, hours = REPEAT_HOURS, tz = REPEAT_TZ): boolean {
   const m = /^\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*$/.exec(hours);
@@ -37,7 +37,6 @@ export function inRepeatHours(now: Date, hours = REPEAT_HOURS, tz = REPEAT_TZ): 
   const at = local.hour * 60 + local.minute, from = +m[1] * 60 + +m[2], to = +m[3] * 60 + +m[4];
   return from <= to ? at >= from && at < to : at >= from || at < to;
 }
-export const POLL_FAILURES = 2;
 const NIL = "00000000-0000-0000-0000-000000000000";
 
 /** Open the alert, or touch it if it is already open. */

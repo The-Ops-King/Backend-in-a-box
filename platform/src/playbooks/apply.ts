@@ -20,6 +20,7 @@ import { createCompanyWorkflow, findCompanyWorkflow, saveDefinition } from "@/en
 import { startRung, type StartRung } from "@/engine/rung";
 import { applyWords, loadWords, type Words } from "@/engine/words";
 import { playbookOf, type Copy, type InstallBits } from "./index";
+import { isDefaultValue } from "@/engine/setting-defaults";
 
 export const PLAYBOOK_KEY = "playbook";
 
@@ -149,8 +150,8 @@ export async function copyOfferSettings(c: PoolClient, args: { from: string; to:
   const copied: string[] = [], kept: string[] = [];
   for (const r of rows.filter((x) => isOfferKey(x.key))) {
     const mine = have.get(r.key), theirs = r.value.toString("utf8");
-    // the target's own value stays; an untouched default prompt is not its own
-    const own = mine !== undefined && !(r.key.startsWith("prompt.") && mine === defaultPrompts[r.key.slice("prompt.".length)]);
+    // the target's own value stays; an untouched default prompt or setting (D193: install writes every default) is not its own
+    const own = mine !== undefined && !(r.key.startsWith("prompt.") && mine === defaultPrompts[r.key.slice("prompt.".length)]) && !isDefaultValue(r.key, mine);
     if (own) { if (mine !== theirs) kept.push(r.key); continue; }
     if (mine === theirs) continue;
     copied.push(r.key);

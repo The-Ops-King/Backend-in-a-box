@@ -26,6 +26,7 @@ import { dropReplies, hydrateReplies, mentionsReplyText, readsReplyText, scrubRe
 import { boardOf, stageWords } from "./card-moves";
 import { QUIET_SUPPRESSED, QUIET_WHY, quietWhenEmpty } from "./quiet";
 import { slackBot } from "./slack-conn";
+import { switchOn } from "./setting-defaults";
 
 /** Ghost posts to the team are real posts, labelled; nothing else in ghost leaves the engine. */
 export const GHOST_PREFIX = "🧪 *ghost* — ";
@@ -764,7 +765,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const title = render(node.title, d.ctx, env(d)), body = node.body ? render(node.body, d.ctx, env(d)) : undefined;
       const dueAt = d.now.plus(parseDuration(render(node.due, d.ctx, env(d)) || "+1d")).toJSDate();
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
-      if (/^(off|false|no|0)$/i.test((d.bindings["crm.tasks"] ?? "").trim())) return { status: "skipped", next, result: { kind: "noop", why: "tasks are off for this company (crm.tasks)" } };   // D141
+      if (!switchOn(d.bindings, "crm.tasks")) return { status: "skipped", next, result: { kind: "noop", why: "tasks are off for this company (crm.tasks)" } };   // D141
       if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_create_task: { title, body, due: dueAt.toISOString(), assignedUserId } } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "create_task: contact has no CRM id yet" };
       const ghlId = contact.ghl_contact_id;

@@ -1,3 +1,4 @@
+import { switchOn } from "./setting-defaults";
 /**
  * D124: "for this client I want nothing to post if nothing happened." A company setting (install `quietWhenEmpty`, bound as
  * `reports.quiet_when_empty`); a scheduled Slack post that opts in with `quiet_when_empty: "vars.<step>.nothing"` is not
@@ -5,7 +6,7 @@
  * never read off the words. Unset, nothing changes.
  */
 export const QUIET_KEY = "reports.quiet_when_empty";
-export const quietWhenEmpty = (bindings: Record<string, string>) => /^(true|yes|on|1)$/i.test((bindings[QUIET_KEY] ?? "").trim());
+export const quietWhenEmpty = (bindings: Record<string, string>) => switchOn(bindings, "reports.quiet_when_empty");
 
 /** The run log's reason, the send's suppressed reason, and the chart's words for a post that opts in while the setting is on. */
 export const QUIET_WHY = "nothing happened, so nothing was posted (quiet when empty)";

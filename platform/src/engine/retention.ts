@@ -15,14 +15,12 @@ const GONE = `s.company_id=$1 and coalesce(s.sent_at, s.scheduled_for) < $2::tim
 
 export async function purgeOld(c: PoolClient, now = new Date()): Promise<{ replies: number; sends: number; transcripts: number }> {
   let replies = 0, sends = 0;
+  // rows that point at a send about to go are unlinked first (a database from before the column lacks it; skipped then)
+  const linked = (await many<{ table_name: string }>(c, "select table_name from information_schema.columns where table_schema='public' and table_name in ('agreements','messages') and column_name='send_id' order by table_name")).map((r) => r.table_name);
   for (const co of await many<{ id: string; reply_retention_days: number; sends_retention_days: number }>(c, "select id, reply_retention_days, sends_retention_days from companies")) {
     const r = await c.query("delete from messages where company_id=$1 and occurred_at < $2::timestamptz - make_interval(days => $3::int)", [co.id, now, co.reply_retention_days]);
     replies += r.rowCount ?? 0;
-    // rows that point at a send about to go: unlink first (a database from before the column lacks it; skip then)
-    for (const t of ["agreements", "messages"]) {
-      const has = await c.query("select 1 from information_schema.columns where table_schema='public' and table_name=$1 and column_name='send_id'", [t]);
-      if (has.rowCount) await c.query(`update ${t} set send_id=null where company_id=$1 and send_id in (select s.id from sends s where ${GONE})`, [co.id, now, co.sends_retention_days]);
-    }
+    for (const t of linked) await c.query(`update ${t} set send_id=null where company_id=$1 and send_id in (select s.id from sends s where ${GONE})`, [co.id, now, co.sends_retention_days]);
     const s = await c.query(`delete from sends s where ${GONE}`, [co.id, now, co.sends_retention_days]);
     sends += s.rowCount ?? 0;
   }
