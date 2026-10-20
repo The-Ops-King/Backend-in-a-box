@@ -5860,3 +5860,21 @@ company's self-book link (`bookingCalendar`). Applied by a reduced re-install (c
 workflow touched); Nelly's install file says the same. `GET /api/admin/calendars?company=` lists the booking tool's calendars with
 what the engine watches (read only), which is how the new event type was found. The new calendar's first poll was its baseline with
 no bookings on it yet, so nothing booked through the new link was swallowed.
+
+## D203. A contact's times are in the contact's own zone (2026-10-20)
+
+Tyler: "it should be ONLY the contact's timezone". A rehearsal booking texted him a reminder in the offer's zone (PDT) one day
+and his own (MST) the next: the engine falls back on the offer's zone, silently, for a contact whose zone it does not know, and
+212 of Nelly's contacts (37 PMU, 29 Hair) had none of their own. Now (Tyler's order):
+
+1. **Where the zone comes from, most trusted first**: the zone they picked when booking (Calendly's invitee zone), GHL's contact
+   time-zone field, their phone's US/Canada area code (`timezone.ts`, the area's main zone where a code spans two); the offer's
+   zone only when none of those is known. A source never overwrites a more trusted one; a newer booking replaces an older one.
+   Before, GHL's field beat the booking, a GHL zone that arrived after the contact was made was never kept, and phones were not read.
+2. **The phone's zone is found when a run needs it** (the run's context) and kept on the contact (`timezone_source` 'phone').
+3. **Unknown, the offer's zone, named.** A time a text shows (`date`) in the offer's zone because the contact's is not known always
+   names its zone ("3:00 PM PDT"), whatever the template's format. Team-facing times (`date_company`) are unchanged.
+
+The leftover rehearsal bookings that started it were voided (no workflow, off the end-of-day forms and the numbers) with the new
+`POST /api/admin/simulate/void`; real bookings are refused there. Tests: `timezone.test.ts`, `simulate.void.test.ts`.
+

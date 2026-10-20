@@ -105,7 +105,7 @@ const sendLock = (d: ExecDeps, channel: LockChannel) =>
   checkSendLock(d.c, { adapters: d.adapters, company: d.adapterCompany, workflowId: d.run.workflow_id, ghlContactId: (d.ctx.contact as { ghl_contact_id?: string | null } | undefined)?.ghl_contact_id, channel });
 
 const single = (d: ExecDeps, id: string): string | null => onwardEdge(d.edgesFrom(id))?.to ?? null;
-const env = (d: ExecDeps) => ({ now: d.now, tz: contactTz(d), companyTz: d.company.timezone });
+const env = (d: ExecDeps) => ({ now: d.now, tz: contactTz(d), companyTz: d.company.timezone, tzKnown: (d.ctx.contact as { timezone_known?: boolean } | undefined)?.timezone_known !== false });
 
 function validityOk(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "send_email" }>): { ok: true } | { ok: false; why: string } {
   const v = node.validity; if (!v || v.anchor === "unanchored") return { ok: true };

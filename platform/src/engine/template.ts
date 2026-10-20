@@ -1,4 +1,5 @@
 import { DateTime, Duration } from "luxon";
+import { withZoneName } from "./timezone";
 
 export class StaleTemplateError extends Error { constructor(msg: string) { super(msg); this.name = "StaleTemplateError"; } }
 export class UnknownPathError extends Error { constructor(msg: string) { super(msg); this.name = "UnknownPathError"; } }
@@ -46,13 +47,14 @@ export function relative(target: DateTime, mode: "auto" | "minutes" | "hours", n
 }
 
 type Filter = (v: unknown, arg: string | undefined, env: RenderEnv, ctx: Record<string, unknown>) => unknown;
-export type RenderEnv = { now?: DateTime; tz: string; companyTz?: string };
+/** `tzKnown` false: `tz` is the offer's, standing in for a contact whose own zone is not known (D203), so a time shown names its zone. */
+export type RenderEnv = { now?: DateTime; tz: string; companyTz?: string; tzKnown?: boolean };
 
 const absent = (v: unknown) => v === undefined || v === null || v === "";
 const filters: Record<string, Filter> = {
   // the date filters pass an absent value through untouched, so `{{contact.first_booked_at | date_company | default:—}}` reads as "—" instead of throwing
   relative: (v, arg, env) => (absent(v) ? undefined : relative(toDT(v, env.tz), (arg as "auto" | "minutes" | "hours") ?? "auto", (env.now ?? DateTime.now()).setZone(env.tz))),
-  date: (v, arg, env) => (absent(v) ? undefined : toDT(v, env.tz).toFormat(arg ?? "ccc, LLL d 'at' h:mma")),
+  date: (v, arg, env) => { if (absent(v)) return undefined; const f = arg ?? "ccc, LLL d 'at' h:mma"; return toDT(v, env.tz).toFormat(env.tzKnown === false ? withZoneName(f) : f); },
   // same as date, in the company's zone: lists the team reads (Slack, pipeline cards) stay in one zone
   date_company: (v, arg, env) => (absent(v) ? undefined : toDT(v, env.companyTz ?? env.tz).toFormat(arg ?? "ccc LLL d · h:mm a ZZZZ")),
   tz: (v, arg) => (absent(v) ? undefined : toDT(v, arg ?? "UTC").toISO()),

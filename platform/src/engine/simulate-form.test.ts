@@ -39,7 +39,7 @@ const base = fakeAdapters();
 const cals = [{ id: STRATEGY, name: "Complimentary Dating Strategy Session ♡", teamMemberIds: [] }, { id: CONSULT, name: "Private Dating Consultation with Nelly", teamMemberIds: [] }];
 const fake: Adapters = { ...base,
   booking: (() => { const b = { appointmentsInWindow: async () => [], listCalendars: async () => cals, getAppointment: async () => null }; return { ghl: b, calendly: b }; })(),
-  read: { ...base.read, listUsers: async () => [{ id: "U-NELLY", name: "Nelly S.", email: "nellysudri@d125.test" }, { id: "U-MITCH", name: "Mitch Sapoff", email: "mitch@revsignals.io" }],
+  read: { ...base.read, listUsers: async () => [{ id: "U-NELLY", name: "Nelly S.", email: "nellysudri@d125.test" }, { id: "U-MITCH", name: "Mitch Sapoff", email: "mitch@revsignals.io" }, { id: "U-NONIE", name: "Nonie", email: "camwall2026@gmail.com" }],
     findDuplicate: async (_c, by) => [...ghl.values()].find((k) => ("email" in by ? k.email?.toLowerCase() === by.email.toLowerCase() : !!k.phone && normPhone(k.phone) === normPhone(by.phone))) ?? null,
     getContact: async (_c, id) => ghl.get(id) ?? null },
   write: { ...base.write,

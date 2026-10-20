@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { setContactZone } from "./timezone";
 import type { PoolClient } from "pg";
 import { asOperator, many, one } from "@/db/client";
 import { bookingFor, type Adapters, type AppointmentSnapshot, type BookingMode, type Company, type ContactSnapshot, type MessageSnapshot } from "@/adapters/types";
@@ -61,6 +62,7 @@ export async function upsertContact(c: PoolClient, companyId: string, companyTz:
     if (match) { id = match.contact_id; matched = true; adopted = !match.had; await c.query("update contacts set ghl_contact_id=$2, gone_at=null where id=$1", [id, s.id]); }
   }
   const tz = zone ?? companyTz;
+  if (id && zone) await setContactZone(c, id, zone, "ghl");   // D203: GHL's zone over a phone's guess, never over a booking's
   if (!id) {
     const row = await one<{ id: string }>(c, `insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone, timezone_source, tags, ghl_fields, ghl_updated_at, ghl_added_at, assigned_ghl_user_id, attribution, sms_dnd)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,coalesce($12::jsonb,'{}'),coalesce($13,false)) returning id`, [companyId, s.id, firstName, lastName, tz, zone ? "ghl" : "company_default", s.tags, s.customFields, s.dateUpdated, s.dateAdded ?? null, s.assignedTo ?? null, attribution, s.smsDnd ?? null]);
@@ -140,7 +142,7 @@ async function resolveContactForBooking(c: PoolClient, co: CompanyRow, ac: Compa
   if (!email && !phone) return null;
   const match = await one<{ contact_id: string }>(c, `select contact_id from contact_identifiers where company_id=$1 and retired_at is null and ((kind='email' and value=$2) or (kind='phone' and value=$3)) limit 1`, [co.id, email ?? "", phone ?? ""]);
   if (match) {
-    if (zone) await c.query("update contacts set timezone=$2, timezone_source='booking', updated_at=now() where id=$1 and timezone_source is distinct from 'ghl'", [match.contact_id, zone]);
+    if (zone) await setContactZone(c, match.contact_id, zone, "booking");   // D203: what they picked when booking is the most trusted
     return { id: match.contact_id };
   }
   const row = await one<{ id: string }>(c, `insert into contacts (company_id, first_name, last_name, timezone, timezone_source) values ($1,$2,$3,$4,$5) returning id`,

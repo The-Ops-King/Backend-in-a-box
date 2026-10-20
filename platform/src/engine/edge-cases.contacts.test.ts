@@ -382,20 +382,20 @@ describe.skipIf(!HAS_DB)("contacts: who the person is", () => {
 
   // ---- 10: time zones ----
 
-  it("a contact with no time zone in the CRM takes the company's; the sends go out", async () => {
+  it("a contact with no time zone in the CRM takes their phone's area-code zone (D203), not the company's; the sends go out", async () => {
     inCrm("TZ1", { firstName: "No", lastName: "Zone", email: "tz1@x.com", phone: "+16025551001" });
     await poll(); const n = sent.length; await tick(fake, undefined, companyId);
     const ct = (await contactByGhl("TZ1"))!;
-    expect(ct).toMatchObject({ timezone: TZ, timezone_source: "company_default" });
+    expect(ct).toMatchObject({ timezone: "America/Phoenix", timezone_source: "phone" });
     expect(sent.slice(n).filter((s) => s.to === "TZ1").map((s) => s.kind).sort()).toEqual(["email", "sms"]);
     expect(await runOf("speed-to-lead", ct.id)).toMatchObject({ status: "waiting", current_node: "n3" });
   });
 
-  it("a contact whose CRM time zone is garbage takes the company's zone, as a contact with none does; the sends go out and nothing throws (G20, fixed by D60)", async () => {
+  it("a contact whose CRM time zone is garbage is treated as one with none: their phone's zone (D203); the sends go out and nothing throws (G20, fixed by D60)", async () => {
     inCrm("TZ2", { firstName: "Bad", lastName: "Zone", email: "tz2@x.com", phone: "+16025551002", timezone: "Mars/Olympus_Mons" });
     await poll(); const n = sent.length; await tick(fake, undefined, companyId);
     const ct = (await contactByGhl("TZ2"))!;
-    expect(ct).toMatchObject({ timezone: TZ, timezone_source: "company_default" });
+    expect(ct).toMatchObject({ timezone: "America/Phoenix", timezone_source: "phone" });
     const stl = await runOf("speed-to-lead", ct.id);
     expect(stl.status).not.toBe("failed");
     expect(sent.slice(n).filter((s) => s.to === "TZ2").map((s) => s.kind).sort()).toEqual(["email", "sms"]);
