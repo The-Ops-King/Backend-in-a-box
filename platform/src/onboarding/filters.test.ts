@@ -1,7 +1,6 @@
 /**
- * D180: their own GHL workflows, marked one by one, and the check before every move up: the list read again live, nothing new,
- * unmarked or marked off while on; a clean check is used by one move and lasts 30 minutes; every company is gated (D151) but a
- * template business.
+ * D180: their own GHL workflows, marked one by one. D192: a move up no longer waits for a check; the hourly Health check says a
+ * new or changed one instead.
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one } from "@/db/client";
@@ -67,41 +66,35 @@ describe.skipIf(!process.env.DATABASE_URL)("D180: their GHL workflows and the ch
     expect(await step()).toBeNull();
   });
 
-  it("needs a fresh check for every move up, the company's or a workflow's; a check is used by one move", async () => {
-    expect(await asOperator((c) => setCompanyMode(c, id, "test", "/app/c/filters-co", "t"))).toMatchObject({ ok: false, blockers: [{ text: expect.stringContaining("check their GHL workflows first") }] });
-    expect(await asOperator((c) => one(c, "select mode from companies where id=$1", [id]))).toEqual({ mode: "ghost" });
+  it("D192: a move up no longer waits for a check, the company's or a workflow's (Tyler: \"If I turn it on it should obey me\")", async () => {
+    expect(await asOperator((c) => setCompanyMode(c, id, "test", "/app/c/filters-co", "t"))).toMatchObject({ ok: true, changed: true, mode: "test" });
+    expect(await asOperator((c) => setCompanyMode(c, id, "ghost", "/app/c/filters-co", "t"))).toMatchObject({ ok: true });
+    expect(await asOperator((c) => setWorkflowMode(c, wf, "test", "t", "t"))).toMatchObject({ ok: true, changed: true });
+    expect(await asOperator((c) => setWorkflowMode(c, wf, null, "t", "t"))).toMatchObject({ ok: true });
+    // a check can still be made (the dashboard's "Check now"): it reads the list and says what is not marked
     const list = [...theirs, { id: "w3", name: "New lead nurture", status: "published" }];
     expect(await asOperator((c) => confirmCheck(c, id, list))).toMatchObject({ ok: false, status: 409, problems: ["New lead nurture (published): not marked yet"] });
-    await asOperator((c) => markWorkflow(c, id, { id: "w3", mark: "filtered", note: "sys-test filter added" }));
-    expect(await asOperator((c) => confirmCheck(c, id, list))).toMatchObject({ ok: true, count: 3 });
-    expect((await asOperator((c) => filtersState(c, id)))!.check.fresh).toBe(true);
-    expect(await asOperator((c) => setCompanyMode(c, id, "test", "/app/c/filters-co", "t"))).toMatchObject({ ok: true, changed: true, mode: "test" });
-    expect((await asOperator((c) => filtersState(c, id)))!.check.fresh).toBe(false);
-    // down is never gated; back up needs a new check
-    expect(await asOperator((c) => setCompanyMode(c, id, "ghost", "/app/c/filters-co", "t"))).toMatchObject({ ok: true });
-    expect(await asOperator((c) => setCompanyMode(c, id, "test", "/app/c/filters-co", "t"))).toMatchObject({ ok: false });
-    // one workflow up a rung: the same rule
-    expect(await asOperator((c) => setWorkflowMode(c, wf, "test", "t", "t"))).toMatchObject({ ok: false, status: 409, error: expect.stringContaining("check their GHL workflows first") });
-    await asOperator((c) => confirmCheck(c, id, list));
-    expect(await asOperator((c) => setWorkflowMode(c, wf, "test", "t", "t"))).toMatchObject({ ok: true, changed: true });
-    expect(await asOperator((c) => setWorkflowMode(c, wf, null, "t", "t"))).toMatchObject({ ok: true });   // back to the company's ghost: down
   });
 
-  it("a check older than 30 minutes is not used", async () => {
-    await asOperator((c) => c.query("update onboarding set filters = jsonb_set(filters, '{check}', $2::jsonb) where company_id=$1", [id, JSON.stringify({ at: new Date(Date.now() - 31 * 60e3).toISOString(), by: "t" })]));
-    expect(await asOperator((c) => useCheck(c, id, "x"))).toContain("check their GHL workflows first");
+  it("D192: the hourly Health check says a published workflow of theirs not marked, or one marked off that is on, once; nothing before the list was first marked", async () => {
+    const { sweep } = await import("@/engine/health");
+    const { loadCompany } = await import("@/engine/context");
+    const { fakeAdapters, fakeProbes } = await import("@/engine/test-install");
+    const list = [...theirs, { id: "w3", name: "New lead nurture", status: "published" }];
+    const run = (co: string, l: TheirWorkflow[]) => asOperator(async (c) => (await sweep(c, (await loadCompany(c, co)).row, fakeAdapters(), { ...fakeProbes, theirWorkflows: async () => l }, { checks: { their_workflows: true }, min_slots: 0, slots_days: 7 })).filter((f) => f.check === "their_workflows"));
+    expect(await run(id, list)).toEqual([expect.objectContaining({ ok: false, item: "w3", text: expect.stringContaining('"New lead nurture" is published and not marked yet'), detail: { repeat: false } })]);
+    await asOperator((c) => markWorkflow(c, id, { id: "w3", mark: "filtered" }));
+    expect(await run(id, list)).toEqual([expect.objectContaining({ ok: true })]);
+    // marked off, then turned on in GHL
+    expect(await run(id, [{ id: "w1", name: "Old booking confirmation", status: "published" }, { id: "w2", name: "Birthday text", status: "published" }, list[2]])).toEqual([expect.objectContaining({ ok: false, item: "w2", text: expect.stringContaining("was marked off, but GHL says it is published") })]);
   });
 
-  it("D151: a company set up before the wizard is gated too; its first read gives it a takeover row with the list", async () => {
+  it("D151: a company set up before the wizard gets a takeover row with the list the first time it is read, and is never gated", async () => {
     const plain = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode, status) values ('Plain','filters-plain','America/Phoenix','ghost','active') returning id"))!.id);
     expect(await asOperator((c) => filtersState(c, plain))).toMatchObject({ rows: [], done: false, check: { fresh: false } });
-    expect(await asOperator((c) => useCheck(c, plain, "x"))).toContain("check their GHL workflows first");
-    expect(await asOperator((c) => setCompanyMode(c, plain, "test", "/app/c/filters-plain", "t"))).toMatchObject({ ok: false });
+    expect(await asOperator((c) => setCompanyMode(c, plain, "test", "/app/c/filters-plain", "t"))).toMatchObject({ ok: true, changed: true });
     await asOperator((c) => saveList(c, plain, theirs));
     expect(await asOperator((c) => one(c, "select kind from onboarding where company_id=$1", [plain]))).toEqual({ kind: "takeover" });
-    for (const w of theirs) await asOperator((c) => markWorkflow(c, plain, { id: w.id, mark: "harmless" }));
-    expect(await asOperator((c) => confirmCheck(c, plain, theirs))).toMatchObject({ ok: true, count: 2 });
-    expect(await asOperator((c) => setCompanyMode(c, plain, "test", "/app/c/filters-plain", "t"))).toMatchObject({ ok: true, changed: true });
   });
 
   it("a template business is not gated (D183)", async () => {

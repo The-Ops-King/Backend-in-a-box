@@ -372,11 +372,11 @@ function FiltersStep({ slug, d, invalidate }: { slug: string; d: OnboardingPage;
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{(Object.keys(MARK_LABEL) as Mark[]).map((m) => <button key={m} className="btn" type="button" disabled={post.isPending || w.marked?.mark === m} onClick={() => mark(w.id, m)} title={MARK_LABEL[m]}>{MARK_LABEL[m]}</button>)}</div>
     </div>)}
     {f.filters.read_at && !f.rows.length ? <Empty>No workflows in their GHL: nothing of theirs can fire on what the engine does.</Empty> : null}
-    <div className="call" style={{ marginTop: 12 }}><b>Before every move up</b><AutomationsCheck slug={slug} invalidate={[invalidate, key]} /></div>
+    <div className="call" style={{ marginTop: 12 }}><b>Check their workflows</b><AutomationsCheck slug={slug} invalidate={[invalidate, key]} /></div>
   </>;
 }
 
-/** D180: the check a move up needs: their list read again live; refused, naming each, while anything is new or unmarked. Used by the next move up, for 30 minutes. */
+/** D180: their list read again live, naming anything new or unmarked. D192: no move waits for it; the hourly Health check says a new or changed one. */
 function AutomationsCheck({ slug, invalidate }: { slug: string; invalidate: string[][] }) {
   const key = ["onboarding-filters", slug];
   const q = usePage<FiltersState>(key, `/api/v1/companies/${slug}/onboarding/filters`, { every: 60_000 });
@@ -390,7 +390,7 @@ function AutomationsCheck({ slug, invalidate }: { slug: string; invalidate: stri
   };
   const fresh = q.data?.check.fresh;
   return <div>
-    <p className="note">{fresh ? <>Checked {ago(q.data!.check.at!)}: the next move up (a workflow's or the company's) can go within 30 minutes.</> : <>Every move up a rung needs a fresh check that nothing of theirs fires on what the engine does.</>}</p>
+    <p className="note">{fresh ? <>Checked {ago(q.data!.check.at!)}.</> : <>Read their list again to see anything new. Nothing waits on this: the hourly Health check says a new or changed workflow of theirs.</>}</p>
     {err ? <div className="banner warn">{err}</div> : null}
     {problems ? <ul className="note">{problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
     {!fresh ? <button className="btn" type="button" disabled={post.isPending} onClick={go}>{post.isPending ? "Reading GHL…" : "Check now"}</button> : null}

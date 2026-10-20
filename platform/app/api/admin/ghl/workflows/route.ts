@@ -5,11 +5,11 @@ import { confirmCheck, filtersState, markWorkflow, readTheirWorkflows, saveList 
 export const dynamic = "force-dynamic"; export const maxDuration = 60;
 
 /**
- * D151: an offer's own GHL workflows and the check every move up needs (D180), for any offer, from the operator's side.
+ * D151: an offer's own GHL workflows and their check (D180), for any offer, from the operator's side. D192: no move up waits for it.
  * GET  ?company=<slug> → the list as last read, each one's mark, what is left, whether a fresh check is in hand
  * POST { company, read: true } → read live and kept with the marks made
  * POST { company, id, mark: replaced|filtered|harmless|off, note?, by } → one marked (Tyler's call, in the chat)
- * POST { company, check: true, by } → read again live; a clean list gives a check for the next move up (30 minutes, used once)
+ * POST { company, check: true, by } → read again live; says anything new or unmarked
  * Authorization: Bearer $CRON_SECRET.
  */
 const companyId = (slug: string) => asOperator((c) => one<{ id: string }>(c, "select id from companies where slug=$1", [slug]));

@@ -701,12 +701,14 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (!ct?.id) return { status: "failed", error: "ensure_contact: the run has no contact" };
       const std = Object.fromEntries(Object.entries({ firstName: ct.first_name, lastName: ct.last_name, email: ct.email, phone: ct.phone }).filter(([, v]) => v)) as Record<string, string>;
       const source = node.source ? render(node.source, d.ctx, env(d)) || undefined : undefined;
-      const { findInGhl, planWrite, applyWrite } = await import("./typeform");
+      const { findInGhl, planWrite, applyWrite, matchPolicy } = await import("./typeform");
+      const policy = matchPolicy(d.bindings);   // D190
       const parsed = { responseId: "", std: { first_name: std.firstName, last_name: std.lastName, email: std.email, phone: std.phone }, fields: [], unbound: [], filled: [] } as unknown as Parameters<typeof planWrite>[0];
       for (const k of Object.keys(parsed.std) as (keyof typeof parsed.std)[]) if (!parsed.std[k]) delete parsed.std[k];
       const byId = ct.ghl_contact_id ? await d.adapters.read.getContact(d.adapterCompany, ct.ghl_contact_id) : null;
-      const found = byId ? { snap: byId, by: "id" } : await findInGhl(d.adapterCompany, d.adapters, std.email, std.phone);
-      const plan = planWrite(parsed, found?.snap ?? null, [], source);
+      const found = byId ? { snap: byId, by: "id" } : await findInGhl(d.adapterCompany, d.adapters, std.email, std.phone, policy);
+      // D190: a contact the engine already tracks by id keeps what GHL holds (a hand fix there is never reverted); a search match takes the new details
+      const plan = planWrite(parsed, found?.snap ?? null, [], source, policy.overwrite && !byId);
       const action = plan.action === "create" ? "created" : Object.keys(plan.standard).length ? "updated" : "found";
       setPath(d.ctx, `vars.${node.id}`, { action: ghost(d) ? `would be ${action}` : action });
       if (ghost(d)) return { status: "ok", next, result: { ghost: true, would: action, ...(found ? { ghl_contact_id: found.snap.id, matched: found.by } : {}), standard: plan.standard } };
@@ -716,6 +718,12 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         await d.c.query("update contacts set ghl_contact_id=$2, gone_at=null, updated_at=now() where id=$1", [ct.id, w.id]);
         await attachIdentifier(d.c, d.company.id, ct.id, "ghl_contact", w.id);
         setPath(d.ctx, "contact.ghl_contact_id", w.id);
+      }
+      // D188: what GHL holds now (an existing contact's Do Not Disturb, the phone it has) is what the run's later steps read
+      const now_ = await d.adapters.read.getContact(d.adapterCompany, w.id).catch(() => null);
+      if (now_) {
+        if (now_.smsDnd !== undefined) { await d.c.query("update contacts set sms_dnd=$2 where id=$1", [ct.id, now_.smsDnd]); setPath(d.ctx, "contact.sms_dnd", now_.smsDnd); }
+        if (!ct.phone && now_.phone) setPath(d.ctx, "contact.phone", now_.phone);
       }
       const { scopeTag } = await import("./scope");
       const add = [...(node.tags === undefined ? [] : Array.isArray(node.tags) ? node.tags : [node.tags]), ...(node.scope_tag && scopeTag(d.bindings) ? [scopeTag(d.bindings)!] : [])];
@@ -843,9 +851,10 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const eod = await eodFacts(d.c, d.company, user.id, (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, ""), d.now as DateTime<true>, lookback);
       // ledger: the day's calls with no answer on the ledger; moved: those a card move answered, owed until the day is filed (A1);
       // blank: every blank Sales Call that day (the operator hears their names); extra: blank ones the ledger does not already count
-      const days = new Map<string, { ledger: Set<string>; moved: Set<string>; blank: string[]; extra: number }>();
-      for (const e of eod.earlier) days.set(e.day, { ledger: new Set(e.open), moved: new Set(e.moved), blank: [], extra: 0 });
-      if (withToday && eod.today.calls && !eod.today.filed) days.set(eod.day, { ledger: new Set(eod.today.open), moved: new Set(eod.today.moved), blank: [], extra: 0 });
+      // dials (D156, D191): a setter's logged calls the day has not answered, counted by the form beside its bookings; owed like calls
+      const days = new Map<string, { ledger: Set<string>; moved: Set<string>; blank: string[]; extra: number; dials: number }>();
+      for (const e of eod.earlier) days.set(e.day, { ledger: new Set(e.open), moved: new Set(e.moved), blank: [], extra: 0, dials: Math.max(0, e.calls - e.open.length) });
+      if (withToday && eod.today.calls && !eod.today.filed) days.set(eod.day, { ledger: new Set(eod.today.open), moved: new Set(eod.today.moved), blank: [], extra: 0, dials: Math.max(0, eod.today.calls - eod.today.open.length) });
       let ghl: string | undefined;
       if (d.bindings["crm.object_sales_call"] && user.name) {
         try {
@@ -853,14 +862,14 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
           for (const r of recs) if (r.filed) for (const e of days.values()) if (!e.moved.has(r.appointment_id)) e.ledger.delete(r.appointment_id);
           for (const r of recs) {
             if (r.filed || !r.due || (!withToday && r.day >= today)) continue;
-            const e = days.get(r.day) ?? { ledger: new Set<string>(), moved: new Set<string>(), blank: [], extra: 0 }; e.blank.push(r.name);
+            const e = days.get(r.day) ?? { ledger: new Set<string>(), moved: new Set<string>(), blank: [], extra: 0, dials: 0 }; e.blank.push(r.name);
             if (!e.ledger.has(r.appointment_id)) e.extra++;
             days.set(r.day, e);
           }
         } catch (e) { ghl = String((e as Error).message).slice(0, 200); }   // GHL unread: the ledger's days still go out
       }
-      const owed = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).filter(([, e]) => e.ledger.size || e.extra)
-        .map(([day, e]) => ({ day, label: label(day), when: day === eod.day ? "today" : label(day), url: day === eod.day ? eod.url : `${eod.url}?day=${day}`, today: day === eod.day, calls: e.ledger.size, ghl_blank: e.extra, both: e.ledger.size > 0 && e.extra > 0 }));
+      const owed = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).filter(([, e]) => e.ledger.size || e.extra || e.dials)
+        .map(([day, e]) => ({ day, label: label(day), when: day === eod.day ? "today" : label(day), url: day === eod.day ? eod.url : `${eod.url}?day=${day}`, today: day === eod.day, calls: e.ledger.size + e.dials, ghl_blank: e.extra, both: e.ledger.size + e.dials > 0 && e.extra > 0 }));
       const cutoff = overdueAfter === null ? null : d.now.setZone(tz).minus({ days: overdueAfter }).toISODate()!;
       const overdue = cutoff === null ? [] : [...days.entries()].filter(([day, e]) => e.blank.length && day <= cutoff).sort(([a], [b]) => a.localeCompare(b)).map(([day, e]) => ({ day, label: label(day), names: e.blank }));
       if (legacy) {

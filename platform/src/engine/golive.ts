@@ -2,7 +2,6 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { companyReadiness, workflowLiveBlockers, type Issue } from "./readiness";
 import { MODES, runMode, testContactSql, testDomains, TEST_DOMAINS_KEY, type Mode } from "./mode";
-import { useCheck } from "@/onboarding/filters";
 
 /**
  * Go live (D51), and D132's go quiet: the two rungs that write the CRM for everyone. Moving up into one is refused while readiness
@@ -89,9 +88,7 @@ export async function setCompanyMode(c: PoolClient, companyId: string, to: Mode,
   }
   await c.query("begin");
   try {
-    // D180: any move up, for a company onboarded through the wizard, uses a fresh check of their own GHL workflows
-    const unchecked = rank(to) > rank(co.mode) ? await useCheck(c, companyId, `company → ${to}`) : null;
-    if (unchecked) { await c.query("rollback"); return { ok: false, blockers: [{ level: "blocker", text: unchecked }] }; }
+    // D192 (over D180): a move up no longer waits for a fresh check of their GHL workflows; the hourly Health check says a new or changed one
     const cleared = up ? await clearRehearsalRuns(c, companyId, undefined, to) : undefined;
     await c.query("update companies set mode=$2 where id=$1", [companyId, to]);
     await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'company.mode','company',$4,$2,$3)", [companyId, { mode: co.mode }, { mode: to, via, ...(cleared ? { cleared } : {}) }, companyId]);
@@ -118,8 +115,6 @@ export async function setWorkflowMode(c: PoolClient, workflowId: string, mode: M
   }
   await c.query("begin");
   try {
-    const unchecked = rank(to) > rank(from) ? await useCheck(c, w.company_id, `${w.name} → ${to}`) : null;
-    if (unchecked) { await c.query("rollback"); return { ok: false, status: 409, error: `${w.name} cannot go ${to}: ${unchecked}`, blockers: [{ level: "blocker", text: unchecked }] }; }
     const cleared = up ? await clearRehearsalRuns(c, w.company_id, workflowId, to) : undefined;
     await c.query("update workflows set mode=$2 where id=$1", [workflowId, mode]);
     await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.mode','workflow',$2,$3,$4)",
