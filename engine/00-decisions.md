@@ -5788,12 +5788,15 @@ the next minute tick, and GHL's documents were read once a minute (GHL sends no 
    signed or an agreement sent and not signed, and calls `/api/tick?scope=documents&company=<id>` for those only: that offer's
    GHL documents are read and what they announce runs at once. Forty quiet offers cost no call. After 15 minutes the minute poll
    is the only reader again. Installed with the tick job (`POST /api/admin/schedule`).
-3. **/agreement.** A closer (or a manager, the owner, the operator) types /agreement in Slack: a form asks who (email, phone or
-   GHL contact link) and which agreement (`agreements.list`, [{label, template}] per offer; unset, the offer's one
-   `crm.agreement_template`). The submit raises `agreement.requested` (migration 0005) and Send agreement manually, which now
-   takes that as a second trigger, sends the picked agreement from the closer's own GHL user, under the offer's mode and send
-   lock like any send; the closer gets a DM: sent, already signed, or held and why. The tag (sys-send-agreement-manually) is
-   retired per offer once /agreement is tested there (Tyler).
+3. **/agreement** (Tyler: "send the agreement if they've got the URL or the email or the name"). A closer (or a manager, the
+   owner, the operator) types `/agreement <who> <type>`: an email, phone or GHL contact link is exact and sends at once; a full
+   name must fit exactly one contact and is confirmed first (Send / Cancel); two people with that name, or a first name alone,
+   send nothing and say who matched. Without `<type>`, a Send button per agreement (one agreement: that one). Nothing typed opens
+   a form (who, which). The types are the offer's `agreements.list` ([{label, template, key?}]; key defaults to the label's first
+   word; unset, the one `crm.agreement_template`, key `purchase`). Sending raises `agreement.requested` (migration 0005), and
+   Send agreement manually, which takes it as a second trigger, sends the picked agreement from the closer's own GHL user under
+   the offer's mode and send lock like any send; the outcome (sent, already signed, or held and why) replaces the command's answer
+   (a DM, from the form). The tag (sys-send-agreement-manually) is retired per offer once /agreement is tested there (Tyler).
 4. **One reader of an offer's documents at a time.** The ten-second check and the minute poll can read the same documents at
    once; a document sent earlier and signed now was then "signed" twice (a test reproduced it about half the time). The
    documents read takes a transaction lock per company first.

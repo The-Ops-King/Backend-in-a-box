@@ -6,7 +6,7 @@ import { loadCompany } from "@/engine/context";
 import { helpText, planCommand, runCommand, type SlashCommand } from "@/engine/bot";
 import { respondToSlack, verifySlackSignature } from "@/engine/webhooks/slack";
 import { openTicket, TICKET_COMMAND, TICKET_USAGE } from "@/engine/tickets";
-import { AGREEMENT_COMMAND, agreementForm, checkAgreementCommand } from "@/engine/webhooks/agreement-request";
+import { AGREEMENT_COMMAND, agreementForm, answerAgreementCommand, requestAgreement } from "@/engine/webhooks/agreement-request";
 import { slackBot } from "@/engine/slack-conn";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -31,12 +31,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     if (!conn || (cmd.teamId && cmd.teamId !== conn.team_id)) return NextResponse.json({ response_type: "ephemeral", text: "This workspace is not connected to this company." });
     // D202: /agreement opens the form (Slack allows three seconds for it, so it opens here, not after the answer)
     if (cmd.command.replace(/^\//, "").toLowerCase() === AGREEMENT_COMMAND) {
-      const ok = await checkAgreementCommand(c, companyId, cmd.userId, bindings);
-      if ("error" in ok) return NextResponse.json({ response_type: "ephemeral", text: ok.error });
-      const bot = await slackBot(c, companyId), trigger = f.get("trigger_id");
-      if (!bot || !trigger || !liveAdapters.notifier.openView) return NextResponse.json({ response_type: "ephemeral", text: "Slack didn't give me a way to open the form; try again." });
-      await liveAdapters.notifier.openView(bot.token, trigger, agreementForm(ok.choices, { channel: cmd.channelId }));
-      return new Response(null, { status: 200 });
+      const a = await answerAgreementCommand(c, companyId, cmd.userId, bindings, cmd.text);
+      if (a.form) {
+        const bot = await slackBot(c, companyId), trigger = f.get("trigger_id");
+        if (!bot || !trigger || !liveAdapters.notifier.openView) return NextResponse.json({ response_type: "ephemeral", text: "Slack didn't give me a way to open the form; try again." });
+        await liveAdapters.notifier.openView(bot.token, trigger, agreementForm(a.form, { channel: cmd.channelId }));
+        return new Response(null, { status: 200 });
+      }
+      if (a.send) return { agreement: { ...a.send, user: cmd.userId, url: f.get("response_url") ?? "", say: a.say } };
+      return NextResponse.json(a.say);
     }
     // D152: /support opens a ticket (the reply says it is in; the post and the operator's note follow)
     if (cmd.command.replace(/^\//, "").toLowerCase() === TICKET_COMMAND) return cmd.text.trim() ? { ticket: { cmd } } : NextResponse.json({ response_type: "ephemeral", text: TICKET_USAGE });
@@ -46,6 +49,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     return { cmd, plan: p.plan };
   });
   if (res instanceof Response) return res;
+  if ("agreement" in res && res.agreement) {   // D202: an exact /agreement: answered "Sending…", then the outcome in its place
+    const g = res.agreement;
+    after(() => requestAgreement(liveAdapters, companyId, g.user, g.contact, g.choice, g.by, (text) => respondToSlack(g.url, { response_type: "ephemeral", replace_original: true, text })).then(() => undefined).catch((e) => console.error("slack agreement:", e)));
+    return NextResponse.json(g.say);
+  }
   if ("ticket" in res && res.ticket) {
     const { cmd } = res.ticket;
     after(() => openTicket(liveAdapters, companyId, { text: cmd.text, slackUser: cmd.userId, channel: cmd.channelId }).catch((e) => console.error("ticket:", e)));

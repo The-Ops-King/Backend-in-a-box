@@ -8,7 +8,7 @@ import { checkSubmit, LINK_ACTIONS, LINK_FORM, linkForm, linkSubmitted, parseMet
 import { one } from "@/db/client";
 import { slackBot } from "@/engine/slack-conn";
 import { runCompanyNow } from "@/api/run-soon";
-import { AGREEMENT_FORM, checkAgreementSubmit, requestAgreement, type AgreementChoice } from "@/engine/webhooks/agreement-request";
+import { AGREEMENT_FORM, checkAgreementPress, checkAgreementSubmit, requestAgreement, type AgreementChoice, type Who } from "@/engine/webhooks/agreement-request";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
@@ -23,7 +23,7 @@ export const maxDuration = 120;
 export async function POST(req: Request, { params }: { params: Promise<{ companyId: string }> }) {
   const { companyId } = await params;
   const raw = await req.text();
-  type Next = Response | { kind: "agreement"; user: string; contact: { id: string; name: string }; choice: AgreementChoice; by: { name: string; ghl_user_id: string | null } } | { kind: "link"; user: string; meta: NonNullable<ReturnType<typeof parseMeta>>; contact: { id: string; name: string } } | { kind: "say"; url?: string; text: string } | { kind: "press"; press: SlackPress };
+  type Next = Response | { kind: "agreement"; user: string; contact: Who; choice: AgreementChoice; by: { name: string; ghl_user_id: string | null }; url?: string } | { kind: "link"; user: string; meta: NonNullable<ReturnType<typeof parseMeta>>; contact: { id: string; name: string } } | { kind: "say"; url?: string; text: string; replace?: boolean } | { kind: "press"; press: SlackPress };
   const res = await asOperator(async (c): Promise<Next> => {
     const { bindings } = await loadCompany(c, companyId);
     const secret = bindings["secret.slack_signing"];
@@ -46,6 +46,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
       if ("error" in r) return NextResponse.json({ response_action: "errors", errors: { who: r.error } });
       return { kind: "link", user: p.user, meta, contact: r.contact };
     }
+    // D202: the Send / Cancel buttons under an /agreement answer
+    if (p.action === "agreement_cancel") return { kind: "say", url: p.responseUrl, text: "Cancelled. Nothing sent.", replace: true };
+    if (p.action === "agreement_send") {
+      const r = await checkAgreementPress(c, companyId, p.user, bindings, p.value);
+      return "say" in r ? { kind: "say", url: p.responseUrl, text: r.say, replace: true } : { kind: "agreement", user: p.user, ...r, url: p.responseUrl };
+    }
     const kind = LINK_ACTIONS[p.action as keyof typeof LINK_ACTIONS];
     if (kind) {
       const allowed = await one(c, `select 1 where exists (select 1 from users where company_id=$1 and slack_user_id=$2 and active and role in ('owner','manager'))
@@ -57,9 +63,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     return { kind: "press", press: p };
   });
   if (res instanceof Response) return res;
-  if (res.kind === "agreement") { after(() => requestAgreement(liveAdapters, companyId, res.user, res.contact, res.choice, res.by).then(() => undefined).catch((e) => console.error("slack agreement:", e))); return new Response(null, { status: 200 }); }
+  if (res.kind === "agreement") {   // from the form (said in a DM) or a Send button (said in place of the buttons)
+    const url = res.url, reply = url ? (text: string) => respondToSlack(url, { response_type: "ephemeral", replace_original: true, text }) : undefined;
+    after(async () => { if (reply) await reply(`Sending ${res.choice.label} to ${res.contact.name}…`).catch(() => {}); await requestAgreement(liveAdapters, companyId, res.user, res.contact, res.choice, res.by, reply).catch((e) => console.error("slack agreement:", e)); });
+    return new Response(null, { status: 200 });
+  }
   if (res.kind === "link") { after(() => linkSubmitted(liveAdapters, companyId, res.user, res.meta, res.contact).then(() => undefined).catch((e) => console.error("slack link:", e)).then(() => runCompanyNow(companyId))); return new Response(null, { status: 200 }); }
-  if (res.kind === "say") { const url = res.url; if (url) after(() => respondToSlack(url, { response_type: "ephemeral", replace_original: false, text: res.text }).catch(() => {})); return new Response(null, { status: 200 }); }
+  if (res.kind === "say") { const url = res.url; if (url) after(() => respondToSlack(url, { response_type: "ephemeral", replace_original: !!res.replace, text: res.text }).catch(() => {})); return new Response(null, { status: 200 }); }
   after(() => alertPressed({ adapters: liveAdapters, respond: respondToSlack }, companyId, res.press).catch((e) => console.error("slack press:", e)).then(() => runCompanyNow(companyId)));
   return new Response(null, { status: 200 });
 }
