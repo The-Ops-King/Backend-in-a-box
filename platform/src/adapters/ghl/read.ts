@@ -206,6 +206,14 @@ export const ghlRead: CrmRead = {
     }
     return out;
   },
+  async objectRecord(c, objectKey, recordId) {
+    try {
+      const r = await ghl<{ record?: { id: string; createdAt: string; properties?: Record<string, unknown>; owners?: (string | { id?: string })[]; owner?: (string | { id?: string })[] } }>(c.pit, "GET", `/objects/${objectKey}/records/${recordId}?locationId=${c.locationId}`);
+      const x = r.record; if (!x) return null;
+      const owners = (x.owners ?? x.owner ?? []).map((o) => (typeof o === "string" ? o : o.id ?? "")).filter(Boolean);
+      return { id: x.id, createdAt: x.createdAt, properties: x.properties ?? {}, owners };
+    } catch (e) { if ((e as { status?: number }).status === 404) return null; throw e; }
+  },
   async objectFields(c, objectKey) {
     const r = await ghl<{ fields?: { fieldKey: string; dataType?: string; options?: { key: string; label?: string }[] }[] }>(c.pit, "GET", `/objects/${objectKey}?locationId=${c.locationId}&fetchProperties=true`);
     return (r.fields ?? []).map((f) => ({ key: f.fieldKey.split(".").pop()!, type: f.dataType, ...(f.options?.length ? { options: f.options.map((o) => ({ key: o.key, label: o.label })) } : {}) })).filter((f) => f.key);

@@ -5837,3 +5837,13 @@ back and it answered 500; the contacts poll then read every owner back from GHL 
 name for name). So there is no `contacts.reassigned` audit row for that run; this entry is its record. Fixed: each contact's replica
 write now commits on its own. The Strategy Session's owner moved to Nonie with its 96 upcoming bookings (`calendar.owner` audited);
 Nelly's install file names her as its owner and a setter, so a re-install keeps it.
+
+## D205. A calendar's calls split by time: upcoming to one person, past to another (2026-10-20)
+
+Tyler, asked whether the 96 upcoming calls' Discovery records should name Nonie: "Anything future assign to Nonie, anything past to
+mitch". `POST /api/admin/calendars/split { company, calendar, future, past, why, dryRun, limit }`: each booking ahead goes to `future`,
+each one passed to `past`, in the replica (the call's owner: end of day, numbers) and on its Discovery Call record in GHL (the Setter
+field, and the record's owner: the new one added, the other side's taken off). GHL's docs do not say whether a record update can take
+an owner off, so each record is read back after the change and the answer says whether the owner swapped; `limit: 1` proves it on
+one record before the rest. A booking with no record (before records were made) changes only in the replica. Nelly only.
+Tests: `contact-ops.reassign.test.ts`.
