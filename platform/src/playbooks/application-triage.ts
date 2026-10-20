@@ -174,6 +174,22 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
       node(d, "m1").only_if = { exists: "appointment.meeting_url" };
       after(d, "m1", { id: "m1_nolink", type: "send_sms", template: w.hourNoLink, validity: node(d, "m1").validity, on_stale: "skip", only_if: noLink, title: "An hour before, no link yet" });
     }
+    // D193: the reminders before an evening call go earlier the same day, not the next morning (when it is too late to send them)
+    for (const id of ["r24", "r1"]) (node(d, id).rule as Record<string, unknown>).window = "before";
+    // D194: a booking close to its call: no "no reply in 4 hours" note when the wait was cut short by the call, and no hour-before
+    // text right on the heels of the booking text
+    node(d, "n_unc_slack").only_if = { gt: ["{{appointment.starts_at | hours_until}}", 1.5] };
+    const notJustSent = { or: [{ not: { exists: "reply.last_outbound.at" } }, { lt: ["{{reply.last_outbound.at | hours_until}}", -1] }] };
+    for (const id of ["m1", "m1_nolink"]) { const m = d.nodes.find((n) => n.id === id); if (m) m.only_if = m.only_if ? { and: [m.only_if, notJustSent] } : notJustSent; }
+    // D199: a call booked within 24 hours gets no day-before text (Tyler: "if its booked within 24 hours we don't get that"): how far
+    // off the call is when the run reaches the day-before wait is remembered, and the text goes only if its time was still ahead.
+    // A run already past that point when this was saved has nothing remembered and keeps the old way.
+    const toR24 = (d.edges as Edge[]).filter((e) => e.to === "r24");
+    if (!toR24.length) throw new Error(`${t.name}: nothing leads to the day-before wait`);
+    for (const e of toR24) e.to = "v_lead";
+    d.nodes.splice(d.nodes.findIndex((n) => n.id === "r24"), 0, { id: "v_lead", type: "set_var", key: "lead_at_day_before", value: "{{appointment.starts_at | hours_until}}", title: "How far off the call is when the day-before wait starts" });
+    (d.edges as Edge[]).push({ from: "v_lead", to: "r24" });
+    node(d, "m24s").only_if = { or: [{ not: { exists: "vars.lead_at_day_before" } }, { gt: ["{{vars.lead_at_day_before}}", 24] }] };
     const left = JSON.stringify(d.nodes);
     if (left.includes("send_email") || left.includes("[placeholder") || d.nodes.filter((n) => n.type === "send_sms").length !== (w.hourNoLink !== undefined ? 4 : 3)) throw new Error(`${t.name}: a send of the template is left unwritten`);
     return { workflow: t.workflow, name: t.name, create: { stage: pc.stage, sort: pc.sort + (t.key === "triage" ? 0 : 1), takesOver: "pre-call-sequence" }, definition: d as unknown as Record<string, unknown>,
@@ -240,13 +256,17 @@ function triageBooked(): Def {
   return d;
 }
 
-/** D142: Call cancelled for a triage call: its trigger held to that call type (any category), the closer card, the rebook task and the Sales Call left out, the Discovery Call record cancelled instead. */
+/**
+ * D142: Call cancelled for a triage call: its trigger held to that call type (any category), the closer card and the Sales Call left
+ * out, the Discovery Call record cancelled instead. D199: the rebook task stays (Tyler: "Create the task for Mitch"), for whoever takes
+ * the call, so the post's "Rebook task" line is true.
+ */
 function triageCancelled(callType: string): Def {
   const d = load("call-cancelled");
   const t1 = node(d, "t1"), m = t1.match as { and: unknown[] };
   m.and = m.and.map((x) => (JSON.stringify(x) === JSON.stringify({ eq: ["{{appointment.term.category}}", "closing"] }) ? { eq: ["{{appointment.term.name}}", callType] } : x));
   if (!JSON.stringify(m).includes(callType)) throw new Error("Call cancelled no longer holds itself to closing calls by category");
-  for (const id of ["n2", "n4"]) drop(d, id);
+  drop(d, "n2");
   Object.assign(node(d, "n6"), { object: "{{crm.object_discovery_call | default:custom_objects.discovery_call}}", if_missing: "skip", properties: { outcome: "cancelled" }, title: "The Discovery Call record: cancelled" });
   Object.assign(node(d, "n7"), { as: { name: "Triage call cancelled", icon: [":x:", ":calendar:", ":no_entry_sign:"] } });
   return d;

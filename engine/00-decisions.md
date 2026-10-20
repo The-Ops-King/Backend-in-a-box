@@ -5589,6 +5589,56 @@ for a contact GHL already held.
 
 Tests: `filters.test.ts` (D192).
 
+
+## D193. Reminders before an evening call go earlier the same day (2026-10-20)
+
+Tyler: "Sounds good" to sending a reminder that would land after the send window closes earlier that day, not the next morning
+(when the call is too close for it). A wait step's rule takes `window: "before"`: a time at or after the company's send window close
+(the person's zone) moves back to a minute before it. Nelly's day-before and hour-before waits use it, and her hour texts say how long
+("in about an hour", "in about 2 hours") rather than "in an hour". Other offers are unchanged until their waits ask for it.
+Tests: `waitrule.test.ts`, `dating-copies.test.ts`.
+
+## D194. A booking close to its call (2026-10-20)
+
+No "⏳ No reply to the booking text in 4 hours" when the call is within 1.5 hours (the wait was cut short by the call, not 4 hours),
+and no hour-before text within an hour of the booking text. Nelly's pre-calls. Tests: `dating-copies.test.ts`.
+
+## D195. Bookings handed to one workflow (the pre-call, at its unlock) (2026-10-20)
+
+`POST /api/admin/replay-bookings { company, upcoming: true, workflow, dryRun }` hands every real booking whose call is ahead to that
+one workflow only: no other workflow runs again (no second booking card); a booking with a run of it still going is skipped; one whose
+event a go-live cleared gets a new one. Run when a pre-call's sends are unlocked, dry run first. Tests: `replay.test.ts`.
+
+## D196. ❌ cancels the Calendly booking (2026-10-20)
+
+Tyler: "Sure." A workflow's cancel of a Calendly booking (the pre-call's ❌) cancels it at Calendly (Calendly tells the person), then
+the booking is cancelled in the engine and the cancel workflows run, as for a cancel at the source. It reaches the person, so in quiet
+(a real contact) or ghost it is held. Needs a Calendly token that may write. Tests: `poll.calendly.test.ts`.
+
+## D197. An offer's team in one call (2026-10-20)
+
+Tyler: "I want to be able to add and remove setters and closers very quickly." `POST /api/admin/team { company, email, role: setter |
+closer, slack? }` adds a GHL user of the location (the roster read again if they are new), links their Slack, and says their setter
+link; `remove: true` takes the role off. `GET ?company=` lists the team. Audited. Tests: `team.test.ts`.
+
+## D198. A Calendly booking's phone is taken whatever its question says (2026-10-20)
+
+Tyler booked Nelly's consultation with his number in "Please add your phone number" and got the no-phone ⚠️: the engine read a
+phone only from a question starting "Phone number" (or the configured one). Tyler: "fix the engine to take any phone number." Now:
+Calendly's text-reminder number, then the configured question (Hair's "Best number" still wins), then a question the event type
+makes a phone field (its labels read from the event type, cached ten minutes; a failed read is no fields, never a failed poll),
+then any question whose label has the word phone. Every offer: no offer that had a phone loses it or gets a different one; one
+whose form missed the rule now gets the phone. Tests: `calendly/read.test.ts`.
+
+## D199. No day-before text for a call booked within 24 hours; Mitch's triage cancel makes its rebook task (2026-10-20)
+
+Tyler: "if its booked within 24 hours we don't get that." Nelly's two pre-calls remember how far off the call is when the run
+reaches the day-before wait (`v_lead`, `vars.lead_at_day_before`); the day-before text goes only when that is over 24 hours (the
+18-hour staleness rule still holds after). A run already past that point when the change was saved keeps the old way. The booking
+text and the hour-before text are unchanged. Triage call cancelled keeps the template's rebook task (Tyler: "Create the task for
+Mitch"), due in a day for whoever takes the call, so its post's "Rebook task" line is true; D142 had left it out. Nelly only.
+Tests: `dating-copies.test.ts`.
+
 ## D200. The audit's open items, phase 2 (2026-10-20, branch `audit-fixes`)
 
 (Worked as "D193" on the branch, so its commits say D193.1–D193.13; renumbered on merging, since main took D193–D199 meanwhile.)

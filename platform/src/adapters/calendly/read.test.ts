@@ -29,6 +29,17 @@ describe("Calendly → AppointmentSnapshot", () => {
     expect(mapEvent(ev(), inv({ questions_and_answers: [{ question: "Best number to text?", answer: "555" }] }), "best number to text?").invitee?.phone).toBe("555");
     expect(mapEvent(ev(), inv({ questions_and_answers: [{ question: "Best number to text?", answer: "555" }] })).invitee?.phone).toBeUndefined();
   });
+  it("D198: any phone is taken — the event type's phone field, else a label that says phone; the configured question still wins", () => {
+    const qa = (question: string, answer = "+1 480-516-3213") => inv({ questions_and_answers: [{ question, answer }] });
+    expect(mapEvent(ev(), qa("Please add your phone number")).invitee?.phone).toBe("+1 480-516-3213");
+    expect(mapEvent(ev(), qa("Best way to reach you"), undefined, undefined, undefined, ["Best way to reach you"]).invitee?.phone).toBe("+1 480-516-3213");
+    expect(mapEvent(ev(), qa("Best way to reach you")).invitee?.phone).toBeUndefined();
+    expect(mapEvent(ev(), qa("Headphones or speaker?", "speaker")).invitee?.phone).toBeUndefined();
+    // Hair's configured question: its answer, not another phone field's
+    const both = inv({ questions_and_answers: [{ question: "Cell phone", answer: "111" }, { question: "Best number to reach you", answer: "602-555-0101" }] });
+    expect(mapEvent(ev(), both, undefined, undefined, { questions: { phone: "Best number" } }, ["Cell phone"]).invitee?.phone).toBe("602-555-0101");
+    expect(mapEvent(ev(), inv({ text_reminder_number: "+18605550000" }), undefined, undefined, undefined, ["Phone Number"]).invitee?.phone).toBe("+18605550000");
+  });
   it("canceled → cancelled; a no-show mark → noshow", () => {
     expect(mapEvent(ev({ status: "canceled" }), inv({ status: "canceled" })).status).toBe("cancelled");
     expect(mapEvent(ev(), inv({ no_show: { uri: "x", created_at: "2026-10-08T17:00:00Z" } })).status).toBe("noshow");

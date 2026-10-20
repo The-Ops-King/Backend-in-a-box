@@ -1,5 +1,5 @@
 import type { AppointmentSnapshot, BookingRead, CalendarConfig, CalendarSnapshot, Company } from "../types";
-import { calendly, calendlyAll, eventUuidOfInvitee, uuidOf } from "./client";
+import { calendly, calendlyAll, calendlyPost, eventUuidOfInvitee, uuidOf } from "./client";
 
 export type RawEventType = { uri: string; name: string; active: boolean; scheduling_url: string; internal_note?: string | null; pooling_type?: string | null; duration: number; custom_questions?: { name: string; type?: string; position?: number; enabled?: boolean; required?: boolean; answer_choices?: string[] }[]; profile?: { type?: string; name?: string; owner?: string } | null };
 export type RawEvent = { uri: string; name: string; status: "active" | "canceled"; start_time: string; end_time: string; event_type: string; created_at: string; updated_at: string; event_memberships: { user: string; user_email?: string; user_name?: string }[]; invitees_counter: { total: number; active: number }; location?: { type?: string; join_url?: string | null; location?: string | null } | null };
@@ -15,12 +15,16 @@ const cfg = (c: Company) => { if (c.booking.source !== "calendly") throw new Err
  * config (D24) — `questions: { setter: "Who set this call?", phone: "Best number", hair_loss: "…" }` — falling back to the
  * company-level phone/setter questions. A question text matches on a case-insensitive prefix, so trailing punctuation or a
  * "(required)" suffix on the form does not break it.
+ * D198: a phone is taken whatever its question says (Tyler: "fix the engine to take any phone number"). The configured question
+ * wins; then a question the event type makes a phone field (`phoneFields`, its labels); then any question whose label says phone.
  */
-export function mapEvent(e: RawEvent, inv: RawInvitee | undefined, phoneQuestion = DEFAULT_PHONE_QUESTION, setterQuestion = DEFAULT_SETTER_QUESTION, cal?: CalendarConfig): AppointmentSnapshot {
+export function mapEvent(e: RawEvent, inv: RawInvitee | undefined, phoneQuestion = DEFAULT_PHONE_QUESTION, setterQuestion = DEFAULT_SETTER_QUESTION, cal?: CalendarConfig, phoneFields: string[] = []): AppointmentSnapshot {
   const norm = (x: string) => x.trim().toLowerCase().replace(/\s+/g, " ");
   const answerTo = (label: string) => inv?.questions_and_answers?.find((x) => { const q = norm(x.question), l = norm(label); return q === l || q.startsWith(l); })?.answer?.trim() || undefined;
+  const answerWhere = (hit: (question: string) => boolean) => inv?.questions_and_answers?.find((x) => hit(norm(x.question)) && x.answer?.trim())?.answer.trim();
   const q = cal?.questions ?? {};
-  const phone = inv?.text_reminder_number || answerTo(q.phone ?? phoneQuestion);
+  const phone = inv?.text_reminder_number || answerTo(q.phone ?? phoneQuestion)
+    || answerWhere((x) => phoneFields.some((f) => norm(f) === x)) || answerWhere((x) => /\bphone\b/.test(x));
   const setBy = answerTo(q.setter ?? setterQuestion);
   const answers: Record<string, string> = {};
   for (const [key, label] of Object.entries(q)) { const a = answerTo(label); if (a) answers[key] = a; }
@@ -56,6 +60,20 @@ async function inviteeOf(token: string, e: RawEvent): Promise<RawInvitee | undef
   if (inviteeCache.size > 5000) inviteeCache.clear();
   inviteeCache.set(key, inv);
   return inv;
+}
+
+// D198: the labels of an event type's phone-number questions. A form changes rarely, so this is cached for ten minutes; a failed
+// read is no phone fields (the label rules still apply), never a failed poll.
+const phoneFieldCache = new Map<string, { at: number; labels: string[] }>();
+async function phoneFieldsOf(token: string, eventType: string): Promise<string[]> {
+  const hit = phoneFieldCache.get(eventType);
+  if (hit && Date.now() - hit.at < 600_000) return hit.labels;
+  let labels: string[] = [];
+  try { labels = ((await calendly<{ resource: RawEventType }>(token, eventType)).resource.custom_questions ?? []).filter((q) => q.type === "phone_number").map((q) => q.name); }
+  catch { return hit?.labels ?? []; }
+  if (phoneFieldCache.size > 500) phoneFieldCache.clear();
+  phoneFieldCache.set(eventType, { at: Date.now(), labels });
+  return labels;
 }
 
 // One listing per company per tick serves every event type; cached for a few seconds so the per-calendar calls share it.
@@ -101,7 +119,7 @@ export const calendlyBooking: BookingRead = {
     const seen = new Set<string>();
     for (const e of mine) {
       const inv = await inviteeOf(b.token, e);
-      const snap = mapEvent(e, inv, b.phoneQuestion, b.setterQuestion, b.calendars?.[calendarId]);
+      const snap = mapEvent(e, inv, b.phoneQuestion, b.setterQuestion, b.calendars?.[calendarId], await phoneFieldsOf(b.token, e.event_type));
       out.push(snap); seen.add(snap.id);
       // the replacement of a rescheduled booking may sit outside the window; fetch it so the move happens in the same pass
       if (snap.rescheduledTo && !seen.has(snap.rescheduledTo) && !mine.some((x) => uuidOf(x.uri) === snap.rescheduledTo)) {
@@ -111,11 +129,16 @@ export const calendlyBooking: BookingRead = {
     }
     return out;
   },
+  /** D196: Calendly's own cancellation (it tells the invitee); the poll then sees it cancelled like any other. */
+  async cancel(c, id, reason) {
+    const b = cfg(c);
+    await calendlyPost(b.token, `/scheduled_events/${id}/cancellation`, { reason: reason.slice(0, 1000) });
+  },
   async getAppointment(c, id) {
     const b = cfg(c);
     try {
       const { resource } = await calendly<{ resource: RawEvent }>(b.token, `/scheduled_events/${id}`);
-      return mapEvent(resource, await inviteeOf(b.token, resource), b.phoneQuestion, b.setterQuestion, b.calendars?.[uuidOf(resource.event_type)]);
+      return mapEvent(resource, await inviteeOf(b.token, resource), b.phoneQuestion, b.setterQuestion, b.calendars?.[uuidOf(resource.event_type)], await phoneFieldsOf(b.token, resource.event_type));
     } catch (e) { if ((e as { status?: number }).status === 404) return null; throw e; }
   },
 };

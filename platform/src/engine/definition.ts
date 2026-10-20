@@ -25,6 +25,9 @@ export const WaitRule = z.object({
   // a daily window in that zone: a computed time before `earliest` moves later to it (the same day); after `latest`, earlier to it. "Four hours before a 7am call" lands at 8am, not 3am.
   earliest: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   latest: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  // D193: "before" — a time after the company's send window closes (the person's zone) moves back to just before it closes, the same
+  // day, instead of waiting for the next morning (a reminder before an evening call still goes the right day). Unset: forward, as ever.
+  window: z.enum(["before"]).optional(),
 });
 export type WaitRule = z.infer<typeof WaitRule>;
 

@@ -94,6 +94,8 @@ export interface BookingRead {
   listCalendars(c: Company): Promise<CalendarSnapshot[]>;
   appointmentsInWindow(c: Company, calendarId: string, from: Date, to: Date): Promise<AppointmentSnapshot[]>;
   getAppointment(c: Company, id: string): Promise<AppointmentSnapshot | null>;
+  /** D196: cancel the booking at the source (Calendly: the invitee is told by Calendly). Absent: the source's bookings are not ours to cancel. */
+  cancel?(c: Company, id: string, reason: string): Promise<void>;
 }
 export interface CrmWrite {
   createContact(c: Company, input: { firstName?: string; lastName?: string; email?: string; phone?: string; tags?: string[]; customFields?: { id: string; field_value: string }[]; source?: string }): Promise<{ id: string }>;
