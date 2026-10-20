@@ -14,7 +14,7 @@ import { migrate } from "@/db/migrate";
 import { installCompany, type InstallInput } from "./install";
 import { loadCompany } from "./context";
 import { createCompanyWorkflow } from "./definitions";
-import { normPhone } from "./poll";
+import { normPhone } from "./identity";
 import { tick } from "./runner";
 import { fakeAdapters } from "./test-install";
 import { simulate, simulateForm, type SimAction, type FormInput } from "./simulate";

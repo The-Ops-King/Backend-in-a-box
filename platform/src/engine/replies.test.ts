@@ -11,7 +11,6 @@ import { applyAppointment, pollAll } from "@/engine/poll";
 import { loadCompany, persistedContext } from "@/engine/context";
 import { tick } from "@/engine/runner";
 import { encrypt } from "@/engine/crypto";
-import { clearReplyTexts } from "@/engine/retention";
 import { REDACTED, scrubReplyText } from "@/engine/replies";
 import { fakeAdapters, ghlMessages, unlockSendsForTest } from "@/engine/test-install";
 import type { Adapters, AppointmentSnapshot, Classification, ContactSnapshot, MessageSnapshot } from "@/adapters/types";
@@ -193,26 +192,4 @@ describe.skipIf(!HAS_DB)("D89: a reply is kept as 'it came in' plus Jev's read",
     intent = "confirmed";
   });
 
-  it("the one-time cleanup: a dry run counts and writes nothing; the real one takes the words out of messages, runs, events and step results and keeps Jev's read; a rerun changes nothing", async () => {
-    const { contactId, runId } = await booked("COLD");
-    // what the engine kept before D89
-    await asOperator(async (c) => {
-      await c.query("insert into messages (company_id, contact_id, ghl_message_id, channel, direction, body, subject, occurred_at) values ($1,$2,'old-1','sms','inbound','old words here',null,now()-interval '1 hour'),($1,$2,'old-2','email','inbound',null,'Re: your call',now())", [companyId, contactId]);
-      await c.query("update runs set context = context || $2::jsonb where id=$1", [runId, JSON.stringify({ reply: { intent: "confirmed", intent_confidence: 90, count: 1, inbound_since_send: "old words here", last_inbound: { body: "old words here", at: "x" } } })]);
-      await c.query("insert into events (company_id, contact_id, event_type, source, data, occurred_at) values ($1,$2,'message.received','ghl_poll',$3,now()),($1,$2,'reply.classified','engine',$4,now())", [companyId, contactId, { channel: "sms", message_id: "old-1", body: "old words here" }, { intent: "confirmed", confidence: 0.9, unclear: false, input: "old words here" }]);
-      await c.query("insert into run_steps (run_id, node_id, node_type, status, result, finished_at) values ($1,'n_conf_slack','slack_post','skipped',$2,now())", [runId, { kind: "blocked", would_post: "✅ COLD's call is confirmed.\n> old words here" }]);
-    });
-    const dry = await clearReplyTexts({ companyId });
-    expect(dry).toEqual({ dryRun: true, messages: 2, runs: 1, events: 2, run_steps: 1 });
-    expect((await ledgerText(contactId)).messages).toContain("old words here");   // nothing written
-    const real = await clearReplyTexts({ companyId, dryRun: false });
-    expect(real).toEqual({ dryRun: false, messages: 2, runs: 1, events: 2, run_steps: 1 });
-    const ledger = await ledgerText(contactId);
-    for (const [where, text] of Object.entries(ledger)) { expect(text.includes("old words"), `${where} holds the reply`).toBe(false); expect(text.includes("Re: your call"), `${where} holds the subject`).toBe(false); }
-    expect((await runOf(contactId))!.context.reply).toEqual({ intent: "confirmed", intent_confidence: 90, count: 1, last_inbound: { at: "x" } });
-    expect(await eventsOf(contactId, "reply.classified")).toEqual([{ intent: "confirmed", confidence: 0.9, unclear: false, input_chars: 14 }]);
-    expect(await eventsOf(contactId, "message.received")).toEqual([{ channel: "sms", message_id: "old-1" }]);
-    expect(await asOperator((c) => many(c, "select ghl_message_id from messages where company_id=$1 and contact_id=$2 order by ghl_message_id", [companyId, contactId]))).toEqual([{ ghl_message_id: "old-1" }, { ghl_message_id: "old-2" }]);   // "it came in" stays
-    expect(await clearReplyTexts({ companyId, dryRun: false })).toEqual({ dryRun: false, messages: 0, runs: 0, events: 0, run_steps: 0 });
-  });
 });

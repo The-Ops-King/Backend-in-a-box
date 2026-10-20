@@ -29,6 +29,12 @@ export async function releaseTickLock(owner: string, key = LEGACY_LOCK): Promise
     where key=$2 and value->>'owner' = $1`, [owner, key]));
 }
 
+/** Keeps a lease its owner still holds from running out (a long holder renews; one that died lets it lapse). */
+export async function renewTickLock(owner: string, key: string, leaseSeconds: number): Promise<void> {
+  await asOperator((c) => c.query("update engine_state set value = jsonb_build_object('owner', $1::text, 'until', $3::timestamptz), updated_at = now() where key=$2 and value->>'owner' = $1",
+    [owner, key, new Date(Date.now() + leaseSeconds * 1000).toISOString()]));
+}
+
 /** Is the lease under `key` held right now, by anyone. */
 export async function tickLockHeld(key = LEGACY_LOCK): Promise<boolean> {
   return !!(await asOperator((c) => one(c, "select 1 from engine_state where key=$1 and coalesce((value->>'until')::timestamptz, 'epoch') >= now()", [key])));

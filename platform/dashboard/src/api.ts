@@ -11,7 +11,7 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
   const r = await fetch(path, { ...init, headers: { ...(init?.json !== undefined ? { "content-type": "application/json" } : {}), ...(init?.headers ?? {}) }, body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body, credentials: "same-origin" });
   noteServerBuild(r.headers.get("x-build"));
   const body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
-  if (r.status === 401) { if (!location.pathname.startsWith("/app/login")) location.assign(`/app/login?next=${encodeURIComponent(location.pathname + location.search)}`); throw new ApiError(401, "sign in first", body); }
+  if (r.status === 401) { if (!location.pathname.startsWith("/app/login")) location.assign(`/app/login?next=${encodeURIComponent(location.pathname + location.search)}`); throw new ApiError(401, String(body.error ?? "sign in first"), body); }   // the server's own words: a wrong password says so
   if (!r.ok) throw new ApiError(r.status, String(body.error ?? r.statusText), body);
   return body as T;
 }

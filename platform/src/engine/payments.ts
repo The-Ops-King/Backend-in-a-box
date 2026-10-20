@@ -26,7 +26,7 @@ export type RecordResult =
   | { outcome: "linked"; payment: PaymentRow; event: EventRow; contactId: string; healed: number }
   | { outcome: "unlinked"; payment: PaymentRow; event: EventRow };
 
-export const normEmail = (e?: string | null) => e?.trim().toLowerCase() || undefined;
+import { normEmail } from "./identity";
 export const phoneKey = (p?: string | null) => { const d = (p ?? "").replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : undefined; };
 const money = (n: number) => Math.round(n * 100) / 100;
 /** Over by a rounding cent still clears. */

@@ -3,9 +3,9 @@ import { one } from "@/db/client";
 import { loadCompany } from "@/engine/context";
 import { parseDefinition, fallbacksOf, type Definition, type Node } from "@/engine/definition";
 import { describeNode } from "@/engine/describe";
-import { decrypt } from "@/engine/crypto";
 import { saveStepEdit } from "@/engine/edits";
 import { listSlackChannels, type SlackChannel } from "./setup-data";
+import { slackBot } from "@/engine/slack-conn";
 
 /**
  * Where each Slack step of a workflow posts, and the one thing the dashboard changes on it: the channel, picked from this
@@ -61,9 +61,9 @@ export function slackStepsOf(def: Definition, template: Definition | null, bindi
 }
 
 async function companyChannels(c: PoolClient, companyId: string): Promise<{ connected: boolean; channels: SlackChannel[] | null }> {
-  const tok = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [companyId]);
-  if (!tok) return { connected: false, channels: null };
-  return { connected: true, channels: await listSlackChannels(decrypt(tok.bot_token)) };
+  const bot = await slackBot(c, companyId);
+  if (!bot) return { connected: false, channels: null };
+  return { connected: true, channels: await listSlackChannels(bot.token) };
 }
 
 /** One workflow's Slack steps, where each posts today, and the company's own channels to pick from (the step popup on the workflow page). */

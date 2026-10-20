@@ -76,7 +76,6 @@ async function dial(phrase: string, who: { contactId: string; ghl: string }) {
 }
 const run = () => tick(fake, DateTime.now() as DateTime<true>, co, fakeProbes);
 const runOf = (contactId: string, name: string) => asOperator((c) => one<{ id: string; status: string; exit_reason: string | null }>(c, "select r.id, r.status, r.exit_reason from runs r join workflows w on w.id=r.workflow_id where r.contact_id=$1 and w.name=$2 order by r.started_at desc limit 1", [contactId, name]));
-const stepsOf = (runId: string) => asOperator((c) => many<{ node_id: string; status: string }>(c, "select node_id, status from run_steps where run_id=$1 order by started_at, id", [runId]));
 const eventsOf = (contactId: string, type: string) => asOperator((c) => many<{ data: Record<string, unknown> }>(c, "select data from events where contact_id=$1 and event_type=$2 order by id", [contactId, type])).then((r) => r.map((x) => x.data));
 const setBinding = (key: string, value: string) => asOperator((c) => c.query("insert into bindings (company_id, key, kind, value) values ($1,$2,'text',$3) on conflict (company_id, key) do update set value=excluded.value", [co, key, Buffer.from(value)]));
 

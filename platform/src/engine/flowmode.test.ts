@@ -37,7 +37,7 @@ const contact = (ghl: string, email: string, tags: string[] = []) => asOperator(
 });
 const runsOf = (ct: string, wf: string) => asOperator((c) => many<{ id: string; status: string; born_in: string }>(c, "select id, status, born_in from runs where contact_id=$1 and workflow_id=$2 order by started_at", [ct, wf]));
 const stepOf = (runId: string, type: string) => asOperator((c) => one<{ status: string; result: Record<string, unknown> }>(c, "select status, result from run_steps where run_id=$1 and node_type=$2 order by started_at limit 1", [runId, type]));
-const sendsOf = (ct: string) => asOperator((c) => many<{ channel: string; status: string }>(c, "select channel, status from sends where contact_id=$1 and channel in ('sms','email') order by scheduled_for", [ct]));
+const sendsOf = (ct: string) => asOperator((c) => many<{ channel: string; status: string }>(c, "select channel, status from sends where contact_id=$1 and channel in ('sms','email') order by scheduled_for, channel", [ct]));
 /** A small workflow of the company's own, for what the templates here do not do (post to Slack, run with no contact). */
 const probe = (name: string, event: string, middle: Record<string, unknown>[]) => asOperator(async (c) => {
   const nodes = [{ id: "t1", type: "trigger", event }, ...middle, { id: "x1", type: "exit", reason: "done" }];

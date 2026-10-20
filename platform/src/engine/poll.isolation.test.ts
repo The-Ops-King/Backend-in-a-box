@@ -4,18 +4,20 @@ import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { pollAll } from "@/engine/poll";
-import type { Adapters, ContactSnapshot } from "@/adapters/types";
+import type { Adapters, ContactSnapshot, InboundPage } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 let companyId: string;
 let contacts: ContactSnapshot[] = [];
 let inboundThrows = false;
+const inboundAfter: (number | undefined)[] = [];
+let inboundPages: InboundPage[] = [];
 const recordWrites: Record<string, unknown>[] = [];
 const relations: string[] = [];
 const fake: Adapters = {
   read: {
     openCards: async () => [], contactsChangedSince: async (c) => (c.id === companyId ? contacts : []),
-    inboundSince: async () => { if (inboundThrows) throw new Error("ghl 500"); return []; }, messageBodies: async () => new Map(), callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [],
+    inboundSince: async (c, _since, after) => { if (inboundThrows) throw new Error("ghl 500"); if (c.id !== companyId) return []; inboundAfter.push(after); return inboundPages.shift() ?? []; }, messageBodies: async () => new Map(), callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [],
     opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async () => null, listUsers: async () => [],
   },
   booking: { ghl: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }, calendly: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] } },
@@ -57,5 +59,20 @@ describe.skipIf(!process.env.DATABASE_URL)("poll entity isolation", () => {
     expect(await asOperator((c) => many(c, "select 1 from contacts where company_id=$1", [companyId]))).toHaveLength(1);
     const conv = await asOperator((c) => one<{ consecutive_failures: number }>(c, "select consecutive_failures from poll_cursors where company_id=$1 and entity='conversations'", [companyId]));
     expect(conv!.consecutive_failures).toBe(1);
+  });
+  it("audit risk 11: a tick that could not read every thread keeps the cursor and the next one starts where it stopped; caught up, the cursor moves", async () => {
+    const cur = () => asOperator((c) => many<{ entity: string; cursor: string }>(c, "select entity, cursor from poll_cursors where company_id=$1 and entity like 'conversations%' order by 1", [companyId]));
+    const before = (await cur()).find((x) => x.entity === "conversations")!.cursor;
+    const out = (msgs: InboundPage, more?: number) => Object.assign(msgs, more === undefined ? {} : { more });
+    const late = new Date(Date.parse(before) + 60_000).toISOString();
+    inboundPages = [out([{ id: "m1", conversationId: "cv1", contactId: "stranger", channel: "sms", direction: "outbound", dateAdded: late }], 1792000000000)];
+    inboundAfter.length = 0;
+    await pollAll(fake);
+    expect(inboundAfter).toEqual([undefined]);
+    expect(await cur()).toEqual([{ entity: "conversations", cursor: before }, { entity: "conversations:resume", cursor: "1792000000000" }]);
+    inboundPages = [out([])];
+    await pollAll(fake);
+    expect(inboundAfter).toEqual([undefined, 1792000000000]);
+    expect((await cur()).map((x) => x.entity)).toEqual(["conversations"]);
   });
 });

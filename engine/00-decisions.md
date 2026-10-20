@@ -5639,6 +5639,115 @@ text and the hour-before text are unchanged. Triage call cancelled keeps the tem
 Mitch"), due in a day for whoever takes the call, so its post's "Rebook task" line is true; D142 had left it out. Nelly only.
 Tests: `dating-copies.test.ts`.
 
+## D200. The audit's open items, phase 2 (2026-10-20, branch `audit-fixes`)
+
+(Worked as "D193" on the branch, so its commits say D193.1–D193.13; renumbered on merging, since main took D193–D199 meanwhile.)
+
+Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after D151). One entry, one part per item as it lands.
+
+1. **No reply is missed in a busy location** (audit risk 11). The inbound poll read only the newest 50 threads a tick; Dating
+   shares RapidCloser's GHL, where 50 threads can turn over in minutes. It now reads every thread touched since its cursor,
+   oldest first (`sort=asc&startAfterDate`, checked against PMU's GHL), up to 150 threads a tick. A tick that stops short keeps
+   the cursor where it was and saves where it stopped (`poll_cursors` entity `conversations:resume`); the next tick starts after
+   it, and the cursor moves only once caught up. Reading a message twice is harmless (replies dedupe on the GHL message id,
+   calls on theirs). Each thread now reads its newest 50 messages, not 20.
+   With it, the migrate lease (D151) is renewed every minute while its migration runs (lease 3 minutes, a waiter waits 5): a
+   build that died held the old 15-minute lease past the next build's 10-minute wait.
+
+2. **Retention never lets a retried step send again** (audit risk 13). Old sends were kept only while their run was active or
+   waiting; a paused or failed run can still be retried (`hand.ts`), and the send row is what stops that step sending twice. A
+   run's sends now go only once it has completed or exited, and links to them (agreements, messages) are cleared by the same rule.
+   The sweep looks up which tables link to sends once, not once per company.
+
+3. **The operator key is not left lying around** (audit risk 9). The minute job's key moves into Supabase Vault (`bb_operator_key`)
+   and is read when the job runs, so `cron.job` holds no secret and a changed key is one secret replaced (a database without
+   Vault keeps it in the command as before). It takes effect when the scheduler is next installed (`POST /api/admin/schedule`).
+   And `/api/tick` without `CRON_SECRET` is open only on a developer's machine: a deployment (`VERCEL_ENV` set) refuses it.
+
+4. **Leftovers out.** The one-off admin routes `slim-runs` (D84) and `clear-reply-texts` (D89) go, with their code and tests: a
+   production dry run of each (2026-10-20) found nothing left to change. The event types nothing ever emits (`contact.created`,
+   `contact.merged`, `intake.recorded`, `stage.changed`) go from the seed, the labels and the database (a trigger on one would
+   never fire; a row an event or trigger already names would be kept). `set_tag` / `remove_tag` stay: they already share the
+   `tags` step's code, and removing them means rewriting stored workflows on every offer for no change in behaviour.
+
+5. **The dashboard stays one password** (audit risk 6). Tyler: no one but him logs in. Open item 22 was out of date (it said the
+   writes had no login; the middleware has gated them with the operator password since); corrected. Per-client logins wait
+   for the first client given access.
+
+6. **A replay never re-sends** (audit risk 10; Tyler: no). A booking handed on `again` (D142) starts new runs with new send keys;
+   at a text, email, webhook or agreement step, if an earlier run of the same booking and workflow already sent it (sent,
+   unknown or queued; an agreement claimed), the new one is suppressed with the reason. One only held in ghost or quiet never
+   reached them, so it goes. `force: true` with `again` on `POST /api/admin/replay-bookings` sends it anyway.
+
+7. **Something outside pages Tyler when the engine stops** (audit risk 12; Tyler: Slack). Production had no watchdog at all (the
+   database one was never installed: no `OPERATOR_WEBHOOK_URL`). Vercel's plan allows a cron once a day, so the outside check is a
+   free uptime monitor on `/api/health?assert=fresh` (503 when the engine's or any company's last tick is stale), alerting to
+   Slack and email; the database watchdog posts to a Slack incoming webhook every five minutes the ticks are stale. Its URL is a
+   secret like the key and is kept in Vault the same way. Both wait on Tyler (TODO.md): the webhook URL, and the monitor.
+
+8. **Hand-linking is back, as a Slack button** (Tyler; it lost its route in D42). The Unlinked payment and Unmatched recording
+   posts carry "Link to a contact" (`link_payment` / `link_recording`). The press opens a form, inside Slack's three seconds:
+   their email, phone or GHL contact link. The submit is checked at once (owners, managers and the operator only; the payment or
+   recording still unlinked; exactly one contact matches), with any problem said inside the form; then it is linked exactly as a
+   match on arrival (`linkPayment`, `linkRecording`: the buyer's email is remembered, the workflows it starts run), and the
+   post's thread says "✅ Linked to <name> by <who>" with a ✅ on the post. Needs no Slack scope or manifest change. In the
+   templates; an offer gets it when its own copy is saved from the template (D147), one offer at a time on Tyler's word.
+
+9. **One copy of the shared helpers** (audit §3). `identity.ts` holds the one email and phone rule (three copies disagreed on a
+   number written without "+"; the poll's rule stays, as it wrote every stored identifier) and the two contact lookups that were
+   written out again and again, by GHL id and by email; one copy matched a contact merged into another, none does now.
+   `slack-conn.ts` holds the company's bot (the same query and decrypt in eleven places). `notify_owner` stays its own step: it
+   already shares routing and posting with `slack_post`, and what is left is its own (the owner's task, the owner named).
+
+10. **One claim guard for the writes that share it** (audit §3.3). A note, a task, an agreement and `notify_owner`'s task go
+    through `writeOnce`: a claim an earlier try finished is reused, one left pending is not written twice, else written once and
+    marked done. A record and a card keep their own (D66: a done record claim becomes an update; a pending card claim is made
+    again after the read that found none). The ghost/quiet hold and the no-CRM-id check stay per step on purpose (an agreement
+    is held in quiet too; the owner's task never fails its step). The send guard's parts were already one each (`sendLock`,
+    `sentBefore`, the idempotency key); how a refused send is recorded differs by channel and stays with each.
+
+11. **Numbered migrations** (audit risk 8). Every deploy re-ran ~300 schema statements against the live database (about two minutes,
+    and the source of D151's lock trouble). Now `schema_migrations` records each migration once run: `0001-baseline` is
+    everything up to today, frozen (`baseline.ts`; `baseline.test.ts` fails if it changes), and each later change is the next
+    entry in `migrations.ts`, never edited after it reaches production (CLAUDE.md). The tenant policies are checked, not rebuilt:
+    only a table missing its RLS, FORCE or policy is touched (every deploy used to rebuild all 37: 148 table locks). A deploy with
+    nothing new takes no table lock. The migrator's parts move to `migrator.ts`. The D104 booking-card backfill still runs each
+    deploy: row inserts only, no table lock.
+
+12. **The bot and MQL speak for each offer, not Hair** (Tyler: yes). The bot's prompt was Hair's for every offer: a real customer's
+    name in its examples, "hair loss" answers, MQL as Hair's work-situation question and answers. The prompt is now the same
+    neutral text for every offer, and each question's context carries that offer's qualifying question and answer lists, or
+    that MQL is not defined for it (then the bot says so). MQL reads `qualify.field` (any contact field) and `qualify.question`
+    (its words) instead of a field named for Hair's question; migration 0003 copies an offer's work-situation field onto them,
+    word for word (Hair; Dating and PMU had none and still have none). `/help`'s examples, the metric definitions and the
+    unrecognised-answer warning say "qualifying question/answer". Install takes `qualify.field` and `qualify.question`.
+
+13. **Each offer holds the settings it runs on** (audit §3.1, open item 50 part 2; Tyler: yes, all three offers). Every setting
+    the engine fell back on when an offer had not set it is listed once, with that fallback, in `setting-defaults.ts` (alert
+    timing, call timings, the payment and Discovery Call objects, the objections, the dispositions, the setter rule, and six
+    yes/no switches). Install writes the ones a new offer lacks; migration 0004 wrote each existing offer's effective value onto
+    it, so changing a default later reaches new offers only. The yes/no settings are read one way (`switchOn`: on/yes/true/1,
+    off/no/false/0, anything else its default); four readers had each taken different words. Copying settings between offers
+    treats a value at its default as not the target's own, the same as an untouched default prompt, so it is still copied over.
+
+    Three settings meant different things to different readers when unset; each now means one thing (Tyler: Claude's call):
+    - `crm.object_discovery_call`: unset is `custom_objects.discovery_call`, the object the workflows write. The end of day read
+      no Discovery Calls at all when it was unset, so an offer that never named the object lost its triage calls' answers there.
+    - `sales_call.dispositions`: unset is the engine's own keys (deposit and close pending included), as the end of day, the
+      metrics and the Sales Call writes already took it. Ledger drift's pre-D119 allowance (GHL's closed won kept as the ledger's
+      deposit) now turns on what the offer's map holds, an offer with no deposit option, not on the setting being unset.
+      Dating, PMU and Hair each declare their own map, so nothing they do changes.
+    - `sales_call.objections`: unset is a neutral list (price, partner, timing, fear, competitor, think about it: the one the GHL
+      setup makes for a new offer), not Hair's (which adds medical and burned before). Migration 0004 wrote Hair's list onto
+      every existing offer without its own, so none of them changes; the default call prompts offer the AI the neutral list.
+
+    Found on the way: the metrics' own copy of the default dispositions had lost `close_pending`, so a pending close filed by an
+    offer without its own map counted as nothing; it now reads the engine's list. The operator webhook's body leads with a
+    `text` line (a Slack incoming webhook refuses a body without one, so the engine's own alerts would never have shown there);
+    its fields stay for a Zap.
+
+Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`, `db/baseline.test.ts`, `db/migrate.shared.test.ts`, `qualify.test.ts`, `setting-defaults.test.ts`, `playbooks/apply.test.ts`, `health.drift.test.ts`, `company-objects.test.ts`, `alerts.test.ts`.
+
 ## D201: a scheduled report that ran on a lower rung is not run again at the move up
 
 Tyler (2026-10-20), on Nelly: "I see the wrap up for Mon Oct 19 fired, then later the weekly fired for Oct 12 to Oct 18, was that a

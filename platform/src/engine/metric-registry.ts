@@ -29,7 +29,7 @@ export type MetricResult = {
   group_by?: GroupBy; rows?: MetricRow[]; filters?: Record<string, string>;
   /** Where the number was read: GHL live (people, deals, calls) or the engine's ledger (bookings, cash, dials as polled and received). */
   source: string;
-  /** MQLs: how the period's leads answered the work-situation question. */
+  /** MQLs: how the period's leads answered the offer's qualifying question. */
   qualification?: QualificationSummary;
   /** Show rate: every due call by outcome, who has none filed, and where GHL and the booking source disagree. */
   shows_breakdown?: ShowBreakdown;
@@ -165,11 +165,11 @@ const DUE = "a.starts_at < $6 and a.status not in ('cancelled','invalid') and co
 
 export const METRICS: Record<string, Def> = {
   leads: { kind: "ghl", label: "Leads", unit: "count", entity: "lead", definition: "people who entered their information: GHL contacts by the date GHL added them" },
-  mqls: { kind: "ghl", label: "MQLs", unit: "count", entity: "lead", definition: "leads whose answer to the work-situation question meets the employment standard (an MQL answer in the company's list); a blank answer is not an MQL unless the company counts it, and an answer outside both lists is never counted" },
+  mqls: { kind: "ghl", label: "MQLs", unit: "count", entity: "lead", definition: "leads whose answer to the offer's qualifying question is one of its MQL answers; a blank answer is not an MQL unless the offer counts it, and an answer outside both lists is never counted" },
   leads_booked: { kind: "base", label: "Leads who booked", unit: "count", entity: "contact", value: "count(*)", where: "exists (select 1 from appointments la where la.company_id=ct.company_id and la.contact_id=ct.id and la.source<>'test')", definition: "leads that arrived in the period and have booked a call (any time since), from the ledger" },
   leads_showed: { kind: "base", label: "Leads who showed", unit: "count", entity: "contact", value: "count(*)", where: "exists (select 1 from appointments la left join company_terms lt on lt.id=la.outcome_term where la.company_id=ct.company_id and la.contact_id=ct.id and la.source<>'test' and (lt.category='showed' or la.status='showed'))", definition: "leads that arrived in the period and have showed on a call (any time since), from the ledger" },
   mql_rate: { kind: "rate", label: "MQL rate", num: "mqls", den: "leads", definition: "MQLs ÷ leads, both by the date GHL added them" },
-  marketing_dqs: { kind: "ghl", label: "Marketing DQs", unit: "count", entity: "lead", definition: "leads filtered out before a sales call on financial signals: their answer to the work-situation question is a DQ answer (e.g. currently between jobs, employed part-time). Also called DQLs" },
+  marketing_dqs: { kind: "ghl", label: "Marketing DQs", unit: "count", entity: "lead", definition: "leads filtered out before a sales call: their answer to the offer's qualifying question is one of its DQ answers. Also called DQLs" },
   booked: { kind: "base", label: "Bookings made", unit: "count", entity: "appointment_booked", value: "count(*)", definition: "bookings made in the period (the act of booking), any call type, by the closer they were booked with, from the booking source" },
   booked_self: { kind: "base", label: "Self-booked", unit: "count", entity: "appointment_booked", value: "count(*)", where: "a.self_booked", definition: "bookings made in the period that the person booked themselves, from the booking source" },
   booked_set: { kind: "base", label: "Setter-booked", unit: "count", entity: "appointment_booked", value: "count(*)", where: "a.self_booked = false", definition: "bookings made in the period that a setter booked, from the booking source" },

@@ -143,13 +143,14 @@ describe.skipIf(!process.env.DATABASE_URL)("each company ticks on its own (D98)"
   it("the engine's minute: a company whose last tick is over five minutes old gets engine:company_stale; a fresh tick resolves it", async () => {
     await tickCompany(adapters, B);
     await asOperator((c) => c.query("update engine_state set value = value || $2 where key=$1", [companyClock(A), { last_tick: new Date(Date.now() - 7 * 60e3).toISOString() }]));
+    const t0 = Date.now();
     const e1 = await tickEngine(adapters);
     expect(e1.busy).toBe(false);
     expect(await openKeys(A)).toEqual([STALE_KEY]);
     expect(await openKeys(B)).toEqual([]);
     expect(await openKeys(Z)).toEqual([]);   // archived: not expected to tick
     const heartbeat = await asOperator((c) => one<{ value: { last_tick: string } }>(c, "select value from engine_state where key='scheduler'"));
-    expect(Date.now() - new Date(heartbeat!.value.last_tick).getTime()).toBeLessThan(5000);
+    expect(new Date(heartbeat!.value.last_tick).getTime()).toBeGreaterThanOrEqual(t0);   // written by this tick (not timed: the tick's length grows with the test database)
     await tickCompany(adapters, A);
     await tickEngine(adapters);
     expect(await openKeys(A)).toEqual([]);
@@ -192,6 +193,24 @@ describe.skipIf(!process.env.DATABASE_URL)("each company ticks on its own (D98)"
       expect(calls.every((r) => r.timeout_ms >= 300_000)).toBe(true);
       // of our three companies, exactly the two active ones (and the engine): 3 requests
       expect(urls.filter((u) => u.endsWith("scope=engine") || [A, B, Z].some((id) => u.endsWith(id)))).toHaveLength(3);
+    } finally { await c.query("rollback").catch(() => {}); c.release(); }
+  });
+
+  it("D200: with the key in Vault, the job's command holds no secret and reads it when it runs", async () => {
+    const cmd = tickCommand("https://x.test", "s3cret", undefined, "vault");
+    expect(cmd).not.toContain("s3cret");
+    expect(cmd).toContain("vault.decrypted_secrets");
+    const c = await db().connect();
+    try {
+      if ((await c.query("select 1 from pg_namespace where nspname in ('net','vault')")).rowCount) return;   // a real pg_net or Vault here: do not stub over them
+      await c.query("begin");
+      await c.query("create schema net"); await c.query("create schema vault");
+      await c.query("create table net.calls (url text, headers jsonb, timeout_ms int)");
+      await c.query("create function net.http_get(url text, headers jsonb, timeout_milliseconds int) returns bigint language sql as $$ insert into net.calls values (url, headers, timeout_milliseconds) returning 1::bigint $$");
+      await c.query("create view vault.decrypted_secrets as select 'bb_operator_key'::text as name, 'from-vault'::text as decrypted_secret");
+      await c.query(cmd);
+      const auth = new Set((await c.query<{ a: string }>("select headers->>'Authorization' as a from net.calls")).rows.map((r) => r.a));
+      expect(auth).toEqual(new Set(["Bearer from-vault"]));
     } finally { await c.query("rollback").catch(() => {}); c.release(); }
   });
 });

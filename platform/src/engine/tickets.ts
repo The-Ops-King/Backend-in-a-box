@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { asOperator, many, one } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
-import { decrypt } from "./crypto";
+import { slackBot } from "./slack-conn";
 
 /**
  * D152 (Tyler: a command "which opens a tech issue ... so they can ask for things, or report an issue and it tracks for me"):
@@ -28,10 +28,10 @@ async function gh<T>(g: GitHub, method: string, path: string, body?: unknown): P
 }
 
 async function slackOf(c: PoolClient, companyId: string) {
-  const conn = await one<{ bot_token: Buffer }>(c, "select bot_token from slack_connections where company_id=$1", [companyId]);
+  const bot = await slackBot(c, companyId);
   const op = await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='bot.escalate_to'", [companyId]);
   const co = (await one<{ name: string; slug: string }>(c, "select name, slug from companies where id=$1", [companyId]))!;
-  return { token: conn ? decrypt(conn.bot_token) : null, operator: op?.value.toString("utf8") || null, co };
+  return { token: bot?.token ?? null, operator: op?.value.toString("utf8") || null, co };
 }
 
 /** A ticket opened from Slack: numbered, posted where it was typed, the operator told, a GitHub issue opened. Never throws past Slack. */

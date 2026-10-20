@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { emitEvent, type EventRow } from "./dispatch";
-import { normEmail } from "./payments";
+import { normEmail } from "./identity";
 
 /**
  * Call recordings (D22). Same shape as the payments ledger: every recording the provider reports becomes a row, linked

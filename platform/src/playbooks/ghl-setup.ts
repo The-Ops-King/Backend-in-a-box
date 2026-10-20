@@ -20,8 +20,8 @@ export type SetupParams = {
   /** the Sales Call's Primary Objection options and Call Type options */
   objections: string[]; callTypes: { key: string; label?: string }[];
 };
-/** An offer's objections until it names its own: Dating's, the templates' list without Hair's own (medical, burned before). */
-export const OBJECTIONS = ["price", "partner", "timing", "fear", "competitor", "think_about_it"];
+/** An offer's objections until it names its own (setting-defaults.ts). */
+export { DEFAULT_OBJECTIONS as OBJECTIONS } from "@/engine/setting-defaults";
 
 const opt = (key: string, label?: string) => ({ key, label: label ?? key.split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ") });
 const field = (key: string, name: string, type: string, options?: { key: string; label: string }[]) => ({ key, name, type, ...(options ? { options } : {}) });

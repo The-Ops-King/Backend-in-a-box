@@ -3,6 +3,7 @@ import { many } from "@/db/client";
 import type { Company } from "@/adapters/types";
 import type { GhlReads } from "@/adapters/ghl/metrics";
 import { testContactSql } from "./mode";
+import { switchOn } from "./setting-defaults";
 
 /**
  * D79: what a setter call achieved, as Jev reads it from the transcript, and how often that read matched what happened.
@@ -46,7 +47,7 @@ export function discoveryResultMeaning(value: unknown, bindings: Record<string, 
   return isResult(hit) ? hit : null;
 }
 /** `setter_result.act`: off unless the company turned it on. */
-export const setterResultActs = (bindings: Record<string, string>) => /^(true|yes|on|1)$/i.test((bindings["setter_result.act"] ?? "").trim());
+export const setterResultActs = (bindings: Record<string, string>) => switchOn(bindings, "setter_result.act");
 
 export type TruthBy = "crm" | "human" | "booking_30m" | "booking_7d" | "dq_tag" | "card_lost" | "no_booking_7d";
 export type SetterRead = {

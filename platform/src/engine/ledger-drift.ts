@@ -148,9 +148,9 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
           exists (select 1 from agreements g where g.company_id=$1 and g.contact_id=$2 and g.signed_at is not null) as signed`, [company.id, a.contact_id]);
       meaning = ev?.paid && ev.signed ? "closed" : ev?.paid || ev?.signed ? "pending" : "follow_up";
     }
-    // before D119 the engine filed a deposit as closed won; a company that has not declared a deposit option of its own
-    // (sales_call.dispositions) may hold that record so, and it says what GHL says
-    const noDepositOption = !bindings["sales_call.dispositions"] || !Object.values(cfg!.dispositions).some((d) => d.meaning === "deposit");
+    // before D119 the engine filed a deposit as closed won; a company whose dispositions have no deposit option (unset is the
+    // engine's own keys, deposit included: D200) may hold that record so, and it says what GHL says
+    const noDepositOption = !Object.values(cfg!.dispositions).some((d) => d.meaning === "deposit");
     if ((cur === meaning && (!mapped.reason || held?.name === mapped.reason)) || (cur === "deposit" && meaning === "closed" && noDepositOption)) return;
     // the reason's own term when the company has it (Lost: Financing denied), else the meaning's default
     const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2 and active order by (name = $3) desc, is_default desc, sort limit 1", [company.id, meaning, mapped.reason ?? ""]))?.id;

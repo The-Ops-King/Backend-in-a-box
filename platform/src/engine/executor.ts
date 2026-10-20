@@ -25,6 +25,8 @@ import { dropTranscripts, hydrateTranscripts } from "./transcripts";
 import { dropReplies, hydrateReplies, mentionsReplyText, readsReplyText, scrubReplyText } from "./replies";
 import { boardOf, stageWords } from "./card-moves";
 import { QUIET_SUPPRESSED, QUIET_WHY, quietWhenEmpty } from "./quiet";
+import { slackBot } from "./slack-conn";
+import { switchOn } from "./setting-defaults";
 
 /** Ghost posts to the team are real posts, labelled; nothing else in ghost leaves the engine. */
 export const GHOST_PREFIX = "🧪 *ghost* — ";
@@ -134,8 +136,36 @@ const committed = <T>(d: ExecDeps, fn: (c: PoolClient) => Promise<T>) => checkpo
 /** D66: the create ledger, claimed before a vendor write that has no key of its own and marked done after (effects.ts). */
 const claim = (d: ExecDeps, node: Node, kind: EffectKind) => committed(d, (c) => claimEffect(c, d.company.id, d.run.id, node.id, kind));
 const done = (d: ExecDeps, node: Node, kind: EffectKind, externalId?: string | null) => committed(d, (c) => markEffect(c, d.run.id, node.id, kind, externalId));
+/**
+ * D200 (audit §3.3): the claim around a vendor write with no key of its own, in one place for the steps that share its rule (a note, a
+ * task, an agreement): a claim an earlier try finished is reused; one it left pending is not written twice (the vendor may have it);
+ * else the write runs once and is marked done. A record and a card keep their own rules (D66: a done record claim is updated, a
+ * pending card claim is made again after the read that found no card).
+ */
+async function writeOnce(d: ExecDeps, node: Node, kind: EffectKind, write: () => Promise<string | null>): Promise<{ id: string | null; reused: boolean } | { pending: true }> {
+  const cl = await claim(d, node, kind);
+  if (!cl.fresh) return cl.done ? { id: cl.external_id, reused: true } : { pending: true };
+  const id = await write();
+  await done(d, node, kind, id);
+  return { id, reused: false };
+}
 /** A vendor that never answered may have done it: not reclaimable, said in an alert, never retried blind. */
 export const ambiguousSendError = (e?: string) => !!e && /\btimeout\b|timed out|aborted|ECONNRESET|socket hang up|other side closed|UND_ERR/i.test(e);
+
+/**
+ * D200 (audit risk 10; Tyler: a replay does not re-send): a booking handed on `again` (replay.ts, D142) starts new runs, with new send
+ * keys. What an earlier run of the same booking and workflow already sent the person at this step (a text, email or webhook that went
+ * or may have, an agreement claimed) is not sent again; `force` on the replay overrides. One held in ghost or quiet never reached them.
+ */
+async function sentBefore(d: ExecDeps, node: Node, kind: "sms" | "email" | "webhook" | "document"): Promise<boolean> {
+  const ev = d.ctx.event as { again?: boolean; force?: boolean } | undefined;
+  if (!ev?.again || ev.force || !d.run.appointment_id) return false;
+  const args = [d.run.appointment_id, d.run.workflow_id, d.run.id, node.id];
+  return kind === "document"
+    ? !!(await one(d.c, "select 1 from step_effects e join runs r on r.id=e.run_id where r.appointment_id=$1 and r.workflow_id=$2 and r.id<>$3 and e.node_id=$4 and e.kind='document' limit 1", args))
+    : !!(await one(d.c, "select 1 from sends s join runs r on r.id=s.run_id where r.appointment_id=$1 and r.workflow_id=$2 and r.id<>$3 and s.idempotency_key = r.id::text || ':' || $4 and s.status in ('sent','unknown','queued') limit 1", args));
+}
+const REPLAYED = "replay: an earlier run of this booking already sent this; not sent again (force: true on the replay sends it)";
 
 async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "send_email" }>): Promise<StepOutcome> {
   const next = single(d, node.id);
@@ -174,6 +204,7 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
     return { status: "ok", next, result: { ...heldFlag(d), would_send: body.slice(0, 120), substituted } };
   }
   if (await one(d.c, "select 1 from sends where idempotency_key=$1 and status<>'failed'", [`${d.run.id}:${node.id}`])) return { status: "skipped", next, result: { kind: "noop", why: "already sent (idempotency)" } };
+  if (await sentBefore(d, node, channel)) { await recordSend(d, node, channel, body, "suppressed", REPLAYED); return { status: "skipped", next, result: { kind: "noop", why: REPLAYED, would_send: body.slice(0, 120) } }; }
   // D188: the CRM will not text them (Do Not Disturb): nothing is asked of it and nobody is alerted; the booking card says it once
   if (channel === "sms" && (d.ctx.contact as { sms_dnd?: boolean } | undefined)?.sms_dnd === true) { await recordSend(d, node, channel, body, "suppressed", DND_WHY); return { status: "skipped", next, result: { kind: "noop", why: DND_WHY } }; }
   const lock = await sendLock(d, channel);
@@ -363,21 +394,20 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (!templateId) return { status: "failed", error: `send_document ${node.id}: template rendered empty (bind crm.agreement_template)` };
       if (held(d)) return { status: "ok", next, result: { ...heldFlag(d), would_send_document: { template: templateId, sender, to: contact?.ghl_contact_id } } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "send_document: contact has no CRM id yet" };
+      if (await sentBefore(d, node, "document")) return { status: "skipped", next, result: { kind: "noop", why: REPLAYED, would_send_document: { template: templateId, sender, to: contact.ghl_contact_id } } };
       const lock = await sendLock(d, "document");
       if (!lock.ok) return lock.retry ? { status: "failed", error: lock.why } : { status: "skipped", next, result: { kind: "noop", why: lock.why, would_send_document: { template: templateId, sender, to: contact.ghl_contact_id } } };
-      const cl = await claim(d, node, "document");
-      if (!cl.fresh) return cl.done ? { status: "ok", next, result: { document: cl.external_id, template: templateId, sender, reused: true } } : { status: "skipped", next, result: { kind: "blocked", why: `document not sent twice: ${PENDING_WHY}` } };
-      const sent = await d.adapters.write.sendDocumentTemplate(d.adapterCompany, { templateId, contactId: contact.ghl_contact_id, userId: sender });
-      await done(d, node, "document", sent.id || null);
+      const w = await writeOnce(d, node, "document", async () => (await d.adapters.write.sendDocumentTemplate(d.adapterCompany, { templateId, contactId: contact.ghl_contact_id!, userId: sender })).id || null);
+      if ("pending" in w) return { status: "skipped", next, result: { kind: "blocked", why: `document not sent twice: ${PENDING_WHY}` } };
+      if (w.reused) return { status: "ok", next, result: { document: w.id, template: templateId, sender, reused: true } };
       const { recordSentByEngine } = await import("./agreements");
-      if (sent.id && d.run.contact_id) await recordSentByEngine(d.c, d.company.id, d.run.contact_id, sent.id, name);
-      return { status: "ok", next, result: { document: sent.id, template: templateId, sender } };
+      if (w.id && d.run.contact_id) await recordSentByEngine(d.c, d.company.id, d.run.contact_id, w.id, name);
+      return { status: "ok", next, result: { document: w.id, template: templateId, sender } };
     }
     case "notify_owner": {
       const owner = (d.ctx.contact as { owner?: { name: string; email: string; ghl_user_id: string; slack_user_id: string | null } } | undefined)?.owner;
-      const conn = await one<{ bot_token: Buffer }>(d.c, "select bot_token from slack_connections where company_id=$1", [d.company.id]);
-      const { decrypt } = await import("./crypto");
-      if (conn) await resolveMentions(d, decrypt(conn.bot_token));
+      const bot = await slackBot(d.c, d.company.id);
+      if (bot) await resolveMentions(d, bot.token);
       const text = render(node.template, d.ctx, env(d));
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
       const out: Record<string, unknown> = { owner: owner?.name ?? null };
@@ -385,9 +415,10 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         const dueAt = d.now.plus(parseDuration(node.task.due)).toJSDate(), title = render(node.task.title, d.ctx, env(d));
         if (ghost(d)) out.would_create_task = { title, due: dueAt.toISOString(), assignedUserId: owner?.ghl_user_id };
         else if (contact?.ghl_contact_id) {
-          const cl = await claim(d, node, "task");
-          if (!cl.fresh) { out.task = cl.external_id; out.task_reused = cl.done; if (!cl.done) out.task_why = PENDING_WHY; }
-          else { out.task = (await d.adapters.write.createTask(d.adapterCompany, contact.ghl_contact_id, { title, body: text, dueAt, assignedUserId: owner?.ghl_user_id })).id; await done(d, node, "task", String(out.task)); }
+          const ghlId = contact.ghl_contact_id;
+          const w = await writeOnce(d, node, "task", async () => String((await d.adapters.write.createTask(d.adapterCompany, ghlId, { title, body: text, dueAt, assignedUserId: owner?.ghl_user_id })).id));
+          if ("pending" in w) { out.task = null; out.task_reused = false; out.task_why = PENDING_WHY; }
+          else { out.task = w.id; if (w.reused) out.task_reused = true; }
         }
       }
       const fallback = node.fallback_channel ? (/^\{\{/.test(node.fallback_channel) ? (resolvePath(d.ctx, node.fallback_channel.replace(/[{}\s]/g, "")) as string | undefined) : node.fallback_channel) : undefined;
@@ -396,9 +427,9 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (route && "blocked" in route) { await recordSend(d, node, "slack", text, "suppressed", route.blocked); return { status: "skipped", next, result: { ...out, kind: "noop", why: route.blocked, would_post: text.slice(0, 160) } }; }
       const target = route ? route.to : slackUser ?? fallback;
       const named = slackUser ? text : `${owner?.name ? `*${owner.name}* ` : ""}${text}`, body = route ? `${route.prefix}${named}` : named;
-      if (!conn || !target) { await recordSend(d, node, "slack", body, "suppressed", conn ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, kind: "blocked", why: conn ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
+      if (!bot || !target) { await recordSend(d, node, "slack", body, "suppressed", bot ? "unbound: owner not in Slack and no fallback channel" : "unbound: slack"); return { status: "skipped", next, result: { ...out, kind: "blocked", why: bot ? "owner not in Slack, no fallback channel" : "slack not connected", would_post: body.slice(0, 160) } }; }
       const send = await recordSend(d, node, "slack", body, "queued"); if (!send) return { status: "skipped", next, result: { ...out, kind: "noop", why: "already posted (idempotency)" } };
-      const r = await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(decrypt(conn.bot_token), target, `${modePrefix(d)}${body}`, persona(d, node.as)));
+      const r = await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(bot.token, target, `${modePrefix(d)}${body}`, persona(d, node.as)));
       if ("refused" in r) return { status: "skipped", next, result: { ...out, kind: "blocked", why: `Slack refused the post: ${r.refused}`, would_post: body.slice(0, 160) } };
       await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, ghost(d) ? "ghost" : "sent", r.ts]);
       return { status: "ok", next, result: { ...out, ...(ghost(d) ? { ghost: true } : {}), dm: !!slackUser, ...(route ? { redirected_to: route.to } : {}), ts: r.ts } };
@@ -589,11 +620,9 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const noteText = render(node.template, d.ctx, env(d));
       if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_note: noteText.slice(0, 160) } };
       if (!ghlId) return { status: "failed", error: "note: contact has no CRM id yet" };
-      const cl = await claim(d, node, "note");
-      if (!cl.fresh) return cl.done ? { status: "ok", next, result: { reused: true, why: "written on an earlier try" } } : { status: "skipped", next, result: { kind: "blocked", why: `note not written twice: ${PENDING_WHY}` } };
-      await d.adapters.write.addNote(d.adapterCompany, ghlId, noteText);
-      await done(d, node, "note");
-      return { status: "ok", next };
+      const w = await writeOnce(d, node, "note", async () => { await d.adapters.write.addNote(d.adapterCompany, ghlId, noteText); return null; });
+      if ("pending" in w) return { status: "skipped", next, result: { kind: "blocked", why: `note not written twice: ${PENDING_WHY}` } };
+      return w.reused ? { status: "ok", next, result: { reused: true, why: "written on an earlier try" } } : { status: "ok", next };
     }
     case "update_appointment": {
       if (!d.run.appointment_id) return { status: "failed", error: "update_appointment with no appointment on run" };
@@ -742,14 +771,13 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const title = render(node.title, d.ctx, env(d)), body = node.body ? render(node.body, d.ctx, env(d)) : undefined;
       const dueAt = d.now.plus(parseDuration(render(node.due, d.ctx, env(d)) || "+1d")).toJSDate();
       const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
-      if (/^(off|false|no|0)$/i.test((d.bindings["crm.tasks"] ?? "").trim())) return { status: "skipped", next, result: { kind: "noop", why: "tasks are off for this company (crm.tasks)" } };   // D141
+      if (!switchOn(d.bindings, "crm.tasks")) return { status: "skipped", next, result: { kind: "noop", why: "tasks are off for this company (crm.tasks)" } };   // D141
       if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_create_task: { title, body, due: dueAt.toISOString(), assignedUserId } } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "create_task: contact has no CRM id yet" };
-      const cl = await claim(d, node, "task");
-      if (!cl.fresh) return cl.done ? { status: "ok", next, result: { task_id: cl.external_id, title, due: dueAt.toISOString(), assignedUserId, reused: true } } : { status: "skipped", next, result: { kind: "blocked", why: `task not created twice: ${PENDING_WHY}` } };
-      const t = await d.adapters.write.createTask(d.adapterCompany, contact.ghl_contact_id, { title, body, dueAt, assignedUserId });
-      await done(d, node, "task", t.id);
-      return { status: "ok", next, result: { task_id: t.id, title, due: dueAt.toISOString(), assignedUserId } };
+      const ghlId = contact.ghl_contact_id;
+      const w = await writeOnce(d, node, "task", async () => (await d.adapters.write.createTask(d.adapterCompany, ghlId, { title, body, dueAt, assignedUserId })).id);
+      if ("pending" in w) return { status: "skipped", next, result: { kind: "blocked", why: `task not created twice: ${PENDING_WHY}` } };
+      return { status: "ok", next, result: { task_id: w.id, title, due: dueAt.toISOString(), assignedUserId, ...(w.reused ? { reused: true } : {}) } };
     }
     case "update_opportunity": return updateOpportunity(d, node, next);
     case "analyze": {
@@ -805,6 +833,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (bodyText !== undefined && typeof node.body !== "string" && !Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) headers["Content-Type"] = "application/json";
       const safeUrl = url.replace(/([?&](?:key|token|api_key|apikey|secret)=)[^&]+/gi, "$1…");
       if (held(d)) { await recordSend(d, node, "webhook", bodyText ?? "", ghost(d) ? "ghost" : "quiet", ghost(d) ? null : QUIET_HELD); return { status: "ok", next, result: { ...heldFlag(d), would_call: `${node.method} ${safeUrl}`, would_send: bodyText?.slice(0, 300) } }; }
+      if (await sentBefore(d, node, "webhook")) { await recordSend(d, node, "webhook", bodyText ?? "", "suppressed", REPLAYED); return { status: "skipped", next, result: { kind: "noop", why: REPLAYED, would_call: `${node.method} ${safeUrl}` } }; }
       const lock = await sendLock(d, "webhook");
       if (!lock.ok) {
         if (lock.retry) return { status: "failed", error: lock.why };

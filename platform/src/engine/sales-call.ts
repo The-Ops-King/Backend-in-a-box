@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { DEFAULT_OBJECTIONS, DISPOSITION_DEFAULTS } from "./setting-defaults";
 
 /**
  * A Sales Call's start: an ISO stamp, or the display text an outside integration writes ("Mon Oct 5 · 10:00 AM EDT") read
@@ -45,7 +46,7 @@ export function salesCallValues(bindings: Record<string, string>): SalesCallValu
  * map has no key for is absent: `option:sales_call_disposition` then writes nothing (a deposit on a Sales Call with no Deposit
  * option empties the field rather than calling it closed won). No map at all: the engine's own keys.
  */
-export const DISPOSITION_DEFAULTS: Record<string, string> = { closed: "closed_won", deposit: "deposit", pending: "close_pending", follow_up: "follow_up", lost: "lost", unqualified: "dq" };
+export { DISPOSITION_DEFAULTS };
 export function dispositionValues(bindings: Record<string, string>): Record<string, string> {
   let map: Record<string, unknown> = {};
   try { const j = JSON.parse(bindings["sales_call.dispositions"] ?? "{}") as unknown; if (j && typeof j === "object" && !Array.isArray(j)) map = j as Record<string, unknown>; } catch { map = {}; }
@@ -91,7 +92,7 @@ export function filedMeaning(outcome: unknown, bindings: Record<string, string>)
  * install from `salesCall.objections`); unset, the list the shipped templates always wrote. `{{… | option:sales_call_objection}}`
  * writes a value only when it is one of these, else nothing (the CRM drops an option it lacks without a word).
  */
-export const DEFAULT_OBJECTIONS = ["price", "partner", "timing", "fear", "medical", "burned_before", "competitor", "think_about_it"];
+export { DEFAULT_OBJECTIONS };
 export const OBJECTIONS_KEY = "sales_call.objections";
 export const CLOSER_OPTIONS_KEY = "sales_call.closer_options";
 const jsonOf = (s: string | undefined): unknown => { try { return JSON.parse(s ?? ""); } catch { return undefined; } };
