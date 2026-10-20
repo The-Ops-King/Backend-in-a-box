@@ -5646,4 +5646,11 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
    `slack-conn.ts` holds the company's bot (the same query and decrypt in eleven places). `notify_owner` stays its own step: it
    already shares routing and posting with `slack_post`, and what is left is its own (the owner's task, the owner named).
 
+10. **One claim guard for the writes that share it** (audit §3.3). A note, a task, an agreement and `notify_owner`'s task go
+    through `writeOnce`: a claim an earlier try finished is reused, one left pending is not written twice, else written once and
+    marked done. A record and a card keep their own (D66: a done record claim becomes an update; a pending card claim is made
+    again after the read that found none). The ghost/quiet hold and the no-CRM-id check stay per step on purpose (an agreement
+    is held in quiet too; the owner's task never fails its step). The send guard's parts were already one each (`sendLock`,
+    `sentBefore`, the idempotency key); how a refused send is recorded differs by channel and stays with each.
+
 Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`.
