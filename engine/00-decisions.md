@@ -5815,3 +5815,12 @@ is only if they take inbound calls), and a setter's link. Each ❌ says the next
 takes the role off; `/team` lists the team. It invites, creates and buys nothing (GHL, Slack, Calendly and the phone number stay
 Tyler's). Slack behaviour, so every offer's app gets it in one pass (CLAUDE.md): the manifests list it; /help does not. The two
 welcome emails (personal and work address) are later. Tests: `team-command.test.ts`.
+
+## D204. Contacts handed to another team member; a calendar's owner moved on its own (2026-10-20)
+
+Tyler: "all of the triage calls are going to be taken by Nonie, can you assign Nonie to all the contacts that mitch is assigned to
+and have the 'dating' tag". `POST /api/admin/contact/reassign { company, from, to, tag, why, dryRun }`: the replica's contacts with
+that owner and tag, each read live in GHL and moved only if it still has both (a contact changed since is left and said);
+re-running moves what is left; audited once. `POST /api/admin/calendars/owner { company, calendar, owner, why, dryRun }`: the
+calendar's owner (D142) and its upcoming bookings, as install sets them, without a re-install; a past call stays whoever took it.
+Both dry run by default. Nelly only; Mitch stays a setter for outbound calls. Tests: `contact-ops.reassign.test.ts`.
