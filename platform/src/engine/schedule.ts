@@ -14,28 +14,42 @@ export const TICK_TIMEOUT_MS = 310_000;
  * when the job runs, so a client added later ticks the next minute with no reinstall. Dollar-quoted so the JSON needs no
  * escaping; the tag is unusual enough never to appear in a URL or secret.
  */
-export function tickCommand(tickUrl: string, secret: string, timeoutMs = TICK_TIMEOUT_MS): string {
-  const headers = JSON.stringify({ Authorization: `Bearer ${secret}` });
-  return `select net.http_get(url := $bbq$${tickUrl}/api/tick?$bbq$ || t.q, headers := $bbq$${headers}$bbq$::jsonb, timeout_milliseconds := ${Math.max(300_000, Math.floor(timeoutMs))}) `
+export function tickCommand(tickUrl: string, secret: string, timeoutMs = TICK_TIMEOUT_MS, keyIn: "command" | "vault" = "command"): string {
+  const headers = keyIn === "vault"
+    ? `jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = $bbq$${OPERATOR_KEY_NAME}$bbq$))`
+    : `$bbq$${JSON.stringify({ Authorization: `Bearer ${secret}` })}$bbq$::jsonb`;
+  return `select net.http_get(url := $bbq$${tickUrl}/api/tick?$bbq$ || t.q, headers := ${headers}, timeout_milliseconds := ${Math.max(300_000, Math.floor(timeoutMs))}) `
     + `from (select 'scope=engine' as q union all select 'company=' || id::text from companies co where ${runningSql()}) t`;
 }
+
+/** The Vault secret the tick job reads its key from (D193). */
+export const OPERATOR_KEY_NAME = "bb_operator_key";
 
 /**
  * The minute scheduler lives in the database: Supabase ships pg_cron + pg_net, so a cron job inside Postgres calls
  * /api/tick every minute. No third account, no Vercel Pro, and it fires on time where GitHub's five-minute schedule did not.
- * The bearer secret sits in cron.job's command text; anyone who can read that table already owns the database.
+ * D193 (audit risk 9): where Supabase Vault is installed the key is kept there and read when the job runs, so cron.job's command
+ * holds no secret (and a changed key needs only the secret replaced); a database without Vault keeps it in the command as before.
  */
-export async function installTickSchedule(tickUrl: string, secret: string, everyMinutes = 1, timeoutMs = TICK_TIMEOUT_MS): Promise<{ jobid: number }> {
+export async function installTickSchedule(tickUrl: string, secret: string, everyMinutes = 1, timeoutMs = TICK_TIMEOUT_MS): Promise<{ jobid: number; keyIn: "vault" | "command" }> {
   if (!/^https:\/\/[^/\s'"]+$/.test(tickUrl)) throw new Error(`tickUrl must be an https origin without a path: ${tickUrl}`);
   if (!Number.isInteger(everyMinutes) || everyMinutes < 1 || everyMinutes > 59) throw new Error("everyMinutes must be 1–59");
   const schedule = everyMinutes === 1 ? "* * * * *" : `*/${everyMinutes} * * * *`;
-  const command = tickCommand(tickUrl, secret, timeoutMs);
   return asOperator(async (c) => {
     await c.query("create extension if not exists pg_cron");
     await c.query("create extension if not exists pg_net");
-    const r = await one<{ jobid: number }>(c, "select cron.schedule($1, $2, $3) as jobid", [TICK_JOB, schedule, command]);   // same name = replace
-    return { jobid: Number(r!.jobid) };
+    const keyIn = (await keepKeyInVault(c, secret)) ? "vault" : "command";
+    const r = await one<{ jobid: number }>(c, "select cron.schedule($1, $2, $3) as jobid", [TICK_JOB, schedule, tickCommand(tickUrl, secret, timeoutMs, keyIn)]);   // same name = replace
+    return { jobid: Number(r!.jobid), keyIn };
   });
+}
+
+async function keepKeyInVault(c: PoolClient, secret: string): Promise<boolean> {
+  if (!(await one(c, "select 1 from pg_extension where extname='supabase_vault'"))) return false;
+  const have = await one<{ id: string }>(c, "select id from vault.secrets where name=$1", [OPERATOR_KEY_NAME]);
+  if (have) await c.query("select vault.update_secret($1, $2)", [have.id, secret]);
+  else await c.query("select vault.create_secret($1, $2, 'backend-in-a-box operator key, read by the tick job (D193)')", [secret, OPERATOR_KEY_NAME]);
+  return true;
 }
 
 /**

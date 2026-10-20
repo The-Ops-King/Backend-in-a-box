@@ -5606,4 +5606,9 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
    waiting; a paused or failed run can still be retried (`hand.ts`), and the send row is what stops that step sending twice. A
    run's sends now go only once it has completed or exited, and links to them (agreements, messages) are cleared by the same rule.
 
-Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`.
+3. **The operator key is not left lying around** (audit risk 9). The minute job's key moves into Supabase Vault (`bb_operator_key`)
+   and is read when the job runs, so `cron.job` holds no secret and a changed key is one secret replaced (a database without
+   Vault keeps it in the command as before). It takes effect when the scheduler is next installed (`POST /api/admin/schedule`).
+   And `/api/tick` without `CRON_SECRET` is open only on a developer's machine: a deployment (`VERCEL_ENV` set) refuses it.
+
+Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`.

@@ -28,4 +28,7 @@ describe("operator key", () => {
     expect(operatorAuthorized(req("Bearer x"), {})).toBe(false);
     expect(tickAuthorized(req(), {})).toBe(true);
   });
+  it("D193: a deployment with no key refuses the tick instead of opening it", () => {
+    for (const VERCEL_ENV of ["production", "preview"]) expect(tickAuthorized(req(), { VERCEL_ENV })).toBe(false);
+  });
 });

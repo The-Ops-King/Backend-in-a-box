@@ -194,4 +194,22 @@ describe.skipIf(!process.env.DATABASE_URL)("each company ticks on its own (D98)"
       expect(urls.filter((u) => u.endsWith("scope=engine") || [A, B, Z].some((id) => u.endsWith(id)))).toHaveLength(3);
     } finally { await c.query("rollback").catch(() => {}); c.release(); }
   });
+
+  it("D193: with the key in Vault, the job's command holds no secret and reads it when it runs", async () => {
+    const cmd = tickCommand("https://x.test", "s3cret", undefined, "vault");
+    expect(cmd).not.toContain("s3cret");
+    expect(cmd).toContain("vault.decrypted_secrets");
+    const c = await db().connect();
+    try {
+      if ((await c.query("select 1 from pg_namespace where nspname in ('net','vault')")).rowCount) return;   // a real pg_net or Vault here: do not stub over them
+      await c.query("begin");
+      await c.query("create schema net"); await c.query("create schema vault");
+      await c.query("create table net.calls (url text, headers jsonb, timeout_ms int)");
+      await c.query("create function net.http_get(url text, headers jsonb, timeout_milliseconds int) returns bigint language sql as $$ insert into net.calls values (url, headers, timeout_milliseconds) returning 1::bigint $$");
+      await c.query("create view vault.decrypted_secrets as select 'bb_operator_key'::text as name, 'from-vault'::text as decrypted_secret");
+      await c.query(cmd);
+      const auth = new Set((await c.query<{ a: string }>("select headers->>'Authorization' as a from net.calls")).rows.map((r) => r.a));
+      expect(auth).toEqual(new Set(["Bearer from-vault"]));
+    } finally { await c.query("rollback").catch(() => {}); c.release(); }
+  });
 });
