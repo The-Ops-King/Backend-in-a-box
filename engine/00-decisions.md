@@ -5620,3 +5620,12 @@ the booking is cancelled in the engine and the cancel workflows run, as for a ca
 Tyler: "I want to be able to add and remove setters and closers very quickly." `POST /api/admin/team { company, email, role: setter |
 closer, slack? }` adds a GHL user of the location (the roster read again if they are new), links their Slack, and says their setter
 link; `remove: true` takes the role off. `GET ?company=` lists the team. Audited. Tests: `team.test.ts`.
+
+## D198. A Calendly booking's phone is taken whatever its question says (2026-10-20)
+
+Tyler booked Nelly's consultation with his number in "Please add your phone number" and got the no-phone ⚠️: the engine read a
+phone only from a question starting "Phone number" (or the configured one). Tyler: "fix the engine to take any phone number." Now:
+Calendly's text-reminder number, then the configured question (Hair's "Best number" still wins), then a question the event type
+makes a phone field (its labels read from the event type, cached ten minutes; a failed read is no fields, never a failed poll),
+then any question whose label has the word phone. Every offer: no offer that had a phone loses it or gets a different one; one
+whose form missed the rule now gets the phone. Tests: `calendly/read.test.ts`.
