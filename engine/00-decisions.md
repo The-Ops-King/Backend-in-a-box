@@ -5830,3 +5830,10 @@ Then: "if they've had a call, let's keep them assigned to Mitch." `calledTo`: a 
 instead. Had a call (Tyler picked): a booking whose time passed and was not cancelled, or a call in their GHL conversations that
 connected for more than 0 seconds, read live per contact (`contactCalls`), since the replica's bookings start 2026-10-15 and it
 holds no dials from before the engine. A contact with no owner who had a call goes to Mitch too (Tyler).
+Applied 2026-10-20 on Nelly after the dry runs: 304 dating contacts to Nonie (camwall2026@gmail.com), 7 with no owner who had a call
+to Mitch, 9 of Mitch's who had a call kept; Nelly's 8 untouched. The run's GHL writes all landed, but its one long transaction
+(about four minutes across hundreds of GHL calls) collided with the contacts poll, so its replica writes and its audit row were rolled
+back and it answered 500; the contacts poll then read every owner back from GHL (Mitch 16, Nonie 304, Nelly 8, matching the plan
+name for name). So there is no `contacts.reassigned` audit row for that run; this entry is its record. Fixed: each contact's replica
+write now commits on its own. The Strategy Session's owner moved to Nonie with its 96 upcoming bookings (`calendar.owner` audited);
+Nelly's install file names her as its owner and a setter, so a re-install keeps it.
