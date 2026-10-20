@@ -40,10 +40,27 @@ describe.skipIf(!process.env.DATABASE_URL)("D204: reassign and calendar owner", 
     expect(dry).toMatchObject({ ok: true, dryRun: true, from: "Mitch Sapoff", to: "Nonie Wallace", count: 4, contacts: ["A", "B", "E", "F"] });
     expect(writes).toEqual([]);
     const real = await asOperator((c) => contactsReassign(c, fake, { ...args, dryRun: false }));
-    expect(real).toMatchObject({ ok: true, moved: 2, contacts: ["A", "B"], skipped: [{ who: "E", why: "owned by someone else now" }, { who: "F", why: "no longer tagged dating" }] });
+    expect(real).toMatchObject({ ok: true, moved: 2, contacts: ["A", "B"], skipped: [{ who: "E", why: "already Nonie Wallace's" }, { who: "F", why: "no longer tagged dating" }] });
     expect(writes).toEqual([["A", "GN"], ["B", "GN"]]);
     expect(await asOperator((c) => contactsReassign(c, fake, args))).toMatchObject({ count: 2, contacts: ["E", "F"] });   // re-run: only what is left
     expect(await asOperator((c) => contactsReassign(c, fake, { ...args, to: "nobody@x.com" }))).toMatchObject({ ok: false, status: 404 });
+  });
+
+  it("everyone's but Nelly's (no owner included): Nelly's and the new owner's own are left; each still checked live", async () => {
+    await asOperator(async (c) => {
+      for (const [id, owner] of [["G", null], ["H", "GL"], ["I", "GM"]] as const)
+        await c.query("insert into contacts (company_id, ghl_contact_id, first_name, tags, assigned_ghl_user_id, timezone, timezone_source) values ($1,$2,$2,'{dating}',$3,'America/Phoenix','company_default')", [co, id, owner]);
+      await c.query("insert into users (company_id, email, name, role, ghl_user_id) values ($1,'nelly@x.com','Nelly S.','closer','GL') on conflict do nothing", [co]);
+    });
+    crm.set("G", snap("G", "", ["dating"])); crm.set("I", snap("I", "GM", ["dating"]));
+    const args = { company: SLUG, except: ["nelly@x.com"], to: "nonie@x.com", tag: "dating", why: "test" };
+    const dry = await asOperator((c) => contactsReassign(c, fake, args));
+    expect(dry).toMatchObject({ ok: true, dryRun: true, from: "anyone but Nelly S. and Nonie Wallace", contacts: ["E", "F", "G", "I"], byOwner: { "Mitch Sapoff": 3, "no owner": 1 } });
+    expect(dry.ok && dry.byOwner["Nonie Wallace"]).toBeFalsy();
+    writes.length = 0;
+    const real = await asOperator((c) => contactsReassign(c, fake, { ...args, dryRun: false }));
+    expect(real).toMatchObject({ moved: 2, contacts: ["G", "I"], skipped: [{ who: "E", why: "already Nonie Wallace's" }, { who: "F", why: "no longer tagged dating" }] });
+    expect(await asOperator((c) => contactsReassign(c, fake, { ...args, from: "mitch@x.com" }))).toMatchObject({ ok: false, status: 400 });
   });
 
   it("the calendar's owner moves with its upcoming bookings; a past one stays", async () => {

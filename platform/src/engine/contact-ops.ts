@@ -63,22 +63,31 @@ export async function contactTags(c: PoolClient, adapters: Adapters, a: { compan
 }
 
 /**
- * D204: one offer's contacts handed from one team member to another in GHL (Tyler: "assign Nonie to all the contacts that mitch is
- * assigned to and have the 'dating' tag"). The list is the replica's (owner `from`, carrying `tag`); each contact is read live in GHL
- * first and changed only if it still has that owner and tag, so a contact reassigned or untagged since is left alone and said.
- * A dry run (the default) lists them; re-running moves only what is left. Audited once with every contact moved.
+ * D204: one offer's contacts handed to one team member in GHL (Tyler: "assign Nonie to all the contacts that mitch is assigned to
+ * and have the 'dating' tag", then "reassign all NON NELLY contacts to camwall"). Whose: `from` (one owner), or `except` (anyone's,
+ * no owner included, but these people's and the new owner's own). The list is the replica's (which holds only the offer's contacts),
+ * carrying `tag`; each contact is read live in GHL first and changed only if it still matches, so one reassigned or untagged since
+ * is left alone and said. A dry run (the default) lists them, grouped by current owner; re-running moves only what is left. Audited
+ * once with every contact moved.
  */
-export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { company: string; from: string; to: string; tag: string; why: string; dryRun?: boolean }):
-  Promise<{ ok: true; dryRun: boolean; from: string; to: string; count: number; moved: number; contacts: string[]; skipped: { who: string; why: string }[] } | Fail> {
-  if (!a.from || !a.to || !a.tag?.trim() || !a.why?.trim()) return { ok: false, status: 400, error: "from, to, tag and why are required" };
+export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { company: string; from?: string; except?: string[]; to: string; tag: string; why: string; dryRun?: boolean }):
+  Promise<{ ok: true; dryRun: boolean; from: string; to: string; count: number; byOwner: Record<string, number>; moved: number; contacts: string[]; skipped: { who: string; why: string }[] } | Fail> {
+  if ((!a.from && !a.except?.length) || (a.from && a.except?.length) || !a.to || !a.tag?.trim() || !a.why?.trim()) return { ok: false, status: 400, error: "to, tag, why, and one of from (an owner) or except (owners to leave alone) are required" };
   const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
   const who = (email: string) => one<{ name: string; ghl_user_id: string | null }>(c, "select name, ghl_user_id from users where company_id=$1 and lower(email)=lower($2)", [co.id, email.trim()]);
-  const from = await who(a.from), to = await who(a.to);
-  if (!from?.ghl_user_id) return { ok: false, status: 404, error: `${a.from} is not a GHL user on this offer's roster` };
+  const to = await who(a.to);
   if (!to?.ghl_user_id) return { ok: false, status: 404, error: `${a.to} is not a GHL user on this offer's roster: add them in GHL, then to the team (/team add)` };
-  const list = await many<{ id: string; ghl_contact_id: string; who: string }>(c, `select id, ghl_contact_id, coalesce(nullif(trim(concat_ws(' ', first_name, last_name)), ''), ghl_contact_id) as who from contacts
-    where company_id=$1 and assigned_ghl_user_id=$2 and $3 = any(tags) and ghl_contact_id is not null and gone_at is null and merged_into is null order by who`, [co.id, from.ghl_user_id, a.tag.trim()]);
-  const base = { from: from.name, to: to.name, count: list.length };
+  let from: { name: string; ghl_user_id: string } | null = null; const keep: string[] = [to.ghl_user_id]; const kept: string[] = [];
+  if (a.from) { const f = await who(a.from); if (!f?.ghl_user_id) return { ok: false, status: 404, error: `${a.from} is not a GHL user on this offer's roster` }; from = { name: f.name, ghl_user_id: f.ghl_user_id }; }
+  for (const e of a.except ?? []) { const k = await who(e); if (!k?.ghl_user_id) return { ok: false, status: 404, error: `${e} is not a GHL user on this offer's roster` }; keep.push(k.ghl_user_id); kept.push(k.name); }
+  const matches = (owner: string | null | undefined) => (from ? owner === from.ghl_user_id : !keep.includes(owner ?? ""));
+  const list = (await many<{ id: string; ghl_contact_id: string; who: string; owner: string | null; owner_name: string | null }>(c, `select ct.id, ct.ghl_contact_id, coalesce(nullif(trim(concat_ws(' ', ct.first_name, ct.last_name)), ''), ct.ghl_contact_id) as who,
+      ct.assigned_ghl_user_id as owner, u.name as owner_name from contacts ct left join users u on u.company_id=ct.company_id and u.ghl_user_id=ct.assigned_ghl_user_id
+    where ct.company_id=$1 and $2 = any(ct.tags) and ct.ghl_contact_id is not null and ct.gone_at is null and ct.merged_into is null order by who`, [co.id, a.tag.trim()]))
+    .filter((x) => matches(x.owner));
+  const byOwner: Record<string, number> = {};
+  for (const x of list) { const k = x.owner_name ?? (x.owner ? `someone not on the roster (${x.owner})` : "no owner"); byOwner[k] = (byOwner[k] ?? 0) + 1; }
+  const base = { from: from ? from.name : `anyone but ${[...kept, to.name].join(" and ")}`, to: to.name, count: list.length, byOwner };
   if (a.dryRun !== false) return { ok: true, dryRun: true, ...base, moved: 0, contacts: list.map((x) => x.who), skipped: [] };
   const { adapterCompany: ac } = await loadCompany(c, co.id);
   const moved: { id: string; who: string }[] = [], skipped: { who: string; why: string }[] = [];
@@ -86,7 +95,7 @@ export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { c
     try {
       const live = await adapters.read.getContact(ac, x.ghl_contact_id);
       if (!live) { skipped.push({ who: x.who, why: "gone from GHL" }); continue; }
-      if (live.assignedTo !== from.ghl_user_id) { skipped.push({ who: x.who, why: live.assignedTo ? "owned by someone else now" : "has no owner now" }); continue; }
+      if (!matches(live.assignedTo)) { skipped.push({ who: x.who, why: live.assignedTo === to.ghl_user_id ? `already ${to.name}'s` : live.assignedTo ? "owned by someone else now" : "has no owner now" }); continue; }
       if (!live.tags.includes(a.tag.trim())) { skipped.push({ who: x.who, why: `no longer tagged ${a.tag}` }); continue; }
       await adapters.write.updateContact(ac, x.ghl_contact_id, { assignedUserId: to.ghl_user_id });
       await c.query("update contacts set assigned_ghl_user_id=$2, updated_at=now() where id=$1", [x.id, to.ghl_user_id]);
@@ -94,7 +103,7 @@ export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { c
     } catch (e) { skipped.push({ who: x.who, why: `GHL refused: ${String((e as Error).message).slice(0, 120)}` }); }
   }
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'contacts.reassigned','user',$2,$3,$4)",
-    [co.id, to.ghl_user_id, { owner: from.ghl_user_id, tag: a.tag }, { owner: to.ghl_user_id, why: a.why, contacts: moved.map((m) => m.id), skipped: skipped.length }]);
+    [co.id, to.ghl_user_id, { owner: from?.ghl_user_id ?? null, except: keep, tag: a.tag }, { owner: to.ghl_user_id, why: a.why, contacts: moved.map((m) => m.id), skipped: skipped.length }]);
   return { ok: true, dryRun: false, ...base, moved: moved.length, contacts: moved.map((m) => m.who), skipped };
 }
 

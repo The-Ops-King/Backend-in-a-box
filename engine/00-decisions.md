@@ -5824,3 +5824,5 @@ that owner and tag, each read live in GHL and moved only if it still has both (a
 re-running moves what is left; audited once. `POST /api/admin/calendars/owner { company, calendar, owner, why, dryRun }`: the
 calendar's owner (D142) and its upcoming bookings, as install sets them, without a re-install; a past call stays whoever took it.
 Both dry run by default. Nelly only; Mitch stays a setter for outbound calls. Tests: `contact-ops.reassign.test.ts`.
+Then: "I want to reassign all NON NELLY contacts to camwall" (Nonie's GHL, Slack and Calendly address). The reassign takes `except`
+in place of `from`: every contact of the offer with the tag, no owner included, but those people's and the new owner's own.
