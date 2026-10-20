@@ -5602,4 +5602,8 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
    With it, the migrate lease (D151) is renewed every minute while its migration runs (lease 3 minutes, a waiter waits 5): a
    build that died held the old 15-minute lease past the next build's 10-minute wait.
 
-Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`.
+2. **Retention never lets a retried step send again** (audit risk 13). Old sends were kept only while their run was active or
+   waiting; a paused or failed run can still be retried (`hand.ts`), and the send row is what stops that step sending twice. A
+   run's sends now go only once it has completed or exited, and links to them (agreements, messages) are cleared by the same rule.
+
+Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`.
