@@ -39,14 +39,17 @@ export const MIGRATIONS: Migration[] = [
   // D202: the offers waiting on a signature (a payment in the last `window_min` minutes from someone with nothing signed, or an
   // agreement sent in them and not signed), for the ten-second documents job; it reads tenant tables, so it runs as the operator
   { id: "0005-documents-waiting", run: async (c) => {
+    // the operator role is taken at run time (set_config, as the app does): a function-level SET of app.role needs a superuser
     await c.query(`create or replace function bb_documents_waiting(window_min int default 15) returns table (company_id uuid)
-      language sql stable set app.role = 'operator' as $fn$
-        select co.id from companies co
+      language plpgsql as $fn$
+      begin
+        perform set_config('app.role', 'operator', true);
+        return query select co.id from companies co
         where (co.status in ('active','hosted') or (co.status='template' and exists (select 1 from bindings sb where sb.company_id=co.id and sb.key='sandbox.running')))
           and (exists (select 1 from agreements a where a.company_id=co.id and a.signed_at is null and a.sent_at > now() - make_interval(mins => window_min))
             or exists (select 1 from payments p where p.company_id=co.id and p.status='succeeded' and p.contact_id is not null and p.paid_at > now() - make_interval(mins => window_min)
-              and not exists (select 1 from agreements g where g.company_id=co.id and g.contact_id=p.contact_id and g.signed_at is not null)))
-      $fn$`);
+              and not exists (select 1 from agreements g where g.company_id=co.id and g.contact_id=p.contact_id and g.signed_at is not null)));
+      end $fn$`);
     // D202: a closer's /agreement in Slack asks for an agreement to be sent; the Send agreement workflow sends it
     await c.query(`insert into event_types values ('agreement.requested','agreement') on conflict do nothing`);
   } },
