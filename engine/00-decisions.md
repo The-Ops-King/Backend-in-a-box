@@ -5878,3 +5878,12 @@ and his own (MST) the next: the engine falls back on the offer's zone, silently,
 The leftover rehearsal bookings that started it were voided (no workflow, off the end-of-day forms and the numbers) with the new
 `POST /api/admin/simulate/void`; real bookings are refused there. Tests: `timezone.test.ts`, `simulate.void.test.ts`.
 
+## D207. A setter's blank triage calls in the operator's ping, with the link to file them (2026-10-20)
+
+Tyler: "Yes add setters to the ping. I want to be able to fill them out myself if necessary." The end-of-day reminder's two-day
+ping to the operator named only blank Sales Calls in GHL (closers'), so a setter's unfiled triage calls never reached Tyler. Where
+the company turns on `eod.triage_overdue`, `eod_due` also names the triage calls the day's end of day has not answered once they are
+overdue; one whose Discovery Call record in GHL already has an outcome other than scheduled was answered there and is owed by no one
+(as a filed Sales Call is not). Each overdue day now carries `url`: that person's end-of-day link for the day, so the operator can
+open it and file it. Off (every other offer): nothing changes; the new `url` is only there for a template that uses it. Nelly: on,
+and her reminder's operator line links each day. Tests: `eod.triage-overdue.test.ts`.

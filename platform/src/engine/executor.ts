@@ -903,10 +903,34 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
           }
         } catch (e) { ghl = String((e as Error).message).slice(0, 200); }   // GHL unread: the ledger's days still go out
       }
+      // D207: a setter's triage calls are named to the operator too once overdue, where the company turns it on (`eod.triage_overdue`;
+      // Tyler: "add setters to the ping"). Owed is the ledger's: a triage call the end of day has not answered; one whose Discovery Call
+      // record in GHL already has an outcome other than scheduled was answered there, and is not owed (as a filed Sales Call is not)
+      if (/^(on|true|yes)$/i.test((d.bindings["eod.triage_overdue"] ?? "").trim())) {
+        const open = [...new Set([...days.values()].flatMap((e) => [...e.ledger]))];
+        const triage = open.length ? await many<{ id: string; slot_key: string | null; who: string }>(d.c, `select a.id::text as id, a.slot_key, coalesce(nullif(trim(concat_ws(' ', ct.first_name, ct.last_name)), ''), 'someone') as who
+          from appointments a join company_terms t on t.id=a.appointment_term left join contacts ct on ct.id=a.contact_id where a.id = any($1::uuid[]) and t.category='first_call'`, [open]) : [];
+        const answered = new Set<string>();
+        const object = d.bindings["crm.object_discovery_call"];
+        if (object && triage.length) {
+          try {
+            const keys = new Set(triage.map((r) => r.slot_key).filter((k): k is string => !!k));
+            for (const r of await d.adapters.read.objectRecords(d.adapterCompany, object)) {
+              const ext = String(r.properties.external_id ?? "").trim(), outcome = String(r.properties.outcome ?? "").trim().toLowerCase();
+              if (keys.has(ext) && outcome && outcome !== "scheduled") answered.add(ext);
+            }
+          } catch (e) { ghl = ghl ?? String((e as Error).message).slice(0, 200); }
+        }
+        for (const e of days.values()) for (const r of triage) {
+          if (!e.ledger.has(r.id)) continue;
+          if (r.slot_key && answered.has(r.slot_key)) { e.ledger.delete(r.id); continue; }
+          e.blank.push(r.who);
+        }
+      }
       const owed = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).filter(([, e]) => e.ledger.size || e.extra || e.dials)
         .map(([day, e]) => ({ day, label: label(day), when: day === eod.day ? "today" : label(day), url: day === eod.day ? eod.url : `${eod.url}?day=${day}`, today: day === eod.day, calls: e.ledger.size + e.dials, ghl_blank: e.extra, both: e.ledger.size + e.dials > 0 && e.extra > 0 }));
       const cutoff = overdueAfter === null ? null : d.now.setZone(tz).minus({ days: overdueAfter }).toISODate()!;
-      const overdue = cutoff === null ? [] : [...days.entries()].filter(([day, e]) => e.blank.length && day <= cutoff).sort(([a], [b]) => a.localeCompare(b)).map(([day, e]) => ({ day, label: label(day), names: e.blank }));
+      const overdue = cutoff === null ? [] : [...days.entries()].filter(([day, e]) => e.blank.length && day <= cutoff).sort(([a], [b]) => a.localeCompare(b)).map(([day, e]) => ({ day, label: label(day), names: e.blank, url: day === eod.day ? eod.url : `${eod.url}?day=${day}` }));
       if (legacy) {
         // a copy edited before D88 reads its lines as text; it keeps getting them, word for word, until it is re-made from the template
         const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
