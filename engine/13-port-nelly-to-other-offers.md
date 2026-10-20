@@ -4,8 +4,12 @@ From Nelly's go-live (item 54), D186 to D198. Every offer is its own offer: noth
 Tyler names the offer and the workflow, and each one goes with a dry run first (`POST /api/admin/workflows/definition`,
 `fromTemplate: true` for a template change, D147).
 
-**Which offer is which:** production holds two offers, `dating-nelly` and `pmu`. The `pmu` install books through Save Your Hair
-Today's Calendly. Confirm whether "Hair" and "PMU" are that one offer or two before anything is ported.
+**The offers:** production holds `dating-nelly`, `hair` (Save Your Hair Today; no install file in the repo, so a port is made on
+its saved workflows) and `pmu` (The Beauty Moguls, its own Calendly). Hair's Calendly is being set up again before any port.
+
+**Found while listing (not ported, not fixed):** PMU's Deal closed email (`installs/pmu/deal-closed.json`, step e1) is still
+Hair's copy: "Hair responds slowly" and Hair's booking link. PMU's Deal closed is on; nothing has gone out (PMU runs in ghost,
+sends locked). Fix on PMU only, when Tyler names it.
 
 ## A. Already on every offer (engine code, nothing to port)
 
