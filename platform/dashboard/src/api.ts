@@ -49,5 +49,5 @@ export type MetricsPage = { company: CompanyHead; from: string; to: string; time
 export type { SetupPage, WorkflowSlack };
 /** D171: the onboarding wizard of a client being stood up. */
 export type OnboardingPage = OnboardingState;
-export type EodListPage = { company: CompanyHead; reports: { id: string; day: string; closer: string; submitted_at: string | null; reminded_at: string | null; totals: string | null; changes: { field: string; from: unknown; to: unknown; contact?: string }[] }[]; closers: { id: string; name: string; email: string; url: string }[] };
+export type EodListPage = { company: CompanyHead; reports: { id: string; day: string; closer: string; submitted_at: string | null; reminded_at: string | null; totals: string | null; changes: { field: string; from: unknown; to: unknown; contact?: string }[] }[]; closers: { id: string; name: string; email: string; role?: string; url: string }[] };
 export type { Chart, PathItem };
