@@ -5747,3 +5747,26 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
     its fields stay for a Zap.
 
 Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`, `db/baseline.test.ts`, `db/migrate.shared.test.ts`, `qualify.test.ts`, `setting-defaults.test.ts`, `playbooks/apply.test.ts`, `health.drift.test.ts`, `company-objects.test.ts`, `alerts.test.ts`.
+
+## D201: a scheduled report that ran on a lower rung is not run again at the move up
+
+Tyler (2026-10-20), on Nelly: "I see the wrap up for Mon Oct 19 fired, then later the weekly fired for Oct 12 to Oct 18, was that a
+test?" It was not. Nelly's weekly wrap-up and leaderboard ran on quiet at 8 and 9am Pacific on Monday. At 7:10pm Pacific they went
+live, and the move up's clean slate (D51) deleted every run born below, those two included, so the clock found Monday's period
+unrun and fired both again at 7:12pm. The daily wrap-up did the same at 7:10pm.
+
+Now `clearRehearsalRuns` keeps a scheduled run's row (`reentry_key` `schedule:…`) and clears only what it did (its steps, sends and
+the events it wrote). A finished run keeps how it ended; one still going is closed out (exited, "cleared at the move up: its period
+ran on a lower rung") so nothing picks up halfway. Its key stays, so the clock counts the period as run and the next post is the
+next scheduled one (Tyler: no re-fire). Every other run is deleted at the move up as before. Engine code, so it covers every offer:
+it changes no saved workflow, only what a move up leaves behind. `Cleared.periods` counts the runs kept.
+
+Same day, on Nelly only (Tyler named the three, Pacific time, dry run first, saved through /api/admin/workflows/definition):
+- Weekly wrap-up stays at 8:00 Monday.
+- Weekly leaderboard: 9:00 → 8:01 Monday (v3).
+- Monthly wrap-up: 8:00 → 8:02 on the 1st (v4).
+
+One minute apart, because the clock fires once a minute: that is what keeps them in order in Slack.
+
+Tests: `flowmode.test.ts` (D201).
+
