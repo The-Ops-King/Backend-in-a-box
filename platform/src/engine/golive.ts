@@ -15,12 +15,12 @@ export const WRITES_FOR_ALL: Mode[] = ["quiet", "live"];
 const rank = (m: Mode) => MODES.indexOf(m);
 /** The runs a move up to `to` leaves behind: born on a rung below it. */
 const bornBelow = (to: Mode) => MODES.filter((m) => rank(m) < rank(to));
-/** `periods`: scheduled reports' runs kept as closed-out markers, so the period they ran in is not run again (D200) */
+/** `periods`: scheduled reports' runs kept as closed-out markers, so the period they ran in is not run again (D201) */
 export type Cleared = { runs: number; steps: number; sends: number; events: number; appointments: number; periods?: number };
 /**
  * The clean slate (item 9): every run not born live, and every synthetic appointment the test harness made, with what pointed at them. Real CRM facts (contacts, their tags, real appointments) stay: the CRM is the truth about those.
  * D92: for the company, only the runs of workflows that will run live (those on their own lower rung keep rehearsing); for one workflow going live on its own, only its runs, and the synthetic bookings stay for the rest.
- * D200: a scheduled run (a report: the wrap-ups, the leaderboard, the end-of-day nudges) is cleared of what it did but its row is
+ * D201: a scheduled run (a report: the wrap-ups, the leaderboard, the end-of-day nudges) is cleared of what it did but its row is
  * kept, closed out (exited), so the clock counts its period as run. Deleting it let the clock fire that period again the moment the
  * workflow went up (Nelly's weekly wrap-up and leaderboard, 2026-10-19: run on quiet at 8 and 9am, posted again at 7:12pm when they
  * went live). Tyler: no re-fire; the next post is the next scheduled one.

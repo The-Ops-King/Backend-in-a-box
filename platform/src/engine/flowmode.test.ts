@@ -187,7 +187,7 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
     expect(await asOperator((c) => workflowMode(c, newLead))).toEqual({ mode: "live", own: "live", company: "test" });
   });
 
-  it("D200: a scheduled report that ran on a lower rung is not run again when its workflow goes up: its period stays run, its run closed out", async () => {
+  it("D201: a scheduled report that ran on a lower rung is not run again when its workflow goes up: its period stays run, its run closed out", async () => {
     const report = await probe("Report probe", "schedule", [{ id: "v1", type: "set_var", key: "x", value: "1" }]);
     await asOperator(async (c) => {   // the probe's trigger, scheduled for every day at midnight (so today's period has come)
       const v = (await one<{ definition: { nodes: Record<string, unknown>[] } }>(c, "select definition from workflow_versions where workflow_id=$1 and version=1", [report]))!.definition;
@@ -215,7 +215,7 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
     expect(await asOperator((c) => one(c, "select status, exit_reason, next_run_at from runs where id=$1", [ran!.id])))
       .toEqual({ status: "exited", exit_reason: "cleared at the move up: its period ran on a lower rung", next_run_at: null });
     // a run that is not a schedule's is still deleted at the move up, as before
-    const ct = await contact("D200", "d200@example.com");
+    const ct = await contact("D201", "d200@example.com");
     await lead(ct);
     expect((await runsOf(ct, speed)).length).toBeGreaterThan(0);
     await setFlow(speed, "live");

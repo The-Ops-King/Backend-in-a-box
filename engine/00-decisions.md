@@ -5639,7 +5639,7 @@ text and the hour-before text are unchanged. Triage call cancelled keeps the tem
 Mitch"), due in a day for whoever takes the call, so its post's "Rebook task" line is true; D142 had left it out. Nelly only.
 Tests: `dating-copies.test.ts`.
 
-## D200: a scheduled report that ran on a lower rung is not run again at the move up
+## D201: a scheduled report that ran on a lower rung is not run again at the move up
 
 Tyler (2026-10-20), on Nelly: "I see the wrap up for Mon Oct 19 fired, then later the weekly fired for Oct 12 to Oct 18, was that a
 test?" It was not. Nelly's weekly wrap-up and leaderboard ran on quiet at 8 and 9am Pacific on Monday. At 7:10pm Pacific they went
@@ -5659,5 +5659,5 @@ Same day, on Nelly only (Tyler named the three, Pacific time, dry run first, sav
 
 One minute apart, because the clock fires once a minute: that is what keeps them in order in Slack.
 
-Tests: `flowmode.test.ts` (D200).
+Tests: `flowmode.test.ts` (D201).
 
