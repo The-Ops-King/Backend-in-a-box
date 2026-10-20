@@ -137,6 +137,21 @@ const done = (d: ExecDeps, node: Node, kind: EffectKind, externalId?: string | n
 /** A vendor that never answered may have done it: not reclaimable, said in an alert, never retried blind. */
 export const ambiguousSendError = (e?: string) => !!e && /\btimeout\b|timed out|aborted|ECONNRESET|socket hang up|other side closed|UND_ERR/i.test(e);
 
+/**
+ * D193 (audit risk 10; Tyler: a replay does not re-send): a booking handed on `again` (replay.ts, D142) starts new runs, with new send
+ * keys. What an earlier run of the same booking and workflow already sent the person at this step (a text, email or webhook that went
+ * or may have, an agreement claimed) is not sent again; `force` on the replay overrides. One held in ghost or quiet never reached them.
+ */
+async function sentBefore(d: ExecDeps, node: Node, kind: "sms" | "email" | "webhook" | "document"): Promise<boolean> {
+  const ev = d.ctx.event as { again?: boolean; force?: boolean } | undefined;
+  if (!ev?.again || ev.force || !d.run.appointment_id) return false;
+  const args = [d.run.appointment_id, d.run.workflow_id, d.run.id, node.id];
+  return kind === "document"
+    ? !!(await one(d.c, "select 1 from step_effects e join runs r on r.id=e.run_id where r.appointment_id=$1 and r.workflow_id=$2 and r.id<>$3 and e.node_id=$4 and e.kind='document' limit 1", args))
+    : !!(await one(d.c, "select 1 from sends s join runs r on r.id=s.run_id where r.appointment_id=$1 and r.workflow_id=$2 and r.id<>$3 and s.idempotency_key = r.id::text || ':' || $4 and s.status in ('sent','unknown','queued') limit 1", args));
+}
+const REPLAYED = "replay: an earlier run of this booking already sent this; not sent again (force: true on the replay sends it)";
+
 async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "send_email" }>): Promise<StepOutcome> {
   const next = single(d, node.id);
   if (node.type === "send_sms" && d.company.sms_enabled === false) { await recordSend(d, node, "sms", "", "suppressed", "sms_disabled: company has no number"); return { status: "skipped", next, result: { kind: "noop", why: "sms disabled for company" } }; }
@@ -174,6 +189,7 @@ async function doSend(d: ExecDeps, node: Extract<Node, { type: "send_sms" | "sen
     return { status: "ok", next, result: { ...heldFlag(d), would_send: body.slice(0, 120), substituted } };
   }
   if (await one(d.c, "select 1 from sends where idempotency_key=$1 and status<>'failed'", [`${d.run.id}:${node.id}`])) return { status: "skipped", next, result: { kind: "noop", why: "already sent (idempotency)" } };
+  if (await sentBefore(d, node, channel)) { await recordSend(d, node, channel, body, "suppressed", REPLAYED); return { status: "skipped", next, result: { kind: "noop", why: REPLAYED, would_send: body.slice(0, 120) } }; }
   // D188: the CRM will not text them (Do Not Disturb): nothing is asked of it and nobody is alerted; the booking card says it once
   if (channel === "sms" && (d.ctx.contact as { sms_dnd?: boolean } | undefined)?.sms_dnd === true) { await recordSend(d, node, channel, body, "suppressed", DND_WHY); return { status: "skipped", next, result: { kind: "noop", why: DND_WHY } }; }
   const lock = await sendLock(d, channel);
@@ -362,6 +378,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (!templateId) return { status: "failed", error: `send_document ${node.id}: template rendered empty (bind crm.agreement_template)` };
       if (held(d)) return { status: "ok", next, result: { ...heldFlag(d), would_send_document: { template: templateId, sender, to: contact?.ghl_contact_id } } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "send_document: contact has no CRM id yet" };
+      if (await sentBefore(d, node, "document")) return { status: "skipped", next, result: { kind: "noop", why: REPLAYED, would_send_document: { template: templateId, sender, to: contact.ghl_contact_id } } };
       const lock = await sendLock(d, "document");
       if (!lock.ok) return lock.retry ? { status: "failed", error: lock.why } : { status: "skipped", next, result: { kind: "noop", why: lock.why, would_send_document: { template: templateId, sender, to: contact.ghl_contact_id } } };
       const cl = await claim(d, node, "document");
@@ -799,6 +816,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (bodyText !== undefined && typeof node.body !== "string" && !Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) headers["Content-Type"] = "application/json";
       const safeUrl = url.replace(/([?&](?:key|token|api_key|apikey|secret)=)[^&]+/gi, "$1…");
       if (held(d)) { await recordSend(d, node, "webhook", bodyText ?? "", ghost(d) ? "ghost" : "quiet", ghost(d) ? null : QUIET_HELD); return { status: "ok", next, result: { ...heldFlag(d), would_call: `${node.method} ${safeUrl}`, would_send: bodyText?.slice(0, 300) } }; }
+      if (await sentBefore(d, node, "webhook")) { await recordSend(d, node, "webhook", bodyText ?? "", "suppressed", REPLAYED); return { status: "skipped", next, result: { kind: "noop", why: REPLAYED, would_call: `${node.method} ${safeUrl}` } }; }
       const lock = await sendLock(d, "webhook");
       if (!lock.ok) {
         if (lock.retry) return { status: "failed", error: lock.why };

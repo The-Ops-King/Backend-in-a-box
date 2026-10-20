@@ -5621,4 +5621,9 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
    writes had no login; the middleware has gated them with the operator password since); corrected. Per-client logins wait
    for the first client given access.
 
-Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`.
+6. **A replay never re-sends** (audit risk 10; Tyler: no). A booking handed on `again` (D142) starts new runs with new send keys;
+   at a text, email, webhook or agreement step, if an earlier run of the same booking and workflow already sent it (sent,
+   unknown or queued; an agreement claimed), the new one is suppressed with the reason. One only held in ghost or quiet never
+   reached them, so it goes. `force: true` with `again` on `POST /api/admin/replay-bookings` sends it anyway.
+
+Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`.
