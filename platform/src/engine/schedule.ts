@@ -23,7 +23,7 @@ export function tickCommand(tickUrl: string, secret: string, timeoutMs = TICK_TI
 }
 
 /** The Vault secret the tick job reads its key from (D193). */
-export const OPERATOR_KEY_NAME = "bb_operator_key";
+export const OPERATOR_KEY_NAME = "bb_operator_key", WATCHDOG_URL_NAME = "bb_watchdog_url";
 
 /**
  * The minute scheduler lives in the database: Supabase ships pg_cron + pg_net, so a cron job inside Postgres calls
@@ -38,17 +38,17 @@ export async function installTickSchedule(tickUrl: string, secret: string, every
   return asOperator(async (c) => {
     await c.query("create extension if not exists pg_cron");
     await c.query("create extension if not exists pg_net");
-    const keyIn = (await keepKeyInVault(c, secret)) ? "vault" : "command";
+    const keyIn = (await keepInVault(c, OPERATOR_KEY_NAME, secret, "backend-in-a-box operator key, read by the tick job (D193)")) ? "vault" : "command";
     const r = await one<{ jobid: number }>(c, "select cron.schedule($1, $2, $3) as jobid", [TICK_JOB, schedule, tickCommand(tickUrl, secret, timeoutMs, keyIn)]);   // same name = replace
     return { jobid: Number(r!.jobid), keyIn };
   });
 }
 
-async function keepKeyInVault(c: PoolClient, secret: string): Promise<boolean> {
+async function keepInVault(c: PoolClient, name: string, secret: string, description: string): Promise<boolean> {
   if (!(await one(c, "select 1 from pg_extension where extname='supabase_vault'"))) return false;
-  const have = await one<{ id: string }>(c, "select id from vault.secrets where name=$1", [OPERATOR_KEY_NAME]);
+  const have = await one<{ id: string }>(c, "select id from vault.secrets where name=$1", [name]);
   if (have) await c.query("select vault.update_secret($1, $2)", [have.id, secret]);
-  else await c.query("select vault.create_secret($1, $2, 'backend-in-a-box operator key, read by the tick job (D193)')", [secret, OPERATOR_KEY_NAME]);
+  else await c.query("select vault.create_secret($1, $2, $3)", [secret, name, description]);
   return true;
 }
 
@@ -58,14 +58,17 @@ async function keepKeyInVault(c: PoolClient, secret: string): Promise<boolean> {
  * straight from Postgres. The one outage it cannot report is the database itself being down, which takes everything
  * else down with it anyway.
  */
-export async function installWatchdog(alertUrl: string, staleMinutes = 5): Promise<{ jobid: number }> {
+export async function installWatchdog(alertUrl: string, staleMinutes = 5): Promise<{ jobid: number; urlIn: "vault" | "command" }> {
   if (!/^https:\/\/[^\s'"$]+$/.test(alertUrl)) throw new Error(`alertUrl must be an https URL: ${alertUrl}`);
   const body = `jsonb_build_object('text', 'backend-in-a-box: no engine tick for ' || extract(epoch from (now() - (value->>'last_tick')::timestamptz))::int / 60 || ' minutes (last ' || (value->>'last_tick') || ')', 'source', 'watchdog', 'at', now())`;
-  const command = `select net.http_post(url := $bbq$${alertUrl}$bbq$, body := ${body}, headers := '{"Content-Type":"application/json"}'::jsonb) from engine_state where key='scheduler' and (value->>'last_tick')::timestamptz < now() - interval '${Math.max(1, Math.floor(staleMinutes))} minutes'`;
   return asOperator(async (c) => {
     await c.query("create extension if not exists pg_cron"); await c.query("create extension if not exists pg_net");
+    // D193: the alert URL is a secret too (anyone holding a Slack webhook can post with it): kept in Vault where there is one
+    const urlIn = (await keepInVault(c, WATCHDOG_URL_NAME, alertUrl, "backend-in-a-box watchdog alert URL (D193)")) ? "vault" : "command";
+    const url = urlIn === "vault" ? `(select decrypted_secret from vault.decrypted_secrets where name = $bbq$${WATCHDOG_URL_NAME}$bbq$)` : `$bbq$${alertUrl}$bbq$`;
+    const command = `select net.http_post(url := ${url}, body := ${body}, headers := '{"Content-Type":"application/json"}'::jsonb) from engine_state where key='scheduler' and (value->>'last_tick')::timestamptz < now() - interval '${Math.max(1, Math.floor(staleMinutes))} minutes'`;
     const r = await one<{ jobid: number }>(c, "select cron.schedule($1, $2, $3) as jobid", [WATCHDOG_JOB, "*/5 * * * *", command]);
-    return { jobid: Number(r!.jobid) };
+    return { jobid: Number(r!.jobid), urlIn };
   });
 }
 export async function removeWatchdog(): Promise<boolean> {
@@ -99,7 +102,7 @@ export async function tickScheduleStatus(): Promise<ScheduleStatus> {
     const recentRuns = await many<ScheduleStatus["recentRuns"][number]>(c, "select status, return_message, start_time from cron.job_run_details where jobid=$1 order by start_time desc limit 5", [job.jobid]);
     const wd = await one<{ jobid: number; schedule: string; active: boolean; command: string }>(c, "select jobid, schedule, active, command from cron.job where jobname=$1", [WATCHDOG_JOB]);
     return { installed: true, job: { ...job, jobid: Number(job.jobid), command: job.command.replace(/Bearer [^"\\]+/, "Bearer ***") }, recentRuns,
-      watchdog: wd ? { jobid: Number(wd.jobid), schedule: wd.schedule, active: wd.active, alertUrl: /\$bbq\$(https:[^$]+)\$bbq\$/.exec(wd.command)?.[1] ?? null } : undefined };
+      watchdog: wd ? { jobid: Number(wd.jobid), schedule: wd.schedule, active: wd.active, alertUrl: /\$bbq\$(https:[^$]+)\$bbq\$/.exec(wd.command)?.[1] ?? (wd.command.includes(WATCHDOG_URL_NAME) ? "(in Vault)" : null) } : undefined };
   });
 }
 

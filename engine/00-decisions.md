@@ -5626,4 +5626,10 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
    unknown or queued; an agreement claimed), the new one is suppressed with the reason. One only held in ghost or quiet never
    reached them, so it goes. `force: true` with `again` on `POST /api/admin/replay-bookings` sends it anyway.
 
+7. **Something outside pages Tyler when the engine stops** (audit risk 12; Tyler: Slack). Production had no watchdog at all (the
+   database one was never installed: no `OPERATOR_WEBHOOK_URL`). Vercel's plan allows a cron once a day, so the outside check is a
+   free uptime monitor on `/api/health?assert=fresh` (503 when the engine's or any company's last tick is stale), alerting to
+   Slack and email; the database watchdog posts to a Slack incoming webhook every five minutes the ticks are stale. Its URL is a
+   secret like the key and is kept in Vault the same way. Both wait on Tyler (TODO.md): the webhook URL, and the monitor.
+
 Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`.
