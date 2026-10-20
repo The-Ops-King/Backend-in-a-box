@@ -5860,3 +5860,13 @@ company's self-book link (`bookingCalendar`). Applied by a reduced re-install (c
 workflow touched); Nelly's install file says the same. `GET /api/admin/calendars?company=` lists the booking tool's calendars with
 what the engine watches (read only), which is how the new event type was found. The new calendar's first poll was its baseline with
 no bookings on it yet, so nothing booked through the new link was swallowed.
+
+## D207. A setter's blank triage calls in the operator's ping, with the link to file them (2026-10-20)
+
+Tyler: "Yes add setters to the ping. I want to be able to fill them out myself if necessary." The end-of-day reminder's two-day
+ping to the operator named only blank Sales Calls in GHL (closers'), so a setter's unfiled triage calls never reached Tyler. Where
+the company turns on `eod.triage_overdue`, `eod_due` also names the triage calls the day's end of day has not answered once they are
+overdue; one whose Discovery Call record in GHL already has an outcome other than scheduled was answered there and is owed by no one
+(as a filed Sales Call is not). Each overdue day now carries `url`: that person's end-of-day link for the day, so the operator can
+open it and file it. Off (every other offer): nothing changes; the new `url` is only there for a template that uses it. Nelly: on,
+and her reminder's operator line links each day. Tests: `eod.triage-overdue.test.ts`.
