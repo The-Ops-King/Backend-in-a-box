@@ -5588,3 +5588,35 @@ Also D188: the find-or-make step reads the contact's Do Not Disturb and phone fr
 for a contact GHL already held.
 
 Tests: `filters.test.ts` (D192).
+
+
+## D193. Reminders before an evening call go earlier the same day (2026-10-20)
+
+Tyler: "Sounds good" to sending a reminder that would land after the send window closes earlier that day, not the next morning
+(when the call is too close for it). A wait step's rule takes `window: "before"`: a time at or after the company's send window close
+(the person's zone) moves back to a minute before it. Nelly's day-before and hour-before waits use it, and her hour texts say how long
+("in about an hour", "in about 2 hours") rather than "in an hour". Other offers are unchanged until their waits ask for it.
+Tests: `waitrule.test.ts`, `dating-copies.test.ts`.
+
+## D194. A booking close to its call (2026-10-20)
+
+No "⏳ No reply to the booking text in 4 hours" when the call is within 1.5 hours (the wait was cut short by the call, not 4 hours),
+and no hour-before text within an hour of the booking text. Nelly's pre-calls. Tests: `dating-copies.test.ts`.
+
+## D195. Bookings handed to one workflow (the pre-call, at its unlock) (2026-10-20)
+
+`POST /api/admin/replay-bookings { company, upcoming: true, workflow, dryRun }` hands every real booking whose call is ahead to that
+one workflow only: no other workflow runs again (no second booking card); a booking with a run of it still going is skipped; one whose
+event a go-live cleared gets a new one. Run when a pre-call's sends are unlocked, dry run first. Tests: `replay.test.ts`.
+
+## D196. ❌ cancels the Calendly booking (2026-10-20)
+
+Tyler: "Sure." A workflow's cancel of a Calendly booking (the pre-call's ❌) cancels it at Calendly (Calendly tells the person), then
+the booking is cancelled in the engine and the cancel workflows run, as for a cancel at the source. It reaches the person, so in quiet
+(a real contact) or ghost it is held. Needs a Calendly token that may write. Tests: `poll.calendly.test.ts`.
+
+## D197. An offer's team in one call (2026-10-20)
+
+Tyler: "I want to be able to add and remove setters and closers very quickly." `POST /api/admin/team { company, email, role: setter |
+closer, slack? }` adds a GHL user of the location (the roster read again if they are new), links their Slack, and says their setter
+link; `remove: true` takes the role off. `GET ?company=` lists the team. Audited. Tests: `team.test.ts`.

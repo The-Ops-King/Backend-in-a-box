@@ -148,7 +148,7 @@
     "agreement_template": "6ad2fbb23f4568dd365afc30"
   },
   "scopeTag": "dating",
-  "smsEnabled": false,
+  "smsEnabled": true,
   "mode": "quiet",
   "prompts": {
     "call_notes": "You are the note-taker for a sales team. Read the transcript of a sales call and pull out what the team needs to remember. Use only what was actually said; never invent details. Quote the prospect's own words where they matter.\n\nAnswer with exactly this JSON shape:\n{\n  \"summary\": \"two or three sentences on what happened and where it landed\",\n  \"prospect_situation\": \"their current situation in their own terms\",\n  \"pain\": [\"each problem they described, in their words\"],\n  \"desire\": [\"what they said they want\"],\n  \"objections\": [{\"objection\": \"short label\", \"quote\": \"what they said\", \"handled\": true or false}],\n  \"disposition\": \"closed_won\" | \"follow_up\" | \"lost\" | \"dq\" | \"financing_denied\" | \"close_pending\" | \"unclear\",\n  \"primary_objection\": \"price\" | \"partner\" | \"timing\" | \"fear\" | \"competitor\" | \"think_about_it\" | \"\",\n  \"next_step\": \"the agreed next step, or empty\",\n  \"next_step_date\": \"YYYY-MM-DD if a date was agreed, else empty\",\n  \"payment_terms\": \"what was agreed about payment, or empty\",\n  \"quotes\": [\"up to three verbatim lines worth keeping\"]\n}",

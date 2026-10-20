@@ -53,4 +53,21 @@ describe.skipIf(!process.env.DATABASE_URL)("D138: replaying bookings", () => {
     expect(await asOperator((c) => replayBookings(c, co, [baseline], { dryRun: false, baseline: true }))).toMatchObject([{ would: "replay", runs_started: 1 }]);
     expect(await asOperator((c) => one(c, "select source, data->>'replay' as replay from events where appointment_id=$1 and event_type='appointment.booked'", [baseline]))).toEqual({ source: "engine", replay: "true" });
   });
+
+  it("D195: handed to one workflow (the pre-call at its unlock): only that workflow starts, the booked one never runs again; a booking it is still running is skipped; one whose event a go-live cleared gets a new one", async () => {
+    const pre = await asOperator(async (c) => {
+      const nodes = [{ id: "t1", type: "trigger", event: "appointment.booked" }, { id: "w1", type: "wait", rule: { anchor: "appointment.starts_at", offset: "-1h" } }, { id: "x1", type: "exit", reason: "done" }];
+      const def = parseDefinition({ schema: 1, reentry: "once_per_appointment", reentry_key: "{{appointment.starts_at}}", premise: { check: "none" }, nodes, edges: [{ from: "t1", to: "w1" }, { from: "w1", to: "x1" }] });
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Pre-call','once_per_appointment',true) returning id", [co]))!;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [wf.id, def, extractManifest(def)]);
+      await syncTriggers(c, co, wf.id, def);
+      return wf.id;
+    });
+    const a = await appt(30), cleared = await appt(40, "confirmed", false);
+    const byWf = (x: string) => asOperator((c) => many<{ name: string }>(c, "select w.name from runs r join workflows w on w.id=r.workflow_id where r.appointment_id=$1 order by w.name", [x]));
+    expect(await asOperator((c) => replayBookings(c, co, [a, cleared], { dryRun: false, workflowId: pre }))).toMatchObject([{ would: "replay", runs_started: 1 }, { would: "replay", runs_started: 1 }]);
+    expect(await byWf(a)).toEqual([{ name: "Pre-call" }]);
+    expect(await byWf(cleared)).toEqual([{ name: "Pre-call" }]);
+    expect(await asOperator((c) => replayBookings(c, co, [a], { dryRun: false, workflowId: pre }))).toMatchObject([{ would: "skip", why: "a run of it is still going" }]);
+  });
 });

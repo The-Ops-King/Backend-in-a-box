@@ -106,15 +106,27 @@ describe("D118: Dating Nelly's copies", () => {
     expect(at("n_nolink")).toMatchObject({ type: "slack_post", channel: "{{slack.channel.no_link}}", only_if: noLink });
     expect(String(at("n_nolink").template)).toMatch(/^\{\{appointment\.closer\.mention/);
     expect(at("n_nolink_alert")).toMatchObject({ type: "slack_post", channel: "{{slack.channel.no_link_alerts}}", only_if: noLink, template: at("n_nolink").template });
-    expect(at("m1").only_if).toEqual({ exists: "appointment.meeting_url" });
+    const notJustSent = { or: [{ not: { exists: "reply.last_outbound.at" } }, { lt: ["{{reply.last_outbound.at | hours_until}}", -1] }] };
+    expect(at("m1").only_if).toEqual({ and: [{ exists: "appointment.meeting_url" }, notJustSent] });
     expect(ways("m1")).toEqual(["m1_nolink"]); expect(ways("m1_nolink")).toEqual(["x_done"]);
-    expect(at("m1_nolink")).toMatchObject({ type: "send_sms", only_if: noLink, validity: at("m1").validity, on_stale: "skip" });
+    expect(at("m1_nolink")).toMatchObject({ type: "send_sms", only_if: { and: [noLink, notJustSent] }, validity: at("m1").validity, on_stale: "skip" });
     expect(String(at("m1_nolink").template)).not.toContain("meeting_url");
     expect(JSON.stringify(file("triage-pre-call").definition)).not.toMatch(/n_nolink|m1_nolink|no_link/);
     // the channel is a setting (CLAUDE.md "configurable, not written in"): Dating's is #dating-calls-booked, as its bookings
     const slack = (JSON.parse(fs.readFileSync(INSTALL, "utf8")) as { slack: Record<string, string> }).slack;
     expect(slack.no_link).toBe(slack.bookings);
     expect(slack.no_link_alerts).toBe((JSON.parse(fs.readFileSync(INSTALL, "utf8")) as { alerts: { slackChannel: string } }).alerts.slackChannel);
+  });
+
+  it("D193, D194: both pre-calls send the day-before and hour-before earlier the same day rather than the next morning; a booking close to its call gets no false ⏳ note and no hour-before text on the heels of the booking text; the hour text says how long, not 'in an hour'", () => {
+    type N = { id: string; type: string } & Record<string, unknown>;
+    for (const slug of ["triage-pre-call", "closing-pre-call"]) {
+      const at = (id: string) => (file(slug).definition as unknown as { nodes: N[] }).nodes.find((n) => n.id === id)!;
+      for (const id of ["r24", "r1"]) expect((at(id).rule as Record<string, unknown>).window, `${slug} ${id}`).toBe("before");
+      expect(at("n_unc_slack").only_if).toEqual({ gt: ["{{appointment.starts_at | hours_until}}", 1.5] });
+      expect(String(at("m1").template)).toContain("{{appointment.starts_at | relative:hours}}");
+      expect(String(at("m1").template)).not.toContain("in an hour");
+    }
   });
 
   it("D186: the end of day's notes and why a DQ reach the Discovery Call record, from a triage call's row and an outbound call's; a DQ reason a later answer drops is emptied", () => {

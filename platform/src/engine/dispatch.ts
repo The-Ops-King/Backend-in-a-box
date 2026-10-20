@@ -71,7 +71,8 @@ async function keySuffix(c: PoolClient, template: string, args: { event: EventRo
 }
 
 /** Event in → every enabled trigger that matches → a run each (subject to reentry). */
-export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record<string, unknown>): Promise<string[]> {
+/** `only` (D195): hand the event to this one workflow and no other (a booking handed to its pre-call again, at the unlock). */
+export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record<string, unknown>, only?: { workflowId: string }): Promise<string[]> {
   // D117/D123: a lead is never started for someone out of the company's scope, whichever door the lead.created came through
   // (every one today is in scope; this holds the rule for a door or a workflow step added later). In scope is the replica's
   // answer (tagged, a booker, or a form submitter), so a booker or applicant untagged in ghost still passes.
@@ -85,7 +86,7 @@ export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record
   }
   const triggers = await many<{ id: string; workflow_id: string; node_id: string; match: unknown }>(c, `
     select t.id, t.workflow_id, t.node_id, t.match from workflow_triggers t join workflows w on w.id=t.workflow_id
-    where t.company_id=$1 and t.event_type=$2 and t.enabled and w.enabled`, [e.company_id, e.event_type]);
+    where t.company_id=$1 and t.event_type=$2 and t.enabled and w.enabled and ($3::uuid is null or t.workflow_id=$3)`, [e.company_id, e.event_type, only?.workflowId ?? null]);
   const started: string[] = [];
   if (!triggers.length) return started;
   // D144: a tag a run's step added or took off never starts that same workflow again (no loop on its own tag); a workflow that

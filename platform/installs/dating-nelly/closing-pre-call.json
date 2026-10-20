@@ -181,7 +181,13 @@
     "template": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going.",
     "title": "React ⏳ in the booking thread",
     "thread_of": "tag:appointment:{{appointment.id}}",
-    "react": "hourglass_flowing_sand"
+    "react": "hourglass_flowing_sand",
+    "only_if": {
+     "gt": [
+      "{{appointment.starts_at | hours_until}}",
+      1.5
+     ]
+    }
    },
    {
     "id": "n_cx",
@@ -393,7 +399,8 @@
      "offset": "-24h",
      "tz": "contact",
      "earliest": "08:00",
-     "latest": "21:00"
+     "latest": "21:00",
+     "window": "before"
     }
    },
    {
@@ -414,13 +421,14 @@
      "anchor": "appointment.starts_at",
      "offset": "-1h",
      "tz": "contact",
-     "earliest": "07:00"
+     "earliest": "07:00",
+     "window": "before"
     }
    },
    {
     "id": "m1",
     "type": "send_sms",
-    "template": "{{contact.first_name}}, we're on in an hour ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Join here: {{appointment.meeting_url}} See you soon! Nelly",
+    "template": "{{contact.first_name}}, we're on {{appointment.starts_at | relative:hours}} ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Join here: {{appointment.meeting_url}} See you soon! Nelly",
     "validity": {
      "anchor": "before_event",
      "min_lead": "15m"
@@ -428,22 +436,60 @@
     "on_stale": "skip",
     "title": "An hour before",
     "only_if": {
-     "exists": "appointment.meeting_url"
+     "and": [
+      {
+       "exists": "appointment.meeting_url"
+      },
+      {
+       "or": [
+        {
+         "not": {
+          "exists": "reply.last_outbound.at"
+         }
+        },
+        {
+         "lt": [
+          "{{reply.last_outbound.at | hours_until}}",
+          -1
+         ]
+        }
+       ]
+      }
+     ]
     }
    },
    {
     "id": "m1_nolink",
     "type": "send_sms",
-    "template": "{{contact.first_name}}, we're on in an hour ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). I'll send you the link here shortly. See you soon! Nelly",
+    "template": "{{contact.first_name}}, we're on {{appointment.starts_at | relative:hours}} ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). I'll send you the link here shortly. See you soon! Nelly",
     "validity": {
      "anchor": "before_event",
      "min_lead": "15m"
     },
     "on_stale": "skip",
     "only_if": {
-     "not": {
-      "exists": "appointment.meeting_url"
-     }
+     "and": [
+      {
+       "not": {
+        "exists": "appointment.meeting_url"
+       }
+      },
+      {
+       "or": [
+        {
+         "not": {
+          "exists": "reply.last_outbound.at"
+         }
+        },
+        {
+         "lt": [
+          "{{reply.last_outbound.at | hours_until}}",
+          -1
+         ]
+        }
+       ]
+      }
+     ]
     },
     "title": "An hour before, no link yet"
    },

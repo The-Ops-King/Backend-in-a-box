@@ -174,6 +174,13 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
       node(d, "m1").only_if = { exists: "appointment.meeting_url" };
       after(d, "m1", { id: "m1_nolink", type: "send_sms", template: w.hourNoLink, validity: node(d, "m1").validity, on_stale: "skip", only_if: noLink, title: "An hour before, no link yet" });
     }
+    // D193: the reminders before an evening call go earlier the same day, not the next morning (when it is too late to send them)
+    for (const id of ["r24", "r1"]) (node(d, id).rule as Record<string, unknown>).window = "before";
+    // D194: a booking close to its call: no "no reply in 4 hours" note when the wait was cut short by the call, and no hour-before
+    // text right on the heels of the booking text
+    node(d, "n_unc_slack").only_if = { gt: ["{{appointment.starts_at | hours_until}}", 1.5] };
+    const notJustSent = { or: [{ not: { exists: "reply.last_outbound.at" } }, { lt: ["{{reply.last_outbound.at | hours_until}}", -1] }] };
+    for (const id of ["m1", "m1_nolink"]) { const m = d.nodes.find((n) => n.id === id); if (m) m.only_if = m.only_if ? { and: [m.only_if, notJustSent] } : notJustSent; }
     const left = JSON.stringify(d.nodes);
     if (left.includes("send_email") || left.includes("[placeholder") || d.nodes.filter((n) => n.type === "send_sms").length !== (w.hourNoLink !== undefined ? 4 : 3)) throw new Error(`${t.name}: a send of the template is left unwritten`);
     return { workflow: t.workflow, name: t.name, create: { stage: pc.stage, sort: pc.sort + (t.key === "triage" ? 0 : 1), takesOver: "pre-call-sequence" }, definition: d as unknown as Record<string, unknown>,
