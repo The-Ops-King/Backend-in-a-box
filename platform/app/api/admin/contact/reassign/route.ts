@@ -5,11 +5,11 @@ import { operatorAuthorized } from "@/engine/admin-auth";
 import { contactsReassign } from "@/engine/contact-ops";
 export const dynamic = "force-dynamic"; export const maxDuration = 300;
 
-/** D204: POST { company, from: email | except: [emails], to: email, tag, why, dryRun = true }: hand one offer's contacts with that tag (from one owner, or anyone's but `except`, no owner included) to one team member in GHL. Audited. Authorization: Bearer $CRON_SECRET. */
+/** D204: POST { company, from: email | except: [emails], to: email, tag, why, dryRun = true }: hand one offer's contacts with that tag (from one owner, or anyone's but `except`, no owner included) to one team member in GHL; with `calledTo: email`, a contact who has had a call goes to that person instead. Audited. Authorization: Bearer $CRON_SECRET. */
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const b = (await req.json().catch(() => null)) as { company?: string; from?: string; except?: string[]; to?: string; tag?: string; why?: string; dryRun?: boolean } | null;
+  const b = (await req.json().catch(() => null)) as { company?: string; from?: string; except?: string[]; to?: string; calledTo?: string; tag?: string; why?: string; dryRun?: boolean } | null;
   if (!b?.company) return NextResponse.json({ error: "company, to, tag, why and from or except are required" }, { status: 400 });
-  const r = await asOperator((c) => contactsReassign(c, liveAdapters, { company: b.company!, from: b.from, except: b.except, to: b.to ?? "", tag: b.tag ?? "", why: b.why ?? "", dryRun: b.dryRun }));
+  const r = await asOperator((c) => contactsReassign(c, liveAdapters, { company: b.company!, from: b.from, except: b.except, to: b.to ?? "", calledTo: b.calledTo, tag: b.tag ?? "", why: b.why ?? "", dryRun: b.dryRun }));
   return r.ok ? NextResponse.json(r) : NextResponse.json({ error: r.error }, { status: r.status });
 }

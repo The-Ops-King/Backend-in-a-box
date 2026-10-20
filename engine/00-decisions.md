@@ -5826,3 +5826,7 @@ calendar's owner (D142) and its upcoming bookings, as install sets them, without
 Both dry run by default. Nelly only; Mitch stays a setter for outbound calls. Tests: `contact-ops.reassign.test.ts`.
 Then: "I want to reassign all NON NELLY contacts to camwall" (Nonie's GHL, Slack and Calendly address). The reassign takes `except`
 in place of `from`: every contact of the offer with the tag, no owner included, but those people's and the new owner's own.
+Then: "if they've had a call, let's keep them assigned to Mitch." `calledTo`: a contact who has had a call goes to that person
+instead. Had a call (Tyler picked): a booking whose time passed and was not cancelled, or a call in their GHL conversations that
+connected for more than 0 seconds, read live per contact (`contactCalls`), since the replica's bookings start 2026-10-15 and it
+holds no dials from before the engine. A contact with no owner who had a call goes to Mitch too (Tyler).

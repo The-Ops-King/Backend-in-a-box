@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
 import { loadCompany } from "./context";
+import { callOutcome } from "./recordings";
 import { testContactSql, testDomains, TEST_DOMAINS_KEY } from "./mode";
 
 type Fail = { ok: false; status: number; error: string };
@@ -69,14 +70,19 @@ export async function contactTags(c: PoolClient, adapters: Adapters, a: { compan
  * carrying `tag`; each contact is read live in GHL first and changed only if it still matches, so one reassigned or untagged since
  * is left alone and said. A dry run (the default) lists them, grouped by current owner; re-running moves only what is left. Audited
  * once with every contact moved.
+ * `calledTo` (Tyler: "if they've had a call, let's keep them assigned to Mitch"): a contact who has had a call goes to that person
+ * instead. Had a call: a booking of theirs whose time has passed and was not cancelled (the replica's), or a call in their GHL
+ * conversations that connected for more than 0 seconds (read live, the dry run too, since the replica's history starts later).
  */
-export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { company: string; from?: string; except?: string[]; to: string; tag: string; why: string; dryRun?: boolean }):
-  Promise<{ ok: true; dryRun: boolean; from: string; to: string; count: number; byOwner: Record<string, number>; moved: number; contacts: string[]; skipped: { who: string; why: string }[] } | Fail> {
+export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { company: string; from?: string; except?: string[]; to: string; calledTo?: string; tag: string; why: string; dryRun?: boolean }):
+  Promise<{ ok: true; dryRun: boolean; from: string; to: string; count: number; byOwner: Record<string, number>; moved: number; contacts: string[]; skipped: { who: string; why: string }[]; called?: { to: string; count: number; contacts: string[] } } | Fail> {
   if ((!a.from && !a.except?.length) || (a.from && a.except?.length) || !a.to || !a.tag?.trim() || !a.why?.trim()) return { ok: false, status: 400, error: "to, tag, why, and one of from (an owner) or except (owners to leave alone) are required" };
   const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
   const who = (email: string) => one<{ name: string; ghl_user_id: string | null }>(c, "select name, ghl_user_id from users where company_id=$1 and lower(email)=lower($2)", [co.id, email.trim()]);
   const to = await who(a.to);
   if (!to?.ghl_user_id) return { ok: false, status: 404, error: `${a.to} is not a GHL user on this offer's roster: add them in GHL, then to the team (/team add)` };
+  const calledTo = a.calledTo ? await who(a.calledTo) : null;
+  if (a.calledTo && !calledTo?.ghl_user_id) return { ok: false, status: 404, error: `${a.calledTo} is not a GHL user on this offer's roster` };
   let from: { name: string; ghl_user_id: string } | null = null; const keep: string[] = [to.ghl_user_id]; const kept: string[] = [];
   if (a.from) { const f = await who(a.from); if (!f?.ghl_user_id) return { ok: false, status: 404, error: `${a.from} is not a GHL user on this offer's roster` }; from = { name: f.name, ghl_user_id: f.ghl_user_id }; }
   for (const e of a.except ?? []) { const k = await who(e); if (!k?.ghl_user_id) return { ok: false, status: 404, error: `${e} is not a GHL user on this offer's roster` }; keep.push(k.ghl_user_id); kept.push(k.name); }
@@ -88,23 +94,45 @@ export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { c
   const byOwner: Record<string, number> = {};
   for (const x of list) { const k = x.owner_name ?? (x.owner ? `someone not on the roster (${x.owner})` : "no owner"); byOwner[k] = (byOwner[k] ?? 0) + 1; }
   const base = { from: from ? from.name : `anyone but ${[...kept, to.name].join(" and ")}`, to: to.name, count: list.length, byOwner };
-  if (a.dryRun !== false) return { ok: true, dryRun: true, ...base, moved: 0, contacts: list.map((x) => x.who), skipped: [] };
   const { adapterCompany: ac } = await loadCompany(c, co.id);
-  const moved: { id: string; who: string }[] = [], skipped: { who: string; why: string }[] = [];
+  // who has had a call: a past booking of theirs not cancelled, else a connected call in GHL (read only when it decides something)
+  const booked = new Set((await many<{ contact_id: string }>(c, "select distinct contact_id from appointments where company_id=$1 and starts_at < now() and status <> 'cancelled' and contact_id = any($2::uuid[])", [co.id, list.map((x) => x.id)])).map((r) => r.contact_id));
+  const hadCall = async (x: { id: string; ghl_contact_id: string }) => {
+    if (booked.has(x.id)) return true;
+    if (!adapters.read.contactCalls) throw new Error("this CRM cannot list a contact's calls");
+    return (await adapters.read.contactCalls(ac, x.ghl_contact_id)).some((m) => callOutcome(m.call?.status ?? m.status ?? "") === "connected" && (m.call?.durationSec ?? 0) > 0);
+  };
+  const plan: { x: (typeof list)[number]; target: { name: string; ghl_user_id: string } }[] = [];
+  const skipped: { who: string; why: string }[] = [];
   for (const x of list) {
+    let target = { name: to.name, ghl_user_id: to.ghl_user_id };
+    if (calledTo?.ghl_user_id) {
+      try { if (await hadCall(x)) target = { name: calledTo.name, ghl_user_id: calledTo.ghl_user_id }; }
+      catch (e) { skipped.push({ who: x.who, why: `couldn't read their calls in GHL: ${String((e as Error).message).slice(0, 100)}` }); continue; }
+    }
+    if (x.owner === target.ghl_user_id) continue;   // already where they belong
+    plan.push({ x, target });
+  }
+  const said = (moved: typeof plan) => ({ count: moved.filter((p) => p.target.ghl_user_id === to.ghl_user_id).length, contacts: moved.filter((p) => p.target.ghl_user_id === to.ghl_user_id).map((p) => p.x.who),
+    ...(calledTo ? { called: { to: calledTo.name, count: moved.filter((p) => p.target.ghl_user_id !== to.ghl_user_id).length, contacts: moved.filter((p) => p.target.ghl_user_id !== to.ghl_user_id).map((p) => p.x.who) } } : {}) });
+  if (a.dryRun !== false) return { ok: true, dryRun: true, ...base, moved: 0, ...said(plan), skipped };
+  const moved: typeof plan = [];
+  for (const p of plan) {
+    const x = p.x;
     try {
       const live = await adapters.read.getContact(ac, x.ghl_contact_id);
       if (!live) { skipped.push({ who: x.who, why: "gone from GHL" }); continue; }
+      if (live.assignedTo === p.target.ghl_user_id) { skipped.push({ who: x.who, why: `already ${p.target.name}'s` }); continue; }
       if (!matches(live.assignedTo)) { skipped.push({ who: x.who, why: live.assignedTo === to.ghl_user_id ? `already ${to.name}'s` : live.assignedTo ? "owned by someone else now" : "has no owner now" }); continue; }
       if (!live.tags.includes(a.tag.trim())) { skipped.push({ who: x.who, why: `no longer tagged ${a.tag}` }); continue; }
-      await adapters.write.updateContact(ac, x.ghl_contact_id, { assignedUserId: to.ghl_user_id });
-      await c.query("update contacts set assigned_ghl_user_id=$2, updated_at=now() where id=$1", [x.id, to.ghl_user_id]);
-      moved.push(x);
+      await adapters.write.updateContact(ac, x.ghl_contact_id, { assignedUserId: p.target.ghl_user_id });
+      await c.query("update contacts set assigned_ghl_user_id=$2, updated_at=now() where id=$1", [x.id, p.target.ghl_user_id]);
+      moved.push(p);
     } catch (e) { skipped.push({ who: x.who, why: `GHL refused: ${String((e as Error).message).slice(0, 120)}` }); }
   }
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'contacts.reassigned','user',$2,$3,$4)",
-    [co.id, to.ghl_user_id, { owner: from?.ghl_user_id ?? null, except: keep, tag: a.tag }, { owner: to.ghl_user_id, why: a.why, contacts: moved.map((m) => m.id), skipped: skipped.length }]);
-  return { ok: true, dryRun: false, ...base, moved: moved.length, contacts: moved.map((m) => m.who), skipped };
+    [co.id, to.ghl_user_id, { owner: from?.ghl_user_id ?? null, except: keep, tag: a.tag }, { owner: to.ghl_user_id, called_to: calledTo?.ghl_user_id ?? null, why: a.why, contacts: moved.map((m) => ({ id: m.x.id, to: m.target.ghl_user_id })), skipped: skipped.length }]);
+  return { ok: true, dryRun: false, ...base, moved: moved.length, ...said(moved), skipped };
 }
 
 /**
