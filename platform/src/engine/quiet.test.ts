@@ -206,7 +206,7 @@ describe.skipIf(!HAS_DB)("D124: a scheduled run with nothing in it", () => {
     }
   });
 
-  it("install binds quietWhenEmpty as reports.quiet_when_empty; left out, a new offer gets the default (off, D193) and an existing one keeps its own; false turns it off", async () => {
+  it("install binds quietWhenEmpty as reports.quiet_when_empty; left out, a new offer gets the default (off, D200) and an existing one keeps its own; false turns it off", async () => {
     const base = { name: "Quiet install", slug: "quiet-install", timezone: "UTC", locationId: "LQ", pit: "pit-x", templates: ["daily-wrap-up"] };
     await asOperator((c) => wipe(c, "quiet-install"));
     const value = async () => (await asOperator((c) => one<{ v: string }>(c, "select convert_from(value,'UTF8') as v from bindings b join companies co on co.id=b.company_id where co.slug='quiet-install' and key='reports.quiet_when_empty'")))?.v ?? null;

@@ -1,4 +1,4 @@
-/** D193: what MQL means is the offer's own (its qualifying question and answer lists), told to the bot per offer; an offer with none is told so. */
+/** D200: what MQL means is the offer's own (its qualifying question and answer lists), told to the bot per offer; an offer with none is told so. */
 import { describe, it, expect } from "vitest";
 import { qualifyWords } from "./bot";
 import { qualifyConfig } from "./ghl-metrics";

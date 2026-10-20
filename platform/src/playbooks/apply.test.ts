@@ -50,7 +50,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D170: putting a playbook on a compan
     const dry = await asOperator((c) => copyOfferSettings(c, { from: "pb-src", to: "pb-new", dryRun: true }));
     expect(dry).toMatchObject({ ok: true, dryRun: true, kept: ["alerts.repeat_minutes"], terms: ["appointment_type: Demo call"] });
     if (!dry.ok) return;
-    // reports.quiet_when_empty: the target holds the default install wrote (D193), which is not its own
+    // reports.quiet_when_empty: the target holds the default install wrote (D200), which is not its own
     expect(dry.copied).toEqual(expect.arrayContaining(["prompt.call_review", "qualify.mql_answers", "sales_call.dispositions", "sales_call.objections", "test.domains", "reports.quiet_when_empty"]));
     for (const k of dry.copied) expect(k, k).not.toMatch(/^(secret\.|slack\.channel\.|crm\.|scope\.tag)/);
     expect(await binding(dst, "sales_call.objections")).toBeNull();   // a dry run writes nothing

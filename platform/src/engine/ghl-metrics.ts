@@ -28,7 +28,7 @@ export type SalesCallConfig = { object: string; outcomes: Record<string, CallCla
 export const CALL_RESULTS = ["closed", "deposit", "pending", "follow_up", "lost", "unqualified"] as const;
 export type CallResult = (typeof CALL_RESULTS)[number];
 /** The disposition keys the engine itself writes (eod.ts), read back the same way when the company has not mapped its own. */
-// D193: the same keys the engine writes (setting-defaults.ts); this copy had lost `close_pending`, so a pending close an offer without its own map filed counted as nothing
+// D200: the same keys the engine writes (setting-defaults.ts); this copy had lost `close_pending`, so a pending close an offer without its own map filed counted as nothing
 const DEFAULT_DISPOSITIONS = ENGINE_DISPOSITIONS;
 export type CallMismatch = { name: string; ghl_contact_id: string; record_id: string; ghl: CallClass; booking_source: string };
 export type ShowBreakdown = { booked: number; showed: number; noshow: number; cancelled: number; rescheduled: number; missing: number; missing_names: string[]; mismatches: CallMismatch[] };
@@ -43,7 +43,7 @@ export function answerList(v: string | undefined): string[] {
   try { const j = JSON.parse(v); if (Array.isArray(j)) return j.map(String).map((s) => s.trim()).filter(Boolean); } catch { /* one per line */ }
   return v.split("\n").map((s) => s.trim()).filter(Boolean);
 }
-/** D193: the offer's qualifying question (any contact field, `qualify.field`, worded as `qualify.question`) and its answer lists. */
+/** D200: the offer's qualifying question (any contact field, `qualify.field`, worded as `qualify.question`) and its answer lists. */
 export function qualifyConfig(bindings: Record<string, string>): QualifyConfig | null {
   const field = bindings["qualify.field"];
   if (!field) return null;

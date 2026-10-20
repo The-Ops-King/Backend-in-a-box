@@ -84,7 +84,7 @@ describe("migrator (D151): short transactions that give way to the live engine",
   });
 });
 
-describe("numbered migrations (D193)", () => {
+describe("numbered migrations (D200)", () => {
   it("each runs once: a second migrate runs none and touches no tenant table", async () => {
     await migrate();
     const again = await migrate();
@@ -100,7 +100,7 @@ describe("numbered migrations (D193)", () => {
   });
 });
 
-describe("migration 0003 (D193): an offer's work-situation field becomes its qualifying question", () => {
+describe("migration 0003 (D200): an offer's work-situation field becomes its qualifying question", () => {
   it("copies the field and its question onto an offer that had it, word for word; an offer without it gets none", async () => {
     const withIt = (await db().query("insert into companies (name, slug, timezone) values ('Q1', $1, 'UTC') returning id", [`q1-${Date.now()}`])).rows[0].id;
     const without = (await db().query("insert into companies (name, slug, timezone) values ('Q2', $1, 'UTC') returning id", [`q2-${Date.now()}`])).rows[0].id;

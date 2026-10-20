@@ -5589,7 +5589,9 @@ for a contact GHL already held.
 
 Tests: `filters.test.ts` (D192).
 
-## D193. The audit's open items, phase 2 (2026-10-20, branch `audit-fixes`)
+## D200. The audit's open items, phase 2 (2026-10-20, branch `audit-fixes`)
+
+(Worked as "D193" on the branch, so its commits say D193.1–D193.13; renumbered on merging, since main took D193–D199 meanwhile.)
 
 Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after D151). One entry, one part per item as it lands.
 

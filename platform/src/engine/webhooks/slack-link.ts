@@ -7,7 +7,7 @@ import { normEmail, normPhone } from "../identity";
 import { slackBot } from "../slack-conn";
 
 /**
- * D193 (Tyler: hand-linking back, as a Slack button). The Unlinked payment and Unmatched recording posts carry "Link to a contact";
+ * D200 (Tyler: hand-linking back, as a Slack button). The Unlinked payment and Unmatched recording posts carry "Link to a contact";
  * the press opens a form for their email, phone or GHL contact link, and the submit links the payment or recording to that contact
  * exactly as a match on arrival would (linkPayment, linkRecording), then says so in the post's thread with a ✅ on it. Owners,
  * managers and the operator may link, as with the alert buttons.

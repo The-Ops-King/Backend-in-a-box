@@ -22,13 +22,13 @@ export function tickCommand(tickUrl: string, secret: string, timeoutMs = TICK_TI
     + `from (select 'scope=engine' as q union all select 'company=' || id::text from companies co where ${runningSql()}) t`;
 }
 
-/** The Vault secret the tick job reads its key from (D193). */
+/** The Vault secret the tick job reads its key from (D200). */
 export const OPERATOR_KEY_NAME = "bb_operator_key", WATCHDOG_URL_NAME = "bb_watchdog_url";
 
 /**
  * The minute scheduler lives in the database: Supabase ships pg_cron + pg_net, so a cron job inside Postgres calls
  * /api/tick every minute. No third account, no Vercel Pro, and it fires on time where GitHub's five-minute schedule did not.
- * D193 (audit risk 9): where Supabase Vault is installed the key is kept there and read when the job runs, so cron.job's command
+ * D200 (audit risk 9): where Supabase Vault is installed the key is kept there and read when the job runs, so cron.job's command
  * holds no secret (and a changed key needs only the secret replaced); a database without Vault keeps it in the command as before.
  */
 export async function installTickSchedule(tickUrl: string, secret: string, everyMinutes = 1, timeoutMs = TICK_TIMEOUT_MS): Promise<{ jobid: number; keyIn: "vault" | "command" }> {
@@ -38,7 +38,7 @@ export async function installTickSchedule(tickUrl: string, secret: string, every
   return asOperator(async (c) => {
     await c.query("create extension if not exists pg_cron");
     await c.query("create extension if not exists pg_net");
-    const keyIn = (await keepInVault(c, OPERATOR_KEY_NAME, secret, "backend-in-a-box operator key, read by the tick job (D193)")) ? "vault" : "command";
+    const keyIn = (await keepInVault(c, OPERATOR_KEY_NAME, secret, "backend-in-a-box operator key, read by the tick job (D200)")) ? "vault" : "command";
     const r = await one<{ jobid: number }>(c, "select cron.schedule($1, $2, $3) as jobid", [TICK_JOB, schedule, tickCommand(tickUrl, secret, timeoutMs, keyIn)]);   // same name = replace
     return { jobid: Number(r!.jobid), keyIn };
   });
@@ -63,8 +63,8 @@ export async function installWatchdog(alertUrl: string, staleMinutes = 5): Promi
   const body = `jsonb_build_object('text', 'backend-in-a-box: no engine tick for ' || extract(epoch from (now() - (value->>'last_tick')::timestamptz))::int / 60 || ' minutes (last ' || (value->>'last_tick') || ')', 'source', 'watchdog', 'at', now())`;
   return asOperator(async (c) => {
     await c.query("create extension if not exists pg_cron"); await c.query("create extension if not exists pg_net");
-    // D193: the alert URL is a secret too (anyone holding a Slack webhook can post with it): kept in Vault where there is one
-    const urlIn = (await keepInVault(c, WATCHDOG_URL_NAME, alertUrl, "backend-in-a-box watchdog alert URL (D193)")) ? "vault" : "command";
+    // D200: the alert URL is a secret too (anyone holding a Slack webhook can post with it): kept in Vault where there is one
+    const urlIn = (await keepInVault(c, WATCHDOG_URL_NAME, alertUrl, "backend-in-a-box watchdog alert URL (D200)")) ? "vault" : "command";
     const url = urlIn === "vault" ? `(select decrypted_secret from vault.decrypted_secrets where name = $bbq$${WATCHDOG_URL_NAME}$bbq$)` : `$bbq$${alertUrl}$bbq$`;
     const command = `select net.http_post(url := ${url}, body := ${body}, headers := '{"Content-Type":"application/json"}'::jsonb) from engine_state where key='scheduler' and (value->>'last_tick')::timestamptz < now() - interval '${Math.max(1, Math.floor(staleMinutes))} minutes'`;
     const r = await one<{ jobid: number }>(c, "select cron.schedule($1, $2, $3) as jobid", [WATCHDOG_JOB, "*/5 * * * *", command]);

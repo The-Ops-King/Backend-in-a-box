@@ -27,7 +27,7 @@ describe("D38 retention", () => {
     const left = await asOperator(async (c) => ({ m: (await c.query("select ghl_message_id from messages where company_id=$1", [companyId])).rows.map((x) => x.ghl_message_id), s: (await c.query("select idempotency_key from sends where company_id=$1", [companyId])).rows.map((x) => x.idempotency_key) }));
     expect(left.m).toEqual(["new"]); expect(left.s).toEqual(["k-new"]);
   });
-  it("D193: an old send is kept while its run can still go on (waiting, paused, failed: a retry would send it again), and goes once the run is over", async () => {
+  it("D200: an old send is kept while its run can still go on (waiting, paused, failed: a retry would send it again), and goes once the run is over", async () => {
     const keys = await asOperator(async (c) => {
       const wf = (await c.query("insert into workflows (company_id, name, reentry_policy) values ($1,'Ret','once_per_contact') returning id", [companyId])).rows[0].id;
       for (const status of ["waiting", "paused", "failed", "completed", "exited"]) {

@@ -1,4 +1,4 @@
-/** D193: the settings an offer runs on are its own: one list of defaults, written onto every offer, read one way. */
+/** D200: the settings an offer runs on are its own: one list of defaults, written onto every offer, read one way. */
 import { describe, it, expect } from "vitest";
 import { asOperator, db } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -42,7 +42,7 @@ describe("one reading of a yes/no setting", () => {
   });
 });
 
-describe.skipIf(!process.env.DATABASE_URL)("D193: the defaults written onto each offer", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D200: the defaults written onto each offer", () => {
   const keys = async (co: string) => Object.fromEntries((await asOperator((c) => c.query<{ key: string; v: string }>("select key, convert_from(value,'UTF8') as v from bindings where company_id=$1", [co]))).rows.map((r) => [r.key, r.v]));
 
   it("writes only what the offer lacks, as the default; its own values stay; a second run writes nothing", async () => {

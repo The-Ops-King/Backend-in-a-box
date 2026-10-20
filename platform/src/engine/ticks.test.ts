@@ -196,7 +196,7 @@ describe.skipIf(!process.env.DATABASE_URL)("each company ticks on its own (D98)"
     } finally { await c.query("rollback").catch(() => {}); c.release(); }
   });
 
-  it("D193: with the key in Vault, the job's command holds no secret and reads it when it runs", async () => {
+  it("D200: with the key in Vault, the job's command holds no secret and reads it when it runs", async () => {
     const cmd = tickCommand("https://x.test", "s3cret", undefined, "vault");
     expect(cmd).not.toContain("s3cret");
     expect(cmd).toContain("vault.decrypted_secrets");

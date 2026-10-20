@@ -30,7 +30,7 @@ export type Turn = { role: "user" | "bot"; text: string; user?: string; kind?: "
 type Asker = { id: string; name: string; role: string } | null;
 type Ctx = { companyId: string; name: string; tz: string; token: string; teamId: string; botUserId: string | null; escalateTo: string | null; escalateName: string; apiKey: string | null; sources: SourceFields; qualify: QualifyConfig | null };
 
-/** D193: what MQL means for this offer, in its own words (the prompt is the same for every offer; this line is not). */
+/** D200: what MQL means for this offer, in its own words (the prompt is the same for every offer; this line is not). */
 export function qualifyWords(q: QualifyConfig | null): string {
   if (!q || (!q.mql.length && !q.dq.length)) return "MQL and marketing DQ are not defined for this offer (no qualifying question is set): if asked, say so.";
   const list = (xs: string[]) => xs.length ? xs.map((x) => `"${x}"`).join(", ") : "none";

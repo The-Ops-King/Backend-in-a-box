@@ -11,7 +11,7 @@ import { ensureOpportunityForBooking } from "./lifecycle";
  */
 export type ReplayRow = { appointment_id: string; who: string; starts_at: string; call_type: string; event: string | null; would: "replay" | "skip"; why?: string; runs_started?: number };
 /** `again` (D142): a booking whose runs are all over is handed on again (its workflows changed, and what the old runs made was taken back with runs/undo); one still running is refused. */
-/** `force` (D193) with `again`: what the earlier runs already sent the person is sent again; without it, it is not. */
+/** `force` (D200) with `again`: what the earlier runs already sent the person is sent again; without it, it is not. */
 export async function replayBookings(c: PoolClient, companyId: string, appointmentIds: string[], opts: { dryRun: boolean; baseline?: boolean; again?: boolean; force?: boolean }): Promise<ReplayRow[]> {
   const rows = await many<{ id: string; contact_id: string; starts_at: Date; status: string; self_booked: boolean | null; set_by: string | null; calendar_external: string | null; term_name: string; term_category: string; who: string; runs: number; live: number; event_id: string | null }>(c, `
     select a.id, a.contact_id, a.starts_at, a.status, a.self_booked, a.set_by, cal.external_id as calendar_external, t.name as term_name, t.category as term_category,

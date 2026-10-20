@@ -137,7 +137,7 @@ const committed = <T>(d: ExecDeps, fn: (c: PoolClient) => Promise<T>) => checkpo
 const claim = (d: ExecDeps, node: Node, kind: EffectKind) => committed(d, (c) => claimEffect(c, d.company.id, d.run.id, node.id, kind));
 const done = (d: ExecDeps, node: Node, kind: EffectKind, externalId?: string | null) => committed(d, (c) => markEffect(c, d.run.id, node.id, kind, externalId));
 /**
- * D193 (audit §3.3): the claim around a vendor write with no key of its own, in one place for the steps that share its rule (a note, a
+ * D200 (audit §3.3): the claim around a vendor write with no key of its own, in one place for the steps that share its rule (a note, a
  * task, an agreement): a claim an earlier try finished is reused; one it left pending is not written twice (the vendor may have it);
  * else the write runs once and is marked done. A record and a card keep their own rules (D66: a done record claim is updated, a
  * pending card claim is made again after the read that found no card).
@@ -153,7 +153,7 @@ async function writeOnce(d: ExecDeps, node: Node, kind: EffectKind, write: () =>
 export const ambiguousSendError = (e?: string) => !!e && /\btimeout\b|timed out|aborted|ECONNRESET|socket hang up|other side closed|UND_ERR/i.test(e);
 
 /**
- * D193 (audit risk 10; Tyler: a replay does not re-send): a booking handed on `again` (replay.ts, D142) starts new runs, with new send
+ * D200 (audit risk 10; Tyler: a replay does not re-send): a booking handed on `again` (replay.ts, D142) starts new runs, with new send
  * keys. What an earlier run of the same booking and workflow already sent the person at this step (a text, email or webhook that went
  * or may have, an agreement claimed) is not sent again; `force` on the replay overrides. One held in ghost or quiet never reached them.
  */

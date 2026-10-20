@@ -2,7 +2,7 @@
 type Q = { query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }> };
 
 /**
- * D193 (audit §3.1, open item 50 part 2; Tyler: "Updating the default doesn't do anything to existing offers"). Every company setting
+ * D200 (audit §3.1, open item 50 part 2; Tyler: "Updating the default doesn't do anything to existing offers"). Every company setting
  * the engine falls back on when an offer has not set it, listed once with that fallback. The fallback only seeds an offer: install
  * writes these onto a new one and migration 0004 wrote each existing offer's effective value onto it, so changing a default never
  * changes an offer that exists. And one reading of a yes/no setting (four had grown, each taking different words).
@@ -23,7 +23,7 @@ export const REPEAT_AFTER_MIN = 60, POLL_FAILURES = 2, REPEAT_HOURS = "07:00-17:
 /** `sales_call.dispositions` as an offer would set it ({value: meaning}): the keys the engine itself writes, pending included. */
 export const ENGINE_DISPOSITIONS: Record<string, string> = Object.fromEntries(Object.entries(DISPOSITION_DEFAULTS).map(([meaning, key]) => [key, meaning]));
 
-// Not listed, because their readers disagree on what "unset" means, so no one value is what the offer runs on (D193, for Tyler):
+// Not listed, because their readers disagree on what "unset" means, so no one value is what the offer runs on (D200, for Tyler):
 // crm.object_discovery_call (setter results and the bot's graph fall back on custom_objects.discovery_call; the end of day reads no
 // Discovery Calls at all), sales_call.dispositions (ledger drift takes "unset" as "no Deposit option"; the end of day writes `deposit`)
 // and sales_call.objections (the Sales Call takes DEFAULT_OBJECTIONS; the application-triage playbook refuses an offer that has not named its own).

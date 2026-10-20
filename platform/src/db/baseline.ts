@@ -1,7 +1,7 @@
 import { APPOINTMENT_SOURCES, EVENT_SOURCES, ownsOrAbsent, type Migrator } from "./migrator";
 
 /**
- * D193 (audit risk 8): migration 0001, FROZEN. Everything the engine added beyond engine/schema.sql up to 2026-10-20, idempotent, as
+ * D200 (audit risk 8): migration 0001, FROZEN. Everything the engine added beyond engine/schema.sql up to 2026-10-20, idempotent, as
  * it ran on every deploy until then. It runs once on a database that has not recorded it and never again. Do not edit it: a new
  * change is a new numbered migration in migrations.ts (baseline.test.ts fails if this file changes).
  */

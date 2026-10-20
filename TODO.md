@@ -8,10 +8,10 @@ Things only Tyler can do or decide, that are holding up work. Claude adds to it;
       and PMU), then reinstall the app. Request URL is the offer's own: `https://backend-in-a-box.vercel.app/api/webhooks/slack/<company id>/commands`.
 - [ ] Before any offer moves up a rung (D151): read and mark its own GHL workflows with Claude. Hair first, before the switch-over.
 
-- [ ] Watchdog (D193): in Slack, make an incoming webhook to your own channel or DM (api.slack.com/apps → your ops app →
+- [ ] Watchdog (D200): in Slack, make an incoming webhook to your own channel or DM (api.slack.com/apps → your ops app →
       Incoming Webhooks), put its URL in Vercel Production as `OPERATOR_WEBHOOK_URL`, then tell Claude to reinstall the scheduler
       (it also moves the operator key into Vault).
-- [ ] Outside monitor (D193): a free UptimeRobot (or Better Stack) monitor on
+- [ ] Outside monitor (D200): a free UptimeRobot (or Better Stack) monitor on
       `https://backend-in-a-box.vercel.app/api/health?assert=fresh`, every 5 minutes, alerting you by Slack and email.
 
 ## Dating (Nelly)

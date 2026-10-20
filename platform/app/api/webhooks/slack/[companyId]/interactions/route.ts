@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /**
- * Slack interactivity (D93): the Retry and Resolve buttons on an alert's post. D193: "Link to a contact" on an unlinked payment or
+ * Slack interactivity (D93): the Retry and Resolve buttons on an alert's post. D200: "Link to a contact" on an unlinked payment or
  * recording opens its form here, inside the three seconds (views.open needs the press's trigger_id); the form's submit is checked
  * here too (an error goes back into the form) and the link itself is made after the answer. Form-encoded (`payload=` JSON), signed like the
  * events and commands doors. Slack wants an answer within three seconds and a retry can call the CRM, so the press is

@@ -16,7 +16,7 @@ import { slackBot } from "../slack-conn";
  * and finds it done.
  */
 export type SlackPress = { kind: "press"; teamId?: string; user: string; userName?: string; action: (typeof SLACK_ACTIONS)[number]; value: string; channel?: string; ts?: string; responseUrl?: string; triggerId?: string; message?: { text?: string; blocks?: SlackBlock[] } };
-/** D193: a form of ours sent back (view_submission): which form, what it carried, what was typed (block id → value). */
+/** D200: a form of ours sent back (view_submission): which form, what it carried, what was typed (block id → value). */
 export type SlackSubmit = { kind: "submit"; teamId?: string; user: string; callbackId: string; meta?: string; values: Record<string, string> };
 
 /** Slack posts an interaction form-encoded, the JSON in `payload`. A button of ours on a message is a press; a form of ours sent back, a submit. */

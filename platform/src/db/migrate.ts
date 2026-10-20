@@ -22,7 +22,7 @@ async function takeMigrateLease(): Promise<string> {
 }
 
 /**
- * Applies engine/schema.sql to an empty database, then each numbered migration not yet recorded (migrations.ts, D193), then makes sure
+ * Applies engine/schema.sql to an empty database, then each numbered migration not yet recorded (migrations.ts, D200), then makes sure
  * every tenant table has its row-level security: a deploy with nothing new changes nothing and takes no table lock.
  */
 export async function migrate(): Promise<{ applied: boolean; ran: string[]; rlsTables: string[]; rlsFixed: string[]; repaired: string[]; bookingCard: string[]; skipped?: string }> {
@@ -59,7 +59,7 @@ export async function migrate(): Promise<{ applied: boolean; ran: string[]; rlsT
       "select table_name from information_schema.columns where table_schema='public' and column_name='company_id' order by 1",
     );
     const tenantTables = withCompanyId.rows.map((r) => r.table_name).filter((t) => ours.has(t));
-    // D193: only a table missing its RLS, its FORCE or its policy is touched (every deploy used to rebuild all of them, 148 table locks)
+    // D200: only a table missing its RLS, its FORCE or its policy is touched (every deploy used to rebuild all of them, 148 table locks)
     const lacking = await c.query<{ t: string }>(`select cl.relname as t from pg_class cl join pg_namespace n on n.oid=cl.relnamespace where n.nspname='public' and cl.relname = any($1::text[])
       and not (cl.relrowsecurity and cl.relforcerowsecurity and exists (select 1 from pg_policies p where p.schemaname='public' and p.tablename=cl.relname and p.policyname='tenant_isolation'))`, [tenantTables]);
     const rlsFixed = lacking.rows.map((r) => r.t);

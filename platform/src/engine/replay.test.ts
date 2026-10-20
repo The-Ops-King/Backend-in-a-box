@@ -55,7 +55,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D138: replaying bookings", () => {
     expect(await asOperator((c) => one(c, "select source, data->>'replay' as replay from events where appointment_id=$1 and event_type='appointment.booked'", [baseline]))).toEqual({ source: "engine", replay: "true" });
   });
 
-  it("D193: handed on again, what the earlier run already emailed them is not emailed again; force sends it; one only held in quiet still goes", async () => {
+  it("D200: handed on again, what the earlier run already emailed them is not emailed again; force sends it; one only held in quiet still goes", async () => {
     const sent: string[] = [];
     const adapters = fakeAdapters();
     adapters.sender = { ...adapters.sender, sendEmail: async (_c, to) => { sent.push(to); return { externalId: `e${sent.length}`, accepted: true }; } };

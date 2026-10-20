@@ -22,7 +22,7 @@ export function operatorAuthorized(req: Request, env: Env = process.env): boolea
 }
 
 /**
- * The tick: open without an operator key only on a developer's machine. D193 (audit risk 9): a deployment (VERCEL_ENV set) with
+ * The tick: open without an operator key only on a developer's machine. D200 (audit risk 9): a deployment (VERCEL_ENV set) with
  * the key missing is refused, not opened to anyone.
  */
 export function tickAuthorized(req: Request, env: Env = process.env): boolean {

@@ -40,7 +40,7 @@ offer and that workflow in this chat and says to unlock it. Never on inference, 
 Tyler wants things like where an alert posts to be settings, not code ("I want you to remember that this should be
 configurable"). The first case: where the one-time "this person doesn't have a link" tag goes (Dating: #dating-calls-booked).
 
-## Schema changes are numbered migrations (D193)
+## Schema changes are numbered migrations (D200)
 
 `platform/src/db/baseline.ts` is frozen (its test fails if it changes): it already ran on production and never runs again. A new
 table, column, constraint or data fix is a new entry at the end of `platform/src/db/migrations.ts` with the next number, run once and

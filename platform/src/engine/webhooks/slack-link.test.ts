@@ -1,4 +1,4 @@
-/** D193: hand-linking an unlinked payment or recording from its Slack post: the press opens a form, the submit is checked, then linked. */
+/** D200: hand-linking an unlinked payment or recording from its Slack post: the press opens a form, the submit is checked, then linked. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -26,7 +26,7 @@ describe("slack form parsing", () => {
   });
 });
 
-describe.skipIf(!process.env.DATABASE_URL)("D193: linking from Slack", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D200: linking from Slack", () => {
   beforeAll(async () => {
     await migrate();
     companyId = (await installCompany({ name: "Link Co", slug: `slack-link-${Date.now()}`, timezone: "America/Phoenix", locationId: "LOC", pit: "pit-fake", calendars: {}, templates: [] }, fake)).companyId;

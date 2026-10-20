@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic"; export const maxDuration = 300;
  * D138. POST { company, appointments?: [ids], upcoming_without_runs?: true, baseline?: true, dryRun = true } with Authorization:
  * Bearer $CRON_SECRET: hand upcoming bookings to the booked-call workflows as the poll would (see `replayBookings`). `upcoming_without_runs`
  * picks every booking of the company whose call is ahead and has no run. `again: true` (named appointments only, D142) hands on one whose runs are all over;
- * what its earlier runs already sent the person is not sent again unless `force: true` (D193).
+ * what its earlier runs already sent the person is not sent again unless `force: true` (D200).
  */
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

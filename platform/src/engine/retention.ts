@@ -5,7 +5,7 @@ import { sweepHeldTranscripts } from "./transcripts";
 /**
  * D38: the hub keeps what the engine needs, not an archive. Per company: an inbound reply's row goes after
  * reply_retention_days (the "they replied" event stays), and the engine's own sends go after sends_retention_days once
- * their run is over (a live run keeps its sends: idempotency and the wait-for-reply boundary read them). D193: "over" is completed
+ * their run is over (a live run keeps its sends: idempotency and the wait-for-reply boundary read them). D200: "over" is completed
  * or exited; a paused or failed run can be retried (hand.ts), and its send row is what stops the retried step sending twice. D87: a call's transcript
  * or summary still held `calls.transcript_hold_hours` after the last run about it ended is cleared (transcripts.ts).
  */

@@ -41,7 +41,7 @@ const Persona = z.object({ name: z.string().optional(), icon: z.union([z.string(
 const TagList = z.union([z.string(), z.array(z.string()).min(1)]);
 // blocking (D77): overrides what blocking.ts derives (true: a failure holds the run on this step; false: after its tries the step is skipped and the run goes on). wait_for_reaction keeps its own D58 meaning.
 /** D93: a button on a Slack post. `action` is what the interactions door does with a press (alert_retry, alert_resolve); `value` is rendered (e.g. the alert's id). */
-export const SLACK_ACTIONS = ["alert_retry", "alert_resolve", "alert_pause", "link_payment", "link_recording"] as const;   // link_*: D193
+export const SLACK_ACTIONS = ["alert_retry", "alert_resolve", "alert_pause", "link_payment", "link_recording"] as const;   // link_*: D200
 const SlackButton = z.object({ text: z.string().min(1).max(75), action: z.enum(SLACK_ACTIONS), value: z.string().min(1), style: z.enum(["primary", "danger"]).optional(), only_if: Predicate.optional() });
 export type SlackButton = z.infer<typeof SlackButton>;
 const base = { id: z.string().min(1), title: z.string().optional(), only_if: Predicate.optional(), blocking: z.boolean().optional() };   // only_if: the step runs when this holds, else it is skipped (a sometimes-step on the chart)   // title: the words the dashboard shows for this step, when the generic ones are not good enough
