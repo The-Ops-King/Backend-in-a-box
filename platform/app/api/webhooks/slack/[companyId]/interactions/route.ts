@@ -8,6 +8,7 @@ import { checkSubmit, LINK_ACTIONS, LINK_FORM, linkForm, linkSubmitted, parseMet
 import { one } from "@/db/client";
 import { slackBot } from "@/engine/slack-conn";
 import { runCompanyNow } from "@/api/run-soon";
+import { AGREEMENT_FORM, checkAgreementSubmit, requestAgreement, type AgreementChoice } from "@/engine/webhooks/agreement-request";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
@@ -22,7 +23,7 @@ export const maxDuration = 120;
 export async function POST(req: Request, { params }: { params: Promise<{ companyId: string }> }) {
   const { companyId } = await params;
   const raw = await req.text();
-  type Next = Response | { kind: "link"; user: string; meta: NonNullable<ReturnType<typeof parseMeta>>; contact: { id: string; name: string } } | { kind: "say"; url?: string; text: string } | { kind: "press"; press: SlackPress };
+  type Next = Response | { kind: "agreement"; user: string; contact: { id: string; name: string }; choice: AgreementChoice; by: { name: string; ghl_user_id: string | null } } | { kind: "link"; user: string; meta: NonNullable<ReturnType<typeof parseMeta>>; contact: { id: string; name: string } } | { kind: "say"; url?: string; text: string } | { kind: "press"; press: SlackPress };
   const res = await asOperator(async (c): Promise<Next> => {
     const { bindings } = await loadCompany(c, companyId);
     const secret = bindings["secret.slack_signing"];
@@ -33,6 +34,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     if (p.kind === "ignored") return new Response(null, { status: 200 });
     const bot = await slackBot(c, companyId);
     if (!bot || (p.teamId && p.teamId !== bot.teamId)) return new Response(null, { status: 200 });
+    if (p.kind === "submit" && p.callbackId === AGREEMENT_FORM) {   // D202: /agreement's form
+      const r = await checkAgreementSubmit(c, companyId, p.user, bindings, p.values.who ?? "", p.values.which ?? "");
+      if ("errors" in r) return NextResponse.json({ response_action: "errors", errors: r.errors });
+      return { kind: "agreement", user: p.user, ...r };
+    }
     if (p.kind === "submit") {
       const meta = p.callbackId === LINK_FORM ? parseMeta(p.meta) : null;
       if (!meta) return new Response(null, { status: 200 });
@@ -51,6 +57,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     return { kind: "press", press: p };
   });
   if (res instanceof Response) return res;
+  if (res.kind === "agreement") { after(() => requestAgreement(liveAdapters, companyId, res.user, res.contact, res.choice, res.by).then(() => undefined).catch((e) => console.error("slack agreement:", e))); return new Response(null, { status: 200 }); }
   if (res.kind === "link") { after(() => linkSubmitted(liveAdapters, companyId, res.user, res.meta, res.contact).then(() => undefined).catch((e) => console.error("slack link:", e)).then(() => runCompanyNow(companyId))); return new Response(null, { status: 200 }); }
   if (res.kind === "say") { const url = res.url; if (url) after(() => respondToSlack(url, { response_type: "ephemeral", replace_original: false, text: res.text }).catch(() => {})); return new Response(null, { status: 200 }); }
   after(() => alertPressed({ adapters: liveAdapters, respond: respondToSlack }, companyId, res.press).catch((e) => console.error("slack press:", e)).then(() => runCompanyNow(companyId)));

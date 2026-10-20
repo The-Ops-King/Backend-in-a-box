@@ -6,12 +6,14 @@ import { loadCompany } from "@/engine/context";
 import { helpText, planCommand, runCommand, type SlashCommand } from "@/engine/bot";
 import { respondToSlack, verifySlackSignature } from "@/engine/webhooks/slack";
 import { openTicket, TICKET_COMMAND, TICKET_USAGE } from "@/engine/tickets";
+import { AGREEMENT_COMMAND, agreementForm, checkAgreementCommand } from "@/engine/webhooks/agreement-request";
+import { slackBot } from "@/engine/slack-conn";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /**
  * Slack slash commands (D70): /mtd, /weekly, /monthly, /show-rate, /close-rate, /cash, /availability, /leads, the help
- * command, and /issue and /request (D152), all to this one URL. Form-encoded, signed like the events door. Help and a period that cannot be read are
+ * command, /support (D152) and /agreement (D202, opens a form), all to this one URL. Form-encoded, signed like the events door. Help and a period that cannot be read are
  * answered at once, privately; everything else is acknowledged within Slack's three seconds and posted after the response.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ companyId: string }> }) {
@@ -27,6 +29,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     const cmd: SlashCommand = { command: f.get("command") ?? "", text: f.get("text") ?? "", userId: f.get("user_id") ?? "", channelId: f.get("channel_id") ?? "", channelName: f.get("channel_name") ?? undefined, teamId: f.get("team_id") ?? undefined, responseUrl: f.get("response_url") ?? undefined };
     const conn = await one<{ team_id: string; bot_user_id: string | null }>(c, "select team_id, bot_user_id from slack_connections where company_id=$1", [companyId]);
     if (!conn || (cmd.teamId && cmd.teamId !== conn.team_id)) return NextResponse.json({ response_type: "ephemeral", text: "This workspace is not connected to this company." });
+    // D202: /agreement opens the form (Slack allows three seconds for it, so it opens here, not after the answer)
+    if (cmd.command.replace(/^\//, "").toLowerCase() === AGREEMENT_COMMAND) {
+      const ok = await checkAgreementCommand(c, companyId, cmd.userId, bindings);
+      if ("error" in ok) return NextResponse.json({ response_type: "ephemeral", text: ok.error });
+      const bot = await slackBot(c, companyId), trigger = f.get("trigger_id");
+      if (!bot || !trigger || !liveAdapters.notifier.openView) return NextResponse.json({ response_type: "ephemeral", text: "Slack didn't give me a way to open the form; try again." });
+      await liveAdapters.notifier.openView(bot.token, trigger, agreementForm(ok.choices, { channel: cmd.channelId }));
+      return new Response(null, { status: 200 });
+    }
     // D152: /support opens a ticket (the reply says it is in; the post and the operator's note follow)
     if (cmd.command.replace(/^\//, "").toLowerCase() === TICKET_COMMAND) return cmd.text.trim() ? { ticket: { cmd } } : NextResponse.json({ response_type: "ephemeral", text: TICKET_USAGE });
     const p = planCommand(cmd, row.timezone, DateTime.now());

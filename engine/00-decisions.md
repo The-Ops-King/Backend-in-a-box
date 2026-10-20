@@ -5770,26 +5770,33 @@ One minute apart, because the clock fires once a minute: that is what keeps them
 
 Tests: `flowmode.test.ts` (D201).
 
-## D202. What an incoming event starts runs at once; GHL nudges the engine about documents (2026-10-20)
+## D202. Payments and agreements in seconds: event runs at once, a ten-second documents check while a signature is due, /agreement (2026-10-20)
 
-Tyler: payment received, contract sent and contract signed "need to be basically instant" (under ten seconds). They were a minute
-or more: a run an event started waited for the next minute tick, and GHL's documents were read once a minute.
+Tyler: payment received, contract sent and contract signed "need to be basically instant" (under ten seconds), with no GHL
+workflows and nothing polling all the time ("I want 20-40 offers"). They were a minute or more: a run an event started waited for
+the next minute tick, and GHL's documents were read once a minute (GHL sends no webhook for documents).
 
 1. **Runs start at once.** Once a webhook has answered a delivery that took in something new (Whop, Zapier, Fathom, Typeform, a
-   Slack reaction, button or link form, GHL's nudge), the company's due runs are claimed and run then (`runNow`), and again for
+   Slack reaction, button, link form or /agreement), the company's due runs are claimed and run then (`runNow`), and again for
    what those start, up to five passes. A refused, repeated or ignored delivery starts nothing. It is the minute tick's own claim
    (a database lock and a five-minute lease), so a run is never run twice, and it never touches the tick's clock. After a gap
    (the company's last tick more than ten minutes ago) it stands aside: the backlog is the minute tick's, run as a recovery (sends
    capped, stale reminders exited), not flushed by the first event to arrive. The minute tick still runs whatever this misses.
-2. **GHL nudges.** A workflow in the offer's GHL (trigger Documents & Contracts, sent or signed; action Webhook) posts to
-   `/api/webhooks/ghl/<company>/documents?key=…`. What GHL posts is not read: the offer's documents are read from GHL at once (GHL
-   stays the truth), and what they announce runs at once. The key only allows that, so it is shown whole on the Setup page
-   (Inbound doors); it is derived from the server's key per company, not stored. The minute poll stays the backup for a nudge
-   GHL never sends.
-3. **One reader of an offer's documents at a time.** The nudge and the minute poll can read the same documents at once; a
-   document sent earlier and signed now was then "signed" twice (a test reproduced it about half the time). The documents read
-   takes a transaction lock per company first.
+   Whop already calls us the moment a payment lands, so Payment recorded (which sends the agreement) now runs within seconds.
+2. **A signature is looked for every ten seconds, only while one is due.** A database job (`bb-documents`, every ten seconds)
+   asks `bb_documents_waiting()` (migration 0005) which offers have, in the last 15 minutes, a payment from someone with nothing
+   signed or an agreement sent and not signed, and calls `/api/tick?scope=documents&company=<id>` for those only: that offer's
+   GHL documents are read and what they announce runs at once. Forty quiet offers cost no call. After 15 minutes the minute poll
+   is the only reader again. Installed with the tick job (`POST /api/admin/schedule`).
+3. **/agreement.** A closer (or a manager, the owner, the operator) types /agreement in Slack: a form asks who (email, phone or
+   GHL contact link) and which agreement (`agreements.list`, [{label, template}] per offer; unset, the offer's one
+   `crm.agreement_template`). The submit raises `agreement.requested` (migration 0005) and Send agreement manually, which now
+   takes that as a second trigger, sends the picked agreement from the closer's own GHL user, under the offer's mode and send
+   lock like any send; the closer gets a DM: sent, already signed, or held and why. The tag (sys-send-agreement-manually) is
+   retired per offer once /agreement is tested there (Tyler).
+4. **One reader of an offer's documents at a time.** The ten-second check and the minute poll can read the same documents at
+   once; a document sent earlier and signed now was then "signed" twice (a test reproduced it about half the time). The
+   documents read takes a transaction lock per company first.
 
-A contract the engine sends itself (send_document) was already instant once its run ran. Tests: `run-now.test.ts`,
-`poll.agreements.test.ts`.
-
+The redirect after signing (GHL's document setting) is kept for later, only if ten seconds proves too slow. Tests:
+`run-now.test.ts`, `poll.agreements.test.ts`, `webhooks/agreement-request.test.ts`.

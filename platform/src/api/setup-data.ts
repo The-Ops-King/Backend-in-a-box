@@ -1,5 +1,4 @@
 import { asOperator, many, one } from "@/db/client";
-import { nudgeKey } from "@/engine/inbound";
 import { loadCompany } from "@/engine/context";
 import { settingsRows, type SettingRow } from "@/engine/settings";
 import { companyReadiness, type Readiness } from "@/engine/readiness";
@@ -52,7 +51,7 @@ export type SettingsData = {
   catalog: Catalog | null;
   slack: { team_id: string; connected_at: Date } | null;
   readiness: Readiness;
-  inbound: { secret: string | null; ghlDocuments: string; whop: string; fathom: string; zapierPayment: string; zapierRecording: string; fathomWebhookId: string | null; typeform: string; typeformTag: string | null; typeformForms: string[] };
+  inbound: { secret: string | null; whop: string; fathom: string; zapierPayment: string; zapierRecording: string; fathomWebhookId: string | null; typeform: string; typeformTag: string | null; typeformForms: string[] };
 };
 
 export async function loadSettings(slug: string): Promise<SettingsData | null> {
@@ -95,7 +94,7 @@ export async function loadSettings(slug: string): Promise<SettingsData | null> {
     if (connected) catalog = await ghlCatalog(adapterCompany.pit, adapterCompany.locationId);
     const base = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
     return { company: co, rows, byKey: new Map(rows.map((r) => [r.key, r])), bookingSource: adapterCompany.booking.source, calendars, liveCalendars, liveCalendarsError, terms, users, eodForm, scheduled, tagUse, tagCounts, catalog, slack, slackChannels, readiness,
-      inbound: { secret: bindings["secret.zapier_inbound"] ?? null, ghlDocuments: `${base}/api/webhooks/ghl/${co.id}/documents?key=${nudgeKey(co.id)}`, whop: `${base}/api/webhooks/whop/${co.id}`, fathom: `${base}/api/webhooks/fathom/${co.id}`, zapierPayment: `${base}/api/webhooks/zapier/${co.id}/payment`, zapierRecording: `${base}/api/webhooks/zapier/${co.id}/recording`, fathomWebhookId: bindings["fathom.webhook_id"] ?? null,
+      inbound: { secret: bindings["secret.zapier_inbound"] ?? null, whop: `${base}/api/webhooks/whop/${co.id}`, fathom: `${base}/api/webhooks/fathom/${co.id}`, zapierPayment: `${base}/api/webhooks/zapier/${co.id}/payment`, zapierRecording: `${base}/api/webhooks/zapier/${co.id}/recording`, fathomWebhookId: bindings["fathom.webhook_id"] ?? null,
         typeform: `${base}/api/webhooks/typeform/${co.id}`, typeformTag: bindings["typeform.webhook_tag"] ?? null, typeformForms: Object.keys((() => { try { return JSON.parse(bindings["typeform.forms"] ?? "{}") as Record<string, unknown>; } catch { return {}; } })()) } };
   });
 }

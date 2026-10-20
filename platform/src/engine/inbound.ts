@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import type { PoolClient } from "pg";
 import { one } from "@/db/client";
 import type { CompanyRow } from "./context";
@@ -29,9 +29,3 @@ export const zapierAuthorized = (req: Request, bindings: Record<string, string>)
 };
 const same = (a: string, b: string) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); };
 
-/**
- * D202: the key in a GHL workflow's Webhook URL (`?key=`; GHL's action cannot set a header). It can only make the engine read the
- * offer's documents from GHL again, so it is shown whole on the Setup page, unlike the inbound secret. Derived, not stored.
- */
-export const nudgeKey = (companyId: string, serverKey = process.env.BINDINGS_KEY ?? "") => serverKey ? createHmac("sha256", serverKey).update(`ghl-nudge:${companyId}`).digest("base64url").slice(0, 32) : "";
-export const nudgeAuthorized = (req: Request, companyId: string) => { const k = nudgeKey(companyId), given = new URL(req.url).searchParams.get("key") ?? ""; return !!k && !!given && same(given, k); };

@@ -7,7 +7,7 @@ import { dispatchEvent, emitEvent } from "@/engine/dispatch";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { fakeAdapters } from "@/engine/test-install";
 import { runNow } from "@/engine/runner";
-import { nudgeAuthorized, nudgeKey, zapierAuthorized } from "@/engine/inbound";
+import { zapierAuthorized } from "@/engine/inbound";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const SLUG = "d202-run-now";
@@ -86,7 +86,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D202: runs started by an incoming ev
   });
 });
 
-describe("D202: the keys at the doors", () => {
+describe("D202: the inbound key", () => {
   it("the inbound secret only in a header, compared whole", () => {
     const b = { "secret.zapier_inbound": "zi_secret" };
     expect(zapierAuthorized(new Request("https://x/h", { headers: { "x-engine-secret": "zi_secret" } }), b)).toBe(true);
@@ -95,13 +95,39 @@ describe("D202: the keys at the doors", () => {
     expect(zapierAuthorized(new Request("https://x/h", { headers: { "x-engine-secret": "zi_secreT" } }), b)).toBe(false);
     expect(zapierAuthorized(new Request("https://x/h", { headers: { "x-engine-secret": "zi_secret" } }), {})).toBe(false);
   });
-  it("GHL's nudge key: one per company, from the server's key, in ?key=", () => {
-    const k = nudgeKey("co-1");
-    expect(k).toHaveLength(32);
-    expect(nudgeKey("co-2")).not.toBe(k);
-    expect(nudgeKey("co-1", "another server key")).not.toBe(k);
-    expect(nudgeAuthorized(new Request(`https://x/api/webhooks/ghl/co-1/documents?key=${k}`), "co-1")).toBe(true);
-    expect(nudgeAuthorized(new Request(`https://x/api/webhooks/ghl/co-2/documents?key=${k}`), "co-2")).toBe(false);
-    expect(nudgeAuthorized(new Request("https://x/api/webhooks/ghl/co-1/documents"), "co-1")).toBe(false);
+});
+
+describe.skipIf(!process.env.DATABASE_URL)("D202: which offers the ten-second documents job reads", () => {
+  const W = "d202-waiting";
+  let id = "", rae = "", cy = "";
+  const waiting = () => asOperator(async (c) => (await many<{ company_id: string }>(c, "select company_id from bb_documents_waiting()")).some((r) => r.company_id === id));
+  const clean = () => asOperator(async (c) => {
+    const old = await one<{ id: string }>(c, "select id from companies where slug=$1", [W]); if (!old) return;
+    for (const t of ["agreements", "payments", "contacts"]) await c.query(`delete from ${t} where company_id=$1`, [old.id]);
+    await c.query("delete from companies where id=$1", [old.id]);
+  });
+  beforeAll(async () => {
+    await migrate(); await clean();
+    await asOperator(async (c) => {
+      id = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, status) values ('Waiting', $1, 'UTC', 'active') returning id", [W]))!.id;
+      rae = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'GW1','Rae') returning id", [id]))!.id;
+      cy = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'GW2','Cy') returning id", [id]))!.id;
+    });
+  });
+  afterAll(clean);
+
+  it("a payment from someone with nothing signed, or an agreement sent and not signed, in the last 15 minutes: read it; otherwise not", async () => {
+    expect(await waiting()).toBe(false);
+    await asOperator((c) => c.query("insert into payments (company_id, contact_id, whop_payment_id, amount, status, paid_at) values ($1,$2,'pw-old',500,'succeeded',now() - interval '20 minutes')", [id, rae]));
+    expect(await waiting()).toBe(false);   // too long ago: the minute poll's alone
+    await asOperator((c) => c.query("insert into payments (company_id, contact_id, whop_payment_id, amount, status, paid_at) values ($1,$2,'pw-new',500,'succeeded',now() - interval '2 minutes')", [id, rae]));
+    expect(await waiting()).toBe(true);
+    await asOperator((c) => c.query("insert into agreements (company_id, contact_id, external_id, status, sent_at, signed_at) values ($1,$2,'dw-1','completed',now() - interval '1 minute',now())", [id, rae]));
+    expect(await waiting()).toBe(false);   // signed: nothing to wait for
+    await asOperator((c) => c.query("insert into agreements (company_id, contact_id, external_id, status, sent_at) values ($1,$2,'dw-2','sent',now() - interval '3 minutes')", [id, cy]));
+    expect(await waiting()).toBe(true);    // sent to Cy, not signed
+    await asOperator((c) => c.query("update agreements set sent_at = now() - interval '16 minutes' where external_id='dw-2' and company_id=$1", [id]));
+    expect(await waiting()).toBe(false);
   });
 });
+
