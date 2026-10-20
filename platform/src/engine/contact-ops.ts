@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { many, one } from "@/db/client";
+import { checkpoint, many, one } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
 import { loadCompany } from "./context";
 import { callOutcome } from "./recordings";
@@ -126,7 +126,9 @@ export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { c
       if (!matches(live.assignedTo)) { skipped.push({ who: x.who, why: live.assignedTo === to.ghl_user_id ? `already ${to.name}'s` : live.assignedTo ? "owned by someone else now" : "has no owner now" }); continue; }
       if (!live.tags.includes(a.tag.trim())) { skipped.push({ who: x.who, why: `no longer tagged ${a.tag}` }); continue; }
       await adapters.write.updateContact(ac, x.ghl_contact_id, { assignedUserId: p.target.ghl_user_id });
-      await c.query("update contacts set assigned_ghl_user_id=$2, updated_at=now() where id=$1", [x.id, p.target.ghl_user_id]);
+      // each contact committed on its own (D204: one transaction held across hundreds of GHL calls collided with the contacts poll
+      // and lost every replica write at the end; the poll reads the owner back from GHL anyway)
+      await checkpoint(c, (c) => c.query("update contacts set assigned_ghl_user_id=$2, updated_at=now() where id=$1", [x.id, p.target.ghl_user_id]));
       moved.push(p);
     } catch (e) { skipped.push({ who: x.who, why: `GHL refused: ${String((e as Error).message).slice(0, 120)}` }); }
   }
