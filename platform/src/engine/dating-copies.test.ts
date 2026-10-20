@@ -129,6 +129,24 @@ describe("D118: Dating Nelly's copies", () => {
     }
   });
 
+  it("D199: a call booked within 24 hours gets no day-before text: how far off the call is when the day-before wait starts is remembered, and the text goes only past 24; a run from before has nothing remembered and keeps the old way. Mitch's triage cancel makes the rebook task its post names", async () => {
+    type N = { id: string; type: string } & Record<string, unknown>;
+    const { evaluate } = await import("./predicate");
+    for (const slug of ["triage-pre-call", "closing-pre-call"]) {
+      const d = file(slug).definition as unknown as { nodes: N[]; edges: { from: string; to: string }[] };
+      const at = (id: string) => d.nodes.find((n) => n.id === id)!;
+      expect(d.edges.filter((e) => e.to === "r24").map((e) => e.from)).toEqual(["v_lead"]);
+      expect(d.edges.filter((e) => e.to === "v_lead").map((e) => e.from).sort()).toEqual(["n_unc_slack", "rs", "w_dec"]);
+      expect(at("v_lead")).toMatchObject({ type: "set_var", key: "lead_at_day_before", value: "{{appointment.starts_at | hours_until}}" });
+      const sends = (lead?: string) => evaluate(at("m24s").only_if as never, { vars: lead === undefined ? {} : { lead_at_day_before: lead } });
+      expect([sends("72.5"), sends("24.1"), sends("23.9"), sends("2"), sends(undefined)], slug).toEqual([true, true, false, false, true]);
+    }
+    const tc = file("triage-call-cancelled").definition as unknown as { nodes: N[] };
+    expect(tc.nodes.find((n) => n.id === "n4")).toEqual(template("call-cancelled").nodes.find((n) => n.id === "n4"));
+    expect(String(tc.nodes.find((n) => n.id === "n7")!.template)).toContain("*Rebook task:*");
+    expect(JSON.stringify(tc)).not.toMatch(/pipeline_closer|object_sales_call/);
+  });
+
   it("D186: the end of day's notes and why a DQ reach the Discovery Call record, from a triage call's row and an outbound call's; a DQ reason a later answer drops is emptied", () => {
     type N = { id: string; properties: Record<string, string>; clear?: string[] };
     const d1 = (slug: string) => (file(slug).definition as unknown as { nodes: N[] }).nodes.find((n) => n.id === "d1")!;

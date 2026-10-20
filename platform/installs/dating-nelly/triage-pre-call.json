@@ -360,6 +360,13 @@
     "title": "Back to the reminder the run was on"
    },
    {
+    "id": "v_lead",
+    "type": "set_var",
+    "key": "lead_at_day_before",
+    "value": "{{appointment.starts_at | hours_until}}",
+    "title": "How far off the call is when the day-before wait starts"
+   },
+   {
     "id": "r24",
     "type": "wait",
     "rule": {
@@ -380,7 +387,22 @@
      "min_lead": "18h"
     },
     "on_stale": "skip",
-    "title": "The day before"
+    "title": "The day before",
+    "only_if": {
+     "or": [
+      {
+       "not": {
+        "exists": "vars.lead_at_day_before"
+       }
+      },
+      {
+       "gt": [
+        "{{vars.lead_at_day_before}}",
+        24
+       ]
+      }
+     ]
+    }
    },
    {
     "id": "r1",
@@ -482,7 +504,7 @@
    },
    {
     "from": "n_unc_slack",
-    "to": "r24"
+    "to": "v_lead"
    },
    {
     "from": "n_cx",
@@ -580,7 +602,7 @@
    },
    {
     "from": "w_dec",
-    "to": "r24",
+    "to": "v_lead",
     "label": "the reminders go on"
    },
    {
@@ -621,6 +643,10 @@
    },
    {
     "from": "rs",
+    "to": "v_lead"
+   },
+   {
+    "from": "v_lead",
     "to": "r24"
    }
   ]

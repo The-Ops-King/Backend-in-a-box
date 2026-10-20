@@ -5629,3 +5629,12 @@ Calendly's text-reminder number, then the configured question (Hair's "Best numb
 makes a phone field (its labels read from the event type, cached ten minutes; a failed read is no fields, never a failed poll),
 then any question whose label has the word phone. Every offer: no offer that had a phone loses it or gets a different one; one
 whose form missed the rule now gets the phone. Tests: `calendly/read.test.ts`.
+
+## D199. No day-before text for a call booked within 24 hours; Mitch's triage cancel makes its rebook task (2026-10-20)
+
+Tyler: "if its booked within 24 hours we don't get that." Nelly's two pre-calls remember how far off the call is when the run
+reaches the day-before wait (`v_lead`, `vars.lead_at_day_before`); the day-before text goes only when that is over 24 hours (the
+18-hour staleness rule still holds after). A run already past that point when the change was saved keeps the old way. The booking
+text and the hour-before text are unchanged. Triage call cancelled keeps the template's rebook task (Tyler: "Create the task for
+Mitch"), due in a day for whoever takes the call, so its post's "Rebook task" line is true; D142 had left it out. Nelly only.
+Tests: `dating-copies.test.ts`.
