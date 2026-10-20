@@ -16,6 +16,14 @@ export async function calendly<T = unknown>(token: string, path: string, opts: {
   }
 }
 
+/** D196: a write (the one the engine makes: cancelling a booking). Needs a token with write access. */
+export async function calendlyPost<T = unknown>(token: string, path: string, body: unknown): Promise<T> {
+  const res = await fetch(path.startsWith("http") ? path : BASE + path, { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const text = await res.text();
+  if (!res.ok) throw new CalendlyError(res.status, text, path);
+  return (text ? JSON.parse(text) : {}) as T;
+}
+
 /** Walks `pagination.next_page` until exhausted. */
 export async function calendlyAll<T>(token: string, path: string, cap = 1000): Promise<T[]> {
   const out: T[] = [];

@@ -8,7 +8,7 @@ import { render, resolveExpr, resolvePath, parseDuration, StaleTemplateError, Un
 import { checkSendLock, type LockChannel } from "./send-lock";
 import { predicateWords, durationWords, skippedWords } from "./describe";
 import { syncCards, pickCard, latestCard } from "./cards";
-import { computeWaitUntil, deferIntoWindow, timeParam } from "./waitrule";
+import { computeWaitUntil, deferIntoWindow, pullBackIntoWindow, timeParam } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
 import { TEST_CHANNEL_KEY, slackLiveSet, type Effective, type Mode } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
@@ -346,7 +346,8 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (pinned) at = DateTime.fromISO(pinned);
       else {
         const r = computeWaitUntil(node.rule, { now: d.now, contactTz: contactTz(d), companyTz: d.company.timezone, ctx: d.ctx });
-        const w = deferIntoWindow(r.at, contactTz(d), d.company.send_window_start, d.company.send_window_end);
+        const pulled = node.rule.window === "before" ? pullBackIntoWindow(r.at, contactTz(d), d.company.send_window_start, d.company.send_window_end) : r.at;   // D193
+        const w = deferIntoWindow(pulled < d.now ? d.now : pulled, contactTz(d), d.company.send_window_start, d.company.send_window_end);
         at = w.at; usedFallback = r.usedFallback; deferred = w.deferred;
         if (node.rule.anchor === "now") setPath(d.ctx, `vars.${key}`, at.toISO());
       }
@@ -607,10 +608,15 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         if (d.ctx.appointment) (d.ctx.appointment as Record<string, unknown>).pending_read = pending;
         if (!Object.keys(patch).length) return { status: "ok", next, result: { pending_read: pending } };
       }
-      // only the CRM's own calendars accept writes; a Calendly booking is read-only to us, so the node records that and moves on
-      if (a!.source !== "ghl") return { status: "ok", next, result: { skipped: true, reason: `appointments from ${a!.source} are read-only`, would_update: patch } };
+      // only the CRM's own calendars take every write; a Calendly booking takes one: a cancel (D196), which Calendly tells the person
+      // about, so it waits for the person to be reachable (live, or a test contact) like a send. Anything else is recorded and skipped.
+      const source = a!.source === "calendly" ? d.adapters.booking.calendly : null;
+      const cancelAtSource = !!source?.cancel && patch.status === "cancelled" && Object.keys(patch).length === 1;
+      if (a!.source !== "ghl" && !cancelAtSource) return { status: "ok", next, result: { skipped: true, reason: `appointments from ${a!.source} are read-only`, would_update: patch } };
       if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_update: patch } };
-      await d.adapters.write.updateAppointment(d.adapterCompany, a!.external_id, patch);
+      if (cancelAtSource && held(d)) return { status: "ok", next, result: { ...heldFlag(d), would_cancel_in: a!.source } };
+      if (cancelAtSource) await source!.cancel!(d.adapterCompany, a!.external_id, "Cancelled by the team");
+      else await d.adapters.write.updateAppointment(d.adapterCompany, a!.external_id, patch);
       if (typeof patch.status !== "string") return { status: "ok", next, result: patch };
       // D66 (C6): one event per (run, step, appointment, status), so a retry after a crash between our row and the emit emits once, and a crash before it still emits
       const emitted = await one<{ id: number }>(d.c, "select id from events where run_id=$1 and event_type='appointment.status_changed' and appointment_id=$2 and data->>'node'=$3 and data->'status'->>'to'=$4 limit 1", [d.run.id, d.run.appointment_id, node.id, patch.status]);

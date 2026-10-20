@@ -1,5 +1,5 @@
 import type { AppointmentSnapshot, BookingRead, CalendarConfig, CalendarSnapshot, Company } from "../types";
-import { calendly, calendlyAll, eventUuidOfInvitee, uuidOf } from "./client";
+import { calendly, calendlyAll, calendlyPost, eventUuidOfInvitee, uuidOf } from "./client";
 
 export type RawEventType = { uri: string; name: string; active: boolean; scheduling_url: string; internal_note?: string | null; pooling_type?: string | null; duration: number; custom_questions?: { name: string; type?: string; position?: number; enabled?: boolean; required?: boolean; answer_choices?: string[] }[]; profile?: { type?: string; name?: string; owner?: string } | null };
 export type RawEvent = { uri: string; name: string; status: "active" | "canceled"; start_time: string; end_time: string; event_type: string; created_at: string; updated_at: string; event_memberships: { user: string; user_email?: string; user_name?: string }[]; invitees_counter: { total: number; active: number }; location?: { type?: string; join_url?: string | null; location?: string | null } | null };
@@ -110,6 +110,11 @@ export const calendlyBooking: BookingRead = {
       }
     }
     return out;
+  },
+  /** D196: Calendly's own cancellation (it tells the invitee); the poll then sees it cancelled like any other. */
+  async cancel(c, id, reason) {
+    const b = cfg(c);
+    await calendlyPost(b.token, `/scheduled_events/${id}/cancellation`, { reason: reason.slice(0, 1000) });
   },
   async getAppointment(c, id) {
     const b = cfg(c);

@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import { SIDE_LABELS, type Definition, type Node } from "./definition";
 import { describeNode, branchTitle, edgeWords } from "./describe";
-import { computeWaitUntil, deferIntoWindow } from "./waitrule";
+import { computeWaitUntil, deferIntoWindow, pullBackIntoWindow } from "./waitrule";
 import { resolvePath } from "./template";
 import type { CompanyRow, RunRow } from "./context";
 
@@ -28,7 +28,14 @@ export function projectRun(def: Definition, run: Pick<RunRow, "status" | "curren
     if (n.type === "wait") {
       const pinned = n.rule.anchor === "now" ? (resolvePath(ctx, `vars.__wait.${n.id}.until`) as string | undefined) : undefined;
       let at: DateTime;
-      try { at = pinned ? DateTime.fromISO(pinned) : deferIntoWindow(computeWaitUntil(n.rule, { now: cursor, contactTz, companyTz: company.timezone, ctx }).at, contactTz, company.send_window_start, company.send_window_end).at; }
+      try {
+        if (pinned) at = DateTime.fromISO(pinned);
+        else {
+          const r = computeWaitUntil(n.rule, { now: cursor, contactTz, companyTz: company.timezone, ctx }).at;
+          const pulled = n.rule.window === "before" ? pullBackIntoWindow(r, contactTz, company.send_window_start, company.send_window_end) : r;   // D193
+          at = deferIntoWindow(pulled < cursor ? cursor : pulled, contactTz, company.send_window_start, company.send_window_end).at;
+        }
+      }
       catch { out.push({ node_id: id, title: d.title, kind: "wait", at: null, note: "cannot compute yet (no appointment time)" }); break; }
       if (at > cursor) cursor = at;
       out.push({ node_id: id, title: d.title, kind: "wait", at: cursor.toISO() });

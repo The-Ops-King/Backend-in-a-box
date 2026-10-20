@@ -44,6 +44,14 @@ export function clampToWindow(at: DateTime, tz: string, earliest?: string, lates
   return at;
 }
 
+/** D193: a time at or after the window's close that day moves back to a minute before it closes; any other time is left as it is. */
+export function pullBackIntoWindow(at: DateTime, tz: string, start: string, end: string): DateTime {
+  const local = at.setZone(tz);
+  const [sh, sm] = start.split(":").map(Number), [eh, em] = end.split(":").map(Number);
+  const open = local.set({ hour: sh, minute: sm, second: 0, millisecond: 0 }), close = local.set({ hour: eh, minute: em, second: 0, millisecond: 0 });
+  return local >= close && close > open ? close.minus({ minutes: 1 }) : at;
+}
+
 /** D5d: send window. Returns the same instant if inside the window, else the next opening — always forward. */
 export function deferIntoWindow(at: DateTime, tz: string, start: string, end: string): { at: DateTime; deferred: boolean } {
   const local = at.setZone(tz);

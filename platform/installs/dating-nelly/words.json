@@ -23,13 +23,13 @@
     "triage": {
       "booked": "Hi {{contact.first_name}}, it's Nelly. You're booked for your free 15-minute strategy call on {{appointment.starts_at | date:\"cccc, LLL d 'at' h:mm a ZZZZ\"}}. My teammate {{appointment.closer.first_name}} will be the one calling you. Reply YES to confirm, or reply here if you need a different time.",
       "day": "Hi {{contact.first_name}}, Nelly here. Quick reminder that {{appointment.closer.first_name}} is calling you tomorrow at {{appointment.starts_at | date:\"h:mm a ZZZZ\"}} for your strategy call. It's only 15 minutes, so find a spot where you can talk freely.",
-      "hour": "{{contact.first_name}}, your call with {{appointment.closer.first_name}} is in an hour ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Keep your phone close."
+      "hour": "{{contact.first_name}}, your call with {{appointment.closer.first_name}} is {{appointment.starts_at | relative:hours}} ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Keep your phone close."
     },
     "closing": {
       "booked": "Hi {{contact.first_name}}, it's Nelly. You're booked for your private consultation with me on {{appointment.starts_at | date:\"cccc, LLL d 'at' h:mm a ZZZZ\"}}. It runs about an hour, so block off the time. Reply YES to confirm, or let me know if you need to move it.",
       "day": "Hi {{contact.first_name}}, looking forward to our consultation tomorrow at {{appointment.starts_at | date:\"h:mm a ZZZZ\"}}. Come ready to talk about what you want in a partner and what hasn't worked so far. Nelly",
-      "hour": "{{contact.first_name}}, we're on in an hour ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Join here: {{appointment.meeting_url}} See you soon! Nelly",
-      "hourNoLink": "{{contact.first_name}}, we're on in an hour ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). I'll send you the link here shortly. See you soon! Nelly"
+      "hour": "{{contact.first_name}}, we're on {{appointment.starts_at | relative:hours}} ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Join here: {{appointment.meeting_url}} See you soon! Nelly",
+      "hourNoLink": "{{contact.first_name}}, we're on {{appointment.starts_at | relative:hours}} ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). I'll send you the link here shortly. See you soon! Nelly"
     }
   }
 }

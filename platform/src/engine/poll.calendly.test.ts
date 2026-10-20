@@ -14,12 +14,14 @@ let events: AppointmentSnapshot[] = [];
 let ghlContacts: ContactSnapshot[] = [];
 const noBooking = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] };
 const recordWrites: Record<string, unknown>[] = [];
+const cancelled: { id: string; reason: string }[] = [];   // D196: what the engine cancelled at Calendly
 const relations: string[] = [];
 const fake: Adapters = {
   read: { openCards: async () => [], contactsChangedSince: async (c) => (c.id === companyId ? ghlContacts : []), inboundSince: async () => [], messageBodies: async () => new Map(), callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async () => null, listUsers: async () => [] },
   booking: {
     ghl: noBooking,
     calendly: { listCalendars: async () => [{ id: "ET1", name: "45 Min Strategy Call", teamMemberIds: [] }], getAppointment: async (_c, id) => events.find((e) => e.id === id) ?? null,
+      cancel: async (_c, id, reason) => { cancelled.push({ id, reason }); },
       appointmentsInWindow: async (c, cal) => (c.id === companyId ? events.filter((e) => e.calendarId === cal) : []) },
   },
   write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "task-x" }), createRecord: async (_c, _o, props) => { recordWrites.push({ op: "create", ...props }); return { id: `rec-${recordWrites.length}` }; }, updateRecord: async (_c, _o, id, props) => { recordWrites.push({ op: "update", id, ...props }); }, relateRecords: async (_c, a, f, s) => { relations.push(`${a}:${f}>${s}`); }, createOpportunity: async () => ({ id: "opp-x" }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "doc-x" }) },
@@ -136,6 +138,33 @@ describe.skipIf(!process.env.DATABASE_URL)("Calendly as the booking source", () 
     events = [appt("EV3", { invitee: { firstName: "Nobody" } })];
     const r = await pollAll(fake);
     expect(r.appointmentsNew).toBe(0); expect(r.errors.filter((e) => e.company === "cal")).toEqual([]);
+  });
+
+  it("D196: a workflow's cancel of a Calendly booking cancels it at Calendly when the person is reachable (live), and runs the cancel workflows; in quiet it is held and Calendly is not touched", async () => {
+    const { parseDefinition, extractManifest } = await import("@/engine/definition");
+    const { syncTriggers } = await import("@/engine/install");
+    const { tick } = await import("@/engine/runner");
+    const wf = await asOperator(async (c) => {
+      const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "none" }, nodes: [{ id: "t1", type: "trigger", event: "appointment.booked" }, { id: "n_cx", type: "update_appointment", set: { status: "cancelled" } }, { id: "x1", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "n_cx" }, { from: "n_cx", to: "x1" }] });
+      const w = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Cancel it','always',true) returning id", [companyId]))!;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [w.id, def, extractManifest(def)]);
+      await syncTriggers(c, companyId, w.id, def);
+      return w.id;
+    });
+    const later = (h: number) => new Date(Date.now() + h * 36e5).toISOString();
+    // quiet: held, Calendly untouched
+    await asOperator((c) => c.query("update companies set mode='quiet' where id=$1", [companyId]));
+    events = [...events, appt("EV-Q", { startTime: later(30), endTime: later(31), invitee: { email: "quinn@x.com", firstName: "Quinn" } })];
+    await pollAll(fake); await tick(fake, undefined, companyId);
+    expect(cancelled).toEqual([]);
+    // live: cancelled at Calendly, our booking cancelled, and the cancel event says before the call
+    await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
+    events = [...events, appt("EV-L", { startTime: later(30), endTime: later(31), invitee: { email: "lee@x.com", firstName: "Lee" } })];
+    await pollAll(fake); await tick(fake, undefined, companyId);
+    expect(cancelled).toEqual([{ id: "EV-L", reason: "Cancelled by the team" }]);
+    expect(await asOperator((c) => one(c, "select status from appointments where company_id=$1 and external_id='EV-L'", [companyId]))).toEqual({ status: "cancelled" });
+    expect(await asOperator((c) => one(c, "select data->'status'->>'to' as to_, data->>'before_start' as before from events where company_id=$1 and event_type='appointment.status_changed' and appointment_id=(select id from appointments where external_id='EV-L')", [companyId]))).toEqual({ to_: "cancelled", before: "true" });
+    await asOperator((c) => c.query("update workflows set enabled=false where id=$1", [wf]));
   });
 });
 
