@@ -55,3 +55,13 @@ sends locked). Fix on PMU only, when Tyler names it.
 3. `smsEnabled` in the install file matches the offer, so a re-install never turns texting back off.
 4. Send lock: unchanged. Every workflow starts locked; only Tyler unlocks, by name.
 5. No Calendly phone-question setting is needed any more (D198).
+
+## Done
+
+- **Hair, 2026-10-20** (Tyler: structural changes only, no copy; Hair stays in test, every client-facing send locked):
+  - B1 on Hair's own Call booked copy (v17): only the three steps added (`v_textoff`, `v_nophone`, `n_dnd`), not a template
+    save, which would also have changed Hair's GHL wait (into creating the contact), its Sales Call write and its booking card.
+  - B2 Calendar availability (v2), then B3 Health check (v6), from the template; dry runs showed only those steps.
+  - C2 (no meeting link) waits on Tyler naming Hair's two channels; it goes in Hair's Call booked (Hair's pre-call stays in GHL).
+  - C1, C3, C4, C5 do nothing on Hair while its reminders run in GHL. C6 not taken.
+
