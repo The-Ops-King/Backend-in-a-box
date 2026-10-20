@@ -102,6 +102,7 @@ export type ScheduleStatus = {
   job?: { jobid: number; schedule: string; active: boolean; command: string };
   recentRuns: { status: string; return_message: string | null; start_time: Date }[];
   watchdog?: { jobid: number; schedule: string; active: boolean; alertUrl: string | null };
+  documents?: { jobid: number; schedule: string; active: boolean; recentRuns: { status: string; return_message: string | null; start_time: Date }[] };
 };
 
 export async function tickScheduleStatus(): Promise<ScheduleStatus> {
@@ -114,7 +115,10 @@ export async function tickScheduleStatus(): Promise<ScheduleStatus> {
     // apps' pg_net traffic in it), so the HTTP outcome is read from /api/health's last_tick instead.
     const recentRuns = await many<ScheduleStatus["recentRuns"][number]>(c, "select status, return_message, start_time from cron.job_run_details where jobid=$1 order by start_time desc limit 5", [job.jobid]);
     const wd = await one<{ jobid: number; schedule: string; active: boolean; command: string }>(c, "select jobid, schedule, active, command from cron.job where jobname=$1", [WATCHDOG_JOB]);
-    return { installed: true, job: { ...job, jobid: Number(job.jobid), command: job.command.replace(/Bearer [^"\\]+/, "Bearer ***") }, recentRuns,
+    // D202: the ten-second documents job, and how its last runs went (a failing one would otherwise be silent)
+    const dj = await one<{ jobid: number; schedule: string; active: boolean }>(c, "select jobid, schedule, active from cron.job where jobname=$1", [DOCUMENTS_JOB]);
+    const documents = dj ? { jobid: Number(dj.jobid), schedule: dj.schedule, active: dj.active, recentRuns: await many<ScheduleStatus["recentRuns"][number]>(c, "select status, return_message, start_time from cron.job_run_details where jobid=$1 order by start_time desc limit 5", [dj.jobid]) } : undefined;
+    return { installed: true, job: { ...job, jobid: Number(job.jobid), command: job.command.replace(/Bearer [^"\\]+/, "Bearer ***") }, recentRuns, documents,
       watchdog: wd ? { jobid: Number(wd.jobid), schedule: wd.schedule, active: wd.active, alertUrl: /\$bbq\$(https:[^$]+)\$bbq\$/.exec(wd.command)?.[1] ?? (wd.command.includes(WATCHDOG_URL_NAME) ? "(in Vault)" : null) } : undefined };
   });
 }
