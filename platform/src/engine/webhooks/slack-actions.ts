@@ -15,12 +15,21 @@ import { SLACK_ACTIONS } from "../definition";
  * and the operator (`bot.escalate_to`) may press; the alert row is locked for the press, so a second press waits for the first
  * and finds it done.
  */
-export type SlackPress = { kind: "press"; teamId?: string; user: string; userName?: string; action: (typeof SLACK_ACTIONS)[number]; value: string; channel?: string; ts?: string; responseUrl?: string; message?: { text?: string; blocks?: SlackBlock[] } };
+export type SlackPress = { kind: "press"; teamId?: string; user: string; userName?: string; action: (typeof SLACK_ACTIONS)[number]; value: string; channel?: string; ts?: string; responseUrl?: string; triggerId?: string; message?: { text?: string; blocks?: SlackBlock[] } };
+/** D193: a form of ours sent back (view_submission): which form, what it carried, what was typed (block id → value). */
+export type SlackSubmit = { kind: "submit"; teamId?: string; user: string; callbackId: string; meta?: string; values: Record<string, string> };
 
-/** Slack posts an interaction form-encoded, the JSON in `payload`. Only a button of ours on a message is a press. */
-export function parseSlackInteraction(raw: string): SlackPress | { kind: "ignored"; type: string } {
+/** Slack posts an interaction form-encoded, the JSON in `payload`. A button of ours on a message is a press; a form of ours sent back, a submit. */
+export function parseSlackInteraction(raw: string): SlackPress | SlackSubmit | { kind: "ignored"; type: string } {
   let p: Record<string, unknown>;
   try { p = JSON.parse(new URLSearchParams(raw).get("payload") ?? ""); } catch { return { kind: "ignored", type: "no payload" }; }
+  if (p?.type === "view_submission") {
+    const view = (p.view ?? {}) as { callback_id?: string; private_metadata?: string; state?: { values?: Record<string, Record<string, { value?: string | null }>> } };
+    const user = (p.user ?? {}) as Record<string, unknown>;
+    if (typeof view.callback_id !== "string" || typeof user.id !== "string") return { kind: "ignored", type: "view_submission" };
+    const values = Object.fromEntries(Object.entries(view.state?.values ?? {}).map(([block, inputs]) => [block, String(Object.values(inputs)[0]?.value ?? "")]));
+    return { kind: "submit", teamId: typeof (p.team as { id?: unknown } | undefined)?.id === "string" ? (p.team as { id: string }).id : undefined, user: user.id, callbackId: view.callback_id, meta: view.private_metadata, values };
+  }
   if (p?.type !== "block_actions") return { kind: "ignored", type: String(p?.type ?? "?") };
   const a = ((p.actions as Record<string, unknown>[] | undefined) ?? [])[0] ?? {};
   const action = SLACK_ACTIONS.find((x) => x === a.action_id);
@@ -29,7 +38,7 @@ export function parseSlackInteraction(raw: string): SlackPress | { kind: "ignore
   const container = (p.container ?? {}) as Record<string, unknown>, message = (p.message ?? {}) as Record<string, unknown>, channel = (p.channel ?? {}) as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === "string" ? v : undefined);
   return { kind: "press", teamId: str(((p.team ?? {}) as Record<string, unknown>).id), user: user.id, userName: str(user.name) ?? str(user.username), action, value: a.value,
-    channel: str(container.channel_id) ?? str(channel.id), ts: str(container.message_ts) ?? str(message.ts), responseUrl: str(p.response_url),
+    channel: str(container.channel_id) ?? str(channel.id), ts: str(container.message_ts) ?? str(message.ts), responseUrl: str(p.response_url), triggerId: str(p.trigger_id),
     message: { text: str(message.text), blocks: Array.isArray(message.blocks) ? (message.blocks as SlackBlock[]) : undefined } };
 }
 

@@ -145,6 +145,8 @@ export type SlackBlock = Record<string, unknown> & { type: string };
 export interface Notifier {
   /** `threadTs` replies in that message's thread instead of posting to the channel. `blocks` (D93): Block Kit layout; `text` stays the notification and fallback. */
   post(token: string, channelId: string, text: string, as?: SlackPersona, threadTs?: string, blocks?: SlackBlock[]): Promise<{ ts: string; channel?: string }>;
+  /** views.open (D193): a form for the person who pressed, with the press's trigger_id (good for three seconds). Optional. */
+  openView?(token: string, triggerId: string, view: Record<string, unknown>): Promise<void>;
   /** chat.update: rewrite a message the bot posted (needs chat:write). Optional: a notifier without it posts anew. `blocks` replaces the message's blocks (an empty list takes them off). */
   update?(token: string, channelId: string, ts: string, text: string, blocks?: SlackBlock[]): Promise<void>;
   /** Slack user id for an email (users.lookupByEmail; needs users:read.email), null when unknown. A DM is a post to that id. */

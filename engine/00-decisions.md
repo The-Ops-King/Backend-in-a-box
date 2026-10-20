@@ -5632,4 +5632,12 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
    Slack and email; the database watchdog posts to a Slack incoming webhook every five minutes the ticks are stale. Its URL is a
    secret like the key and is kept in Vault the same way. Both wait on Tyler (TODO.md): the webhook URL, and the monitor.
 
-Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`.
+8. **Hand-linking is back, as a Slack button** (Tyler; it lost its route in D42). The Unlinked payment and Unmatched recording
+   posts carry "Link to a contact" (`link_payment` / `link_recording`). The press opens a form, inside Slack's three seconds:
+   their email, phone or GHL contact link. The submit is checked at once (owners, managers and the operator only; the payment or
+   recording still unlinked; exactly one contact matches), with any problem said inside the form; then it is linked exactly as a
+   match on arrival (`linkPayment`, `linkRecording`: the buyer's email is remembered, the workflows it starts run), and the
+   post's thread says "✅ Linked to <name> by <who>" with a ✅ on the post. Needs no Slack scope or manifest change. In the
+   templates; an offer gets it when its own copy is saved from the template (D147), one offer at a time on Tyler's word.
+
+Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`, `replay.test.ts`, `webhooks/slack-link.test.ts`.
