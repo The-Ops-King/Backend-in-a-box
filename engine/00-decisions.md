@@ -5617,4 +5617,8 @@ Tyler: "fix all those issues" (the open items of `10-audit-2026-10-19.md` after 
    never fire; a row an event or trigger already names would be kept). `set_tag` / `remove_tag` stay: they already share the
    `tags` step's code, and removing them means rewriting stored workflows on every offer for no change in behaviour.
 
+5. **The dashboard stays one password** (audit risk 6). Tyler: no one but him logs in. Open item 22 was out of date (it said the
+   writes had no login; the middleware has gated them with the operator password since); corrected. Per-client logins wait
+   for the first client given access.
+
 Tests: `ghl/inbound.test.ts`, `poll.isolation.test.ts`, `retention.test.ts`, `admin-auth.test.ts`, `ticks.test.ts`.
