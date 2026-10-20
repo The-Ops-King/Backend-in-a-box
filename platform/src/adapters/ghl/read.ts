@@ -164,6 +164,24 @@ export const ghlRead: CrmRead = {
     }
     return out;
   },
+  async contactCalls(c, contactId) {
+    const out: MessageSnapshot[] = [];
+    const r = await ghl<{ conversations: { id: string; contactId: string }[] }>(c.pit, "GET", `/conversations/search?locationId=${c.locationId}&contactId=${encodeURIComponent(contactId)}&limit=20`, { version: "2021-04-15" });
+    for (const conv of r.conversations ?? []) {
+      let lastMessageId: string | undefined;
+      for (let page = 0; page < 10; page++) {
+        const m = await ghl<{ messages: { lastMessageId?: string; nextPage?: boolean; messages: { id: string; direction: string; messageType: string; status?: string; dateAdded: string; userId?: string; meta?: { call?: { status?: string; duration?: number } } }[] } }>(c.pit, "GET", `/conversations/${conv.id}/messages?limit=100${lastMessageId ? `&lastMessageId=${lastMessageId}` : ""}`, { version: "2021-04-15" });
+        for (const msg of m.messages?.messages ?? []) {
+          if (msg.messageType !== "TYPE_CALL") continue;
+          const call = msg.meta?.call ?? {};
+          out.push({ id: msg.id, conversationId: conv.id, contactId: conv.contactId, channel: "call", direction: msg.direction as "inbound" | "outbound", status: msg.status, dateAdded: msg.dateAdded, call: { status: String(call.status ?? msg.status ?? ""), durationSec: typeof call.duration === "number" ? call.duration : undefined, userId: msg.userId } });
+        }
+        if (!m.messages?.nextPage || !m.messages.lastMessageId) break;
+        lastMessageId = m.messages.lastMessageId;
+      }
+    }
+    return out.sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
+  },
   async wonOpportunities(c, from, to) {
     const out: WonOpportunity[] = [];
     for (let page = 1; page < 50; page++) {

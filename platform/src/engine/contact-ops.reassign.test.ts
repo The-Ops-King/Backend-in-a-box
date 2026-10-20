@@ -63,6 +63,26 @@ describe.skipIf(!process.env.DATABASE_URL)("D204: reassign and calendar owner", 
     expect(await asOperator((c) => contactsReassign(c, fake, { ...args, from: "mitch@x.com" }))).toMatchObject({ ok: false, status: 400 });
   });
 
+  it("calledTo: who has had a call (a past booking not cancelled, or a connected call in GHL) goes to Mitch; the rest to Nonie; a ring-out or 0-second call is no call", async () => {
+    const calls: Record<string, { status: string; dur?: number }[]> = { K: [{ status: "completed", dur: 95 }], L: [{ status: "no-answer" }, { status: "completed", dur: 0 }], M: [] };
+    const withCalls: Adapters = { ...fake, read: { ...fake.read, contactCalls: async (_c, id) => (calls[id] ?? []).map((x, i) => ({ id: `${id}${i}`, conversationId: `c${id}`, contactId: id, channel: "call" as const, direction: "outbound" as const, dateAdded: "2026-10-01T00:00:00Z", call: { status: x.status, durationSec: x.dur } })) } };
+    await asOperator(async (c) => {
+      for (const [id, owner] of [["J", null], ["K", null], ["L", "GM"], ["M", "GM"]] as const)
+        await c.query("insert into contacts (company_id, ghl_contact_id, first_name, tags, assigned_ghl_user_id, timezone, timezone_source) values ($1,$2,$2,'{dating,called-test}',$3,'America/Phoenix','company_default')", [co, id, owner]);
+      // J: a past booking that happened; also a cancelled one on M, which is no call
+      const cal = await one<{ id: string; appointment_term: string }>(c, "select id, appointment_term from calendars where company_id=$1 limit 1", [co]);
+      for (const [ct, ext, status] of [["J", "PJ", "confirmed"], ["M", "PM", "cancelled"]] as const)
+        await c.query(`insert into appointments (company_id, contact_id, external_id, calendar_id, appointment_term, starts_at, ends_at, booked_at, status, source) select $1, id, $3, $4, $5, now() - interval '2 days', now() - interval '2 days' + interval '15 minutes', now() - interval '5 days', $6, 'ghl' from contacts where company_id=$1 and ghl_contact_id=$2`, [co, ct, ext, cal!.id, cal!.appointment_term, status]);
+    });
+    for (const id of ["J", "K", "L", "M"]) crm.set(id, snap(id, id === "L" || id === "M" ? "GM" : "", ["dating", "called-test"]));
+    const args = { company: SLUG, except: ["nelly@x.com"], to: "nonie@x.com", calledTo: "mitch@x.com", tag: "called-test", why: "test" };
+    const dry = await asOperator((c) => contactsReassign(c, withCalls, args));
+    expect(dry).toMatchObject({ ok: true, dryRun: true, contacts: ["L", "M"], called: { to: "Mitch Sapoff", contacts: ["J", "K"] } });
+    writes.length = 0;
+    expect(await asOperator((c) => contactsReassign(c, withCalls, { ...args, dryRun: false }))).toMatchObject({ moved: 4, contacts: ["L", "M"], called: { count: 2, contacts: ["J", "K"] } });
+    expect(writes.sort()).toEqual([["J", "GM"], ["K", "GM"], ["L", "GN"], ["M", "GN"]]);
+  });
+
   it("the calendar's owner moves with its upcoming bookings; a past one stays", async () => {
     const args = { company: SLUG, calendar: "Strategy Session", owner: "nonie@x.com", why: "test" };
     expect(await asOperator((c) => calendarOwner(c, args))).toEqual({ ok: true, dryRun: true, calendar: "Strategy Session", was: "Mitch Sapoff", owner: "Nonie Wallace", upcoming: 2 });

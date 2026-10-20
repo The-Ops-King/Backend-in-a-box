@@ -70,6 +70,8 @@ export interface CrmRead {
   // history (D29 backfill): the same facts the poll sees going forward, read back over a window, once
   contactsAddedBetween(c: Company, from: Date, to: Date): Promise<ContactSnapshot[]>;
   callsBetween(c: Company, from: Date, to: Date): Promise<MessageSnapshot[]>;
+  /** D204: every phone call in one contact's conversations, newest first (their whole history, not a window). Optional. */
+  contactCalls?(c: Company, contactId: string): Promise<MessageSnapshot[]>;
   wonOpportunities(c: Company, from: Date, to: Date): Promise<WonOpportunity[]>;
   objectRecords(c: Company, objectKey: string): Promise<ObjectRecord[]>;
   /** The properties a custom object has: each key (the last segment of its field key) and the vendor's data type for it; absent where the vendor has no schema read. */
