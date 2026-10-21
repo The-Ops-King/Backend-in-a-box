@@ -72,13 +72,15 @@ describe.skipIf(!process.env.DATABASE_URL)("GHL install", () => {
       sent.push(init!.body as URLSearchParams);
       return new Response(JSON.stringify({ access_token: access, refresh_token: `r-${access}`, expires_in: 86399, scope: "contacts.readonly", locationId: "LOC9", companyId: "CO1", userId: "U1" }), { status: 200 });
     }) as typeof fetch;
-    expect(await connectLocation("code-1", fake("a1"))).toEqual({ locationId: "LOC9" });
+    expect(await connectLocation("code-1", fake("access-token-1"))).toEqual({ locationId: "LOC9" });
     expect(Object.fromEntries(sent[0]!)).toEqual({ client_id: "cid", client_secret: "csecret", grant_type: "authorization_code", code: "code-1", user_type: "Location", redirect_uri: "https://app.example/ghl/oauth/callback" });
-    await connectLocation("code-2", fake("a2"));
+    await connectLocation("code-2", fake("access-token-2"));
     const rows = await db().select().from(ghlConnections).where(eq(ghlConnections.locationId, "LOC9"));
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.accessTokenEnc).not.toContain("a2");
-    expect(open(rows[0]!.accessTokenEnc)).toBe("a2");
+    // the token is nowhere in the sealed value; it has a "-", which base64 never writes, so random ciphertext cannot
+    // contain it by chance (a two-letter token did, about one run in a hundred)
+    expect(rows[0]!.accessTokenEnc).not.toContain("access-token-2");
+    expect(open(rows[0]!.accessTokenEnc)).toBe("access-token-2");
     expect(rows[0]).toMatchObject({ companyId: "CO1", installedBy: "U1", status: "connected", needsReview: true });
   });
 
