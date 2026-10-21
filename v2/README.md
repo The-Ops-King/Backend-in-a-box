@@ -17,6 +17,9 @@ The GHL recorder, for the Phase 0 checks. It becomes v2's GHL door later.
 | `POST /in/ghl` | Takes every GHL webhook. It checks GHL's Ed25519 signature, stores the delivery raw in `inbox` once (a retry is the same row), and answers 200. A bad signature gets 401 and is kept nowhere. |
 | `GET /ghl/oauth/callback` | Where GHL sends the installer. It exchanges the code for the location's tokens and stores them sealed in `ghl_connections`, marked for Tyler to link to an offer. |
 | `GET /health` | Answers when the app is up. |
+| `GET /slack/install?offer=…` | The Connect Slack link (signed, single use, one hour): on to Slack's "Add to Slack" page. |
+| `GET /slack/oauth/callback` | Where Slack sends the installer back: the state checked, the code exchanged, the workspace kept with its bot token sealed (reused for a second offer), the offer linked. |
+| `POST /slack/events`, `/slack/interactions`, `/slack/commands`, `/slack/options` | The platform Slack app's doors. Each request is checked with Slack's v0 signature and five-minute window, kept once in `inbox`, acked at once and worked as a job; a retry Slack marks is acked and dropped. `/slack/options` answers the contact search at once. |
 
 The workflow definition format (`src/workflow/`): the ten versioned primitives, the action registry, conditions, the
 template renderer with blank detection (lists laid out per item with `each`, a blank found per item), and
@@ -63,6 +66,37 @@ its period is on, filters on its own columns with values or settings, a count, s
 closer, setter or source; a rate is two metrics divided); report definitions as data (a wrap-up's metrics, calls and
 rates in the offer's own layout; the leaderboard; the end-of-day list). `report@1` renders one into a variable.
 
+The platform Slack app (`src/slack/`, `slack-manifest.yml`, the design in `docs/slack-app-spec.md`, setting it up in
+`docs/slack.md`): one app, installed per workspace by OAuth; each channel belongs to one offer.
+- **tables** (migration `0004`): `slack_workspaces` (bot token and refresh token sealed), `slack_offer_links`,
+  `slack_channels` (one offer per channel, the slots it fills; mapping one also sets the offer's `slack.channel.<slot>`),
+  `person_identities` (a person's confirmed Slack user), `slack_messages` (every post with its offer, channel, ts, thread,
+  workflow, run, step, tag, posting app, and the press that settled it), `slack_outbox` (what the app says that no run
+  asked for), `slack_alert_state`, `platform_settings` (alert repeats and hours, the operator's channel, the bot's model),
+  `slack_bot_usage`, `slack_audit`.
+- **the port** (`port.ts`): the engine's Slack port for real, behind the outbox and the gate: platform layouts
+  (`blocks.ts`: card, alert, report table, form summary), the content's persona, buttons with signed values, a sandbox
+  post in the test channel saying so; a 429 waited out for its Retry-After, Slack's own trouble tried three times then
+  alerted, a refused token pausing the offer's Slack (its posts wait), the bot token refreshed before it expires.
+- **routing** (`routing.ts`): an event by its channel's offer, a DM by the person's offers (asked which when several), a
+  press or a modal by the offer in its signed value or metadata, a slash command by the channel, else an offer named in
+  its text, else the person's only offer, else a picker.
+- **presses** (`interactions.ts`, `alerts.ts`, `agreement.ts`): Confirm / Cancel / Reschedule answer the waiting ask
+  (`ask.answered`); Retry / Resolve / Pause on an alert; Link opens a contact search and records `payment.linked`; Send /
+  Cancel under `/agreement` record `agreement.requested` for the offer's own workflow to take. Each acked, then the
+  message edited to say who pressed what and when, its buttons gone; a stale press is told who handled it; who may
+  press is their role on that offer (`people.ts`), and a refusal is private and recorded.
+- **alerts** (`alerts.ts`): one open alert per offer and cause key; raised is a post in the offer's alerts channel (or the
+  operator's), still open a thread reply every `alerts.repeat_minutes` inside `alerts.repeat_hours`, after its cause is
+  checked again; resolved a reply and a ✅.
+- **slash commands** (`commands.ts`): `/mtd /weekly /monthly /show-rate /close-rate /cash /leads /closes /leaderboard
+  /availability /support /help` for the team, `/agreement` for an owner, a manager or the closer on the deal, `/team`
+  for the operator; answered from the metric layer; which are on, and which metrics they read, is the offer's
+  `slack.commands` setting.
+- **the bot** (`bot.ts`, `query-views.ts`): a mention or a DM answered by a model (the AI port; a fake in tests) through
+  read-only tools bound to the routed offer (metric, contact_journey, workflow_explain, open_alerts, query_views), with its
+  working shown; a daily token budget per offer; no tool that could change config, unlock sends or reach a contact.
+
 The offers (`offers/`): each offer's own workflows, words and scenarios. Hair's are translated from its live v1
 workflows (`spec/hair/`), UNSIGNED drafts for Tyler's review (`offers/hair/REVIEW.md`).
 
@@ -103,6 +137,8 @@ states (fixtures only for vendor reads), and together the scenarios take every e
    - `GHL_WEBHOOK_PUBLIC_KEY`: GHL's webhook public key, the PEM text from GHL's webhook authentication docs.
    - `GHL_CLIENT_ID` and `GHL_CLIENT_SECRET`: from the GHL app once it exists.
    - `GHL_REDIRECT_URI`: `https://<the service's Railway domain>/ghl/oauth/callback`.
+   - `BASE_URL`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`, `SLACK_STATE_SECRET`: the Slack app's
+     (see `docs/slack.md`).
 4. **Generate a domain** under the service's Networking settings. Then check that `https://<domain>/health` answers
    `{"ok":true}`.
 
