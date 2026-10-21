@@ -4,6 +4,7 @@ import { MemStore } from "@/engine/mem-store";
 import { type ContentSeed, FakeClock, install, setupOffer } from "@/engine/testkit";
 import type { GateDecision, OutboxRow, RunRow, StepRow } from "@/engine/types";
 import type { Node } from "@/workflow/definition";
+import type { SlackTarget } from "@/workflow/primitives/common";
 import { validateWorkflow } from "@/workflow/validate";
 import { advanceTo, inFlight, nextDue } from "@/engine/drive";
 import { Scenario, type ScenarioInput, relative, timeOf } from "./scenario";
@@ -17,6 +18,8 @@ import { Scenario, type ScenarioInput, relative, timeOf } from "./scenario";
 export type SimOutbox = {
   at: string; rel: string; node: string; step: string; kind: string; to: string; contentKey: string | null; text: string | null; subject?: string;
   status: OutboxRow["status"]; gates: GateDecision[]; settledAt: string | null; relSettled: string | null; why: string | null;
+  /** A Slack post said again in place: it rewrote the earlier post remembered under its tag. */
+  edited?: true;
 };
 export type SimWait = { node: string; title: string; reachedAt: string; rel: string; wakeAt: string | null; relWake: string | null; computed?: string; moved?: string; outcome: string | null; status: StepRow["status"] };
 export type SimStep = { at: string; rel: string; node: string; title: string; primitive: string; status: StepRow["status"]; outcome: string | null; result: Record<string, unknown> };
@@ -40,14 +43,15 @@ export type SimInput = {
   others?: unknown[];
 };
 
+const slackWho = (s: SlackTarget) => ("channelFromFact" in s ? `slack ${s.channelFromFact} (one of the offer's channels)` : "channel" in s ? `slack ${s.channel}${s.fallbackChannel ? ` (else ${s.fallbackChannel})` : ""}` : `slack dm ${s.dm}`);
+
 /** Who a step's effect reaches, as the definition says it (a setting stays a setting, so diffs do not depend on channel ids). */
 export function whoOf(node: Node | undefined, row: Pick<OutboxRow, "kind" | "effect">): string {
   if (node?.type === "message@1") {
     if ("contact" in node.to) return `contact (${node.to.contact})`;
-    const s = node.to.slack;
-    return "channel" in s ? `slack ${s.channel}` : `slack dm ${s.dm}`;
+    return slackWho(node.to.slack);
   }
-  if (node?.type === "ask@1") return "channel" in node.to ? `slack ${node.to.channel}` : `slack dm ${node.to.dm}`;
+  if (node?.type === "ask@1") return slackWho(node.to);
   return row.effect === "contact" ? "contact" : row.effect;
 }
 
@@ -171,6 +175,7 @@ function report(store: MemStore, sc: Scenario, workflowId: string, definition: u
       at: o.createdAt.toISOString(), rel: rel(o.createdAt), node: o.node, step: title(o.node), kind: o.kind, to: whoOf(nodes.get(o.node), o),
       contentKey: p.contentKey ?? null, text: p.text ?? null, ...(p.subject !== undefined ? { subject: p.subject } : {}), status: o.status, gates: o.gates,
       settledAt: o.settledAt?.toISOString() ?? null, relSettled: o.settledAt ? rel(o.settledAt) : null, why: decisive?.why ?? o.lastError ?? null,
+      ...((o.result as { edited?: unknown } | null)?.edited !== undefined ? { edited: true as const } : {}),
     };
   });
   const waits: SimWait[] = steps.filter((x) => x.primitive === "wait@1" || x.result.window || x.result.wakeAt).map((x) => ({
@@ -201,7 +206,7 @@ function report(store: MemStore, sc: Scenario, workflowId: string, definition: u
   for (const [i, o] of outbox.entries()) {
     const settled = o.settledAt ? new Date(o.settledAt) : new Date(o.at);
     const rowId = s.outbox.filter((r) => runIds.has(r.runId)).sort((a, b) => a.id - b.id)[i]!.id;
-    push(settled, 2e6 + (stepOf.get(rowId) ?? 0) + 0.6, `${o.kind} ${o.status}${o.contentKey ? ` [${o.contentKey}]` : ""} to ${o.to}${o.why ? `: ${o.why}` : ""}${o.text && o.status === "sent" ? ` — "${o.text}"` : ""}`);
+    push(settled, 2e6 + (stepOf.get(rowId) ?? 0) + 0.6, `${o.kind} ${o.status}${o.edited ? " (edited the earlier post)" : ""}${o.contentKey ? ` [${o.contentKey}]` : ""} to ${o.to}${o.why ? `: ${o.why}` : ""}${o.text && o.status === "sent" ? ` — "${o.text}"` : ""}`);
   }
   for (const r of runs) if (r.finishedAt) push(r.finishedAt, 5e6, `run ${r.status}: ${r.endReason}`);
   for (const a of s.alerts) push(a.openedAt, 2e6 + (a.outboxId ? stepOf.get(a.outboxId) ?? 0 : 0) + 0.7, `alert ${a.kind}: ${a.message}`);
@@ -215,7 +220,7 @@ function report(store: MemStore, sc: Scenario, workflowId: string, definition: u
   if (sc.expect?.suppressed && !same(keysWith("suppressed"), sc.expect.suppressed)) failures.push(`suppressed ${JSON.stringify(keysWith("suppressed"))}, expected ${JSON.stringify(sc.expect.suppressed)}`);
   const ends = simRuns.map((r) => r.endReason ?? r.status);
   if (sc.expect?.ends && !same(ends, sc.expect.ends)) failures.push(`runs ended ${JSON.stringify(ends)}, expected ${JSON.stringify(sc.expect.ends)}`);
-  const rows = outbox.map((o) => `${o.rel.replace(/ /g, "")} ${o.status} ${o.contentKey ?? o.kind}`);
+  const rows = outbox.map((o) => `${o.rel.replace(/ /g, "")} ${o.status} ${o.contentKey ?? o.kind}${o.edited ? " (edited)" : ""}`);
   const want = sc.expect?.outbox;
   if (want && !same(rows, want)) failures.push(`outbox ${JSON.stringify(rows)}, expected ${JSON.stringify(want)}`);
 

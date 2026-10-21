@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Duration } from "../duration";
 import { ContentKey, Template } from "../primitives/common";
+import { wholeExpr } from "../template";
 import { defineAction } from "./define";
 
 /**
@@ -11,7 +12,11 @@ import { defineAction } from "./define";
 
 const Field = z.string().regex(/^[a-z][a-z0-9_]*$/, { message: "a canonical field name is lowercase letters, digits and _" });
 const Fields = z.record(Field, Template);
-const Tags = z.array(Template.min(1)).min(1);
+/**
+ * Tags: a list of tags (each may be a template), or one `{{…}}` whose value is a list (a list held in a variable,
+ * `"{{vars.tags_before}}"`). A list inside the list is flattened.
+ */
+const Tags = z.union([z.array(Template.min(1)).min(1), Template.refine((t) => !!wholeExpr(t), { message: "tags is a list, or one {{…}} whose value is a list" })]);
 const atLeastOne = (o: Record<string, unknown>) => Object.values(o).some((v) => v !== undefined && !(Array.isArray(v) && v.length === 0) && !(typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).length === 0));
 
 export const crmActions = [
@@ -47,9 +52,9 @@ export const crmActions = [
   }),
   defineAction({
     verb: "crm.remove_tag",
-    summary: "Takes tags off the contact.",
+    summary: "Takes tags off the contact. `keep`: tags never taken off, even when `tags` names them (the tags the answer now gives).",
     effect: "crm",
-    params: z.object({ tags: Tags }).strict(),
+    params: z.object({ tags: Tags, keep: Tags.optional() }).strict(),
     returns: "none",
   }),
   defineAction({

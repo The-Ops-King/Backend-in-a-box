@@ -19,7 +19,7 @@ export type WorkflowRow = {
 
 export type VersionRow = { id: string; offerId: string; workflowId: string; version: number; definition: unknown; createdBy: string; reason: string; createdAt: Date };
 
-export type ContentRow = { offerId: string; key: string; channel: string; body: string; subject: string | null; extras: { as?: string; labels?: Record<string, string> } | null; approvedHash: string | null };
+export type ContentRow = { offerId: string; key: string; channel: string; body: string; subject: string | null; extras: { as?: string; icons?: string[]; labels?: Record<string, string> } | null; approvedHash: string | null };
 
 export type EventRow = {
   id: number; offerId: string; type: string; occurredAt: Date; contactId: string | null; appointmentId: string | null; dealId: string | null;
@@ -82,7 +82,7 @@ export type StepRow = {
 };
 
 export type OutboxStatus = "queued" | "sending" | "held" | "sent" | "failed" | "unknown" | "suppressed";
-export type GateCheck = "delivery" | "crm_writes" | "dnd" | "window" | "cap" | "breaker" | "blank";
+export type GateCheck = "channel" | "delivery" | "crm_writes" | "dnd" | "window" | "cap" | "breaker" | "blank";
 export type GateDecision = { check: GateCheck; result: "pass" | "reroute" | "suppress" | "hold" | "defer" | "not_applicable"; why: string; at: string };
 
 export type OutboxRow = {

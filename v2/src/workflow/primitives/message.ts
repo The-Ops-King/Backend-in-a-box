@@ -29,7 +29,8 @@ export const Validity = z.union([
  * receipts; `validity` and `whenStale` say what happens once it is too late (skip it, or send other content instead).
  * To Slack: `thread` replies under an earlier post (`threadOnly`: nothing when that post is not there), `remember`
  * keeps this post under a tag other runs can find, `buttons` are platform actions whose labels are in the content, each
- * shown only when its `when` holds.
+ * shown only when its `when` holds. `edit`: saying it again rewrites the post remembered under the same tag, when
+ * there is one (its words and buttons), instead of posting again; when there is none, it posts.
  */
 export const Message1 = z.object({
   ...nodeBase,
@@ -42,15 +43,18 @@ export const Message1 = z.object({
   thread: PostRef.optional(),
   threadOnly: z.boolean().optional(),
   remember: Template.min(1).optional(),
+  /** Rewrite the earlier post remembered under `remember` when it is there; else post (and remember it). */
+  edit: z.boolean().optional(),
   /** `when`: the button is shown only when this holds at the moment of posting ("Link the payment" only for an unlinked one). */
   buttons: z.array(z.object({ action: z.enum(SLACK_BUTTON_ACTIONS), value: Template.min(1), style: z.enum(["primary", "danger"]).optional(), when: Predicate.optional() }).strict()).min(1).max(5).optional(),
 }).strict().superRefine((n, ctx) => {
   const toContact = "contact" in n.to;
   const only = (field: keyof typeof n, who: string) => { if (n[field] !== undefined) ctx.addIssue({ code: "custom", path: [field], message: `${field} is only for a message to ${who}` }); };
-  if (toContact) (["thread", "threadOnly", "remember", "buttons"] as const).forEach((f) => only(f, "Slack"));
+  if (toContact) (["thread", "threadOnly", "remember", "buttons", "edit"] as const).forEach((f) => only(f, "Slack"));
   else (["kind", "validity", "whenStale"] as const).forEach((f) => only(f, "the contact"));
   if (n.whenStale !== undefined && n.validity === undefined) ctx.addIssue({ code: "custom", path: ["whenStale"], message: "whenStale needs a validity to be stale against" });
   if (n.threadOnly && !n.thread) ctx.addIssue({ code: "custom", path: ["threadOnly"], message: "threadOnly needs a thread" });
+  if (n.edit && !toContact && !n.remember) ctx.addIssue({ code: "custom", path: ["edit"], message: "edit rewrites the post remembered under this step's tag: it needs remember" });
 });
 export type Message1 = z.infer<typeof Message1>;
 

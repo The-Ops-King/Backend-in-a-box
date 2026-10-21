@@ -66,6 +66,8 @@ type Pass = {
   run: RunRow; def: Workflow; secrets: string[]; wf: WorkflowRow; offer: OfferRow; settings: Record<string, unknown>;
   byId: Map<string, Node>; outs: Map<string, Edge[]>;
   fresh?: Record<string, Record<string, unknown>>;
+  /** What we last sent the run's contact (a text or an email that went out), read once a pass. */
+  lastOut?: { found: Record<string, unknown> | null };
 };
 
 type Next =
@@ -85,10 +87,26 @@ async function loadPass(deps: Deps, run: RunRow): Promise<Pass> {
 
 const subjectsOf = (r: Pick<RunRow, "contactId" | "appointmentId" | "dealId">): Subjects => ({ contactId: r.contactId, appointmentId: r.appointmentId, dealId: r.dealId });
 
+/**
+ * What we last sent this contact, from the outbox: the latest text or email (from any workflow) that went out, as
+ * `reply.last_outbound` { body, channel, at, content_key }. A message held, suppressed or still queued is not one.
+ */
+async function lastOutbound(P: Pass): Promise<Record<string, unknown> | null> {
+  if (!P.run.contactId) return null;
+  const rows = (await P.tx.outboxRows({ offerId: P.offer.id, contactId: P.run.contactId, kinds: ["message.sms", "message.email"], statuses: ["sent"] }))
+    .filter((r) => r.sentAt).sort((a, b) => b.sentAt!.getTime() - a.sentAt!.getTime() || b.id - a.id);
+  const r = rows[0];
+  if (!r) return null;
+  const p = r.payload as { text?: string; channel?: string; contentKey?: string };
+  return { body: p.text ?? "", channel: p.channel ?? (r.kind === "message.sms" ? "sms" : "email"), at: iso(r.sentAt!), content_key: p.contentKey ?? null };
+}
+
 /** What a step reads now: the subjects read fresh (once a pass, again after the run records a fact). */
 async function view(P: Pass, extra?: Record<string, unknown>): Promise<{ ctx: Context; env: RenderEnv }> {
   P.fresh ??= await freshSubjects(P.tx, P.offer.id, subjectsOf(P.run));
+  P.lastOut ??= { found: await lastOutbound(P) };
   const b = buildContext({ run: P.run, workflowKey: P.wf.key, offer: P.offer, settings: P.settings, subjects: P.fresh, now: P.now, secrets: P.secrets });
+  if (P.lastOut.found) b.ctx.reply = { ...((b.ctx.reply as Record<string, unknown> | undefined) ?? {}), last_outbound: P.lastOut.found };
   return extra ? { ctx: { ...b.ctx, ...extra }, env: b.env } : b;
 }
 
@@ -160,6 +178,7 @@ export function evalValue(v: Value | unknown, ctx: Context, env: RenderEnv, acc?
     const whole = wholeExpr(v);
     if (whole) {
       const r = evaluateExpr(whole, ctx, env);
+      if (acc && r.inner) { acc.blanks.push(...r.inner.blanks); acc.errors.push(...r.inner.errors); }
       if (acc && r.blank) acc.blanks.push(r.blank);
       if (acc && r.error) acc.errors.push(r.error);
       return r.value;
@@ -190,7 +209,7 @@ const pickContent = (c: ContentRef, ctx: Context, env: RenderEnv): string => {
   return Object.prototype.hasOwnProperty.call(c.cases, key) ? c.cases[key]! : c.else;
 };
 
-type Words = { key: string; text: string; subject?: string; as?: string; labels: Record<string, string>; missing: boolean; acc: Acc };
+type Words = { key: string; text: string; subject?: string; as?: string; icons?: string[]; labels: Record<string, string>; missing: boolean; acc: Acc };
 
 async function words(P: Pass, key: string, ctx: Context, env: RenderEnv): Promise<Words> {
   const row = await P.tx.content(P.offer.id, key);
@@ -200,7 +219,14 @@ async function words(P: Pass, key: string, ctx: Context, env: RenderEnv): Promis
   acc.blanks.push(...body.blanks); acc.errors.push(...body.errors);
   let subject: string | undefined;
   if (row.subject) { const s = render(row.subject, ctx, env); acc.blanks.push(...s.blanks); acc.errors.push(...s.errors); subject = s.text; }
-  return { key, text: body.text, ...(subject !== undefined ? { subject } : {}), ...(row.extras?.as ? { as: row.extras.as } : {}), labels: row.extras?.labels ?? {}, missing: false, acc };
+  // the Slack persona: its name and icons are templates like the words, so a value may choose them ({{event.as_name}})
+  let as: string | undefined;
+  if (row.extras?.as) { const r = render(row.extras.as, ctx, env); acc.blanks.push(...r.blanks); acc.errors.push(...r.errors); as = r.text; }
+  const icons = (row.extras?.icons ?? []).flatMap((i) => {
+    const v = evalValue(i, ctx, env, acc);
+    return (Array.isArray(v) ? v : [v]).map(toText).filter((x) => x !== "");
+  });
+  return { key, text: body.text, ...(subject !== undefined ? { subject } : {}), ...(as ? { as } : {}), ...(icons.length ? { icons } : {}), labels: row.extras?.labels ?? {}, missing: false, acc };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -227,6 +253,14 @@ async function enter(P: Pass, node: Node): Promise<Next> {
   const visit = (c.visits[node.id] ?? 0) + 1;
   c.visits[node.id] = visit;
   P.run.currentNode = node.id;
+  const unset = (node.skipWhenUnset ?? []).filter((k) => { const v = P.settings[k]; return v === undefined || v === null || v === ""; });
+  if (unset.length) {
+    // a step that can do without a setting the offer left unset: skipped, never given a value from code
+    const step = await newStep(P, node, visit);
+    const into = (node as { into?: string }).into;
+    if (into) c.vars[into] = null;
+    return leave(P, node, step, "next", { skipped: `not set: ${unset.join(", ")}` }, "skipped");
+  }
   if (isOutbound(node)) {
     const { ctx, env } = await view(P);
     if (premiseFails(P, ctx, env)) return premiseEnd(P, null);
@@ -486,9 +520,14 @@ async function message(P: Pass, node: Message1, step: StepRow, visit: number): P
   return slackPost(P, node, step, visit, pickContent(node.content, ctx, env), ctx, env);
 }
 
-async function slackTarget(P: Pass, to: Message1["to"] & { slack: unknown } | Ask1["to"] | { slack: Ask1["to"] }, ctx: Context, env: RenderEnv, acc: Acc): Promise<{ channel?: string; dm?: string }> {
+async function slackTarget(P: Pass, to: Message1["to"] & { slack: unknown } | Ask1["to"] | { slack: Ask1["to"] }, ctx: Context, env: RenderEnv, acc: Acc): Promise<{ channel?: string; dm?: string; fromFact?: true }> {
   const t = ("slack" in to ? to.slack : to) as Ask1["to"];
-  if ("channel" in t) return { channel: toText(evalValue(t.channel, ctx, env, acc)) };
+  if ("channelFromFact" in t) return { channel: toText(evalValue(t.channelFromFact, ctx, env, acc)), fromFact: true };
+  if ("channel" in t) {
+    if (!t.fallbackChannel) return { channel: toText(evalValue(t.channel, ctx, env, acc)) };
+    const first = toText(evalValue(t.channel, ctx, env));
+    return { channel: first || toText(evalValue(t.fallbackChannel, ctx, env, acc)) };
+  }
   const dm = toText(evalValue(t.dm, ctx, env));
   if (dm) return { dm };
   if (t.fallbackChannel) return { channel: toText(evalValue(t.fallbackChannel, ctx, env, acc)) };
@@ -509,10 +548,11 @@ async function slackPost(P: Pass, node: Message1, step: StepRow, visit: number, 
   return writeEffect(P, node, step, visit, {
     kind: "message.slack", effect: "team",
     payload: {
-      ...target, contentKey: wd.key, text: wd.text, ...(wd.as ? { as: wd.as } : {}), buttons, render: acc,
+      ...target, contentKey: wd.key, text: wd.text, ...(wd.as ? { as: wd.as } : {}), ...(wd.icons ? { icons: wd.icons } : {}), buttons, render: acc,
       ...(node.thread ? { thread: "node" in node.thread ? { node: node.thread.node } : { tag: toText(evalValue(node.thread.tag, ctx, env)) } } : {}),
       ...(node.threadOnly ? { threadOnly: true } : {}),
       ...(node.remember ? { remember: toText(evalValue(node.remember, ctx, env)) } : {}),
+      ...(node.edit ? { edit: true } : {}),
       ...(missing.length ? { missingContent: missing } : {}),
     },
   });
@@ -538,7 +578,7 @@ async function ask(P: Pass, node: Ask1, step: StepRow, visit: number): Promise<N
   return writeEffect(P, node, step, visit, {
     kind: "slack.ask", effect: "team",
     payload: {
-      ...target, contentKey: wd.key, text: wd.text, ...(wd.as ? { as: wd.as } : {}), answers, render: acc,
+      ...target, contentKey: wd.key, text: wd.text, ...(wd.as ? { as: wd.as } : {}), ...(wd.icons ? { icons: wd.icons } : {}), answers, render: acc,
       ...(node.thread ? { thread: "node" in node.thread ? { node: node.thread.node } : { tag: toText(evalValue(node.thread.tag, ctx, env)) } } : {}),
       ...(node.remember ? { remember: toText(evalValue(node.remember, ctx, env)) } : {}),
       ...(missing.length ? { missingContent: missing } : {}),
@@ -567,12 +607,25 @@ async function failStepHold(P: Pass, node: Node, step: StepRow, why: string): Pr
 
 const CRM_MAPS = ["set", "fields", "fillBlank", "properties"];
 
+/** Tags as one flat list of words: lists inside the list (a list held in a variable) flattened, empty ones dropped, each once. */
+const tagList = (v: unknown): string[] => [...new Set((Array.isArray(v) ? v.flat(Infinity) : [v]).map(toText).map((t) => t.trim()).filter((t) => t !== ""))];
+
 async function action(P: Pass, node: Action1, step: StepRow, visit: number): Promise<Next> {
   const def = actionDef(node.action)!;
   const { ctx, env } = await view(P);
   if (def.effect === "internal" || node.action === "facts.lookup") return internal(P, node, step, visit, ctx, env);
   const acc: Acc = { blanks: [], errors: [] };
   const params = evalValue(node.params, ctx, env, acc) as Record<string, unknown>;
+  if (node.action === "crm.add_tag" || node.action === "crm.remove_tag") {
+    // a list held in a variable is its tags, flattened; `keep` takes its tags out of what is removed
+    params.tags = tagList(params.tags);
+    if (params.keep !== undefined) {
+      const keep = new Set(tagList(params.keep));
+      params.kept = (params.tags as string[]).filter((t) => keep.has(t));
+      params.tags = (params.tags as string[]).filter((t) => !keep.has(t));
+      delete params.keep;
+    }
+  }
   const leftAlone: string[] = [];
   if (def.effect === "crm") {
     // a value that renders empty is left alone in the CRM, never blanked: `clear` is the one way to empty a field
@@ -617,7 +670,7 @@ async function internal(P: Pass, node: Action1, step: StepRow, visit: number, ct
       P.fresh = undefined;
       if (inserted && !outcome && params.startsWorkflows) {
         if ((P.deps.depth ?? 0) >= MAX_CALL_DEPTH) throw new Error(`facts recorded by runs started by facts, more than ${MAX_CALL_DEPTH} deep`);
-        await dispatchEvent({ ...P.deps, depth: (P.deps.depth ?? 0) + 1 }, event);
+        await dispatchEvent({ ...P.deps, depth: (P.deps.depth ?? 0) + 1 }, event, { alsoOwn: params.startsThisWorkflow === true });
       }
       if (inserted) await nudge(P.deps, P.offer.id, { contactId: event.contactId, appointmentId: event.appointmentId, dealId: event.dealId }, P.run.id);
       return leave(P, node, step, "next", { event: event.id, type });
@@ -801,13 +854,15 @@ async function startForTrigger(deps: Deps, e: EventRow, wf: WorkflowRow, trigger
   });
 }
 
-/** A fact arrived: every enabled workflow with a trigger on it (whose match holds) starts a run, subject to reentry. */
-export async function dispatchEvent(deps: Deps, e: EventRow): Promise<string[]> {
+/**
+ * A fact arrived: every enabled workflow with a trigger on it (whose match holds) starts a run, subject to reentry. A
+ * fact a run recorded never starts that run's own workflow again, unless the step said so (`alsoOwn`).
+ */
+export async function dispatchEvent(deps: Deps, e: EventRow, o: { alsoOwn?: boolean } = {}): Promise<string[]> {
   const { tx, now } = deps;
   const offer = (await tx.offer(e.offerId))!;
   const settings = await tx.settings(e.offerId);
-  // a fact a run recorded never starts that same workflow again
-  const own = e.runId ? (await tx.run(e.runId))?.workflowId : undefined;
+  const own = e.runId && !o.alsoOwn ? (await tx.run(e.runId))?.workflowId : undefined;
   const started: string[] = [];
   const subjects = await freshSubjects(tx, e.offerId, { contactId: e.contactId, appointmentId: e.appointmentId, dealId: e.dealId });
   for (const wf of await tx.workflows(e.offerId)) {

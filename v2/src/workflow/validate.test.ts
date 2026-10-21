@@ -28,7 +28,7 @@ describe("a valid workflow", () => {
     if (!r.ok) return;
     expect(r.workflow.delivery).toEqual({ kind: "human", whenStale: "skip" });
     expect(r.workflow.nodes.map((n) => n.id)).toEqual(["t1", "n1", "x1"]);
-    expect(r.requires).toEqual({ settings: ["slack.channel.payments"], content: ["payment_failed.slack_alert"], reports: [], forms: [], workflows: [], secrets: [] });
+    expect(r.requires).toEqual({ settings: ["slack.channel.payments"], optionalSettings: [], content: ["payment_failed.slack_alert"], reports: [], forms: [], workflows: [], secrets: [] });
   });
 });
 
@@ -216,6 +216,53 @@ describe("the format gaps closed in piece 2", () => {
   });
 });
 
+describe("the format gaps Hair found, closed in piece 4", () => {
+  const one = (node: N) => wf([trigger(), node, end()], [{ from: "t1", to: node.id as string }, { from: node.id as string, to: "x1" }]);
+  const requires = (raw: unknown) => { const r = validateWorkflow(raw); expect(r.problems).toEqual([]); return r.requires; };
+  it("reads the variables, settings and filters inside an each, and refuses an unknown variable there", () => {
+    const n = post("n1", { remember: '{{vars.x | each:"{{item.id}}:{{setting.scope.tag}}" | join}}' });
+    expectOnly(one(n), "unknown_var");
+    const ok = wf([trigger(), { id: "s1", type: "set@1", title: "List", var: "x", value: [] }, n, end()], [{ from: "t1", to: "s1" }, { from: "s1", to: "n1" }, { from: "n1", to: "x1" }]);
+    expect(requires(ok).settings).toEqual(["scope.tag", "slack.channel.payments"]);
+  });
+  it("lists the settings a workflow can do without as optional: a step that skips itself, a channel with a fallback, a picklist option", () => {
+    const skip = { id: "k1", type: "action@1", title: "Card lost", action: "crm.move_deal", params: { pipeline: "{{setting.crm.pipeline_setter}}", stage: "{{setting.crm.stage_setter_dq}}", ifMissing: "skip", pick: "open" }, skipWhenUnset: ["crm.stage_setter_dq"] };
+    expect(requires(one(skip))).toMatchObject({ settings: ["crm.pipeline_setter"], optionalSettings: ["crm.stage_setter_dq"] });
+    const fallback = post("n1", { to: { slack: { channel: "{{setting.slack.channel.attention}}", fallbackChannel: "{{setting.slack.channel.ops}}" } } });
+    expect(requires(one(fallback))).toMatchObject({ settings: ["slack.channel.ops"], optionalSettings: ["slack.channel.attention"] });
+    const option = { id: "s1", type: "set@1", title: "Disposition", var: "d", value: "{{appointment.call_outcome | option:sales_call_disposition | optional}}" };
+    expect(requires(one(option))).toMatchObject({ settings: [], optionalSettings: ["picklist.sales_call_disposition"] });
+    // read without the skip elsewhere, it is required
+    const both = wf([trigger(), skip, post("n1", { remember: "{{setting.crm.stage_setter_dq}}" }), end()], [{ from: "t1", to: "k1" }, { from: "k1", to: "n1" }, { from: "n1", to: "x1" }]);
+    expect(requires(both)).toMatchObject({ optionalSettings: [] });
+    expect(requires(both).settings).toContain("crm.stage_setter_dq");
+  });
+  it("refuses a skip on a step with no plain way on", () => {
+    const ask = { id: "q1", type: "ask@1", title: "Ask", to: { channel: "{{setting.slack.channel.payments}}" }, content: "c.q", answers: { reactions: ["x"] }, into: "r", then: "wait", timeout: "1d", skipWhenUnset: ["a.b"] };
+    expectOnly(wf([trigger(), ask, end()], [{ from: "t1", to: "q1" }, { from: "q1", to: "x1", on: "answered" }, { from: "q1", to: "x1", on: "timeout" }]), "skip_needs_next");
+  });
+  it("takes a channel from the triggering fact only as one {{event.<field>}}", () => {
+    expect(validateWorkflow(one(post("n1", { to: { slack: { channelFromFact: "{{event.channel}}" } } }))).problems).toEqual([]);
+    for (const bad of ["{{contact.channel}}", "C0BT26R4695", "{{event.channel | default:C1}}", "#{{event.channel}}"]) expect(codes(one(post("n1", { to: { slack: { channelFromFact: bad } } })))).toContain("schema");
+  });
+  it("edits in place only a post it remembers, and only in Slack", () => {
+    expect(validateWorkflow(one(post("n1", { remember: "review:{{event.id}}", edit: true }))).problems).toEqual([]);
+    expect(codes(one(post("n1", { edit: true })))).toEqual(["schema"]);
+    expect(codes(wf([trigger(), text("m1", { edit: true }), end()], [{ from: "t1", to: "m1" }, { from: "m1", to: "x1" }], { sendWindow: window }))).toEqual(["schema"]);
+  });
+  it("starts its own workflow again only with startsWorkflows on as well", () => {
+    const rec = (p: N) => ({ id: "f1", type: "action@1", title: "Link it", action: "facts.record", params: { type: "call.closing", data: {}, ...p } });
+    expect(validateWorkflow(one(rec({ startsWorkflows: true, startsThisWorkflow: true }))).problems).toEqual([]);
+    expect(codes(one(rec({ startsWorkflows: false, startsThisWorkflow: true })))).toEqual(["action_params"]);
+  });
+  it("takes tags as a list, or as one {{…}} that holds a list, with keep", () => {
+    const tags = (p: N) => ({ id: "r1", type: "action@1", title: "Tags off", action: "crm.remove_tag", params: p });
+    const withVars = (node: N) => wf([trigger(), { id: "s1", type: "set@1", title: "Tags", var: "tags", value: ["a"] }, node, end()], [{ from: "t1", to: "s1" }, { from: "s1", to: "r1" }, { from: "r1", to: "x1" }]);
+    expect(validateWorkflow(withVars(tags({ tags: "{{vars.tags}}", keep: ["{{vars.tags}}"] }))).problems).toEqual([]);
+    expect(codes(withVars(tags({ tags: "stat-showed" })))).toEqual(["action_params"]);
+  });
+});
+
 describe("references", () => {
   it("refuses a Slack thread under a node that is not a Slack post in this workflow", () => {
     expect(expectOnly(wf([trigger(), post("n1", { thread: { node: "nope" } }), end()], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]), "unknown_node_ref").message).toContain('"nope"');
@@ -282,6 +329,7 @@ describe("what a workflow needs before it can be enabled", () => {
     expect(r.problems).toEqual([]);
     expect(r.requires).toEqual({
       settings: ["feature.on", "scope.tag", "slack.channel.closers", "slack.channel.payments"],
+      optionalSettings: [],
       content: ["alerts.error", "alerts.warning", "eod.ask", "notes.payment", "texts.late", "texts.m1"],
       reports: ["wrap_up.daily"],
       forms: ["eod.closer"],

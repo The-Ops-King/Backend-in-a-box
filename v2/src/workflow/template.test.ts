@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FILTERS, type RenderEnv } from "./filters";
-import { evaluateExpr, parseTemplate, render, settingsIn, wholeExpr } from "./template";
+import { evaluateExpr, parseTemplate, render, settingsIn, settingsOf, wholeExpr } from "./template";
 
 // Wednesday 2026-10-21, 8:00 AM in Phoenix (UTC-7 all year), 11:00 AM in New York (EDT).
 const now = new Date("2026-10-21T15:00:00Z");
@@ -115,8 +115,9 @@ describe("blank detection (the blank-variable hold reads this)", () => {
 describe("filters", () => {
   it("has the fixed set and no more", () => {
     expect(Object.keys(FILTERS).sort()).toEqual([
-      "abs", "date", "default", "first_name", "hour", "hours_until", "join", "line", "link", "lower", "minus", "money",
-      "offer_date", "oneof", "optional", "plus", "prefix", "relative", "truncate", "upper",
+      "abs", "bullets", "date", "default", "each", "first", "first_name", "fixed", "hour", "hours_until", "join", "line", "lines",
+      "link", "lower", "minus", "money", "nonzero", "offer_date", "oneof", "option", "optional", "percent", "plural", "plus", "prefix",
+      "relative", "suffix", "then", "truncate", "upper", "words",
     ]);
   });
 
@@ -238,5 +239,54 @@ describe("filters", () => {
       const r = render("{{appointment.starts_at | relative}}", { appointment: { starts_at: at(-0.5) } }, env);
       expect(r.errors[0]).toContain("is not in the future");
     });
+  });
+});
+
+describe("lists and counts in words (each, bullets, lines, plural, words, option)", () => {
+  const options = { items: [{ when: "Thu", closer: "Luis" }, { when: "Fri" }] };
+  it("lays out one line per item with each, reading item, number, index and parent", () => {
+    const r = render('{{vars.o.items | each:"{{number}}/{{index}}. {{item.when}} with {{item.closer | default:no closer}}" | join:"\\n"}}', { vars: { o: options } }, env);
+    expect(r).toEqual({ text: "1/0. Thu with Luis\n2/1. Fri with no closer", blanks: [], errors: [] });
+    const nested = '{{vars.days | each:"*{{item.label}}*{{item.calls | each:\\"\\\\n• {{item}} ({{parent.label}})\\" | join:\\"\\"}}" | join:"\\n"}}';
+    expect(text(nested, { vars: { days: [{ label: "Mon", calls: ["Ana", "Bo"] }, { label: "Tue", calls: ["Cy"] }] } })).toBe("*Mon*\n• Ana (Mon)\n• Bo (Mon)\n*Tue*\n• Cy (Tue)");
+  });
+  it("reports a blank inside an item, saying which item, and an empty list like any empty value", () => {
+    const r = render('{{vars.o.items | each:"{{item.when}}: {{item.closer}}" | join:"; "}}', { vars: { o: options } }, env);
+    expect(r.blanks).toEqual([{ expr: "item.closer (item 2 of vars.o.items)", path: "vars.o.items.1.closer", reason: "missing" }]);
+    expect(render('{{vars.none | each:"{{item}}" | join}}', { vars: { none: [] } }, env).blanks.map((b) => b.path)).toEqual(["vars.none"]);
+    expect(render('{{vars.none | each:"{{item}}" | join | optional}}', { vars: {} }, env)).toEqual({ text: "", blanks: [], errors: [] });
+  });
+  it("refuses item roots outside an each, and mistakes inside one", () => {
+    expect(parseTemplate("{{item.name}}").errors.join()).toContain('"item" is only inside an each');
+    expect(parseTemplate('{{vars.x | each:"{{item.name | shout}}"}}').errors.join()).toContain('inside each: {{item.name | shout}}: unknown filter "shout"');
+    expect(parseTemplate('{{vars.x | each:"{{company.name}}"}}').errors.join()).toContain('"company" is not a context root');
+  });
+  it("bullets: one line when short, else a bullet each; an object shows its lead field", () => {
+    expect(text("{{vars.l | bullets | default:—}}", { vars: { l: ["price", "partner"] } })).toBe("price, partner");
+    expect(text("{{vars.l | bullets | default:—}}", { vars: { l: [] } })).toBe("—");
+    const long = ["it costs more than they planned for this year", "their partner has to agree first", "timing"];
+    expect(text("{{vars.l | bullets}}", { vars: { l: long } })).toBe(`\n• ${long.join("\n• ")}`);
+    expect(text("{{vars.l | bullets}}", { vars: { l: [{ objection: "price", said: "too much" }] } })).toBe("price");
+  });
+  it("lines: an answer object as labelled lines", () => {
+    expect(text("{{vars.r | lines}}", { vars: { r: { overall_score: 7, strengths: ["rapport", "pace"], next_step: { what: "call back", when: "Fri" }, quote: "I'm in" } } }))
+      .toBe("*Overall Score:* 7\n*Strengths:* rapport, pace\n*Next Step:*\n    *What:* call back\n    *When:* Fri\n> _\"I'm in\"_");
+  });
+  it("words, plural, nonzero, then, suffix, first, fixed and percent", () => {
+    const ctx = { vars: { d: "closed_won", n: 1, m: 3, z: 0, c: 0.917, amt: 1500, l: [1, 2, 3] } };
+    expect(text("{{vars.d | words}} · {{vars.n | plural:call}} · {{vars.m | plural:\"person|people\"}}", ctx)).toBe("closed won · 1 call · 3 people");
+    expect(render('[{{vars.z | nonzero | plural:call | suffix:" left"}}][{{vars.z | nonzero | then:", "}}][{{vars.m | then:", "}}]', ctx, env)).toEqual({ text: "[][][, ]", blanks: [], errors: [] });
+    expect(render("{{vars.z | nonzero | plural:call}}", ctx, env).blanks).toHaveLength(1);
+    expect(text("{{vars.l | first:2 | join}} · {{vars.amt | fixed:2}} · {{vars.c | percent}}% · {{vars.c | percent:1}}%", ctx)).toBe("1, 2 · 1500.00 · 92% · 91.7%");
+  });
+  it("option: the offer's own option key from its picklist setting, or the value as it is when it set none", () => {
+    const t = "{{vars.d | option:sales_call_disposition}}";
+    expect(text(t, { vars: { d: "deposit" }, setting: {} })).toBe("deposit");
+    expect(text(t, { vars: { d: "deposit" }, setting: { picklist: { sales_call_disposition: { deposit: "Deposit Paid" } } } })).toBe("Deposit Paid");
+    expect(render(t, { vars: { d: "lost" }, setting: { picklist: { sales_call_disposition: ["closed_won", "deposit"] } } }, env).blanks).toHaveLength(1);
+    expect(settingsOf(`${t} {{setting.crm.location_id}}`)).toEqual({ required: ["crm.location_id"], optional: ["picklist.sales_call_disposition"] });
+  });
+  it("reads \\n and \\t in a quoted argument as a new line and a tab", () => {
+    expect(text('{{vars.l | join:"\\n\\t"}}', { vars: { l: ["a", "b"] } })).toBe("a\n\tb");
   });
 });

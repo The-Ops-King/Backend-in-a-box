@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadScenarioFolder } from "@/sim/files";
 import { type SimResult, simulate } from "@/sim/simulate";
-import { parseTemplate, settingsIn } from "@/workflow/template";
+import { parseTemplate, settingsIn, settingsOf } from "@/workflow/template";
 import { validateWorkflow } from "@/workflow/validate";
 import type { Edge, Workflow } from "@/workflow/definition";
 
@@ -17,8 +17,8 @@ const ROOT = path.resolve(__dirname, "../../offers");
 const offers = fs.existsSync(ROOT) ? fs.readdirSync(ROOT).filter((d) => fs.statSync(path.join(ROOT, d)).isDirectory()).sort() : [];
 const readJson = (f: string) => JSON.parse(fs.readFileSync(f, "utf8")) as unknown;
 
-type Content = Record<string, { channel: string; body: string; subject?: string; labels?: Record<string, string> }>;
-type SettingsList = { settings: { key: string }[] };
+type Content = Record<string, { channel: string; body: string; subject?: string; as?: string; icons?: string[]; labels?: Record<string, string> }>;
+type SettingsList = { settings: { key: string; requiredToEnable: boolean; optionalIn?: string[] }[] };
 
 /** Which edge each step of a run left by: a branch's chosen edge, else the edge for its outcome. */
 export function edgesTaken(def: Workflow, r: SimResult): Set<number> {
@@ -43,7 +43,8 @@ describe.each(offers)("offer %s", (offer) => {
   const dir = path.join(ROOT, offer);
   const content = readJson(path.join(dir, "content.json")) as Content;
   const reports = fs.existsSync(path.join(dir, "reports.json")) ? (readJson(path.join(dir, "reports.json")) as Record<string, unknown>) : {};
-  const settings = new Set((readJson(path.join(dir, "settings.required.json")) as SettingsList).settings.map((s) => s.key));
+  const settingsList = (readJson(path.join(dir, "settings.required.json")) as SettingsList).settings;
+  const settings = new Set(settingsList.map((s) => s.key));
   const files = fs.readdirSync(path.join(dir, "workflows")).filter((f) => f.endsWith(".json")).sort();
   const defs = new Map(files.map((f) => [f.replace(/\.json$/, ""), readJson(path.join(dir, "workflows", f))]));
 
@@ -57,6 +58,7 @@ describe.each(offers)("offer %s", (offer) => {
     expect(v.requires.content.filter((k) => !content[k])).toEqual([]);
     expect(v.requires.reports.filter((k) => !reports[k])).toEqual([]);
     expect(v.requires.settings.filter((k) => !settings.has(k))).toEqual([]);
+    expect(v.requires.optionalSettings.filter((k) => !settings.has(k))).toEqual([]);
     expect(v.requires.workflows.filter((w) => !defs.has(w))).toEqual([]);
   });
 
@@ -66,13 +68,29 @@ describe.each(offers)("offer %s", (offer) => {
     const problems: string[] = [];
     for (const [key, c] of Object.entries(content)) {
       if (key.startsWith("_")) continue;
-      for (const t of [c.body, c.subject ?? "", ...Object.values(c.labels ?? {})]) {
+      for (const t of [c.body, c.subject ?? "", c.as ?? "", ...(c.icons ?? []), ...Object.values(c.labels ?? {})]) {
         for (const e of parseTemplate(t).errors) problems.push(`${key}: ${e}`);
         for (const k of settingsIn(t)) if (!settings.has(k)) problems.push(`${key}: reads the setting ${k}, which settings.required.json does not list`);
       }
       if (!used.has(key)) problems.push(`${key}: no workflow uses it`);
     }
     expect(problems).toEqual([]);
+  });
+
+  it("says which settings a workflow cannot be enabled without, and which it reads only as optional", () => {
+    const required = new Set<string>(), optionalIn = new Map<string, Set<string>>();
+    for (const [slug, d] of defs) {
+      const v = validateWorkflow(d);
+      const opt = new Set(v.requires.optionalSettings), req = new Set(v.requires.settings);
+      for (const k of v.requires.content) {
+        const c = content[k];
+        if (c) for (const t of [c.body, c.subject ?? "", c.as ?? "", ...(c.icons ?? []), ...Object.values(c.labels ?? {})]) { const r = settingsOf(t); r.required.forEach((x) => req.add(x)); r.optional.forEach((x) => opt.add(x)); }
+      }
+      req.forEach((k) => required.add(k));
+      for (const k of opt) if (!req.has(k)) optionalIn.set(k, (optionalIn.get(k) ?? new Set()).add(slug));
+    }
+    const wrong = settingsList.filter((s) => s.requiredToEnable !== required.has(s.key) || JSON.stringify(s.optionalIn ?? []) !== JSON.stringify([...(optionalIn.get(s.key) ?? [])].sort()));
+    expect(wrong.map((s) => s.key)).toEqual([]);
   });
 
   describe.each([...defs.keys()])("%s scenarios", (slug) => {

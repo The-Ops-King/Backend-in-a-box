@@ -135,7 +135,7 @@ export async function deliver(d: DispatchDeps, id: number): Promise<boolean> {
     const windowZoneFor = claimed.gateInput.sendWindow ? windowZone(claimed.gateInput.sendWindow, { now, offerZone: offer.zone, ...(zone !== offer.zone ? { contactZone: zone } : {}) }) : offer.zone;
     const result: GateResult = gate({ ...claimed.gateInput, offer: { sendsPausedAt: offer.sendsPausedAt }, windowZone: windowZoneFor, contact, counts, now });
     const gates = [...fresh.gates, ...result.checks];
-    const target = result.decision === "send" ? await resolveTarget(tx, fresh, result.channel) : undefined;
+    const target = result.decision === "send" ? await resolveTarget(tx, fresh, result.channel, claimed.gateInput.workflow.delivery === "sandbox") : undefined;
     if (target && "none" in target) {
       await tx.updateOutbox(row.id, { status: "suppressed", gates, lastError: target.none, settledAt: now, leaseOwner: null, leaseUntil: null });
       await wakeOwner(tx, fresh, now);
@@ -175,26 +175,39 @@ export async function deliver(d: DispatchDeps, id: number): Promise<boolean> {
   await d.store.tx(async (tx) => {
     const done = d.now();
     await tx.updateOutbox(row.id, { status: "sent", result: (result ?? null) as never, settledAt: done, leaseOwner: null, leaseUntil: null });
-    const posted = result as { channel?: string; ts?: string } | null;
+    const posted = result as { channel?: string; ts?: string; edited?: number } | null;
+    const tag = (row.payload.remember as string | undefined) ?? null;
     if ((row.kind === "message.slack" || row.kind === "slack.ask") && posted?.ts) {
-      await tx.insertPost({ offerId: row.offerId, outboxId: row.id, runId: row.runId, node: row.node, tag: (row.payload.remember as string | undefined) ?? null, channel: posted.channel!, ts: posted.ts, sandbox: decided.sandbox, createdAt: done });
+      // a post said again in place stays one post: it now belongs to this row and step, under its tag
+      if (posted.edited !== undefined) await tx.updatePost(posted.edited, { outboxId: row.id, runId: row.runId, node: row.node, tag });
+      else await tx.insertPost({ offerId: row.offerId, outboxId: row.id, runId: row.runId, node: row.node, tag, channel: posted.channel!, ts: posted.ts, sandbox: decided.sandbox, createdAt: done });
     }
     await wakeOwner(tx, decided.row, done);
   });
   return true;
 }
 
-type Target = { channel?: string; dm?: string; threadTs?: string; post?: { channel: string; ts: string } } | { none: string };
+type Target = { channel?: string; dm?: string; threadTs?: string; post?: { channel: string; ts: string }; edit?: { id: number; channel: string; ts: string } } | { none: string };
 
-/** Where a Slack effect goes: the channel (or the sandbox's test channel), the post it threads under or acts on. */
-async function resolveTarget(tx: Tx, row: OutboxRow, reroute?: string): Promise<Target> {
-  const p = row.payload as { channel?: string; dm?: string; thread?: { node?: string; tag?: string }; threadOnly?: boolean; params?: { post?: { node?: string; tag?: string } } };
+/**
+ * Where a Slack effect goes: the channel (or the sandbox's test channel), the post it threads under or acts on, or,
+ * for a post said again in place (`edit`), the earlier post it rewrites: the one remembered under its tag, made the same
+ * way (sandbox or live, and in the test channel when rerouted there).
+ */
+async function resolveTarget(tx: Tx, row: OutboxRow, reroute: string | undefined, sandbox: boolean): Promise<Target> {
+  const p = row.payload as { channel?: string; dm?: string; thread?: { node?: string; tag?: string }; threadOnly?: boolean; remember?: string; edit?: boolean; params?: { post?: { node?: string; tag?: string } } };
   const findPost = async (ref: { node?: string; tag?: string }) => (await tx.posts({ offerId: row.offerId, ...(ref.node ? { runId: row.runId, node: ref.node } : { tag: ref.tag! }) }))[0];
   if (row.kind === "message.slack" || row.kind === "slack.ask") {
+    if (row.kind === "message.slack" && p.edit && p.remember) {
+      const earlier = await findPost({ tag: p.remember });
+      if (earlier && earlier.sandbox === sandbox && (!reroute || earlier.channel === reroute)) return { edit: { id: earlier.id, channel: earlier.channel, ts: earlier.ts } };
+    }
     const out: { channel?: string; dm?: string; threadTs?: string } = reroute ? { channel: reroute } : p.dm ? { dm: p.dm } : { channel: p.channel! };
     if (p.thread) {
       const parent = await findPost(p.thread);
       if (parent && out.channel && parent.channel === out.channel) out.threadTs = parent.ts;
+      // a reply under a post the app made in a DM goes in that DM's thread, wherever the DM is (as a reply under a post does)
+      else if (parent && out.dm && (await tx.outboxRow(parent.outboxId))?.payload.dm) return { channel: parent.channel, threadTs: parent.ts };
       else if (p.threadOnly) return { none: "there is no post to reply under" };
     }
     return out;
@@ -210,7 +223,7 @@ async function resolveTarget(tx: Tx, row: OutboxRow, reroute?: string): Promise<
 const str = (v: unknown) => (typeof v === "string" ? v : v === undefined || v === null ? "" : String(v));
 
 async function callPort(d: DispatchDeps, row: OutboxRow, target: Exclude<Target, { none: string }>, contact: CrmContact | null, c: CallContext, sandbox: boolean): Promise<unknown> {
-  const p = row.payload as Record<string, unknown> & { params?: Record<string, unknown>; content?: Record<string, { text: string; subject?: string }>; text?: string; subject?: string; as?: string };
+  const p = row.payload as Record<string, unknown> & { params?: Record<string, unknown>; content?: Record<string, { text: string; subject?: string }>; text?: string; subject?: string; as?: string; icons?: unknown };
   const params = p.params ?? {};
   const needContact = () => { if (!row.contactId) throw new PortError("permanent", "the run has no contact"); return row.contactId; };
   const contentText = (key: unknown) => p.content?.[str(key)]?.text ?? "";
@@ -222,8 +235,14 @@ async function callPort(d: DispatchDeps, row: OutboxRow, target: Exclude<Target,
     case "slack.ask": {
       const answers = row.kind === "slack.ask" ? p.answers : undefined;
       const buttons = (p.buttons as never) ?? undefined;
-      if ("dm" in target && target.dm) return slack.dm(c, { user: target.dm, text: str(p.text), ...(p.as ? { as: p.as } : {}), ...(buttons ? { buttons } : {}), ...(answers ? { answers } : {}) });
-      return slack.post(c, { channel: (target as { channel: string }).channel, text: str(p.text), ...(p.as ? { as: p.as } : {}), ...((target as { threadTs?: string }).threadTs ? { threadTs: (target as { threadTs: string }).threadTs } : {}), ...(buttons ? { buttons } : {}), ...(answers ? { answers } : {}), sandbox });
+      const persona = { ...(p.as ? { as: p.as } : {}), ...(Array.isArray(p.icons) && p.icons.length ? { icons: p.icons as string[] } : {}) };
+      const t = target as { channel?: string; dm?: string; threadTs?: string; edit?: { id: number; channel: string; ts: string } };
+      if (t.edit) {
+        await slack.update(c, { channel: t.edit.channel, ts: t.edit.ts, text: str(p.text), ...(buttons ? { buttons } : {}) });
+        return { channel: t.edit.channel, ts: t.edit.ts, edited: t.edit.id };
+      }
+      if (t.dm) return slack.dm(c, { user: t.dm, text: str(p.text), ...persona, ...(buttons ? { buttons } : {}), ...(answers ? { answers } : {}) });
+      return slack.post(c, { channel: t.channel!, text: str(p.text), ...persona, ...(t.threadTs ? { threadTs: t.threadTs } : {}), ...(buttons ? { buttons } : {}), ...(answers ? { answers } : {}), sandbox });
     }
     case "slack.react": case "slack.unreact": {
       const post = (target as { post: { channel: string; ts: string } }).post;

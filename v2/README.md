@@ -19,7 +19,9 @@ The GHL recorder, for the Phase 0 checks. It becomes v2's GHL door later.
 | `GET /health` | Answers when the app is up. |
 
 The workflow definition format (`src/workflow/`): the ten versioned primitives, the action registry, conditions, the
-template renderer with blank detection, and `validateWorkflow`. How each v1 step is written in it is in
+template renderer with blank detection (lists laid out per item with `each`, a blank found per item), and
+`validateWorkflow`, which lists the settings a workflow requires and those it can do without (a step that skips itself
+while one is unset, a channel with a fallback, a picklist option). How each v1 step is written in it is in
 `docs/v1-to-v2-steps.md`.
 
 The engine (`src/engine/`), with no connectors yet (its ports have fakes only):

@@ -197,6 +197,7 @@ class MemTx implements Tx {
   }
   async outboxRows(q: OutboxQuery) {
     let rows = this.s.outbox.filter((r) => (!q.offerId || r.offerId === q.offerId) && (!q.runId || r.runId === q.runId)
+      && (!q.contactId || r.contactId === q.contactId) && (!q.kinds || q.kinds.includes(r.kind))
       && (!q.statuses || q.statuses.includes(r.status))
       && (!q.dueBy || (r.nextAttemptAt !== null && r.nextAttemptAt.getTime() <= q.dueBy.getTime())));
     rows = rows.sort((a, b) => (a.nextAttemptAt?.getTime() ?? Infinity) - (b.nextAttemptAt?.getTime() ?? Infinity) || a.id - b.id);
@@ -213,6 +214,10 @@ class MemTx implements Tx {
     const row: PostRow = { ...copy(p), id: ++this.s.seq.post };
     this.s.posts.push(row);
     return copy(row);
+  }
+  async updatePost(id: number, patch: Partial<Pick<PostRow, "outboxId" | "runId" | "node" | "tag">>) {
+    const row = this.s.posts.find((p) => p.id === id);
+    if (row) Object.assign(row, copy(patch));
   }
   async posts(q: PostQuery) {
     return this.s.posts.filter((p) => p.offerId === q.offerId && (q.runId === undefined || p.runId === q.runId) && (q.node === undefined || p.node === q.node)

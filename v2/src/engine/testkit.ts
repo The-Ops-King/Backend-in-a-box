@@ -22,7 +22,7 @@ export function spanMs(span: string): number {
   return parts.reduce((ms, m) => ms + toMs(`${m[1]}${m[2]}`), 0);
 }
 
-export type ContentSeed = Record<string, { channel: "sms" | "email" | "slack" | "prompt" | "crm"; body: string; subject?: string; as?: string; labels?: Record<string, string> }>;
+export type ContentSeed = Record<string, { channel: "sms" | "email" | "slack" | "prompt" | "crm"; body: string; subject?: string; as?: string; icons?: string[]; labels?: Record<string, string> }>;
 
 export async function setupOffer(store: Store, x: {
   slug: string; name?: string; zone: string; settings?: Record<string, unknown>; content?: ContentSeed; operator?: { emails?: string[]; phones?: string[] }; id?: string;
@@ -31,7 +31,7 @@ export async function setupOffer(store: Store, x: {
     const offer = await tx.insertOffer({ slug: x.slug, name: x.name ?? x.slug, zone: x.zone, ...(x.id ? { id: x.id } : {}) });
     for (const [k, v] of Object.entries(x.settings ?? {})) await tx.setSetting(offer.id, k, v, "setup");
     for (const [key, c] of Object.entries(x.content ?? {})) {
-      await tx.setContent({ offerId: offer.id, key, channel: c.channel, body: c.body, subject: c.subject ?? null, extras: c.as || c.labels ? { ...(c.as ? { as: c.as } : {}), ...(c.labels ? { labels: c.labels } : {}) } : null, approvedHash: null });
+      await tx.setContent({ offerId: offer.id, key, channel: c.channel, body: c.body, subject: c.subject ?? null, extras: c.as || c.labels || c.icons?.length ? { ...(c.as ? { as: c.as } : {}), ...(c.icons?.length ? { icons: c.icons } : {}), ...(c.labels ? { labels: c.labels } : {}) } : null, approvedHash: null });
     }
     for (const e of x.operator?.emails ?? []) await tx.addOperatorAddress("email", e);
     for (const p of x.operator?.phones ?? []) await tx.addOperatorAddress("phone", p);

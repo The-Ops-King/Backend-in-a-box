@@ -42,7 +42,7 @@ export type RunQuery = {
   limit?: number;
 };
 
-export type OutboxQuery = { offerId?: string; runId?: string; statuses?: OutboxStatus[]; dueBy?: Date; limit?: number };
+export type OutboxQuery = { offerId?: string; runId?: string; contactId?: string; kinds?: string[]; statuses?: OutboxStatus[]; dueBy?: Date; limit?: number };
 
 /** Messages to contacts (and their attempts) that count toward the cap and the breaker. */
 export type SendCount = { offerId: string; contactId?: string; since: Date; until?: Date; kinds: string[] };
@@ -97,6 +97,8 @@ export interface Tx {
   countSends(q: SendCount): Promise<number>;
 
   insertPost(p: Omit<PostRow, "id">): Promise<PostRow>;
+  /** A post said again in place (edited): it now belongs to the row, run and step that said it last, under its tag. */
+  updatePost(id: number, patch: Partial<Pick<PostRow, "outboxId" | "runId" | "node" | "tag">>): Promise<void>;
   posts(q: PostQuery): Promise<PostRow[]>;
 
   /** Opens an alert unless one with the same key is already open. */

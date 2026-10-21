@@ -16,14 +16,15 @@ type LookupQuery = keyof typeof LOOKUP_QUERIES;
 export const internalActions = [
   defineAction({
     verb: "facts.record",
-    summary: "Appends a fact to the offer's event log, about this run's subjects (or the appointment named). `startsWorkflows`: workflows listening for it start, as if it had arrived from a vendor.",
+    summary: "Appends a fact to the offer's event log, about this run's subjects (or the appointment named). `startsWorkflows`: workflows listening for it start, as if it had arrived from a vendor; this run's own workflow is never one of them unless `startsThisWorkflow` says so (a run handing its work on to a new run of itself, within the depth limit).",
     effect: "internal",
     params: z.object({
       type: EventName,
       data: z.record(Template),
       appointment: Template.optional(),
       startsWorkflows: z.boolean(),
-    }).strict(),
+      startsThisWorkflow: z.boolean().optional(),
+    }).strict().refine((p) => !p.startsThisWorkflow || p.startsWorkflows, { message: "startsThisWorkflow goes with startsWorkflows: true", path: ["startsThisWorkflow"] }),
     returns: "none",
   }),
   defineAction({

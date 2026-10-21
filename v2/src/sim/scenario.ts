@@ -70,12 +70,15 @@ export const Scenario = z.object({
    * What the parts not built yet answer, so a scenario can take every path: the facts.lookup queries that need the
    * projections (by query: one answer, or a list used in turn), the report definitions (by key: the rendered report, or a
    * list used in turn), and the AI port (classify answers and summarize results, used in turn; a classify answer is the
-   * option, or { value, confidence }).
+   * option, or { value, confidence, guesses? }).
    */
   fixtures: z.object({
     lookups: z.record(z.unknown()).default({}),
     reports: z.record(z.unknown()).default({}),
-    classify: z.array(z.union([z.string(), z.object({ value: z.string(), confidence: z.number().min(0).max(1) }).strict()])).default([]),
+    classify: z.array(z.union([z.string(), z.object({
+      value: z.string(), confidence: z.number().min(0).max(1),
+      guesses: z.array(z.object({ value: z.string(), confidence: z.number().min(0).max(1) }).strict()).optional(),
+    }).strict()])).default([]),
     summarize: z.array(z.unknown()).default([]),
   }).strict().default({}),
   steps: z.array(ScenarioStep).min(1),
@@ -85,7 +88,10 @@ export const Scenario = z.object({
     held: z.array(z.string()).optional(),
     suppressed: z.array(z.string()).optional(),
     ends: z.array(z.string()).optional(),
-    /** Every outbox row in order, as "<time from start, no spaces> <status> <content key or kind>": "+1d2h sent pre_call.reminder". */
+    /**
+     * Every outbox row in order, as "<time from start, no spaces> <status> <content key or kind>": "+1d2h sent
+     * pre_call.reminder"; a Slack post said again in place ends " (edited)".
+     */
     outbox: z.array(z.string()).optional(),
   }).strict().optional(),
 }).strict();

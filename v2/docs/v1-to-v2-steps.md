@@ -1,4 +1,4 @@
-# v1 steps in v2: how each is written (2026-10-21; Hair's translation added to it)
+# v1 steps in v2: how each is written (2026-10-21; Hair's translation added to it; its gaps closed in piece 4)
 
 How every behavior v1's workflow format can express (`platform/src/engine/definition.ts`, `engine/04-build-a-workflow.md`)
 is written in v2's format (`src/workflow/`). Hidden effects from the engine-action inventory
@@ -13,7 +13,10 @@ internal) tells the delivery gate which checks apply.
 Three rules change how things are written, everywhere:
 - **Words are content, by key.** No message, note, task, prompt or Slack post carries its words in the workflow. Email
   subjects, Slack personas (`as`) and button labels belong to the content entry too.
-- **Where something posts is a setting.** A Slack channel is exactly `{{setting.<key>}}`. v1 bindings (`crm.*`,
+- **Where something posts is a setting.** A Slack channel is exactly `{{setting.<key>}}` (with an optional
+  `fallbackChannel`, another setting, for an offer that leaves the first unset), or `channelFromFact: "{{event.<field>}}"`:
+  the channel the triggering fact names, taken only when at sending it is one of the offer's own `slack.channel.*`
+  settings (any other is held with an alert, never posted to). v1 bindings (`crm.*`,
   `calendar.*`, `slack.channel.*`) become `{{setting.<key>}}`; v1 `prompt.*` become content keys; `secret.*` stays
   `{{secret.<key>}}`, allowed only inside `http.request`.
 - **Only a branch decides.** v1's `only_if` on any node, and `check`, become a `branch` with labelled edges.
@@ -56,18 +59,18 @@ Three rules change how things are written, everywhere:
 | `lookup` `{ query, params, into }` | `action@1 facts.lookup` `{ query, params }`, `into` |
 | `send_sms` `{ template, kind, validity, on_stale, substitute_template }` | `message@1` `to: { contact: "sms" }`, `content`, `kind`, `validity: { before, minLead } \| { after, maxLag }`, `whenStale: "skip" \| { send: <content key> }` |
 | `send_sms` / `send_email` `ghl_template` (the CRM's own copy wins) | **GAP 4** (deliberately not carried: copy is content) |
-| `send_sms` `on_stale: escalate` | **GAP 5** |
+| `send_sms` `on_stale: escalate` | **GAP 5** (Hair has none) |
 | `send_email` `{ subject, template }` | `message@1` `to: { contact: "email" }`; subject and body are one content entry |
 | `slack_post` `{ channel, template, as }` | `message@1` `to: { slack: { channel: "{{setting.…}}" } }`, `content`; `as` lives in the content entry |
 | `slack_post` to a DM (`{{user.slack_user_id}}`) | `message@1` `to: { slack: { dm: "{{person.slack_id}}", fallbackChannel? } }` |
-| `slack_post` `fallback_channel` for an unbound channel binding | **GAP 6** (v2 refuses to enable with an unbound setting instead of falling back) |
-| `slack_post` `thread_of`, `thread_only`, `tag` | `thread: { node } \| { tag }`, `threadOnly`, `remember` |
+| `slack_post` `fallback_channel` for an unbound channel binding | `to: { slack: { channel: "{{setting.<a>}}", fallbackChannel: "{{setting.<b>}}" } }`: the first is an optional setting (listed in `requires.optionalSettings`), the fallback is required. v1's list of fallbacks is its first one |
+| `slack_post` `thread_of`, `thread_only`, `tag` | `thread: { node } \| { tag }`, `threadOnly`, `remember`. A DM (`to: { slack: { dm } }`) whose `thread` is a post the app made in a DM replies in that DM's thread, wherever it is (v1 replied under the post wherever it was) |
 | `slack_post` `react` (on the parent), `react_on`, `unreact` | separate steps: `action@1 slack.react` / `slack.unreact` with `post: { node } \| { tag }` |
 | `slack_post` `offer` (reactions for people to tap) | `ask@1` `answers: { reactions }`; the post and the `wait_for_reaction` on it are one `ask@1` (`then: wait` for a blocking wait, `listen` for `blocking: false`) |
-| `slack_post` `edit: true` (say it again by editing the earlier post) | **GAP 17** |
+| `slack_post` `edit: true` (say it again by editing the earlier post) | `message@1` `edit: true` with `remember`: the post remembered under that tag, made the same way (sandbox or live), is rewritten in place (words and buttons) and now belongs to this step; with none, it posts. The simulator's timeline marks the row `(edited)` |
 | `slack_post` `react` / `react_on` / `unreact` with an emoji from a value (`{{vars.x}}`) | a `branch` on that value, then one `slack.react` / `slack.unreact` per emoji it can be (emoji names are fixed). `react_on` a post this one is about to take the tag of goes before the post |
-| `slack_post` `as` with a name or icon from a value | a `content: { pick }` of entries with the same words and each persona (**GAP 15** for icons and names that are free values) |
-| `slack_post` `channel: "{{event.channel}}"` | **GAP 16** |
+| `slack_post` `as` with a name or icon from a value | the content entry's `as` (the name) and `icons` are templates rendered like the words (`{{event.as_name \| default:Engine alerts}}`, `{{vars.icon}}`; a whole `{{…}}` giving a list is several icons), with blank detection; a `content: { pick }` of entries still works where the words also differ |
+| `slack_post` `channel: "{{event.channel}}"` | `to: { slack: { channelFromFact: "{{event.channel}}" } }`: posted only when that channel is one of the offer's `slack.channel.*` settings (the test channel aside) at sending; the delivery gate's `channel` check holds any other, with an `unmapped_channel` alert |
 | `slack_post` `channel` a literal channel id | a setting, named for it |
 | `slack_post` `channel: "{{user.slack_user_id}}"` / `"{{company.operator_slack_id}}"` | `to: { slack: { dm: "{{person.slack_user_id}}" } }` / `{ dm: "{{setting.bot.escalate_to}}" }` |
 | `slack_post` `edit` | `action@1 slack.update_post` |
@@ -77,7 +80,7 @@ Three rules change how things are written, everywhere:
 | `notify_owner` `{ template, fallback_channel, task, as }` | **split (H3)**: `message@1` to `{ slack: { dm: "{{contact.owner.slack_id}}", fallbackChannel } }`, then `action@1 crm.create_task` |
 | `classify` `{ input, state, domain, threshold, criteria, ambiguity_max, into }` | `action@1 ai.classify` `{ input, context, prompt, options, threshold, ambiguityMax, unclear }`, `into`; the question and criteria words move into the prompt content, the options are the criteria's keys (v1 read them from `core_categories` by domain), and `vars.<into>` is `{ value, confidence, guesses }` (v1: the value at `into`, the confidence as a percentage in `reply.intent_confidence`) |
 | `analyze` `{ prompt, input, into, format, max_tokens, optional }` | `action@1 ai.summarize` `{ prompt, input, format, maxTokens, optional }`, `into` (one variable; v1's list of keys is read as `vars.<into>.<key>`) |
-| `tags` `{ add, remove, keep }` / `set_tag` / `remove_tag` | `action@1 crm.add_tag` then `action@1 crm.remove_tag`; `keep` is **GAP 8** |
+| `tags` `{ add, remove, keep }` / `set_tag` / `remove_tag` | `action@1 crm.add_tag` then `action@1 crm.remove_tag` `{ tags, keep }`: `keep`'s tags are never taken off. `tags` (and `keep`) is a list, or one `{{…}}` whose value is a list (`"{{vars.tags_before}}"`); lists inside are flattened |
 | `update_contact` `{ set, fields, clear, if_empty }` | `action@1 crm.update_contact` `{ set: { <canonical field>: … }, ifEmpty, clear }`; `assign_to` → `set.owner`; CRM field ids → canonical names in the field map |
 | `ensure_contact` `{ tags, scope_tag, source }` | **split (H4)**: `crm.find_or_create_contact` `{ match, create, fillBlank }`, then `crm.add_tag` (tags and `{{setting.scope.tag}}`) |
 | `pipeline_card` `{ pipeline, stage, name, assign_to, if_missing, pick, from_stages, keep_name, value, fields }` | `action@1 crm.move_deal` with the same params (`assign_to` → `owner`) |
@@ -99,11 +102,12 @@ Three rules change how things are written, everywhere:
 | `eod_due` | `report@1` of the closer's unfiled days |
 | `report` `{ kind, breakdowns, sections, layout, period }` | `report@1` `{ report: <definition key>, period, params }`; layout and sections live in the report definition |
 | `leaderboard` | `report@1` of the leaderboard definition |
-| `record` `{ event, data, appointment, start }` | `action@1 facts.record` `{ type, data, appointment, startsWorkflows }` |
+| `record` `{ event, data, appointment, start }` | `action@1 facts.record` `{ type, data, appointment, startsWorkflows }`; `start: true` on a fact this same workflow listens for is `startsThisWorkflow: true` (opt-in; within the depth limit of 8) |
 | `start_workflow` | `call@1` |
 | `pause_runs` | `action@1 runs.pause_others` (H18, now visible) |
 | `exit` | `end@1` |
 | any node `only_if` | a `branch@1` before it |
+| a step v1 skipped because a binding it read (`{{crm.x \| default:}}`) was unbound | `skipWhenUnset: ["<setting>"]` on the step (and on its companion steps): skipped by `next` while the offer leaves it unset, listed in `requires.optionalSettings`, never filled in from code |
 | any node `title` | `title`, now required |
 | any node `blocking` | `onFailure: "skip" \| "hold"`; where v1's derived rule (the spec's "If it keeps failing") differs from v2's default, the step says it |
 | `crm_record` `relate` after a write that failed | a `branch` on the write's id before the `crm.relate_records` steps (a failed v1 write took its links with it) |
@@ -115,7 +119,7 @@ Three rules change how things are written, everywhere:
 
 Conditions keep v1's shape: `eq`, `ne` (v1 `neq`), `gt`, `gte`, `lt`, `lte`, `in`, `has`, `exists`, `and`, `or`, `not`. Two
 date-times now compare as instants. New in v2: `within: [a, b, tolerance]`, two numbers at most `tolerance` apart.
-Filters are a fixed set of 20:
+Filters are a fixed set of 32:
 
 | v1 filter | v2 |
 |---|---|
@@ -125,7 +129,10 @@ Filters are a fixed set of 20:
 | `date:HH` used in conditions | `hour` (a number) |
 | (none: v1 had `timeParam` offsets inside a few step params) | `plus:<duration>` / `minus:<duration>`: a date-time moved, as an ISO time, anywhere a template goes (params, conditions, `since`, and a wait anchor written as one `{{…}}`) |
 | `default:` (empty, "may be absent") | `optional` |
-| `tz`, `words`, `json`, `lines`, `bullets`, `each`, `first`, `plural`, `nonzero`, `then`, `suffix`, `duration`, `fixed`, `option` | dropped; list layouts belong to report definitions. **GAP 11** for Slack posts that list things outside a report, and for `option` (per-offer picklist keys) |
+| `each`, `first`, `bullets`, `lines`, `words`, `plural`, `nonzero`, `then`, `suffix`, `fixed` | the same (v1's words exactly). `each:"…"` renders its own template per item, with `item`, `index`, `number` and `parent` (the item around it) beside the context; those roots exist only inside an each. Every blank inside an item is reported with which item it was, and an empty list is a blank like any value (`optional` or `default` after it says it may be). `then` and `suffix` may be blank, like `prefix` |
+| `option:<picklist>` | the same: the offer's own option keys from the setting `picklist.<picklist>` (a list or a map), an optional setting; unset, the value as it is |
+| `reply.intent_confidence` (a percentage) | `{{vars.<into>.confidence \| percent}}`: 0.92 → 92 (the words keep their `%`) |
+| `tz`, `json`, `duration` | dropped (Hair's workflows use none; `duration` is only in report definitions) |
 
 v1 context paths, as v2 writes them:
 
@@ -138,12 +145,14 @@ v1 context paths, as v2 writes them:
 | `records.<object>.*`, `cards.<board>.*`, `opportunity.*` | `contact.records.*`, `contact.cards.*`, `deal.*` (from the projections) |
 | `reaction.reaction` / `reaction.user_name` | `vars.<ask into>.value` / `.person` (a Slack user id) |
 | `reply.inbound_since_send` | `reply.body` |
+| `reply.last_outbound` (what we last sent them) | `reply.last_outbound` `{ body, channel, at, content_key }`: the latest text or email to the run's contact that went out (any workflow), from the outbox; in every step of a run about a contact |
+| `reply.top_guesses` | `{{vars.<into>.guesses \| first:3 \| each:"{{item.value}} {{item.confidence \| percent}}%" \| join:", " \| default:none}}` |
 | `event._type`, `event._source` (an outcome's source) | `event.type`, `event.outcome_source` |
 | `record.id` inside a `crm_record`'s `relate` | `vars.<the write's into>.id` |
 | `{{x \| default:}}` | `{{x \| optional}}`; a variable a step sets to `""` on purpose also reads `\| optional` |
 
-A render reports every expression that came out blank (missing or empty) unless `optional`, `default`, `prefix`, `line` or
-`link` says it may be, and every refused filter (a past time for `relative`), so the blank-variable hold can refuse to
+A render reports every expression that came out blank (missing or empty) unless `optional`, `default`, `prefix`, `line`,
+`link`, `then` or `suffix` says it may be (inside an `each`, per item), and every refused filter (a past time for `relative`), so the blank-variable hold can refuse to
 send.
 
 ## Engine actions (inventory section 1) as steps
@@ -183,36 +192,39 @@ identities and the delivery gate · H18 `runs.pause_others`.
 2. ~~**A bounded retry loop**~~ Closed in piece 2: `wait@1 check: { holds, every }` with a deadline.
 3. ~~**Pause for a person**~~ Closed in piece 2: `wait@1 person: { reason }`, left by `resumed`.
 4. **The CRM's own snippet wins** (`ghl_template`): not carried; copy is v2 content only.
-5. **`on_stale: escalate`**: only skip and send-other-content exist.
-6. **Fallback channel for an unbound channel**: v2 blocks enabling instead of falling back silently.
+5. **`on_stale: escalate`**: only skip and send-other-content exist. Hair has none; left open.
+6. ~~**Fallback channel for an unbound channel**~~ Closed in piece 4: `channel` with `fallbackChannel`; the first is
+   an optional setting, listed as such, never silently filled.
 7. ~~**A button shown only when a condition holds**~~ Closed in piece 2: `buttons[].when`.
-8. **`keep` on a tag step** (tags never removed even if named): write the remove list exactly instead.
+8. ~~**`keep` on a tag step**~~ Closed in piece 4: `crm.remove_tag` `{ tags, keep }`.
 9. **Health and drift repairs** (H5, H6): pulling contacts in, retiring duplicate ids, switching a primary id. They need
    verbs (or stay platform) by Tyler's call.
-10. **Free date patterns**: only the eight named formats.
-11. **List layouts in Slack posts** (`each`, `bullets`, `lines`, `plural`) outside a report definition, and per-offer
-    picklist keys (`option`).
+10. **Free date patterns**: only the eight named formats. Hair's "Thu Oct 29 · 2:00 PM EDT" (`date_company`) reads
+    "Thu, Oct 29 at 2:00 PM"; left open (a named format with the zone, or acceptance).
+11. ~~**List layouts in Slack posts**~~ Closed in piece 4: `each` (with `item`, `index`, `number`, `parent`), `first`,
+    `bullets`, `lines`, `words`, `plural`, `nonzero`, `then`, `suffix`, `fixed`, and `option` for per-offer picklist keys.
+    A fixed set of filters, no expressions: blank detection works per item.
 12. ~~**Time arithmetic in params**~~ Closed in piece 2: the `plus` / `minus` filters, and a wait anchor may be one
     `{{…}}` expression.
 13. ~~**Arithmetic in conditions**~~ Closed in piece 2: `within: [a, b, tolerance]`.
 14. **Relinking unlinked payments** (E8).
 
-Found translating Hair (piece 3; `offers/hair/REVIEW.md` says where each one bites):
+Found translating Hair (piece 3; closed in piece 4 except where it says):
 
-15. **A Slack persona from a value**: a name chosen by a value is a `pick` of content entries (done), but a free value
-    (`{{event.as_name}}`) and every persona icon list are not carried (icons are kept in the content entry as `icons`,
-    unused).
-16. **A post whose channel the triggering fact names** (`{{event.channel}}`, the alert posts): a channel is always one
-    setting.
-17. **Edit an earlier post when there is one, else post** (`edit: true`): a second time posts again.
-18. **A run starting its own workflow again from a fact it records** (`record` with `start: true`, Sales call recorded
-    linking a call to the booking the team picked): v2 never starts a workflow from its own run's fact.
-19. **What we last sent the contact** (`reply.last_outbound`) and the rest of v1's reply-derived context: no root yet.
-20. **A fraction as a percentage** (a classifier's 0.92 written "92%"): no arithmetic filter.
-21. **A list held in a variable as a list param** (`tags: ["{{vars.tags}}"]` is a list inside a list).
-22. **A reply in a DM's thread**: the dispatcher threads only in a channel; a DM thread posts as a plain DM.
-23. **An unbound setting a step may do without**: v1 skipped what an unbound `{{crm.x | default:}}` fed; v2 enables a
-    workflow only when every setting it reads is set (GAP 6 again).
+15. ~~**A Slack persona from a value**~~ The content entry's `as` and `icons` are templates.
+16. ~~**A post whose channel the triggering fact names**~~ `channelFromFact: "{{event.<field>}}"`, taken only when it
+    is one of the offer's own `slack.channel.*` settings at sending: the fact picks among the offer's settings and
+    never supplies a channel of its own (an unknown one is held, with an alert).
+17. ~~**Edit an earlier post when there is one, else post**~~ `message@1 edit: true` with `remember`.
+18. ~~**A run starting its own workflow again from a fact it records**~~ `facts.record startsThisWorkflow: true`,
+    opt-in on the step, within the depth limit (8). Without it a run's fact never starts its own workflow.
+19. ~~**What we last sent the contact**~~ `reply.last_outbound`, from the outbox. The rest of v1's reply-derived
+    context (`last_inbound`, `message_ids`, `count`) has no use in Hair and is not carried.
+20. ~~**A fraction as a percentage**~~ the `percent` filter.
+21. ~~**A list held in a variable as a list param**~~ `tags: "{{vars.tags}}"`; lists inside a tags list are flattened.
+22. ~~**A reply in a DM's thread**~~ a DM whose `thread` is a post the app made in a DM replies in that thread.
+23. ~~**An unbound setting a step may do without**~~ `skipWhenUnset: [<setting>]` on the step: skipped while unset,
+    listed in `requires.optionalSettings` (with a channel's fallback and `option`'s picklist), never filled from code.
 
 Not a format gap, a dependency: the facts v1 worked out for every run (the contact's payments, signature, owner, closer,
 setter, next call, CRM record keys and cards; the appointment's outcome, pending read and whether it has started; a

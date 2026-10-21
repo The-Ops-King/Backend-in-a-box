@@ -71,12 +71,16 @@ export interface AiPort {
 }
 
 export type SlackButton = { action: string; value: string; style?: string; label: string };
+/**
+ * `as` and `icons`: the persona the post is made under (its name; one icon, or several for the app to choose from).
+ * `post` to a DM conversation's channel with `threadTs` replies in a DM's thread. `update` rewrites an earlier post in place.
+ */
 export interface SlackPort {
-  post(c: CallContext, p: { channel: string; text: string; as?: string; threadTs?: string; buttons?: SlackButton[]; answers?: unknown; sandbox: boolean }): Promise<{ channel: string; ts: string }>;
-  dm(c: CallContext, p: { user: string; text: string; as?: string; buttons?: SlackButton[]; answers?: unknown }): Promise<{ channel: string; ts: string } | null>;
+  post(c: CallContext, p: { channel: string; text: string; as?: string; icons?: string[]; threadTs?: string; buttons?: SlackButton[]; answers?: unknown; sandbox: boolean }): Promise<{ channel: string; ts: string }>;
+  dm(c: CallContext, p: { user: string; text: string; as?: string; icons?: string[]; buttons?: SlackButton[]; answers?: unknown }): Promise<{ channel: string; ts: string } | null>;
   react(c: CallContext, p: { channel: string; ts: string; emojis: string[] }): Promise<void>;
   unreact(c: CallContext, p: { channel: string; ts: string; emojis: string[] }): Promise<void>;
-  update(c: CallContext, p: { channel: string; ts: string; text: string }): Promise<void>;
+  update(c: CallContext, p: { channel: string; ts: string; text: string; buttons?: SlackButton[] }): Promise<void>;
 }
 
 export interface HttpPort {

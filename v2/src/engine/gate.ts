@@ -7,6 +7,9 @@ import type { CrmWrites, Delivery, GateCheck, GateDecision, OutboxRow } from "./
  * The delivery gate: the one function every outbound effect passes before the dispatcher calls a port. It applies,
  * in this order, recording each decision on the row:
  *
+ * 0. channel (only for a Slack post whose channel the triggering fact named): it goes ahead only when that channel is
+ *    one of the offer's own Slack channel settings (slack.channel.*, the test channel aside); any other is held, with
+ *    an alert, and never posted to.
  * 1. delivery: the workflow's delivery state. sandbox lets a contact effect reach only the operator's own address,
  *    puts a Slack post in the offer's test channel, and sends no outbound webhook; live lets everything through.
  * 2. crm_writes: dry records a CRM write without making it; real makes it.
@@ -76,8 +79,19 @@ export function gate(input: GateInput): GateResult {
   const toContact = row.effect === "contact";
   const p = row.payload as {
     kind?: "human" | "transactional"; notAfter?: string; render?: { blanks?: unknown[]; errors?: unknown[] }; missingContent?: string[]; text?: string; contactRequired?: boolean;
+    fromFact?: boolean; channel?: string;
   };
   let channel: string | undefined;
+
+  // 0. a channel the triggering fact named must be one of the offer's own
+  if ((kind === "message.slack" || kind === "slack.ask") && p.fromFact && p.channel) {
+    const mapped = Object.keys(input.settings).sort().find((k) => k.startsWith("slack.channel.") && k !== SETTING.testChannel && input.settings[k] === p.channel);
+    if (!mapped) {
+      note("channel", "hold", `the fact named the channel ${p.channel}, which is not one of the offer's Slack channel settings`);
+      return { decision: "hold", checks, alert: { key: `unmapped-channel:${p.channel}`, kind: "unmapped_channel", message: `A Slack post was held: the fact named the channel ${p.channel}, which is not one of the offer's channels (slack.channel.*)` } };
+    }
+    note("channel", "pass", `${p.channel} is the offer's ${mapped}`);
+  }
 
   // 1. delivery state
   if (toContact) {

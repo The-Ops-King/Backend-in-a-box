@@ -4,20 +4,28 @@ import { type Predicate, predicateParts } from "./predicate";
 import { INTERRUPT_OUTCOMES, PRIMITIVES, PRIMITIVE_NAMES, parseType } from "./primitives";
 import type { Value } from "./primitives/flow";
 import type { PrimitiveSpec } from "./primitives/spec";
-import { parseTemplate } from "./template";
+import { FILTERS, filterSettings } from "./filters";
+import { ITEM_ROOTS, exprsOf, parseTemplate } from "./template";
 
 export type ProblemCode =
   | "schema" | "unknown_primitive" | "unknown_version" | "unknown_action" | "action_params"
   | "duplicate_node_id" | "no_trigger" | "no_end" | "no_outgoing_edge" | "missing_outcome_edge" | "unknown_outcome"
   | "duplicate_outcome_edge" | "edge_unknown_node" | "edge_into_trigger" | "unreachable_node"
   | "branch_edge_needs_condition" | "branch_needs_one_else" | "else_not_last" | "condition_outside_branch"
-  | "resume_outside_listener" | "unknown_node_ref" | "bad_template" | "unknown_var" | "secret_outside_http" | "no_send_window";
+  | "resume_outside_listener" | "unknown_node_ref" | "bad_template" | "unknown_var" | "secret_outside_http" | "no_send_window"
+  | "skip_needs_next";
 
 export type Problem = { code: ProblemCode; message: string; path: (string | number)[]; node?: string };
 
 /** What the workflow needs from the offer before it can be enabled. Each list is sorted and has no repeats. */
 export type Requires = {
+  /** Settings that must have a value before the workflow is enabled. */
   settings: string[];
+  /**
+   * Settings it reads that the offer may leave unset: a step that skips itself without them (`skipWhenUnset`), a
+   * channel with a fallback, a picklist `option` that keeps the value as it is. Never filled in from code.
+   */
+  optionalSettings: string[];
   content: string[];
   reports: string[];
   forms: string[];
@@ -37,6 +45,8 @@ const zodProblems = (issues: ZodIssue[], base: (string | number)[], node?: strin
   });
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+const settingKeysIn = (t: string) => exprsOf(parseTemplate(t)).filter((e) => e.root === "setting").map((e) => e.path.slice("setting.".length));
 
 /** Every string in a value, with where it sits. */
 function* stringsIn(v: unknown, path: (string | number)[]): Generator<{ s: string; path: (string | number)[] }> {
@@ -81,9 +91,9 @@ function barePathsOf(n: Node): string[] {
 export function validateWorkflow(raw: unknown): Validation {
   const problems: Problem[] = [];
   const add = (code: ProblemCode, message: string, path: (string | number)[], node?: string) => problems.push({ code, message, path, ...(node ? { node } : {}) });
-  const req = { settings: new Set<string>(), content: new Set<string>(), reports: new Set<string>(), forms: new Set<string>(), workflows: new Set<string>(), secrets: new Set<string>() };
+  const req = { settings: new Set<string>(), optionalSettings: new Set<string>(), content: new Set<string>(), reports: new Set<string>(), forms: new Set<string>(), workflows: new Set<string>(), secrets: new Set<string>() };
   const requires = (): Requires => ({
-    settings: [...req.settings].sort(), content: [...req.content].sort(), reports: [...req.reports].sort(),
+    settings: [...req.settings].sort(), optionalSettings: [...req.optionalSettings].filter((k) => !req.settings.has(k)).sort(), content: [...req.content].sort(), reports: [...req.reports].sort(),
     forms: [...req.forms].sort(), workflows: [...req.workflows].sort(), secrets: [...req.secrets].sort(),
   });
 
@@ -202,11 +212,16 @@ export function validateWorkflow(raw: unknown): Validation {
 
   // Templates, the variables they read, and what the workflow needs.
   const produced = new Set(nodes.flatMap((n) => specOf.get(n.id)!.produces?.(n) ?? []));
-  const checkTemplate = (s: string, path: (string | number)[], node: string | undefined, secretsAllowed: boolean) => {
+  const checkTemplate = (s: string, path: (string | number)[], node: string | undefined, secretsAllowed: boolean, optional: ReadonlySet<string> = new Set()) => {
     const parsed = parseTemplate(s);
     for (const err of parsed.errors) add("bad_template", err, path, node);
-    for (const { expr } of parsed.spans) {
-      if (expr.root === "setting") req.settings.add(expr.path.slice("setting.".length));
+    for (const expr of exprsOf(parsed)) {
+      if ((ITEM_ROOTS as readonly string[]).includes(expr.root)) continue;
+      for (const f of expr.filters) if (FILTERS[f.name]) filterSettings(f).forEach((k) => req.optionalSettings.add(k));
+      if (expr.root === "setting") {
+        const key = expr.path.slice("setting.".length);
+        (optional.has(key) ? req.optionalSettings : req.settings).add(key);
+      }
       if (expr.root === "secret") {
         if (secretsAllowed) req.secrets.add(expr.path.slice("secret.".length));
         else add("secret_outside_http", `{{${expr.source}}}: a secret may only appear in an http.request's url, headers and body`, path, node);
@@ -223,9 +238,19 @@ export function validateWorkflow(raw: unknown): Validation {
   for (const n of nodes) {
     const base = pathOf(n.id);
     const secretsAllowed = n.type === "action@1" && n.action === "http.request";
+    // a step that skips itself without a setting reads it as optional; so does a channel that has a fallback
+    const skips = new Set(n.skipWhenUnset ?? []);
+    skips.forEach((k) => req.optionalSettings.add(k));
+    const target = n.type === "message@1" && "slack" in n.to ? { t: n.to.slack, at: ["to", "slack", "channel"] } : n.type === "ask@1" ? { t: n.to, at: ["to", "channel"] } : undefined;
+    const fallsBack = target && "channel" in target.t && target.t.fallbackChannel ? target.at.join(".") : undefined;
     for (const { s, path } of stringsIn(n, base)) {
       if (path.length === base.length + 1 && (path[base.length] === "title" || path[base.length] === "type" || path[base.length] === "id")) continue;
-      checkTemplate(s, path, n.id, secretsAllowed && path[base.length] === "params");
+      if (path[base.length] === "skipWhenUnset") continue;
+      const optional = fallsBack && path.slice(base.length).join(".") === fallsBack ? new Set([...skips, ...settingKeysIn(s)]) : skips;
+      checkTemplate(s, path, n.id, secretsAllowed && path[base.length] === "params", optional);
+    }
+    if (n.skipWhenUnset && !specOf.get(n.id)!.outcomes(n).required.includes("next")) {
+      add("skip_needs_next", `${n.id} (${n.type}) has no "next" way on, so it cannot skip itself when a setting is not set`, [...base, "skipWhenUnset"], n.id);
     }
     for (const p of predicatesOf(n)) for (const path of predicateParts(p).paths) checkPath(path, base, n.id);
     for (const path of barePathsOf(n)) checkPath(path, base, n.id);

@@ -12,7 +12,7 @@ export class FakePorts {
   calls: FakeCall[] = [];
   contacts = new Map<string, CrmContact>();
   /** How ai.classify answers: by the input, or the first option with full confidence. */
-  classify: (p: { input: string; options: string[] }) => { value: string; confidence: number } = (p) => ({ value: p.options[0]!, confidence: 1 });
+  classify: (p: { input: string; options: string[] }) => { value: string; confidence: number; guesses?: { value: string; confidence: number }[] } = (p) => ({ value: p.options[0]!, confidence: 1 });
   summarize: (p: { input: string }) => unknown = () => ({});
   private failures: Failure[] = [];
   private n = 0;
@@ -82,7 +82,7 @@ export class FakePorts {
         void: (c, p) => call("esign", "void", c, p, () => undefined),
       },
       ai: {
-        classify: (c, p) => call("ai", "classify", c, p, () => ({ ...this.classify(p), guesses: [] })),
+        classify: (c, p) => call("ai", "classify", c, p, () => ({ guesses: [], ...this.classify(p) })),
         summarize: (c, p) => call("ai", "summarize", c, p, () => this.summarize(p)),
       },
       slack: {

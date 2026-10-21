@@ -15,6 +15,12 @@ export const nodeBase = {
    * Unset, the engine decides from whether anything later reads what the step produces.
    */
   onFailure: z.enum(["skip", "hold"]).optional(),
+  /**
+   * Settings this step can do without: when any of them has no value, the step is skipped and the run goes on by its
+   * `next` edge (what it would have kept in `into` is null). They are listed as optional in what the workflow needs,
+   * so enabling does not wait for them; nothing fills them in from code.
+   */
+  skipWhenUnset: z.array(z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$/, { message: 'a setting key, such as "crm.stage_setter_dq"' })).min(1).optional(),
 };
 
 /** Any text that may hold `{{…}}`. What is inside is checked by the validator, not here. */
@@ -46,9 +52,23 @@ export const SettingTemplate = Template.refine((t) => wholeExpr(t)?.root === "se
   message: 'this must be one setting, written "{{setting.<key>}}"',
 });
 
-/** Slack: a channel from a setting, or a person's DM with an optional fallback channel when they are not in Slack. */
+/** One `{{event.<field>}}` and nothing else: a value the triggering fact carries. */
+const FactValue = Template.refine((t) => wholeExpr(t)?.root === "event" && wholeExpr(t)?.path !== "event" && wholeExpr(t)?.filters.length === 0, {
+  message: 'this must be one value of the triggering fact, written "{{event.<field>}}"',
+});
+
+/**
+ * Slack: where a post goes.
+ * - `channel`: one setting. With `fallbackChannel` (another setting), the first may be left unset by the offer, and the
+ *   post goes to the fallback while it is (the first is then an optional setting).
+ * - `channelFromFact`: the channel the triggering fact names ({{event.channel}}), taken only when, at the moment of
+ *   sending, it is one of the offer's own Slack channel settings (slack.channel.*). Any other value is never posted to:
+ *   the post is held with an alert. The fact chooses among the offer's settings; it never supplies a channel of its own.
+ * - `dm`: a person's DM, with an optional fallback channel when they are not in Slack.
+ */
 export const SlackTarget = z.union([
-  z.object({ channel: SettingTemplate }).strict(),
+  z.object({ channel: SettingTemplate, fallbackChannel: SettingTemplate.optional() }).strict(),
+  z.object({ channelFromFact: FactValue }).strict(),
   z.object({ dm: Template.min(1), fallbackChannel: SettingTemplate.optional() }).strict(),
 ]);
 export type SlackTarget = z.infer<typeof SlackTarget>;

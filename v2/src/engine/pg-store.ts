@@ -148,6 +148,8 @@ class PgTx implements Tx {
     const w: SQL[] = [];
     if (q.offerId) w.push(eq(outbox.offerId, q.offerId));
     if (q.runId) w.push(eq(outbox.runId, q.runId));
+    if (q.contactId) w.push(eq(outbox.contactId, q.contactId));
+    if (q.kinds) w.push(inArray(outbox.kind, q.kinds));
     if (q.statuses) w.push(inArray(outbox.status, q.statuses));
     if (q.dueBy) w.push(and(isNotNull(outbox.nextAttemptAt), lte(outbox.nextAttemptAt, q.dueBy))!);
     const base = this.t.select().from(outbox).where(w.length ? and(...w) : undefined).orderBy(asc(outbox.nextAttemptAt), asc(outbox.id));
@@ -162,6 +164,9 @@ class PgTx implements Tx {
   }
 
   async insertPost(p: Omit<PostRow, "id">) { return (await this.t.insert(slackPosts).values(p).returning())[0] as PostRow; }
+  async updatePost(id: number, patch: Partial<Pick<PostRow, "outboxId" | "runId" | "node" | "tag">>) {
+    await this.t.update(slackPosts).set(patch).where(eq(slackPosts.id, id));
+  }
   async posts(q: PostQuery) {
     const w: SQL[] = [eq(slackPosts.offerId, q.offerId)];
     if (q.runId !== undefined) w.push(eq(slackPosts.runId, q.runId));
