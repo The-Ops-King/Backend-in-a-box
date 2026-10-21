@@ -14,8 +14,10 @@ The GHL recorder, for the Phase 0 checks. It becomes v2's GHL door later.
 
 | Route | What it does |
 | --- | --- |
-| `POST /in/ghl` | Takes every GHL webhook. It checks GHL's Ed25519 signature, stores the delivery raw in `inbox` once (a retry is the same row), and answers 200. A bad signature gets 401 and is kept nowhere. |
-| `GET /ghl/oauth/callback` | Where GHL sends the installer. It exchanges the code for the location's tokens and stores them sealed in `ghl_connections`, marked for Tyler to link to an offer. |
+| `POST /in/ghl` | Takes every GHL webhook. It checks GHL's Ed25519 signature, stores the delivery raw in `inbox` once (a retry is the same row), answers 200 and queues the GHL normalizer. A bad signature gets 401 and is kept nowhere. |
+| `POST /in/whop/{connection}`, `/in/fathom/{connection}`, `/in/typeform/{connection}`, `/in/calendly/{connection}` | A vendor's webhook for one offer's connection: its signature checked with that connection's secret, kept once in `inbox`, answered 200, read by the vendor's normalizer as a job. An unknown connection is 404. |
+| `POST /in/{connection}` | The generic signed door (Zapier, Make, any tool): Standard Webhooks with the connection's own secret, and a field map as the connection's config. |
+| `GET /ghl/oauth/callback` | Where GHL sends the installer. It exchanges the code for the location's tokens and stores them sealed in `ghl_connections`, marked for Tyler to link to an offer; a reinstall reconnects the offers already on that location. |
 | `GET /health` | Answers when the app is up. |
 | `GET /slack/install?offer=…` | The Connect Slack link (signed, single use, one hour): on to Slack's "Add to Slack" page. |
 | `GET /slack/oauth/callback` | Where Slack sends the installer back: the state checked, the code exchanged, the workspace kept with its bot token sealed (reused for a second offer), the offer linked. |
@@ -28,8 +30,8 @@ while one is unset, a channel with a fallback, a picklist option), and the facts
 settings it then requires). How each v1 step is written in it is in
 `docs/v1-to-v2-steps.md`.
 
-The engine (`src/engine/`), with no connectors yet (its ports have fakes only):
-- **tables** (`src/db/schema.ts`, migrations `0001` to `0003`): offers, workflows and their immutable versions, settings,
+The engine (`src/engine/`), its ports served by the connectors (below) or, in tests and the simulator, by fakes:
+- **tables** (`src/db/schema.ts`, migrations `0001` to `0003`; `0005` for the connectors): offers, workflows and their immutable versions, settings,
   content, report definitions, connections, operator addresses; the append-only fact log (`events`); the projections;
   runs, run steps, the outbox, Slack posts, alerts and schedule timers. The database refuses an outbox row without the
   run and the step that asked for it.
@@ -46,8 +48,9 @@ The engine (`src/engine/`), with no connectors yet (its ports have fakes only):
 - **schedules** (`schedule.ts`): each enabled workflow's schedule trigger has a timer (a job at its next time). When it
   comes the trigger fires for that period once per subject (the offer, or each active person with the role, from the
   people projection) and sets the next time. A late job runs its period once; a period missed entirely is not made up.
-- **what only a vendor answers** (`reads.ts`): a call's transcript, the CRM's Sales Calls still blank, the reports a
-  vendor answers (calendar availability, the health probes). A caller passes them until the connectors exist.
+- **what only a vendor answers** (`reads.ts`): a call's transcript (from the recorder's connector, `connectorReads`), the
+  CRM's Sales Calls still blank, the reports a vendor answers (calendar availability, the health probes); a caller passes
+  the last two.
 
 The projections (`src/projections/`): `contacts_index` (CRM id, normalized phones and emails, merged-into, the CRM's
 last-said attributes, the records we wrote, the agreement), `appointments`, `calls` (the single call fact: a booking, a
@@ -96,6 +99,29 @@ The platform Slack app (`src/slack/`, `slack-manifest.yml`, the design in `docs/
 - **the bot** (`bot.ts`, `query-views.ts`): a mention or a DM answered by a model (the AI port; a fake in tests) through
   read-only tools bound to the routed offer (metric, contact_journey, workflow_explain, open_alerts, query_views), with its
   working shown; a daily token budget per offer; no tool that could change config, unlock sends or reach a contact.
+
+The connectors (`src/connectors/`, set up per vendor in `docs/connectors.md`; Tyler's GHL Marketplace App Spec copied in
+`docs/ghl-app-spec.md`): each vendor behind its ports, outbound verbs and an inbound normalizer to canonical facts.
+- **tables** (migration `0005`): `connections` (now one row per offer per port: provider, mode, vendor account, config,
+  credentials sealed; connected / paused / needs_reinstall / uninstalled, the same row the dispatcher's gate reads),
+  `field_maps` (canonical field to provider field id, per object, with the value's type), `connector_echoes` (what each
+  write of ours is expected to change), `entity_versions` (the last state seen per vendor entity, and poll cursors),
+  `agreement_checks`, `transcript_waits`; `inbox` gains the connection, the offer and what reading it came to.
+- **the framework** (`framework/`): the HTTP layer and its retry policy (429 waited out, 5xx and timeouts tried again for a
+  read, a write re-read and never re-sent blind, refusals classed), a per-location rate budget, the field map, the door
+  signatures, the job queue, the inbox normalizer job, the transcript waits (1, 3, 10 minutes), a fake HTTP layer for tests.
+- **GHL** (`ghl/`): the API client (Version per family, browser-like user agent, 100 per 10 s, 401 then one refresh then a
+  pause) over two auth modes, OAuth (the Marketplace app; tokens renewed under the row lock when under 4 hours, refresh
+  tokens single-use, a lost refresh is needs_reinstall) and a private token, behind the same ports; every v1 quirk fixed
+  inside it with a test; the webhook normalizer (contacts, tags, DND, appointments, cards, messages, dialer calls, records,
+  notes, users, installs) with echo tagging (`by: platform`) and stale dropping; the agreement check (10 s for an hour,
+  then 5 min to 30 days, one request per location); the private-token poll, which records the same facts as the
+  webhooks; the nightly reconcile (26 hours, `source: reconcile`, an alert past a handful missed).
+- **Whop, Fathom, Typeform, Calendly** (webhook, or a free plan's poll by exception), **the generic signed door**, **Jev**
+  (ai.classify) and **Anthropic** (ai.summarize, its model a setting).
+- **contract suites** (`contract/`): one suite per port (crm, messaging, scheduling, esign, ai, payments-in, recording,
+  forms) that every provider passes, on the fake HTTP layer with a stateful fake GHL (`testkit/`).
+- **the worker** (`src/worker.ts`, `pnpm worker`): the engine's, the Slack app's and the connectors' jobs with real ports.
 
 The offers (`offers/`): each offer's own workflows, words and scenarios. Hair's are translated from its live v1
 workflows (`spec/hair/`), UNSIGNED drafts for Tyler's review (`offers/hair/REVIEW.md`).
