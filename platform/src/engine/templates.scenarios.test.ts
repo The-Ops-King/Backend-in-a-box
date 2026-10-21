@@ -562,8 +562,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(event.event_type).toBe("recording.received"); expect(event.data.matched_by).toBe("manual"); expect(event.data.appointment_matched).toBe(false);
     const ids = await asOperator((c) => many<{ value: string }>(c, "select value from contact_identifiers where contact_id=$1 and kind='email' order by value", [id]));
     expect(ids.map((x) => x.value)).toEqual(["other@z.com", "stranger@z.com"]);
-    await asOperator((c) => dispatchEvent(c, event, { contact: { id } }));
-    await tick(fake, undefined, companyId);
+    await tick(fake, undefined, companyId);   // the link itself started the workflow (inventory §5.3)
     const run = (await runsFor("call-recorded")).find((x) => x.contact_id === id)!;
     expect(run).toMatchObject({ status: "completed", exit_reason: "recorded" });
     const rw = recordWrites.at(-1)!; expect(rw.external_id).toBe("fathom-fathom-2001"); expect(rw.scheduled_at).toBeUndefined();   // no appointment: keyed by the recording, nothing marked showed

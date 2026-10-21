@@ -5887,3 +5887,26 @@ overdue; one whose Discovery Call record in GHL already has an outcome other tha
 (as a filed Sales Call is not). Each overdue day now carries `url`: that person's end-of-day link for the day, so the operator can
 open it and file it. Off (every other offer): nothing changes; the new `url` is only there for a template that uses it. Nelly: on,
 and her reminder's operator line links each day. Tests: `eod.triage-overdue.test.ts`.
+
+## D209. Three contact-safety fixes, and the ten-second document check runs for 30 minutes (2026-10-21)
+
+Tyler, on the v1 bugs in the rebuild's engine-action inventory (§5): "Yeah think we should do all of them ... Calendly cancel
+shouldn't bypass send lock." Engine code, so every offer; each is a change Tyler asked for by name.
+
+1. **The Calendly cancel is behind the send lock.** A workflow's cancel of a Calendly booking makes Calendly email the person, so
+   it is a send: with the workflow's sends locked it goes through only for Tyler's own addresses, as an email would; otherwise the
+   step is skipped and says why (`executor.ts`, `update_appointment`). Ghost and quiet held it already.
+2. **History backfill starts no workflow.** `recordPayment(..., { dispatch: false })` from `backfill.ts`: the payment, a healed
+   earlier payment and paid-in-full are still recorded and emitted, but nothing is dispatched (its header always said so).
+3. **Hand-linking in Slack starts what a match on arrival would.** `linkPayment` dispatches `payment.received` (Payment
+   recorded), `linkRecording` dispatches `recording.received` with the booking and recording (Sales call recorded). Before, the ✅
+   was posted and nothing ran.
+4. **The ten-second document check** (D202) covers 30 minutes after an agreement goes out or a payment comes in, not 15
+   (migration 0006). Tyler asked for "every 5 minutes for the next week" after that: the minute poll already reads every offer's
+   documents every minute with no end, so nothing else changes.
+
+Not done: the drift sweep's `lead.created` (inventory §5, health check) waits on Tyler's answer about what a lead the sweep finds
+late should get. Test fixes on the way: two tests depended on rows an old shared test database still held (an event type migration
+0001 removed; a second `migrate()` dropping a row, which numbered migrations never do); both now hold on an empty database.
+Tests: `poll.calendly.test.ts` (D196 case with the lock), `backfill.test.ts`, `payments.test.ts`, `templates.scenarios.test.ts`,
+`run-now.test.ts`.

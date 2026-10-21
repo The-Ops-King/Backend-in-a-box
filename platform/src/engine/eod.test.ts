@@ -375,9 +375,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       await asOperator((c) => c.query("delete from events where company_id=$1 and event_type='eod.call_filed'", [companyId]));
     }
     await migrate();
-    // a shared test database can hold other suites' copies from before D110: the row goes exactly when nothing points at it any more
+    // D200: migrations run once, so the drop ran with the baseline; the row this test put back is its own to take away when nothing else points at it
     const refs = await asOperator(async (c) => Number((await one<{ n: string }>(c, "select ((select count(*) from events where event_type='eod.call_filed') + (select count(*) from workflow_triggers where event_type='eod.call_filed'))::text as n"))!.n));
-    expect(!!(await row())).toBe(refs > 0);
+    if (!refs) await asOperator((c) => c.query("delete from event_types where name='eod.call_filed'"));
   });
   it("D134/D136: GHL decides whether a refiled answer is filed: blank (the first filing never reached GHL) or saying something else, it is filed again; once GHL shows it, refiling holds", async () => {
     const day = DateTime.now().setZone(TZ).minus({ days: 1 }).toFormat("yyyy-MM-dd");

@@ -644,6 +644,11 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (a!.source !== "ghl" && !cancelAtSource) return { status: "ok", next, result: { skipped: true, reason: `appointments from ${a!.source} are read-only`, would_update: patch } };
       if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_update: patch } };
       if (cancelAtSource && held(d)) return { status: "ok", next, result: { ...heldFlag(d), would_cancel_in: a!.source } };
+      // Calendly emails the person about a cancel, so a locked workflow cancels only Tyler's own bookings (the send lock, D145)
+      if (cancelAtSource) {
+        const lock = await sendLock(d, "email");
+        if (!lock.ok) return lock.retry ? { status: "failed", error: lock.why } : { status: "skipped", next, result: { kind: "noop", why: lock.why, would_cancel_in: a!.source } };
+      }
       if (cancelAtSource) await source!.cancel!(d.adapterCompany, a!.external_id, "Cancelled by the team");
       else await d.adapters.write.updateAppointment(d.adapterCompany, a!.external_id, patch);
       if (typeof patch.status !== "string") return { status: "ok", next, result: patch };

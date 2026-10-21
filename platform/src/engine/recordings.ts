@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
-import { emitEvent, type EventRow } from "./dispatch";
+import { dispatchEvent, emitEvent, type EventRow } from "./dispatch";
 import { normEmail } from "./identity";
 
 /**
@@ -153,7 +153,7 @@ export async function recordRecording(c: PoolClient, companyId: string, input: R
   return { outcome: "unlinked", recording: row, event, reason: reason ?? "no match" };
 }
 
-/** A person links an orphan from the dashboard. The attendee's email is remembered so the next call from them links on its own. */
+/** A person links an orphan (the Slack button): it then runs as a match on arrival would, Sales call recorded included. The attendee's email is remembered so the next call from them links on its own. */
 export async function linkRecording(c: PoolClient, companyId: string, recordingId: string, contactId: string): Promise<{ event: EventRow; appointmentId: string | null }> {
   const r = await one<RecordingRow>(c, "select * from recordings where company_id=$1 and id=$2", [companyId, recordingId]);
   if (!r) throw new Error("recording not found");
@@ -163,6 +163,8 @@ export async function linkRecording(c: PoolClient, companyId: string, recordingI
   if (emails.length === 1) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3) on conflict (company_id, kind, value) do nothing", [companyId, contactId, emails[0]]);
   const { event, appointmentId } = await settle(c, companyId, r, contactId, "manual", null);
   await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: event!.opportunity_id, appointment_id: appointmentId, event_type: "recording.linked", source: "user", data: { recording_id: r.id, by: "manual" } });
+  const appt = appointmentId ? await one<Record<string, unknown>>(c, "select a.id, a.starts_at, a.status, json_build_object('category', t.category) as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [appointmentId]) : null;
+  await dispatchEvent(c, event!, { contact: { id: contactId }, appointment: appt ?? undefined, recording: { id: r.id, title: r.title, duration_min: r.duration_min } });
   return { event: event!, appointmentId };
 }
 

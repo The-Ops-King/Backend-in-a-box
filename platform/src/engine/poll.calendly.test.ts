@@ -140,7 +140,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Calendly as the booking source", () 
     expect(r.appointmentsNew).toBe(0); expect(r.errors.filter((e) => e.company === "cal")).toEqual([]);
   });
 
-  it("D196: a workflow's cancel of a Calendly booking cancels it at Calendly when the person is reachable (live), and runs the cancel workflows; in quiet it is held and Calendly is not touched", async () => {
+  it("D196: a workflow's cancel of a Calendly booking cancels it at Calendly when the person is reachable (live, sends unlocked), and runs the cancel workflows; in quiet, or with the workflow's sends locked, Calendly is not touched", async () => {
     const { parseDefinition, extractManifest } = await import("@/engine/definition");
     const { syncTriggers } = await import("@/engine/install");
     const { tick } = await import("@/engine/runner");
@@ -157,8 +157,14 @@ describe.skipIf(!process.env.DATABASE_URL)("Calendly as the booking source", () 
     events = [...events, appt("EV-Q", { startTime: later(30), endTime: later(31), invitee: { email: "quinn@x.com", firstName: "Quinn" } })];
     await pollAll(fake); await tick(fake, undefined, companyId);
     expect(cancelled).toEqual([]);
-    // live: cancelled at Calendly, our booking cancelled, and the cancel event says before the call
+    // live but the workflow's sends locked: Calendly would email the person, so it is not touched (D145)
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
+    events = [...events, appt("EV-K", { startTime: later(30), endTime: later(31), invitee: { email: "kim@x.com", firstName: "Kim" } })];
+    await pollAll(fake); await tick(fake, undefined, companyId);
+    expect(cancelled).toEqual([]);
+    expect(await asOperator((c) => one(c, "select status from appointments where company_id=$1 and external_id='EV-K'", [companyId]))).not.toEqual({ status: "cancelled" });
+    // live and unlocked: cancelled at Calendly, our booking cancelled, and the cancel event says before the call
+    await asOperator((c) => c.query("update workflows set sends_unlocked_at=now() where id=$1", [wf]));
     events = [...events, appt("EV-L", { startTime: later(30), endTime: later(31), invitee: { email: "lee@x.com", firstName: "Lee" } })];
     await pollAll(fake); await tick(fake, undefined, companyId);
     expect(cancelled).toEqual([{ id: "EV-L", reason: "Cancelled by the team" }]);

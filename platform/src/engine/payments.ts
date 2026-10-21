@@ -120,7 +120,7 @@ async function priorNonDeposit(c: PoolClient, opportunityId: string, excludePaym
 }
 
 /** Link + settle: attach the person and pursuit, derive the kind, heal earlier orphans of the same identity, emit the event. */
-async function settle(c: PoolClient, companyId: string, contactId: string, payment: PaymentRow, linkedBy: string): Promise<{ event: EventRow; healed: number }> {
+async function settle(c: PoolClient, companyId: string, contactId: string, payment: PaymentRow, linkedBy: string, dispatch = true): Promise<{ event: EventRow; healed: number }> {
   const opp = await opportunityFor(c, companyId, contactId, payment);
   const products = await companyDepositProducts(c, companyId);
   // heal: earlier unlinked rows with the same member id or email now belong to this person and this pursuit
@@ -140,7 +140,7 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
     const hRunning = hStatus === "failed" ? hPrior : money(hPrior + hAmount);
     const hev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: hStatus === "succeeded" ? "payment.received" : hStatus === "refunded" ? "payment.refunded" : "payment.failed", source: "whop", occurred_at: h.paid_at,
       data: { payment_id: h.id, provider_payment_id: h.whop_payment_id, amount: hAmount, currency: h.currency, kind: hKind, paid_at: h.paid_at.toISOString(), prior_total: hPrior, prior_non_deposit_total: hPriorPaid, running_total: hRunning, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - hRunning, 0)), cleared: cleared(hRunning, opp.contract_value), linked_by: "heal", healed_via: payment.id, customer_email: h.customer_email, whop_member_id: h.whop_member_id } });
-    await dispatchEvent(c, hev, { contact: { id: contactId } });
+    if (dispatch) await dispatchEvent(c, hev, { contact: { id: contactId } });
   }
   const prior = await priorTotal(c, opp.id, payment.id);
   const amount = Number(payment.amount);
@@ -156,7 +156,10 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
     // D88 (A9): the opportunity is won by Payment recorded's update_opportunity step, where the company decides on which payment
     if (isCleared) {
       const already = await one(c, "select 1 from events where opportunity_id=$1 and event_type='payment.paid_in_full'", [opp.id]);
-      if (!already) await dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: "payment.paid_in_full", source: "engine", data: { total: running, contract_value: opp.contract_value } }), { contact: { id: contactId }, opportunity: { id: opp.id } });
+      if (!already) {
+        const full = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: "payment.paid_in_full", source: "engine", data: { total: running, contract_value: opp.contract_value } });
+        if (dispatch) await dispatchEvent(c, full, { contact: { id: contactId }, opportunity: { id: opp.id } });
+      }
     }
   }
   return { event: ev, healed: healed.length };
@@ -170,8 +173,11 @@ async function refundedPayer(c: PoolClient, companyId: string, provider: string,
   return row?.contact_id ? { contactId: row.contact_id, by: "refunded_payment" } : null;
 }
 
-/** Records a provider payment. Idempotent on (provider, payment id). `forceContactId` is for callers that already know the person (tests, manual entry). */
-export async function recordPayment(c: PoolClient, companyId: string, input: PaymentInput, forceContactId?: string): Promise<RecordResult> {
+/**
+ * Records a provider payment. Idempotent on (provider, payment id). `forceContactId` is for callers that already know the person (tests, manual entry).
+ * `dispatch: false` (history backfill) records and emits but starts no workflow, the healed rows' and paid-in-full's included.
+ */
+export async function recordPayment(c: PoolClient, companyId: string, input: PaymentInput, forceContactId?: string, opts: { dispatch?: boolean } = {}): Promise<RecordResult> {
   const provider = input.provider ?? "whop";
   const email = normEmail(input.email), phone = input.phone?.trim() || null;
   const inserted = await one<PaymentRow>(c, `insert into payments (company_id, provider, whop_payment_id, amount, currency, installment_no, status, customer_email, customer_phone, whop_member_id, link_status, paid_at, raw)
@@ -186,7 +192,7 @@ export async function recordPayment(c: PoolClient, companyId: string, input: Pay
   if (named) { await c.query("update payments set raw=$2 where id=$1", [inserted.id, named]); inserted.raw = named; }
   const match = forceContactId ? { contactId: forceContactId, by: "known" } : (await refundedPayer(c, companyId, provider, input)) ?? await resolvePayer(c, companyId, input);
   if (match) {
-    const { event, healed } = await settle(c, companyId, match.contactId, inserted, match.by);
+    const { event, healed } = await settle(c, companyId, match.contactId, inserted, match.by, opts.dispatch ?? true);
     return { outcome: "linked", payment: (await one<PaymentRow>(c, "select * from payments where id=$1", [inserted.id]))!, event, contactId: match.contactId, healed };
   }
   const ev = await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "payment.unlinked", source: "whop", occurred_at: input.paidAt,
@@ -194,7 +200,7 @@ export async function recordPayment(c: PoolClient, companyId: string, input: Pay
   return { outcome: "unlinked", payment: inserted, event: ev };
 }
 
-/** A person links an orphan to a contact from the dashboard. The payment then settles exactly as if it had matched on arrival. */
+/** A person links an orphan to a contact (the Slack button). The payment then settles exactly as if it had matched on arrival, Payment recorded included. */
 export async function linkPayment(c: PoolClient, companyId: string, paymentId: string, contactId: string): Promise<{ event: EventRow; healed: number }> {
   const p = await one<PaymentRow>(c, "select * from payments where company_id=$1 and id=$2", [companyId, paymentId]);
   if (!p) throw new Error("payment not found");
@@ -205,6 +211,7 @@ export async function linkPayment(c: PoolClient, companyId: string, paymentId: s
   if (p.customer_email) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3) on conflict (company_id, kind, value) do nothing", [companyId, contactId, p.customer_email]);
   const out = await settle(c, companyId, contactId, p, "manual");
   await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: out.event.opportunity_id, appointment_id: null, event_type: "payment.linked", source: "user", data: { payment_id: p.id, by: "manual" } });
+  await dispatchEvent(c, out.event, { contact: { id: contactId } });
   return out;
 }
 
