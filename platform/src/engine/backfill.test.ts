@@ -7,6 +7,8 @@ import { encrypt } from "@/engine/crypto";
 import { loadCompany } from "@/engine/context";
 import { backfillCompany } from "@/engine/backfill";
 import { readMetrics } from "@/engine/metrics";
+import { parseDefinition, extractManifest } from "@/engine/definition";
+import { syncTriggers } from "@/engine/install";
 import type { Adapters, AppointmentSnapshot, BookingRead } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -38,7 +40,7 @@ describe.skipIf(!HAS_DB)("history backfill", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='bf'");
-      if (co) { for (const t of ["poll_cursors", "rollups_daily", "payments", "events", "recordings", "appointments", "opportunities", "calendars", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]); for (const t of ["runs", "workflow_triggers", "workflows", "poll_cursors", "rollups_daily", "payments", "events", "recordings", "appointments", "opportunities", "calendars", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('BF','bf','UTC') returning id"))!.id;
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3),($1,'crm.field_contact_f1','id',$4),($1,'crm.field_opportunity_contract_value','id',$5)", [companyId, Buffer.from("L"), encrypt("p"), Buffer.from("F1"), Buffer.from("CV")]);
       const term = (await one<{ id: string }>(c, "insert into company_terms (company_id, domain, name, category) values ($1,'appointment_type','Closing','closing') returning id", [companyId]))!.id;
@@ -67,5 +69,26 @@ describe.skipIf(!HAS_DB)("history backfill", () => {
     // the same window again changes nothing
     const again = await asOperator(async (c) => { const { row, adapterCompany, bindings } = await loadCompany(c, companyId); return backfillCompany(c, row, adapterCompany, fake, bindings, { from: d(30, 0).toJSDate(), to: new Date() }, payments); });
     expect(again).toMatchObject({ contacts: 2, calls: 0, appointments: 0, outcomes: 0, won: 1, payments: 0 });
+  });
+
+  it("starts no workflow, not for a healed earlier payment nor for one that pays in full (inventory §5.2)", async () => {
+    await asOperator(async (c) => {
+      for (const event of ["payment.received", "payment.paid_in_full"]) {
+        const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "none" }, nodes: [{ id: "t1", type: "trigger", event }, { id: "x1", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "x1" }] });
+        const w = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,$2,'always',true) returning id", [companyId, `On ${event}`]))!;
+        await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [w.id, def, extractManifest(def)]);
+        await syncTriggers(c, companyId, w.id, def);
+      }
+      // the earlier orphan's buyer is now known, and the history holds a later payment of theirs that clears the price
+      const ct = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'G9','Nob') returning id", [companyId]))!.id;
+      await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email','nobody@x.com')", [companyId, ct]);
+      await c.query("insert into opportunities (company_id, contact_id, status, opened_at, opened_by, contract_value) values ($1,$2,'open',now(),'test',500)", [companyId, ct]);
+    });
+    const payments = async () => [{ providerPaymentId: "pay_3", amount: 400, status: "succeeded" as const, paidAt: d(1, 11).toJSDate(), email: "nobody@x.com", raw: { backfill: true } }];
+    const r = await asOperator(async (c) => { const { row, adapterCompany, bindings } = await loadCompany(c, companyId); return backfillCompany(c, row, adapterCompany, fake, bindings, { from: d(30, 0).toJSDate(), to: new Date() }, payments); });
+    expect(r).toMatchObject({ payments: 1, errors: [] });
+    const evs = (await asOperator((c) => many<{ event_type: string }>(c, "select event_type from events where company_id=$1 and contact_id=(select id from contacts where company_id=$1 and ghl_contact_id='G9') order by id", [companyId]))).map((e) => e.event_type);
+    expect(evs).toEqual(expect.arrayContaining(["payment.linked", "payment.received", "payment.paid_in_full"]));
+    expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1", [companyId]))).toHaveLength(0);
   });
 });

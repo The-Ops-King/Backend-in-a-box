@@ -237,7 +237,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
   });
 
   it("a step that could not post clears on a quiet day too: the channel is checked before the step decides it has nothing to say", async () => {
-    const def = { schema: 1, reentry: "always", premise: { check: "none" }, nodes: [{ id: "t1", type: "trigger", event: "intake.recorded" }, { id: "v1", type: "set_var", key: "empty", when: { exists: "event.nothing" }, value: true, else_value: false }, { id: "s1", type: "slack_post", channel: "{{slack.channel.wrap}}", quiet_when_empty: "vars.empty", template: "the day" }, { id: "x1", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "v1" }, { from: "v1", to: "s1" }, { from: "s1", to: "x1" }] };
+    const def = { schema: 1, reentry: "always", premise: { check: "none" }, nodes: [{ id: "t1", type: "trigger", event: "form.submitted" }, { id: "v1", type: "set_var", key: "empty", when: { exists: "event.nothing" }, value: true, else_value: false }, { id: "s1", type: "slack_post", channel: "{{slack.channel.wrap}}", quiet_when_empty: "vars.empty", template: "the day" }, { id: "x1", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "v1" }, { from: "v1", to: "s1" }, { from: "s1", to: "x1" }] };
     const wfId = await asOperator(async (c) => {
       const d = parseDefinition(def);
       const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Wrap it','always',true) returning id", [companyId]))!;
@@ -246,7 +246,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'reports.quiet_when_empty','text',$2) on conflict (company_id,key) do update set value=excluded.value", [companyId, Buffer.from("true")]);
       return wf.id;
     });
-    const fireDue = (nothing: boolean) => asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "intake.recorded", source: "test", data: { nothing } }), {}));
+    const fireDue = (nothing: boolean) => asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "form.submitted", source: "test", data: { nothing } }), {}));
     const kind = async () => (await asOperator((c) => one<{ kind: string }>(c, "select s.result->>'kind' as kind from run_steps s join runs r on r.id=s.run_id where r.workflow_id=$1 and s.node_id='s1' order by s.started_at desc limit 1", [wfId])))!.kind;
     await fireDue(true); await tick(fake, undefined, companyId);
     expect(await kind()).toBe("blocked");   // nothing to say, but it could not have said it either: you hear about the channel now, not on the first busy day

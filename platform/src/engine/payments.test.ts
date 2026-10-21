@@ -6,6 +6,8 @@ import { migrate } from "@/db/migrate";
 import { recordPayment, linkPayment, deriveKind, resolvePayer, unlinkedPayments } from "./payments";
 import { verifyWhopSignature, parseWhopEvent } from "./webhooks/whop";
 import { parseZapierPayment } from "./webhooks/zapier";
+import { parseDefinition, extractManifest } from "./definition";
+import { syncTriggers } from "./install";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 let companyId: string, ann: string, bob: string;
@@ -19,7 +21,7 @@ describe.skipIf(!process.env.DATABASE_URL)("payments ledger", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='pay'");
-      if (co) { for (const t of ["events", "sends", "crm_records", "payments", "pipeline_cards", "opportunities", "contact_identifiers", "contacts", "webhook_deliveries"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]); await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]); for (const t of ["runs", "workflow_triggers", "workflows", "events", "sends", "crm_records", "payments", "pipeline_cards", "opportunities", "contact_identifiers", "contacts", "webhook_deliveries"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, contract_value_default) values ('Pay','pay','America/New_York', 2999) returning id"))!.id;
       ann = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'GA','Ann') returning id", [companyId]))!.id;
       bob = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'GB','Bob') returning id", [companyId]))!.id;
@@ -83,10 +85,17 @@ describe.skipIf(!process.env.DATABASE_URL)("payments ledger", () => {
     expect(await events(cat, "payment.linked")).toHaveLength(1);
   });
 
-  it("a person links an orphan by hand: it settles as if it had matched, and the email is remembered", async () => {
+  it("a person links an orphan by hand: it settles as if it had matched, Payment recorded starts as it would have (inventory §5.3), and the email is remembered", async () => {
+    await asOperator(async (c) => {
+      const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "none" }, nodes: [{ id: "t1", type: "trigger", event: "payment.received" }, { id: "x1", type: "exit", reason: "done" }], edges: [{ from: "t1", to: "x1" }] });
+      const w = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Payment recorded','always',true) returning id", [companyId]))!;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [w.id, def, extractManifest(def)]);
+      await syncTriggers(c, companyId, w.id, def);
+    });
     const orphan = (await asOperator((c) => unlinkedPayments(c, companyId))).find((p) => p.whop_payment_id === "pay_4")!;
     const out = await asOperator((c) => linkPayment(c, companyId, orphan.id, bob));
     expect(out.event.event_type).toBe("payment.received"); expect(out.event.contact_id).toBe(bob);
+    expect(await asOperator((c) => many(c, "select 1 from runs r join workflows w on w.id=r.workflow_id where r.contact_id=$1 and w.name='Payment recorded'", [bob]))).toHaveLength(1);
     expect(await asOperator((c) => unlinkedPayments(c, companyId))).toHaveLength(0);
     await expect(asOperator((c) => linkPayment(c, companyId, orphan.id, bob))).rejects.toThrow(/already linked/);
   });

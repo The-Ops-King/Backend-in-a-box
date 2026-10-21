@@ -53,4 +53,17 @@ export const MIGRATIONS: Migration[] = [
     // D202: a closer's /agreement in Slack asks for an agreement to be sent; the Send agreement workflow sends it
     await c.query(`insert into event_types values ('agreement.requested','agreement') on conflict do nothing`);
   } },
+  { id: "0006-documents-waiting-30", run: async (c) => {
+    // Tyler (2026-10-21): the ten-second check runs for 30 minutes after an agreement goes out or a payment comes in, not 15
+    await c.query(`create or replace function bb_documents_waiting(window_min int default 30) returns table (company_id uuid)
+      language plpgsql as $fn$
+      begin
+        perform set_config('app.role', 'operator', true);
+        return query select co.id from companies co
+        where (co.status in ('active','hosted') or (co.status='template' and exists (select 1 from bindings sb where sb.company_id=co.id and sb.key='sandbox.running')))
+          and (exists (select 1 from agreements a where a.company_id=co.id and a.signed_at is null and a.sent_at > now() - make_interval(mins => window_min))
+            or exists (select 1 from payments p where p.company_id=co.id and p.status='succeeded' and p.contact_id is not null and p.paid_at > now() - make_interval(mins => window_min)
+              and not exists (select 1 from agreements g where g.company_id=co.id and g.contact_id=p.contact_id and g.signed_at is not null)));
+      end $fn$`);
+  } },
 ];

@@ -24,7 +24,7 @@ export function tickCommand(tickUrl: string, secret: string, timeoutMs = TICK_TI
 
 /**
  * D202: every ten seconds, but a request only for an offer waiting on a signature (bb_documents_waiting: a payment or an agreement
- * sent in the last 15 minutes and nothing signed yet), so forty quiet offers cost no call at all. That offer's GHL documents are
+ * sent in the last 30 minutes and nothing signed yet; 15 until 0006), so forty quiet offers cost no call at all. That offer's GHL documents are
  * read again and what they announce runs at once; after the window the minute poll is the only reader again.
  */
 export function documentsCommand(tickUrl: string, secret: string, keyIn: "command" | "vault" = "command"): string {

@@ -116,9 +116,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D202: which offers the ten-second do
   });
   afterAll(clean);
 
-  it("a payment from someone with nothing signed, or an agreement sent and not signed, in the last 15 minutes: read it; otherwise not", async () => {
+  it("a payment from someone with nothing signed, or an agreement sent and not signed, in the last 30 minutes: read it; otherwise not", async () => {
     expect(await waiting()).toBe(false);
-    await asOperator((c) => c.query("insert into payments (company_id, contact_id, whop_payment_id, amount, status, paid_at) values ($1,$2,'pw-old',500,'succeeded',now() - interval '20 minutes')", [id, rae]));
+    await asOperator((c) => c.query("insert into payments (company_id, contact_id, whop_payment_id, amount, status, paid_at) values ($1,$2,'pw-old',500,'succeeded',now() - interval '35 minutes')", [id, rae]));
     expect(await waiting()).toBe(false);   // too long ago: the minute poll's alone
     await asOperator((c) => c.query("insert into payments (company_id, contact_id, whop_payment_id, amount, status, paid_at) values ($1,$2,'pw-new',500,'succeeded',now() - interval '2 minutes')", [id, rae]));
     expect(await waiting()).toBe(true);
@@ -126,7 +126,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D202: which offers the ten-second do
     expect(await waiting()).toBe(false);   // signed: nothing to wait for
     await asOperator((c) => c.query("insert into agreements (company_id, contact_id, external_id, status, sent_at) values ($1,$2,'dw-2','sent',now() - interval '3 minutes')", [id, cy]));
     expect(await waiting()).toBe(true);    // sent to Cy, not signed
-    await asOperator((c) => c.query("update agreements set sent_at = now() - interval '16 minutes' where external_id='dw-2' and company_id=$1", [id]));
+    await asOperator((c) => c.query("update agreements set sent_at = now() - interval '31 minutes' where external_id='dw-2' and company_id=$1", [id]));
     expect(await waiting()).toBe(false);
   });
 });

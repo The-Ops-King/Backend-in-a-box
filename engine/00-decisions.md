@@ -5861,6 +5861,23 @@ workflow touched); Nelly's install file says the same. `GET /api/admin/calendars
 what the engine watches (read only), which is how the new event type was found. The new calendar's first poll was its baseline with
 no bookings on it yet, so nothing booked through the new link was swallowed.
 
+## D203. A contact's times are in the contact's own zone (2026-10-20)
+
+Tyler: "it should be ONLY the contact's timezone". A rehearsal booking texted him a reminder in the offer's zone (PDT) one day
+and his own (MST) the next: the engine falls back on the offer's zone, silently, for a contact whose zone it does not know, and
+212 of Nelly's contacts (37 PMU, 29 Hair) had none of their own. Now (Tyler's order):
+
+1. **Where the zone comes from, most trusted first**: the zone they picked when booking (Calendly's invitee zone), GHL's contact
+   time-zone field, their phone's US/Canada area code (`timezone.ts`, the area's main zone where a code spans two); the offer's
+   zone only when none of those is known. A source never overwrites a more trusted one; a newer booking replaces an older one.
+   Before, GHL's field beat the booking, a GHL zone that arrived after the contact was made was never kept, and phones were not read.
+2. **The phone's zone is found when a run needs it** (the run's context) and kept on the contact (`timezone_source` 'phone').
+3. **Unknown, the offer's zone, named.** A time a text shows (`date`) in the offer's zone because the contact's is not known always
+   names its zone ("3:00 PM PDT"), whatever the template's format. Team-facing times (`date_company`) are unchanged.
+
+The leftover rehearsal bookings that started it were voided (no workflow, off the end-of-day forms and the numbers) with the new
+`POST /api/admin/simulate/void`; real bookings are refused there. Tests: `timezone.test.ts`, `simulate.void.test.ts`.
+
 ## D207. A setter's blank triage calls in the operator's ping, with the link to file them (2026-10-20)
 
 Tyler: "Yes add setters to the ping. I want to be able to fill them out myself if necessary." The end-of-day reminder's two-day
@@ -5884,3 +5901,26 @@ link. Her words, Tyler's: triage "Hi Sarah, you're booked for your free 15-minut
 YES to confirm, or reply here if you need a different time."; "quick reminder about your dating strategy session tomorrow at ...";
 "your call is in about an hour (...)"; closing "you're booked for your private consultation with Nelly on ...". Tests:
 `dating-copies.test.ts`.
+
+## D209. Three contact-safety fixes, and the ten-second document check runs for 30 minutes (2026-10-21)
+
+Tyler, on the v1 bugs in the rebuild's engine-action inventory (§5): "Yeah think we should do all of them ... Calendly cancel
+shouldn't bypass send lock." Engine code, so every offer; each is a change Tyler asked for by name.
+
+1. **The Calendly cancel is behind the send lock.** A workflow's cancel of a Calendly booking makes Calendly email the person, so
+   it is a send: with the workflow's sends locked it goes through only for Tyler's own addresses, as an email would; otherwise the
+   step is skipped and says why (`executor.ts`, `update_appointment`). Ghost and quiet held it already.
+2. **History backfill starts no workflow.** `recordPayment(..., { dispatch: false })` from `backfill.ts`: the payment, a healed
+   earlier payment and paid-in-full are still recorded and emitted, but nothing is dispatched (its header always said so).
+3. **Hand-linking in Slack starts what a match on arrival would.** `linkPayment` dispatches `payment.received` (Payment
+   recorded), `linkRecording` dispatches `recording.received` with the booking and recording (Sales call recorded). Before, the ✅
+   was posted and nothing ran.
+4. **The ten-second document check** (D202) covers 30 minutes after an agreement goes out or a payment comes in, not 15
+   (migration 0006). Tyler asked for "every 5 minutes for the next week" after that: the minute poll already reads every offer's
+   documents every minute with no end, so nothing else changes.
+
+Not done: the drift sweep's `lead.created` (inventory §5, health check) waits on Tyler's answer about what a lead the sweep finds
+late should get. Test fixes on the way: two tests depended on rows an old shared test database still held (an event type migration
+0001 removed; a second `migrate()` dropping a row, which numbered migrations never do); both now hold on an empty database.
+Tests: `poll.calendly.test.ts` (D196 case with the lock), `backfill.test.ts`, `payments.test.ts`, `templates.scenarios.test.ts`,
+`run-now.test.ts`.

@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { phoneZone, setContactZone } from "./timezone";
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { decrypt } from "./crypto";
@@ -62,13 +63,17 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   // first_name is the CRM's own field as typed; when the CRM left it blank, the first word of whatever name there is; a wholly nameless person is null and the template's `default:` speaks
   const contact = await one<Record<string, unknown>>(c, `select ct.id, ct.ghl_contact_id, ct.last_name, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name,
       coalesce(nullif(trim(ct.first_name),''), split_part(nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),''), ' ', 1)) as first_name,
-      ct.timezone, ct.tags, ct.attributes, ct.ghl_fields, ct.assigned_ghl_user_id, ct.sms_dnd,
+      ct.timezone, ct.timezone_source, ct.tags, ct.attributes, ct.ghl_fields, ct.assigned_ghl_user_id, ct.sms_dnd,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='phone' and i.retired_at is null order by i.created_at limit 1) as phone,
       (select value from contact_identifiers i where i.contact_id=ct.id and i.kind='email' and i.retired_at is null order by i.created_at limit 1) as email,
       ${leadSourceSql("ct", "$2")} as lead_source,
       exists (select 1 from events le where le.company_id=ct.company_id and le.contact_id=ct.id and le.event_type='lead.created') as is_lead
     from contacts ct where ct.id=$1`, [run.contact_id, sourceFieldsParam(sourceFields(bindings))]);
-  const contactZone = typeof contact?.timezone === "string" && DateTime.now().setZone(contact.timezone).isValid ? contact.timezone : undefined;   // G20: a zone Luxon cannot use never reaches the window math
+  // D203: the contact's own zone (a booking's, GHL's, else their phone's area code, kept once found); unknown, the offer's, and
+  // the times a text shows then carry the zone's name. G20: a zone Luxon cannot use never reaches the window math.
+  const usable = (z: unknown): z is string => typeof z === "string" && DateTime.now().setZone(z).isValid;
+  let contactZone = contact && contact.timezone_source && contact.timezone_source !== "company_default" && usable(contact.timezone) ? contact.timezone : undefined;
+  if (contact && !contactZone) { const pz = phoneZone(contact.phone as string | null); if (pz) { contactZone = pz; await setContactZone(c, contact.id as string, pz, "phone"); } }
   // D13: the reply the run is reacting to is whatever the contact last sent after this run started; what we last sent is the classifier's state.
   // D89: which messages, never their words; a step that reads the words gets them from GHL by these ids (replies.ts)
   const lastIn = await one<{ ghl_message_id: string; channel: string; occurred_at: Date }>(c, "select ghl_message_id, channel, occurred_at from messages where company_id=$1 and contact_id=$2 and direction='inbound' and occurred_at >= $3 order by occurred_at desc limit 1", [company.id, run.contact_id, run.started_at ?? new Date(0)]);
@@ -87,7 +92,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
   for (const [k, id] of Object.entries(bindings)) if (k.startsWith("crm.field_contact_")) { const v = raw[id]; fields[k.slice("crm.field_contact_".length)] = Array.isArray(v) ? v.join(", ") : v ?? undefined; }
   const ctx: Record<string, unknown> = {
     company: { id: company.id, name: company.name, slug: company.slug, timezone: company.timezone, operator_slack_id: bindings["bot.escalate_to"] || undefined, base_url: (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "") },
-    contact: contact ? { ...contact, ghl_fields: undefined, lead_source: undefined, fields, timezone: contactZone ?? company.timezone } : undefined,
+    contact: contact ? { ...contact, ghl_fields: undefined, lead_source: undefined, fields, timezone: contactZone ?? company.timezone, timezone_known: !!contactZone } : undefined,
     vars: (run.context.vars as Record<string, unknown>) ?? {},
     reply: { ...((run.context.reply as Record<string, unknown>) ?? {}), ...derivedReply },   // last_inbound/last_outbound are re-derived every tick; intent/confidence from classify persist
     event: run.context.event ?? {},
