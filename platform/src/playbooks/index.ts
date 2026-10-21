@@ -37,7 +37,7 @@ export type Playbook = {
   forOffer(params: unknown, offer: string): unknown;
 };
 
-const preCallWords = z.object({ booked: z.string().min(1), day: z.string().min(1), hour: z.string().min(1), hourNoLink: z.string().min(1).optional() });   // D186: hourNoLink
+const preCallWords = z.object({ booked: z.string().min(1), day: z.string().min(1), hour: z.string().min(1), hourNoLink: z.string().min(1).optional(), replies: z.boolean().optional() });   // D186: hourNoLink; D208: replies
 const words = z.object({ welcome: z.object({ subject: z.string(), email: z.string(), sms: z.string() }), setterDq: z.object({ result: z.string(), reasons: z.record(z.string()) }),
   setterCall: z.object({ setting: z.string().min(1) }).optional(),   // D154
   preCall: z.object({ triage: preCallWords, closing: preCallWords }).optional() });   // D155

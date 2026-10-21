@@ -5870,3 +5870,17 @@ overdue; one whose Discovery Call record in GHL already has an outcome other tha
 (as a filed Sales Call is not). Each overdue day now carries `url`: that person's end-of-day link for the day, so the operator can
 open it and file it. Off (every other offer): nothing changes; the new `url` is only there for a template that uses it. Nelly: on,
 and her reminder's operator line links each day. Tests: `eod.triage-overdue.test.ts`.
+
+## D208. Nelly's pre-calls are three texts and nothing else (2026-10-21)
+
+Tyler: "We're going to drop reply handling for right now ... Jev is strictly going to be the recordings ... Keep the safety rules
+... Remove the no-link pieces for now", and, with Nonie gone from the offer again, the texts name no setter or closer ("my teammate").
+`words.preCall.<call>.replies: false` takes out everything that read a reply (the 4-hour wait, Jev's read, ✅ ⏳ ❌ 🔁 on the card,
+the ask in the booking channel, the attention tags, the read's score): the booking text leads straight to the day-before wait.
+A reply stays in GHL's conversation for a person. Kept: D193 (evening reminders earlier the same day), D194 (no hour-before text
+within an hour of another text), D199 (no day-before text for a call booked within 24 hours); a booking cancelled through its link
+still ends the run (the run's premise). The closing call's no-link alert and no-link hour text are gone; its hour text carries the
+link. Her words, Tyler's: triage "Hi Sarah, you're booked for your free 15-minute call on ... My teammate will be calling you. Reply
+YES to confirm, or reply here if you need a different time."; "quick reminder about your dating strategy session tomorrow at ...";
+"your call is in about an hour (...)"; closing "you're booked for your private consultation with Nelly on ...". Tests:
+`dating-copies.test.ts`.

@@ -28,8 +28,8 @@ export type DatingWords = {
   /** D155: the pre-call texts, in the company's voice: a triage call's and a closing call's booking text and reminders */
   preCall?: { triage: PreCallWords; closing: PreCallWords };
 };
-/** D155: the booking text, the reminder a day before and the one an hour before; `hourNoLink` (D186): the hour-before text when the booking has no meeting link */
-export type PreCallWords = { booked: string; day: string; hour: string; hourNoLink?: string };
+/** D155: the booking text, the reminder a day before and the one an hour before; `hourNoLink` (D186): the hour-before text when the booking has no meeting link; `replies: false` (D208): the texts alone, no reading of replies */
+export type PreCallWords = { booked: string; day: string; hour: string; hourNoLink?: string; replies?: boolean };
 /**
  * D123: `booked`, one per call type a calendar of the install books (its `calendars[…].name`): the workflow's file and name, the
  * Sales Call's `call_type` option it writes, and any tags a booking of that type adds. `fromForm`: the applicant workflow.
@@ -152,15 +152,27 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
     Object.assign(node(d, "s1"), { template: w.booked, title: "Booking text" });
     Object.assign(node(d, "m24s"), { template: w.day, title: "The day before" });
     Object.assign(node(d, "m1"), { template: w.hour, title: "An hour before" });
-    Object.assign(node(d, "n_rs_slack"), { template: "🔁 {{contact.first_name}} wants a new time: moving the call by hand.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}", title: "React 🔁, note who is moving it (by hand)" });
+    // D208 (Tyler: "we're going to drop reply handling for right now"): the booking text leads straight to the reminders; a reply
+    // stays in the CRM's conversation for a person. Everything that read a reply, asked about it or marked the card goes
+    const replies = w.replies !== false;
+    if (!replies) {
+      const READ = ["w1", "c1", "b1", "n_conf", "n_conf_slack", "n_unc", "n_unc_slack", "n_cx", "n_cx_slack", "n_rs_slack", "v_read", "n_ask", "w_dec", "v_decided", "v_agreed", "rec", "b_dec", "n_pending", "n_att_on", "n_clear", "n_att_off", "rec_un", "rs", "x_cancelled", "x_reschedule"];
+      for (const id of READ) node(d, id);   // each still there to take out, or the template changed under us
+      d.nodes = d.nodes.filter((n) => !READ.includes(n.id));
+      d.edges = (d.edges as Edge[]).filter((e) => !READ.includes(e.from) && !READ.includes(e.to));
+      (d.edges as Edge[]).push({ from: "s1", to: "r24" });
+    }
+    if (replies) Object.assign(node(d, "n_rs_slack"), { template: "🔁 {{contact.first_name}} wants a new time: moving the call by hand.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}", title: "React 🔁, note who is moving it (by hand)" });
     // D186: the keep / cancel / reschedule ask goes to the booking channel, and 🔁 sends nothing (the call is moved by hand)
-    const ask = node(d, "n_ask");
-    const offer = "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link).";
-    if (!String(ask.template).includes(offer)) throw new Error(`${t.name}: the ask no longer offers the rebooking link`);
-    // a reply can come when no text of ours went out (refused, DND): the ask says so instead of failing on the missing text
-    const sent = "> {{reply.last_outbound.body}}";
-    if (!String(ask.template).includes(sent)) throw new Error(`${t.name}: the ask no longer quotes what we sent`);
-    Object.assign(ask, { channel: "{{slack.channel.bookings}}", template: String(ask.template).replace(offer, "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out).").replace(sent, "> {{reply.last_outbound.body | default:nothing yet: our booking text didn't go out}}"), title: "Ask in the booking channel: keep, cancel or reschedule?" });
+    if (replies) {
+      const ask = node(d, "n_ask");
+      const offer = "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link).";
+      if (!String(ask.template).includes(offer)) throw new Error(`${t.name}: the ask no longer offers the rebooking link`);
+      // a reply can come when no text of ours went out (refused, DND): the ask says so instead of failing on the missing text
+      const sent = "> {{reply.last_outbound.body}}";
+      if (!String(ask.template).includes(sent)) throw new Error(`${t.name}: the ask no longer quotes what we sent`);
+      Object.assign(ask, { channel: "{{slack.channel.bookings}}", template: String(ask.template).replace(offer, "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out).").replace(sent, "> {{reply.last_outbound.body | default:nothing yet: our booking text didn't go out}}"), title: "Ask in the booking channel: keep, cancel or reschedule?" });
+    }
     // D186: a booking with no meeting link is said at once in the channel the company names (slack.channel.no_link), the closer
     // tagged; the hour-before text then leaves the link line out
     if (w.hourNoLink !== undefined) {
@@ -178,7 +190,7 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
     for (const id of ["r24", "r1"]) (node(d, id).rule as Record<string, unknown>).window = "before";
     // D194: a booking close to its call: no "no reply in 4 hours" note when the wait was cut short by the call, and no hour-before
     // text right on the heels of the booking text
-    node(d, "n_unc_slack").only_if = { gt: ["{{appointment.starts_at | hours_until}}", 1.5] };
+    if (replies) node(d, "n_unc_slack").only_if = { gt: ["{{appointment.starts_at | hours_until}}", 1.5] };
     const notJustSent = { or: [{ not: { exists: "reply.last_outbound.at" } }, { lt: ["{{reply.last_outbound.at | hours_until}}", -1] }] };
     for (const id of ["m1", "m1_nolink"]) { const m = d.nodes.find((n) => n.id === id); if (m) m.only_if = m.only_if ? { and: [m.only_if, notJustSent] } : notJustSent; }
     // D199: a call booked within 24 hours gets no day-before text (Tyler: "if its booked within 24 hours we don't get that"): how far
@@ -193,7 +205,7 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
     const left = JSON.stringify(d.nodes);
     if (left.includes("send_email") || left.includes("[placeholder") || d.nodes.filter((n) => n.type === "send_sms").length !== (w.hourNoLink !== undefined ? 4 : 3)) throw new Error(`${t.name}: a send of the template is left unwritten`);
     return { workflow: t.workflow, name: t.name, create: { stage: pc.stage, sort: pc.sort + (t.key === "triage" ? 0 : 1), takesOver: "pre-call-sequence" }, definition: d as unknown as Record<string, unknown>,
-      note: `the ${t.callType}'s pre-call texts, all from Nelly (D155): the booking text with its reply handling, a day before and an hour before; no emails; no rebooking text (a reschedule is moved by hand, 🔁 notes who)` };
+      note: replies ? `the ${t.callType}'s pre-call texts, all from Nelly (D155): the booking text with its reply handling, a day before and an hour before; no emails; no rebooking text (a reschedule is moved by hand, 🔁 notes who)` : `the ${t.callType}'s pre-call texts (D208): the booking text, a day before and an hour before, and nothing else; a reply is a person's to answer in the CRM; no emails` };
   });
 }
 
