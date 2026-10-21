@@ -143,6 +143,8 @@ export const FILTERS: Record<string, FilterDef> = {
   then: { arg: "required", blankOk: true, apply: (v, arg) => (isAbsent(v) || v === false || v === 0 ? "" : arg ?? "") },
   /** The value with the argument after it, or nothing at all: {{n | plural:call | suffix:" with no outcome"}}. */
   suffix: { arg: "required", blankOk: true, apply: (v, arg) => (isAbsent(v) ? "" : `${toText(v)}${arg ?? ""}`) },
+  /** Minutes as words, as v1's reports wrote them: 45 → "45 min", 95 → "1 h 35 min". */
+  duration: { arg: "none", apply: (v) => { const n = number(v); return n === undefined ? undefined : n >= 90 ? `${Math.floor(n / 60)} h ${Math.round(n % 60)} min` : `${Math.round(n)} min`; } },
   /** A number with exactly N decimals and no thousands separator: 1500 | fixed:2 → "1500.00". */
   fixed: { arg: "required", checkArg: checkNumber, apply: (v, arg) => { const n = number(v); return n === undefined ? undefined : n.toFixed(Number(arg)); } },
   /** A fraction as a percentage number: 0.92 → 92 (percent:1 keeps one decimal). The words write the % sign. */

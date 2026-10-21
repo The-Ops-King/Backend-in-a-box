@@ -3,7 +3,7 @@
  * fixed name, so the words a format makes never depend on a pattern string written into content.
  */
 
-export const DATE_FORMATS = ["long", "medium", "day", "short_day", "time", "time_zone", "weekday", "iso_date"] as const;
+export const DATE_FORMATS = ["long", "medium", "day", "short_day", "time", "time_zone", "weekday", "iso_date", "month_day", "month", "month_year"] as const;
 export type DateFormat = (typeof DATE_FORMATS)[number];
 
 type Parts = { weekday: string; month: string; day: string; year: string; hour: string; minute: string; dayPeriod: string; timeZoneName: string };
@@ -34,7 +34,8 @@ const spokenClock = (p: Parts) => `${p.hour}${p.minute === "00" ? "" : `:${p.min
 
 /**
  * long "Thursday, October 29 at 2:00 PM" · medium "Thu, Oct 29 at 2:00 PM" · day "Thursday, October 29" ·
- * short_day "Thu, Oct 29" · time "2:00 PM" · time_zone "2:00 PM MST" · weekday "Thursday" · iso_date "2026-10-29"
+ * short_day "Thu, Oct 29" · time "2:00 PM" · time_zone "2:00 PM MST" · weekday "Thursday" · iso_date "2026-10-29" ·
+ * month_day "Oct 29" · month "October" · month_year "October 2026"
  */
 export function formatDate(d: Date, format: DateFormat, zone: string): string {
   const p = partsOf(d, zone);
@@ -47,6 +48,9 @@ export function formatDate(d: Date, format: DateFormat, zone: string): string {
     case "time_zone": return `${clock(p)} ${p.timeZoneName}`;
     case "weekday": return p.weekday;
     case "iso_date": return isoDay(d, zone);
+    case "month_day": return `${p.month.slice(0, 3)} ${p.day}`;
+    case "month": return p.month;
+    case "month_year": return `${p.month} ${p.year}`;
   }
 }
 

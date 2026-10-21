@@ -41,6 +41,10 @@ export type SimInput = {
   content: ContentSeed;
   /** Other workflows of the offer the version may call. */
   others?: unknown[];
+  /** The offer's report and metric definitions (an offer's reports.json: report keys, and `metrics` by name). */
+  reports?: Record<string, unknown>;
+  /** Looks at the store when the scenario is over (tests: the projections, a rebuild of them). */
+  inspect?: (store: MemStore, offerId: string) => Promise<void>;
 };
 
 const slackWho = (s: SlackTarget) => ("channelFromFact" in s ? `slack ${s.channelFromFact} (one of the offer's channels)` : "channel" in s ? `slack ${s.channel}${s.fallbackChannel ? ` (else ${s.fallbackChannel})` : ""}` : `slack dm ${s.dm}`);
@@ -65,10 +69,7 @@ export async function simulate(input: SimInput): Promise<SimResult> {
   const store = new MemStore();
   const fp = new FakePorts(clock.now);
   for (const c of sc.contacts) fp.contacts.set(c.id, { id: c.id, phone: c.phone ?? null, email: c.email ?? null, timezone: c.timezone ?? null, dnd: c.dnd ?? {} });
-  const offerId = await setupOffer(store, { slug: "sim", zone: sc.offer.zone, settings: sc.offer.settings, content: input.content, operator: sc.operator });
-  for (const o of input.others ?? []) await install(store, offerId, o, { now: start, delivery: sc.delivery, crmWrites: sc.crmWrites });
-  const wf = await install(store, offerId, input.definition, { now: start, delivery: sc.delivery, crmWrites: sc.crmWrites });
-  await seedPriorSends(store, offerId, sc, start);
+  const offerId = await setupOffer(store, { slug: "sim", zone: sc.offer.zone, settings: sc.offer.settings, content: input.content, operator: sc.operator, ...(input.reports ? { reports: input.reports } : {}) });
   const fx = sc.fixtures;
   const turn = <T>(v: unknown, used: Map<string, number>, key: string): T => {
     if (!Array.isArray(v)) return v as T;
@@ -86,20 +87,40 @@ export async function simulate(input: SimInput): Promise<SimResult> {
   };
   fp.summarize = () => (summarized < fx.summarize.length ? fx.summarize[summarized++] : {});
   const engine = new Engine({
-    store, ports: fp.ports(), now: clock.now, random: () => 0.5, worker: "sim",
-    lookup: async ({ query }) => {
-      if (!(query in fx.lookups)) throw new Error(`facts.lookup ${query}: the scenario gives no answer for it (fixtures.lookups)`);
-      return turn(fx.lookups[query], usedLookups, query);
-    },
+    store, ports: fp.ports(), now: clock.now, random: () => 0.5, worker: "sim", schedules: "by_hand",
+    // a scenario's stand-in for a lookup or a report, where it gives one; else the projections answer
+    lookup: async ({ query }) => (query in fx.lookups ? { answer: turn(fx.lookups[query], usedLookups, query) } : undefined),
     reports: async ({ report }) => {
-      if (!(report in fx.reports)) throw new Error(`report ${report}: the scenario gives no rendered report for it (fixtures.reports)`);
-      return turn(fx.reports[report], usedReports, report);
+      if (!(report in fx.reports)) return undefined;
+      const def = input.reports?.[report] as { kind?: string } | undefined;
+      // a vendor's report is answered by the vendor read below; a stand-in for one of the offer's own is used as it is
+      return def && ["availability", "health_check"].includes(String(def.kind)) ? undefined : { answer: turn(fx.reports[report], usedReports, report) };
+    },
+    reads: {
+      transcripts: async (_o, ids) => Object.fromEntries(ids.filter((id) => id in fx.transcripts).map((id) => [id, fx.transcripts[id]!])),
+      salesCallsBlank: async () => fx.crm.sales_calls_blank.map((b) => ({ ...b })),
+      vendorReport: async (_o, { key }) => {
+        if (!(key in fx.reports)) throw new Error(`report ${key} is read from a vendor: the scenario gives no answer for it (fixtures.reports)`);
+        return turn(fx.reports[key], usedReports, key);
+      },
     },
   });
 
+  // the team and what happened before the start: facts recorded before any workflow is on, so they start nothing
+  for (const [i, p] of sc.people.entries()) {
+    const { id, role, ...rest } = p;
+    await engine.ingest({ offerId, type: "person.added", occurredAt: new Date(start.getTime() - 365 * 86_400_000), source: "scenario", dedupeKey: `people:${i}`, payload: { person: { id, roles: [role], ...rest } } });
+  }
+  for (const [i, h] of sc.history.entries()) {
+    await engine.ingest({ offerId, type: h.type, occurredAt: timeOf(h.at, start), source: h.source, dedupeKey: h.dedupeKey ?? `history:${i}`, contactId: h.contact ?? null, appointmentId: h.appointment ?? null, dealId: h.deal ?? null, payload: h.payload });
+  }
+  for (const o of input.others ?? []) await install(store, offerId, o, { now: start, delivery: sc.delivery, crmWrites: sc.crmWrites });
+  const wf = await install(store, offerId, input.definition, { now: start, delivery: sc.delivery, crmWrites: sc.crmWrites });
+  await seedPriorSends(store, offerId, sc, start);
+
   const steps = [...sc.steps].map((s, i) => ({ s, i, at: timeOf(s.at, start) })).sort((a, b) => a.at.getTime() - b.at.getTime() || a.i - b.i);
   for (const { s, i, at } of steps) {
-    await advanceTo(engine, store, clock, at);
+    await advanceTo(engine, store, clock, at, false);
     if ("type" in s) {
       await engine.ingest({ offerId, type: s.type, source: s.source, dedupeKey: s.dedupeKey ?? `scenario:${i}`, contactId: s.contact ?? null, appointmentId: s.appointment ?? null, dealId: s.deal ?? null, payload: s.payload });
     } else if ("reply" in s) {
@@ -114,9 +135,7 @@ export async function simulate(input: SimInput): Promise<SimResult> {
     } else if ("schedule" in s) {
       const node = v.workflow.nodes.find((n) => n.id === s.schedule.node);
       if (!node || node.type !== "trigger@1" || !("schedule" in node.on)) throw new Error(`scenario "${sc.name}" step ${i}: ${s.schedule.node} is not a schedule trigger`);
-      const forWhom = node.on.schedule.for;
-      if (forWhom === "offer") await engine.fireSchedule({ workflowId: wf.id, triggerNode: node.id, at });
-      else for (const person of sc.people.filter((p) => p.role === forWhom.role)) await engine.fireSchedule({ workflowId: wf.id, triggerNode: node.id, at, person });
+      await engine.firePeriod({ workflowId: wf.id, node: node.id, at });
     } else if ("operator" in s) {
       const paused = await store.tx((tx) => tx.runs({ offerId, statuses: ["paused"] }));
       if (!paused[0]) throw new Error(`scenario "${sc.name}" step ${i}: no paused run for the operator`);
@@ -125,15 +144,16 @@ export async function simulate(input: SimInput): Promise<SimResult> {
     }
     await engine.runDue();
   }
-  if (sc.until) await advanceTo(engine, store, clock, timeOf(sc.until, start));
+  if (sc.until) await advanceTo(engine, store, clock, timeOf(sc.until, start), false);
   else {
     const limit = new Date(clock.now().getTime() + 60 * 86_400_000);
     while ((await inFlight(store)) > 0) {
-      const next = await nextDue(store, clock.now());
+      const next = await nextDue(store, clock.now(), false);
       if (!next || next > limit) break;
-      await advanceTo(engine, store, clock, next);
+      await advanceTo(engine, store, clock, next, false);
     }
   }
+  await input.inspect?.(store, offerId);
   return report(store, sc, wf.id, input.definition);
 }
 

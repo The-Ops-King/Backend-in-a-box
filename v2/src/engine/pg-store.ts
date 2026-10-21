@@ -1,13 +1,27 @@
 import { type SQL, and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as schema from "@/db/schema";
+import { COLUMNS, type ColType, type DailyFactRow, PROJ_TABLES, type ProjQuery, type ProjTable, type Rows, checkQuery, normalizeRow, snake } from "@/projections/tables";
 import type { EventQuery, OutboxQuery, PostQuery, RunQuery, SendCount, Store, Tx } from "./store";
 import type {
-  AlertRow, ConnectionRow, ContentRow, EventRow, Job, NewEvent, NewOutbox, NewRun, OfferRow, OutboxRow, PostRow, RunRow, StepRow,
+  AlertRow, ConnectionRow, ContentRow, EventRow, Job, NewEvent, NewOutbox, NewRun, OfferRow, OutboxRow, PostRow, RunRow, ScheduleTimer, StepRow,
   VersionRow, WorkflowRow,
 } from "./types";
 
-const { offers, workflows, workflowVersions, settings, content, connections, operatorAddresses, events, runs, runSteps, outbox, slackPosts, alerts } = schema;
+const { offers, workflows, workflowVersions, settings, content, connections, operatorAddresses, events, runs, runSteps, outbox, slackPosts, alerts, scheduleTimers, reportDefinitions } = schema;
+
+/** A projection value as a query parameter of its column's type. */
+const param = (v: unknown, t: ColType): SQL => {
+  if (v === undefined || v === null) return sql`null`;
+  if (t === "json") return sql`${JSON.stringify(v)}::jsonb`;
+  // a list goes as JSON and comes apart in the database (Drizzle would spread a JS array into a value list)
+  if (t === "textarr") return sql`(select coalesce(array_agg(x), '{}'::text[]) from jsonb_array_elements_text(${JSON.stringify(v)}::jsonb) x)`;
+  if (t === "ts") return sql`${(v as Date).toISOString()}::timestamptz`;
+  return sql`${v}`;
+};
+const colsOf = (table: ProjTable) => Object.entries(COLUMNS[table] as Record<string, ColType>);
+const fromDb = <T extends ProjTable>(table: T, r: Record<string, unknown>): Rows[T] =>
+  normalizeRow(table, Object.fromEntries([["offerId", r.offer_id], ...colsOf(table).map(([k]) => [k, r[snake(k)]])]));
 
 type Db = NodePgDatabase<typeof schema>;
 type DTx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -190,6 +204,61 @@ class PgTx implements Tx {
     if (q.open !== undefined) w.push(q.open ? isNull(alerts.resolvedAt) : isNotNull(alerts.resolvedAt));
     return (await this.t.select().from(alerts).where(w.length ? and(...w) : undefined).orderBy(asc(alerts.id))) as AlertRow[];
   }
+  async reportDefinition(offerId: string, kind: "report" | "metric", key: string) {
+    return one(await this.t.select().from(reportDefinitions).where(and(eq(reportDefinitions.offerId, offerId), eq(reportDefinitions.kind, kind), eq(reportDefinitions.key, key))))?.definition;
+  }
+  async reportDefinitions(offerId: string, kind: "report" | "metric") {
+    return Object.fromEntries((await this.t.select().from(reportDefinitions).where(and(eq(reportDefinitions.offerId, offerId), eq(reportDefinitions.kind, kind)))).map((r) => [r.key, r.definition]));
+  }
+  async setReportDefinition(offerId: string, kind: "report" | "metric", key: string, definition: unknown, by: string) {
+    await this.t.insert(reportDefinitions).values({ offerId, kind, key, definition, updatedBy: by }).onConflictDoUpdate({ target: [reportDefinitions.offerId, reportDefinitions.kind, reportDefinitions.key], set: { definition, updatedBy: by, updatedAt: new Date() } });
+  }
+  async projGet<T extends ProjTable>(table: T, offerId: string, id: string) {
+    const r = await this.t.execute(sql`select * from ${sql.raw(table)} where offer_id = ${offerId} and id = ${id}`);
+    const row = r.rows[0] as Record<string, unknown> | undefined;
+    return row && fromDb(table, row);
+  }
+  async projFind<T extends ProjTable>(table: T, offerId: string, q: ProjQuery = {}) {
+    checkQuery(table, q);
+    const cols = COLUMNS[table] as Record<string, ColType>;
+    const w: SQL[] = [sql`offer_id = ${offerId}`];
+    for (const [k, v] of Object.entries(q.where ?? {})) w.push(v === null ? sql`${sql.raw(snake(k))} is null` : sql`${sql.raw(snake(k))} = ${param(v, cols[k]!)}`);
+    for (const [k, v] of Object.entries(q.has ?? {})) w.push(sql`${v} = any(${sql.raw(snake(k))})`);
+    if (q.range) {
+      const c = sql.raw(snake(q.range.col));
+      w.push(sql`${c} is not null`);
+      if (q.range.from) w.push(sql`${c} >= ${q.range.from.toISOString()}::timestamptz`);
+      if (q.range.to) w.push(sql`${c} < ${q.range.to.toISOString()}::timestamptz`);
+    }
+    const r = await this.t.execute(sql`select * from ${sql.raw(table)} where ${sql.join(w, sql` and `)} order by id collate "C"`);
+    return (r.rows as Record<string, unknown>[]).map((x) => fromDb(table, x));
+  }
+  async projPut<T extends ProjTable>(table: T, row: Rows[T]) {
+    const cols = colsOf(table);
+    const names = sql.raw(["offer_id", ...cols.map(([k]) => snake(k))].join(", "));
+    const values = sql.join([sql`${row.offerId}::uuid`, ...cols.map(([k, t]) => param((row as Record<string, unknown>)[k], t))], sql`, `);
+    const set = sql.raw(cols.filter(([k]) => k !== "id").map(([k]) => `${snake(k)} = excluded.${snake(k)}`).join(", "));
+    await this.t.execute(sql`insert into ${sql.raw(table)} (${names}) values (${values}) on conflict (offer_id, id) do update set ${set}`);
+  }
+  async projInc(row: DailyFactRow) {
+    await this.t.execute(sql`insert into daily_facts (offer_id, id, day, metric, closer, setter, source, n, amount)
+      values (${row.offerId}::uuid, ${row.id}, ${row.day}, ${row.metric}, ${row.closer}, ${row.setter}, ${row.source}, ${row.n}, ${row.amount})
+      on conflict (offer_id, id) do update set n = daily_facts.n + excluded.n, amount = daily_facts.amount + excluded.amount`);
+  }
+  async projClear(offerId: string) { for (const t of PROJ_TABLES) await this.t.execute(sql`delete from ${sql.raw(t)} where offer_id = ${offerId}`); }
+
+  async scheduleTimers(q: { offerId?: string; workflowId?: string; dueBy?: Date }) {
+    const w: SQL[] = [];
+    if (q.offerId) w.push(eq(scheduleTimers.offerId, q.offerId));
+    if (q.workflowId) w.push(eq(scheduleTimers.workflowId, q.workflowId));
+    if (q.dueBy) w.push(lte(scheduleTimers.nextAt, q.dueBy));
+    return (await this.t.select().from(scheduleTimers).where(w.length ? and(...w) : undefined).orderBy(asc(scheduleTimers.nextAt), asc(scheduleTimers.node))) as ScheduleTimer[];
+  }
+  async setScheduleTimer(t: ScheduleTimer) {
+    await this.t.insert(scheduleTimers).values(t).onConflictDoUpdate({ target: [scheduleTimers.workflowId, scheduleTimers.node], set: { nextAt: t.nextAt, lastPeriod: t.lastPeriod, offerId: t.offerId } });
+  }
+  async deleteScheduleTimer(workflowId: string, node: string) { await this.t.delete(scheduleTimers).where(and(eq(scheduleTimers.workflowId, workflowId), eq(scheduleTimers.node, node))); }
+
   private sp = 0;
   async savepoint<T>(fn: () => Promise<T>): Promise<T> {
     const name = sql.raw(`sp_${++this.sp}`);
@@ -206,6 +275,11 @@ class PgTx implements Tx {
   async lockKey(key: string) { await this.t.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`); }
   async schedule(job: Job) {
     if (this.jobs === "none") return;
+    if (job.kind === "schedule") {
+      const key = `schedule:${job.workflowId}:${job.node}`;
+      await this.t.execute(sql`select graphile_worker.add_job('fire_schedule', json_build_object('workflowId', ${job.workflowId}::text, 'node', ${job.node}::text), run_at => ${job.at.toISOString()}::timestamptz, job_key => ${key}, job_key_mode => 'replace')`);
+      return;
+    }
     const [task, key] = job.kind === "run" ? ["wake_run", `run:${job.id}`] : ["dispatch", `outbox:${job.id}`];
     await this.t.execute(sql`select graphile_worker.add_job(${task}, json_build_object('id', ${String(job.id)}::text), run_at => ${job.at.toISOString()}::timestamptz, job_key => ${key}, job_key_mode => 'replace')`);
   }

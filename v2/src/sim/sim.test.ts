@@ -79,7 +79,7 @@ describe("diffBehavior", () => {
   });
 });
 
-describe("scenario steps and fixtures for what is not built yet", () => {
+describe("scenario steps, the team and history as facts, and fixtures for what a vendor answers", () => {
   const wf = (nodes: unknown[], edges: unknown[], extra: Record<string, unknown> = {}) => ({ schema: 2, id: "w", name: "W", reentry: { policy: "always" }, nodes, edges, ...extra });
   const content = { "w.post": { channel: "slack" as const, body: "{{person.name | default:the offer}}: {{vars.answer | optional}}" } };
   const base = { name: "s", workflow: "w", start: "2026-10-26T14:00:00Z", offer: { zone: "America/New_York", settings: { "slack.channel.team": "C-TEAM" } }, contacts: [{ id: "c1", phone: "+15550100001" }] };
@@ -96,7 +96,7 @@ describe("scenario steps and fixtures for what is not built yet", () => {
     expect(r.outbox.map((o) => o.text)).toEqual(["Luis: ", "Ana: "]);
   });
 
-  it("answers lookups (in turn), reports and the AI from the scenario's fixtures", async () => {
+  it("lets a scenario stand in for lookups (in turn) and reports, and answers the AI from its fixtures", async () => {
     const def = wf([
       { id: "t", type: "trigger@1", title: "A call", on: { event: "call.logged" } },
       { id: "l1", type: "action@1", title: "First look", action: "facts.lookup", params: { query: "call_conversation", params: {} }, into: "a" },
@@ -114,15 +114,45 @@ describe("scenario steps and fixtures for what is not built yet", () => {
     expect(r.outbox[1]!.text).toBe("the offer: one/two/3 calls/no");
   });
 
-  it("holds the run on a lookup the scenario gives no answer for", async () => {
+  it("answers a lookup the scenario gives no stand-in for from the projections, fed by the scenario's facts", async () => {
     const def = wf([
       { id: "t", type: "trigger@1", title: "A call", on: { event: "call.logged" } },
       { id: "l1", type: "action@1", title: "Look", action: "facts.lookup", params: { query: "calls_for_contact", params: {} }, into: "a" },
+      { id: "s", type: "set@1", title: "Words", var: "answer", value: "{{vars.a.count}} calls, the first by {{vars.a.first.caller}}" },
+      { id: "m", type: "message@1", title: "Post", to: { slack: { channel: "{{setting.slack.channel.team}}" } }, content: "w.post" },
       { id: "x", type: "end@1", title: "Done", reason: "done" },
-    ], [{ from: "t", to: "l1" }, { from: "l1", to: "x" }]);
-    const r = await simulate({ definition: def, content, scenario: { ...base, steps: [{ at: "+0m", type: "call.logged", contact: "c1" }] } });
+    ], [{ from: "t", to: "l1" }, { from: "l1", to: "s" }, { from: "s", to: "m" }, { from: "m", to: "x" }]);
+    const recording = { id: "rec-1", kind: "phone", status: "connected", direction: "outbound", started_at: "2026-10-26T13:50:00Z", ended_at: "2026-10-26T13:55:00Z", caller: { name: "Mia Chen", ghl_user_id: "U-MIA" } };
+    const r = await simulate({ definition: def, content, scenario: { ...base, people: [{ id: "u-mia", role: "setter", name: "Mia Chen", ghl_user_id: "U-MIA" }],
+      steps: [{ at: "+0m", type: "call.logged", contact: "c1", payload: { recording, recording_id: "rec-1", duration_sec: 300 } }], expect: { outbox: ["+0m sent w.post"], ends: ["done"] } } });
+    expect(r.expectations.failures).toEqual([]);
+    expect(r.outbox[0]!.text).toBe("the offer: 1 calls, the first by Mia Chen");
+  });
+
+  it("records the history before the start: it feeds the projections and starts nothing", async () => {
+    const def = wf([
+      { id: "t", type: "trigger@1", title: "Paid or tagged", on: { event: "tag.added" } },
+      { id: "t2", type: "trigger@1", title: "Paid", on: { event: "payment.received" } },
+      { id: "s", type: "set@1", title: "Words", var: "answer", value: "{{contact.cash_collected}} signed {{contact.agreement_signed}}" },
+      { id: "m", type: "message@1", title: "Post", to: { slack: { channel: "{{setting.slack.channel.team}}" } }, content: "w.post" },
+      { id: "x", type: "end@1", title: "Done", reason: "done" },
+    ], [{ from: "t", to: "s" }, { from: "t2", to: "s" }, { from: "s", to: "m" }, { from: "m", to: "x" }]);
+    const r = await simulate({ definition: def, content, scenario: { ...base,
+      history: [{ at: "-2d", type: "payment.received", contact: "c1", payload: { payment_id: "p1", amount: 1500 } }, { at: "2026-10-25T10:00:00Z", type: "agreement.signed", contact: "c1" }],
+      steps: [{ at: "+0m", type: "tag.added", contact: "c1" }], expect: { outbox: ["+0m sent w.post"], ends: ["done"] } } });
+    expect(r.expectations.failures).toEqual([]);
+    expect(r.outbox[0]!.text).toBe("the offer: 1500 signed true");
+  });
+
+  it("holds the run on a vendor's report the scenario gives no answer for", async () => {
+    const def = wf([
+      { id: "t", type: "trigger@1", title: "Hourly", on: { schedule: { every: "1h", for: "offer" } } },
+      { id: "r", type: "report@1", title: "Probe", report: "reports.health", period: "in_progress", into: "h" },
+      { id: "x", type: "end@1", title: "Done", reason: "done" },
+    ], [{ from: "t", to: "r" }, { from: "r", to: "x" }]);
+    const r = await simulate({ definition: def, content, reports: { "reports.health": { kind: "health_check", v1: "health.ts" } }, scenario: { ...base, steps: [{ at: "+0m", schedule: { node: "t" } }] } });
     expect(r.runs.map((x) => x.status)).toEqual(["paused"]);
-    expect(r.alerts[0]!.message).toContain("fixtures.lookups");
+    expect(r.alerts[0]!.message).toContain("fixtures.reports");
   });
 
   it("states the whole timeline in expect.outbox, and says when it differs", async () => {

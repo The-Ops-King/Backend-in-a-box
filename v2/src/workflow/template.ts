@@ -27,7 +27,7 @@ export type ParsedTemplate = { spans: Span[]; bad: { start: number; end: number 
 const unquote = (a: string) => a.slice(1, -1).replace(/\\(["\\nt])/g, (_m, c: string) => (c === "n" ? "\n" : c === "t" ? "\t" : c));
 
 /** Splits one expression's text on pipes outside quoted arguments, and unquotes the arguments. `inEach`: item roots are allowed. */
-function parseExpr(source: string, inEach: boolean): { expr?: Expr; errors: string[] } {
+function parseExpr(source: string, inEach: boolean, extraRoots: readonly string[] = []): { expr?: Expr; errors: string[] } {
   const pieces: string[] = [];
   let cur = "", quoted = false;
   for (let i = 0; i < source.length; i++) {
@@ -49,7 +49,7 @@ function parseExpr(source: string, inEach: boolean): { expr?: Expr; errors: stri
   const root = path.split(".")[0] ?? "";
   const itemRoot = (ITEM_ROOTS as readonly string[]).includes(root);
   if (PATH.test(path) && itemRoot && !inEach) errors.push(`{{${source}}}: "${root}" is only inside an each`);
-  else if (PATH.test(path) && !itemRoot && !(ROOTS as readonly string[]).includes(root)) errors.push(`{{${source}}}: "${root}" is not a context root (${ROOTS.join(", ")})`);
+  else if (PATH.test(path) && !itemRoot && !(ROOTS as readonly string[]).includes(root) && !extraRoots.includes(root)) errors.push(`{{${source}}}: "${root}" is not a context root (${ROOTS.join(", ")})`);
   if (root === "now" && path !== "now") errors.push(`{{${source}}}: now has no fields`);
   if ((root === "setting" || root === "secret" || root === "vars") && path === root) errors.push(`{{${source}}}: ${root} needs a name after it`);
   const filters: FilterCall[] = [];
@@ -64,7 +64,7 @@ function parseExpr(source: string, inEach: boolean): { expr?: Expr; errors: stri
     if (def.arg === "required" && (arg === undefined || arg === "")) errors.push(`{{${source}}}: ${name} needs an argument`);
     if (arg !== undefined && arg !== "" && def.checkArg) { const m = def.checkArg(arg); if (m) errors.push(`{{${source}}}: ${name}: ${m}`); }
     if (name === "each" && arg) {
-      const inner = parseTemplate(arg, { inEach: true });
+      const inner = parseTemplate(arg, { inEach: true, extraRoots });
       errors.push(...inner.errors.map((e) => `{{${source}}}: inside each: ${e}`));
       filters.push({ name, arg, inner });
       continue;
@@ -78,7 +78,7 @@ function parseExpr(source: string, inEach: boolean): { expr?: Expr; errors: stri
  * Every `{{…}}` in a template, with what is wrong with any of them. An unclosed `{{` or a stray `}}` is an error.
  * `inEach`: the template is an `each`'s, so `item`, `index`, `number` and `parent` may be read.
  */
-export function parseTemplate(t: string, o: { inEach?: boolean } = {}): ParsedTemplate {
+export function parseTemplate(t: string, o: { inEach?: boolean; extraRoots?: readonly string[] } = {}): ParsedTemplate {
   const spans: Span[] = [], bad: { start: number; end: number }[] = [], errors: string[] = [];
   let i = 0, textFrom = 0;
   const strays = (from: number, to: number) => { if (t.slice(from, to).includes("}}")) errors.push(`a "}}" with no "{{" before it`); };
@@ -94,7 +94,7 @@ export function parseTemplate(t: string, o: { inEach?: boolean } = {}): ParsedTe
     }
     if (j >= t.length) { errors.push(`a "{{" that is never closed`); return { spans, bad, errors }; }
     const source = t.slice(open + 2, j).trim();
-    const p = source ? parseExpr(source, !!o.inEach) : { errors: ["an empty {{}}"] };
+    const p = source ? parseExpr(source, !!o.inEach, o.extraRoots) : { errors: ["an empty {{}}"] };
     errors.push(...p.errors);
     if (p.expr) spans.push({ start: open, end: j + 2, expr: p.expr });
     else bad.push({ start: open, end: j + 2 });
@@ -167,8 +167,8 @@ export type Rendered = {
 };
 
 /** Renders a template against a context. Never throws; a caller that sends refuses whenever `blanks` or `errors` is not empty. */
-export function render(template: string, ctx: Context, env: RenderEnv): Rendered {
-  return renderParsed(template, parseTemplate(template), ctx, env);
+export function render(template: string, ctx: Context, env: RenderEnv, o: { extraRoots?: readonly string[] } = {}): Rendered {
+  return renderParsed(template, parseTemplate(template, o), ctx, env);
 }
 
 function renderParsed(template: string, parsed: ParsedTemplate, ctx: Context, env: RenderEnv): Rendered {

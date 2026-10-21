@@ -63,7 +63,19 @@
       "setter_result.act": true,
       "calls.conversation_gap_min": 15,
       "crm.stage_setter_dq": "ST-SETTER-DQ",
-      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+      "crm.stage_setter_not_interested": "ST-SETTER-NI",
+      "payments.deposit_products": [],
+      "payments.deposit_by_name": true,
+      "payments.contract_value": 2999,
+      "payments.cleared_tolerance": 0.01,
+      "people.closer_from": [
+        "closer_card",
+        "contact_owner"
+      ],
+      "people.setter_from": [
+        "field:setter"
+      ],
+      "setter_result.set_within_min": 30
     }
   },
   "delivery": "live",
@@ -74,6 +86,26 @@
       "phone": "+15550100001",
       "email": "ana@example.com",
       "timezone": "America/New_York"
+    }
+  ],
+  "history": [
+    {
+      "at": "-3d",
+      "type": "deal.opened",
+      "contact": "c1",
+      "deal": "d1",
+      "payload": {}
+    },
+    {
+      "at": "-1d",
+      "type": "appointment.outcome_recorded",
+      "contact": "c1",
+      "appointment": "a1",
+      "payload": {
+        "outcome": "noshow",
+        "call_outcome": null,
+        "source": "person"
+      }
     }
   ],
   "steps": [
@@ -102,13 +134,9 @@
           "closer": {
             "name": "Luis Ortega"
           },
-          "slot_key": "cal-123",
-          "call_outcome": null
+          "slot_key": "cal-123"
         },
-        "previous_outcome": "noshow",
-        "deal": {
-          "status": "open"
-        }
+        "previous_outcome": "noshow"
       }
     }
   ],

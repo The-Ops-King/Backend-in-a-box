@@ -5,6 +5,7 @@ import { SECRET_MARKER } from "./context";
 import { type CallContext, type CrmContact, type FailureClass, PortError, type Ports, portOf } from "./ports";
 import type { Store, Tx } from "./store";
 import type { OutboxRow } from "./types";
+import { recordFact } from "@/projections/apply";
 
 /**
  * The outbox dispatcher: delivers effects the interpreter wrote. For each due row it
@@ -182,9 +183,26 @@ export async function deliver(d: DispatchDeps, id: number): Promise<boolean> {
       if (posted.edited !== undefined) await tx.updatePost(posted.edited, { outboxId: row.id, runId: row.runId, node: row.node, tag });
       else await tx.insertPost({ offerId: row.offerId, outboxId: row.id, runId: row.runId, node: row.node, tag, channel: posted.channel!, ts: posted.ts, sandbox: decided.sandbox, createdAt: done });
     }
+    await recordWritten(tx, row, result, done);
     await wakeOwner(tx, decided.row, done);
   });
   return true;
+}
+
+/**
+ * What a CRM write that went through made, kept as a fact about the contact: the record we wrote (its key and the
+ * CRM's id), the deal we moved (its id, pipeline and stage), the status we set. The projections read these (a
+ * contact's records and cards), so what we did is history, not a copy of the CRM. A dry write made nothing.
+ */
+async function recordWritten(tx: Tx, row: OutboxRow, result: unknown, at: Date): Promise<void> {
+  const params = (row.payload.params ?? {}) as Record<string, unknown>;
+  const id = (result as { id?: unknown } | null)?.id;
+  const fact = row.kind === "crm.upsert_record" && id !== undefined ? { type: "crm.record_written", payload: { object: params.object ?? null, key: params.key ?? null, record_id: String(id) } }
+    : row.kind === "crm.move_deal" && id !== undefined ? { type: "crm.deal_written", payload: { deal_id: String(id), pipeline: params.pipeline ?? null, stage: params.stage ?? null, status: "open", name: params.name ?? null, owner: params.owner ?? null, value: params.value ?? null } }
+      : row.kind === "crm.set_deal_status" ? { type: "crm.deal_status_set", payload: { pipeline: params.pipeline ?? null, status: params.status ?? null } }
+        : undefined;
+  if (!fact || !row.contactId) return;
+  await recordFact(tx, { offerId: row.offerId, type: fact.type, occurredAt: at, contactId: row.contactId, appointmentId: (row.payload.appointmentId as string | undefined) ?? null, dealId: null, source: "engine", dedupeKey: `outbox:${row.id}`, payload: fact.payload as never, runId: row.runId });
 }
 
 type Target = { channel?: string; dm?: string; threadTs?: string; post?: { channel: string; ts: string }; edit?: { id: number; channel: string; ts: string } } | { none: string };

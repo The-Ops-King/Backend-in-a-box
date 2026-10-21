@@ -1,6 +1,6 @@
 {
   "name": "trace: the morning reminder",
-  "description": "From the trace (17 runs on this path, test mode, versions 4 and 5): the morning reminder for closer <id-75>. Those runs kept no steps, so what was due is not known; this scenario gives one earlier day due.",
+  "description": "From the trace (17 runs on this path, test mode, versions 4 and 5): the morning reminder for closer <id-75>. Those runs kept no steps, so what was due is not known; this scenario gives one earlier day due. Mia Chen's call the day before has no outcome yet (the projections).",
   "workflow": "eod-remind-closers-to-file",
   "start": "2026-10-17T13:00:11Z",
   "offer": {
@@ -63,7 +63,19 @@
       "setter_result.act": true,
       "calls.conversation_gap_min": 15,
       "crm.stage_setter_dq": "ST-SETTER-DQ",
-      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+      "crm.stage_setter_not_interested": "ST-SETTER-NI",
+      "payments.deposit_products": [],
+      "payments.deposit_by_name": true,
+      "payments.contract_value": 2999,
+      "payments.cleared_tolerance": 0.01,
+      "people.closer_from": [
+        "closer_card",
+        "contact_owner"
+      ],
+      "people.setter_from": [
+        "field:setter"
+      ],
+      "setter_result.set_within_min": 30
     }
   },
   "delivery": "live",
@@ -81,23 +93,6 @@
       }
     }
   ],
-  "fixtures": {
-    "reports": {
-      "reports.eod_due": {
-        "days": [
-          {
-            "day": "2026-10-26",
-            "when": "Today",
-            "url": "https://app.example.com/eod/t1",
-            "calls": 1
-          }
-        ],
-        "count": 1,
-        "overdue": [],
-        "overdue_count": 0
-      }
-    }
-  },
   "steps": [
     {
       "at": "+0m",
@@ -113,5 +108,28 @@
     "ends": [
       "done"
     ]
-  }
+  },
+  "history": [
+    {
+      "at": "-3d",
+      "type": "appointment.booked",
+      "contact": "c-ana",
+      "appointment": "a-1",
+      "payload": {
+        "contact": {
+          "name": "Ana"
+        },
+        "appointment": {
+          "starts_at": "2026-10-16T15:00:00Z",
+          "term": {
+            "category": "closing"
+          },
+          "status": "booked",
+          "closer": {
+            "name": "Mia Chen"
+          }
+        }
+      }
+    }
+  ]
 }

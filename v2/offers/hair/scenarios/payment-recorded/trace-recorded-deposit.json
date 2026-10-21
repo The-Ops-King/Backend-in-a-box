@@ -63,7 +63,19 @@
       "setter_result.act": true,
       "calls.conversation_gap_min": 15,
       "crm.stage_setter_dq": "ST-SETTER-DQ",
-      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+      "crm.stage_setter_not_interested": "ST-SETTER-NI",
+      "payments.deposit_products": [],
+      "payments.deposit_by_name": true,
+      "payments.contract_value": 2999,
+      "payments.cleared_tolerance": 0.01,
+      "people.closer_from": [
+        "closer_card",
+        "contact_owner"
+      ],
+      "people.setter_from": [
+        "field:setter"
+      ],
+      "setter_result.set_within_min": 30
     }
   },
   "delivery": "live",
@@ -76,6 +88,60 @@
       "timezone": "America/New_York"
     }
   ],
+  "people": [
+    {
+      "id": "u-staff-2",
+      "role": "closer",
+      "name": "<staff-2>",
+      "ghl_user_id": "U-GHL-STAFF2"
+    }
+  ],
+  "history": [
+    {
+      "at": "-3d",
+      "type": "deal.opened",
+      "contact": "c1",
+      "deal": "d1",
+      "payload": {}
+    },
+    {
+      "at": "-2d",
+      "type": "appointment.booked",
+      "contact": "c1",
+      "appointment": "<id-4>",
+      "payload": {
+        "appointment": {
+          "starts_at": "2026-10-10T01:06:50Z",
+          "term": {
+            "category": "closing"
+          },
+          "status": "booked"
+        }
+      }
+    },
+    {
+      "at": "-1d",
+      "type": "crm.deal_written",
+      "contact": "c1",
+      "payload": {
+        "deal_id": "<crm-id-6>",
+        "pipeline": "PIPE-CLOSER",
+        "stage": "ST-CLOSER-SCHEDULED",
+        "status": "open",
+        "owner": "U-GHL-STAFF2"
+      }
+    },
+    {
+      "at": "-1d",
+      "type": "crm.record_written",
+      "contact": "c1",
+      "payload": {
+        "object": "custom_objects.sales_call",
+        "key": "<id-20>",
+        "record_id": "rec-<id-20>"
+      }
+    }
+  ],
   "steps": [
     {
       "at": "+0m",
@@ -86,25 +152,7 @@
         "contact": {
           "first_name": "<staff-1>",
           "name": "<staff-1> TEST",
-          "ghl_contact_id": "<crm-id-8>",
-          "closer": {
-            "name": "<staff-2>"
-          },
-          "agreement_signed": false,
-          "records": {
-            "sales_call": {
-              "key": "<id-20>"
-            }
-          },
-          "latest_appointment_id": "<id-4>",
-          "cards": {
-            "closer": {
-              "id": "<crm-id-6>"
-            }
-          }
-        },
-        "deal": {
-          "status": "open"
+          "ghl_contact_id": "<crm-id-8>"
         },
         "kind": "deposit",
         "amount": 1500,
@@ -118,7 +166,8 @@
         "linked_by": "known",
         "payment_id": "<id-42>",
         "outstanding": 1499,
-        "prior_total": 0
+        "prior_total": 0,
+        "product_name": "Deposit"
       }
     }
   ],

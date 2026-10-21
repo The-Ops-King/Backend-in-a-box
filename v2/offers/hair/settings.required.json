@@ -1,5 +1,5 @@
 {
-  "_note": "UNSIGNED draft. Every setting the Hair workflows and their words read, by the v2 key ({{setting.<key>}}), its type, and what v1 had. v2 enables a workflow only when every setting it requires is set: requiredToEnable is whether any workflow requires it; a setting the workflows read only as optional (a step that skips itself without it, a channel with a fallback, a picklist option) may stay unset, and `optionalIn` names the workflows that read it so. v1.requiredToEnable is whether v1 needed it. No secret values: only whether one is needed. `fieldMap` is the CRM field map the CRM port uses for canonical field names (crm.update_contact, crm.move_deal fields); `connections` are what the AI steps need.",
+  "_note": "UNSIGNED draft. Every setting the Hair workflows and their words read, by the v2 key ({{setting.<key>}}), its type, and what v1 had. v2 enables a workflow only when every setting it requires is set: requiredToEnable is whether any workflow requires it; a setting the workflows read only as optional (a step that skips itself without it, a channel with a fallback, a picklist option) may stay unset, and `optionalIn` names the workflows that read it so. v1.requiredToEnable is whether v1 needed it. No secret values: only whether one is needed. `fieldMap` is the CRM field map the CRM port uses for canonical field names (crm.update_contact, crm.move_deal fields); `connections` are what the AI steps need. Settings with a `rule` are the parameters of a fact the platform works out (src/projections/facts.ts): while one is unset that fact is not there and a workflow that reads it cannot be enabled; their values are Tyler's to set (v1's are given where known), never filled from code. `readBy` names report definitions that read a setting (a metric that says nothing while it is unset).",
   "settings": [
     {
       "key": "bot.escalate_to",
@@ -59,6 +59,24 @@
       "workflows": [
         "sales-call-recorded",
         "setter-call-logged"
+      ]
+    },
+    {
+      "key": "calls.reached_seconds",
+      "type": "seconds",
+      "rule": "the connected metric (reports.json); while unset the Connected line says nothing",
+      "v1": {
+        "binding": "companies.reached_seconds",
+        "value": null,
+        "note": "metric-registry connected: connected and at least the company's reached seconds; Hair's value is not in the spec export (v1's fallback 60)",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": false,
+      "workflows": [],
+      "readBy": [
+        "reports.daily_wrap_up",
+        "reports.weekly_wrap_up",
+        "reports.monthly_wrap_up"
       ]
     },
     {
@@ -156,6 +174,26 @@
         "call-booked",
         "ledger-drift",
         "sales-call-recorded"
+      ]
+    },
+    {
+      "key": "crm.default_closer",
+      "type": "crm_user_id",
+      "rule": "contact.owner, when the CRM names no owner",
+      "v1": {
+        "binding": "crm.default_closer",
+        "value": null,
+        "note": "context.ts: the contact's owner falls back on it; not in Hair's spec export",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": false,
+      "workflows": [
+        "send-agreement-manually",
+        "unsigned-agreement-chase"
+      ],
+      "optionalIn": [
+        "send-agreement-manually",
+        "unsigned-agreement-chase"
       ]
     },
     {
@@ -460,6 +498,148 @@
       ]
     },
     {
+      "key": "leads.mql_answers",
+      "type": "list of answers",
+      "rule": "the mqls metric (reports.json)",
+      "v1": {
+        "binding": "the offer's MQL answers",
+        "value": null,
+        "note": "metric-registry mqls; not in Hair's spec export",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": false,
+      "workflows": [],
+      "readBy": [
+        "reports.daily_wrap_up",
+        "reports.weekly_wrap_up",
+        "reports.monthly_wrap_up"
+      ]
+    },
+    {
+      "key": "leads.qualifying_field",
+      "type": "canonical contact field",
+      "rule": "the mqls metric (reports.json); while unset the MQL line says nothing",
+      "v1": {
+        "binding": "the offer's qualifying question",
+        "value": null,
+        "note": "metric-registry mqls read the offer's qualifying question in GHL; not in Hair's spec export",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": false,
+      "workflows": [],
+      "readBy": [
+        "reports.daily_wrap_up",
+        "reports.weekly_wrap_up",
+        "reports.monthly_wrap_up"
+      ]
+    },
+    {
+      "key": "payments.cleared_tolerance",
+      "type": "money",
+      "rule": "payment.kind, payment.cleared",
+      "v1": {
+        "binding": null,
+        "value": 0.01,
+        "note": "payments.ts `cleared`: over by a rounding cent still clears; in code",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": true,
+      "workflows": [
+        "payment-recorded",
+        "unsigned-agreement-chase"
+      ]
+    },
+    {
+      "key": "payments.contract_value",
+      "type": "money (the program's price)",
+      "rule": "payment.kind, payment.cleared, payment.contract_value, payment.outstanding, contact.revenue; and the revenue metric for a deal with no value of its own",
+      "v1": {
+        "binding": "companies.contract_value_default",
+        "value": null,
+        "note": "the company's default contract value; Hair's is not in the spec export (the traces show 2999)",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": true,
+      "workflows": [
+        "deal-closed",
+        "payment-recorded",
+        "unsigned-agreement-chase"
+      ]
+    },
+    {
+      "key": "payments.deposit_by_name",
+      "type": "boolean",
+      "rule": "the same facts as payments.deposit_products",
+      "v1": {
+        "binding": null,
+        "value": true,
+        "note": "D119 addendum: with no products declared, a product or plan named with the word \"deposit\" is a deposit; v1 had this in code for every offer",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": true,
+      "workflows": [
+        "deal-closed",
+        "payment-recorded",
+        "unsigned-agreement-chase"
+      ]
+    },
+    {
+      "key": "payments.deposit_products",
+      "type": "list of provider product or plan ids",
+      "rule": "payment.kind, payment.prior_non_deposit_total, contact.paid_non_deposit, contact.deposit_paid",
+      "v1": {
+        "binding": "payments.deposit_products",
+        "value": null,
+        "note": "D119: Hair's declared deposit products are not in the spec export; an empty list declares none",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": true,
+      "workflows": [
+        "deal-closed",
+        "payment-recorded",
+        "unsigned-agreement-chase"
+      ]
+    },
+    {
+      "key": "people.closer_from",
+      "type": "ordered list of closer_card | contact_owner | latest_call",
+      "rule": "contact.closer",
+      "v1": {
+        "binding": null,
+        "value": [
+          "closer_card",
+          "contact_owner"
+        ],
+        "note": "context.ts: the open (else won) closer card's owner, else the contact's CRM owner; in code",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": true,
+      "workflows": [
+        "deal-closed",
+        "payment-failed",
+        "payment-recorded"
+      ]
+    },
+    {
+      "key": "people.setter_from",
+      "type": "ordered list of field:<canonical field> | booking",
+      "rule": "contact.setter",
+      "v1": {
+        "binding": "crm.field_contact_setter",
+        "value": [
+          "field:setter"
+        ],
+        "note": "context.ts: the name typed in the contact field bound as crm.field_contact_setter (Hair: GngwKUu6eyjXsTmoEz8s, the field map's `setter`); in code",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": true,
+      "workflows": [
+        "deal-closed",
+        "payment-failed",
+        "payment-recorded"
+      ]
+    },
+    {
       "key": "picklist.discovery_call_result.dq",
       "type": "text",
       "v1": {
@@ -669,6 +849,21 @@
         "value": false,
         "note": "v1 company switch: whether a setter call's result acts (tags, cards, task) or only says what it would do; not in the spec export, but the Setter call logged trace records acts: false",
         "requiredToEnable": true
+      },
+      "requiredToEnable": true,
+      "workflows": [
+        "setter-call-logged"
+      ]
+    },
+    {
+      "key": "setter_result.set_within_min",
+      "type": "minutes",
+      "rule": "recording.set_until (the Set window)",
+      "v1": {
+        "binding": "setter_result.set_within_min",
+        "value": null,
+        "note": "D87: the company's setting, default 30 in code (setting-defaults.ts); the step titles say Hair's is 30",
+        "requiredToEnable": false
       },
       "requiredToEnable": true,
       "workflows": [

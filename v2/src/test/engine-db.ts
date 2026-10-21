@@ -8,5 +8,5 @@ let migrated = false;
 /** The test database at the current migrations, with every engine table emptied, so each test starts clean. */
 export async function freshEngineDb() {
   if (!migrated) { await migrate(db(), { migrationsFolder: path.resolve(__dirname, "../../drizzle") }); migrated = true; }
-  await db().execute(sql`truncate alerts, slack_posts, outbox, run_steps, runs, events, settings, content, connections, operator_addresses, workflows, workflow_versions, offers restart identity cascade`);
+  await db().execute(sql`truncate report_definitions, schedule_timers, contacts_index, appointments, calls, deals, payments, people, daily_facts, alerts, slack_posts, outbox, run_steps, runs, events, settings, content, connections, operator_addresses, workflows, workflow_versions, offers restart identity cascade`);
 }

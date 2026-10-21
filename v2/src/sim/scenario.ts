@@ -7,6 +7,8 @@ import { spanMs } from "@/engine/testkit";
  */
 
 const Rel = z.string().regex(/^(\+(\d+[wdhms])+|\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d\d:\d\d))$/, { message: 'a time is an ISO date-time or an offset from start: "+2h", "+2d3h"' });
+/** A time before the scenario starts: an ISO date-time or an offset back from start ("-3d", "-2h30m"). */
+const Before = z.string().regex(/^(-(\d+[wdhms])+|\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d\d:\d\d))$/, { message: 'a time before the start is an ISO date-time or an offset back from start: "-3d", "-2h"' });
 
 const Contact = z.object({
   id: z.string().min(1),
@@ -46,6 +48,9 @@ const OperatorStep = z.object({
 const ScheduleStep = z.object({ at: Rel, schedule: z.object({ node: z.string().min(1) }).strict() }).strict();
 
 export const ScenarioStep = z.union([EventStep, ReplyStep, AnswerStep, FailStep, OperatorStep, ScheduleStep]);
+
+/** A fact that happened before the scenario starts: recorded (and projected) before any workflow is on, so it starts nothing. */
+const HistoryStep = EventStep.extend({ at: Before });
 export type ScenarioStep = z.infer<typeof ScenarioStep>;
 
 export const Scenario = z.object({
@@ -64,17 +69,25 @@ export const Scenario = z.object({
   contacts: z.array(Contact).default([]),
   /** Messages other workflows already sent these contacts, for the frequency cap. */
   priorSends: z.array(z.object({ contact: z.string(), at: Rel, channel: z.enum(["sms", "email"]).default("sms"), count: z.number().int().positive().default(1) }).strict()).default([]),
-  /** The team, for schedules that run once per person with a role (each is that run's `person`). */
-  people: z.array(z.object({ id: z.string().min(1), role: z.string().min(1) }).passthrough()).default([]),
   /**
-   * What the parts not built yet answer, so a scenario can take every path: the facts.lookup queries that need the
-   * projections (by query: one answer, or a list used in turn), the report definitions (by key: the rendered report, or a
-   * list used in turn), and the AI port (classify answers and summarize results, used in turn; a classify answer is the
-   * option, or { value, confidence, guesses? }).
+   * The team, recorded as `person.added` facts before the scenario starts (the people projection): a schedule for a role
+   * runs once per person with it, as that run's `person`. `ghl_user_id` is their CRM user id.
+   */
+  people: z.array(z.object({ id: z.string().min(1), role: z.string().min(1) }).passthrough()).default([]),
+  /** Facts from before the start, oldest first: payments, bookings, agreements, records written. The projections hold them. */
+  history: z.array(HistoryStep).default([]),
+  /**
+   * What only a vendor answers, so a scenario can take every path: the AI port (classify answers and summarize
+   * results, used in turn; a classify answer is the option, or { value, confidence, guesses? }), the recorder's
+   * transcripts (by recording id), the CRM's Sales Calls still blank (`crm.sales_calls_blank`), and the reports only a
+   * vendor can answer (`reports`, by key: availability, the health sweep). `lookups` and `reports` may also stand in
+   * for a projection's answer, by query or key (one answer, or a list used in turn); the offers' own scenarios do not.
    */
   fixtures: z.object({
     lookups: z.record(z.unknown()).default({}),
     reports: z.record(z.unknown()).default({}),
+    transcripts: z.record(z.string()).default({}),
+    crm: z.object({ sales_calls_blank: z.array(z.object({ day: z.string(), name: z.string(), appointment_id: z.string().nullable().default(null) }).strict()).default([]) }).strict().default({}),
     classify: z.array(z.union([z.string(), z.object({
       value: z.string(), confidence: z.number().min(0).max(1),
       guesses: z.array(z.object({ value: z.string(), confidence: z.number().min(0).max(1) }).strict()).optional(),
@@ -100,7 +113,9 @@ export type ScenarioInput = z.input<typeof Scenario>;
 
 /** A scenario time as an instant. */
 export function timeOf(t: string, start: Date): Date {
-  return t.startsWith("+") ? new Date(start.getTime() + spanMs(t.slice(1))) : new Date(t);
+  if (t.startsWith("+")) return new Date(start.getTime() + spanMs(t.slice(1)));
+  if (t.startsWith("-")) return new Date(start.getTime() - spanMs(t.slice(1)));
+  return new Date(t);
 }
 
 /** An instant as an offset from start: "+2d 3h 5m", "+0m", "-1h". */

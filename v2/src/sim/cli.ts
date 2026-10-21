@@ -13,10 +13,10 @@ if (!defPath || !dir) {
   process.exit(2);
 }
 const definition = JSON.parse(fs.readFileSync(path.resolve(defPath), "utf8"));
-const { content, scenarios } = loadScenarioFolder(path.resolve(dir));
+const { content, reports, scenarios } = loadScenarioFolder(path.resolve(dir));
 let failed = 0;
 for (const { file, scenario } of scenarios.filter((s) => !only || s.file === only)) {
-  const r = await simulate({ definition, scenario, content });
+  const r = await simulate({ definition, scenario, content, ...(reports ? { reports } : {}) });
   console.log(`${timelineText(r)}\n`);
   if (!r.expectations.ok) { failed++; console.log(`  ✗ ${file}: ${r.expectations.failures.join("; ")}\n`); }
 }

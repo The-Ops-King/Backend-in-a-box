@@ -76,6 +76,16 @@
       "title": "Does the stage name an outcome for a call that has started?"
     },
     {
+      "id": "o_noshow_before",
+      "type": "set@1",
+      "title": "Remember the call's outcome as it was, before this one is filed",
+      "var": "before",
+      "value": {
+        "outcome": "{{appointment.outcome | optional}}",
+        "call_outcome": "{{appointment.call_outcome | optional}}"
+      }
+    },
+    {
       "id": "o_noshow",
       "type": "action@1",
       "title": "File a no-show, as the form would",
@@ -98,8 +108,8 @@
         "type": "appointment.outcome",
         "data": {
           "outcome": "noshow",
-          "previous_outcome": "{{appointment.outcome | optional}}",
-          "previous_call_outcome": "{{appointment.call_outcome | optional}}",
+          "previous_outcome": "{{vars.before.outcome | optional}}",
+          "previous_call_outcome": "{{vars.before.call_outcome | optional}}",
           "outcome_source": "disposition",
           "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
           "by": "{{event.mover_id | optional}}",
@@ -108,6 +118,16 @@
         "startsWorkflows": true
       },
       "onFailure": "hold"
+    },
+    {
+      "id": "o_lost_before",
+      "type": "set@1",
+      "title": "Remember the call's outcome as it was, before this one is filed",
+      "var": "before",
+      "value": {
+        "outcome": "{{appointment.outcome | optional}}",
+        "call_outcome": "{{appointment.call_outcome | optional}}"
+      }
     },
     {
       "id": "o_lost",
@@ -133,8 +153,8 @@
         "type": "appointment.outcome",
         "data": {
           "outcome": "showed",
-          "previous_outcome": "{{appointment.outcome | optional}}",
-          "previous_call_outcome": "{{appointment.call_outcome | optional}}",
+          "previous_outcome": "{{vars.before.outcome | optional}}",
+          "previous_call_outcome": "{{vars.before.call_outcome | optional}}",
           "outcome_source": "disposition",
           "call_outcome": "lost",
           "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
@@ -163,6 +183,16 @@
       "onFailure": "hold"
     },
     {
+      "id": "o_dq_before",
+      "type": "set@1",
+      "title": "Remember the call's outcome as it was, before this one is filed",
+      "var": "before",
+      "value": {
+        "outcome": "{{appointment.outcome | optional}}",
+        "call_outcome": "{{appointment.call_outcome | optional}}"
+      }
+    },
+    {
       "id": "o_dq",
       "type": "action@1",
       "title": "File a show that was disqualified, as the form would",
@@ -186,8 +216,8 @@
         "type": "appointment.outcome",
         "data": {
           "outcome": "showed",
-          "previous_outcome": "{{appointment.outcome | optional}}",
-          "previous_call_outcome": "{{appointment.call_outcome | optional}}",
+          "previous_outcome": "{{vars.before.outcome | optional}}",
+          "previous_call_outcome": "{{vars.before.call_outcome | optional}}",
           "outcome_source": "disposition",
           "call_outcome": "unqualified",
           "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
@@ -247,7 +277,7 @@
     },
     {
       "from": "b1",
-      "to": "o_noshow",
+      "to": "o_noshow_before",
       "label": "into a no-show stage",
       "when": {
         "and": [
@@ -310,7 +340,7 @@
     },
     {
       "from": "b1",
-      "to": "o_lost",
+      "to": "o_lost_before",
       "label": "into Lost",
       "when": {
         "and": [
@@ -349,7 +379,7 @@
     },
     {
       "from": "b1",
-      "to": "o_dq",
+      "to": "o_dq_before",
       "label": "into Disqualified",
       "when": {
         "and": [
@@ -423,6 +453,18 @@
     {
       "from": "o_dq_held",
       "to": "x_filed"
+    },
+    {
+      "from": "o_noshow_before",
+      "to": "o_noshow"
+    },
+    {
+      "from": "o_lost_before",
+      "to": "o_lost"
+    },
+    {
+      "from": "o_dq_before",
+      "to": "o_dq"
     }
   ]
 }

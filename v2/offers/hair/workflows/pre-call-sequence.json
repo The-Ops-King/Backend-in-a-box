@@ -1145,11 +1145,11 @@
     },
     {
       "from": "n_cx_cancel",
-      "to": "n_cx_fact"
+      "to": "n_cx_slack"
     },
     {
       "from": "n_cx_fact",
-      "to": "n_cx_slack"
+      "to": "x_cancelled"
     },
     {
       "from": "n_rs",
@@ -1185,7 +1185,7 @@
     },
     {
       "from": "n_cx_slack_mark",
-      "to": "x_cancelled"
+      "to": "n_cx_fact"
     },
     {
       "from": "n_rs_slack",

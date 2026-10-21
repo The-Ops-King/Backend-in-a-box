@@ -1,3 +1,4 @@
+import { recordFact } from "@/projections/apply";
 import { actionDef } from "@/workflow/actions/registry";
 import { LOOKUP_QUERIES } from "@/workflow/actions/internal";
 import { type Edge, type Node, RESUME, type Workflow } from "@/workflow/definition";
@@ -13,8 +14,11 @@ import { type Blank, type Context, evaluateExpr, render, wholeExpr } from "@/wor
 import { validateWorkflow } from "@/workflow/validate";
 import { toMs } from "@/workflow/duration";
 import { toInstant } from "@/workflow/dates";
-import { type Subjects, buildContext, eventView, freshSubjects, nestSettings, snapshotOf } from "./context";
+import { type Subjects, buildContext, eventView, freshSubjects, mergeSubjects, nestSettings, snapshotOf } from "./context";
 import type { Tx } from "./store";
+import { answerLookup } from "@/projections/lookups";
+import { renderReport } from "@/reports/render";
+import type { VendorReads } from "./reads";
 import { computeTimeRule, fitSendWindow, inWindow, nextOpen, windowZone } from "./time";
 import type { EventRow, Listener, NewRun, OfferRow, RunContext, RunRow, StepRow, VersionRow, Wake, WorkflowRow } from "./types";
 
@@ -25,17 +29,20 @@ import type { EventRow, Listener, NewRun, OfferRow, RunContext, RunRow, StepRow,
  * the run's subjects arrives. The premise is checked again on every wake and before every step that reaches outside.
  */
 
-/** A report definition rendered (report@1). Report definitions arrive with the projections; until then this is supplied by the caller. */
-export type ReportRenderer = (x: { offerId: string; report: string; period: string; params: Record<string, unknown>; now: Date }) => Promise<unknown>;
+/**
+ * A stand-in for a report definition rendered (report@1): `{ answer }` to use it, undefined to render the offer's own
+ * definition from the projections (src/reports/). The simulator stands in only where a scenario says so.
+ */
+export type ReportRenderer = (x: { offerId: string; report: string; period: string; params: Record<string, unknown>; now: Date }) => Promise<{ answer: unknown } | undefined>;
 
 /**
- * Answers a facts.lookup query that needs the projections (every query but last_event). The projections arrive in a later
- * piece; until then this is supplied by the caller (the simulator answers from the scenario).
+ * A stand-in for a facts.lookup answer: `{ answer }` to use it, undefined to answer from the projections
+ * (src/projections/lookups.ts). The simulator stands in only where a scenario says so.
  */
-export type LookupResolver = (x: { offerId: string; query: string; params: Record<string, unknown>; contactId: string | null; appointmentId: string | null; now: Date }) => Promise<unknown>;
+export type LookupResolver = (x: { offerId: string; query: string; params: Record<string, unknown>; contactId: string | null; appointmentId: string | null; now: Date }) => Promise<{ answer: unknown } | undefined>;
 
 /** `depth`: how many call@1 steps deep this pass is, so a workflow that calls itself cannot recurse for ever. */
-export type Deps = { tx: Tx; now: Date; reports?: ReportRenderer; lookup?: LookupResolver; depth?: number };
+export type Deps = { tx: Tx; now: Date; reports?: ReportRenderer; lookup?: LookupResolver; reads?: VendorReads; depth?: number };
 
 const MAX_CALL_DEPTH = 8;
 
@@ -103,7 +110,7 @@ async function lastOutbound(P: Pass): Promise<Record<string, unknown> | null> {
 
 /** What a step reads now: the subjects read fresh (once a pass, again after the run records a fact). */
 async function view(P: Pass, extra?: Record<string, unknown>): Promise<{ ctx: Context; env: RenderEnv }> {
-  P.fresh ??= await freshSubjects(P.tx, P.offer.id, subjectsOf(P.run));
+  P.fresh ??= await freshSubjects(P.tx, { offer: P.offer, settings: P.settings, subjects: subjectsOf(P.run), now: P.now, event: P.run.context.event });
   P.lastOut ??= { found: await lastOutbound(P) };
   const b = buildContext({ run: P.run, workflowKey: P.wf.key, offer: P.offer, settings: P.settings, subjects: P.fresh, now: P.now, secrets: P.secrets });
   if (P.lastOut.found) b.ctx.reply = { ...((b.ctx.reply as Record<string, unknown> | undefined) ?? {}), last_outbound: P.lastOut.found };
@@ -306,10 +313,11 @@ async function execute(P: Pass, node: Node, step: StepRow, visit: number): Promi
     case "ask@1": return ask(P, node, step, visit);
     case "action@1": return action(P, node, step, visit);
     case "report@1": {
-      if (!P.deps.reports) throw new Error(`report ${node.report}: report definitions are not available here`);
       const { ctx, env } = await view(P);
       const params = evalValue(node.params ?? {}, ctx, env) as Record<string, unknown>;
-      P.run.context.vars[node.into] = (await P.deps.reports({ offerId: P.offer.id, report: node.report, period: node.period, params, now: P.now })) as never;
+      const standIn = await P.deps.reports?.({ offerId: P.offer.id, report: node.report, period: node.period, params, now: P.now });
+      const out = standIn ? standIn.answer : await renderReport({ tx: P.tx, offer: P.offer, settings: P.settings, now: P.now, ...(P.deps.reads ? { reads: P.deps.reads } : {}) }, { key: node.report, period: node.period, params, ctx });
+      P.run.context.vars[node.into] = out as never;
       return leave(P, node, step, "next", { report: node.report });
     }
   }
@@ -662,7 +670,7 @@ async function internal(P: Pass, node: Action1, step: StepRow, visit: number, ct
       const type = outcome ? "appointment.outcome_recorded" : String(params.type);
       const data = outcome ? { outcome: params.outcome, call_outcome: params.callOutcome ?? null, notes: params.notes ?? null, source: params.source, person: params.person ?? null } : (params.data as Record<string, unknown>);
       const appointment = toText(params.appointment) || P.run.appointmentId;
-      const { event, inserted } = await P.tx.appendEvent({
+      const { event, inserted } = await recordFact(P.tx, {
         offerId: P.offer.id, type, occurredAt: P.now, contactId: P.run.contactId, appointmentId: appointment || null, dealId: P.run.dealId,
         source: "workflow", dedupeKey: `run:${P.run.id}:${node.id}:${visit}`, payload: data, runId: P.run.id,
       });
@@ -679,8 +687,8 @@ async function internal(P: Pass, node: Action1, step: StepRow, visit: number, ct
       const query = params.query as keyof typeof LOOKUP_QUERIES;
       const q = params.params as Record<string, unknown>;
       if (query !== "last_event") {
-        if (!P.deps.lookup) throw new Error(`facts.lookup ${query} needs the projections, which are not built yet`);
-        const answer = await P.deps.lookup({ offerId: P.offer.id, query, params: q, contactId: P.run.contactId, appointmentId: P.run.appointmentId, now: P.now });
+        const standIn = await P.deps.lookup?.({ offerId: P.offer.id, query, params: q, contactId: P.run.contactId, appointmentId: P.run.appointmentId, now: P.now });
+        const answer = standIn ? standIn.answer : await answerLookup({ tx: P.tx, offerId: P.offer.id, contactId: P.run.contactId, appointmentId: P.run.appointmentId, now: P.now, ...(P.deps.reads?.transcripts ? { transcripts: P.deps.reads.transcripts } : {}) }, query, q);
         if (node.into) P.run.context.vars[node.into] = (answer ?? null) as never;
         return leave(P, node, step, "next", { found: answer === undefined || answer === null ? null : query });
       }
@@ -817,8 +825,8 @@ export async function startRun(deps: Deps, a: StartArgs): Promise<string | null>
     base = `${who}:${now.getTime()}`;
   }
   let key = base;
-  const fresh = await freshSubjects(tx, a.offer.id, s);
   const settings = await tx.settings(a.offer.id);
+  const fresh = await freshSubjects(tx, { offer: a.offer, settings, subjects: s, now, event: a.eventView });
   const pre: RunContext = { event: a.eventView, subjects: a.snapshot, vars: {}, visits: {}, acted: false };
   if (def.reentry.key && !a.period) {
     const b = buildContext({ run: { id: "", startedAt: now, context: pre }, workflowKey: a.workflow.key, offer: a.offer, settings, subjects: fresh, now });
@@ -864,12 +872,12 @@ export async function dispatchEvent(deps: Deps, e: EventRow, o: { alsoOwn?: bool
   const settings = await tx.settings(e.offerId);
   const own = e.runId && !o.alsoOwn ? (await tx.run(e.runId))?.workflowId : undefined;
   const started: string[] = [];
-  const subjects = await freshSubjects(tx, e.offerId, { contactId: e.contactId, appointmentId: e.appointmentId, dealId: e.dealId });
+  const subjects = await freshSubjects(tx, { offer, settings, subjects: { contactId: e.contactId, appointmentId: e.appointmentId, dealId: e.dealId }, now, event: eventView(e) });
   for (const wf of await tx.workflows(e.offerId)) {
     if (!wf.enabled || !wf.currentVersionId || wf.id === own) continue;
     const version = (await tx.version(wf.currentVersionId))!;
     const { def } = definitionOf(version);
-    const ctx: Context = { ...snapshotOf(e.payload), ...subjects, event: eventView(e), setting: nestSettings(settings), offer: { id: offer.id, slug: offer.slug, name: offer.name, zone: offer.zone } };
+    const ctx: Context = { ...mergeSubjects(snapshotOf(e.payload), subjects), event: eventView(e), setting: nestSettings(settings), offer: { id: offer.id, slug: offer.slug, name: offer.name, zone: offer.zone } };
     const env = buildContext({ run: { id: "", startedAt: now, context: { event: {}, subjects: {}, vars: {}, visits: {}, acted: false } }, workflowKey: wf.key, offer, settings, subjects, now }).env;
     const trigger = def.nodes.find((n) => n.type === "trigger@1" && "event" in n.on && n.on.event === e.type && (!n.on.match || holds(n.on.match, ctx, env)));
     if (!trigger) continue;
@@ -1003,10 +1011,12 @@ export async function startManual(deps: Deps, x: { workflowId: string; subjects:
 }
 
 /**
- * A schedule trigger's time came: one run for the offer for that period, or, for a schedule `for` a role, one run for the
- * person given (`person`, carried as the run's `person`; the people come with a later piece, so the caller names them).
+ * A schedule trigger's time came: one run for the offer for that period, or, for a schedule `for` a role, one run for
+ * the person given (carried as the run's `person`). `period` names the period (the job runner's: the local date, or
+ * the interval's bucket); without it the moment itself is the period. Once per period per subject, by the reentry key.
+ * `firePeriod` (schedule.ts) fires one for each person with the role.
  */
-export async function fireSchedule(deps: Deps, x: { workflowId: string; triggerNode: string; at: Date; person?: Record<string, unknown> & { id: string } }): Promise<string | null> {
+export async function fireSchedule(deps: Deps, x: { workflowId: string; triggerNode: string; at: Date; person?: Record<string, unknown> & { id: string }; period?: string }): Promise<string | null> {
   const wf = await deps.tx.workflow(x.workflowId);
   if (!wf?.enabled || !wf.currentVersionId) return null;
   const version = (await deps.tx.version(wf.currentVersionId))!;
@@ -1014,9 +1024,10 @@ export async function fireSchedule(deps: Deps, x: { workflowId: string; triggerN
   const t = def.nodes.find((n) => n.id === x.triggerNode);
   if (!t || t.type !== "trigger@1" || !("schedule" in t.on)) throw new Error(`${x.triggerNode} is not a schedule trigger`);
   const forRole = t.on.schedule.for !== "offer";
-  if (forRole && !x.person) throw new Error("a schedule for each person with a role needs people, which come in a later piece");
+  if (forRole && !x.person) throw new Error("a schedule for each person with a role runs once per person: name the person (firePeriod finds them)");
   if (!forRole && x.person) throw new Error(`${x.triggerNode} is a schedule for the offer, not for a person`);
   const offer = (await deps.tx.offer(wf.offerId))!;
-  const period = x.person ? `${iso(x.at)}:${x.person.id}` : iso(x.at);
-  return startRun(deps, { offer, workflow: wf, version, triggerNode: t.id, event: null, eventView: { type: "schedule", occurred_at: iso(x.at) }, eventKey: `schedule:${period}`, subjects: { contactId: null, appointmentId: null, dealId: null }, snapshot: x.person ? { person: x.person } : {}, period });
+  const base = x.period ?? iso(x.at);
+  const period = x.person ? `${base}:${x.person.id}` : base;
+  return startRun(deps, { offer, workflow: wf, version, triggerNode: t.id, event: null, eventView: { type: "schedule", occurred_at: iso(x.at), ...(x.period ? { period: x.period } : {}) }, eventKey: `schedule:${period}`, subjects: { contactId: null, appointmentId: null, dealId: null }, snapshot: x.person ? { person: x.person } : {}, period });
 }

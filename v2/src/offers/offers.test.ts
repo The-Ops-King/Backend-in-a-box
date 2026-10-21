@@ -6,6 +6,9 @@ import { type SimResult, simulate } from "@/sim/simulate";
 import { parseTemplate, settingsIn, settingsOf } from "@/workflow/template";
 import { validateWorkflow } from "@/workflow/validate";
 import type { Edge, Workflow } from "@/workflow/definition";
+import { reportDef } from "@/reports/render";
+import { factSettingsIn } from "@/projections/facts";
+import { metricDef } from "@/reports/metrics";
 
 /**
  * Every offer's own workflows (offers/<offer>/): each validates, everything it needs from the offer exists (content,
@@ -50,6 +53,29 @@ describe.each(offers)("offer %s", (offer) => {
 
   it("has workflows", () => expect(files.length).toBeGreaterThan(0));
 
+  it("every report and metric definition validates, and every metric and word a report reads exists", () => {
+    const metrics = (reports.metrics ?? {}) as Record<string, unknown>;
+    const problems: string[] = [];
+    const named = new Set<string>();
+    for (const name of Object.keys(metrics).filter((k) => !k.startsWith("_"))) {
+      try { const m = metricDef(metrics, name); if ("rate" in m) [m.rate.num, m.rate.den].forEach((x) => named.add(x)); } catch (e) { problems.push(String((e as Error).message)); }
+    }
+    for (const [key, raw] of Object.entries(reports)) {
+      if (key.startsWith("_") || key === "metrics") continue;
+      try {
+        const d = reportDef(raw, key) as Record<string, unknown>;
+        const uses = d.kind === "wrap_up" ? [...(d.metrics as string[]), ...Object.values((d.calls ?? {}) as Record<string, string>), ...Object.values((d.by ?? {}) as Record<string, Record<string, string>>).flatMap((x) => Object.values(x))]
+          : d.kind === "leaderboard" ? [...Object.values(d.closers as Record<string, string>), ...Object.values(d.setters as Record<string, string>)] : [];
+        for (const m of uses) { named.add(m); if (!metrics[m]) problems.push(`${key} reads the metric ${m}, which reports.json does not define`); }
+        const layout = d.layout as { heading: Record<string, string>; empty: Record<string, string>; footer?: string; failed?: string; sections: { title: string; lines?: string[]; table?: [string, string][] }[] } | undefined;
+        const words = layout ? [...Object.values(layout.heading), ...Object.values(layout.empty), layout.footer ?? "", layout.failed ?? "", ...layout.sections.flatMap((x) => [x.title, ...(x.lines ?? []), ...(x.table ?? []).flat()])] : [];
+        for (const t of words) for (const e of parseTemplate(t, { extraRoots: ["report"] }).errors) problems.push(`${key}: ${e}`);
+      } catch (e) { problems.push(String((e as Error).message)); }
+    }
+    for (const m of named) if (!metrics[m]) problems.push(`a rate reads ${m}, which is not defined`);
+    expect(problems).toEqual([]);
+  });
+
   it.each([...defs.keys()])("%s validates, and the offer has everything it needs", (slug) => {
     const v = validateWorkflow(defs.get(slug));
     expect(v.problems).toEqual([]);
@@ -70,7 +96,7 @@ describe.each(offers)("offer %s", (offer) => {
       if (key.startsWith("_")) continue;
       for (const t of [c.body, c.subject ?? "", c.as ?? "", ...(c.icons ?? []), ...Object.values(c.labels ?? {})]) {
         for (const e of parseTemplate(t).errors) problems.push(`${key}: ${e}`);
-        for (const k of settingsIn(t)) if (!settings.has(k)) problems.push(`${key}: reads the setting ${k}, which settings.required.json does not list`);
+        for (const k of [...settingsIn(t), ...factSettingsIn(t).required, ...factSettingsIn(t).optional]) if (!settings.has(k)) problems.push(`${key}: reads the setting ${k}, which settings.required.json does not list`);
       }
       if (!used.has(key)) problems.push(`${key}: no workflow uses it`);
     }
@@ -84,7 +110,10 @@ describe.each(offers)("offer %s", (offer) => {
       const opt = new Set(v.requires.optionalSettings), req = new Set(v.requires.settings);
       for (const k of v.requires.content) {
         const c = content[k];
-        if (c) for (const t of [c.body, c.subject ?? "", c.as ?? "", ...(c.icons ?? []), ...Object.values(c.labels ?? {})]) { const r = settingsOf(t); r.required.forEach((x) => req.add(x)); r.optional.forEach((x) => opt.add(x)); }
+        if (c) for (const t of [c.body, c.subject ?? "", c.as ?? "", ...(c.icons ?? []), ...Object.values(c.labels ?? {})]) {
+          const r = settingsOf(t), f = factSettingsIn(t);
+          [...r.required, ...f.required].forEach((x) => req.add(x)); [...r.optional, ...f.optional].forEach((x) => opt.add(x));
+        }
       }
       req.forEach((k) => required.add(k));
       for (const k of opt) if (!req.has(k)) optionalIn.set(k, (optionalIn.get(k) ?? new Set()).add(slug));
@@ -100,7 +129,10 @@ describe.each(offers)("offer %s", (offer) => {
     it("has scenarios", () => expect(scenarios.length).toBeGreaterThan(0));
     it.each(scenarios.map((s) => [s.file, s.scenario] as const))("%s", async (_f, scenario) => {
       expect(scenario.workflow).toBe(slug);
-      const r = await simulate({ definition: defs.get(slug), scenario, content: content as never });
+      // the offers' own scenarios stand in only for what a vendor answers: never for a projection's lookup or report
+      expect(Object.keys((scenario.fixtures as { lookups?: object } | undefined)?.lookups ?? {}), "a lookup is answered by the projections, not a fixture").toEqual([]);
+      for (const k of Object.keys((scenario.fixtures as { reports?: object } | undefined)?.reports ?? {})) expect(["availability", "health_check"], `${k} is rendered from the projections, not a fixture`).toContain((reports[k] as { kind?: string } | undefined)?.kind);
+      const r = await simulate({ definition: defs.get(slug), scenario, content: content as never, reports });
       if (process.env.SIM_PRINT) console.log((await import("@/sim/simulate")).timelineText(r));
       expect(r.expectations.failures).toEqual([]);
       expect(scenario.expect?.outbox, "a scenario states its whole timeline (expect.outbox)").toBeDefined();

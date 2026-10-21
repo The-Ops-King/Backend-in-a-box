@@ -325,7 +325,7 @@
   },
   "payment_recorded.m1": {
     "channel": "crm",
-    "body": "{{vars.pay.note}} — {{event.paid_at | offer_date:medium}} · {{vars.pay.sign | optional}}${{event.amount | abs}} ({{event.kind}}) · collected {{event.running_total}} of {{event.contract_value | default:?}}",
+    "body": "{{vars.pay.note}} — {{event.paid_at | offer_date:medium}} · {{vars.pay.sign | optional}}${{event.amount | abs}} ({{payment.kind}}) · collected {{payment.running_total}} of {{payment.contract_value | default:?}}",
     "v1": "{{vars.pay.note}} — {{event.paid_at | date_company}} · {{vars.pay.sign}}${{event.amount | abs}} ({{event.kind}}) · collected {{event.running_total}} of {{event.contract_value | default:?}}"
   },
   "payment_recorded.n5": {
@@ -356,7 +356,7 @@
   },
   "payment_recorded.p_book": {
     "channel": "slack",
-    "body": "{{vars.pay.line}} ${{event.amount | abs | money}} {{event.kind | prefix:·}}. Details in the payments channel.",
+    "body": "{{vars.pay.line}} ${{event.amount | abs | money}} {{payment.kind | prefix:·}}. Details in the payments channel.",
     "as": "Payment",
     "icons": [
       ":dollar:"
@@ -364,7 +364,7 @@
   },
   "payment_recorded.p_rev": {
     "channel": "slack",
-    "body": "{{vars.pay.line}} ${{event.amount | abs | money}} {{event.kind | prefix:·}}.",
+    "body": "{{vars.pay.line}} ${{event.amount | abs | money}} {{payment.kind | prefix:·}}.",
     "as": "Payment",
     "icons": [
       ":dollar:"

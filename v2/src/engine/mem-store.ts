@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { type DailyFactRow, PROJ_TABLES, type ProjQuery, type ProjTable, type Rows, checkQuery, matches, normalizeRow } from "@/projections/tables";
 import type { EventQuery, OutboxQuery, PostQuery, RunQuery, SendCount, Store, Tx } from "./store";
 import type {
-  AlertRow, ConnectionRow, ContentRow, EventRow, Job, NewEvent, NewOutbox, NewRun, OfferRow, OutboxRow, PostRow, RunRow, StepRow,
+  AlertRow, ConnectionRow, ContentRow, EventRow, Job, NewEvent, NewOutbox, NewRun, OfferRow, OutboxRow, PostRow, RunRow, ScheduleTimer, StepRow,
   VersionRow, WorkflowRow,
 } from "./types";
 
@@ -15,12 +16,15 @@ type State = {
   offers: OfferRow[]; workflows: WorkflowRow[]; versions: VersionRow[]; settings: { offerId: string; key: string; value: unknown }[];
   content: ContentRow[]; connections: ConnectionRow[]; operators: { kind: "email" | "phone"; value: string }[];
   events: EventRow[]; runs: RunRow[]; steps: StepRow[]; outbox: OutboxRow[]; posts: PostRow[]; alerts: AlertRow[]; jobs: Job[];
+  proj: { [T in ProjTable]: Rows[T][] }; timers: ScheduleTimer[]; reportDefs: { offerId: string; kind: string; key: string; definition: unknown }[];
   seq: { event: number; step: number; outbox: number; post: number; alert: number };
 };
 
 const empty = (): State => ({
   offers: [], workflows: [], versions: [], settings: [], content: [], connections: [], operators: [], events: [], runs: [], steps: [],
-  outbox: [], posts: [], alerts: [], jobs: [], seq: { event: 0, step: 0, outbox: 0, post: 0, alert: 0 },
+  outbox: [], posts: [], alerts: [], jobs: [], timers: [], reportDefs: [],
+  proj: { contacts_index: [], appointments: [], calls: [], deals: [], payments: [], people: [], daily_facts: [] },
+  seq: { event: 0, step: 0, outbox: 0, post: 0, alert: 0 },
 });
 
 /** What a jsonb column gives back: a copy, through JSON, so a caller never shares an object with the store. */
@@ -236,6 +240,44 @@ class MemTx implements Tx {
   async alerts(q: { offerId?: string; open?: boolean }) {
     return this.s.alerts.filter((a) => (!q.offerId || a.offerId === q.offerId) && (q.open === undefined || (a.resolvedAt === null) === q.open)).map(copy);
   }
+  async reportDefinition(offerId: string, kind: string, key: string) { const r = this.s.reportDefs.find((x) => x.offerId === offerId && x.kind === kind && x.key === key); return r && J(r.definition); }
+  async reportDefinitions(offerId: string, kind: string) { return Object.fromEntries(this.s.reportDefs.filter((x) => x.offerId === offerId && x.kind === kind).map((x) => [x.key, J(x.definition)])); }
+  async setReportDefinition(offerId: string, kind: string, key: string, definition: unknown) {
+    const r = this.s.reportDefs.find((x) => x.offerId === offerId && x.kind === kind && x.key === key);
+    if (r) r.definition = J(definition); else this.s.reportDefs.push({ offerId, kind, key, definition: J(definition) });
+  }
+  async projGet<T extends ProjTable>(table: T, offerId: string, id: string) {
+    const r = (this.s.proj[table] as Rows[T][]).find((x) => x.offerId === offerId && x.id === id);
+    return r && normalizeRow(table, r as unknown as Record<string, unknown>);
+  }
+  async projFind<T extends ProjTable>(table: T, offerId: string, q: ProjQuery = {}) {
+    checkQuery(table, q);
+    return (this.s.proj[table] as Rows[T][]).filter((x) => x.offerId === offerId && matches(x as unknown as Record<string, unknown>, q))
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).map((r) => normalizeRow(table, r as unknown as Record<string, unknown>));
+  }
+  async projPut<T extends ProjTable>(table: T, row: Rows[T]) {
+    const rows = this.s.proj[table] as Rows[T][];
+    const i = rows.findIndex((x) => x.offerId === row.offerId && x.id === row.id);
+    const copyRow = normalizeRow(table, row as unknown as Record<string, unknown>);
+    if (i >= 0) rows[i] = copyRow; else rows.push(copyRow);
+  }
+  async projInc(row: DailyFactRow) {
+    const rows = this.s.proj.daily_facts;
+    const at = rows.find((x) => x.offerId === row.offerId && x.id === row.id);
+    if (at) { at.n += row.n; at.amount = Math.round((at.amount + row.amount) * 100) / 100; } else rows.push({ ...row });
+  }
+  async projClear(offerId: string) { for (const t of PROJ_TABLES) (this.s.proj as Record<string, { offerId: string }[]>)[t] = this.s.proj[t].filter((x) => x.offerId !== offerId) as never; }
+
+  async scheduleTimers(q: { offerId?: string; workflowId?: string; dueBy?: Date }) {
+    return this.s.timers.filter((t) => (!q.offerId || t.offerId === q.offerId) && (!q.workflowId || t.workflowId === q.workflowId) && (!q.dueBy || t.nextAt.getTime() <= q.dueBy.getTime()))
+      .sort((a, b) => a.nextAt.getTime() - b.nextAt.getTime() || a.node.localeCompare(b.node)).map(copy);
+  }
+  async setScheduleTimer(t: ScheduleTimer) {
+    const i = this.s.timers.findIndex((x) => x.workflowId === t.workflowId && x.node === t.node);
+    if (i >= 0) this.s.timers[i] = copy(t); else this.s.timers.push(copy(t));
+  }
+  async deleteScheduleTimer(workflowId: string, node: string) { this.s.timers = this.s.timers.filter((x) => !(x.workflowId === workflowId && x.node === node)); }
+
   async savepoint<T>(fn: () => Promise<T>): Promise<T> {
     const before = structuredClone(this.s);
     try { return await fn(); } catch (e) { Object.assign(this.s, before); throw e; }

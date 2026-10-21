@@ -1,6 +1,6 @@
 {
   "name": "the wrap-up is posted",
-  "description": "From the trace (live, version 2): Monday 8am, last week's numbers posted as the report renders them.",
+  "description": "From the trace (live, version 2): Monday 8am, last week's numbers posted as the report renders them: two calls due (one a no-show, one cancelled, both booked the week before), two dials (the facts of that week, from the history).",
   "workflow": "weekly-wrap-up",
   "start": "2026-10-19T12:00:00Z",
   "offer": {
@@ -63,22 +63,24 @@
       "setter_result.act": true,
       "calls.conversation_gap_min": 15,
       "crm.stage_setter_dq": "ST-SETTER-DQ",
-      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+      "crm.stage_setter_not_interested": "ST-SETTER-NI",
+      "payments.deposit_products": [],
+      "payments.deposit_by_name": true,
+      "payments.contract_value": 2999,
+      "payments.cleared_tolerance": 0.01,
+      "people.closer_from": [
+        "closer_card",
+        "contact_owner"
+      ],
+      "people.setter_from": [
+        "field:setter"
+      ],
+      "setter_result.set_within_min": 30
     }
   },
   "delivery": "live",
   "crmWrites": "real",
   "contacts": [],
-  "fixtures": {
-    "reports": {
-      "reports.weekly_wrap_up": {
-        "body": "📊 *Last week, Oct 12 to Oct 18*\n\n```\nCalls due   2\nNo-shows    1\nShow rate  0%\nDials       2\n```\n\n_From GHL and the engine, read 8:00 AM EDT_",
-        "empty": false,
-        "numbers": {},
-        "period": {}
-      }
-    }
-  },
   "steps": [
     {
       "at": "+0m",
@@ -94,5 +96,103 @@
     "ends": [
       "done"
     ]
-  }
+  },
+  "history": [
+    {
+      "at": "-10d",
+      "type": "appointment.booked",
+      "contact": "c1",
+      "appointment": "a1",
+      "payload": {
+        "appointment": {
+          "starts_at": "2026-10-13T15:00:00Z",
+          "term": {
+            "category": "closing"
+          },
+          "status": "booked",
+          "closer": {
+            "name": "Luis Ortega"
+          }
+        }
+      }
+    },
+    {
+      "at": "-10d",
+      "type": "appointment.booked",
+      "contact": "c2",
+      "appointment": "a2",
+      "payload": {
+        "appointment": {
+          "starts_at": "2026-10-15T15:00:00Z",
+          "term": {
+            "category": "closing"
+          },
+          "status": "booked",
+          "closer": {
+            "name": "Luis Ortega"
+          }
+        }
+      }
+    },
+    {
+      "at": "-6d",
+      "type": "call.logged",
+      "contact": "c1",
+      "payload": {
+        "recording_id": "r1",
+        "duration_sec": 30,
+        "recording": {
+          "id": "r1",
+          "kind": "phone",
+          "status": "no_answer",
+          "direction": "outbound",
+          "started_at": "2026-10-13T14:00:00Z",
+          "caller": {
+            "name": "Mia Chen"
+          }
+        }
+      }
+    },
+    {
+      "at": "-5d",
+      "type": "call.logged",
+      "contact": "c2",
+      "payload": {
+        "recording_id": "r2",
+        "duration_sec": 30,
+        "recording": {
+          "id": "r2",
+          "kind": "phone",
+          "status": "no_answer",
+          "direction": "outbound",
+          "started_at": "2026-10-14T14:00:00Z",
+          "caller": {
+            "name": "Mia Chen"
+          }
+        }
+      }
+    },
+    {
+      "at": "-5d",
+      "type": "appointment.outcome",
+      "contact": "c1",
+      "appointment": "a1",
+      "payload": {
+        "outcome": "noshow",
+        "outcome_source": "disposition"
+      }
+    },
+    {
+      "at": "-4d",
+      "type": "appointment.status_changed",
+      "contact": "c2",
+      "appointment": "a2",
+      "payload": {
+        "status": {
+          "from": "booked",
+          "to": "cancelled"
+        }
+      }
+    }
+  ]
 }

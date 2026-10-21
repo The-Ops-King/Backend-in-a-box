@@ -63,7 +63,19 @@
       "setter_result.act": true,
       "calls.conversation_gap_min": 15,
       "crm.stage_setter_dq": "ST-SETTER-DQ",
-      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+      "crm.stage_setter_not_interested": "ST-SETTER-NI",
+      "payments.deposit_products": [],
+      "payments.deposit_by_name": true,
+      "payments.contract_value": 2999,
+      "payments.cleared_tolerance": 0.01,
+      "people.closer_from": [
+        "closer_card",
+        "contact_owner"
+      ],
+      "people.setter_from": [
+        "field:setter"
+      ],
+      "setter_result.set_within_min": 30
     }
   },
   "delivery": "live",
@@ -74,6 +86,101 @@
       "phone": "+15550100001",
       "email": "ana@example.com",
       "timezone": "America/New_York"
+    }
+  ],
+  "people": [
+    {
+      "id": "u-luis-ortega",
+      "role": "closer",
+      "name": "Luis Ortega",
+      "ghl_user_id": "U-GHL-LUIS"
+    }
+  ],
+  "history": [
+    {
+      "at": "-3d",
+      "type": "deal.opened",
+      "contact": "c1",
+      "deal": "d1",
+      "payload": {}
+    },
+    {
+      "at": "-2d",
+      "type": "appointment.booked",
+      "contact": "c1",
+      "appointment": "a1",
+      "payload": {
+        "appointment": {
+          "starts_at": "2026-10-24T14:00:00Z",
+          "term": {
+            "category": "closing"
+          },
+          "status": "booked"
+        }
+      }
+    },
+    {
+      "at": "-2d",
+      "type": "deal.won",
+      "contact": "c1",
+      "deal": "d1",
+      "payload": {}
+    },
+    {
+      "at": "-1d",
+      "type": "crm.deal_written",
+      "contact": "c1",
+      "payload": {
+        "deal_id": "opp-closer-1",
+        "pipeline": "PIPE-CLOSER",
+        "stage": "ST-CLOSER-SCHEDULED",
+        "status": "open",
+        "owner": "U-GHL-LUIS"
+      }
+    },
+    {
+      "at": "-1d",
+      "type": "crm.record_written",
+      "contact": "c1",
+      "payload": {
+        "object": "custom_objects.sales_call",
+        "key": "cal-123",
+        "record_id": "rec-cal-123"
+      }
+    },
+    {
+      "at": "-1d",
+      "type": "recording.received",
+      "contact": "c1",
+      "payload": {
+        "recording_id": "r1",
+        "recording": {
+          "id": "r1",
+          "provider": "fathom",
+          "started_at": "2026-10-25T14:00:00Z"
+        }
+      }
+    },
+    {
+      "at": "-1d",
+      "type": "payment.received",
+      "contact": "c1",
+      "payload": {
+        "payment_id": "pay-prior-c1",
+        "amount": 1500,
+        "product_name": "Program",
+        "paid_at": "2026-10-25T14:00:00Z"
+      }
+    },
+    {
+      "at": "-1h",
+      "type": "agreement.signed",
+      "contact": "c1",
+      "payload": {
+        "agreement": {
+          "name": "Purchase agreement"
+        }
+      }
     }
   ],
   "steps": [
@@ -90,32 +197,10 @@
           "phone": "+15550100001",
           "email": "ana@example.com",
           "timezone": "America/New_York",
-          "closer": {
-            "name": "Luis Ortega"
-          },
-          "agreement_signed": true,
-          "latest_appointment_id": "a1",
-          "latest_recording_id": "r1",
-          "cards": {
-            "closer": {
-              "id": "opp-closer-1",
-              "owner": {
-                "name": "Luis Ortega"
-              }
-            }
-          },
           "fields": {
             "setter": "Mia",
             "revenue_generated": "2999"
-          },
-          "records": {
-            "sales_call": {
-              "key": "cal-123"
-            }
           }
-        },
-        "deal": {
-          "status": "won"
         },
         "kind": "paid_in_full",
         "amount": 1499,

@@ -2,6 +2,8 @@ import { PRIMITIVES } from "@/workflow/primitives";
 import { OUTBOUND } from "@/workflow/primitives/spec";
 import { type Requires, validateWorkflow, type Problem } from "@/workflow/validate";
 import type { Tx } from "./store";
+import { FACT_SETTINGS, factSettingsIn } from "@/projections/facts";
+import { armSchedules } from "./schedule";
 import type { CrmWrites, Delivery, VersionRow, WorkflowRow } from "./types";
 
 /**
@@ -60,6 +62,8 @@ export async function saveVersion(tx: Tx, x: { offerId: string; definition: unkn
     currentVersionId: version.id, name: v.workflow.name,
     ...(backToSandbox ? { delivery: "sandbox" as Delivery, deliverySetBy: "engine", deliverySetAt: x.now, deliveryNote: `version ${version.version} changed a step that reaches outside` } : {}),
   });
+  // a new version of an enabled workflow brings its own schedule triggers' timers
+  if (wf.enabled) await armSchedules(tx, wf.id, x.now);
   return { ok: true, workflow: (await tx.workflow(wf.id))!, version, requires: v.requires, backToSandbox };
 }
 
@@ -73,24 +77,39 @@ export async function missingFor(tx: Tx, wf: WorkflowRow): Promise<{ settings: s
   const content = new Set(await tx.contentKeys(wf.offerId));
   const others = new Set((await tx.workflows(wf.offerId)).map((w) => w.key));
   const empty = (x: unknown) => x === undefined || x === null || x === "";
+  // the words a workflow sends may read a worked-out fact too: its rule's settings are needed as much as the steps' are
+  const needed = new Set(v.requires.settings);
+  for (const key of v.requires.content) {
+    const c = await tx.content(wf.offerId, key);
+    if (c) for (const t of [c.body, c.subject ?? "", c.extras?.as ?? ""]) factSettingsIn(t).required.forEach((k) => needed.add(k));
+  }
   return {
-    settings: v.requires.settings.filter((k) => empty(settings[k])),
+    // a rule's setting set to something that is not its type is as good as unset: the fact would not be there
+    settings: [...needed].sort().filter((k) => empty(settings[k]) || (k in FACT_SETTINGS && !FACT_SETTINGS[k as keyof typeof FACT_SETTINGS].type.safeParse(settings[k]).success)),
     content: v.requires.content.filter((k) => !content.has(k)),
     workflows: v.requires.workflows.filter((k) => !others.has(k)),
   };
 }
 
-/** Turns a workflow on, refused while a setting it reads has no value or content it names is not written. */
-export async function enableWorkflow(tx: Tx, workflowId: string): Promise<{ ok: true } | { ok: false; missing: { settings: string[]; content: string[]; workflows: string[] } }> {
+/**
+ * Turns a workflow on, refused while a setting it reads (or a rule a fact it reads rests on) has no value or content it
+ * names is not written. Its schedule triggers' timers are set from `now`.
+ */
+export async function enableWorkflow(tx: Tx, workflowId: string, now: Date = new Date()): Promise<{ ok: true } | { ok: false; missing: { settings: string[]; content: string[]; workflows: string[] } }> {
   const wf = await tx.workflow(workflowId);
   if (!wf) throw new Error("no such workflow");
   const missing = await missingFor(tx, wf);
   if (missing.settings.length || missing.content.length || missing.workflows.length) return { ok: false, missing };
   await tx.updateWorkflow(wf.id, { enabled: true });
+  await armSchedules(tx, wf.id, now);
   return { ok: true };
 }
 
-export async function disableWorkflow(tx: Tx, workflowId: string): Promise<void> { await tx.updateWorkflow(workflowId, { enabled: false }); }
+/** Turns a workflow off; its schedule timers go with it. */
+export async function disableWorkflow(tx: Tx, workflowId: string): Promise<void> {
+  await tx.updateWorkflow(workflowId, { enabled: false });
+  await armSchedules(tx, workflowId, new Date());
+}
 
 /**
  * Sets one workflow's delivery state. Going live needs `confirm` to repeat "<offer slug>/<workflow id>" exactly and a

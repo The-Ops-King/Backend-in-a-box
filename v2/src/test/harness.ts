@@ -33,18 +33,20 @@ export type Harness = Awaited<ReturnType<typeof harness>>;
 export async function harness(kind: StoreKind, o: {
   workflows: unknown[]; start?: string; zone?: string; settings?: Record<string, unknown>; content?: ContentSeed;
   contacts?: CrmContact[]; operator?: { emails?: string[]; phones?: string[] }; delivery?: Delivery; crmWrites?: CrmWrites;
+  /** Report and metric definitions (an offer's reports.json). */
+  reports?: Record<string, unknown>; reads?: import("@/engine/reads").VendorReads;
 }) {
   const store = await makeStore(kind);
   const clock = new FakeClock(o.start ?? "2026-10-26T14:00:00Z");
   const fp = new FakePorts(clock.now);
   for (const c of o.contacts ?? [{ id: "c1", phone: "+15550101001", email: "ana@example.com", timezone: "America/New_York", dnd: {} }]) fp.contacts.set(c.id, c);
-  const offerId = await setupOffer(store, { slug: "acme", zone: o.zone ?? "America/Denver", settings: o.settings ?? {}, content: o.content ?? {}, operator: o.operator ?? {} });
+  const offerId = await setupOffer(store, { slug: "acme", zone: o.zone ?? "America/Denver", settings: o.settings ?? {}, content: o.content ?? {}, operator: o.operator ?? {}, ...(o.reports ? { reports: o.reports } : {}) });
   const wfs: Record<string, WorkflowRow> = {};
   for (const w of o.workflows) {
     const row = await install(store, offerId, w, { now: clock.now(), delivery: o.delivery ?? "live", crmWrites: o.crmWrites ?? "real" });
     wfs[row.key] = row;
   }
-  const engine = new Engine({ store, ports: fp.ports(), now: clock.now, random: () => 0.5 });
+  const engine = new Engine({ store, ports: fp.ports(), now: clock.now, random: () => 0.5, ...(o.reads ? { reads: o.reads } : {}) });
   let n = 0;
   const h = {
     kind, store, clock, fp, engine, offerId, wfs,

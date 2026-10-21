@@ -3,47 +3,50 @@ import type { Context } from "@/workflow/template";
 import type { Tx } from "./store";
 import { contactZoneOf } from "./time";
 import type { EventRow, OfferRow, RunRow } from "./types";
+import { eventRefs, readSubjects } from "@/projections/derived";
+import { DERIVED_KEYS } from "@/projections/projector";
 
 /**
- * What a step reads. The contact, appointment and deal are the facts about them folded in order, read fresh each time
- * a run looks (so a cancellation or a moved call is seen); the rest of the starting event's subjects (a payment, a
- * recording) are the snapshot it carried. Until the projections exist, "fresh" means the event log, merged.
+ * What a step reads. The contact, appointment, deal, payment, recording and agreement come from the projections, read
+ * fresh each time a run looks (so a cancellation, a moved call or a payment is seen), with the facts the platform works
+ * out from them (src/projections/derived.ts). The starting event's own snapshot of a root is kept only where no
+ * projection has it (a person on a schedule run, a recording nobody could be matched to).
  */
 
-/** Context roots that are a subject with an id of its own, re-read from the facts. */
-export const FOLDED = ["contact", "appointment", "deal"] as const;
-/** Roots an event may carry as a snapshot only. */
+/** Roots an event may carry as a snapshot; the projections' copy, when there is one, is what a step reads. */
 export const SNAPSHOT = ["payment", "recording", "agreement", "person"] as const;
 
 export type Subjects = { contactId: string | null; appointmentId: string | null; dealId: string | null };
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** The current state of each subject: every fact about it, oldest first, each one's snapshot of it merged over the last. */
-export async function freshSubjects(tx: Tx, offerId: string, s: Subjects): Promise<Record<string, Record<string, unknown>>> {
-  const out: Record<string, Record<string, unknown>> = {};
-  const fold = async (root: (typeof FOLDED)[number], q: { contactId?: string; appointmentId?: string; dealId?: string }) => {
-    const rows = await tx.events({ offerId, ...q });
-    const merged: Record<string, unknown> = {};
-    for (const e of rows) if (isObj(e.payload[root])) Object.assign(merged, e.payload[root]);
-    out[root] = merged;
-  };
-  if (s.contactId) await fold("contact", { contactId: s.contactId });
-  if (s.appointmentId) await fold("appointment", { appointmentId: s.appointmentId });
-  if (s.dealId) await fold("deal", { dealId: s.dealId });
-  if (s.contactId) out.contact = { id: s.contactId, ...out.contact };
-  if (s.appointmentId) out.appointment = { id: s.appointmentId, ...out.appointment };
-  if (s.dealId) out.deal = { id: s.dealId, ...out.deal };
+/** The current state of each subject, from the projections. `event` is the run's starting event (it names a payment or a recording). */
+export async function freshSubjects(tx: Tx, x: { offer: OfferRow; settings: Record<string, unknown>; subjects: Subjects; now: Date; event?: Record<string, unknown> }): Promise<Record<string, Record<string, unknown>>> {
+  const refs = { ...x.subjects, ...eventRefs(x.event) };
+  const read = await readSubjects(tx, { offer: x.offer, settings: x.settings, now: x.now, refs });
+  return Object.fromEntries(Object.entries(read).filter(([, v]) => v !== undefined)) as Record<string, Record<string, unknown>>;
+}
+
+/**
+ * A snapshot root the starting event carried, kept under the projection's copy of it (what the projection has wins), its
+ * worked-out facts taken out: those are the projection's to say, or not there.
+ */
+export function mergeSubjects(snapshot: Record<string, unknown>, projected: Record<string, Record<string, unknown>>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...snapshot };
+  for (const [root, v] of Object.entries(projected)) out[root] = isObj(out[root]) && (SNAPSHOT as readonly string[]).includes(root) ? { ...stripDerived(out[root] as Record<string, unknown>, derivedOf(root)), ...v } : v;
   return out;
 }
 
 /** The snapshot roots an event carries, for a run it starts. */
 export const snapshotOf = (payload: Record<string, unknown>): Record<string, unknown> =>
-  Object.fromEntries(SNAPSHOT.filter((r) => isObj(payload[r])).map((r) => [r, payload[r]]));
+  Object.fromEntries(SNAPSHOT.filter((r) => isObj(payload[r])).map((r) => [r, stripDerived(payload[r] as Record<string, unknown>, derivedOf(r))]));
+const stripDerived = (o: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => !keys.includes(k)));
+const derivedOf = (root: string): readonly string[] => (DERIVED_KEYS as Record<string, readonly string[]>)[root] ?? [];
 
 /** The event as a step reads it: its payload, with its type and when it happened. */
-export const eventView = (e: Pick<EventRow, "type" | "occurredAt" | "payload" | "source">): Record<string, unknown> =>
-  ({ ...e.payload, type: e.type, occurred_at: e.occurredAt.toISOString(), source: e.source });
+/** The event as a step reads it: its payload, with its type, when it happened, and the fact's own id in the log (`fact_id`). */
+export const eventView = (e: Pick<EventRow, "type" | "occurredAt" | "payload" | "source"> & { id?: number }): Record<string, unknown> =>
+  ({ ...e.payload, type: e.type, occurred_at: e.occurredAt.toISOString(), source: e.source, ...(e.id !== undefined ? { fact_id: e.id } : {}) });
 
 export type Built = { ctx: Context; env: RenderEnv };
 
@@ -54,8 +57,7 @@ export function buildContext(x: {
 }): Built {
   const c = x.run.context;
   const ctx: Context = {
-    ...c.subjects,
-    ...x.subjects,
+    ...mergeSubjects(c.subjects, x.subjects),
     event: c.event,
     vars: c.vars,
     ...(c.reply ? { reply: c.reply } : {}),

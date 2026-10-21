@@ -1,11 +1,410 @@
 {
-  "_note": "UNSIGNED draft. The report definitions Hair's report@1 steps name, by key. The wrap-up layouts are Hair's own v1 definitions, copied as they are (their {{ }} are the report renderer's, not v2 content); the others say what v1 computed in code.",
+  "_note": "UNSIGNED draft. The report definitions Hair's report@1 steps name, by key, and under `metrics` the metric definitions they read (src/reports/). The wrap-up layouts are Hair's own v1 definitions, their {{ }} in v2's template words over `report`; the leaderboard and the end-of-day list say what v1 computed in code; availability and the health sweep are read from vendors.",
+  "metrics": {
+    "_note": "UNSIGNED draft. Hair's metrics, as data over the projections (src/reports/metrics.ts). Each cites the v1 metric-registry entry whose meaning it keeps; `v2` says where v1 read GHL live and v2 reads the fact log instead.",
+    "leads": {
+      "label": "Leads",
+      "unit": "count",
+      "from": "daily_facts",
+      "fact": "leads",
+      "agg": "count",
+      "what": "people who came in as leads (lead.created), by the day they came in, split by their source",
+      "v1": "metric-registry leads: GHL contacts by the date GHL added them (GHL live); v2 counts the lead.created facts"
+    },
+    "mqls": {
+      "label": "MQLs",
+      "unit": "count",
+      "from": "contacts_index",
+      "time": "leadAt",
+      "agg": "count",
+      "where": [
+        {
+          "col": "attrs.fields",
+          "field": {
+            "setting": "leads.qualifying_field"
+          },
+          "op": "in",
+          "value": {
+            "setting": "leads.mql_answers"
+          }
+        }
+      ],
+      "dims": {
+        "source": "attrs.source"
+      },
+      "what": "leads of the period whose answer to the offer's qualifying question (the contact field leads.qualifying_field names) is one of its MQL answers (leads.mql_answers); not there while either is unset",
+      "v1": "metric-registry mqls: leads whose qualifying answer is one of the offer's MQL answers (GHL live)"
+    },
+    "booked": {
+      "label": "Bookings made",
+      "unit": "count",
+      "from": "daily_facts",
+      "fact": "booked",
+      "agg": "count",
+      "what": "bookings made in the period (the act of booking), any call type",
+      "v1": "metric-registry booked: bookings by booked_at, by the closer booked with, from the booking source"
+    },
+    "booked_self": {
+      "label": "Self-booked",
+      "unit": "count",
+      "from": "daily_facts",
+      "fact": "booked_self",
+      "agg": "count",
+      "what": "bookings made in the period that the person booked themselves",
+      "v1": "metric-registry booked_self"
+    },
+    "booked_set": {
+      "label": "Setter-booked",
+      "unit": "count",
+      "from": "daily_facts",
+      "fact": "booked_set",
+      "agg": "count",
+      "what": "bookings made in the period that a setter booked, by that setter",
+      "v1": "metric-registry booked_set (the leaderboard's sets)"
+    },
+    "reschedules": {
+      "label": "Reschedules",
+      "unit": "count",
+      "from": "daily_facts",
+      "fact": "reschedules",
+      "agg": "count",
+      "what": "times a booked call was moved, by when it was moved",
+      "v1": "metric-registry reschedules"
+    },
+    "dials": {
+      "label": "Dials",
+      "unit": "count",
+      "from": "daily_facts",
+      "fact": "dials",
+      "agg": "count",
+      "what": "outbound dialer calls made in the period, by who dialled",
+      "v1": "metric-registry dials (setter metrics: outbound dialer calls)"
+    },
+    "connected": {
+      "label": "Connected calls",
+      "unit": "count",
+      "from": "calls",
+      "time": "startedAt",
+      "agg": "count",
+      "where": [
+        {
+          "col": "source",
+          "op": "eq",
+          "value": "dialer"
+        },
+        {
+          "col": "direction",
+          "op": "ne",
+          "value": "inbound"
+        },
+        {
+          "col": "connected",
+          "op": "is_true"
+        },
+        {
+          "col": "durationSec",
+          "op": "gte",
+          "value": {
+            "setting": "calls.reached_seconds"
+          }
+        }
+      ],
+      "dims": {
+        "setter": "repKey"
+      },
+      "what": "outbound dials the CRM marked connected and at least the offer's reached-seconds long (calls.reached_seconds); not there while it is unset",
+      "v1": "metric-registry connected: connected and at least companies.reached_seconds long"
+    },
+    "speed_to_lead": {
+      "label": "Speed to lead",
+      "unit": "minutes",
+      "from": "contacts_index",
+      "time": "leadAt",
+      "agg": "median",
+      "of": "speedToLeadMin",
+      "where": [
+        {
+          "col": "speedToLeadMin",
+          "op": "not_null"
+        }
+      ],
+      "what": "median minutes from a lead arriving to the first outbound dial (leads never dialled are not counted)",
+      "v1": "metric-registry speed_to_lead (setter metrics stl_median_min)"
+    },
+    "closes": {
+      "label": "Closes",
+      "unit": "count",
+      "from": "daily_facts",
+      "fact": "closes",
+      "agg": "count",
+      "what": "deals won in the period (deal.won), credited to the closer of the person's latest call",
+      "v1": "metric-registry closes: won Closer-pipeline cards in GHL by when won, credited to the closer of their latest call (GHL live); v2 counts the ledger's deal.won facts"
+    },
+    "revenue": {
+      "label": "Revenue",
+      "unit": "money",
+      "from": "deals",
+      "time": "wonAt",
+      "agg": "sum",
+      "of": "value",
+      "ofDefault": {
+        "setting": "payments.contract_value"
+      },
+      "where": [
+        {
+          "col": "kind",
+          "op": "eq",
+          "value": "ledger"
+        },
+        {
+          "col": "status",
+          "op": "eq",
+          "value": "won"
+        }
+      ],
+      "what": "value of the deals won in the period (a deal with no value of its own is worth the program's price, payments.contract_value)",
+      "v1": "metric-registry revenue: value of the won Closer-pipeline cards in GHL (GHL live)"
+    },
+    "cash_collected": {
+      "label": "Cash collected",
+      "unit": "money",
+      "from": "daily_facts",
+      "fact": "cash_collected",
+      "agg": "sum",
+      "what": "payments in, refunds out, by when they happened, credited to the closer of the person's latest call",
+      "v1": "metric-registry cash_collected: GHL Payment records, refunds out, credited to the record's closer (GHL live); v2 reads the payment facts"
+    },
+    "cash_gross": {
+      "label": "Payments",
+      "unit": "money",
+      "from": "daily_facts",
+      "fact": "cash_gross",
+      "agg": "sum",
+      "what": "succeeded payments in the period, before refunds",
+      "v1": "metric-registry cash_gross"
+    },
+    "refunds": {
+      "label": "Refunds",
+      "unit": "money",
+      "from": "daily_facts",
+      "fact": "refunds",
+      "agg": "sum",
+      "what": "refunds in the period",
+      "v1": "metric-registry refunds"
+    },
+    "calls_due": {
+      "label": "Calls booked",
+      "unit": "count",
+      "from": "appointments",
+      "time": "startsAt",
+      "agg": "count",
+      "where": [
+        {
+          "col": "kind",
+          "op": "eq",
+          "value": "closing"
+        },
+        {
+          "col": "startsAt",
+          "op": "before_now"
+        },
+        {
+          "col": "outcome",
+          "op": "ne",
+          "value": "rescheduled"
+        }
+      ],
+      "dims": {
+        "closer": "closerKey",
+        "setter": "setBy",
+        "source": "attrs.source"
+      },
+      "what": "closing calls whose time fell in the period and has passed, cancellations included, a slot rescheduled on the call not",
+      "v1": "metric-registry calls_booked_due: Sales Call records whose call time fell in the period and passed (GHL live)"
+    },
+    "shows": {
+      "label": "Shows",
+      "unit": "count",
+      "from": "appointments",
+      "time": "startsAt",
+      "agg": "count",
+      "where": [
+        {
+          "col": "kind",
+          "op": "eq",
+          "value": "closing"
+        },
+        {
+          "col": "startsAt",
+          "op": "before_now"
+        },
+        {
+          "col": "outcome",
+          "op": "eq",
+          "value": "showed"
+        }
+      ],
+      "dims": {
+        "closer": "closerKey",
+        "setter": "setBy",
+        "source": "attrs.source"
+      },
+      "what": "those calls whose outcome is showed",
+      "v1": "metric-registry shows (GHL live)"
+    },
+    "no_shows": {
+      "label": "No-shows",
+      "unit": "count",
+      "from": "appointments",
+      "time": "startsAt",
+      "agg": "count",
+      "where": [
+        {
+          "col": "kind",
+          "op": "eq",
+          "value": "closing"
+        },
+        {
+          "col": "startsAt",
+          "op": "before_now"
+        },
+        {
+          "col": "outcome",
+          "op": "eq",
+          "value": "noshow"
+        }
+      ],
+      "dims": {
+        "closer": "closerKey",
+        "setter": "setBy",
+        "source": "attrs.source"
+      },
+      "what": "those calls whose outcome is no-show",
+      "v1": "metric-registry no_shows (GHL live)"
+    },
+    "cancellations": {
+      "label": "Cancellations",
+      "unit": "count",
+      "from": "appointments",
+      "time": "startsAt",
+      "agg": "count",
+      "where": [
+        {
+          "col": "kind",
+          "op": "eq",
+          "value": "closing"
+        },
+        {
+          "col": "startsAt",
+          "op": "before_now"
+        },
+        {
+          "col": "status",
+          "op": "eq",
+          "value": "cancelled"
+        }
+      ],
+      "dims": {
+        "closer": "closerKey",
+        "setter": "setBy",
+        "source": "attrs.source"
+      },
+      "what": "those calls that were cancelled",
+      "v1": "metric-registry cancellations (GHL live)"
+    },
+    "calls_missing": {
+      "label": "Calls with no outcome",
+      "unit": "count",
+      "from": "appointments",
+      "time": "startsAt",
+      "agg": "count",
+      "where": [
+        {
+          "col": "kind",
+          "op": "eq",
+          "value": "closing"
+        },
+        {
+          "col": "startsAt",
+          "op": "before_now"
+        },
+        {
+          "col": "outcome",
+          "op": "is_null"
+        },
+        {
+          "col": "status",
+          "op": "ne",
+          "value": "cancelled"
+        }
+      ],
+      "dims": {
+        "closer": "closerKey",
+        "setter": "setBy",
+        "source": "attrs.source"
+      },
+      "what": "those calls with no outcome filed, not cancelled",
+      "v1": "metric-registry show_rate's breakdown: missing"
+    },
+    "calls_rescheduled": {
+      "label": "Rescheduled on the call",
+      "unit": "count",
+      "from": "appointments",
+      "time": "startsAt",
+      "agg": "count",
+      "where": [
+        {
+          "col": "kind",
+          "op": "eq",
+          "value": "closing"
+        },
+        {
+          "col": "startsAt",
+          "op": "before_now"
+        },
+        {
+          "col": "outcome",
+          "op": "eq",
+          "value": "rescheduled"
+        }
+      ],
+      "dims": {
+        "closer": "closerKey",
+        "setter": "setBy",
+        "source": "attrs.source"
+      },
+      "what": "slots rescheduled on the call (listed, not counted as due)",
+      "v1": "metric-registry show_rate's breakdown: rescheduled"
+    },
+    "show_rate": {
+      "label": "Show rate",
+      "unit": "rate",
+      "rate": {
+        "num": "shows",
+        "den": "calls_due"
+      },
+      "what": "shows ÷ calls booked whose time has passed",
+      "v1": "metric-registry show_rate"
+    },
+    "close_rate": {
+      "label": "Close rate",
+      "unit": "rate",
+      "rate": {
+        "num": "closes",
+        "den": "shows"
+      },
+      "what": "closes ÷ shows in the same period",
+      "v1": "metric-registry close_rate"
+    }
+  },
   "reports.availability": {
     "kind": "availability",
-    "v1_note": "v1 counted bookable slots in code (availability.ts) and raised a low-availability alert (H7); in a run about a booking, only that booking's calendar is read"
+    "v1": "v1 counted bookable slots in code (availability.ts) and raised a low-availability alert (H7); in a run about a booking, only that booking's calendar is read; a vendor read (the calendars), answered by the scheduling connector"
   },
   "reports.daily_wrap_up": {
-    "kind": "daily",
+    "kind": "wrap_up",
+    "period": "daily",
+    "v1": "Hair's own v1 report step (its layout copied, its expressions in v2's template words: GAP 10's named dates, `optional` for v1's default:\"\"); the numbers are v1's WRAPUP_METRICS less deposits, as Hair's copy had them",
     "metrics": [
       "leads",
       "mqls",
@@ -22,11 +421,41 @@
       "cash_gross",
       "refunds"
     ],
+    "calls": {
+      "booked": "calls_due",
+      "showed": "shows",
+      "noshow": "no_shows",
+      "cancelled": "cancellations",
+      "missing": "calls_missing",
+      "rescheduled": "calls_rescheduled"
+    },
+    "rates": {
+      "show_rate": {
+        "num": "calls.showed",
+        "den": "calls.booked"
+      },
+      "close_rate": {
+        "num": "n.closes",
+        "den": "calls.showed",
+        "blankWhenZero": true
+      }
+    },
     "breakdowns": [],
-    "sections": {},
+    "by": {
+      "closer": {
+        "showed": "shows",
+        "deals_won": "closes",
+        "revenue": "revenue"
+      },
+      "setter": {
+        "dials": "dials",
+        "calls_set": "booked_set"
+      }
+    },
+    "said": true,
     "layout": {
       "heading": {
-        "daily": "📊 *Today, {{report.start | date:\"ccc LLL d\"}}*"
+        "daily": "📊 *Today, {{report.start | offer_date:short_day}}*"
       },
       "sections": [
         {
@@ -37,31 +466,31 @@
           "table": [
             [
               "Leads",
-              "{{report.n.leads | default:\"\"}}"
+              "{{report.n.leads | optional}}"
             ],
             [
               "MQLs",
-              "{{report.n.mqls | default:\"\"}}"
+              "{{report.n.mqls | optional}}"
             ],
             [
               "New bookings",
-              "{{report.n.booked | default:\"\"}}"
+              "{{report.n.booked | optional}}"
             ],
             [
               "  by setters",
-              "{{report.n.booked_set | default:\"\"}}"
+              "{{report.n.booked_set | optional}}"
             ],
             [
               "Calls due",
-              "{{report.calls.booked | default:\"\"}}"
+              "{{report.calls.booked | optional}}"
             ],
             [
               "Showed",
-              "{{report.calls.showed | default:\"\"}}"
+              "{{report.calls.showed | optional}}"
             ],
             [
               "No-shows",
-              "{{report.calls.noshow | default:\"\"}}"
+              "{{report.calls.noshow | optional}}"
             ],
             [
               "Show rate",
@@ -69,7 +498,7 @@
             ],
             [
               "Closes",
-              "{{report.n.closes | default:\"\"}}"
+              "{{report.n.closes | optional}}"
             ],
             [
               "Close rate",
@@ -77,7 +506,7 @@
             ],
             [
               "Revenue",
-              "{{report.n.revenue | default:\"\" | then:\"$\"}}{{report.n.revenue | default:\"\" | money:0}}"
+              "{{report.n.revenue | then:\"$\"}}{{report.n.revenue | money:0 | optional}}"
             ],
             [
               "Cash",
@@ -85,19 +514,19 @@
             ],
             [
               "Refunds",
-              "{{report.n.refunds | default:\"\" | then:\"$\"}}{{report.n.refunds | default:\"\" | money:0}}"
+              "{{report.n.refunds | then:\"$\"}}{{report.n.refunds | money:0 | optional}}"
             ],
             [
               "Dials",
-              "{{report.n.dials | default:\"\"}}"
+              "{{report.n.dials | optional}}"
             ],
             [
               "Connected",
-              "{{report.n.connected | default:\"\"}}"
+              "{{report.n.connected | optional}}"
             ],
             [
               "Speed to lead",
-              "{{report.n.speed_to_lead | default:\"\" | duration}}"
+              "{{report.n.speed_to_lead | duration | optional}}"
             ]
           ]
         },
@@ -124,25 +553,47 @@
         "daily": "Nothing today: no leads, bookings, calls or payments."
       },
       "failed": "_couldn't read GHL: {{report.ghl_error}}_",
-      "footer": "_From GHL and the engine, read {{report.read_at | date:\"h:mm a ZZZZ\"}}_"
-    },
-    "v1_note": "the v1 report step's own definition, copied as it is (its expressions are the report renderer's, not v2 content)"
+      "footer": "_From GHL and the engine, read {{report.read_at | offer_date:time_zone}}_"
+    }
   },
   "reports.eod_due": {
     "kind": "eod_due",
-    "v1_note": "v1 computed this in code (eod.ts): { days: [{ day, label, when, url, today, calls, ghl_blank, both }], count, overdue: [{ day, label, names }], overdue_count }"
+    "linkBase": "platform.base_url",
+    "v1": "v1 eod_due step and eodFacts (eod.ts): the closer's held calls with no answer, by day, not filed; the CRM's Sales Calls still blank (a CRM read) add to it and name the overdue ones. v1's link carried the closer's report token; v2's names the person until tokens exist"
   },
   "reports.health_check": {
     "kind": "health_check",
-    "checks": {},
-    "v1_note": "v1 ran the hourly sweep in code (health.ts) and raised its findings as alerts (H7); its repairs (H5, H6) are GAP 9"
+    "v1": "v1 ran the hourly sweep in code (health.ts) and raised its findings as alerts (H7); its repairs (H5, H6) are GAP 9; a vendor read (the probes), answered by the connectors"
   },
   "reports.leaderboard": {
     "kind": "leaderboard",
-    "v1_note": "v1 built the leaderboard in code (leaderboard.ts): closers by cash with closes and close rate, setters by sets with the show rate of their sets; body is the phone-width text"
+    "period": "weekly",
+    "v1": "v1 leaderboard.ts: closers by cash_collected with closes and close_rate, setters by booked_set with the show_rate of their sets; formatLeaderboard's board",
+    "closers": {
+      "cash": "cash_collected",
+      "closeRate": "close_rate"
+    },
+    "setters": {
+      "sets": "booked_set",
+      "showRate": "show_rate"
+    },
+    "words": {
+      "heading": "🏆 *Leaderboard*",
+      "closers": "*Closers* (by cash)",
+      "setters": "*Setters* (by sets)",
+      "noClosers": "_No closes yet._",
+      "noSetters": "_No sets yet._",
+      "close": "close",
+      "closes": "closes",
+      "set": "set",
+      "sets": "sets",
+      "showed": "showed"
+    }
   },
   "reports.monthly_wrap_up": {
-    "kind": "monthly",
+    "kind": "wrap_up",
+    "period": "monthly",
+    "v1": "Hair's own v1 report step (its layout copied, its expressions in v2's template words: GAP 10's named dates, `optional` for v1's default:\"\"); the numbers are v1's WRAPUP_METRICS less deposits, as Hair's copy had them",
     "metrics": [
       "leads",
       "mqls",
@@ -159,12 +610,42 @@
       "cash_gross",
       "refunds"
     ],
+    "calls": {
+      "booked": "calls_due",
+      "showed": "shows",
+      "noshow": "no_shows",
+      "cancelled": "cancellations",
+      "missing": "calls_missing",
+      "rescheduled": "calls_rescheduled"
+    },
+    "rates": {
+      "show_rate": {
+        "num": "calls.showed",
+        "den": "calls.booked"
+      },
+      "close_rate": {
+        "num": "n.closes",
+        "den": "calls.showed",
+        "blankWhenZero": true
+      }
+    },
     "breakdowns": [],
-    "sections": {},
+    "by": {
+      "closer": {
+        "showed": "shows",
+        "deals_won": "closes",
+        "revenue": "revenue"
+      },
+      "setter": {
+        "dials": "dials",
+        "calls_set": "booked_set"
+      }
+    },
+    "said": true,
     "layout": {
       "heading": {
-        "monthly": "📊 *{{report.start | date:\"LLLL yyyy\"}}*",
-        "monthly_to_date": "📊 *{{report.start | date:\"LLLL\"}} so far*"
+        "monthly": "📊 *{{report.start | offer_date:month_year}}*",
+        "monthly_to_date": "📊 *{{report.start | offer_date:month}} so far*"
       },
       "sections": [
         {
@@ -175,31 +656,31 @@
           "table": [
             [
               "Leads",
-              "{{report.n.leads | default:\"\"}}"
+              "{{report.n.leads | optional}}"
             ],
             [
               "MQLs",
-              "{{report.n.mqls | default:\"\"}}"
+              "{{report.n.mqls | optional}}"
             ],
             [
               "New bookings",
-              "{{report.n.booked | default:\"\"}}"
+              "{{report.n.booked | optional}}"
             ],
             [
               "  by setters",
-              "{{report.n.booked_set | default:\"\"}}"
+              "{{report.n.booked_set | optional}}"
             ],
             [
               "Calls due",
-              "{{report.calls.booked | default:\"\"}}"
+              "{{report.calls.booked | optional}}"
             ],
             [
               "Showed",
-              "{{report.calls.showed | default:\"\"}}"
+              "{{report.calls.showed | optional}}"
             ],
             [
               "No-shows",
-              "{{report.calls.noshow | default:\"\"}}"
+              "{{report.calls.noshow | optional}}"
             ],
             [
               "Show rate",
@@ -207,7 +688,7 @@
             ],
             [
               "Closes",
-              "{{report.n.closes | default:\"\"}}"
+              "{{report.n.closes | optional}}"
             ],
             [
               "Close rate",
@@ -215,7 +696,7 @@
             ],
             [
               "Revenue",
-              "{{report.n.revenue | default:\"\" | then:\"$\"}}{{report.n.revenue | default:\"\" | money:0}}"
+              "{{report.n.revenue | then:\"$\"}}{{report.n.revenue | money:0 | optional}}"
             ],
             [
               "Cash",
@@ -223,19 +704,19 @@
             ],
             [
               "Refunds",
-              "{{report.n.refunds | default:\"\" | then:\"$\"}}{{report.n.refunds | default:\"\" | money:0}}"
+              "{{report.n.refunds | then:\"$\"}}{{report.n.refunds | money:0 | optional}}"
             ],
             [
               "Dials",
-              "{{report.n.dials | default:\"\"}}"
+              "{{report.n.dials | optional}}"
             ],
             [
               "Connected",
-              "{{report.n.connected | default:\"\"}}"
+              "{{report.n.connected | optional}}"
             ],
             [
               "Speed to lead",
-              "{{report.n.speed_to_lead | default:\"\" | duration}}"
+              "{{report.n.speed_to_lead | duration | optional}}"
             ]
           ]
         },
@@ -263,12 +744,13 @@
         "monthly_to_date": "Nothing this month: no leads, bookings, calls or payments."
       },
       "failed": "_couldn't read GHL: {{report.ghl_error}}_",
-      "footer": "_From GHL and the engine, read {{report.read_at | date:\"h:mm a ZZZZ\"}}_"
-    },
-    "v1_note": "the v1 report step's own definition, copied as it is (its expressions are the report renderer's, not v2 content)"
+      "footer": "_From GHL and the engine, read {{report.read_at | offer_date:time_zone}}_"
+    }
   },
   "reports.weekly_wrap_up": {
-    "kind": "weekly",
+    "kind": "wrap_up",
+    "period": "weekly",
+    "v1": "Hair's own v1 report step (its layout copied, its expressions in v2's template words: GAP 10's named dates, `optional` for v1's default:\"\"); the numbers are v1's WRAPUP_METRICS less deposits, as Hair's copy had them",
     "metrics": [
       "leads",
       "mqls",
@@ -285,12 +767,42 @@
       "cash_gross",
       "refunds"
     ],
+    "calls": {
+      "booked": "calls_due",
+      "showed": "shows",
+      "noshow": "no_shows",
+      "cancelled": "cancellations",
+      "missing": "calls_missing",
+      "rescheduled": "calls_rescheduled"
+    },
+    "rates": {
+      "show_rate": {
+        "num": "calls.showed",
+        "den": "calls.booked"
+      },
+      "close_rate": {
+        "num": "n.closes",
+        "den": "calls.showed",
+        "blankWhenZero": true
+      }
+    },
     "breakdowns": [],
-    "sections": {},
+    "by": {
+      "closer": {
+        "showed": "shows",
+        "deals_won": "closes",
+        "revenue": "revenue"
+      },
+      "setter": {
+        "dials": "dials",
+        "calls_set": "booked_set"
+      }
+    },
+    "said": true,
     "layout": {
       "heading": {
-        "weekly": "📊 *Last week, {{report.start | date:\"LLL d\"}} to {{report.end | date:\"LLL d\"}}*",
-        "weekly_to_date": "📊 *This week so far, {{report.start | date:\"LLL d\"}} to {{report.end | date:\"LLL d\"}}*"
+        "weekly": "📊 *Last week, {{report.start | offer_date:month_day}} to {{report.end | offer_date:month_day}}*",
+        "weekly_to_date": "📊 *This week so far, {{report.start | offer_date:month_day}} to {{report.end | offer_date:month_day}}*"
       },
       "sections": [
         {
@@ -301,31 +813,31 @@
           "table": [
             [
               "Leads",
-              "{{report.n.leads | default:\"\"}}"
+              "{{report.n.leads | optional}}"
             ],
             [
               "MQLs",
-              "{{report.n.mqls | default:\"\"}}"
+              "{{report.n.mqls | optional}}"
             ],
             [
               "New bookings",
-              "{{report.n.booked | default:\"\"}}"
+              "{{report.n.booked | optional}}"
             ],
             [
               "  by setters",
-              "{{report.n.booked_set | default:\"\"}}"
+              "{{report.n.booked_set | optional}}"
             ],
             [
               "Calls due",
-              "{{report.calls.booked | default:\"\"}}"
+              "{{report.calls.booked | optional}}"
             ],
             [
               "Showed",
-              "{{report.calls.showed | default:\"\"}}"
+              "{{report.calls.showed | optional}}"
             ],
             [
               "No-shows",
-              "{{report.calls.noshow | default:\"\"}}"
+              "{{report.calls.noshow | optional}}"
             ],
             [
               "Show rate",
@@ -333,7 +845,7 @@
             ],
             [
               "Closes",
-              "{{report.n.closes | default:\"\"}}"
+              "{{report.n.closes | optional}}"
             ],
             [
               "Close rate",
@@ -341,7 +853,7 @@
             ],
             [
               "Revenue",
-              "{{report.n.revenue | default:\"\" | then:\"$\"}}{{report.n.revenue | default:\"\" | money:0}}"
+              "{{report.n.revenue | then:\"$\"}}{{report.n.revenue | money:0 | optional}}"
             ],
             [
               "Cash",
@@ -349,19 +861,19 @@
             ],
             [
               "Refunds",
-              "{{report.n.refunds | default:\"\" | then:\"$\"}}{{report.n.refunds | default:\"\" | money:0}}"
+              "{{report.n.refunds | then:\"$\"}}{{report.n.refunds | money:0 | optional}}"
             ],
             [
               "Dials",
-              "{{report.n.dials | default:\"\"}}"
+              "{{report.n.dials | optional}}"
             ],
             [
               "Connected",
-              "{{report.n.connected | default:\"\"}}"
+              "{{report.n.connected | optional}}"
             ],
             [
               "Speed to lead",
-              "{{report.n.speed_to_lead | default:\"\" | duration}}"
+              "{{report.n.speed_to_lead | duration | optional}}"
             ]
           ]
         },
@@ -389,8 +901,7 @@
         "weekly_to_date": "Nothing this week: no leads, bookings, calls or payments."
       },
       "failed": "_couldn't read GHL: {{report.ghl_error}}_",
-      "footer": "_From GHL and the engine, read {{report.read_at | date:\"h:mm a ZZZZ\"}}_"
-    },
-    "v1_note": "the v1 report step's own definition, copied as it is (its expressions are the report renderer's, not v2 content)"
+      "footer": "_From GHL and the engine, read {{report.read_at | offer_date:time_zone}}_"
+    }
   }
 }

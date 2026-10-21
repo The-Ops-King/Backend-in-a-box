@@ -26,6 +26,8 @@ export type ContentSeed = Record<string, { channel: "sms" | "email" | "slack" | 
 
 export async function setupOffer(store: Store, x: {
   slug: string; name?: string; zone: string; settings?: Record<string, unknown>; content?: ContentSeed; operator?: { emails?: string[]; phones?: string[] }; id?: string;
+  /** Report definitions by key, and metric definitions under `metrics` (an offer's reports.json). */
+  reports?: Record<string, unknown>;
 }): Promise<string> {
   return store.tx(async (tx) => {
     const offer = await tx.insertOffer({ slug: x.slug, name: x.name ?? x.slug, zone: x.zone, ...(x.id ? { id: x.id } : {}) });
@@ -35,6 +37,11 @@ export async function setupOffer(store: Store, x: {
     }
     for (const e of x.operator?.emails ?? []) await tx.addOperatorAddress("email", e);
     for (const p of x.operator?.phones ?? []) await tx.addOperatorAddress("phone", p);
+    for (const [key, def] of Object.entries(x.reports ?? {})) {
+      if (key.startsWith("_")) continue;
+      if (key === "metrics") for (const [name, m] of Object.entries(def as Record<string, unknown>)) { if (!name.startsWith("_")) await tx.setReportDefinition(offer.id, "metric", name, m, "setup"); }
+      else await tx.setReportDefinition(offer.id, "report", key, def, "setup");
+    }
     return offer.id;
   });
 }
@@ -47,7 +54,7 @@ export async function install(store: Store, offerId: string, definition: unknown
     const offer = (await tx.offer(offerId))!;
     const confirm = `${offer.slug}/${saved.workflow.key}`;
     if (x.enable !== false) {
-      const e = await enableWorkflow(tx, saved.workflow.id);
+      const e = await enableWorkflow(tx, saved.workflow.id, x.now);
       if (!e.ok) throw new Error(`cannot enable ${saved.workflow.key}: ${JSON.stringify(e.missing)}`);
     }
     if (x.delivery) await setDelivery(tx, { workflowId: saved.workflow.id, delivery: x.delivery, by: "Tyler", confirm, now: x.now });

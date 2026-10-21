@@ -63,7 +63,19 @@
       "setter_result.act": true,
       "calls.conversation_gap_min": 15,
       "crm.stage_setter_dq": "ST-SETTER-DQ",
-      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+      "crm.stage_setter_not_interested": "ST-SETTER-NI",
+      "payments.deposit_products": [],
+      "payments.deposit_by_name": true,
+      "payments.contract_value": 2999,
+      "payments.cleared_tolerance": 0.01,
+      "people.closer_from": [
+        "closer_card",
+        "contact_owner"
+      ],
+      "people.setter_from": [
+        "field:setter"
+      ],
+      "setter_result.set_within_min": 30
     }
   },
   "delivery": "live",
@@ -74,6 +86,26 @@
       "phone": "+15550100001",
       "email": "ana@example.com",
       "timezone": "America/New_York"
+    }
+  ],
+  "people": [
+    {
+      "id": "u-luis-ortega",
+      "role": "closer",
+      "name": "Luis Ortega",
+      "ghl_user_id": "U-GHL-LUIS"
+    }
+  ],
+  "history": [
+    {
+      "at": "-1h",
+      "type": "agreement.signed",
+      "contact": "c1",
+      "payload": {
+        "agreement": {
+          "name": "Purchase agreement"
+        }
+      }
     }
   ],
   "steps": [
@@ -89,10 +121,7 @@
           "phone": "+15550100001",
           "email": "ana@example.com",
           "timezone": "America/New_York",
-          "owner": {
-            "name": "Luis Ortega"
-          },
-          "agreement_signed": true
+          "assigned_user_id": "U-GHL-LUIS"
         },
         "tag": "sys-send-agreement-manually"
       }

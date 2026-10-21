@@ -1,6 +1,6 @@
 {
   "name": "a later part of the call came in",
-  "description": "The line dropped and the setter called back: by the time this part posts, a later part is in, and its own run has the whole conversation (read_with_a_later_part).",
+  "description": "The line dropped and the setter called back: by the time this part posts, a later part is in, and its own run has the whole conversation (read_with_a_later_part). The later part (rec-s2, within the 15-minute gap) arrives at +5m and starts its own run, which reads the whole conversation.",
   "workflow": "setter-call-logged",
   "start": "2026-10-26T14:00:00Z",
   "offer": {
@@ -63,7 +63,19 @@
       "setter_result.act": true,
       "calls.conversation_gap_min": 15,
       "crm.stage_setter_dq": "ST-SETTER-DQ",
-      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+      "crm.stage_setter_not_interested": "ST-SETTER-NI",
+      "payments.deposit_products": [],
+      "payments.deposit_by_name": true,
+      "payments.contract_value": 2999,
+      "payments.cleared_tolerance": 0.01,
+      "people.closer_from": [
+        "closer_card",
+        "contact_owner"
+      ],
+      "people.setter_from": [
+        "field:setter"
+      ],
+      "setter_result.set_within_min": 30
     }
   },
   "delivery": "live",
@@ -77,47 +89,12 @@
     }
   ],
   "fixtures": {
-    "lookups": {
-      "call_conversation": [
-        {
-          "transcript_text": "Mia: thanks for filling in the form… Ana: it has been getting worse for a year…",
-          "total_sec": 300,
-          "total_min": 5,
-          "count": 1,
-          "key": "conv-7",
-          "first": {
-            "id": "rec-s1",
-            "started_at": "2026-10-26T13:50:00Z"
-          },
-          "later_ready": 0
-        },
-        {
-          "transcript_text": "Mia: thanks for filling in the form… Ana: it has been getting worse for a year…",
-          "total_sec": 300,
-          "total_min": 5,
-          "count": 1,
-          "key": "conv-7",
-          "first": {
-            "id": "rec-s1",
-            "started_at": "2026-10-26T13:50:00Z"
-          },
-          "later_ready": 1
-        },
-        {
-          "transcript_text": "Mia: thanks for filling in the form… Ana: it has been getting worse for a year…",
-          "total_sec": 300,
-          "total_min": 5,
-          "count": 1,
-          "key": "conv-7",
-          "first": {
-            "id": "rec-s1",
-            "started_at": "2026-10-26T13:50:00Z"
-          },
-          "later_ready": 0
-        }
-      ]
-    },
     "classify": [
+      "setting",
+      {
+        "value": "follow_up",
+        "confidence": 0.9
+      },
       "setting",
       {
         "value": "follow_up",
@@ -129,8 +106,17 @@
         "summary": "Ana wants to deal with it before it gets worse.",
         "digest": "Ana: getting worse for a year; asked about cost. Fit: 8/10.",
         "next_step": "Call back Thursday"
+      },
+      {
+        "summary": "Ana wants to deal with it before it gets worse.",
+        "digest": "Ana: getting worse for a year; asked about cost. Fit: 8/10.",
+        "next_step": "Call back Thursday"
       }
-    ]
+    ],
+    "transcripts": {
+      "rec-s1": "Mia: thanks for filling in the form… Ana: it has been getting worse for a year…",
+      "rec-s2": "Mia: sorry, the line dropped… Ana: no worries, so about the routine…"
+    }
   },
   "steps": [
     {
@@ -149,7 +135,6 @@
         "recording": {
           "id": "rec-s1",
           "kind": "phone",
-          "connected": true,
           "has_transcript": true,
           "provider": "ghl",
           "external_id": "ghl-call-7",
@@ -157,7 +142,6 @@
           "direction": "outbound",
           "started_at": "2026-10-26T13:50:00Z",
           "ended_at": "2026-10-26T13:55:00Z",
-          "set_until": "2026-10-26T14:25:00Z",
           "share_url": "https://app.gohighlevel.com/v2/location/LOC-HAIR/conversations/7",
           "url": "https://app.gohighlevel.com/v2/location/LOC-HAIR/conversations/7/recording",
           "caller": {
@@ -167,16 +151,58 @@
         },
         "recording_id": "rec-s1"
       }
+    },
+    {
+      "at": "+5m",
+      "type": "call.logged",
+      "contact": "c1",
+      "payload": {
+        "contact": {
+          "first_name": "Ana",
+          "name": "Ana Lopez",
+          "ghl_contact_id": "ghl-c1",
+          "phone": "+15550100001",
+          "email": "ana@example.com",
+          "timezone": "America/New_York"
+        },
+        "recording": {
+          "id": "rec-s2",
+          "kind": "phone",
+          "has_transcript": true,
+          "provider": "ghl",
+          "external_id": "ghl-call-8",
+          "status": "connected",
+          "direction": "outbound",
+          "started_at": "2026-10-26T13:58:00Z",
+          "ended_at": "2026-10-26T14:03:00Z",
+          "share_url": "https://app.gohighlevel.com/v2/location/LOC-HAIR/conversations/8",
+          "url": "https://app.gohighlevel.com/v2/location/LOC-HAIR/conversations/8/recording",
+          "caller": {
+            "name": "Mia Chen",
+            "ghl_user_id": "U-GHL-MIA"
+          }
+        },
+        "recording_id": "rec-s2"
+      }
     }
   ],
   "expect": {
     "outbox": [
       "+0m sent ai.classify",
       "+0m sent ai.summarize",
-      "+0m sent ai.classify"
+      "+0m sent ai.classify",
+      "+5m sent ai.classify",
+      "+5m sent ai.summarize",
+      "+5m sent ai.classify",
+      "+18m sent crm.upsert_record",
+      "+18m sent crm.relate_records",
+      "+18m sent crm.add_note",
+      "+18m sent setter_call_logged.s1",
+      "+33m sent crm.create_task"
     ],
     "ends": [
-      "read_with_a_later_part"
+      "read_with_a_later_part",
+      "posted"
     ]
   }
 }

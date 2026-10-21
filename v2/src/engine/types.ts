@@ -99,5 +99,8 @@ export type AlertRow = { id: number; offerId: string | null; key: string; kind: 
 
 export type ConnectionRow = { offerId: string; port: string; status: "ok" | "paused_auth"; reason: string | null; pausedAt: Date | null };
 
-/** A due job: wake a run, or deliver an outbox row. Timers are jobs with an exact time. */
-export type Job = { kind: "run"; id: string; at: Date } | { kind: "outbox"; id: number; at: Date };
+/** A schedule trigger's next time, and the last period it ran for. */
+export type ScheduleTimer = { workflowId: string; node: string; offerId: string; nextAt: Date; lastPeriod: string | null };
+
+/** A due job: wake a run, deliver an outbox row, fire a schedule trigger. Timers are jobs with an exact time. */
+export type Job = { kind: "run"; id: string; at: Date } | { kind: "outbox"; id: number; at: Date } | { kind: "schedule"; workflowId: string; node: string; at: Date };

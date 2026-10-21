@@ -115,7 +115,7 @@ describe("blank detection (the blank-variable hold reads this)", () => {
 describe("filters", () => {
   it("has the fixed set and no more", () => {
     expect(Object.keys(FILTERS).sort()).toEqual([
-      "abs", "bullets", "date", "default", "each", "first", "first_name", "fixed", "hour", "hours_until", "join", "line", "lines",
+      "abs", "bullets", "date", "default", "duration", "each", "first", "first_name", "fixed", "hour", "hours_until", "join", "line", "lines",
       "link", "lower", "minus", "money", "nonzero", "offer_date", "oneof", "option", "optional", "percent", "plural", "plus", "prefix",
       "relative", "suffix", "then", "truncate", "upper", "words",
     ]);

@@ -63,7 +63,19 @@
       "setter_result.act": true,
       "calls.conversation_gap_min": 15,
       "crm.stage_setter_dq": "ST-SETTER-DQ",
-      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+      "crm.stage_setter_not_interested": "ST-SETTER-NI",
+      "payments.deposit_products": [],
+      "payments.deposit_by_name": true,
+      "payments.contract_value": 2999,
+      "payments.cleared_tolerance": 0.01,
+      "people.closer_from": [
+        "closer_card",
+        "contact_owner"
+      ],
+      "people.setter_from": [
+        "field:setter"
+      ],
+      "setter_result.set_within_min": 30
     }
   },
   "delivery": "live",
@@ -76,6 +88,18 @@
       "timezone": "America/New_York"
     }
   ],
+  "history": [
+    {
+      "at": "-1h",
+      "type": "agreement.signed",
+      "contact": "c1",
+      "payload": {
+        "agreement": {
+          "name": "Purchase agreement"
+        }
+      }
+    }
+  ],
   "steps": [
     {
       "at": "+0m",
@@ -86,8 +110,6 @@
           "first_name": "<staff-1>",
           "name": "<staff-1> TEST",
           "ghl_contact_id": "<crm-id-8>",
-          "paid_non_deposit": false,
-          "agreement_signed": true,
           "tags": []
         },
         "kind": "deposit",
@@ -101,7 +123,8 @@
         "prior_total": 0,
         "running_total": 1500,
         "contract_value": 2999,
-        "provider_payment_id": "<contact-1>-c16ea7aa"
+        "provider_payment_id": "<contact-1>-c16ea7aa",
+        "product_name": "Deposit"
       }
     }
   ],

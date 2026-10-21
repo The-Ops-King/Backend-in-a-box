@@ -6,6 +6,7 @@ import type { Value } from "./primitives/flow";
 import type { PrimitiveSpec } from "./primitives/spec";
 import { FILTERS, filterSettings } from "./filters";
 import { ITEM_ROOTS, exprsOf, parseTemplate } from "./template";
+import { derivedFactOf } from "@/projections/facts";
 
 export type ProblemCode =
   | "schema" | "unknown_primitive" | "unknown_version" | "unknown_action" | "action_params"
@@ -32,6 +33,11 @@ export type Requires = {
   /** Other workflows of this offer that `call` starts. */
   workflows: string[];
   secrets: string[];
+  /**
+   * Facts the platform works out by a rule (paid beyond a deposit, the closer, the Set window) that the workflow reads;
+   * the settings each rule needs are in `settings` (src/projections/facts.ts).
+   */
+  facts: string[];
 };
 
 export type Validation =
@@ -91,10 +97,10 @@ function barePathsOf(n: Node): string[] {
 export function validateWorkflow(raw: unknown): Validation {
   const problems: Problem[] = [];
   const add = (code: ProblemCode, message: string, path: (string | number)[], node?: string) => problems.push({ code, message, path, ...(node ? { node } : {}) });
-  const req = { settings: new Set<string>(), optionalSettings: new Set<string>(), content: new Set<string>(), reports: new Set<string>(), forms: new Set<string>(), workflows: new Set<string>(), secrets: new Set<string>() };
+  const req = { settings: new Set<string>(), optionalSettings: new Set<string>(), content: new Set<string>(), reports: new Set<string>(), forms: new Set<string>(), workflows: new Set<string>(), secrets: new Set<string>(), facts: new Set<string>() };
   const requires = (): Requires => ({
     settings: [...req.settings].sort(), optionalSettings: [...req.optionalSettings].filter((k) => !req.settings.has(k)).sort(), content: [...req.content].sort(), reports: [...req.reports].sort(),
-    forms: [...req.forms].sort(), workflows: [...req.workflows].sort(), secrets: [...req.secrets].sort(),
+    forms: [...req.forms].sort(), workflows: [...req.workflows].sort(), secrets: [...req.secrets].sort(), facts: [...req.facts].sort(),
   });
 
   if (!isObject(raw)) {
@@ -227,6 +233,9 @@ export function validateWorkflow(raw: unknown): Validation {
         else add("secret_outside_http", `{{${expr.source}}}: a secret may only appear in an http.request's url, headers and body`, path, node);
       }
       if (expr.root === "vars") checkVar(expr.path, path, node);
+      // a fact worked out by a rule needs the settings the rule reads
+      const fact = derivedFactOf(expr.path);
+      if (fact) { req.facts.add(fact.fact); fact.requires.forEach((k) => req.settings.add(k)); fact.optional.forEach((k) => req.optionalSettings.add(k)); }
     }
   };
   const checkVar = (p: string, path: (string | number)[], node?: string) => {

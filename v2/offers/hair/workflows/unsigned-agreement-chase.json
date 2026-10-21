@@ -32,13 +32,13 @@
           "and": [
             {
               "eq": [
-                "{{event.prior_non_deposit_total}}",
+                "{{payment.prior_non_deposit_total}}",
                 0
               ]
             },
             {
               "ne": [
-                "{{event.kind}}",
+                "{{payment.kind}}",
                 "deposit"
               ]
             }

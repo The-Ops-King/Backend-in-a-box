@@ -152,6 +152,16 @@
       "title": "Which way?"
     },
     {
+      "id": "o1_before",
+      "type": "set@1",
+      "title": "Remember the call's outcome as it was, before this one is recorded",
+      "var": "before",
+      "value": {
+        "outcome": "{{appointment.outcome | optional}}",
+        "call_outcome": "{{appointment.call_outcome | optional}}"
+      }
+    },
+    {
       "id": "o1",
       "type": "action@1",
       "title": "Record the appointment as “showed”",
@@ -172,8 +182,8 @@
         "type": "appointment.outcome",
         "data": {
           "outcome": "showed",
-          "previous_outcome": "{{appointment.outcome | optional}}",
-          "previous_call_outcome": "{{appointment.call_outcome | optional}}",
+          "previous_outcome": "{{vars.before.outcome | optional}}",
+          "previous_call_outcome": "{{vars.before.call_outcome | optional}}",
           "outcome_source": "engine"
         },
         "startsWorkflows": true
@@ -631,7 +641,7 @@
     },
     {
       "from": "b1",
-      "to": "o1",
+      "to": "o1_before",
       "label": "appointment matched",
       "when": {
         "exists": "appointment.id"
@@ -865,6 +875,10 @@
       "to": "n1",
       "else": true,
       "label": "it does not: skipped"
+    },
+    {
+      "from": "o1_before",
+      "to": "o1"
     }
   ]
 }

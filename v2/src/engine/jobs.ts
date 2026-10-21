@@ -12,6 +12,7 @@ import type { Engine } from "./engine";
 export const taskList = (engine: Engine): TaskList => ({
   wake_run: async (payload) => { await engine.wake(String((payload as { id: string }).id)); },
   dispatch: async (payload) => { await engine.deliver(Number((payload as { id: string }).id)); },
+  fire_schedule: async (payload) => { const p = payload as { workflowId: string; node: string }; await engine.fireTimer(p.workflowId, p.node); },
 });
 
 /** Brings graphile-worker's own schema (graphile_worker) up to date. Run with the deploy's migrations. */

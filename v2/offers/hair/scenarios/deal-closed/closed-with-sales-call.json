@@ -63,7 +63,19 @@
       "setter_result.act": true,
       "calls.conversation_gap_min": 15,
       "crm.stage_setter_dq": "ST-SETTER-DQ",
-      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+      "crm.stage_setter_not_interested": "ST-SETTER-NI",
+      "payments.deposit_products": [],
+      "payments.deposit_by_name": true,
+      "payments.contract_value": 2999,
+      "payments.cleared_tolerance": 0.01,
+      "people.closer_from": [
+        "closer_card",
+        "contact_owner"
+      ],
+      "people.setter_from": [
+        "field:setter"
+      ],
+      "setter_result.set_within_min": 30
     }
   },
   "delivery": "live",
@@ -74,6 +86,53 @@
       "phone": "+15550100001",
       "email": "ana@example.com",
       "timezone": "America/New_York"
+    }
+  ],
+  "people": [
+    {
+      "id": "u-luis-ortega",
+      "role": "closer",
+      "name": "Luis Ortega",
+      "ghl_user_id": "U-GHL-LUIS",
+      "slack_user_id": "U-LUIS"
+    }
+  ],
+  "history": [
+    {
+      "at": "2026-10-20T18:00:00Z",
+      "type": "appointment.booked",
+      "contact": "c1",
+      "appointment": "a-first",
+      "payload": {
+        "appointment": {
+          "starts_at": "2026-10-20T18:00:00Z",
+          "term": {
+            "category": "closing"
+          },
+          "status": "booked"
+        }
+      }
+    },
+    {
+      "at": "-1d",
+      "type": "crm.record_written",
+      "contact": "c1",
+      "payload": {
+        "object": "custom_objects.sales_call",
+        "key": "cal-123",
+        "record_id": "sc-1"
+      }
+    },
+    {
+      "at": "-1h",
+      "type": "payment.received",
+      "contact": "c1",
+      "payload": {
+        "payment_id": "pay-prior-c1",
+        "amount": 2999,
+        "product_name": "Program",
+        "paid_at": "2026-10-26T13:02:24Z"
+      }
     }
   ],
   "fixtures": {
@@ -94,26 +153,11 @@
           "phone": "+15550100001",
           "email": "ana@example.com",
           "timezone": "America/New_York",
-          "paid_non_deposit": true,
-          "agreement_signed": true,
           "tags": [
             "stat-booked"
           ],
-          "closer": {
-            "mention": "<@U-LUIS>",
-            "name": "Luis Ortega"
-          },
-          "cash_collected": 2999,
-          "revenue": 2999,
-          "first_booked_at": "2026-10-20T18:00:00Z",
-          "days_to_close": 6,
           "source": "Facebook ads",
-          "records": {
-            "sales_call": {
-              "key": "cal-123",
-              "id": "sc-1"
-            }
-          }
+          "assigned_user_id": "U-GHL-LUIS"
         },
         "agreement": {
           "name": "Purchase agreement"

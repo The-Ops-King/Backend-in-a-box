@@ -1,6 +1,7 @@
+import type { DailyFactRow, ProjQuery, ProjTable, Rows } from "@/projections/tables";
 import type {
   AlertRow, ConnectionRow, ContentRow, EventRow, Job, NewEvent, NewOutbox, NewRun, OfferRow, OutboxRow, OutboxStatus, PostRow,
-  RunRow, RunStatus, StepRow, VersionRow, WorkflowRow,
+  RunRow, RunStatus, ScheduleTimer, StepRow, VersionRow, WorkflowRow,
 } from "./types";
 
 /**
@@ -105,6 +106,27 @@ export interface Tx {
   raiseAlert(a: Omit<AlertRow, "id" | "resolvedAt">): Promise<AlertRow>;
   resolveAlert(key: string, at: Date): Promise<void>;
   alerts(q: { offerId?: string; open?: boolean }): Promise<AlertRow[]>;
+
+  /** An offer's report or metric definition by key (data, src/reports/). */
+  reportDefinition(offerId: string, kind: "report" | "metric", key: string): Promise<unknown | undefined>;
+  reportDefinitions(offerId: string, kind: "report" | "metric"): Promise<Record<string, unknown>>;
+  setReportDefinition(offerId: string, kind: "report" | "metric", key: string, definition: unknown, by: string): Promise<void>;
+
+  /** A projection row by id. Projections are written only by the projectors (src/projections/). */
+  projGet<T extends ProjTable>(table: T, offerId: string, id: string): Promise<Rows[T] | undefined>;
+  /** Projection rows that match a read: equality, a list holding a value, a time range. Ordered by id. */
+  projFind<T extends ProjTable>(table: T, offerId: string, q?: ProjQuery): Promise<Rows[T][]>;
+  /** Writes a projection row whole (insert, or replace the one with its id). */
+  projPut<T extends ProjTable>(table: T, row: Rows[T]): Promise<void>;
+  /** Adds a daily count and amount to its row (made at zero when missing). */
+  projInc(row: DailyFactRow): Promise<void>;
+  /** Empties every projection of one offer, for a rebuild. */
+  projClear(offerId: string): Promise<void>;
+
+  /** Schedule triggers' next times. */
+  scheduleTimers(q: { offerId?: string; workflowId?: string; dueBy?: Date }): Promise<ScheduleTimer[]>;
+  setScheduleTimer(t: ScheduleTimer): Promise<void>;
+  deleteScheduleTimer(workflowId: string, node: string): Promise<void>;
 
   /** Runs `fn` so that, if it throws, only what it wrote is undone and the transaction goes on (a savepoint). */
   savepoint<T>(fn: () => Promise<T>): Promise<T>;

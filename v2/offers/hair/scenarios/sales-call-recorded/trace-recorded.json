@@ -63,7 +63,19 @@
       "setter_result.act": true,
       "calls.conversation_gap_min": 15,
       "crm.stage_setter_dq": "ST-SETTER-DQ",
-      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+      "crm.stage_setter_not_interested": "ST-SETTER-NI",
+      "payments.deposit_products": [],
+      "payments.deposit_by_name": true,
+      "payments.contract_value": 2999,
+      "payments.cleared_tolerance": 0.01,
+      "people.closer_from": [
+        "closer_card",
+        "contact_owner"
+      ],
+      "people.setter_from": [
+        "field:setter"
+      ],
+      "setter_result.set_within_min": 30
     }
   },
   "delivery": "live",
@@ -76,20 +88,21 @@
       "timezone": "America/New_York"
     }
   ],
-  "fixtures": {
-    "lookups": {
-      "call_conversation": {
-        "transcript_text": "Luis: Tell me what you have been noticing… Ana: thinning at the crown…",
-        "count": 1,
-        "key": "<contact-1>-1df33c02",
-        "first": {
-          "id": "<id-30>",
-          "started_at": "2026-10-26T13:00:00Z"
-        },
-        "total_min": 41,
-        "total_sec": 2460
+  "history": [
+    {
+      "at": "-1d",
+      "type": "crm.deal_written",
+      "contact": "c1",
+      "payload": {
+        "deal_id": "<crm-id-6>",
+        "pipeline": "PIPE-CLOSER",
+        "stage": "ST-CLOSER-SCHEDULED",
+        "status": "open",
+        "owner": null
       }
-    },
+    }
+  ],
+  "fixtures": {
     "classify": [
       {
         "value": "sales_call",
@@ -135,7 +148,10 @@
           ]
         }
       }
-    ]
+    ],
+    "transcripts": {
+      "<id-30>": "Luis: Tell me what you have been noticing… Ana: thinning at the crown…"
+    }
   },
   "steps": [
     {
@@ -150,11 +166,6 @@
           "ghl_contact_id": "<crm-id-8>",
           "fields": {
             "setter": "<contact-1> Setter"
-          },
-          "cards": {
-            "closer": {
-              "id": "<crm-id-6>"
-            }
           }
         },
         "recording": {

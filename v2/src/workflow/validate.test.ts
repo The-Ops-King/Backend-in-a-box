@@ -28,7 +28,7 @@ describe("a valid workflow", () => {
     if (!r.ok) return;
     expect(r.workflow.delivery).toEqual({ kind: "human", whenStale: "skip" });
     expect(r.workflow.nodes.map((n) => n.id)).toEqual(["t1", "n1", "x1"]);
-    expect(r.requires).toEqual({ settings: ["slack.channel.payments"], optionalSettings: [], content: ["payment_failed.slack_alert"], reports: [], forms: [], workflows: [], secrets: [] });
+    expect(r.requires).toEqual({ settings: ["slack.channel.payments"], optionalSettings: [], content: ["payment_failed.slack_alert"], reports: [], forms: [], workflows: [], secrets: [], facts: [] });
   });
 });
 
@@ -335,6 +335,7 @@ describe("what a workflow needs before it can be enabled", () => {
       forms: ["eod.closer"],
       workflows: ["no-show-recovery"],
       secrets: [],
+      facts: [],
     });
   });
 

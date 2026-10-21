@@ -2,12 +2,13 @@ import type { Engine } from "./engine";
 import type { Store } from "./store";
 import type { FakeClock } from "./testkit";
 
-/** The next time anything is due after now: a waiting run's wake, a queued outbox row's next attempt. */
-export async function nextDue(store: Store, now: Date): Promise<Date | undefined> {
+/** The next time anything is due after now: a waiting run's wake, a queued outbox row's next attempt, a schedule timer (unless `timers` is false). */
+export async function nextDue(store: Store, now: Date, timers = true): Promise<Date | undefined> {
   return store.tx(async (tx) => {
     const times = [
       ...(await tx.runs({ statuses: ["waiting"] })).map((r) => r.nextWakeAt),
       ...(await tx.outboxRows({ statuses: ["queued"] })).map((r) => r.nextAttemptAt),
+      ...(timers ? (await tx.scheduleTimers({})).map((t) => t.nextAt) : []),
     ].filter((t): t is Date => !!t && t.getTime() > now.getTime());
     return times.length ? new Date(Math.min(...times.map((t) => t.getTime()))) : undefined;
   });
@@ -17,10 +18,10 @@ export async function nextDue(store: Store, now: Date): Promise<Date | undefined
  * Moves the fake clock to `until`, stopping at every moment something is due on the way and doing it then, so every
  * wait wakes at its own minute.
  */
-export async function advanceTo(engine: Engine, store: Store, clock: FakeClock, until: Date): Promise<void> {
+export async function advanceTo(engine: Engine, store: Store, clock: FakeClock, until: Date, timers = true): Promise<void> {
   await engine.runDue();
   for (let i = 0; i < 10_000; i++) {
-    const next = await nextDue(store, clock.now());
+    const next = await nextDue(store, clock.now(), timers);
     if (!next || next.getTime() > until.getTime()) break;
     clock.set(next);
     await engine.runDue();

@@ -44,7 +44,7 @@
       "title": "Payment or refund: the words, the sign, the emoji",
       "var": "pay",
       "value": {
-        "$pick": "{{event.kind}}",
+        "$pick": "{{payment.kind}}",
         "cases": {
           "refund": {
             "head": "Refund",
@@ -92,7 +92,7 @@
       "action": "crm.update_contact",
       "params": {
         "set": {
-          "cash_collected": "{{event.running_total}}"
+          "cash_collected": "{{payment.running_total}}"
         }
       }
     },
@@ -108,7 +108,7 @@
       "action": "crm.update_contact",
       "params": {
         "set": {
-          "revenue_generated": "{{event.contract_value | optional}}"
+          "revenue_generated": "{{payment.contract_value | optional}}"
         }
       }
     },
@@ -180,7 +180,7 @@
       "params": {
         "object": "{{setting.crm.object_payment | default:custom_objects.payment}}",
         "properties": {
-          "type": "{{event.kind | oneof:deposit,balance,installment,paid_in_full,refund,chargeback}}",
+          "type": "{{payment.kind | oneof:deposit,balance,installment,paid_in_full,refund,chargeback}}",
           "amount": "{{event.amount}}",
           "closer": "{{contact.cards.closer.owner.name | optional}}",
           "setter": "{{contact.fields.setter | optional}}",
@@ -286,7 +286,7 @@
       "params": {
         "object": "{{setting.crm.object_sales_call | default:custom_objects.sales_call}}",
         "properties": {
-          "cash_collected": "{{event.running_total}}"
+          "cash_collected": "{{payment.running_total}}"
         },
         "ifMissing": "skip",
         "key": "{{contact.records.sales_call.key}}"
@@ -302,7 +302,7 @@
         }
       },
       "content": {
-        "pick": "{{event.kind}}",
+        "pick": "{{payment.kind}}",
         "cases": {
           "refund": "payment_recorded.n5_refund"
         },
@@ -475,13 +475,13 @@
           },
           {
             "ne": [
-              "{{event.kind}}",
+              "{{payment.kind}}",
               "refund"
             ]
           },
           {
             "ne": [
-              "{{event.kind}}",
+              "{{payment.kind}}",
               "deposit"
             ]
           }
@@ -504,7 +504,7 @@
       "label": "refund: tags stay as the last payment left them",
       "when": {
         "eq": [
-          "{{event.kind}}",
+          "{{payment.kind}}",
           "refund"
         ]
       }
@@ -515,7 +515,7 @@
       "label": "deposit",
       "when": {
         "eq": [
-          "{{event.kind}}",
+          "{{payment.kind}}",
           "deposit"
         ]
       }
@@ -526,7 +526,7 @@
       "label": "paid in full",
       "when": {
         "eq": [
-          "{{event.cleared}}",
+          "{{payment.cleared}}",
           true
         ]
       }
@@ -591,7 +591,7 @@
         "and": [
           {
             "eq": [
-              "{{event.prior_non_deposit_total}}",
+              "{{payment.prior_non_deposit_total}}",
               0
             ]
           },
@@ -604,7 +604,7 @@
           {
             "not": {
               "in": [
-                "{{event.kind}}",
+                "{{payment.kind}}",
                 [
                   "refund",
                   "deposit"
@@ -668,7 +668,7 @@
       "to": "p_book_money_with_wings",
       "when": {
         "eq": [
-          "{{event.kind}}",
+          "{{payment.kind}}",
           "refund"
         ]
       },
@@ -697,7 +697,7 @@
       "to": "p_rev_money_with_wings",
       "when": {
         "eq": [
-          "{{event.kind}}",
+          "{{payment.kind}}",
           "refund"
         ]
       },
@@ -730,7 +730,7 @@
           },
           {
             "ne": [
-              "{{event.kind}}",
+              "{{payment.kind}}",
               "deposit"
             ]
           }
@@ -749,7 +749,7 @@
       "to": "g1",
       "when": {
         "eq": [
-          "{{event.kind}}",
+          "{{payment.kind}}",
           "refund"
         ]
       },

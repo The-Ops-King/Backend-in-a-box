@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  type AnyPgColumn, bigint, bigserial, boolean, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid,
+  type AnyPgColumn, bigint, bigserial, boolean, check, foreignKey, index, integer, jsonb, numeric, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -114,6 +114,19 @@ export const content = pgTable("content", {
   primaryKey({ columns: [t.offerId, t.key] }),
   check("content_channel", sql`${t.channel} in ('sms', 'email', 'slack', 'prompt', 'crm')`),
 ]);
+
+/**
+ * An offer's report and metric definitions, as data (src/reports/): a metric is a small query over the projections, a
+ * report the sections of metrics and the words a report@1 step renders. Never SQL.
+ */
+export const reportDefinitions = pgTable("report_definitions", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  kind: text("kind").notNull(),
+  key: text("key").notNull(),
+  definition: jsonb("definition").notNull(),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.offerId, t.kind, t.key] }), check("report_definitions_kind", sql`${t.kind} in ('report', 'metric')`)]);
 
 /** Whether an offer's connection on a port may be used: an auth failure pauses it until a person fixes the token. */
 export const connections = pgTable("connections", {
@@ -283,3 +296,150 @@ export const alerts = pgTable("alerts", {
   openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
 }, (t) => [uniqueIndex("alerts_open_key").on(t.key).where(sql`${t.resolvedAt} is null`)]);
+
+/*
+ * Projections: rebuildable tables, written only by the projectors from the fact log (src/projections/). Drop them and
+ * rebuild from `events` and they come out the same. Each row belongs to an offer and is keyed (offer_id, id).
+ */
+
+/** Who a contact is, for matching and routing: CRM id, normalized phones and emails, merged-into, and the CRM's last-said attributes. */
+export const contactsIndex = pgTable("contacts_index", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  id: text("id").notNull(),
+  crmId: text("crm_id"),
+  phones: text("phones").array().notNull().default(sql`'{}'::text[]`),
+  emails: text("emails").array().notNull().default(sql`'{}'::text[]`),
+  mergedInto: text("merged_into"),
+  /** What the CRM last said about them with a fact (name, timezone, tags, fields, source, owner): a short cache, never a derived fact. */
+  attrs: jsonb("attrs").notNull().default({}),
+  /** The CRM records we wrote for them, by object: { key, id }. */
+  records: jsonb("records").notNull().default({}),
+  /** Their latest agreement: { id, name, status, sent_at, signed_at }. */
+  agreement: jsonb("agreement"),
+  leadAt: timestamp("lead_at", { withTimezone: true }),
+  firstDialAt: timestamp("first_dial_at", { withTimezone: true }),
+  speedToLeadMin: integer("speed_to_lead_min"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [primaryKey({ columns: [t.offerId, t.id] }), index("contacts_index_crm").on(t.offerId, t.crmId)]);
+
+/** Every booking: its time, status, how it was booked and by whom, and how it went. */
+export const appointments = pgTable("appointments", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  id: text("id").notNull(),
+  contactId: text("contact_id"),
+  status: text("status"),
+  kind: text("kind"),
+  startsAt: timestamp("starts_at", { withTimezone: true }),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  bookedAt: timestamp("booked_at", { withTimezone: true }),
+  bookingSource: text("booking_source"),
+  setBy: text("set_by"),
+  closerKey: text("closer_key"),
+  reschedules: integer("reschedules").notNull().default(0),
+  outcome: text("outcome"),
+  callOutcome: text("call_outcome"),
+  outcomeSource: text("outcome_source"),
+  outcomeAt: timestamp("outcome_at", { withTimezone: true }),
+  pendingRead: jsonb("pending_read"),
+  /** What the booking source said about it (term, closer, links, tracking, answers). */
+  attrs: jsonb("attrs").notNull().default({}),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [primaryKey({ columns: [t.offerId, t.id] }), index("appointments_contact").on(t.offerId, t.contactId), index("appointments_starts").on(t.offerId, t.startsAt)]);
+
+/** The single call fact: a booked call, a dialer call or a meeting recording; held, outcome, rep, recording, kind. */
+export const calls = pgTable("calls", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  id: text("id").notNull(),
+  contactId: text("contact_id"),
+  appointmentId: text("appointment_id"),
+  source: text("source").notNull(),
+  kind: text("kind"),
+  booked: boolean("booked").notNull().default(false),
+  startsAt: timestamp("starts_at", { withTimezone: true }),
+  held: boolean("held"),
+  outcome: text("outcome"),
+  repKey: text("rep_key"),
+  recordingId: text("recording_id"),
+  recording: jsonb("recording"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  durationSec: integer("duration_sec"),
+  direction: text("direction"),
+  connected: boolean("connected"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [primaryKey({ columns: [t.offerId, t.id] }), index("calls_contact").on(t.offerId, t.contactId), index("calls_recording").on(t.offerId, t.recordingId)]);
+
+/** Deals: the ledger's own (opened, won, lost) and the CRM cards we moved or saw moved. */
+export const deals = pgTable("deals", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  id: text("id").notNull(),
+  contactId: text("contact_id"),
+  kind: text("kind").notNull(),
+  pipeline: text("pipeline"),
+  crmId: text("crm_id"),
+  stage: text("stage"),
+  status: text("status"),
+  ownerKey: text("owner_key"),
+  name: text("name"),
+  value: numeric("value", { mode: "number" }),
+  openedAt: timestamp("opened_at", { withTimezone: true }),
+  wonAt: timestamp("won_at", { withTimezone: true }),
+  lostAt: timestamp("lost_at", { withTimezone: true }),
+  seq: bigint("seq", { mode: "number" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [primaryKey({ columns: [t.offerId, t.id] }), index("deals_contact").on(t.offerId, t.contactId)]);
+
+/** Every payment the provider reported, linked to a person or not. Its kind is worked out when read, from the offer's settings. */
+export const payments = pgTable("payments", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  id: text("id").notNull(),
+  contactId: text("contact_id"),
+  dealId: text("deal_id"),
+  providerPaymentId: text("provider_payment_id"),
+  status: text("status").notNull(),
+  amount: numeric("amount", { mode: "number" }).notNull(),
+  currency: text("currency"),
+  paidAt: timestamp("paid_at", { withTimezone: true }).notNull(),
+  product: jsonb("product").notNull().default({}),
+  refundOf: text("refund_of"),
+  customer: jsonb("customer").notNull().default({}),
+  linkedBy: text("linked_by"),
+  seq: bigint("seq", { mode: "number" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [primaryKey({ columns: [t.offerId, t.id] }), index("payments_contact").on(t.offerId, t.contactId), index("payments_paid").on(t.offerId, t.paidAt)]);
+
+/** The team, minimal: who they are, their identities, their roles, the days they filed. */
+export const people = pgTable("people", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  id: text("id").notNull(),
+  name: text("name"),
+  email: text("email"),
+  slackUserId: text("slack_user_id"),
+  crmUserId: text("crm_user_id"),
+  roles: text("roles").array().notNull().default(sql`'{}'::text[]`),
+  active: boolean("active").notNull().default(true),
+  eodDays: text("eod_days").array().notNull().default(sql`'{}'::text[]`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [primaryKey({ columns: [t.offerId, t.id] }), index("people_crm").on(t.offerId, t.crmUserId)]);
+
+/** Counts and sums of what happened on each day of the offer's clock, by closer, setter and source. */
+export const dailyFacts = pgTable("daily_facts", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  id: text("id").notNull(),
+  day: text("day").notNull(),
+  metric: text("metric").notNull(),
+  closer: text("closer").notNull(),
+  setter: text("setter").notNull(),
+  source: text("source").notNull(),
+  n: integer("n").notNull(),
+  amount: numeric("amount", { mode: "number" }).notNull(),
+}, (t) => [primaryKey({ columns: [t.offerId, t.id] }), index("daily_facts_day").on(t.offerId, t.metric, t.day)]);
+
+/** A schedule trigger's next time: the job runner fires it then (once per period per subject) and sets the next. */
+export const scheduleTimers = pgTable("schedule_timers", {
+  workflowId: uuid("workflow_id").notNull().references(() => workflows.id),
+  node: text("node").notNull(),
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  nextAt: timestamp("next_at", { withTimezone: true }).notNull(),
+  lastPeriod: text("last_period"),
+}, (t) => [primaryKey({ columns: [t.workflowId, t.node] }), index("schedule_timers_due").on(t.nextAt)]);

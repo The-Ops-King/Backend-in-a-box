@@ -63,7 +63,19 @@
       "setter_result.act": true,
       "calls.conversation_gap_min": 15,
       "crm.stage_setter_dq": "ST-SETTER-DQ",
-      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+      "crm.stage_setter_not_interested": "ST-SETTER-NI",
+      "payments.deposit_products": [],
+      "payments.deposit_by_name": true,
+      "payments.contract_value": 2999,
+      "payments.cleared_tolerance": 0.01,
+      "people.closer_from": [
+        "closer_card",
+        "contact_owner"
+      ],
+      "people.setter_from": [
+        "field:setter"
+      ],
+      "setter_result.set_within_min": 30
     }
   },
   "delivery": "live",
@@ -74,6 +86,27 @@
       "phone": "+15550100001",
       "email": "ana@example.com",
       "timezone": "America/New_York"
+    }
+  ],
+  "people": [
+    {
+      "id": "u-luis-ortega",
+      "role": "closer",
+      "name": "Luis Ortega",
+      "ghl_user_id": "U-GHL-LUIS"
+    }
+  ],
+  "history": [
+    {
+      "at": "-2d",
+      "type": "payment.received",
+      "contact": "c1",
+      "payload": {
+        "payment_id": "pay-prior-deposit-c1",
+        "amount": 1499,
+        "product_name": "Deposit",
+        "paid_at": "2026-10-24T14:00:00Z"
+      }
     }
   ],
   "steps": [
@@ -89,12 +122,7 @@
           "phone": "+15550100001",
           "email": "ana@example.com",
           "timezone": "America/New_York",
-          "agreement_signed": false,
-          "cash_collected": 2999,
-          "first_paid_at": "2026-10-26T14:00:00Z",
-          "owner": {
-            "name": "Luis Ortega"
-          }
+          "assigned_user_id": "U-GHL-LUIS"
         },
         "kind": "balance",
         "amount": 1500,
@@ -106,9 +134,7 @@
       "type": "agreement.signed",
       "contact": "c1",
       "payload": {
-        "contact": {
-          "agreement_signed": true
-        }
+        "contact": {}
       }
     }
   ],
