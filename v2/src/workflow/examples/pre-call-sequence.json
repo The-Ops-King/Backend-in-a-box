@@ -1,0 +1,122 @@
+{
+  "schema": 2,
+  "id": "pre-call-sequence",
+  "name": "Pre-call sequence (simplified)",
+  "description": "Illustration only, not any offer's workflow: the booking text at once, a reminder 24 hours before (only when booked at least a day out) and one an hour before (only when booked more than an hour out), with its own words when the booking has no meeting link. Reminders that would land after the send window closes go earlier the same day.",
+  "reentry": { "policy": "once_per_appointment", "key": "{{appointment.starts_at}}" },
+  "premise": {
+    "label": "The call is still on",
+    "holds": {
+      "and": [
+        { "ne": ["{{appointment.status}}", "cancelled"] },
+        { "gt": ["{{appointment.starts_at}}", "{{now}}"] }
+      ]
+    },
+    "endReason": "call_not_on"
+  },
+  "sendWindow": {
+    "zone": "contact",
+    "opens": "08:00",
+    "closes": "20:00",
+    "outside": "earlier_same_day",
+    "transactional": "any_hour"
+  },
+  "delivery": { "kind": "human", "whenStale": "skip" },
+  "nodes": [
+    {
+      "id": "t_booked",
+      "type": "trigger@1",
+      "title": "A closing call is booked",
+      "on": { "event": "appointment.booked", "match": { "eq": ["{{appointment.call_type}}", "closing"] } }
+    },
+    {
+      "id": "t_moved",
+      "type": "trigger@1",
+      "title": "A closing call is rescheduled",
+      "on": { "event": "appointment.rescheduled", "match": { "eq": ["{{appointment.call_type}}", "closing"] } }
+    },
+    {
+      "id": "m_booked",
+      "type": "message@1",
+      "title": "Booking text",
+      "to": { "contact": "sms" },
+      "content": "pre_call.booked",
+      "kind": "transactional",
+      "validity": { "before": "appointment.starts_at", "minLead": "15m" },
+      "whenStale": "skip"
+    },
+    {
+      "id": "b_day_out",
+      "type": "branch@1",
+      "title": "Booked at least a day before the call?"
+    },
+    {
+      "id": "w_24h",
+      "type": "wait@1",
+      "title": "Wait until 24 hours before the call",
+      "until": { "anchor": "appointment.starts_at", "offset": "-24h", "zone": "contact" }
+    },
+    {
+      "id": "m_24h",
+      "type": "message@1",
+      "title": "24-hour reminder",
+      "to": { "contact": "sms" },
+      "content": "pre_call.reminder_24h",
+      "validity": { "before": "appointment.starts_at", "minLead": "18h" }
+    },
+    {
+      "id": "b_hour_out",
+      "type": "branch@1",
+      "title": "More than an hour before the call?"
+    },
+    {
+      "id": "w_1h",
+      "type": "wait@1",
+      "title": "Wait until 1 hour before the call",
+      "until": { "anchor": "appointment.starts_at", "offset": "-1h", "zone": "contact" }
+    },
+    {
+      "id": "b_link",
+      "type": "branch@1",
+      "title": "Does the booking have a meeting link?"
+    },
+    {
+      "id": "m_1h",
+      "type": "message@1",
+      "title": "1-hour reminder with the meeting link",
+      "to": { "contact": "sms" },
+      "content": "pre_call.reminder_1h",
+      "validity": { "before": "appointment.starts_at", "minLead": "15m" }
+    },
+    {
+      "id": "m_1h_no_link",
+      "type": "message@1",
+      "title": "1-hour reminder without a link",
+      "to": { "contact": "sms" },
+      "content": "pre_call.reminder_1h_no_link",
+      "validity": { "before": "appointment.starts_at", "minLead": "15m" }
+    },
+    {
+      "id": "x_done",
+      "type": "end@1",
+      "title": "Done",
+      "reason": "done"
+    }
+  ],
+  "edges": [
+    { "from": "t_booked", "to": "m_booked" },
+    { "from": "t_moved", "to": "m_booked" },
+    { "from": "m_booked", "to": "b_day_out" },
+    { "from": "b_day_out", "to": "w_24h", "when": { "gte": ["{{appointment.starts_at | hours_until}}", 24] }, "label": "a day or more out" },
+    { "from": "b_day_out", "to": "b_hour_out", "else": true, "label": "less than a day out: no 24-hour reminder" },
+    { "from": "w_24h", "to": "m_24h" },
+    { "from": "m_24h", "to": "b_hour_out" },
+    { "from": "b_hour_out", "to": "w_1h", "when": { "gt": ["{{appointment.starts_at | hours_until}}", 1] }, "label": "more than an hour out" },
+    { "from": "b_hour_out", "to": "x_done", "else": true, "label": "within the hour: no 1-hour reminder" },
+    { "from": "w_1h", "to": "b_link" },
+    { "from": "b_link", "to": "m_1h", "when": { "exists": "appointment.meeting_url" }, "label": "has a link" },
+    { "from": "b_link", "to": "m_1h_no_link", "else": true, "label": "no link" },
+    { "from": "m_1h", "to": "x_done" },
+    { "from": "m_1h_no_link", "to": "x_done" }
+  ]
+}

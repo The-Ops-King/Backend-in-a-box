@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "id": "payment-failed",
+  "name": "Payment failed",
+  "description": "Illustration only: a live v1 Payment failed definition, hand-translated to v2. It posts the failed payment to the payments channel and tags the closer.",
+  "origin": { "template": "payment-failed", "version": 5 },
+  "reentry": { "policy": "always" },
+  "premise": {
+    "label": "The contact is still in the CRM",
+    "holds": { "exists": "contact.id" },
+    "endReason": "contact_gone"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "Payment failed",
+      "on": { "event": "payment.failed" }
+    },
+    {
+      "id": "n1",
+      "type": "message@1",
+      "title": "Post the failed payment in Slack and tag the closer",
+      "to": { "slack": { "channel": "{{setting.slack.channel.payments}}" } },
+      "content": "payment_failed.slack_alert"
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done",
+      "reason": "done"
+    }
+  ],
+  "edges": [
+    { "from": "t1", "to": "n1" },
+    { "from": "n1", "to": "x1" }
+  ]
+}

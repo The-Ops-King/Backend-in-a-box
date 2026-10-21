@@ -18,6 +18,10 @@ The GHL recorder, for the Phase 0 checks. It becomes v2's GHL door later.
 | `GET /ghl/oauth/callback` | Where GHL sends the installer. It exchanges the code for the location's tokens and stores them sealed in `ghl_connections`, marked for Tyler to link to an offer. |
 | `GET /health` | Answers when the app is up. |
 
+The workflow definition format (`src/workflow/`): the ten versioned primitives, the action registry, conditions, the
+template renderer with blank detection, and `validateWorkflow`. There is no interpreter yet. How each v1 step is written in
+it is in `docs/v1-to-v2-steps.md`.
+
 ## Deploy on Railway (from the repo)
 1. **New project, then Deploy from GitHub repo.** Pick this repository and the branch `rebuild`. In the service's settings, set
    **Root Directory** to `v2`. `railway.json` holds the build and start commands; the start command runs the migrations first.
